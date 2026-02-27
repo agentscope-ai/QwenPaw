@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from ..constant import WORKING_DIR
+from ..utils.telemetry import TELEMETRY_MARKER_FILE
 
 
 def _iter_children(p: Path) -> list[Path]:
@@ -31,6 +32,10 @@ def clean_cmd(yes: bool, dry_run: bool) -> None:
         return
 
     children = _iter_children(wd)
+    # Filter out the telemetry marker file
+    telemetry_marker = wd / TELEMETRY_MARKER_FILE
+    children = [c for c in children if c != telemetry_marker]
+
     if not children:
         click.echo(f"WORKING_DIR is already empty: {wd}")
         return
@@ -39,6 +44,8 @@ def clean_cmd(yes: bool, dry_run: bool) -> None:
     click.echo("Will remove:")
     for c in children:
         click.echo(f"  - {c}")
+    if telemetry_marker.exists():
+        click.echo(f"Will keep: {TELEMETRY_MARKER_FILE}")
 
     if dry_run:
         click.echo("dry-run: nothing deleted.")

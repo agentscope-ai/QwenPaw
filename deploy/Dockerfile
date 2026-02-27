@@ -87,7 +87,7 @@ COPY --from=console-builder /app/console/dist/ ./src/copaw/console/
 RUN pip install --no-cache-dir .
 
 # Init working dir with default config.json and HEARTBEAT.md (build time).
-RUN copaw init --defaults --accept-security
+RUN copaw init --defaults --accept-security --accept-telemetry
 
 # CoPaw app port (default 8088). Override at runtime with -e COPAW_PORT=3000.
 ENV COPAW_PORT=8088

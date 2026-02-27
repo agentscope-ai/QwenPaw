@@ -53,6 +53,19 @@ Recommended baseline:
 Review your config and skills regularly; limit tool scope to what you need.
 """
 
+TELEMETRY_INFO = """
+Help improve CoPaw by sharing anonymous usage data!
+
+We collect only:
+• OS and version (e.g., macOS 14.0, Ubuntu 22.04)
+• Python version (e.g., 3.11)
+• CPU architecture (e.g., x86_64, arm64)
+• GPU availability (detected, not detailed specs)
+
+No personal data collected! No files, no credentials, no identifiable information.
+This helps us understand CoPaw's usage environment and prioritize improvements.
+"""
+
 
 def _echo_security_warning_box() -> None:
     """Print SECURITY_WARNING in a rich panel with blue border."""
@@ -61,6 +74,18 @@ def _echo_security_warning_box() -> None:
         Panel(
             SECURITY_WARNING.strip(),
             title="[bold]🐾 Security warning — please read[/bold]",
+            border_style="blue",
+        ),
+    )
+
+
+def _echo_telemetry_info_box() -> None:
+    """Print TELEMETRY_INFO in a rich panel with blue border."""
+    console = Console()
+    console.print(
+        Panel(
+            TELEMETRY_INFO.strip(),
+            title="[bold]📊 Help improve CoPaw[/bold]",
             border_style="blue",
         ),
     )
@@ -106,8 +131,19 @@ DEFAULT_HEARTBEAT_MDS = {
     is_flag=True,
     help="Skip security confirmation (use with --defaults for scripts/Docker).",
 )
+@click.option(
+    "--accept-telemetry",
+    "accept_telemetry",
+    is_flag=True,
+    help="Accept telemetry collection (use with --defaults for scripts/Docker).",
+)
 # pylint: disable=too-many-branches,too-many-statements
-def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
+def init_cmd(
+    force: bool,
+    use_defaults: bool,
+    accept_security: bool,
+    accept_telemetry: bool,
+) -> None:
     """Create working dir with config.json and HEARTBEAT.md (interactive)."""
     config_path = get_config_path()
     working_dir = config_path.parent
@@ -132,6 +168,30 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
             )
             raise click.Abort()
     working_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- Telemetry collection (optional, anonymous) ---
+    from ..utils.telemetry import (
+        collect_and_upload_telemetry,
+        has_telemetry_been_collected,
+    )
+
+    # Only collect once, even with --force
+    if not has_telemetry_been_collected(working_dir):
+        if use_defaults and accept_telemetry:
+            # --defaults mode with explicit flag: skip prompt
+            click.echo("Collecting anonymous usage data (--accept-telemetry).")
+            success = collect_and_upload_telemetry(working_dir)
+            if success:
+                click.echo("✓ Thank you!")
+        else:
+            # Interactive mode OR --defaults without flag: ask user
+            _echo_telemetry_info_box()
+            if prompt_confirm("Share usage data?", default=True):
+                success = collect_and_upload_telemetry(working_dir)
+                if success:
+                    click.echo("✓ Thank you!")
+    else:
+        click.echo("\n✓ Usage data already collected.")
 
     # --- config.json ---
     write_config = True
