@@ -37,7 +37,10 @@ class MCPClientCreateRequest(BaseModel):
 
     name: str = Field(..., description="Client display name")
     description: str = Field(default="", description="Client description")
-    enabled: bool = Field(default=True, description="Whether to enable the client")
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable the client",
+    )
     command: str = Field(..., description="Command to launch the MCP server")
     args: List[str] = Field(
         default_factory=list,
@@ -54,10 +57,22 @@ class MCPClientUpdateRequest(BaseModel):
 
     name: Optional[str] = Field(None, description="Client display name")
     description: Optional[str] = Field(None, description="Client description")
-    enabled: Optional[bool] = Field(None, description="Whether to enable the client")
-    command: Optional[str] = Field(None, description="Command to launch the MCP server")
-    args: Optional[List[str]] = Field(None, description="Command-line arguments")
-    env: Optional[Dict[str, str]] = Field(None, description="Environment variables")
+    enabled: Optional[bool] = Field(
+        None,
+        description="Whether to enable the client",
+    )
+    command: Optional[str] = Field(
+        None,
+        description="Command to launch the MCP server",
+    )
+    args: Optional[List[str]] = Field(
+        None,
+        description="Command-line arguments",
+    )
+    env: Optional[Dict[str, str]] = Field(
+        None,
+        description="Environment variables",
+    )
 
 
 def _mask_env_value(value: str) -> str:
@@ -94,7 +109,11 @@ def _mask_env_value(value: str) -> str:
 def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
     """Build MCPClientInfo from config with masked env values."""
     # Mask environment variable values for security
-    masked_env = {k: _mask_env_value(v) for k, v in client.env.items()} if client.env else {}
+    masked_env = (
+        {k: _mask_env_value(v) for k, v in client.env.items()}
+        if client.env
+        else {}
+    )
 
     return MCPClientInfo(
         key=key,
@@ -152,7 +171,8 @@ async def create_mcp_client(
     if client_key in config.mcp.clients:
         raise HTTPException(
             400,
-            detail=f"MCP client '{client_key}' already exists. Use PUT to update.",
+            detail=f"MCP client '{client_key}' already exists. Use PUT to "
+            f"update.",
         )
 
     # Create new client config
@@ -193,10 +213,10 @@ async def update_mcp_client(
     update_data = updates.model_dump(exclude_unset=True)
 
     # Special handling for env: merge with existing, don't replace
-    if 'env' in update_data and update_data['env'] is not None:
+    if "env" in update_data and update_data["env"] is not None:
         updated_env = existing.env.copy() if existing.env else {}
-        updated_env.update(update_data['env'])
-        update_data['env'] = updated_env
+        updated_env.update(update_data["env"])
+        update_data["env"] = updated_env
 
     for field, value in update_data.items():
         setattr(existing, field, value)

@@ -23,7 +23,9 @@ _SHELL_PROFILES = (
 
 
 def _remove_path_entry(profile: Path) -> bool:
-    """Remove CoPaw PATH lines from a shell profile. Returns True if changed."""
+    """
+    Remove CoPaw PATH lines from a shell profile. Returns True if changed.
+    """
     if not profile.is_file():
         return False
 
@@ -42,7 +44,11 @@ def _remove_path_entry(profile: Path) -> bool:
 
 
 @click.command("uninstall")
-@click.option("--purge", is_flag=True, help="Also remove all data (config, chats, models, etc.)")
+@click.option(
+    "--purge",
+    is_flag=True,
+    help="Also remove all data (config, chats, models, etc.)",
+)
 @click.option("--yes", is_flag=True, help="Do not prompt for confirmation")
 def uninstall_cmd(purge: bool, yes: bool) -> None:
     """Remove CoPaw environment, CLI wrapper, and shell PATH entries."""
@@ -51,7 +57,9 @@ def uninstall_cmd(purge: bool, yes: bool) -> None:
     if purge:
         click.echo(f"This will remove ALL CoPaw data in {wd}")
     else:
-        click.echo("This will remove the CoPaw Python environment and CLI wrapper.")
+        click.echo(
+            "This will remove the CoPaw Python environment and CLI wrapper.",
+        )
         click.echo(f"Your configuration and data in {wd} will be preserved.")
 
     if not yes:

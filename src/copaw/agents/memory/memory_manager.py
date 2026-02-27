@@ -555,7 +555,9 @@ class MemoryManager(ReMeFb):
                     turn_prefix_summary_msg.get_text_content()
                 )
             except Exception as e:
-                logger.exception(f"Failed to generate turn prefix summary: {e}")
+                logger.exception(
+                    f"Failed to generate turn prefix summary: {e}",
+                )
                 turn_prefix_summary = ""
 
         else:
@@ -576,7 +578,6 @@ class MemoryManager(ReMeFb):
 
         formatter = TimestampedDashScopeChatFormatter()
         messages = await formatter.format(messages)
-
 
         try:
             result: dict = await super().summary(

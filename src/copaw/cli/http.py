@@ -19,5 +19,6 @@ def client(base_url: str) -> httpx.Client:
         base = f"{base}/api"
     return httpx.Client(base_url=base, timeout=30.0)
 
+
 def print_json(data: Any) -> None:
     click.echo(json.dumps(data, ensure_ascii=False, indent=2))

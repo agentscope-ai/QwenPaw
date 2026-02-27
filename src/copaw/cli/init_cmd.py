@@ -62,7 +62,7 @@ def _echo_security_warning_box() -> None:
             SECURITY_WARNING.strip(),
             title="[bold]🐾 Security warning — please read[/bold]",
             border_style="blue",
-        )
+        ),
     )
 
 
@@ -78,7 +78,7 @@ DEFAULT_HEARTBEAT_MDS = {
 - Check calendar for next 2h
 - Check tasks for blockers
 - Light check-in if quiet for 8h
-"""
+""",
 }
 
 

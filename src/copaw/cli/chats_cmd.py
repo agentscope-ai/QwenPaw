@@ -174,11 +174,11 @@ def create_chat(
     else:
         if not session_id:
             raise click.UsageError(
-                "--session-id is required for inline creation"
+                "--session-id is required for inline creation",
             )
         if not user_id:
             raise click.UsageError(
-                "--user-id is required for inline creation"
+                "--user-id is required for inline creation",
             )
         payload = {
             "id": "",
