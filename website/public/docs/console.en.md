@@ -225,7 +225,7 @@ Disable the skill first, then click the **🗑** icon on its card and confirm.
 
 Enable/disable/delete **MCP** clients here, or create new ones.
 
-   ![MCP](https://img.alicdn.com/imgextra/i4/O1CN01ANXnQQ1IfPVO6bEbY_!!6000000000920-2-tps-3786-1980.png)
+![MCP](https://img.alicdn.com/imgextra/i4/O1CN01ANXnQQ1IfPVO6bEbY_!!6000000000920-2-tps-3786-1980.png)
 
 **Create a client**
 Click **Create Client** in the top-right, fill in the required information, then click **Create**. The new MCP client appears in the list.
@@ -236,7 +236,7 @@ Click **Create Client** in the top-right, fill in the required information, then
 
 > Sidebar: **Agent → Runtime Config**
 
-   ![Runtime Config](https://img.alicdn.com/imgextra/i3/O1CN01mhPcqC1KzgGYJQgkW_!!6000000001235-2-tps-3786-1980.png)
+![Runtime Config](https://img.alicdn.com/imgextra/i3/O1CN01mhPcqC1KzgGYJQgkW_!!6000000001235-2-tps-3786-1980.png)
 
 Adjust **Max iterations** and **Max input length** here; click **Save** after changing.
 

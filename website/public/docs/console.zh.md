@@ -216,7 +216,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 在这里启用/禁用/删除**MCP**，或者创建新的客户端。
 
-   ![MCP](https://img.alicdn.com/imgextra/i1/O1CN01i47hTn1m8NPZvwsTH_!!6000000004909-2-tps-3786-1980.png)
+![MCP](https://img.alicdn.com/imgextra/i1/O1CN01i47hTn1m8NPZvwsTH_!!6000000004909-2-tps-3786-1980.png)
 
 **创建客户端**
 点击右上角的**创建客户端**，填写必要信息，点击**创建**，可以看到MCP客户端列表中新增内容。
@@ -225,7 +225,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**智能体 → 运行配置**
 
-   ![运行配置](https://img.alicdn.com/imgextra/i2/O1CN016HGgiw1EhSomEdFsC_!!6000000000383-2-tps-3786-1980.png)
+![运行配置](https://img.alicdn.com/imgextra/i2/O1CN016HGgiw1EhSomEdFsC_!!6000000000383-2-tps-3786-1980.png)
 
 在这里修改**最大迭代次数**和**最大输入长度**，修改后点击保存。
 
