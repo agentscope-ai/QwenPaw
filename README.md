@@ -23,6 +23,8 @@
 
 <p align="center"><b>Works for you, grows with you.</b></p>
 
+</div>
+
 Your Personal AI Assistant; easy to install, deploy on your own machine or on the cloud; supports multiple chat apps with easily extensible capabilities.
 
 > **Core capabilities:**
@@ -46,8 +48,6 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 > Explore: combine Skills and cron into your own agentic app.
 >
 > </details>
-
-</div>
 
 ---
 
@@ -182,7 +182,7 @@ If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must set an API key
 
 1. **`copaw init`** — When you run `copaw init`, the command has a step to configure the LLM provider and API key. Follow the prompts to choose a provider and enter your key.
 2. **Console** — After `copaw app`, open **http://127.0.0.1:8088/** → **Settings** → **Models**. Select a provider, fill in the **API Key** field, then activate that provider and model.
-3. **Environment variable** — For DashScope you can set `DASHSCOPE_API_KEY` in your shell or in a `.env` file in the working directory. 
+3. **Environment variable** — For DashScope you can set `DASHSCOPE_API_KEY` in your shell or in a `.env` file in the working directory.
 
 Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, or see [Config](http://copaw.agentscope.io/docs/config) for details.
 
