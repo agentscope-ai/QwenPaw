@@ -1,0 +1,12 @@
+# Issue template chooser. Templates are listed alphanumerically.
+# See: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+
+blank_issues_enabled: true
+
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/agentscope-ai/CoPaw/discussions
+    about: Ask questions, share ideas, or discuss CoPaw here.
+  - name: Documentation
+    url: https://copaw.agentscope.io/
+    about: CoPaw docs and guides.
