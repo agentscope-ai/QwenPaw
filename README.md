@@ -40,12 +40,12 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 >
 > <br>
 >
-> **Social**: daily digest of hot posts (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube summaries.<br>
-> **Productivity**: newsletter digests to DingTalk/Feishu/QQ, contacts from email/calendar.<br>
-> **Creative**: describe your goal, run overnight, get a draft next day.<br>
-> **Research**: track tech/AI news, personal knowledge base.<br>
-> **Desktop**: organize files, read/summarize docs, request files in chat.<br>
-> **Explore**: combine Skills and cron into your own agentic app.
+> * **社交媒体**：每日热帖摘要（小红书、知乎、Reddit），B 站/YouTube 新视频摘要。
+> * **生产力**：邮件与 Newsletter 精华推送到钉钉/飞书/QQ，邮件与日历整理联系人。
+> * **创意与构建**：睡前说明目标、自动执行，次日获得雏形；从选题到成片全流程。
+> * **研究与学习**：追踪科技与 AI 资讯，个人知识库检索复用。
+> * **桌面与文件**：整理与搜索本地文件、阅读与摘要文档，在会话中索要文件。
+> * **探索更多**：用 Skills 与定时任务组合成你自己的 agentic app。
 >
 > </details>
 
