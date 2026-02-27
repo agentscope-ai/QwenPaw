@@ -212,14 +212,14 @@ button {
   font-size: 1.25rem;
   font-weight: 600;
   margin: var(--space-6) 0 var(--space-2);
-  scroll-margin-top: var(--space-4);
+  scroll-margin-top: var(--space-8);
 }
 
 .docs-content h3 {
   font-size: 1.0625rem;
   font-weight: 600;
   margin: var(--space-4) 0 var(--space-1);
-  scroll-margin-top: var(--space-4);
+  scroll-margin-top: var(--space-8);
 }
 
 .docs-content p {
@@ -574,6 +574,23 @@ button {
 .docs-layout .docs-sidebar {
   flex-shrink: 0;
   margin-left: 0;
+}
+
+.docs-search-result:hover {
+  background: var(--bg);
+}
+
+.docs-search-result-link:hover {
+  background: var(--bg);
+  border-color: var(--text-muted);
+}
+
+.docs-search-results-page .docs-search-highlight {
+  background: rgba(217, 119, 6, 0.2);
+  color: inherit;
+  padding: 0 0.1em;
+  border-radius: 0.15em;
+  font-weight: 500;
 }
 
 .docs-main {

@@ -6,7 +6,13 @@ import {
   createContext,
   useContext,
 } from "react";
-import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
+import {
+  Link,
+  useParams,
+  useNavigate,
+  useLocation,
+  useSearchParams,
+} from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -22,6 +28,8 @@ import {
 import { Nav } from "../components/Nav";
 import { Footer } from "../components/Footer";
 import { MermaidBlock } from "../components/MermaidBlock";
+import { DocSearch } from "../components/DocSearch";
+import { DocSearchResults } from "../components/DocSearchResults";
 import type { SiteConfig } from "../config";
 import { type Lang, t } from "../i18n";
 /* Code block theme: defined in index.css for high contrast */
@@ -180,7 +188,10 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const activeSlug = slug ?? "intro";
+  const isSearchPage = activeSlug === "search";
+  const searchQ = searchParams.get("q") ?? "";
   const [content, setContent] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -196,17 +207,40 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
   }, [activeSlug, location.pathname]);
 
   useEffect(() => {
-    const hash = location.hash?.slice(1);
+    const rawHash = location.hash?.slice(1) ?? "";
+    const hash = rawHash ? decodeURIComponent(rawHash.replace(/\+/g, " ")) : "";
     if (!hash) return;
-    const el = document.getElementById(hash);
-    const container = articleRef.current;
-    if (el && container) {
-      const top = Math.max(0, (el as HTMLElement).offsetTop - 16);
-      container.scrollTo({ top, behavior: "smooth" });
-    }
+
+    const scrollToHash = (): boolean => {
+      const el = document.getElementById(hash);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "auto", block: "start" });
+      return true;
+    };
+
+    let cancelled = false;
+    let raf2: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const raf1 = requestAnimationFrame(() => {
+      if (cancelled) return;
+      raf2 = requestAnimationFrame(() => {
+        if (cancelled) return;
+        if (scrollToHash()) return;
+        timeoutId = setTimeout(() => {
+          if (!cancelled) scrollToHash();
+        }, 300);
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      if (raf2 !== undefined) cancelAnimationFrame(raf2);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
   }, [content, location.hash]);
 
   useEffect(() => {
+    if (isSearchPage) return;
     if (!ALL_SLUGS.includes(activeSlug)) {
       navigate("/docs/intro", { replace: true });
       return;
@@ -237,7 +271,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
     return () => {
       cancelled = true;
     };
-  }, [activeSlug, lang, navigate]);
+  }, [activeSlug, lang, navigate, isSearchPage]);
 
   useEffect(() => {
     if (toc.length === 0) return;
@@ -319,6 +353,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
           >
             <Menu size={24} />
           </button>
+          <DocSearch lang={lang} initialQuery={isSearchPage ? searchQ : ""} />
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {DOC_SLUGS.map((entry) => {
               const { slug: s, titleKey, children } = entry;
@@ -399,102 +434,111 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
         </aside>
         <main className="docs-main">
           <div className="docs-content-scroll" ref={articleRef}>
-            <article className="docs-content">
-              <LangContext.Provider value={lang}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                  components={{
-                    pre: ({ children, ...props }) => {
-                      const langCtx = useContext(LangContext);
-                      return (
-                        <CodeBlockWithCopy lang={langCtx}>
-                          <pre {...props}>{children}</pre>
-                        </CodeBlockWithCopy>
-                      );
-                    },
-                    a: ({ href, children }) => {
-                      const trimmed = href?.replace(/\.md$/, "") ?? "";
-                      const isRelative =
-                        trimmed.startsWith("./") ||
-                        trimmed.startsWith("/docs/");
-                      if (isRelative) {
-                        const path = trimmed.startsWith("./")
-                          ? "/docs/" + trimmed.slice(2)
-                          : trimmed;
-                        const [pathname, hash] = path.split("#");
-                        const to = hash ? `${pathname}#${hash}` : pathname;
-                        return <Link to={to}>{children}</Link>;
-                      }
-                      return (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {children}
-                        </a>
-                      );
-                    },
-                    h2: ({ children }) => {
-                      const id = slugifyHeading(headingText(children));
-                      return <h2 id={id}>{children}</h2>;
-                    },
-                    h3: ({ children }) => {
-                      const id = slugifyHeading(headingText(children));
-                      return <h3 id={id}>{children}</h3>;
-                    },
-                    table: ({ children }) => (
-                      <div className="docs-table-wrap">
-                        <table>{children}</table>
-                      </div>
-                    ),
-                    code: ({ className, children, ...props }) => {
-                      const match = /language-(\w+)/.exec(className || "");
-                      const lang = match?.[1];
-                      if (lang === "mermaid") {
-                        const chart = String(children).replace(/\n$/, "");
-                        return <MermaidBlock chart={chart} />;
-                      }
-                      // inline code vs block code
-                      const isInline = !className;
-                      if (isInline) {
-                        return (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        );
-                      }
-                      return (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    },
-                    img: ({ src, alt }) => {
-                      const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
-                        src ?? "",
-                      );
-                      if (isVideo) {
-                        return (
-                          <video src={src ?? undefined} controls>
-                            {alt ?? "您的浏览器不支持 video 标签。"}
-                          </video>
-                        );
-                      }
-                      return <img src={src ?? undefined} alt={alt ?? ""} />;
-                    },
-                  }}
+            {isSearchPage ? (
+              <DocSearchResults lang={lang} query={searchQ} />
+            ) : (
+              <>
+                <article className="docs-content">
+                  <LangContext.Provider value={lang}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeHighlight]}
+                      components={{
+                        pre: ({ children, ...props }) => {
+                          const langCtx = useContext(LangContext);
+                          return (
+                            <CodeBlockWithCopy lang={langCtx}>
+                              <pre {...props}>{children}</pre>
+                            </CodeBlockWithCopy>
+                          );
+                        },
+                        a: ({ href, children }) => {
+                          const trimmed = href?.replace(/\.md$/, "") ?? "";
+                          const isRelative =
+                            trimmed.startsWith("./") ||
+                            trimmed.startsWith("/docs/");
+                          if (isRelative) {
+                            const path = trimmed.startsWith("./")
+                              ? "/docs/" + trimmed.slice(2)
+                              : trimmed;
+                            const [pathname, hash] = path.split("#");
+                            const to = hash ? `${pathname}#${hash}` : pathname;
+                            return <Link to={to}>{children}</Link>;
+                          }
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {children}
+                            </a>
+                          );
+                        },
+                        h2: ({ children }) => {
+                          const id = slugifyHeading(headingText(children));
+                          return <h2 id={id}>{children}</h2>;
+                        },
+                        h3: ({ children }) => {
+                          const id = slugifyHeading(headingText(children));
+                          return <h3 id={id}>{children}</h3>;
+                        },
+                        table: ({ children }) => (
+                          <div className="docs-table-wrap">
+                            <table>{children}</table>
+                          </div>
+                        ),
+                        code: ({ className, children, ...props }) => {
+                          const match = /language-(\w+)/.exec(className || "");
+                          const lang = match?.[1];
+                          if (lang === "mermaid") {
+                            const chart = String(children).replace(/\n$/, "");
+                            return <MermaidBlock chart={chart} />;
+                          }
+                          // inline code vs block code
+                          const isInline = !className;
+                          if (isInline) {
+                            return (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            );
+                          }
+                          return (
+                            <code className={className} {...props}>
+                              {children}
+                            </code>
+                          );
+                        },
+                        img: ({ src, alt }) => {
+                          const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
+                            src ?? "",
+                          );
+                          if (isVideo) {
+                            return (
+                              <video src={src ?? undefined} controls>
+                                {alt ?? "您的浏览器不支持 video 标签。"}
+                              </video>
+                            );
+                          }
+                          return <img src={src ?? undefined} alt={alt ?? ""} />;
+                        },
+                      }}
+                    >
+                      {content}
+                    </ReactMarkdown>
+                  </LangContext.Provider>
+                </article>
+                <footer
+                  className="docs-page-footer"
+                  aria-label="Document footer"
                 >
-                  {content}
-                </ReactMarkdown>
-              </LangContext.Provider>
-            </article>
-            <footer className="docs-page-footer" aria-label="Document footer">
-              <Footer lang={lang} />
-            </footer>
+                  <Footer lang={lang} />
+                </footer>
+              </>
+            )}
           </div>
-          {toc.length > 0 && (
+          {!isSearchPage && toc.length > 0 && (
             <aside className="docs-toc" aria-label="On this page">
               <nav className="docs-toc-nav">
                 {toc.map(({ level, text, id }) => (

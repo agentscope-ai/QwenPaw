@@ -87,6 +87,12 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "docs.backToTop": "返回顶部",
     "docs.copy": "复制",
     "docs.copied": "已复制",
+    "docs.searchPlaceholder": "搜索文档，按回车",
+    "docs.searchLoading": "加载中…",
+    "docs.searchNoResults": "无结果",
+    "docs.searchResultsTitle": "搜索结果",
+    "docs.searchResultsTitleEmpty": "搜索文档",
+    "docs.searchHint": "在左侧输入关键词后按回车搜索。",
   },
   en: {
     "nav.docs": "Docs",
@@ -178,6 +184,12 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "docs.backToTop": "Back to top",
     "docs.copy": "Copy",
     "docs.copied": "Copied",
+    "docs.searchPlaceholder": "Search docs, press Enter",
+    "docs.searchLoading": "Loading…",
+    "docs.searchNoResults": "No results",
+    "docs.searchResultsTitle": "Search results",
+    "docs.searchResultsTitleEmpty": "Search docs",
+    "docs.searchHint": "Enter a keyword and press Enter to search.",
   },
 };
 

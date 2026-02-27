@@ -4,12 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/spa-fallback-pages.mjs",
+    "build": "tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "fuse.js": "^7.0.0",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.468.0",
     "mermaid": "^11.12.2",

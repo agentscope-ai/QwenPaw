@@ -29,7 +29,7 @@ const DOC_SLUGS = [
 
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-  const paths = ["docs", ...DOC_SLUGS.map((s) => `docs/${s}`)];
+  const paths = ["docs", "docs/search", ...DOC_SLUGS.map((s) => `docs/${s}`)];
   for (const p of paths) {
     const out = join(distDir, p, "index.html");
     await mkdir(dirname(out), { recursive: true });
