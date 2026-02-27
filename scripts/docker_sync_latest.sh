@@ -41,18 +41,18 @@ install_buildx() {
 require_buildx_imagetools() {
   command -v docker &>/dev/null || die "docker not found in PATH"
 
-  # 检测 docker 是否认识 buildx 子命令（你现在就是这里不过）
+  # Check whether docker recognizes the buildx subcommand (this is where you were failing)
   if ! docker buildx version &>/dev/null; then
     log "docker has no 'buildx' command. Will try to install buildx plugin..."
     install_buildx
 
-    # 安装后再检测一次
+    # Re-check after installation
     if ! docker buildx version &>/dev/null; then
       die $'docker still has no buildx after plugin install.\nPossible causes:\n- You are not using official Docker CLI (e.g. podman-docker / other wrapper)\n- Docker version is too old to load CLI plugins\nFix:\n- Use Docker Desktop / official docker-ce\n- Ensure docker is the official CLI, then re-run.'
     fi
   fi
 
-  # 检测是否支持 imagetools（以及 -t）
+  # Check whether imagetools is available (and supports -t)
   docker buildx imagetools create --help &>/dev/null \
     || die "buildx exists but 'imagetools create' is not available. Please upgrade Docker/buildx."
 }
