@@ -185,7 +185,7 @@ docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 2. **控制台** — 运行 `copaw app` 后，打开 **http://127.0.0.1:8088/** → **设置** → **模型**。选择提供商、填写 **API Key**，并启用该提供商与模型。
 3. **环境变量** — 使用 DashScope 时，可在终端或工作目录下的 `.env` 文件中设置 `DASHSCOPE_API_KEY`。
 
-其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](http://copaw.agentscope.io/docs/config)。
+其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](https://copaw.agentscope.io/docs/config)。
 
 > **仅用本地模型？** 若使用 [本地模型](#-本地模型)（llama.cpp 或 MLX），则**无需**任何 API Key。
 

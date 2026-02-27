@@ -25,7 +25,7 @@ interface ChannelDrawerProps {
 }
 
 // DingTalk doc URL
-const dingtalkDocUrl = "http://copaw.agentscope.io/docs/channels";
+const dingtalkDocUrl = "https://copaw.agentscope.io/docs/channels";
 
 export function ChannelDrawer({
   open,

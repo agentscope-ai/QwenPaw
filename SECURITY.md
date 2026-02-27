@@ -149,7 +149,7 @@ Skills are loaded and run **in-process** (or under the same trust boundary) as t
 - **Model**: Use a capable model when the agent has tools or handles untrusted input.
 - **Review**: Review your config and skills regularly.
 
-For more operational and hardening guidance, see the [documentation](http://copaw.agentscope.io/) and any security-related docs linked from the repo.
+For more operational and hardening guidance, see the [documentation](https://copaw.agentscope.io/) and any security-related docs linked from the repo.
 
 ## Runtime Requirements
 
