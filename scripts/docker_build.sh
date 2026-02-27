@@ -13,7 +13,7 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-DOCKERFILE="${DOCKERFILE:-$REPO_ROOT/deploy/Dockerfile_ms}"
+DOCKERFILE="${DOCKERFILE:-$REPO_ROOT/deploy/Dockerfile}"
 TAG="${1:-copaw:latest}"
 shift || true
 
