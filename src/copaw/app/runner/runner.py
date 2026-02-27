@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=unused-argument
+# pylint: disable=unused-argument too-many-branches too-many-statements
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -55,6 +56,10 @@ class AgentRunner(Runner):
         """
         Handle agent query.
         """
+
+        agent = None
+        chat = None
+
         try:
             session_id = request.session_id
             user_id = request.user_id
@@ -138,14 +143,10 @@ class AgentRunner(Runner):
             ):
                 yield msg, last
 
-            await self.session.save_session_state(
-                session_id=session_id,
-                user_id=user_id,
-                agent=agent,
-            )
-
-            if self._chat_manager is not None:
-                await self._chat_manager.update_chat(chat)
+        except asyncio.CancelledError:
+            if agent is not None:
+                await agent.interrupt()
+            raise
         except Exception as e:
             debug_dump_path = write_query_error_dump(
                 request=request,
@@ -167,6 +168,16 @@ class AgentRunner(Runner):
                     (f"{e.args[0]}{suffix}" if e.args else suffix.strip()),
                 ) + e.args[1:]
             raise
+        finally:
+            if agent is not None:
+                await self.session.save_session_state(
+                    session_id=session_id,
+                    user_id=user_id,
+                    agent=agent,
+                )
+
+            if self._chat_manager is not None and chat is not None:
+                await self._chat_manager.update_chat(chat)
 
     async def init_handler(self, *args, **kwargs):
         """

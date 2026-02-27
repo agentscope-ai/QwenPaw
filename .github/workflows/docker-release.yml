@@ -1,5 +1,5 @@
-# Build CoPaw Docker image and push to DockerHub + Aliyun ACR on release.
-# Tags per registry: <version>-ms and <version> (see scripts/docker_build.sh).
+# Build CoPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
+# Tags per registry: <version> and pre (pre updated every run).
 name: Docker Build and Push on Release
 
 on:
@@ -37,29 +37,17 @@ jobs:
           username: ${{ secrets.ALIYUN_ACR_USERNAME }}
           password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
 
-      - name: Build image (Dockerfile → :version, all channels except imessage)
+      - name: Build and push multi-arch (version + pre)
         env:
+          VERSION: ${{ github.event.release.tag_name }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           COPAW_ENABLED_CHANNELS: "discord,dingtalk,feishu,qq,console"
         run: |
-          DOCKERFILE=deploy/Dockerfile bash scripts/docker_build.sh "copaw:release"
-
-      - name: Build image (Dockerfile_ms → :version-ms)
-        run: |
-          DOCKERFILE=deploy/Dockerfile_ms bash scripts/docker_build.sh "copaw:release-ms"
-
-      - name: Tag and push to Aliyun ACR
-        run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          docker tag "copaw:release" "${ACR_REGISTRY}/${IMAGE}:${VERSION}"
-          docker tag "copaw:release-ms" "${ACR_REGISTRY}/${IMAGE}:${VERSION}-ms"
-          docker push "${ACR_REGISTRY}/${IMAGE}:${VERSION}"
-          docker push "${ACR_REGISTRY}/${IMAGE}:${VERSION}-ms"
-
-      - name: Tag and push to DockerHub
-        if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
-        run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          docker tag "copaw:release" "docker.io/${IMAGE}:${VERSION}"
-          docker tag "copaw:release-ms" "docker.io/${IMAGE}:${VERSION}-ms"
-          docker push "docker.io/${IMAGE}:${VERSION}"
-          docker push "docker.io/${IMAGE}:${VERSION}-ms"
+          TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
+          if [ -n "${DOCKER_USERNAME}" ]; then
+            TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
+          fi
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -f deploy/Dockerfile \
+            --build-arg COPAW_ENABLED_CHANNELS="${COPAW_ENABLED_CHANNELS}" \
+            ${TAGS} --push .

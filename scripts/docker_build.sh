@@ -13,7 +13,7 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-DOCKERFILE="${DOCKERFILE:-$REPO_ROOT/deploy/Dockerfile_ms}"
+DOCKERFILE="${DOCKERFILE:-$REPO_ROOT/deploy/Dockerfile}"
 TAG="${1:-copaw:latest}"
 shift || true
 
@@ -24,4 +24,7 @@ echo "[docker_build] Building image: $TAG (Dockerfile: $DOCKERFILE)"
 docker build -f "$DOCKERFILE" \
     --build-arg COPAW_ENABLED_CHANNELS="$ENABLED_CHANNELS" \
     -t "$TAG" "$@" .
-echo "[docker_build] Done. Run: docker run -p 7860:7860 $TAG"
+echo "[docker_build] Done."
+echo "[docker_build] CoPaw app port: 8088 (default). Override with -e COPAW_PORT=<port>."
+echo "[docker_build] Run: docker run -p 8088:8088 $TAG"
+echo "[docker_build] Or:  docker run -e COPAW_PORT=3000 -p 3000:3000 $TAG"

@@ -12,7 +12,7 @@ stderr_logfile=/var/log/dbus.err.log
 stdout_logfile=/var/log/dbus.out.log
 
 [program:app]
-command=copaw app --host 0.0.0.0 --port 7860
+command=copaw app --host 0.0.0.0 --port ${COPAW_PORT}
 autostart=true
 autorestart=true
 priority=30
