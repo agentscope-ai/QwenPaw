@@ -93,13 +93,13 @@ copaw app
 **macOS / Linux：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.sh | bash
+curl -fsSL https://copaw.agentscope.io/install.sh | bash
 ```
 
 **Windows（PowerShell）：**
 
 ```powershell
-irm https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.ps1 | iex
+irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
 然后打开新终端并运行：

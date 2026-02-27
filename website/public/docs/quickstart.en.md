@@ -21,7 +21,7 @@ No Python required — the installer handles everything automatically using [uv]
 **macOS / Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.sh | bash
+curl -fsSL https://copaw.agentscope.io/install.sh | bash
 ```
 
 Then open a new terminal (or `source ~/.zshrc` / `source ~/.bashrc`).
@@ -29,7 +29,7 @@ Then open a new terminal (or `source ~/.zshrc` / `source ~/.bashrc`).
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.ps1 | iex
+irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
 Then open a new terminal (the installer adds CoPaw to your PATH automatically).

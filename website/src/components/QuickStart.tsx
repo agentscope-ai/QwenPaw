@@ -8,12 +8,12 @@ import { t, type Lang } from "../i18n";
 const COMMANDS = {
   pip: ["pip install copaw", "copaw init --defaults", "copaw app"],
   unix: [
-    "curl -fsSL https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.sh | bash",
+    "curl -fsSL https://copaw.agentscope.io/install.sh | bash",
     "copaw init --defaults",
     "copaw app",
   ],
   windows: [
-    "irm https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.ps1 | iex",
+    "irm https://copaw.agentscope.io/install.ps1 | iex",
     "copaw init --defaults",
     "copaw app",
   ],

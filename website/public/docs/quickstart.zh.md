@@ -21,7 +21,7 @@
 **macOS / Linux：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.sh | bash
+curl -fsSL https://copaw.agentscope.io/install.sh | bash
 ```
 
 然后打开新终端（或执行 `source ~/.zshrc` / `source ~/.bashrc`）。
@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/
 **Windows（PowerShell）：**
 
 ```powershell
-irm https://raw.githubusercontent.com/agentscope-ai/CoPaw/master/scripts/install.ps1 | iex
+irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
 然后打开新终端（安装脚本会自动将 CoPaw 加入 PATH）。
