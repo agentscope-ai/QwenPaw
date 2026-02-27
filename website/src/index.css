@@ -67,6 +67,52 @@ button {
   cursor: pointer;
 }
 
+/* Quick Start: one row (equal-width tabs) or three rows, never two-in-one */
+.quickstart-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.quickstart-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  container-type: inline-size;
+}
+
+.quickstart-tab-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.quickstart-tab-main,
+.quickstart-tab-sub {
+  white-space: nowrap;
+}
+
+@container (min-width: 10rem) {
+  .quickstart-tab-label {
+    flex-direction: row;
+    gap: 0.25em;
+  }
+}
+
+@media (max-width: 24rem) {
+  .quickstart-tabs {
+    flex-direction: column;
+  }
+
+  .quickstart-tab {
+    flex: none;
+    width: 100%;
+  }
+}
+
 .hero-section {
   position: relative;
 }

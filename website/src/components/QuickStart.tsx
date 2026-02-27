@@ -67,8 +67,11 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
+        width: "100%",
+        minWidth: 0,
         padding: "var(--space-6) var(--space-4) var(--space-8)",
         textAlign: "center",
+        overflow: "hidden",
       }}
     >
       <h2
@@ -88,6 +91,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
           gap: "var(--space-4)",
           maxWidth: "28rem",
           margin: "0 auto",
+          minWidth: 0,
         }}
       >
         <div
@@ -96,19 +100,19 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
             border: "1px solid var(--border)",
             borderRadius: "0.5rem",
             padding: "var(--space-4)",
+            overflow: "hidden",
+            minWidth: 0,
           }}
         >
           <div
-            style={{
-              display: "flex",
-              gap: "var(--space-1)",
-              marginBottom: "var(--space-3)",
-            }}
+            className="quickstart-tabs"
+            style={{ marginBottom: "var(--space-3)" }}
           >
             {(["pip", "unix", "windows"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
+                className="quickstart-tab"
                 onClick={() => setActiveTab(tab)}
                 aria-pressed={activeTab === tab}
                 style={{
@@ -124,11 +128,22 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   cursor: "pointer",
                 }}
               >
-                {tab === "pip"
-                  ? t(lang, "quickstart.tabPip")
-                  : tab === "unix"
-                  ? t(lang, "quickstart.tabUnix")
-                  : t(lang, "quickstart.tabWindows")}
+                <span className="quickstart-tab-label">
+                  <span className="quickstart-tab-main">
+                    {tab === "pip"
+                      ? t(lang, "quickstart.tabPipMain")
+                      : tab === "unix"
+                      ? t(lang, "quickstart.tabUnixMain")
+                      : t(lang, "quickstart.tabWindowsMain")}
+                  </span>
+                  <span className="quickstart-tab-sub">
+                    {tab === "pip"
+                      ? t(lang, "quickstart.tabPipSub")
+                      : tab === "unix"
+                      ? t(lang, "quickstart.tabUnixSub")
+                      : t(lang, "quickstart.tabWindowsSub")}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
@@ -139,6 +154,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
               justifyContent: "space-between",
               gap: "var(--space-2)",
               marginBottom: "var(--space-3)",
+              minWidth: 0,
+              flexWrap: "wrap",
             }}
           >
             <div
@@ -146,13 +163,23 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 display: "flex",
                 alignItems: "center",
                 gap: "var(--space-2)",
+                minWidth: 0,
               }}
             >
-              <Terminal size={18} strokeWidth={1.5} color="var(--text-muted)" />
+              <span style={{ flexShrink: 0 }}>
+                <Terminal
+                  size={18}
+                  strokeWidth={1.5}
+                  color="var(--text-muted)"
+                />
+              </span>
               <span
                 style={{
                   fontSize: "0.8125rem",
                   color: "var(--text-muted)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {activeTab === "pip"
@@ -176,6 +203,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 border: "1px solid var(--border)",
                 borderRadius: "0.375rem",
                 cursor: "pointer",
+                flexShrink: 0,
               }}
             >
               <Copy size={14} strokeWidth={1.5} aria-hidden />
@@ -184,7 +212,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
               </span>
             </button>
           </div>
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative", minWidth: 0 }}>
             <div
               ref={scrollRef}
               style={{
@@ -193,6 +221,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 flexDirection: "column",
                 gap: "var(--space-1)",
                 scrollbarGutter: "stable",
+                minWidth: 0,
               }}
             >
               {lines.map((line) => (
