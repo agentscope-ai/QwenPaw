@@ -124,7 +124,6 @@ copaw models remove-local <model_id> --yes   # 跳过确认
 | `--source`  | `-s` | `huggingface` | 下载源（`huggingface` 或 `modelscope`）        |
 | `--file`    | `-f` | _（自动）_    | 指定文件名。省略时自动选择（GGUF 优先 Q4_K_M） |
 
-
 #### Ollama 模型
 
 CoPaw 集成 Ollama 以在本地运行模型。模型从 Ollama 守护进程动态加载——请先从 [ollama.com](https://ollama.com) 安装 Ollama。
