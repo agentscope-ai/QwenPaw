@@ -1,10 +1,11 @@
 # Quick start
 
-This section describes three ways to run CoPAW:
+This section describes four ways to run CoPAW:
 
 - **Option A — One-line install (recommended)**: run on your machine with no Python setup required.
 - **Option B — pip install**: if you prefer managing Python yourself.
 - **Option C — ModelScope Studio**: one-click cloud deploy, no local install needed.
+- **Option D — Alibaba Cloud ECS**: one-click deploy on Alibaba Cloud, no local install.
 
 > 📖 Read [Introduction](./intro) first; after install see [Console](./console).
 
@@ -114,7 +115,7 @@ Then follow [Step 2: Init](#step-2-init) and [Step 3: Start the server](#step-3-
 
 ---
 
-## Option B: ModelScope Studio one-click setup (no install)
+## Option C: ModelScope Studio one-click setup (no install)
 
 If you prefer not to install Python locally, you can deploy CoPaw to ModelScope Studio's cloud:
 
@@ -123,6 +124,17 @@ If you prefer not to install Python locally, you can deploy CoPaw to ModelScope 
 
 **Important**: Set your Studio to **non-public**, or others may control your
 CoPaw.
+
+---
+
+## Option D: Deploy on Alibaba Cloud ECS
+
+To run CoPaw on Alibaba Cloud, use the ECS one-click deployment:
+
+1. Open the [CoPaw on Alibaba Cloud (ECS) deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) and fill in the parameters as prompted;
+2. Confirm the cost and create the instance; when deployment finishes, you can get the access URL and start using the service.
+
+For step-by-step instructions, see [Alibaba Cloud Developer: Deploy your AI assistant in 3 minutes](https://developer.aliyun.com/article/1713682).
 
 ---
 

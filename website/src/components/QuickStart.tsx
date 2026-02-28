@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Terminal, Copy } from "lucide-react";
+import { Terminal, Copy, Cloud, Star, TriangleAlert } from "lucide-react";
 import { motion } from "motion/react";
 import type { SiteConfig } from "../config";
 import { t, type Lang } from "../i18n";
@@ -19,7 +19,12 @@ const COMMANDS = {
   ],
 } as const;
 
-type OsTab = keyof typeof COMMANDS;
+const ECS_DEPLOY_URL =
+  "https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884";
+const ECS_DOC_URL = "https://developer.aliyun.com/article/1713682";
+
+const TABS = ["pip", "unix", "windows", "aliyun"] as const;
+type OsTab = (typeof TABS)[number];
 
 interface QuickStartProps {
   config: SiteConfig;
@@ -35,7 +40,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
   const docsBase = config.docsPath.replace(/\/$/, "") || "/docs";
   const channelsDocPath = `${docsBase}/channels`;
 
-  const lines = COMMANDS[activeTab];
+  const isAliyun = activeTab === "aliyun";
+  const lines = isAliyun ? [] : COMMANDS[activeTab];
   const fullCommand = lines.join("\n");
 
   useEffect(() => {
@@ -94,58 +100,54 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
           minWidth: 0,
         }}
       >
-        <div
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "0.5rem",
-            padding: "var(--space-4)",
-            overflow: "hidden",
-            minWidth: 0,
-          }}
-        >
-          <div
-            className="quickstart-tabs"
-            style={{ marginBottom: "var(--space-3)" }}
-          >
-            {(["pip", "unix", "windows"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className="quickstart-tab"
-                onClick={() => setActiveTab(tab)}
-                aria-pressed={activeTab === tab}
-                style={{
-                  padding: "var(--space-1) var(--space-3)",
-                  fontSize: "0.75rem",
-                  fontWeight: activeTab === tab ? 600 : 400,
-                  color:
-                    activeTab === tab ? "var(--text)" : "var(--text-muted)",
-                  background:
-                    activeTab === tab ? "var(--border)" : "transparent",
-                  border: "1px solid var(--border)",
-                  borderRadius: "9999px",
-                  cursor: "pointer",
-                }}
-              >
-                <span className="quickstart-tab-label">
-                  <span className="quickstart-tab-main">
-                    {tab === "pip"
-                      ? t(lang, "quickstart.tabPipMain")
-                      : tab === "unix"
-                      ? t(lang, "quickstart.tabUnixMain")
-                      : t(lang, "quickstart.tabWindowsMain")}
-                  </span>
-                  <span className="quickstart-tab-sub">
-                    {tab === "pip"
-                      ? t(lang, "quickstart.tabPipSub")
-                      : tab === "unix"
-                      ? t(lang, "quickstart.tabUnixSub")
-                      : t(lang, "quickstart.tabWindowsSub")}
-                  </span>
-                </span>
-              </button>
-            ))}
+        <div className="quickstart-card">
+          <div className="quickstart-tabs">
+            {TABS.map((tab) => {
+              const fullTitle =
+                tab === "pip"
+                  ? t(lang, "quickstart.tabPip")
+                  : tab === "unix"
+                  ? t(lang, "quickstart.tabUnix")
+                  : tab === "windows"
+                  ? t(lang, "quickstart.tabWindows")
+                  : t(lang, "quickstart.tabAliyun");
+              const shortLabel =
+                tab === "pip"
+                  ? t(lang, "quickstart.tabPipShort")
+                  : tab === "unix"
+                  ? t(lang, "quickstart.tabUnixShort")
+                  : tab === "windows"
+                  ? t(lang, "quickstart.tabWindowsShort")
+                  : t(lang, "quickstart.tabAliyunShort");
+              const BadgeIcon =
+                tab === "pip"
+                  ? Star
+                  : tab === "unix" || tab === "windows"
+                  ? TriangleAlert
+                  : null;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`quickstart-tab${
+                    tab === "aliyun" ? " quickstart-tab--cloud" : ""
+                  }`}
+                  onClick={() => setActiveTab(tab)}
+                  aria-pressed={activeTab === tab}
+                  title={fullTitle}
+                >
+                  <span className="quickstart-tab-label">{shortLabel}</span>
+                  {BadgeIcon ? (
+                    <BadgeIcon
+                      className="quickstart-tab-icon"
+                      size={12}
+                      strokeWidth={2}
+                      aria-hidden
+                    />
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
           <div
             style={{
@@ -155,7 +157,6 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
               gap: "var(--space-2)",
               marginBottom: "var(--space-3)",
               minWidth: 0,
-              flexWrap: "wrap",
             }}
           >
             <div
@@ -164,94 +165,169 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 alignItems: "center",
                 gap: "var(--space-2)",
                 minWidth: 0,
+                flex: "1 1 0",
+                overflow: "hidden",
               }}
             >
               <span style={{ flexShrink: 0 }}>
-                <Terminal
-                  size={18}
-                  strokeWidth={1.5}
-                  color="var(--text-muted)"
-                />
+                {isAliyun ? (
+                  <Cloud
+                    size={18}
+                    strokeWidth={1.5}
+                    color="var(--text-muted)"
+                  />
+                ) : (
+                  <Terminal
+                    size={18}
+                    strokeWidth={1.5}
+                    color="var(--text-muted)"
+                  />
+                )}
               </span>
               <span
+                className="quickstart-option-desc"
+                title={
+                  activeTab === "unix" || activeTab === "windows"
+                    ? t(lang, "quickstart.optionLocal")
+                    : undefined
+                }
                 style={{
                   fontSize: "0.8125rem",
                   color: "var(--text-muted)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
                 }}
               >
-                {activeTab === "pip"
+                {isAliyun
+                  ? t(lang, "quickstart.optionAliyun")
+                  : activeTab === "pip"
                   ? t(lang, "quickstart.optionPip")
                   : t(lang, "quickstart.optionLocal")}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={handleCopy}
-              aria-label={t(lang, "docs.copy")}
-              title={t(lang, "docs.copy")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "var(--space-1)",
-                padding: "var(--space-1) var(--space-2)",
-                fontSize: "0.75rem",
-                color: "var(--text-muted)",
-                background: "transparent",
-                border: "1px solid var(--border)",
-                borderRadius: "0.375rem",
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              <Copy size={14} strokeWidth={1.5} aria-hidden />
-              <span>
-                {copied ? t(lang, "docs.copied") : t(lang, "docs.copy")}
-              </span>
-            </button>
+            {!isAliyun && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                aria-label={t(lang, "docs.copy")}
+                title={t(lang, "docs.copy")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--space-1)",
+                  padding: "var(--space-1) var(--space-2)",
+                  fontSize: "0.75rem",
+                  color: "var(--text-muted)",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: "0.375rem",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <Copy size={14} strokeWidth={1.5} aria-hidden />
+                <span>
+                  {copied ? t(lang, "docs.copied") : t(lang, "docs.copy")}
+                </span>
+              </button>
+            )}
           </div>
           <div style={{ position: "relative", minWidth: 0 }}>
-            <div
-              ref={scrollRef}
-              style={{
-                overflowX: "auto",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-1)",
-                scrollbarGutter: "stable",
-                minWidth: 0,
-              }}
-            >
-              {lines.map((line) => (
-                <div
-                  key={line}
+            {isAliyun ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "var(--space-2)",
+                  justifyContent: "center",
+                }}
+              >
+                <a
+                  href={ECS_DEPLOY_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="quickstart-ecs-btn"
                   style={{
-                    fontFamily: "ui-monospace, monospace",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "var(--space-2) var(--space-4)",
                     fontSize: "0.8125rem",
+                    fontWeight: 500,
                     color: "var(--text)",
-                    whiteSpace: "nowrap",
+                    background: "var(--border)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "0.375rem",
+                    cursor: "pointer",
+                    textDecoration: "none",
                   }}
                 >
-                  {line}
+                  {t(lang, "quickstart.aliyunDeployLink")}
+                </a>
+                <a
+                  href={ECS_DOC_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="quickstart-ecs-btn"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "0.8125rem",
+                    fontWeight: 500,
+                    color: "var(--text)",
+                    background: "var(--border)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "0.375rem",
+                    cursor: "pointer",
+                    textDecoration: "none",
+                  }}
+                >
+                  {t(lang, "quickstart.aliyunDocLink")}
+                </a>
+              </div>
+            ) : (
+              <>
+                <div
+                  ref={scrollRef}
+                  style={{
+                    overflowX: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-1)",
+                    scrollbarGutter: "stable",
+                    minWidth: 0,
+                  }}
+                >
+                  {lines.map((line) => (
+                    <div
+                      key={line}
+                      style={{
+                        fontFamily: "ui-monospace, monospace",
+                        fontSize: "0.8125rem",
+                        color: "var(--text)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {line}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {hasOverflow && (
-              <div
-                aria-hidden
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  right: 0,
-                  bottom: 0,
-                  width: "3rem",
-                  background:
-                    "linear-gradient(to left, var(--surface) 0%, transparent)",
-                  pointerEvents: "none",
-                }}
-              />
+                {hasOverflow && (
+                  <div
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      width: "3rem",
+                      background:
+                        "linear-gradient(to left, var(--surface) 0%, transparent)",
+                      pointerEvents: "none",
+                    }}
+                  />
+                )}
+              </>
             )}
           </div>
           <p

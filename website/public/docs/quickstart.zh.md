@@ -1,10 +1,11 @@
 # 快速开始
 
-本节介绍三种方式运行 CoPAW：
+本节介绍四种方式运行 CoPAW：
 
 - **方式一 — 一键安装（推荐）**：无需手动配置 Python，一行命令自动完成安装。
 - **方式二 — pip 安装**：适合自行管理 Python 环境的用户。
 - **方式三 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
+- **方式四 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
 
 > 📖 阅读前请先了解 [项目介绍](./intro)，完成安装与启动后可查看 [控制台](./console)。
 
@@ -108,7 +109,7 @@ pip install copaw
 
 ---
 
-## 方式二：魔搭创空间一键配置（无需安装）
+## 方式三：魔搭创空间一键配置（无需安装）
 
 若不想在本地安装 Python，可通过魔搭创空间将 CoPaw 部署到云端运行：
 
@@ -116,6 +117,17 @@ pip install copaw
 2. 打开 [CoPaw 创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)，一键配置即可使用。
 
 **重要**：使用创空间请将空间设为 **非公开**，否则你的 CoPaw 可能被他人操纵。
+
+---
+
+## 方式四：部署到阿里云 ECS
+
+若希望将 CoPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：
+
+1. 打开 [CoPaw 阿里云 ECS 部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884)，按页面提示填写部署参数；
+2. 参数配置完成后确认费用并创建实例，部署完成后即可获取访问地址并使用服务。
+
+详细步骤与说明请参考 [阿里云开发者社区：CoPaw 3 分钟部署你的 AI 助理](https://developer.aliyun.com/article/1713682)。
 
 ---
 
