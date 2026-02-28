@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Form, Modal } from "@agentscope-ai/design";
 import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
+import { LoadingOutlined } from "@ant-design/icons";
 import type { SkillSpec } from "../../../api/types";
 import { SkillCard, SkillDrawer } from "./components";
 import { useSkills } from "./useSkills";
@@ -12,6 +13,7 @@ function SkillsPage() {
   const {
     skills,
     loading,
+    importing,
     createSkill,
     importFromHub,
     toggleEnabled,
@@ -140,8 +142,15 @@ function SkillsPage() {
             <Button onClick={closeImportModal} style={{ marginRight: 8 }}>
               {t("common.cancel")}
             </Button>
-            <Button type="primary" onClick={handleConfirmImport}>
-              {t("skills.importSkills")}
+            <Button
+              type="primary"
+              onClick={handleConfirmImport}
+              loading={importing}
+              disabled={!importUrl.trim() || !!importUrlError}
+            >
+              {importing
+                ? t("skills.importingSkills")
+                : t("skills.importSkills")}
             </Button>
           </div>
         }
@@ -171,9 +180,16 @@ function SkillsPage() {
           value={importUrl}
           onChange={(e) => handleImportUrlChange(e.target.value)}
           placeholder={t("skills.enterSkillUrl")}
+          disabled={importing}
         />
         {importUrlError ? (
           <div className={styles.importUrlError}>{importUrlError}</div>
+        ) : null}
+        {importing ? (
+          <div className={styles.importingState}>
+            <LoadingOutlined spin />
+            <span>{t("skills.importingFromHub")}</span>
+          </div>
         ) : null}
       </Modal>
 

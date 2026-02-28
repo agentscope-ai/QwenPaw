@@ -57,6 +57,8 @@
     "title": "技能",
     "description": "管理智能体技能和能力。",
     "importSkills": "导入技能",
+    "importingSkills": "导入中...",
+    "importingFromHub": "正在导入，可能需要几秒...",
     "enterSkillUrl": "输入技能URL",
     "supportedSkillUrlSources": "当前支持的技能 URL 来源：",
     "urlExamples": "URL 示例：",
