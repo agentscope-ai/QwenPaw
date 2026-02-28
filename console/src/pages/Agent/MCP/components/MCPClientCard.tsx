@@ -85,9 +85,9 @@ export function MCPClientCard({
         onClick={handleCardClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className={`${styles.mcpCard} ${client.enabled ? styles.enabledCard : ""
-          } ${isHovered ? styles.hover : styles.normal
-          }`}
+        className={`${styles.mcpCard} ${
+          client.enabled ? styles.enabledCard : ""
+        } ${isHovered ? styles.hover : styles.normal}`}
       >
         <div className={styles.cardHeader}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -96,20 +96,23 @@ export function MCPClientCard({
             </span>
             <h3 className={styles.mcpTitle}>{client.name}</h3>
             <span
-              className={`${styles.typeBadge} ${isRemote ? styles.remote : styles.local
-                }`}
+              className={`${styles.typeBadge} ${
+                isRemote ? styles.remote : styles.local
+              }`}
             >
               {clientType}
             </span>
           </div>
           <div className={styles.statusContainer}>
             <span
-              className={`${styles.statusDot} ${client.enabled ? styles.enabled : styles.disabled
-                }`}
+              className={`${styles.statusDot} ${
+                client.enabled ? styles.enabled : styles.disabled
+              }`}
             />
             <span
-              className={`${styles.statusText} ${client.enabled ? styles.enabled : styles.disabled
-                }`}
+              className={`${styles.statusText} ${
+                client.enabled ? styles.enabled : styles.disabled
+              }`}
             >
               {client.enabled ? t("common.enabled") : t("common.disabled")}
             </span>
@@ -186,11 +189,7 @@ export function MCPClientCard({
             className={styles.editJsonTextArea}
           />
         ) : (
-          <pre
-            className={styles.preformattedText}
-          >
-            {clientJson}
-          </pre>
+          <pre className={styles.preformattedText}>{clientJson}</pre>
         )}
       </Modal>
     </>
