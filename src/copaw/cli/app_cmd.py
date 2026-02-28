@@ -60,6 +60,17 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run CoPaw FastAPI app."""
+    # Warn user when listening on all interfaces (security awareness)
+    if host == "0.0.0.0":
+        click.echo(
+            click.style(
+                "⚠️  Warning: CoPaw is listening on all network interfaces "
+                "(0.0.0.0). Other devices on your network can access this "
+                "instance. Use --host 127.0.0.1 to restrict to localhost.",
+                fg="yellow",
+            )
+        )
+
     # Persist last used host/port for other terminals
     write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
