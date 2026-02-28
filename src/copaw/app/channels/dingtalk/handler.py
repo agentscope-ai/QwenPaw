@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional
 
 import dingtalk_stream
@@ -34,6 +35,10 @@ FILENAME_HINT_BY_MAPPED = {
 }
 DEFAULT_FILENAME_HINT = "file.bin"
 
+# Maximum number of processed message IDs to keep for deduplication.
+# DingTalk retries callbacks after ~60s; we keep recent IDs to reject dupes.
+DINGTALK_PROCESSED_IDS_MAX = 2048
+
 
 class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     """Internal handler: convert DingTalk message to native dict, enqueue via
@@ -51,6 +56,49 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         self._enqueue_callback = enqueue_callback
         self._bot_prefix = bot_prefix
         self._download_url_fetcher = download_url_fetcher
+
+        # Message dedup: reject retried callbacks with same msgId.
+        # _processed_message_ids: completed messages (OrderedDict, O(1) lookup)
+        # _inflight_message_ids: currently being processed (set)
+        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._inflight_message_ids: set[str] = set()
+
+    @staticmethod
+    def _extract_msg_id(
+        incoming_message: Any,
+        callback: "CallbackMessage",
+    ) -> str:
+        """Extract message ID from DingTalk callback for deduplication.
+
+        Tries multiple attribute names and dict keys to handle SDK
+        version differences.  Returns empty string if no ID found.
+        """
+        raw = None
+        for attr in ("msgId", "msg_id"):
+            raw = getattr(incoming_message, attr, None)
+            if raw is not None and raw != "":
+                break
+        if raw is None or raw == "":
+            data = callback.data if callback.data else {}
+            for key in ("msgId", "msg_id"):
+                raw = data.get(key)
+                if raw is not None and raw != "":
+                    break
+        if raw is None or raw == "":
+            return ""
+        return str(raw).strip()
+
+    def _mark_completed(self, msg_id: str) -> None:
+        """Move msg_id from inflight to completed cache."""
+        if not msg_id:
+            return
+        self._inflight_message_ids.discard(msg_id)
+        self._processed_message_ids[msg_id] = None
+        while (
+            len(self._processed_message_ids)
+            > DINGTALK_PROCESSED_IDS_MAX
+        ):
+            self._processed_message_ids.popitem(last=False)
 
     def _emit_native_threadsafe(self, native: dict) -> None:
         if self._enqueue_callback:
@@ -160,6 +208,27 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         try:
             incoming_message = ChatbotMessage.from_dict(callback.data)
 
+            # --- Message deduplication ---
+            # DingTalk retries callbacks when response takes >60s.
+            # Extract msgId and reject if already processed or in-flight.
+            msg_id = self._extract_msg_id(incoming_message, callback)
+            if msg_id and msg_id in self._processed_message_ids:
+                logger.info(
+                    "dingtalk dedup: duplicate msgId=%s (completed), "
+                    "skipping",
+                    msg_id[:24],
+                )
+                return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+            if msg_id and msg_id in self._inflight_message_ids:
+                logger.info(
+                    "dingtalk dedup: duplicate msgId=%s (in-flight), "
+                    "skipping",
+                    msg_id[:24],
+                )
+                return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+            if msg_id:
+                self._inflight_message_ids.add(msg_id)
+
             logger.debug(
                 "Dingtalk message received: %s",
                 incoming_message.to_dict(),
@@ -262,8 +331,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 out = self._bot_prefix + response_text
                 self.reply_text(out, incoming_message)
                 logger.info("sent to=%s text=%r", sender, out[:100])
+            # Mark as successfully processed (move from inflight to completed)
+            self._mark_completed(msg_id)
             return dingtalk_stream.AckMessage.STATUS_OK, "ok"
 
         except Exception:
             logger.exception("process failed")
+            # Remove from inflight so retries can be processed
+            if msg_id:
+                self._inflight_message_ids.discard(msg_id)
             return dingtalk_stream.AckMessage.STATUS_SYSTEM_EXCEPTION, "error"
