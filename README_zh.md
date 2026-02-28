@@ -57,7 +57,7 @@
 >
 > - **我想三条命令跑起来**： [快速开始](#快速开始) → 浏览器打开控制台。
 > - **我想在钉钉 / 飞书 / QQ 里聊**： [快速开始](#快速开始) → [频道配置](https://copaw.agentscope.io/docs/channels)。
-> - **我不想装 Python**：[一键安装](#一键安装推荐) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
+> - **我不想装 Python**：[一键安装](#一键安装beta持续完善中) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
 
 - [快速开始](#快速开始)
 - [API Key](#api-key)
