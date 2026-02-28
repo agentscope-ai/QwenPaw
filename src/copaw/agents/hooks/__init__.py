@@ -28,8 +28,10 @@ Example:
 
 from .bootstrap import BootstrapHook
 from .memory_compaction import MemoryCompactionHook
+from .tool_result_vlm_prepass import ToolResultVLMPrepassHook
 
 __all__ = [
     "BootstrapHook",
     "MemoryCompactionHook",
+    "ToolResultVLMPrepassHook",
 ]

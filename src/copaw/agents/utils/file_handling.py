@@ -161,6 +161,21 @@ async def download_file_from_base64(
         with open(local_file_path, "wb") as f:
             f.write(file_content)
 
+        # If we generated a name with no extension, guess from content so file:// URLs pass image extension checks
+        if not local_file_path.suffix:
+            guessed = _guess_suffix_from_file_content(local_file_path)
+            if guessed:
+                new_path = local_file_path.with_suffix(guessed)
+                if new_path.exists():
+                    # Same content hash can reappear across turns; keep existing
+                    # suffixed file and remove temporary extensionless file.
+                    local_file_path.unlink(missing_ok=True)
+                    local_file_path = new_path
+                else:
+                    local_file_path.rename(new_path)
+                    local_file_path = new_path
+                logger.debug("Added suffix %s for base64 download: %s", guessed, local_file_path)
+
         logger.debug("Downloaded file to: %s", local_file_path)
         return str(local_file_path.absolute())
 

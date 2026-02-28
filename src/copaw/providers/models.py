@@ -11,6 +11,10 @@ from pydantic import BaseModel, Field
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+    input_capabilities: List[str] = Field(
+        default_factory=list,
+        description="Optional supported input modalities (e.g. text, image)",
+    )
 
 
 class ProviderDefinition(BaseModel):
@@ -76,6 +80,111 @@ class ModelSlotConfig(BaseModel):
     model: str = Field(default="")
 
 
+class VisionImageSettings(BaseModel):
+    enabled: bool = Field(
+        default=True,
+        description="Whether image prepass is enabled when routing conditions match.",
+    )
+    attachments_mode: str = Field(
+        default="first",
+        description="Image selection mode: 'first' or 'all'.",
+    )
+    max_images: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        description="Maximum image blocks passed to VLM prepass in 'all' mode.",
+    )
+    prompt_override: str = Field(
+        default="",
+        description="Optional custom prompt override for image prepass.",
+    )
+    timeout_seconds: int = Field(
+        default=60,
+        ge=5,
+        le=600,
+        description="Timeout in seconds for each VLM prepass attempt.",
+    )
+    max_output_chars: int = Field(
+        default=500,
+        ge=100,
+        le=20000,
+        description="Maximum normalized prepass output size kept for LLM context.",
+    )
+
+
+class VisionAudioSettings(BaseModel):
+    enabled: bool = Field(
+        default=False,
+        description="Whether audio prepass is enabled when routing conditions match.",
+    )
+    attachments_mode: str = Field(
+        default="first",
+        description="Audio selection mode: 'first' or 'all'.",
+    )
+    max_items: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        description="Maximum audio blocks passed to prepass in 'all' mode.",
+    )
+    prompt_override: str = Field(
+        default="",
+        description="Optional custom prompt override for audio prepass.",
+    )
+    timeout_seconds: int = Field(
+        default=90,
+        ge=5,
+        le=600,
+        description="Timeout in seconds for each audio prepass attempt.",
+    )
+    max_output_chars: int = Field(
+        default=6000,
+        ge=200,
+        le=30000,
+        description="Maximum normalized audio prepass output kept for LLM context.",
+    )
+
+
+class VisionVideoSettings(BaseModel):
+    enabled: bool = Field(
+        default=False,
+        description="Whether video prepass is enabled when routing conditions match.",
+    )
+    attachments_mode: str = Field(
+        default="first",
+        description="Video selection mode: 'first' or 'all'.",
+    )
+    max_items: int = Field(
+        default=1,
+        ge=1,
+        le=4,
+        description="Maximum video blocks passed to prepass in 'all' mode.",
+    )
+    prompt_override: str = Field(
+        default="",
+        description="Optional custom prompt override for video prepass.",
+    )
+    timeout_seconds: int = Field(
+        default=120,
+        ge=5,
+        le=600,
+        description="Timeout in seconds for each video prepass attempt.",
+    )
+    max_output_chars: int = Field(
+        default=6000,
+        ge=200,
+        le=30000,
+        description="Maximum normalized video prepass output kept for LLM context.",
+    )
+
+
+class VisionSettings(BaseModel):
+    image: VisionImageSettings = Field(default_factory=VisionImageSettings)
+    audio: VisionAudioSettings = Field(default_factory=VisionAudioSettings)
+    video: VisionVideoSettings = Field(default_factory=VisionVideoSettings)
+
+
 class ProvidersData(BaseModel):
     """Top-level structure of providers.json."""
 
@@ -84,6 +193,9 @@ class ProvidersData(BaseModel):
         default_factory=dict,
     )
     active_llm: ModelSlotConfig = Field(default_factory=ModelSlotConfig)
+    active_vlm: ModelSlotConfig = Field(default_factory=ModelSlotConfig)
+    active_vlm_fallbacks: List[ModelSlotConfig] = Field(default_factory=list)
+    vision: VisionSettings = Field(default_factory=VisionSettings)
 
     def get_credentials(self, provider_id: str) -> tuple[str, str]:
         """Return ``(base_url, api_key)`` for *provider_id*."""
@@ -130,9 +242,13 @@ class ProviderInfo(BaseModel):
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig
+    active_vlm: ModelSlotConfig = Field(default_factory=ModelSlotConfig)
+    active_vlm_fallbacks: List[ModelSlotConfig] = Field(default_factory=list)
+    vision: VisionSettings = Field(default_factory=VisionSettings)
 
 
 class ResolvedModelConfig(BaseModel):
+    provider_id: str = Field(default="")
     model: str = Field(default="")
     base_url: str = Field(default="")
     api_key: str = Field(default="")

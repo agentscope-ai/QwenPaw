@@ -324,6 +324,46 @@ def agentscope_msg_to_message(
 
                 cb.complete()
 
+            elif btype == "video":
+                # Runtime builder currently has no native "video" content
+                # builder. Preserve video as FILE payload with URL/base64.
+                if current_type != MessageType.MESSAGE:
+                    if current_mb:
+                        current_mb.complete()
+                        results.append(current_mb.get_message_data())
+                    rb = ResponseBuilder()
+                    current_mb = rb.create_message_builder(
+                        role=role,
+                        message_type=MessageType.MESSAGE,
+                    )
+                    # add meta field to store old id and name
+                    current_mb.message.metadata = {
+                        "original_id": msg.id,
+                        "original_name": msg.name,
+                        "metadata": msg.metadata,
+                    }
+                    current_type = MessageType.MESSAGE
+                cb = current_mb.create_content_builder(content_type="file")
+                if (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    cb.content.file_url = block.get("source", {}).get("url")
+                    cb.content.filename = block.get("filename") or "video"
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get(
+                        "media_type",
+                        "video/mp4",
+                    )
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    cb.content.file_url = url
+                    cb.content.filename = block.get("filename") or "video"
+                cb.complete()
+
             else:
                 # Fallback to MESSAGE type
                 if current_type != MessageType.MESSAGE:

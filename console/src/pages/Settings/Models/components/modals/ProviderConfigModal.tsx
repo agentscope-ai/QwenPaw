@@ -85,9 +85,11 @@ export function ProviderConfigModal({
 
   const isActiveLlmProvider =
     activeModels?.active_llm?.provider_id === provider.id;
+  const isActiveVlmProvider =
+    activeModels?.active_vlm?.provider_id === provider.id;
 
   const handleRevoke = () => {
-    const confirmContent = isActiveLlmProvider
+    const confirmContent = isActiveLlmProvider || isActiveVlmProvider
       ? t("models.revokeConfirmContent", { name: provider.name })
       : t("models.revokeConfirmSimple", { name: provider.name });
 
@@ -102,7 +104,7 @@ export function ProviderConfigModal({
           await api.configureProvider(provider.id, { api_key: "" });
           await onSaved();
           onClose();
-          if (isActiveLlmProvider) {
+          if (isActiveLlmProvider || isActiveVlmProvider) {
             message.success(
               t("models.authorizationRevoked", { name: provider.name }),
             );

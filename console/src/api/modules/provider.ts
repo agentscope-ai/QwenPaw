@@ -4,6 +4,10 @@ import type {
   ProviderConfigRequest,
   ActiveModelsInfo,
   ModelSlotRequest,
+  VlmFallbacksRequest,
+  VisionAudioSettingsRequest,
+  VisionImageSettingsRequest,
+  VisionVideoSettingsRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
 } from "../types";
@@ -21,6 +25,36 @@ export const providerApi = {
 
   setActiveLlm: (body: ModelSlotRequest) =>
     request<ActiveModelsInfo>("/models/active", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  setActiveVlm: (body: ModelSlotRequest) =>
+    request<ActiveModelsInfo>("/models/active/vlm", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  setActiveVlmFallbacks: (body: VlmFallbacksRequest) =>
+    request<ActiveModelsInfo>("/models/active/vlm/fallbacks", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  setVisionImageSettings: (body: VisionImageSettingsRequest) =>
+    request("/models/vision/image", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  setVisionAudioSettings: (body: VisionAudioSettingsRequest) =>
+    request("/models/vision/audio", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  setVisionVideoSettings: (body: VisionVideoSettingsRequest) =>
+    request("/models/vision/video", {
       method: "PUT",
       body: JSON.stringify(body),
     }),

@@ -1,6 +1,7 @@
 export interface ModelInfo {
   id: string;
   name: string;
+  input_capabilities?: string[];
 }
 
 export interface ProviderInfo {
@@ -30,11 +31,70 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm: ModelSlotConfig;
+  active_vlm: ModelSlotConfig;
+  active_vlm_fallbacks: ModelSlotConfig[];
+  vision: {
+    image: {
+      enabled: boolean;
+      attachments_mode: "first" | "all" | string;
+      max_images: number;
+      prompt_override: string;
+      timeout_seconds: number;
+      max_output_chars: number;
+    };
+    audio: {
+      enabled: boolean;
+      attachments_mode: "first" | "all" | string;
+      max_items: number;
+      prompt_override: string;
+      timeout_seconds: number;
+      max_output_chars: number;
+    };
+    video: {
+      enabled: boolean;
+      attachments_mode: "first" | "all" | string;
+      max_items: number;
+      prompt_override: string;
+      timeout_seconds: number;
+      max_output_chars: number;
+    };
+  };
 }
 
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
+}
+
+export interface VlmFallbacksRequest {
+  fallbacks: ModelSlotRequest[];
+}
+
+export interface VisionImageSettingsRequest {
+  enabled?: boolean;
+  attachments_mode?: "first" | "all" | string;
+  max_images?: number;
+  prompt_override?: string;
+  timeout_seconds?: number;
+  max_output_chars?: number;
+}
+
+export interface VisionAudioSettingsRequest {
+  enabled?: boolean;
+  attachments_mode?: "first" | "all" | string;
+  max_items?: number;
+  prompt_override?: string;
+  timeout_seconds?: number;
+  max_output_chars?: number;
+}
+
+export interface VisionVideoSettingsRequest {
+  enabled?: boolean;
+  attachments_mode?: "first" | "all" | string;
+  max_items?: number;
+  prompt_override?: string;
+  timeout_seconds?: number;
+  max_output_chars?: number;
 }
 
 /* ---- Custom provider CRUD ---- */
@@ -44,12 +104,14 @@ export interface CreateCustomProviderRequest {
   name: string;
   default_base_url?: string;
   api_key_prefix?: string;
+  api_key?: string;
   models?: ModelInfo[];
 }
 
 export interface AddModelRequest {
   id: string;
   name: string;
+  input_capabilities?: string[];
 }
 
 /* ---- Local models ---- */

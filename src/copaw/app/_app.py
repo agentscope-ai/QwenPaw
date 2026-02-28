@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
@@ -28,6 +29,7 @@ from .crons.manager import CronManager
 from .runner.manager import ChatManager
 from .routers import router as api_router
 from ..envs import load_envs_into_environ
+from ..providers import load_providers_json
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -48,6 +50,12 @@ agent_app = AgentApp(
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
     await runner.start()
+
+    # Warm providers cache at startup so custom model discovery runs early.
+    try:
+        load_providers_json()
+    except Exception:
+        logger.exception("Failed to load providers on startup")
 
     # --- MCP client manager init (independent module, hot-reloadable) ---
     config = load_config()
@@ -143,6 +151,15 @@ app = FastAPI(
     docs_url="/docs" if DOCS_ENABLED else None,
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
+)
+
+# Todo: Delete this after testing
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

@@ -33,6 +33,7 @@ export function CustomProviderModal({
         name: values.name.trim(),
         default_base_url: values.default_base_url?.trim() || "",
         api_key_prefix: values.api_key_prefix?.trim() || "",
+        api_key: values.api_key?.trim() || "",
       });
       message.success(
         t("models.providerCreated", { name: values.name.trim() }),
@@ -95,6 +96,14 @@ export function CustomProviderModal({
 
         <Form.Item name="api_key_prefix" label={t("models.apiKeyPrefixLabel")}>
           <Input placeholder={t("models.apiKeyPrefixPlaceholder")} />
+        </Form.Item>
+
+        <Form.Item
+          name="api_key"
+          label={t("models.apiKey")}
+          extra={t("models.apiKeyCreateHint")}
+        >
+          <Input.Password placeholder={t("models.enterApiKeyOptional")} />
         </Form.Item>
       </Form>
     </Modal>
