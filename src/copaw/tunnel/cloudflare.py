@@ -177,30 +177,27 @@ class CloudflareTunnelDriver:
             return
 
     async def _monitor(self, local_port: int) -> None:
-        """Drain stderr and auto-restart on unexpected exit."""
+        """Drain stderr and log unexpected exit without auto-restart."""
         # Keep reading stderr so the pipe buffer doesn't fill and
         # block cloudflared.  _drain_stderr returns when the process
         # closes its stderr (i.e. exits).
         await self._drain_stderr()
 
-        while True:
-            if not self._process:
-                return
-            try:
-                await self._process.wait()
-            except asyncio.CancelledError:
-                return
+        if not self._process:
+            return
 
-            rc = self._process.returncode
-            logger.warning(
-                "cloudflared exited with code %s, restarting...",
-                rc,
-            )
+        try:
+            await self._process.wait()
+        except asyncio.CancelledError:
+            return
 
-            try:
-                await asyncio.sleep(2)
-                await self.start(local_port)
-                return  # start() launches a new monitor
-            except Exception:
-                logger.exception("Failed to restart cloudflared tunnel")
-                await asyncio.sleep(10)
+        rc = self._process.returncode
+        logger.warning(
+            "cloudflared exited with code %s; not restarting Quick Tunnel "
+            "automatically because a new public URL would be issued.",
+            rc,
+        )
+
+        # Clear tunnel info so callers know the tunnel is no longer available.
+        self._info = None
+        return
