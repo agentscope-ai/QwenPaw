@@ -769,7 +769,13 @@ class FeishuChannel(BaseChannel):
                     disposition.split("filename=", 1)[-1].strip().strip("'\"")
                 )
                 if part:
-                    filename = part
+                    part = Path(part).name
+                    if part.strip():
+                        filename = part
+            # Prevent path traversal: keep only the base name.
+            filename = Path(filename).name
+            if not filename.strip():
+                filename = filename_hint
             # If hint has an extension but chosen filename has none or
             # .bin/.file, force the hint extension so e.g. audio.opus is kept.
             hint_ext = Path(filename_hint).suffix
@@ -976,7 +982,6 @@ class FeishuChannel(BaseChannel):
             "xlsx",
             "ppt",
             "pptx",
-            "opus",
             "mp4",
         ):
             file_type = "doc" if ext == "docx" else ext
@@ -1206,6 +1211,7 @@ class FeishuChannel(BaseChannel):
         url = (
             getattr(part, "file_url", None)
             or getattr(part, "image_url", None)
+            or getattr(part, "data", None)
             or ""
         )
         url = (url or "").strip() if isinstance(url, str) else ""

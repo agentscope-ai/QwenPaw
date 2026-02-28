@@ -59,6 +59,28 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 native,
             )
 
+    def _fetch_download_url_and_content(
+        self,
+        download_code: str,
+        robot_code: str,
+        mapped: str,
+    ) -> Optional[Any]:
+        """Fetch media by download_code; return Content to append or None."""
+        hint = FILENAME_HINT_BY_MAPPED.get(mapped, DEFAULT_FILENAME_HINT)
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                self._download_url_fetcher(
+                    download_code=download_code,
+                    robot_code=robot_code,
+                    filename_hint=hint,
+                ),
+                self._main_loop,
+            )
+            download_url = fut.result(timeout=15)
+            return dingtalk_content_from_type(mapped, download_url)
+        except Exception:
+            return None
+
     def _parse_rich_content(
         self,
         incoming_message: Any,
@@ -94,22 +116,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     item.get("type", "file"),
                     item.get("type", "file"),
                 )
-                hint = FILENAME_HINT_BY_MAPPED.get(
+                part_content = self._fetch_download_url_and_content(
+                    dl_code,
+                    robot_code,
                     mapped,
-                    DEFAULT_FILENAME_HINT,
                 )
-                fut = asyncio.run_coroutine_threadsafe(
-                    self._download_url_fetcher(
-                        download_code=dl_code,
-                        robot_code=robot_code,
-                        filename_hint=hint,
-                    ),
-                    self._main_loop,
-                )
-                download_url = fut.result(timeout=15)
-                content.append(
-                    dingtalk_content_from_type(mapped, download_url),
-                )
+                if part_content is not None:
+                    content.append(part_content)
 
             # -------- 2) single downloadCode (pure picture/file) --------
             if not content:
@@ -131,22 +144,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     )
                     if mapped not in ("image", "file", "video", "audio"):
                         mapped = "file"
-                    hint = FILENAME_HINT_BY_MAPPED.get(
+                    part_content = self._fetch_download_url_and_content(
+                        dl_code,
+                        robot_code,
                         mapped,
-                        DEFAULT_FILENAME_HINT,
                     )
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self._download_url_fetcher(
-                            download_code=dl_code,
-                            robot_code=robot_code,
-                            filename_hint=hint,
-                        ),
-                        self._main_loop,
-                    )
-                    download_url = fut.result(timeout=15)
-                    content.append(
-                        dingtalk_content_from_type(mapped, download_url),
-                    )
+                    if part_content is not None:
+                        content.append(part_content)
 
         except Exception:
             logger.exception("failed to fetch richText download url(s)")
