@@ -1,0 +1,21 @@
+# Example docker-compose for CoPaw with persistent configuration.
+# Usage: docker compose up -d
+#
+# The ./copaw-data volume stores config.json, chats, cron jobs, skills,
+# and memory. Data survives container restarts and upgrades.
+
+services:
+  copaw:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "${COPAW_PORT:-8088}:8088"
+    volumes:
+      # Mount host directory for persistent data
+      - ./copaw-data:/app/working
+    environment:
+      - COPAW_PORT=8088
+      # Uncomment and set your channel credentials:
+      # - COPAW_ENABLED_CHANNELS=dingtalk,feishu,qq,console
+    restart: unless-stopped

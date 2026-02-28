@@ -78,14 +78,20 @@ COPY src ./src
 COPY --from=console-builder /app/console/dist/ ./src/copaw/console/
 RUN pip install --no-cache-dir .
 
-# Init working dir with default config.json and HEARTBEAT.md (build time).
-RUN copaw init --defaults --accept-security
+# NOTE: copaw init runs at container startup (entrypoint.sh), NOT at
+# build time, so it respects user-mounted volumes and does not
+# overwrite existing config.
 
 # CoPaw app port (default 8088). Override at runtime with -e COPAW_PORT=3000.
 ENV COPAW_PORT=8088
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
 COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
+
+# Declare working dir as a volume so user data (config, chats, jobs,
+# skills, memory) persists across container restarts.
+# Users should mount a host directory: docker run -v /my/data:/app/working ...
+VOLUME /app/working
 
 EXPOSE 8088
 
