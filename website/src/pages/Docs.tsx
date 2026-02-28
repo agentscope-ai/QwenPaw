@@ -118,6 +118,46 @@ interface DocEntry {
   children?: DocEntry[];
 }
 
+interface FaqItem {
+  question: string;
+  answer: string;
+}
+
+function parseFaqContent(md: string): { intro: string; items: FaqItem[] } {
+  const lines = md.split("\n");
+  const introLines: string[] = [];
+  const items: FaqItem[] = [];
+  let currentQuestion: string | null = null;
+  let currentAnswerLines: string[] = [];
+
+  const flush = () => {
+    if (!currentQuestion) return;
+    items.push({
+      question: currentQuestion,
+      answer: currentAnswerLines.join("\n").trim(),
+    });
+    currentQuestion = null;
+    currentAnswerLines = [];
+  };
+
+  for (const line of lines) {
+    const m = line.match(/^###\s+(.+)$/);
+    if (m) {
+      flush();
+      currentQuestion = m[1].trim();
+      continue;
+    }
+    if (currentQuestion === null) introLines.push(line);
+    else currentAnswerLines.push(line);
+  }
+  flush();
+
+  return {
+    intro: introLines.join("\n").trim(),
+    items,
+  };
+}
+
 const DOC_SLUGS: DocEntry[] = [
   { slug: "intro", titleKey: "docs.intro" },
   { slug: "quickstart", titleKey: "docs.quickstart" },
@@ -136,6 +176,7 @@ const DOC_SLUGS: DocEntry[] = [
   { slug: "heartbeat", titleKey: "docs.heartbeat" },
   { slug: "config", titleKey: "docs.config" },
   { slug: "cli", titleKey: "docs.cli" },
+  { slug: "faq", titleKey: "docs.faq" },
   { slug: "community", titleKey: "docs.community" },
   { slug: "contributing", titleKey: "docs.contributing" },
 ];
@@ -160,6 +201,7 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.compact": "压缩",
     "docs.config": "配置与工作目录",
     "docs.commands": "系统命令",
+    "docs.faq": "FAQ 常见问题",
     "docs.community": "问题反馈与交流",
     "docs.contributing": "开源与贡献",
   },
@@ -176,6 +218,7 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.compact": "Compaction",
     "docs.config": "Config & working dir",
     "docs.commands": "Commands",
+    "docs.faq": "FAQ",
     "docs.community": "Bug reports & community",
     "docs.contributing": "Open source & contribution",
   },
@@ -202,6 +245,8 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const articleRef = useRef<HTMLDivElement | null>(null);
+  const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set([0]));
+  const faqData = useMemo(() => parseFaqContent(content), [content]);
 
   useEffect(() => {
     const el = articleRef.current;
@@ -442,95 +487,186 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
             ) : (
               <>
                 <article className="docs-content">
-                  <LangContext.Provider value={lang}>
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeHighlight]}
-                      components={{
-                        pre: ({ children, ...props }) => {
-                          const langCtx = useContext(LangContext);
+                  {activeSlug === "faq" ? (
+                    <LangContext.Provider value={lang}>
+                      {faqData.intro ? (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                        >
+                          {faqData.intro}
+                        </ReactMarkdown>
+                      ) : null}
+                      <div style={{ marginTop: "1rem" }}>
+                        {faqData.items.map((item, idx) => {
+                          const opened = openFaqSet.has(idx);
                           return (
-                            <CodeBlockWithCopy lang={langCtx}>
-                              <pre {...props}>{children}</pre>
-                            </CodeBlockWithCopy>
-                          );
-                        },
-                        a: ({ href, children }) => {
-                          const trimmed = href?.replace(/\.md$/, "") ?? "";
-                          const isRelative =
-                            trimmed.startsWith("./") ||
-                            trimmed.startsWith("/docs/");
-                          if (isRelative) {
-                            const path = trimmed.startsWith("./")
-                              ? "/docs/" + trimmed.slice(2)
-                              : trimmed;
-                            const [pathname, hash] = path.split("#");
-                            const to = hash ? `${pathname}#${hash}` : pathname;
-                            return <Link to={to}>{children}</Link>;
-                          }
-                          return (
-                            <a
-                              href={href}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <section
+                              key={`${item.question}-${idx}`}
+                              style={{
+                                border: "1px solid var(--border)",
+                                borderRadius: "0.5rem",
+                                marginBottom: "0.75rem",
+                                background: "var(--surface)",
+                              }}
                             >
-                              {children}
-                            </a>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenFaqSet((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(idx)) next.delete(idx);
+                                    else next.add(idx);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  width: "100%",
+                                  textAlign: "left",
+                                  background: "transparent",
+                                  border: "none",
+                                  padding: "0.9rem 1rem",
+                                  cursor: "pointer",
+                                  fontSize: "1rem",
+                                  fontWeight: 600,
+                                  color: "var(--text)",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  gap: "0.75rem",
+                                }}
+                                aria-expanded={opened}
+                              >
+                                <span>{item.question}</span>
+                                <ChevronDown
+                                  size={16}
+                                  style={{
+                                    flexShrink: 0,
+                                    transform: opened
+                                      ? "rotate(180deg)"
+                                      : "rotate(0deg)",
+                                    transition: "transform 0.15s ease",
+                                  }}
+                                />
+                              </button>
+                              {opened ? (
+                                <div
+                                  className="docs-faq-answer"
+                                  style={{
+                                    padding: "0.75rem 1rem 0.5rem 1rem",
+                                    borderTop: "1px solid var(--border)",
+                                  }}
+                                >
+                                  <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    rehypePlugins={[rehypeHighlight]}
+                                  >
+                                    {item.answer}
+                                  </ReactMarkdown>
+                                </div>
+                              ) : null}
+                            </section>
                           );
-                        },
-                        h2: ({ children }) => {
-                          const id = slugifyHeading(headingText(children));
-                          return <h2 id={id}>{children}</h2>;
-                        },
-                        h3: ({ children }) => {
-                          const id = slugifyHeading(headingText(children));
-                          return <h3 id={id}>{children}</h3>;
-                        },
-                        table: ({ children }) => (
-                          <div className="docs-table-wrap">
-                            <table>{children}</table>
-                          </div>
-                        ),
-                        code: ({ className, children, ...props }) => {
-                          const match = /language-(\w+)/.exec(className || "");
-                          const lang = match?.[1];
-                          if (lang === "mermaid") {
-                            const chart = String(children).replace(/\n$/, "");
-                            return <MermaidBlock chart={chart} />;
-                          }
-                          // inline code vs block code
-                          const isInline = !className;
-                          if (isInline) {
+                        })}
+                      </div>
+                    </LangContext.Provider>
+                  ) : (
+                    <LangContext.Provider value={lang}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                        components={{
+                          pre: ({ children, ...props }) => {
+                            const langCtx = useContext(LangContext);
+                            return (
+                              <CodeBlockWithCopy lang={langCtx}>
+                                <pre {...props}>{children}</pre>
+                              </CodeBlockWithCopy>
+                            );
+                          },
+                          a: ({ href, children }) => {
+                            const trimmed = href?.replace(/\.md$/, "") ?? "";
+                            const isRelative =
+                              trimmed.startsWith("./") ||
+                              trimmed.startsWith("/docs/");
+                            if (isRelative) {
+                              const path = trimmed.startsWith("./")
+                                ? "/docs/" + trimmed.slice(2)
+                                : trimmed;
+                              const [pathname, hash] = path.split("#");
+                              const to = hash
+                                ? `${pathname}#${hash}`
+                                : pathname;
+                              return <Link to={to}>{children}</Link>;
+                            }
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {children}
+                              </a>
+                            );
+                          },
+                          h2: ({ children }) => {
+                            const id = slugifyHeading(headingText(children));
+                            return <h2 id={id}>{children}</h2>;
+                          },
+                          h3: ({ children }) => {
+                            const id = slugifyHeading(headingText(children));
+                            return <h3 id={id}>{children}</h3>;
+                          },
+                          table: ({ children }) => (
+                            <div className="docs-table-wrap">
+                              <table>{children}</table>
+                            </div>
+                          ),
+                          code: ({ className, children, ...props }) => {
+                            const match = /language-(\w+)/.exec(
+                              className || "",
+                            );
+                            const langCode = match?.[1];
+                            if (langCode === "mermaid") {
+                              const chart = String(children).replace(/\n$/, "");
+                              return <MermaidBlock chart={chart} />;
+                            }
+                            // inline code vs block code
+                            const isInline = !className;
+                            if (isInline) {
+                              return (
+                                <code className={className} {...props}>
+                                  {children}
+                                </code>
+                              );
+                            }
                             return (
                               <code className={className} {...props}>
                                 {children}
                               </code>
                             );
-                          }
-                          return (
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          );
-                        },
-                        img: ({ src, alt }) => {
-                          const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
-                            src ?? "",
-                          );
-                          if (isVideo) {
-                            return (
-                              <video src={src ?? undefined} controls>
-                                {alt ?? "您的浏览器不支持 video 标签。"}
-                              </video>
+                          },
+                          img: ({ src, alt }) => {
+                            const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
+                              src ?? "",
                             );
-                          }
-                          return <img src={src ?? undefined} alt={alt ?? ""} />;
-                        },
-                      }}
-                    >
-                      {content}
-                    </ReactMarkdown>
-                  </LangContext.Provider>
+                            if (isVideo) {
+                              return (
+                                <video src={src ?? undefined} controls>
+                                  {alt ?? "您的浏览器不支持 video 标签。"}
+                                </video>
+                              );
+                            }
+                            return (
+                              <img src={src ?? undefined} alt={alt ?? ""} />
+                            );
+                          },
+                        }}
+                      >
+                        {content}
+                      </ReactMarkdown>
+                    </LangContext.Provider>
+                  )}
                 </article>
                 <footer
                   className="docs-page-footer"
@@ -589,6 +725,12 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
         </button>
       )}
       <style>{`
+        .docs-faq-answer > :first-child {
+          margin-top: 0;
+        }
+        .docs-faq-answer > :last-child {
+          margin-bottom: 0;
+        }
         @media (max-width: 768px) {
           .docs-sidebar { position: fixed; left: 0; top: 3.5rem; bottom: 0; z-index: 20; transform: translateX(-100%); transition: transform 0.2s; }
           .docs-sidebar.open { transform: translateX(0); }
