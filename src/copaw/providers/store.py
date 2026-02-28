@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Optional
 
+from ..constant import WORKING_DIR
 from .models import (
     CustomProviderData,
     ModelInfo,
@@ -26,12 +28,34 @@ from .registry import (
     validate_custom_provider_id,
 )
 
-_PROVIDERS_DIR = Path(__file__).resolve().parent
-_PROVIDERS_JSON = _PROVIDERS_DIR / "providers.json"
+_LEGACY_PROVIDERS_JSON = Path(__file__).resolve().parent / "providers.json"
 
 
 def get_providers_json_path() -> Path:
-    return _PROVIDERS_JSON
+    """Return providers.json path under WORKING_DIR."""
+    return WORKING_DIR / "providers.json"
+
+
+def _migrate_legacy_providers_json(path: Path) -> None:
+    """Copy legacy providers.json from package dir into WORKING_DIR once."""
+    if path.is_file():
+        return
+    legacy = _LEGACY_PROVIDERS_JSON
+    if not legacy.is_file():
+        return
+    try:
+        if legacy.resolve() == path.resolve():
+            return
+    except OSError:
+        # Resolve may fail on some filesystems; continue with best effort copy.
+        pass
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(legacy, path)
+    except OSError:
+        # Ignore migration failures; normal boot path will recreate defaults.
+        pass
 
 
 def _ensure_base_url(settings: ProviderSettings, defn) -> None:
@@ -166,6 +190,7 @@ def load_providers_json(path: Optional[Path] = None) -> ProvidersData:
     """Load providers.json, creating/repairing as needed."""
     if path is None:
         path = get_providers_json_path()
+        _migrate_legacy_providers_json(path)
 
     providers: dict[str, ProviderSettings] = {}
     custom_providers: dict[str, CustomProviderData] = {}

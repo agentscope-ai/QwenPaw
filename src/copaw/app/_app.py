@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+import mimetypes
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,14 @@ from ..envs import load_envs_into_environ
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+
+# Ensure static assets are served with browser-compatible MIME types across
+# platforms (notably Windows may miss .js/.mjs mappings).
+mimetypes.init()
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/wasm", ".wasm")
 
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.

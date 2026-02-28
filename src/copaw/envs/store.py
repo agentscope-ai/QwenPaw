@@ -29,9 +29,20 @@ def get_envs_json_path() -> Path:
 # ------------------------------------------------------------------
 
 
-def _apply_to_environ(envs: dict[str, str]) -> None:
-    """Set every key/value into ``os.environ``."""
+def _apply_to_environ(
+    envs: dict[str, str],
+    *,
+    overwrite: bool = True,
+) -> None:
+    """Set key/value pairs into ``os.environ``.
+
+    Args:
+        envs: Key-value mapping to inject.
+        overwrite: When False, existing process env values take precedence.
+    """
     for key, value in envs.items():
+        if not overwrite and key in os.environ:
+            continue
         os.environ[key] = value
 
 
@@ -48,7 +59,7 @@ def _sync_environ(
     for key in old:
         if key not in new:
             _remove_from_environ(key)
-    _apply_to_environ(new)
+    _apply_to_environ(new, overwrite=True)
 
 
 # ------------------------------------------------------------------
@@ -117,5 +128,6 @@ def load_envs_into_environ() -> dict[str, str]:
     immediately.
     """
     envs = load_envs()
-    _apply_to_environ(envs)
+    # Do not override explicit runtime/system env vars.
+    _apply_to_environ(envs, overwrite=False)
     return envs
