@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from pathlib import Path
 from typing import Any, Optional, Union
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -21,130 +23,103 @@ from ..base import BaseChannel, OnReplySent, ProcessHandler
 
 logger = logging.getLogger(__name__)
 
-# Telegram Bot API limit for one message (characters).
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
-# Chunk slightly under to avoid encoding/entity edge cases.
 TELEGRAM_SEND_CHUNK_SIZE = 4000
 
+_DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
 
-async def _resolve_telegram_file_url(
+_MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
+    ("document", FileContent, ContentType.FILE, "file_url"),
+    ("video", VideoContent, ContentType.VIDEO, "video_url"),
+    ("voice", AudioContent, ContentType.AUDIO, "data"),
+    ("audio", AudioContent, ContentType.AUDIO, "data"),
+]
+
+
+async def _download_telegram_file(
     *,
     bot: Any,
     file_id: str,
-    bot_token: str,
+    media_dir: Path,
+    filename_hint: str = "",
 ) -> Optional[str]:
-    """Resolve Telegram file_id into a downloadable URL."""
+    """Download a Telegram file to local media_dir; return local path.
+
+    Never exposes the bot token in the returned path.
+    """
     try:
+        from telegram.error import TelegramError
         tg_file = await bot.get_file(file_id)
-    except Exception:
+    except TelegramError:
         logger.exception("telegram: get_file failed for file_id=%s", file_id)
         return None
 
-    file_path = (getattr(tg_file, "file_path", None) or "").strip()
-    if not file_path:
+    try:
+        media_dir.mkdir(parents=True, exist_ok=True)
+        suffix = ""
+        file_path = (getattr(tg_file, "file_path", None) or "").strip()
+        if file_path:
+            suffix = Path(file_path).suffix
+        if filename_hint and not suffix:
+            suffix = Path(filename_hint).suffix
+        local_name = f"{uuid.uuid4().hex[:12]}{suffix or '.bin'}"
+        local_path = media_dir / local_name
+        await tg_file.download_to_drive(str(local_path))
+        return str(local_path)
+    except Exception:
+        logger.exception("telegram: download failed for file_id=%s", file_id)
         return None
-    if file_path.startswith("http://") or file_path.startswith("https://"):
-        return file_path
-    return f"https://api.telegram.org/file/bot{bot_token}/{file_path.lstrip('/')}"
 
 
 async def _build_content_parts_from_message(
     update: Any,
     *,
     bot: Any,
-    bot_token: str,
+    media_dir: Path,
 ) -> list:
     """Build runtime content_parts from Telegram message (text, photo, doc, etc.)."""
     message = getattr(update, "message", None) or getattr(update, "edited_message")
     if not message:
         return [TextContent(type=ContentType.TEXT, text="")]
 
-    content_parts = []
+    content_parts: list[Any] = []
     text = (getattr(message, "text", None) or getattr(message, "caption") or "").strip()
     if text:
         content_parts.append(TextContent(type=ContentType.TEXT, text=text))
 
-    # Photo: list of PhotoSize, take largest
     photo = getattr(message, "photo", None)
     if photo and len(photo) > 0:
         largest = photo[-1]
         file_id = getattr(largest, "file_id", None)
         if file_id:
-            file_url = await _resolve_telegram_file_url(
+            local_path = await _download_telegram_file(
                 bot=bot,
                 file_id=file_id,
-                bot_token=bot_token,
+                media_dir=media_dir,
+                filename_hint="photo.jpg",
             )
-            content_parts.append(
-                ImageContent(
-                    type=ContentType.IMAGE,
-                    image_url=file_url or f"tg://file_id/{file_id}",
-                ),
-            )
+            if local_path:
+                content_parts.append(
+                    ImageContent(type=ContentType.IMAGE, image_url=local_path),
+                )
 
-    # Document, audio, video, voice
-    doc = getattr(message, "document", None)
-    if doc:
-        file_id = getattr(doc, "file_id", None)
-        if file_id:
-            file_url = await _resolve_telegram_file_url(
-                bot=bot,
-                file_id=file_id,
-                bot_token=bot_token,
-            )
+    for attr_name, content_cls, content_type, url_field in _MEDIA_ATTRS:
+        media_obj = getattr(message, attr_name, None)
+        if not media_obj:
+            continue
+        file_id = getattr(media_obj, "file_id", None)
+        if not file_id:
+            continue
+        file_name = getattr(media_obj, "file_name", None) or attr_name
+        local_path = await _download_telegram_file(
+            bot=bot,
+            file_id=file_id,
+            media_dir=media_dir,
+            filename_hint=file_name,
+        )
+        if local_path:
             content_parts.append(
-                FileContent(
-                    type=ContentType.FILE,
-                    file_url=file_url or f"tg://file_id/{file_id}",
-                ),
-            )
-
-    video = getattr(message, "video", None)
-    if video:
-        file_id = getattr(video, "file_id", None)
-        if file_id:
-            file_url = await _resolve_telegram_file_url(
-                bot=bot,
-                file_id=file_id,
-                bot_token=bot_token,
-            )
-            content_parts.append(
-                VideoContent(
-                    type=ContentType.VIDEO,
-                    video_url=file_url or f"tg://file_id/{file_id}",
-                ),
-            )
-
-    voice = getattr(message, "voice", None)
-    if voice:
-        file_id = getattr(voice, "file_id", None)
-        if file_id:
-            file_url = await _resolve_telegram_file_url(
-                bot=bot,
-                file_id=file_id,
-                bot_token=bot_token,
-            )
-            content_parts.append(
-                AudioContent(
-                    type=ContentType.AUDIO,
-                    data=file_url or f"tg://file_id/{file_id}",
-                ),
-            )
-
-    audio = getattr(message, "audio", None)
-    if audio:
-        file_id = getattr(audio, "file_id", None)
-        if file_id:
-            file_url = await _resolve_telegram_file_url(
-                bot=bot,
-                file_id=file_id,
-                bot_token=bot_token,
-            )
-            content_parts.append(
-                AudioContent(
-                    type=ContentType.AUDIO,
-                    data=file_url or f"tg://file_id/{file_id}",
-                ),
+                content_cls(type=content_type, **{url_field: local_path}),
             )
 
     if not content_parts:
@@ -189,6 +164,7 @@ class TelegramChannel(BaseChannel):
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        media_dir: str = "",
     ):
         super().__init__(
             process,
@@ -200,6 +176,7 @@ class TelegramChannel(BaseChannel):
         self._http_proxy = http_proxy or ""
         self._http_proxy_auth = http_proxy_auth or ""
         self.bot_prefix = bot_prefix
+        self._media_dir = Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         self._task: Optional[asyncio.Task] = None
         self._application = None
         if self.enabled and self._bot_token:
@@ -251,7 +228,7 @@ class TelegramChannel(BaseChannel):
             content_parts = await _build_content_parts_from_message(
                 update,
                 bot=context.bot,
-                bot_token=self._bot_token,
+                media_dir=self._media_dir,
             )
             meta = _message_meta(update)
             chat_id = meta.get("chat_id", "")
