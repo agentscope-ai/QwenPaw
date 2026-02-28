@@ -73,20 +73,20 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         Tries multiple attribute names and dict keys to handle SDK
         version differences.  Returns empty string if no ID found.
         """
-        raw = None
+        # Try message object attributes first
         for attr in ("msgId", "msg_id"):
             raw = getattr(incoming_message, attr, None)
             if raw is not None and raw != "":
-                break
-        if raw is None or raw == "":
-            data = callback.data if callback.data else {}
-            for key in ("msgId", "msg_id"):
-                raw = data.get(key)
-                if raw is not None and raw != "":
-                    break
-        if raw is None or raw == "":
-            return ""
-        return str(raw).strip()
+                return str(raw).strip()
+
+        # Fall back to callback.data dict
+        data = callback.data if callback.data else {}
+        for key in ("msgId", "msg_id"):
+            raw = data.get(key)
+            if raw is not None and raw != "":
+                return str(raw).strip()
+
+        return ""
 
     def _mark_completed(self, msg_id: str) -> None:
         """Move msg_id from inflight to completed cache."""

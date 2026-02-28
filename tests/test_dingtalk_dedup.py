@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import OrderedDict
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
@@ -33,15 +33,69 @@ class TestDingTalkDedup:
         assert isinstance(handler._inflight_message_ids, set)
         assert len(handler._inflight_message_ids) == 0
 
-    def test_completed_dedup_rejects_duplicate(self, handler):
-        """Completed msgId should be rejected on retry."""
-        handler._processed_message_ids["msg_001"] = None
-        assert "msg_001" in handler._processed_message_ids
+    @pytest.mark.asyncio
+    async def test_completed_dedup_rejects_duplicate(self, handler):
+        """process() should return OK and skip for already-completed msgId."""
+        handler._processed_message_ids["dup_msg_001"] = None
 
-    def test_inflight_dedup_rejects_concurrent(self, handler):
-        """In-flight msgId should be rejected on concurrent callback."""
-        handler._inflight_message_ids.add("msg_002")
-        assert "msg_002" in handler._inflight_message_ids
+        cb = MagicMock()
+        cb.data = {
+            "msgId": "dup_msg_001",
+            "text": {"content": "hello"},
+            "senderNick": "test",
+            "senderId": "user1",
+            "conversationId": "conv1",
+        }
+        # Patch ChatbotMessage.from_dict to return a mock message
+        fake_msg = MagicMock()
+        fake_msg.msgId = "dup_msg_001"
+        fake_msg.msg_id = "dup_msg_001"
+        fake_msg.text = MagicMock()
+        fake_msg.text.content = "hello"
+        fake_msg.to_dict = lambda: cb.data
+
+        import dingtalk_stream
+        with patch(
+            "copaw.app.channels.dingtalk.handler.ChatbotMessage.from_dict",
+            return_value=fake_msg,
+        ):
+            status, msg = await handler.process(cb)
+
+        assert status == dingtalk_stream.AckMessage.STATUS_OK
+        assert msg == "ok"
+        # Enqueue should NOT have been called (message was skipped)
+        handler._enqueue_callback.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_inflight_dedup_rejects_concurrent(self, handler):
+        """process() should return OK and skip for in-flight msgId."""
+        handler._inflight_message_ids.add("inflight_msg_002")
+
+        cb = MagicMock()
+        cb.data = {
+            "msgId": "inflight_msg_002",
+            "text": {"content": "hello"},
+            "senderNick": "test",
+            "senderId": "user1",
+            "conversationId": "conv1",
+        }
+        fake_msg = MagicMock()
+        fake_msg.msgId = "inflight_msg_002"
+        fake_msg.msg_id = "inflight_msg_002"
+        fake_msg.text = MagicMock()
+        fake_msg.text.content = "hello"
+        fake_msg.to_dict = lambda: cb.data
+
+        import dingtalk_stream
+        with patch(
+            "copaw.app.channels.dingtalk.handler.ChatbotMessage.from_dict",
+            return_value=fake_msg,
+        ):
+            status, msg = await handler.process(cb)
+
+        assert status == dingtalk_stream.AckMessage.STATUS_OK
+        assert msg == "ok"
+        handler._enqueue_callback.assert_not_called()
 
     def test_mark_completed_moves_from_inflight(self, handler):
         """_mark_completed should move from inflight to completed."""
