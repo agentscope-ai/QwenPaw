@@ -4,6 +4,7 @@
 This module ensures tool_use and tool_result messages are properly
 paired and ordered to prevent API errors.
 """
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -262,8 +263,6 @@ def _repair_empty_tool_inputs(
         List of Msg objects with repaired tool_use blocks.
     """
     # pylint: disable=too-many-nested-blocks
-    import json
-
     changed = False
     result: list = []
 
@@ -286,11 +285,7 @@ def _repair_empty_tool_inputs(
                 raw_input = block.get("raw_input", "")
 
                 # If input is empty but raw_input has content, try to parse
-                if (
-                    (not input_field or input_field == {})
-                    and raw_input
-                    and raw_input != "{}"
-                ):
+                if not input_field and raw_input and raw_input != "{}":
                     try:
                         parsed = json.loads(raw_input)
                         if isinstance(parsed, dict) and parsed:
