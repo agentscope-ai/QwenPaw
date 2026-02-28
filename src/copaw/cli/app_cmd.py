@@ -15,7 +15,7 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 @click.command("app")
 @click.option(
     "--host",
-    default="127.0.0.1",
+    default="0.0.0.0",
     show_default=True,
     help="Bind host",
 )

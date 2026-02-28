@@ -116,7 +116,7 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
             port = port or last[1]
 
     # final fallback
-    host = host or "127.0.0.1"
+    host = host or "0.0.0.0"
     port = port or 8088
 
     ctx.ensure_object(dict)
