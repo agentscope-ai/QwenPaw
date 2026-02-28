@@ -47,6 +47,9 @@ function SkillsPage() {
   };
 
   const closeImportModal = () => {
+    if (importing) {
+      return;
+    }
     setImportModalOpen(false);
     setImportUrl("");
     setImportUrlError("");
@@ -67,6 +70,7 @@ function SkillsPage() {
   };
 
   const handleConfirmImport = async () => {
+    if (importing) return;
     const trimmed = importUrl.trim();
     if (!trimmed) return;
     if (!isSupportedSkillUrl(trimmed)) {
@@ -138,6 +142,7 @@ function SkillsPage() {
         onCancel={closeImportModal}
         maskClosable={!importing}
         closable={!importing}
+        keyboard={!importing}
         footer={
           <div style={{ textAlign: "right" }}>
             <Button
@@ -151,7 +156,7 @@ function SkillsPage() {
               type="primary"
               onClick={handleConfirmImport}
               loading={importing}
-              disabled={!importUrl.trim() || !!importUrlError}
+              disabled={importing || !importUrl.trim() || !!importUrlError}
             >
               {t("skills.importSkills")}
             </Button>
