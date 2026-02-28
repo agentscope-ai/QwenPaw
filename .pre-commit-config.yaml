@@ -116,5 +116,5 @@ repos:
     hooks:
       - id: prettier
         additional_dependencies: [ 'prettier@3.0.0' ]
-        files: \.(tsx?)$
-        exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*)'
+        files: \.(tsx?|less|json)$
+        exclude: '(?x)(^web/|/dist/|node_modules|.*/skills/.*)'
