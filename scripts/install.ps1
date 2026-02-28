@@ -305,9 +305,12 @@ Set-Content -Path $cmdWrapperPath -Value $cmdWrapperContent -Encoding UTF8
 Write-Info "CMD wrapper created at $cmdWrapperPath"
 
 # ── Step 5: Update PATH via User Environment Variable ────────────────────────
-$currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($currentUserPath -notlike "*$CopawBin*") {
-    [Environment]::SetEnvironmentVariable("Path", "$CopawBin;$currentUserPath", "User")
+# Use registry cmdlets instead of [Environment]:: static methods for compatibility
+# with PowerShell Constrained Language Mode (e.g. when run via irm | iex).
+$currentUserPath = (Get-ItemProperty -Path 'HKCU:\Environment' -Name 'Path' -ErrorAction SilentlyContinue).Path
+if (-not $currentUserPath -or $currentUserPath -notlike "*$CopawBin*") {
+    $newPath = if ($currentUserPath) { "$CopawBin;$currentUserPath" } else { $CopawBin }
+    Set-ItemProperty -Path 'HKCU:\Environment' -Name 'Path' -Value $newPath
     $env:PATH = "$CopawBin;$env:PATH"
     Write-Info "Added $CopawBin to user PATH"
 } else {
