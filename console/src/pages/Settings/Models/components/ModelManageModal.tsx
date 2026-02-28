@@ -231,7 +231,7 @@ export function ModelManageModal({
           startPolling();
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => stopPolling();
   }, [
@@ -264,7 +264,7 @@ export function ModelManageModal({
           startOllamaPolling();
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => stopOllamaPolling();
   }, [
@@ -747,7 +747,7 @@ export function ModelManageModal({
                   onClick={handleDownload}
                   icon={<DownloadOutlined />}
                 >
-                  {t("models.localDownload")}
+                  {t("models.localDownloadModel")}
                 </Button>
               </div>
             </Form>

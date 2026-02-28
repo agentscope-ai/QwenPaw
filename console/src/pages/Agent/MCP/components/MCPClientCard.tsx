@@ -85,9 +85,9 @@ export function MCPClientCard({
         onClick={handleCardClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className={`${styles.mcpCard} ${
-          isHovered ? styles.hover : styles.normal
-        }`}
+        className={`${styles.mcpCard} ${client.enabled ? styles.enabledCard : ""
+          } ${isHovered ? styles.hover : styles.normal
+          }`}
       >
         <div className={styles.cardHeader}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -96,11 +96,22 @@ export function MCPClientCard({
             </span>
             <h3 className={styles.mcpTitle}>{client.name}</h3>
             <span
-              className={`${styles.typeBadge} ${
-                isRemote ? styles.remote : styles.local
-              }`}
+              className={`${styles.typeBadge} ${isRemote ? styles.remote : styles.local
+                }`}
             >
               {clientType}
+            </span>
+          </div>
+          <div className={styles.statusContainer}>
+            <span
+              className={`${styles.statusDot} ${client.enabled ? styles.enabled : styles.disabled
+                }`}
+            />
+            <span
+              className={`${styles.statusText} ${client.enabled ? styles.enabled : styles.disabled
+                }`}
+            >
+              {client.enabled ? t("common.enabled") : t("common.disabled")}
             </span>
           </div>
         </div>
@@ -172,26 +183,11 @@ export function MCPClientCard({
           <textarea
             value={editedJson}
             onChange={(e) => setEditedJson(e.target.value)}
-            style={{
-              width: "100%",
-              minHeight: 500,
-              fontFamily: "Monaco, Courier New, monospace",
-              fontSize: 13,
-              padding: 16,
-              border: "1px solid #d9d9d9",
-              borderRadius: 4,
-              resize: "vertical",
-            }}
+            className={styles.editJsonTextArea}
           />
         ) : (
           <pre
-            style={{
-              backgroundColor: "#f5f5f5",
-              padding: 16,
-              borderRadius: 8,
-              maxHeight: 500,
-              overflow: "auto",
-            }}
+            className={styles.preformattedText}
           >
             {clientJson}
           </pre>
