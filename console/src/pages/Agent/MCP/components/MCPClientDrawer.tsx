@@ -23,6 +23,20 @@ interface MCPClientDrawerProps {
   form: any;
 }
 
+// Validator for JSON object fields (env, headers)
+const jsonObjectValidator = (_: unknown, value: string) => {
+  if (!value || !value.trim()) return Promise.resolve();
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+      return Promise.reject(new Error("Must be a JSON object, e.g. {}"));
+    }
+    return Promise.resolve();
+  } catch {
+    return Promise.reject(new Error("Invalid JSON format"));
+  }
+};
+
 export function MCPClientDrawer({
   open,
   client,
@@ -162,6 +176,7 @@ export function MCPClientDrawer({
               name="env"
               label={t("mcp.env")}
               extra={t("mcp.envHelp")}
+              rules={[{ validator: jsonObjectValidator }]}
             >
               <Input.TextArea
                 rows={4}
@@ -186,6 +201,7 @@ export function MCPClientDrawer({
               name="headers"
               label={t("mcp.headers")}
               extra={t("mcp.headersHelp")}
+              rules={[{ validator: jsonObjectValidator }]}
             >
               <Input.TextArea
                 rows={4}
