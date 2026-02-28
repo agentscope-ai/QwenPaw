@@ -12,6 +12,7 @@ from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
 
 from copaw.constant import WORKING_DIR
+from copaw.agents.utils.ansi_utils import strip_ansi_sequences
 
 
 # pylint: disable=too-many-branches
@@ -97,6 +98,11 @@ async def execute_shell_command(
             except ProcessLookupError:
                 stdout_str = ""
                 stderr_str = stderr_suffix
+
+        # Strip ANSI escape sequences to reduce memory bloat
+        # These are terminal control codes for colors, cursor movement, etc.
+        stdout_str = strip_ansi_sequences(stdout_str)
+        stderr_str = strip_ansi_sequences(stderr_str)
 
         # Format the response in a human-friendly way
         if returncode == 0:
