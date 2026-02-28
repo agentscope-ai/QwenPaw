@@ -4,7 +4,11 @@
 #
 # Installs CoPaw into ~/.copaw with a uv-managed Python environment.
 # Users do NOT need Python pre-installed — uv handles everything.
+#
+# The entire script is wrapped in & { ... } @args so that `irm | iex` works
+# correctly (param() is only valid inside a scriptblock/function/file scope).
 
+& {
 param(
     [string]$Version = "",
     [switch]$FromSource,
@@ -341,3 +345,5 @@ Write-Host ""
 Write-Host "To upgrade later, re-run this installer."
 Write-Host "To uninstall, run: " -NoNewline
 Write-Host "copaw uninstall" -ForegroundColor White
+
+} @args
