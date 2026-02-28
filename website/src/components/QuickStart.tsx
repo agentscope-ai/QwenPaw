@@ -19,9 +19,9 @@ const COMMANDS = {
   ],
 } as const;
 
-const ACK_DEPLOY_URL =
+const ECS_DEPLOY_URL =
   "https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884";
-const ACK_DOC_URL = "https://developer.aliyun.com/article/1713682";
+const ECS_DOC_URL = "https://developer.aliyun.com/article/1713682";
 
 const TABS = ["pip", "unix", "windows", "aliyun"] as const;
 type OsTab = (typeof TABS)[number];
@@ -241,10 +241,10 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 }}
               >
                 <a
-                  href={ACK_DEPLOY_URL}
+                  href={ECS_DEPLOY_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="quickstart-ack-btn"
+                  className="quickstart-ecs-btn"
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -263,10 +263,10 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   {t(lang, "quickstart.aliyunDeployLink")}
                 </a>
                 <a
-                  href={ACK_DOC_URL}
+                  href={ECS_DOC_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="quickstart-ack-btn"
+                  className="quickstart-ecs-btn"
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
