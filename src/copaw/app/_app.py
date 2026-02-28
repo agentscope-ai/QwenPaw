@@ -146,15 +146,6 @@ app = FastAPI(
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
-# Todo: Delete this after testing
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 # Console static dir: env, or copaw package data (console), or cwd.
 _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"

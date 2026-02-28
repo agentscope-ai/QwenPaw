@@ -576,11 +576,6 @@ async def _action_start(headed: bool = False) -> ToolResponse:
             if _state["headless"] is False
             else "Browser started"
         )
-        msg = (
-            "Browser started (visible window)"
-            if _state["headless"] is False
-            else "Browser started"
-        )
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": msg},
@@ -671,7 +666,6 @@ async def _action_open(url: str, page_id: str) -> ToolResponse:
         await page.goto(url)
         _state["pages"][page_id] = page
         _state["current_page_id"] = page_id
-        _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
                 {
@@ -715,7 +709,6 @@ async def _action_navigate(url: str, page_id: str) -> ToolResponse:
         )
     try:
         await page.goto(url)
-        _state["current_page_id"] = page_id
         _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
@@ -1943,7 +1936,6 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
         return await _action_close(target_id)
     if tab_action == "select":
         target_id = page_ids[index] if 0 <= index < len(page_ids) else page_id
-        _state["current_page_id"] = target_id
         _state["current_page_id"] = target_id
         return _tool_response(
             json.dumps(
