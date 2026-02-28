@@ -26,6 +26,14 @@ from .content_utils import (
 
 logger = logging.getLogger(__name__)
 
+# Download filename hint by type (e.g. voice -> .amr).
+FILENAME_HINT_BY_MAPPED = {
+    "audio": "audio.amr",
+    "image": "image.png",
+    "video": "video.mp4",
+}
+DEFAULT_FILENAME_HINT = "file.bin"
+
 
 class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     """Internal handler: convert DingTalk message to native dict, enqueue via
@@ -82,18 +90,23 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 dl_code = item.get("downloadCode")
                 if not dl_code or not robot_code:
                     continue
-                fut = asyncio.run_coroutine_threadsafe(
-                    self._download_url_fetcher(
-                        download_code=dl_code,
-                        robot_code=robot_code,
-                    ),
-                    self._main_loop,
-                )
-                download_url = fut.result(timeout=15)
                 mapped = type_mapping.get(
                     item.get("type", "file"),
                     item.get("type", "file"),
                 )
+                hint = FILENAME_HINT_BY_MAPPED.get(
+                    mapped,
+                    DEFAULT_FILENAME_HINT,
+                )
+                fut = asyncio.run_coroutine_threadsafe(
+                    self._download_url_fetcher(
+                        download_code=dl_code,
+                        robot_code=robot_code,
+                        filename_hint=hint,
+                    ),
+                    self._main_loop,
+                )
+                download_url = fut.result(timeout=15)
                 content.append(
                     dingtalk_content_from_type(mapped, download_url),
                 )
@@ -102,15 +115,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             if not content:
                 dl_code = c.get("downloadCode") or c.get("download_code")
                 if dl_code and robot_code:
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self._download_url_fetcher(
-                            download_code=dl_code,
-                            robot_code=robot_code,
-                        ),
-                        self._main_loop,
-                    )
-                    download_url = fut.result(timeout=15)
-
                     msgtype = (
                         (
                             msg_dict.get(
@@ -127,7 +131,19 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     )
                     if mapped not in ("image", "file", "video", "audio"):
                         mapped = "file"
-
+                    hint = FILENAME_HINT_BY_MAPPED.get(
+                        mapped,
+                        DEFAULT_FILENAME_HINT,
+                    )
+                    fut = asyncio.run_coroutine_threadsafe(
+                        self._download_url_fetcher(
+                            download_code=dl_code,
+                            robot_code=robot_code,
+                            filename_hint=hint,
+                        ),
+                        self._main_loop,
+                    )
+                    download_url = fut.result(timeout=15)
                     content.append(
                         dingtalk_content_from_type(mapped, download_url),
                     )

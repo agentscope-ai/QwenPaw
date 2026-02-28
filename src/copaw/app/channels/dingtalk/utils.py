@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 # Magic bytes -> suffix for .file fallback (DingTalk URLs often return .file).
+# AMR-NB voice: "#!AMR\n"
 DINGTALK_MAGIC_SUFFIX: list[tuple[bytes, str]] = [
     (b"%PDF", ".pdf"),
     (b"PK\x03\x04", ".zip"),
@@ -15,6 +16,7 @@ DINGTALK_MAGIC_SUFFIX: list[tuple[bytes, str]] = [
     (b"GIF89a", ".gif"),
     (b"\xd0\xcf\x11\xe0", ".doc"),
     (b"RIFF", ".webp"),
+    (b"#!AMR\n", ".amr"),
 ]
 
 
