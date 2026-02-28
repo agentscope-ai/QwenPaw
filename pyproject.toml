@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
+    "python-telegram-bot>=20.0",
 ]
 
 [tool.setuptools.dynamic]

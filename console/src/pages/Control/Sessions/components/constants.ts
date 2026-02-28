@@ -10,6 +10,7 @@ export const CHANNEL_COLORS: Record<string, string> = {
   dingtalk: "cyan",
   feishu: "magenta",
   qq: "orange",
+  telegram: "geekblue",
   console: "green",
 } as const;
 
