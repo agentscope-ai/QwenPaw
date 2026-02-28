@@ -44,10 +44,7 @@ export interface VoiceChannelConfig extends BaseChannelConfig {
   stt_provider: string;
   language: string;
   welcome_greeting: string;
-  voice_system_prompt: string;
   max_concurrent_calls: number;
-  max_call_duration_minutes: number;
-  log_transcripts: boolean;
   local_port: number;
 }
 

@@ -89,6 +89,14 @@ class BinaryManager:
                         (m for m in members if m.endswith("cloudflared")),
                         members[0],
                     )
+                    # Guard against path traversal (tar slip)
+                    resolved = (self._bin_dir / cf_member).resolve()
+                    if not str(resolved).startswith(
+                        str(self._bin_dir.resolve()),
+                    ):
+                        raise RuntimeError(
+                            f"Tar member escapes target dir: {cf_member}",
+                        )
                     tar.extract(cf_member, path=str(self._bin_dir))
                     extracted = self._bin_dir / cf_member
                     if extracted != dest:

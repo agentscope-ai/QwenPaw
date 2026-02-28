@@ -95,12 +95,15 @@ class VoiceChannel(BaseChannel):
             logger.exception("Failed to start Cloudflare tunnel")
             return
 
-        # Configure Twilio webhook
-        webhook_url = f"{tunnel_info.public_url}/voice/incoming"
+        # Configure Twilio webhook + status callback
+        base_url = tunnel_info.public_url
+        webhook_url = f"{base_url}/voice/incoming"
+        status_cb_url = f"{base_url}/voice/status-callback"
         try:
             await self.twilio_mgr.configure_voice_webhook(
                 phone_number_sid,
                 webhook_url,
+                status_callback_url=status_cb_url,
             )
         except Exception:
             logger.exception("Failed to configure Twilio webhook")
@@ -168,29 +171,6 @@ class VoiceChannel(BaseChannel):
             input=[msg],
             channel=self.channel,
         )
-
-    async def refresh(self) -> None:
-        """Check tunnel health and restart + re-register webhook if needed."""
-        if not self._enabled or not self.tunnel_mgr:
-            return
-
-        healthy = await self.tunnel_mgr.health_check()
-        if healthy:
-            return
-
-        logger.warning("Tunnel unhealthy, restarting...")
-        local_port = getattr(self._config, "local_port", 8088)
-        try:
-            tunnel_info = await self.tunnel_mgr.start(local_port)
-            phone_number_sid = getattr(self._config, "phone_number_sid", "")
-            if phone_number_sid and self.twilio_mgr:
-                webhook_url = f"{tunnel_info.public_url}/voice/incoming"
-                await self.twilio_mgr.configure_voice_webhook(
-                    phone_number_sid,
-                    webhook_url,
-                )
-        except Exception:
-            logger.exception("Failed to restart tunnel")
 
     @property
     def config(self) -> Any:

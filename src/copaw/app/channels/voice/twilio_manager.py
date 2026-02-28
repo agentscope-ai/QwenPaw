@@ -43,7 +43,7 @@ class TwilioManager:
         return self._client
 
     async def _run_sync(self, fn, *args, **kwargs):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
 
     async def validate_credentials(self) -> bool:
@@ -110,14 +110,21 @@ class TwilioManager:
         self,
         phone_number_sid: str,
         webhook_url: str,
+        status_callback_url: str = "",
     ) -> None:
         """Update the voice webhook URL on an existing phone number."""
         client = self._get_client()
 
         def _configure():
+            kwargs = {
+                "voice_url": webhook_url,
+                "voice_method": "POST",
+            }
+            if status_callback_url:
+                kwargs["status_callback"] = status_callback_url
+                kwargs["status_callback_method"] = "POST"
             client.incoming_phone_numbers(phone_number_sid).update(
-                voice_url=webhook_url,
-                voice_method="POST",
+                **kwargs,
             )
 
         await self._run_sync(_configure)

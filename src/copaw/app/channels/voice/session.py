@@ -26,7 +26,7 @@ class CallSession:
 
 
 class CallSessionManager:
-    """Thread-safe registry of active call sessions."""
+    """Registry of active call sessions."""
 
     def __init__(self) -> None:
         self._sessions: dict[str, CallSession] = {}

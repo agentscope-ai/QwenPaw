@@ -58,7 +58,7 @@ class CloudflareTunnelDriver:
         if self._process and self._process.returncode is None:
             await self.stop()
 
-        binary = await asyncio.get_event_loop().run_in_executor(
+        binary = await asyncio.get_running_loop().run_in_executor(
             None,
             self._binary_mgr.get_binary_path,
         )
@@ -73,7 +73,7 @@ class CloudflareTunnelDriver:
             "tunnel",
             "--url",
             f"http://localhost:{local_port}",
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
 
@@ -137,15 +137,13 @@ class CloudflareTunnelDriver:
         if not self._process or not self._process.stderr:
             return None
 
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
             try:
                 line = await asyncio.wait_for(
                     self._process.stderr.readline(),
-                    timeout=max(
-                        0.1,
-                        deadline - asyncio.get_event_loop().time(),
-                    ),
+                    timeout=max(0.1, deadline - loop.time()),
                 )
             except asyncio.TimeoutError:
                 break

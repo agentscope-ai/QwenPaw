@@ -259,10 +259,10 @@ async def voice_numbers_provision(request: Request):
     if not phone_number:
         return {"error": "phone_number is required"}
 
-    webhook_url = ""
     tunnel_url = voice_ch.get_tunnel_url()
-    if tunnel_url:
-        webhook_url = f"{tunnel_url}/voice/incoming"
+    if not tunnel_url:
+        return {"error": "Tunnel is not running; cannot configure webhook"}
+    webhook_url = f"{tunnel_url}/voice/incoming"
 
     try:
         result = await voice_ch.twilio_mgr.provision_number(

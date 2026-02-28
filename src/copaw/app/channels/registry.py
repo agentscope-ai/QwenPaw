@@ -29,8 +29,9 @@ _BUILTIN: dict[str, type[BaseChannel]] = {
     "feishu": FeishuChannel,
     "qq": QQChannel,
     "console": ConsoleChannel,
-    **({"voice": VoiceChannel} if VOICE_AVAILABLE and VoiceChannel else {}),
 }
+if VOICE_AVAILABLE and VoiceChannel is not None:
+    _BUILTIN["voice"] = VoiceChannel
 
 
 def _discover_custom_channels() -> dict[str, type[BaseChannel]]:

@@ -70,14 +70,7 @@ class VoiceChannelConfig(BaseChannelConfig):
     stt_provider: str = "deepgram"
     language: str = "en-US"
     welcome_greeting: str = "Hi! This is CoPaw. How can I help you?"
-    voice_system_prompt: str = (
-        "You are CoPaw, a helpful AI assistant on a phone call. "
-        "Keep responses concise and conversational. "
-        "No markdown, no lists. Natural speech only."
-    )
     max_concurrent_calls: int = 1
-    max_call_duration_minutes: int = 30
-    log_transcripts: bool = True
     local_port: int = 8088
 
 
