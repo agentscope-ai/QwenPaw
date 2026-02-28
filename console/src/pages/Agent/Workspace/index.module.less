@@ -221,8 +221,9 @@
 .textarea {
   font-family: monospace;
   font-size: 13px;
-  resize: none;
-  height: 100% !important;
+  resize: vertical;
+  height: clamp(280px, 50vh, 640px);
+  min-height: 240px;
 }
 
 .markdownToggle {

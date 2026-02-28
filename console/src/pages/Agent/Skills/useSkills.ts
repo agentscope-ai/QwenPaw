@@ -6,6 +6,7 @@ import type { SkillSpec } from "../../../api/types";
 export function useSkills() {
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const fetchSkills = async () => {
     setLoading(true);
@@ -64,6 +65,7 @@ export function useSkills() {
       return false;
     }
     try {
+      setImporting(true);
       const payload = { bundle_url: text, enable: true, overwrite: false };
       const result = await api.installHubSkill(payload);
       if (result?.installed) {
@@ -77,6 +79,8 @@ export function useSkills() {
       console.error("Failed to import skill from hub", error);
       message.error("Import failed");
       return false;
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -142,6 +146,7 @@ export function useSkills() {
   return {
     skills,
     loading,
+    importing,
     createSkill,
     importFromHub,
     toggleEnabled,
