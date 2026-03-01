@@ -79,7 +79,26 @@ class LlamaCppBackend(LocalBackend):
         if chat_format is not None:
             init_kwargs["chat_format"] = chat_format
 
-        self._llm = Llama(**init_kwargs)
+        try:
+            self._llm = Llama(**init_kwargs)
+        except AssertionError as e:
+            # llama-cpp-python sometimes raises a bare AssertionError when
+            # context creation fails, which would otherwise surface as a
+            # cryptic empty error message to end users.
+            raise RuntimeError(
+                "Failed to initialize llama.cpp model context. "
+                f"model_path={model_path!r}, n_ctx={n_ctx}, "
+                f"n_gpu_layers={n_gpu_layers}. "
+                "The model file may be incompatible/corrupted or system "
+                "resources are insufficient. Try a smaller GGUF model, "
+                "reducing n_ctx, or adjusting n_gpu_layers.",
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                "Failed to initialize llama.cpp backend. "
+                f"model_path={model_path!r}, n_ctx={n_ctx}, "
+                f"n_gpu_layers={n_gpu_layers}. Original error: {e}",
+            ) from e
         self._model_path = model_path
         logger.info("Model loaded successfully: %s", model_path)
 
