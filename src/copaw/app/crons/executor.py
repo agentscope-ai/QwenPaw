@@ -5,6 +5,7 @@ import asyncio
 import logging
 from typing import Any, Dict
 
+from ..channels.schema import DEFAULT_CHANNEL
 from .models import CronJobSpec
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class CronExecutor:
         - task_type agent: ask agent with prompt, send reply to channel (
             stream_query + send_event)
         """
+        dispatch_channel = self._resolve_dispatch_channel(job)
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
@@ -29,7 +31,7 @@ class CronExecutor:
             "cron execute: job_id=%s channel=%s task_type=%s "
             "target_user_id=%s target_session_id=%s",
             job.id,
-            job.dispatch.channel,
+            dispatch_channel,
             job.task_type,
             target_user_id[:40] if target_user_id else "",
             target_session_id[:40] if target_session_id else "",
@@ -39,11 +41,11 @@ class CronExecutor:
             logger.info(
                 "cron send_text: job_id=%s channel=%s len=%s",
                 job.id,
-                job.dispatch.channel,
+                dispatch_channel,
                 len(job.text or ""),
             )
             await self._channel_manager.send_text(
-                channel=job.dispatch.channel,
+                channel=dispatch_channel,
                 user_id=target_user_id,
                 session_id=target_session_id,
                 text=job.text.strip(),
@@ -55,17 +57,18 @@ class CronExecutor:
         logger.info(
             "cron agent: job_id=%s channel=%s stream_query then send_event",
             job.id,
-            job.dispatch.channel,
+            dispatch_channel,
         )
         assert job.request is not None
         req: Dict[str, Any] = job.request.model_dump(mode="json")
         req["user_id"] = target_user_id or "cron"
         req["session_id"] = target_session_id or f"cron:{job.id}"
+        req["channel"] = dispatch_channel
 
         async def _run() -> None:
             async for event in self._runner.stream_query(req):
                 await self._channel_manager.send_event(
-                    channel=job.dispatch.channel,
+                    channel=dispatch_channel,
                     user_id=target_user_id,
                     session_id=target_session_id,
                     event=event,
@@ -73,3 +76,17 @@ class CronExecutor:
                 )
 
         await asyncio.wait_for(_run(), timeout=job.runtime.timeout_seconds)
+
+    @staticmethod
+    def _resolve_dispatch_channel(job: CronJobSpec) -> str:
+        """Resolve dispatch channel with fallback to request.channel."""
+        channel = (job.dispatch.channel or "").strip().lower()
+        if channel and channel != DEFAULT_CHANNEL:
+            return channel
+
+        request_channel = ""
+        if job.request is not None:
+            raw = job.request.model_dump(mode="json")
+            request_channel = str(raw.get("channel") or "").strip().lower()
+
+        return request_channel or channel or DEFAULT_CHANNEL

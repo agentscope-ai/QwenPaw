@@ -56,6 +56,12 @@ class DispatchSpec(BaseModel):
     mode: Literal["stream", "final"] = Field(default="stream")
     meta: Dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("channel")
+    @classmethod
+    def normalize_channel(cls, v: str) -> str:
+        channel = (v or "").strip().lower()
+        return channel or DEFAULT_CHANNEL
+
 
 class JobRuntimeSpec(BaseModel):
     max_concurrency: int = Field(default=1, ge=1)
@@ -103,6 +109,16 @@ class CronJobSpec(BaseModel):
                 raise ValueError("task_type is agent but request is missing")
             # Keep request.user_id and request.session_id in sync with target
             target = self.dispatch.target
+            req_raw = self.request.model_dump(mode="json")
+            req_channel = str(req_raw.get("channel") or "").strip().lower()
+            if (
+                req_channel
+                and (
+                    not self.dispatch.channel
+                    or self.dispatch.channel == DEFAULT_CHANNEL
+                )
+            ):
+                self.dispatch.channel = req_channel
             self.request = self.request.model_copy(
                 update={
                     "user_id": target.user_id,
