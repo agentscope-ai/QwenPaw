@@ -343,6 +343,11 @@ def list_cmd() -> None:
         else:
             if defn.is_custom:
                 click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
+                click.echo(f"  {'chat_model':16s}: {defn.chat_model}")
+            elif settings and settings.chat_model:
+                click.echo(
+                    f"  {'chat_model':16s}: {settings.chat_model}",
+                )
             click.echo(
                 f"  {'api_key':16s}: "
                 f"{mask_api_key(cur_key) or '(not set)'}",
@@ -403,11 +408,19 @@ def set_llm_cmd() -> None:
 @click.option("--name", "-n", required=True, help="Human-readable name")
 @click.option("--base-url", "-u", default="", help="Default API base URL")
 @click.option("--api-key-prefix", default="", help="Expected API key prefix")
+@click.option(
+    "--chat-model",
+    type=click.Choice(["OpenAIChatModel", "OpenAIResponsesChatModel"]),
+    default="OpenAIChatModel",
+    show_default=True,
+    help="Chat model adapter class",
+)
 def add_provider_cmd(
     provider_id: str,
     name: str,
     base_url: str,
     api_key_prefix: str,
+    chat_model: str,
 ) -> None:
     """Add a new custom provider."""
     try:
@@ -416,6 +429,7 @@ def add_provider_cmd(
             name,
             default_base_url=base_url,
             api_key_prefix=api_key_prefix,
+            chat_model=chat_model,
         )
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
@@ -423,6 +437,7 @@ def add_provider_cmd(
     click.echo(f"✓ Custom provider '{name}' ({provider_id}) created.")
     if base_url:
         click.echo(f"  base_url: {base_url}")
+    click.echo(f"  chat_model: {chat_model}")
     click.echo(
         "  Run 'copaw models add-model' to add models, "
         "then 'copaw models config-key' to set the API key.",

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Path
 from pydantic import BaseModel, Field
@@ -18,6 +18,7 @@ from ...providers import (
     create_custom_provider,
     delete_custom_provider,
     get_provider,
+    get_provider_chat_model,
     list_providers,
     load_providers_json,
     mask_api_key,
@@ -32,6 +33,9 @@ router = APIRouter(prefix="/models", tags=["models"])
 class ProviderConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+    chat_model: Optional[
+        Literal["OpenAIChatModel", "OpenAIResponsesChatModel"]
+    ] = Field(default=None)
 
 
 class ModelSlotRequest(BaseModel):
@@ -44,6 +48,10 @@ class CreateCustomProviderRequest(BaseModel):
     name: str = Field(...)
     default_base_url: str = Field(default="")
     api_key_prefix: str = Field(default="")
+    chat_model: Literal[
+        "OpenAIChatModel",
+        "OpenAIResponsesChatModel",
+    ] = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
 
 
@@ -56,6 +64,8 @@ def _build_provider_info(
     provider: ProviderDefinition,
     data: ProvidersData,
 ) -> ProviderInfo:
+    chat_model = get_provider_chat_model(provider.id, data)
+
     if provider.is_local:
         return ProviderInfo(
             id=provider.id,
@@ -68,6 +78,7 @@ def _build_provider_info(
             has_api_key=True,  # always "configured"
             current_api_key="",
             current_base_url="",
+            chat_model=chat_model,
         )
 
     cur_base_url, cur_api_key = data.get_credentials(provider.id)
@@ -91,6 +102,7 @@ def _build_provider_info(
         has_api_key=configured,
         current_api_key=mask_api_key(cur_api_key),
         current_base_url=cur_base_url,
+        chat_model=chat_model,
     )
 
 
@@ -122,6 +134,7 @@ async def configure_provider(
         provider_id,
         api_key=body.api_key,
         base_url=base_url,
+        chat_model=body.chat_model,
     )
     return _build_provider_info(provider, data)
 
@@ -141,6 +154,7 @@ async def create_custom_provider_endpoint(
             name=body.name,
             default_base_url=body.default_base_url,
             api_key_prefix=body.api_key_prefix,
+            chat_model=body.chat_model,
             models=body.models,
         )
     except ValueError as exc:

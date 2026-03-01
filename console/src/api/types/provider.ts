@@ -3,6 +3,10 @@ export interface ModelInfo {
   name: string;
 }
 
+export type ChatModelClassName =
+  | "OpenAIChatModel"
+  | "OpenAIResponsesChatModel";
+
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -16,11 +20,13 @@ export interface ProviderInfo {
   has_api_key: boolean;
   current_api_key: string;
   current_base_url: string;
+  chat_model: ChatModelClassName;
 }
 
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
+  chat_model?: ChatModelClassName;
 }
 
 export interface ModelSlotConfig {
@@ -44,6 +50,7 @@ export interface CreateCustomProviderRequest {
   name: string;
   default_base_url?: string;
   api_key_prefix?: string;
+  chat_model?: ChatModelClassName;
   models?: ModelInfo[];
 }
 

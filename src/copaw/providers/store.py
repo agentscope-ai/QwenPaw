@@ -232,6 +232,7 @@ def update_provider_settings(
     *,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    chat_model: Optional[str] = None,
 ) -> ProvidersData:
     """Partially update a provider's settings. Returns updated state."""
     data = load_providers_json()
@@ -242,6 +243,8 @@ def update_provider_settings(
             cpd.api_key = api_key
         if base_url is not None:
             cpd.base_url = base_url
+        if chat_model is not None:
+            cpd.chat_model = chat_model
         if not cpd.base_url:
             cpd.base_url = cpd.default_base_url
         register_custom_provider(cpd)
@@ -251,6 +254,8 @@ def update_provider_settings(
             settings.api_key = api_key
         if base_url is not None:
             settings.base_url = base_url
+        if chat_model is not None:
+            settings.chat_model = chat_model
         if not settings.base_url:
             defn = PROVIDERS.get(provider_id)
             if defn:
@@ -327,6 +332,7 @@ def create_custom_provider(
     *,
     default_base_url: str = "",
     api_key_prefix: str = "",
+    chat_model: str = "OpenAIChatModel",
     models: Optional[list[ModelInfo]] = None,
 ) -> ProvidersData:
     err = validate_custom_provider_id(provider_id)
@@ -342,6 +348,7 @@ def create_custom_provider(
         name=name,
         default_base_url=default_base_url,
         api_key_prefix=api_key_prefix,
+        chat_model=chat_model,
         models=models or [],
         base_url=default_base_url,
     )

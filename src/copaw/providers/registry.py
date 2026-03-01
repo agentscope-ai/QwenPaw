@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, List, Optional, Type
 
 from agentscope.model import ChatModelBase, OpenAIChatModel
 
+from .responses_model import OpenAIResponsesChatModel
+
 from .models import CustomProviderData, ModelInfo, ProviderDefinition
 
 if TYPE_CHECKING:
@@ -262,6 +264,7 @@ def sync_ollama_models() -> None:
 
 _CHAT_MODEL_MAP: dict[str, Type[ChatModelBase]] = {
     "OpenAIChatModel": OpenAIChatModel,
+    "OpenAIResponsesChatModel": OpenAIResponsesChatModel,
 }
 
 

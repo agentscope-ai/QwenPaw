@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Form, Input, Modal, message } from "@agentscope-ai/design";
+import { Form, Input, Modal, Select, message } from "@agentscope-ai/design";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 
@@ -18,6 +18,17 @@ export function CustomProviderModal({
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
 
+  const chatModelOptions = [
+    {
+      value: "OpenAIChatModel",
+      label: t("models.chatModelOptionCompletions"),
+    },
+    {
+      value: "OpenAIResponsesChatModel",
+      label: t("models.chatModelOptionResponses"),
+    },
+  ];
+
   useEffect(() => {
     if (open) {
       form.resetFields();
@@ -33,6 +44,7 @@ export function CustomProviderModal({
         name: values.name.trim(),
         default_base_url: values.default_base_url?.trim() || "",
         api_key_prefix: values.api_key_prefix?.trim() || "",
+        chat_model: values.chat_model || "OpenAIChatModel",
       });
       message.success(
         t("models.providerCreated", { name: values.name.trim() }),
@@ -62,7 +74,14 @@ export function CustomProviderModal({
       cancelText={t("models.cancel")}
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+      <Form
+        form={form}
+        layout="vertical"
+        style={{ marginTop: 16 }}
+        initialValues={{
+          chat_model: "OpenAIChatModel",
+        }}
+      >
         <Form.Item
           name="id"
           label={t("models.providerIdLabel")}
@@ -95,6 +114,14 @@ export function CustomProviderModal({
 
         <Form.Item name="api_key_prefix" label={t("models.apiKeyPrefixLabel")}>
           <Input placeholder={t("models.apiKeyPrefixPlaceholder")} />
+        </Form.Item>
+
+        <Form.Item
+          name="chat_model"
+          label={t("models.chatModel")}
+          extra={t("models.chatModelHint")}
+        >
+          <Select options={chatModelOptions} />
         </Form.Item>
       </Form>
     </Modal>

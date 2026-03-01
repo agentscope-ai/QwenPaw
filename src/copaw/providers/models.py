@@ -126,6 +126,7 @@ class ProviderInfo(BaseModel):
     has_api_key: bool = Field(default=False)
     current_api_key: str = Field(default="")
     current_base_url: str = Field(default="")
+    chat_model: str = Field(default="OpenAIChatModel")
 
 
 class ActiveModelsInfo(BaseModel):

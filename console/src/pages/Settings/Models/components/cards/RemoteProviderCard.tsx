@@ -73,6 +73,10 @@ export function RemoteProviderCard({
   const statusLabel = provider.has_api_key
     ? t("models.authorized")
     : t("models.unauthorized");
+  const chatModelLabel =
+    provider.chat_model === "OpenAIResponsesChatModel"
+      ? t("models.chatModelOptionResponses")
+      : t("models.chatModelOptionCompletions");
 
   return (
     <Card
@@ -142,6 +146,10 @@ export function RemoteProviderCard({
                 ? t("models.modelsCount", { count: totalCount })
                 : t("models.noModels")}
             </span>
+          </div>
+          <div className={styles.infoRow}>
+            <span className={styles.infoLabel}>{t("models.chatModel")}:</span>
+            <span className={styles.infoValue}>{chatModelLabel}</span>
           </div>
         </div>
       </div>

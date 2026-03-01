@@ -1,5 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
-import { Form, Input, Modal, message, Button } from "@agentscope-ai/design";
+import {
+  Form,
+  Input,
+  Modal,
+  Select,
+  message,
+  Button,
+} from "@agentscope-ai/design";
 import type { ProviderConfigRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -12,6 +19,7 @@ interface ProviderConfigModalProps {
     current_api_key?: string;
     api_key_prefix?: string;
     current_base_url?: string;
+    chat_model?: "OpenAIChatModel" | "OpenAIResponsesChatModel";
     is_custom: boolean;
     has_api_key: boolean;
   };
@@ -53,12 +61,27 @@ export function ProviderConfigModal({
     return t("models.enterApiKeyOptional");
   }, [provider.current_api_key, provider.api_key_prefix, t]);
 
+  const chatModelOptions = useMemo(
+    () => [
+      {
+        value: "OpenAIChatModel",
+        label: t("models.chatModelOptionCompletions"),
+      },
+      {
+        value: "OpenAIResponsesChatModel",
+        label: t("models.chatModelOptionResponses"),
+      },
+    ],
+    [t],
+  );
+
   // Sync form when modal opens or provider data changes
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
         api_key: undefined,
         base_url: provider.current_base_url || undefined,
+        chat_model: provider.chat_model || "OpenAIChatModel",
       });
       setFormDirty(false);
     }
@@ -154,6 +177,7 @@ export function ProviderConfigModal({
         layout="vertical"
         initialValues={{
           base_url: provider.current_base_url || undefined,
+          chat_model: provider.chat_model || "OpenAIChatModel",
         }}
         onValuesChange={() => setFormDirty(true)}
       >
@@ -178,6 +202,14 @@ export function ProviderConfigModal({
             placeholder={provider.is_custom ? "http://localhost:11434/v1" : ""}
             disabled={!provider.is_custom}
           />
+        </Form.Item>
+
+        <Form.Item
+          name="chat_model"
+          label={t("models.chatModel")}
+          extra={t("models.chatModelHint")}
+        >
+          <Select options={chatModelOptions} />
         </Form.Item>
 
         {/* API Key */}
