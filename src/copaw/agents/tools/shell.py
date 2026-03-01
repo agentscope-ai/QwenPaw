@@ -14,6 +14,27 @@ from agentscope.message import TextBlock
 from copaw.constant import WORKING_DIR
 
 
+def _decode_output(output: bytes) -> str:
+    """Decode subprocess output with UTF-8/locale fallbacks."""
+    candidates = [
+        "utf-8",
+        locale.getpreferredencoding(False) or "utf-8",
+        "gb18030",
+    ]
+
+    seen: set[str] = set()
+    for encoding in candidates:
+        if not encoding or encoding in seen:
+            continue
+        seen.add(encoding)
+        try:
+            return output.decode(encoding).strip("\n")
+        except UnicodeDecodeError:
+            continue
+
+    return output.decode("utf-8", errors="replace").strip("\n")
+
+
 # pylint: disable=too-many-branches
 async def execute_shell_command(
     command: str,
@@ -58,9 +79,8 @@ async def execute_shell_command(
         try:
             await asyncio.wait_for(proc.wait(), timeout=timeout)
             stdout, stderr = await proc.communicate()
-            encoding = locale.getpreferredencoding(False) or "utf-8"
-            stdout_str = stdout.decode(encoding, errors="replace").strip("\n")
-            stderr_str = stderr.decode(encoding, errors="replace").strip("\n")
+            stdout_str = _decode_output(stdout)
+            stderr_str = _decode_output(stderr)
             returncode = proc.returncode
 
         except asyncio.TimeoutError:
@@ -83,13 +103,8 @@ async def execute_shell_command(
                     await proc.wait()
 
                 stdout, stderr = await proc.communicate()
-                encoding = locale.getpreferredencoding(False) or "utf-8"
-                stdout_str = stdout.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
-                stderr_str = stderr.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
+                stdout_str = _decode_output(stdout)
+                stderr_str = _decode_output(stderr)
                 if stderr_str:
                     stderr_str += f"\n{stderr_suffix}"
                 else:
