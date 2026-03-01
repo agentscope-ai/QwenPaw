@@ -8,10 +8,36 @@ import locale
 from pathlib import Path
 from typing import Optional
 
-from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
+from agentscope.tool import ToolResponse
 
 from copaw.constant import WORKING_DIR
+
+
+def _safe_working_dir(cwd: Optional[Path]) -> Path:
+    """Return a valid directory path for subprocess cwd across platforms."""
+    if cwd is not None:
+        try:
+            p = Path(cwd)
+            if p.exists() and p.is_dir():
+                return p
+        except Exception:
+            return Path.cwd()
+        return Path.cwd()
+
+    try:
+        p = Path(WORKING_DIR)
+        if p.exists() and p.is_dir():
+            return p
+    except Exception:
+        pass
+
+    return Path.cwd()
+
+
+def _decode_output(b: bytes) -> str:
+    enc = locale.getpreferredencoding(False) or "utf-8"
+    return b.decode(enc, errors="replace").strip("\n")
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -46,21 +72,28 @@ async def execute_shell_command(
             content=[TextBlock(type="text", text="No command provided.")],
         )
 
-    # Set working directory
-    working_dir = cwd if cwd is not None else WORKING_DIR
-
-    def _decode(b: bytes) -> str:
-        enc = locale.getpreferredencoding(False) or "utf-8"
-        return b.decode(enc, errors="replace").strip("\n")
+    working_dir = _safe_working_dir(cwd)
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            bufsize=0,
-            cwd=str(working_dir),
-        )
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                bufsize=0,
+                cwd=str(working_dir),
+            )
+        except OSError:
+            # Windows can raise [WinError 267] for malformed/invalid cwd.
+            # Fall back to current working directory.
+            working_dir = Path.cwd()
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                bufsize=0,
+                cwd=str(working_dir),
+            )
 
         stdout_str = ""
         stderr_str = ""
@@ -71,12 +104,11 @@ async def execute_shell_command(
                 proc.communicate(),
                 timeout=timeout,
             )
-            stdout_str = _decode(stdout)
-            stderr_str = _decode(stderr)
+            stdout_str = _decode_output(stdout)
+            stderr_str = _decode_output(stderr)
             returncode = proc.returncode
 
         except asyncio.TimeoutError:
-            # Handle timeout
             stderr_suffix = (
                 f"⚠️ TimeoutError: The command execution exceeded "
                 f"the timeout of {timeout} seconds. "
@@ -107,8 +139,8 @@ async def execute_shell_command(
                         pass
                     stdout, stderr = await proc.communicate()
 
-            stdout_str = _decode(stdout)
-            stderr_str = _decode(stderr)
+            stdout_str = _decode_output(stdout)
+            stderr_str = _decode_output(stderr)
 
             if stderr_str:
                 stderr_str = f"{stderr_str}\n{stderr_suffix}"
@@ -117,10 +149,9 @@ async def execute_shell_command(
 
         # Format the response in a human-friendly way
         if returncode == 0:
-            if stdout_str:
-                response_text = stdout_str
-            else:
-                response_text = "Command executed successfully (no output)."
+            response_text = (
+                stdout_str or "Command executed successfully (no output)."
+            )
         else:
             response_parts = [f"Command failed with exit code {returncode}."]
             if stdout_str:

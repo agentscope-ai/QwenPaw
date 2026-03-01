@@ -25,17 +25,14 @@ def _first_text(resp) -> str:
 
 @pytest.mark.asyncio
 async def test_execute_shell_command_large_stdout_does_not_timeout():
-    cmd = " ".join(
+    code = "".join(
         [
-            sys.executable,
-            "-c",
-            (
-                "import sys; "
-                "sys.stdout.write('x'*200000); "
-                "sys.stdout.flush()"
-            ),
+            "import sys; ",
+            "sys.stdout.write('x'*200000); ",
+            "sys.stdout.flush()",
         ],
     )
+    cmd = f'"{sys.executable}" -c "{code}"'
 
     resp = await execute_shell_command(cmd, timeout=5)
     text = _first_text(resp)
