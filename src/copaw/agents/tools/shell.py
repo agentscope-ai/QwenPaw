@@ -5,6 +5,9 @@
 
 import asyncio
 import locale
+import os
+import signal
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +15,46 @@ from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
 
 from copaw.constant import WORKING_DIR
+
+
+def _decode_output(output: bytes) -> str:
+    """Decode process output using preferred locale with fallback."""
+    encoding = locale.getpreferredencoding(False) or "utf-8"
+    return output.decode(encoding, errors="replace").strip("\n")
+
+
+async def _terminate_process_tree(
+    proc: asyncio.subprocess.Process,
+) -> None:
+    """Terminate process and its children best-effort."""
+    if proc.returncode is not None:
+        return
+
+    try:
+        if os.name != "nt":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except ProcessLookupError:
+        return
+
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=1)
+        return
+    except asyncio.TimeoutError:
+        pass
+    except ProcessLookupError:
+        return
+
+    try:
+        if os.name != "nt":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except ProcessLookupError:
+        return
+
+    await proc.wait()
 
 
 # pylint: disable=too-many-branches
@@ -47,20 +90,30 @@ async def execute_shell_command(
     working_dir = cwd if cwd is not None else WORKING_DIR
 
     try:
+        popen_kwargs = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+
         proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             bufsize=0,
             cwd=str(working_dir),
+            **popen_kwargs,
         )
 
         try:
-            await asyncio.wait_for(proc.wait(), timeout=timeout)
-            stdout, stderr = await proc.communicate()
-            encoding = locale.getpreferredencoding(False) or "utf-8"
-            stdout_str = stdout.decode(encoding, errors="replace").strip("\n")
-            stderr_str = stderr.decode(encoding, errors="replace").strip("\n")
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=timeout,
+            )
+            stdout_str = _decode_output(stdout)
+            stderr_str = _decode_output(stderr)
             returncode = proc.returncode
 
         except asyncio.TimeoutError:
@@ -73,23 +126,10 @@ async def execute_shell_command(
             )
             returncode = -1
             try:
-                proc.terminate()
-                # Wait a bit for graceful termination
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=1)
-                except asyncio.TimeoutError:
-                    # Force kill if graceful termination fails
-                    proc.kill()
-                    await proc.wait()
-
+                await _terminate_process_tree(proc)
                 stdout, stderr = await proc.communicate()
-                encoding = locale.getpreferredencoding(False) or "utf-8"
-                stdout_str = stdout.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
-                stderr_str = stderr.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
+                stdout_str = _decode_output(stdout)
+                stderr_str = _decode_output(stderr)
                 if stderr_str:
                     stderr_str += f"\n{stderr_suffix}"
                 else:
@@ -97,6 +137,9 @@ async def execute_shell_command(
             except ProcessLookupError:
                 stdout_str = ""
                 stderr_str = stderr_suffix
+        except asyncio.CancelledError:
+            await _terminate_process_tree(proc)
+            raise
 
         # Format the response in a human-friendly way
         if returncode == 0:
