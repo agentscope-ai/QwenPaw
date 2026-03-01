@@ -252,7 +252,7 @@ async def set_active_model(
     extra_models = settings.extra_models if settings else []
     supported_models = {m.id for m in provider.models}
     supported_models.update(m.id for m in extra_models)
-    if supported_models and model_id not in supported_models:
+    if model_id not in supported_models:
         raise HTTPException(
             status_code=400,
             detail=(
