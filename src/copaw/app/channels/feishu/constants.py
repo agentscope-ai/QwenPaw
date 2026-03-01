@@ -19,5 +19,8 @@ FEISHU_SESSION_ID_SUFFIX_LEN = 8
 # Timeout for Contact API when fetching user name by open_id (seconds)
 FEISHU_USER_NAME_FETCH_TIMEOUT = 2
 
+# Feishu API URL for fetching bot info (open_id, etc.)
+FEISHU_BOT_INFO_URL = "https://open.feishu.cn/open-apis/bot/v3/info"
+
 # For minimal installation
 FEISHU_AVAILABLE = True

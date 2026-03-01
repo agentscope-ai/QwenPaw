@@ -56,6 +56,7 @@ from ..base import (
 
 from .constants import (
     FEISHU_AVAILABLE,
+    FEISHU_BOT_INFO_URL,
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
@@ -334,7 +335,7 @@ class FeishuChannel(BaseChannel):
             token = await self._get_tenant_access_token()
             timeout = aiohttp.ClientTimeout(total=10)
             async with self._http.get(
-                "https://open.feishu.cn/open-apis/bot/v3/info",
+                FEISHU_BOT_INFO_URL,
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=timeout,
             ) as resp:
@@ -541,18 +542,18 @@ class FeishuChannel(BaseChannel):
                 getattr(message, "chat_type", "p2p") or "p2p",
             ).strip()
 
-            if self.group_at_only and chat_type == "group":
+            if (
+                self.group_at_only
+                and chat_type == "group"
+                and self._bot_open_id
+            ):
                 mentions = getattr(message, "mentions", None) or []
-                bot_oid = self._bot_open_id or ""
-                if bot_oid and not any(
-                    getattr(
-                        getattr(m, "id", None),
-                        "open_id",
-                        None,
-                    )
-                    == bot_oid
+                is_mentioned = any(
+                    getattr(getattr(m, "id", None), "open_id", None)
+                    == self._bot_open_id
                     for m in mentions
-                ):
+                )
+                if not is_mentioned:
                     return
 
             msg_type = str(
