@@ -370,11 +370,14 @@ def delete_custom_provider(provider_id: str) -> ProvidersData:
 
 
 def add_model(provider_id: str, model: ModelInfo) -> ProvidersData:
-    defn = PROVIDERS.get(provider_id)
-    if defn is None:
-        raise ValueError(f"Provider '{provider_id}' not found.")
-
     data = load_providers_json()
+    defn = PROVIDERS.get(provider_id)
+
+    # Check both built-in and custom providers before raising "not found".
+    # Previously, custom providers were unreachable because the guard
+    # checked only PROVIDERS (built-in registry) and raised immediately.
+    if defn is None and provider_id not in data.custom_providers:
+        raise ValueError(f"Provider '{provider_id}' not found.")
 
     if is_builtin(provider_id):
         if provider_id == "ollama":
@@ -412,11 +415,12 @@ def add_model(provider_id: str, model: ModelInfo) -> ProvidersData:
 
 
 def remove_model(provider_id: str, model_id: str) -> ProvidersData:
-    defn = PROVIDERS.get(provider_id)
-    if defn is None:
-        raise ValueError(f"Provider '{provider_id}' not found.")
-
     data = load_providers_json()
+    defn = PROVIDERS.get(provider_id)
+
+    # Check both built-in and custom providers before raising "not found".
+    if defn is None and provider_id not in data.custom_providers:
+        raise ValueError(f"Provider '{provider_id}' not found.")
 
     if is_builtin(provider_id):
         if provider_id == "ollama":
