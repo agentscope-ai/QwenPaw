@@ -304,6 +304,15 @@ else
 fi
 echo ""
 
+# ── Step 6: Register as system service (auto-start) ─────────────────────────
+info "Registering CoPaw as a system service..."
+"$COPAW_VENV/bin/copaw" service install 2>/dev/null && {
+    printf "  Service:           ${GREEN}registered (auto-start enabled)${RESET}\n"
+} || {
+    printf "  Service:           ${YELLOW}skipped (register manually with 'copaw service install')${RESET}\n"
+}
+echo ""
+
 if [ "$UPDATED_PROFILE" = true ]; then
     echo "To get started, open a new terminal or run:"
     echo ""
@@ -313,8 +322,9 @@ fi
 
 echo "Then run:"
 echo ""
-printf "  ${BOLD}copaw init${RESET}       # first-time setup\n"
-printf "  ${BOLD}copaw app${RESET}        # start CoPaw\n"
+printf "  ${BOLD}copaw init${RESET}               # first-time setup\n"
+printf "  ${BOLD}copaw service start${RESET}      # start CoPaw service\n"
+printf "  ${BOLD}copaw app${RESET}                # or start CoPaw directly\n"
 echo ""
 printf "To upgrade later, re-run this installer.\n"
 printf "To uninstall, run: ${BOLD}copaw uninstall${RESET}\n"

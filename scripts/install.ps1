@@ -332,12 +332,26 @@ if ($script:ConsoleAvailable) {
     Write-Host "  Console (web UI):  " -NoNewline; Write-Host "not available" -ForegroundColor Yellow
     Write-Host "                     Install Node.js and re-run to enable the web UI."
 }
+
+# ── Step 6: Register as system service (auto-start) ──────────────────────────
+Write-Info "Registering CoPaw as a scheduled task (auto-start at logon)..."
+try {
+    & $VenvCopaw service install 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Service:           " -NoNewline; Write-Host "registered (auto-start enabled)" -ForegroundColor Green
+    } else {
+        Write-Host "  Service:           " -NoNewline; Write-Host "skipped (register manually with 'copaw service install')" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "  Service:           " -NoNewline; Write-Host "skipped (register manually with 'copaw service install')" -ForegroundColor Yellow
+}
 Write-Host ""
 
 Write-Host "To get started, open a new terminal and run:"
 Write-Host ""
-Write-Host "  copaw init" -ForegroundColor White -NoNewline; Write-Host "       # first-time setup"
-Write-Host "  copaw app" -ForegroundColor White -NoNewline; Write-Host "        # start CoPaw"
+Write-Host "  copaw init" -ForegroundColor White -NoNewline; Write-Host "               # first-time setup"
+Write-Host "  copaw service start" -ForegroundColor White -NoNewline; Write-Host "      # start CoPaw service"
+Write-Host "  copaw app" -ForegroundColor White -NoNewline; Write-Host "                # or start CoPaw directly"
 Write-Host ""
 Write-Host "To upgrade later, re-run this installer."
 Write-Host "To uninstall, run: " -NoNewline

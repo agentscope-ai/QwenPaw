@@ -43,6 +43,25 @@ def _remove_path_entry(profile: Path) -> bool:
     return True
 
 
+def _remove_service() -> bool:
+    """Attempt to remove the CoPaw service if it is installed. Returns True
+    if a service was found and removed."""
+    try:
+        from ..service import is_service_installed, get_service_manager
+    except Exception:
+        return False
+
+    if not is_service_installed():
+        return False
+
+    try:
+        mgr = get_service_manager()
+        mgr.uninstall()
+        return True
+    except Exception:
+        return False
+
+
 @click.command("uninstall")
 @click.option(
     "--purge",
@@ -67,6 +86,10 @@ def uninstall_cmd(purge: bool, yes: bool) -> None:
         if not ok:
             click.echo("Cancelled.")
             return
+
+    # Remove service if installed
+    if _remove_service():
+        click.echo("  Removed CoPaw service")
 
     # Remove installer-managed directories
     for dirname in _INSTALLER_DIRS:
