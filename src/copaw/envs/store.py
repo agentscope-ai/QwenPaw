@@ -12,11 +12,35 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
-_ENVS_DIR = Path(__file__).resolve().parent
-_ENVS_JSON = _ENVS_DIR / "envs.json"
+from ..constant import WORKING_DIR
+
+
+def _resolve_envs_json_path() -> Path:
+    raw = os.environ.get("COPAW_ENVS_FILE", "envs.json").strip() or "envs.json"
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = (WORKING_DIR / path).expanduser()
+    return path.resolve()
+
+
+_ENVS_JSON = _resolve_envs_json_path()
+_LEGACY_ENVS_JSON = Path(__file__).resolve().parent / "envs.json"
+
+
+def _migrate_legacy_envs(path: Path) -> None:
+    """Migrate legacy envs.json from package dir to working dir once."""
+    if path.is_file():
+        return
+    if _LEGACY_ENVS_JSON.resolve() == path.resolve():
+        return
+    if not _LEGACY_ENVS_JSON.is_file():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_LEGACY_ENVS_JSON, path)
 
 
 def get_envs_json_path() -> Path:
@@ -62,6 +86,7 @@ def load_envs(
     """Load env vars from envs.json."""
     if path is None:
         path = get_envs_json_path()
+    _migrate_legacy_envs(path)
     if not path.is_file():
         return {}
     try:
