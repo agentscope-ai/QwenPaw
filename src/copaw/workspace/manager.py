@@ -103,7 +103,7 @@ class WorkspaceManager:
         return self._root
 
     def activate(self, workspace_id: str) -> bool:
-        """Set *workspace_id* as the active workspace. Returns True if found."""
+        """Set *workspace_id* as active. Returns True if found."""
         for ws in self._data.workspaces:
             ws.is_active = ws.id == workspace_id
         found = any(ws.id == workspace_id for ws in self._data.workspaces)

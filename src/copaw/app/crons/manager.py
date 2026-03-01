@@ -278,6 +278,39 @@ class CronManager:
         except Exception:  # pylint: disable=broad-except
             logger.exception("heartbeat run failed")
 
+    def _handle_failure(
+        self,
+        job: CronJobSpec,
+        st: CronJobState,
+        exc: Exception,
+    ) -> None:
+        """Update state and auto-pause on consecutive failures."""
+        st.last_status = "error"
+        st.last_error = repr(exc)
+        st.consecutive_failures += 1
+
+        pause_after = job.runtime.auto_pause_after
+        if 0 < pause_after <= st.consecutive_failures:
+            logger.warning(
+                "cron auto-pause: job_id=%s after %d consecutive failures",
+                job.id,
+                st.consecutive_failures,
+            )
+            try:
+                self._scheduler.pause_job(job.id)
+            except Exception:  # pylint: disable=broad-except
+                pass
+            session_id = job.dispatch.target.session_id
+            if session_id:
+                msg = (
+                    f"⚠️ Cron job [{job.name}] auto-paused after "
+                    f"{st.consecutive_failures} consecutive failures. "
+                    f"Last error: {exc}"
+                )
+                asyncio.ensure_future(
+                    push_store_append(session_id, msg),
+                )
+
     async def _execute_once(self, job: CronJobSpec) -> None:
         rt = self._rt.get(job.id)
         if not rt:
@@ -344,34 +377,7 @@ class CronManager:
             st.last_run_at = datetime.utcnow()
 
             if last_exc is not None:
-                st.last_status = "error"
-                st.last_error = repr(last_exc)
-                st.consecutive_failures += 1
-
-                # Auto-pause after N consecutive failures
-                pause_after = job.runtime.auto_pause_after
-                if pause_after > 0 and st.consecutive_failures >= pause_after:
-                    logger.warning(
-                        "cron auto-pause: job_id=%s after %d consecutive "
-                        "failures",
-                        job.id,
-                        st.consecutive_failures,
-                    )
-                    try:
-                        self._scheduler.pause_job(job.id)
-                    except Exception:
-                        pass
-                    # Notify via console push
-                    session_id = job.dispatch.target.session_id
-                    if session_id:
-                        msg = (
-                            f"⚠️ Cron job [{job.name}] auto-paused after "
-                            f"{st.consecutive_failures} consecutive failures. "
-                            f"Last error: {last_exc}"
-                        )
-                        asyncio.ensure_future(
-                            push_store_append(session_id, msg),
-                        )
+                self._handle_failure(job, st, last_exc)
 
             self._states[job.id] = st
 

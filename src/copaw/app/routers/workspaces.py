@@ -98,6 +98,7 @@ async def activate_workspace(
     # resolve to the newly activated workspace.
     set_workspace_dir(mgr.get_active_path())
     ws = mgr.get_active()
+    assert ws is not None, "just activated; must exist"
     return _to_response(ws)
 
 

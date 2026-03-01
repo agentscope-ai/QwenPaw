@@ -1,19 +1,34 @@
 # -*- coding: utf-8 -*-
 """Unit tests for Phase 7: Multi-workspace management + Cron enhancement."""
+# pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
-import asyncio
 import json
-import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from copaw.app.crons.history import CronJobHistory, HistoryRepo
+from copaw.app.crons.manager import CronManager
+from copaw.app.crons.models import CronJobState, JobRuntimeSpec
+from copaw.constant import (
+    WORKING_DIR,
+    get_active_skills_dir,
+    get_custom_channels_dir,
+    get_customized_skills_dir,
+    get_memory_dir,
+    get_sessions_dir,
+    get_workspace_dir,
+    set_workspace_dir,
+)
+from copaw.workspace.manager import WorkspaceManager
+from copaw.workspace.migration import ensure_workspace_layout
+from copaw.workspace.models import WorkspaceInfo, WorkspacesFile
+
 
 # ---------------------------------------------------------------------------
 # Workspace models
 # ---------------------------------------------------------------------------
-from copaw.workspace.models import WorkspaceInfo, WorkspacesFile
 
 
 class TestWorkspaceInfo:
@@ -51,7 +66,6 @@ class TestWorkspacesFile:
 # ---------------------------------------------------------------------------
 # WorkspaceManager
 # ---------------------------------------------------------------------------
-from copaw.workspace.manager import WorkspaceManager
 
 
 class TestWorkspaceManager:
@@ -139,7 +153,6 @@ class TestWorkspaceManager:
 # ---------------------------------------------------------------------------
 # Migration
 # ---------------------------------------------------------------------------
-from copaw.workspace.migration import ensure_workspace_layout
 
 
 class TestMigration:
@@ -154,7 +167,9 @@ class TestMigration:
     def test_migrates_legacy_config(self, tmp_path):
         """Legacy config.json at root is moved into workspace."""
         (tmp_path / "config.json").write_text('{"test": true}')
-        (tmp_path / "jobs.json").write_text('{"version": 1, "jobs": []}')
+        (tmp_path / "jobs.json").write_text(
+            '{"version": 1, "jobs": []}',
+        )
 
         mgr = ensure_workspace_layout(tmp_path)
         ws = mgr.get_active()
@@ -204,22 +219,13 @@ class TestMigration:
 # ---------------------------------------------------------------------------
 # constant.py workspace helpers
 # ---------------------------------------------------------------------------
-from copaw.constant import (
-    get_workspace_dir,
-    set_workspace_dir,
-    get_active_skills_dir,
-    get_customized_skills_dir,
-    get_memory_dir,
-    get_custom_channels_dir,
-    get_sessions_dir,
-    WORKING_DIR,
-)
 
 
 class TestConstantHelpers:
     def test_default_workspace_dir(self):
         """Before set_workspace_dir, falls back to WORKING_DIR."""
         import copaw.constant as c
+
         old = c._active_workspace_dir
         try:
             c._active_workspace_dir = None
@@ -229,14 +235,23 @@ class TestConstantHelpers:
 
     def test_set_workspace_dir(self, tmp_path):
         import copaw.constant as c
+
         old = c._active_workspace_dir
         try:
             set_workspace_dir(tmp_path / "ws1")
             assert get_workspace_dir() == tmp_path / "ws1"
-            assert get_active_skills_dir() == tmp_path / "ws1" / "active_skills"
-            assert get_customized_skills_dir() == tmp_path / "ws1" / "customized_skills"
+            assert (
+                get_active_skills_dir() == tmp_path / "ws1" / "active_skills"
+            )
+            assert (
+                get_customized_skills_dir()
+                == tmp_path / "ws1" / "customized_skills"
+            )
             assert get_memory_dir() == tmp_path / "ws1" / "memory"
-            assert get_custom_channels_dir() == tmp_path / "ws1" / "custom_channels"
+            assert (
+                get_custom_channels_dir()
+                == tmp_path / "ws1" / "custom_channels"
+            )
             assert get_sessions_dir() == tmp_path / "ws1" / "sessions"
         finally:
             c._active_workspace_dir = old
@@ -245,7 +260,6 @@ class TestConstantHelpers:
 # ---------------------------------------------------------------------------
 # Cron history
 # ---------------------------------------------------------------------------
-from copaw.app.crons.history import CronJobHistory, HistoryRepo
 
 
 class TestCronJobHistory:
@@ -258,7 +272,11 @@ class TestCronJobHistory:
         assert len(h.id) == 12
 
     def test_json_roundtrip(self):
-        h = CronJobHistory(job_id="j1", status="success", attempt=2)
+        h = CronJobHistory(
+            job_id="j1",
+            status="success",
+            attempt=2,
+        )
         data = json.loads(h.model_dump_json())
         restored = CronJobHistory.model_validate(data)
         assert restored.job_id == "j1"
@@ -281,12 +299,14 @@ class TestHistoryRepo:
 
     def test_list_empty(self, tmp_path):
         repo = HistoryRepo(tmp_path / "history.jsonl")
-        assert repo.list_by_job("nonexistent") == []
+        assert not repo.list_by_job("nonexistent")
 
     def test_list_limit(self, tmp_path):
         repo = HistoryRepo(tmp_path / "history.jsonl")
-        for i in range(10):
-            repo.append(CronJobHistory(job_id="j1", status="success"))
+        for _ in range(10):
+            repo.append(
+                CronJobHistory(job_id="j1", status="success"),
+            )
         records = repo.list_by_job("j1", limit=3)
         assert len(records) == 3
 
@@ -294,7 +314,6 @@ class TestHistoryRepo:
 # ---------------------------------------------------------------------------
 # Cron models — retry fields
 # ---------------------------------------------------------------------------
-from copaw.app.crons.models import JobRuntimeSpec, CronJobState
 
 
 class TestJobRuntimeSpecRetry:
@@ -305,7 +324,11 @@ class TestJobRuntimeSpecRetry:
         assert rt.auto_pause_after == 3
 
     def test_custom_retry_fields(self):
-        rt = JobRuntimeSpec(max_retries=3, retry_delay=10.0, auto_pause_after=5)
+        rt = JobRuntimeSpec(
+            max_retries=3,
+            retry_delay=10.0,
+            auto_pause_after=5,
+        )
         assert rt.max_retries == 3
         assert rt.retry_delay == 10.0
         assert rt.auto_pause_after == 5
@@ -320,7 +343,36 @@ class TestCronJobStateConsecutiveFailures:
 # ---------------------------------------------------------------------------
 # CronManager retry + auto-pause (integration-style with mocks)
 # ---------------------------------------------------------------------------
-from copaw.app.crons.manager import CronManager
+
+
+def _make_job(max_retries=0, retry_delay=0.01, auto_pause_after=3):
+    from copaw.app.crons.models import (
+        CronJobRequest,
+        CronJobSpec,
+        DispatchSpec,
+        DispatchTarget,
+        ScheduleSpec,
+    )
+
+    return CronJobSpec(
+        id="test-job",
+        name="Test Job",
+        schedule=ScheduleSpec(cron="0 * * * *"),
+        task_type="agent",
+        request=CronJobRequest(
+            input="hello",
+            session_id="s1",
+            user_id="u1",
+        ),
+        dispatch=DispatchSpec(
+            target=DispatchTarget(user_id="u1", session_id="s1"),
+        ),
+        runtime=JobRuntimeSpec(
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            auto_pause_after=auto_pause_after,
+        ),
+    )
 
 
 class TestCronManagerRetry:
@@ -344,35 +396,6 @@ class TestCronManagerRetry:
     def mock_channel_manager(self):
         return MagicMock()
 
-    def _make_job(self, max_retries=0, retry_delay=0.01, auto_pause_after=3):
-        from copaw.app.crons.models import (
-            CronJobSpec,
-            ScheduleSpec,
-            DispatchSpec,
-            DispatchTarget,
-            JobRuntimeSpec,
-            CronJobRequest,
-        )
-        return CronJobSpec(
-            id="test-job",
-            name="Test Job",
-            schedule=ScheduleSpec(cron="0 * * * *"),
-            task_type="agent",
-            request=CronJobRequest(
-                input="hello",
-                session_id="s1",
-                user_id="u1",
-            ),
-            dispatch=DispatchSpec(
-                target=DispatchTarget(user_id="u1", session_id="s1"),
-            ),
-            runtime=JobRuntimeSpec(
-                max_retries=max_retries,
-                retry_delay=retry_delay,
-                auto_pause_after=auto_pause_after,
-            ),
-        )
-
     @pytest.mark.asyncio
     async def test_execute_once_success(
         self,
@@ -391,7 +414,7 @@ class TestCronManagerRetry:
         mgr._executor = MagicMock()
         mgr._executor.execute = AsyncMock()
 
-        job = self._make_job()
+        job = _make_job()
         await mgr._execute_once(job)
 
         st = mgr.get_state("test-job")
@@ -422,7 +445,7 @@ class TestCronManagerRetry:
             side_effect=RuntimeError("boom"),
         )
 
-        job = self._make_job(max_retries=0)
+        job = _make_job(max_retries=0)
         with pytest.raises(RuntimeError, match="boom"):
             await mgr._execute_once(job)
 
@@ -448,7 +471,7 @@ class TestCronManagerRetry:
         )
         call_count = 0
 
-        async def flaky_execute(job):
+        async def flaky_execute(**_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -457,7 +480,7 @@ class TestCronManagerRetry:
         mgr._executor = MagicMock()
         mgr._executor.execute = AsyncMock(side_effect=flaky_execute)
 
-        job = self._make_job(max_retries=2, retry_delay=0.01)
+        job = _make_job(max_retries=2, retry_delay=0.01)
         await mgr._execute_once(job)
 
         assert call_count == 3
@@ -490,7 +513,7 @@ class TestCronManagerRetry:
         # Mock the scheduler
         mgr._scheduler = MagicMock()
 
-        job = self._make_job(auto_pause_after=2)
+        job = _make_job(auto_pause_after=2)
 
         # First failure
         with pytest.raises(RuntimeError):
@@ -525,7 +548,7 @@ class TestCronManagerRetry:
         mgr._executor.execute = AsyncMock(
             side_effect=RuntimeError("fail"),
         )
-        job = self._make_job(auto_pause_after=5)
+        job = _make_job(auto_pause_after=5)
         with pytest.raises(RuntimeError):
             await mgr._execute_once(job)
         assert mgr.get_state("test-job").consecutive_failures == 1

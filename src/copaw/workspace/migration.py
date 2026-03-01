@@ -14,7 +14,6 @@ from .manager import (
     WorkspaceManager,
     _WORKSPACE_DIRS,
     _WORKSPACE_FILES,
-    _GLOBAL_ITEMS,
 )
 
 logger = logging.getLogger(__name__)

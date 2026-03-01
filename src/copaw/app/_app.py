@@ -105,6 +105,7 @@ async def lifespan(
     # --- cron init/start ---
     repo = JsonJobRepository(get_jobs_path())
     from ..constant import get_workspace_dir as _get_ws_dir
+
     history_repo = HistoryRepo(_get_ws_dir() / "cron_history.jsonl")
     cron_manager = CronManager(
         repo=repo,
