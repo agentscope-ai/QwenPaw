@@ -72,6 +72,19 @@ def _fmt_code_block(preview: str, style: RenderStyle) -> str:
     return f"\n{preview}"
 
 
+def _normalize_audio_format(fmt: Any) -> str:
+    """Normalize audio format string to runtime-supported values."""
+    value = str(fmt or "").strip().lower()
+    if "/" in value:
+        value = value.split("/", 1)[-1]
+
+    if value in ("wav", "wave", "x-wav"):
+        return "wav"
+    if value in ("mp3", "mpeg", "mpga", "x-mpeg"):
+        return "mp3"
+    return "mp3"
+
+
 class MessageRenderer:
     """
     Converts a Message (object=='message') into sendable parts.
@@ -142,7 +155,10 @@ class MessageRenderer:
                             result.append(
                                 AudioContent(
                                     data=url,
-                                    format=b.get("media_type"),
+                                    format=_normalize_audio_format(
+                                        b.get("media_type")
+                                        or src.get("media_type"),
+                                    ),
                                 ),
                             )
                         else:
@@ -263,7 +279,7 @@ class MessageRenderer:
                 result.append(VideoContent(video_url=c.video_url))
             elif ctype == ContentType.AUDIO:
                 data = getattr(c, "data", None)
-                fmt = getattr(c, "format", None)
+                fmt = _normalize_audio_format(getattr(c, "format", None))
                 if data:
                     result.append(AudioContent(data=data, format=fmt))
             elif ctype == ContentType.FILE:
