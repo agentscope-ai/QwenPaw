@@ -152,6 +152,21 @@ please check:
 Reference for the correct key acquisition flow:
 https://help.aliyun.com/zh/model-studio/coding-plan-quickstart#2531c37fd64f9
 
+2. Error pattern: GLM Coding Plan cannot be configured
+
+If you are using **GLM via Coding Plan**, make sure you use the Coding Plan
+endpoint (not the generic endpoint):
+
+```text
+https://open.bigmodel.cn/api/coding/paas/v4
+```
+
+Also verify:
+
+- provider is set to `aliyun-codingplan` (or matching custom provider config);
+- model id matches the platform exactly (case-sensitive);
+- API key has no leading/trailing spaces.
+
 ---
 
 ### How to get support when errors occur
