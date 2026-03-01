@@ -129,3 +129,23 @@ class CronJobState(BaseModel):
 class CronJobView(BaseModel):
     spec: CronJobSpec
     state: CronJobState = Field(default_factory=CronJobState)
+
+
+class CronParseRequest(BaseModel):
+    """Request to parse natural language to cron expression."""
+
+    text: str = Field(..., description="Natural language or cron expression")
+
+
+class CronParseResponse(BaseModel):
+    """Response with parsed cron expression."""
+
+    cron: str = Field(..., description="Standard 5-field cron expression")
+    source: Literal["rules", "llm"] = Field(
+        ...,
+        description="Source of parsing: 'rules' for local patterns, 'llm' for AI",
+    )
+    description: str = Field(
+        ...,
+        description="Human-readable description of the cron schedule",
+    )

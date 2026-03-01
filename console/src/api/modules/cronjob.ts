@@ -3,6 +3,8 @@ import type {
   CronJobSpecInput,
   CronJobSpecOutput,
   CronJobView,
+  CronParseRequest,
+  CronParseResponse,
 } from "../types";
 
 export const cronJobApi = {
@@ -50,4 +52,10 @@ export const cronJobApi = {
 
   getCronJobState: (jobId: string) =>
     request<unknown>(`/cron/jobs/${encodeURIComponent(jobId)}/state`),
+
+  parseCron: (text: string) =>
+    request<CronParseResponse>("/cron/parse-cron", {
+      method: "POST",
+      body: JSON.stringify({ text } as CronParseRequest),
+    }),
 };

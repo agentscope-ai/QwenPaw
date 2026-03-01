@@ -6,11 +6,15 @@ import {
   Select,
   Switch,
   Button,
+  Space,
+  message,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { useState } from "react";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
 import { TIMEZONE_OPTIONS, DEFAULT_FORM_VALUES } from "./constants";
+import { api } from "../../../../api";
 
 type CronJob = CronJobSpecOutput;
 
@@ -30,6 +34,43 @@ export function JobDrawer({
   onSubmit,
 }: JobDrawerProps) {
   const { t } = useTranslation();
+  const [naturalLanguage, setNaturalLanguage] = useState("");
+  const [converting, setConverting] = useState(false);
+  const [cronDescription, setCronDescription] = useState("");
+
+  const handleConvert = async () => {
+    if (!naturalLanguage.trim()) {
+      message.warning("请输入自然语言描述");
+      return;
+    }
+
+    setConverting(true);
+    try {
+      const result = await api.cronJobApi.parseCron(naturalLanguage);
+
+      // Fill cron expression
+      form.setFieldsValue({
+        schedule: { cron: result.cron },
+      });
+
+      // Show description
+      setCronDescription(result.description);
+
+      // Show success message with source indicator
+      const sourceIcon = result.source === "rules" ? "⚡" : "🤖";
+      message.success(`${sourceIcon} ${result.description}`);
+    } catch (error) {
+      message.error("解析失败，请使用标准 cron 格式或更清晰的描述");
+      console.error("Failed to parse cron:", error);
+    } finally {
+      setConverting(false);
+    }
+  };
+
+  const handleCronChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Clear description when manually editing cron
+    setCronDescription("");
+  };
 
   return (
     <Drawer
@@ -66,13 +107,44 @@ export function JobDrawer({
           <Input disabled value="cron" />
         </Form.Item>
 
+        {/* Smart Input (Optional) */}
+        <Form.Item label="🪄 Smart Input (Optional)">
+          <Space.Compact style={{ width: "100%" }}>
+            <Input
+              placeholder="例如：每天下午3点 / 每周一9点 / 每小时"
+              value={naturalLanguage}
+              onChange={(e) => setNaturalLanguage(e.target.value)}
+              onPressEnter={handleConvert}
+            />
+            <Button type="primary" loading={converting} onClick={handleConvert}>
+              生成
+            </Button>
+          </Space.Compact>
+          <div style={{ marginTop: 4, fontSize: 12, color: "#999" }}>
+            💡 示例：每周一9点 / 每小时 / 每30分钟 / 工作日早上9点
+          </div>
+        </Form.Item>
+
         <Form.Item
           name={["schedule", "cron"]}
           label="ScheduleCron"
           rules={[{ required: true, message: t("cronJobs.pleaseInputCron") }]}
         >
-          <Input placeholder="0 2 * * *" />
+          <Input placeholder="0 2 * * *" onChange={handleCronChange} />
         </Form.Item>
+
+        {cronDescription && (
+          <div
+            style={{
+              marginTop: -16,
+              marginBottom: 16,
+              fontSize: 12,
+              color: "#52c41a",
+            }}
+          >
+            📝 {cronDescription}
+          </div>
+        )}
 
         <Form.Item name={["schedule", "timezone"]} label="ScheduleTimezone">
           <Select

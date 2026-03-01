@@ -4,8 +4,10 @@ from __future__ import annotations
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ...agents.model_factory import create_model_and_formatter
 from .manager import CronManager
-from .models import CronJobSpec, CronJobView
+from .models import CronJobSpec, CronJobView, CronParseRequest, CronParseResponse
+from .parser import parse_with_rules, validate_cron, cron_to_human
 
 router = APIRouter(prefix="/cron", tags=["cron"])
 
@@ -109,3 +111,77 @@ async def get_job_state(
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     return mgr.get_state(job_id).model_dump(mode="json")
+
+
+@router.post("/parse-cron", response_model=CronParseResponse)
+async def parse_cron_expression(request: CronParseRequest):
+    """
+    Parse natural language to cron expression.
+
+    - First tries local rule-based parsing (fast)
+    - Falls back to LLM if rules don't match (smart)
+    """
+    text = request.text.strip()
+
+    # 1. Try local rule-based parsing (fast)
+    local_result = parse_with_rules(text)
+    if local_result:
+        return CronParseResponse(
+            cron=local_result,
+            source="rules",
+            description=cron_to_human(local_result),
+        )
+
+    # 2. Try LLM parsing (smart fallback)
+    try:
+        llm_result = await _parse_with_llm(text)
+        return CronParseResponse(
+            cron=llm_result,
+            source="llm",
+            description=cron_to_human(llm_result),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法解析表达式: {text}. 请使用标准 cron 格式或更清晰的自然语言描述。错误: {str(e)}",
+        ) from e
+
+
+async def _parse_with_llm(text: str) -> str:
+    """Use LLM to parse complex/ambiguous natural language."""
+    prompt = f"""将自然语言转换为标准 cron 表达式（5个字段）。
+
+规则：
+- 只输出 cron 表达式，不要其他内容
+- 格式：分钟 小时 日 月 星期
+- 如果有歧义，选择最合理的解释
+
+示例：
+"每天下午2点" → 0 14 * * *
+"每周一上午9点" → 0 9 * * 1
+"每小时" → 0 * * * *
+"每30分钟" → */30 * * * *
+"工作日早上9点" → 0 9 * * 1-5
+
+输入：{text}
+输出（只输出cron表达式）："""
+
+    model, _ = create_model_and_formatter()
+    response = await model([{"role": "user", "content": prompt}])
+
+    # Extract cron from response
+    cron = response.text.strip()
+
+    # Clean up potential extra text
+    lines = cron.split("\n")
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#") and not line.startswith("//"):
+            parts = line.split()
+            if len(parts) == 5:
+                cron = line
+                break
+
+    # Validate
+    validate_cron(cron)
+    return cron

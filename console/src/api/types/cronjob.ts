@@ -55,3 +55,13 @@ export interface CronJobView extends CronJobSpecOutput {
 export type CronJobSpecInputLegacy = Record<string, unknown>;
 export type CronJobSpecOutputLegacy = Record<string, unknown>;
 export type CronJobViewLegacy = Record<string, unknown>;
+
+export interface CronParseRequest {
+  text: string;
+}
+
+export interface CronParseResponse {
+  cron: string;
+  source: "rules" | "llm";
+  description: string;
+}
