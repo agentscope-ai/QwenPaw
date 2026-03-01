@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC
+from collections import OrderedDict
 from typing import (
     Optional,
     Dict,
@@ -100,6 +101,15 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
+
+        # ── Message-ID deduplication ────────────────────────────────
+        # Prevents duplicate processing when the platform delivers the
+        # same message more than once (webhook retries, reconnects, etc.).
+        # Subclasses that already have their own dedup may set
+        # ``_dedup_enabled = False`` in __init__ to skip.
+        self._dedup_enabled: bool = True
+        self._dedup_max: int = 2048
+        self._dedup_ids: OrderedDict[str, None] = OrderedDict()
 
     def _is_native_payload(self, payload: Any) -> bool:
         """True if payload is a native dict that can be time-debounced."""
@@ -240,6 +250,50 @@ class BaseChannel(ABC):
     def set_enqueue(self, cb: EnqueueCallback) -> None:
         """Set enqueue callback (called by ChannelManager)."""
         self._enqueue = cb
+
+    # ── Message-ID deduplication helpers ─────────────────────────
+
+    def _extract_message_id(self, payload: Any) -> Optional[str]:
+        """Extract a unique message ID from the incoming payload.
+
+        Override in subclass for platform-specific extraction.
+        Default: tries common dict keys (message_id, msg_id, id).
+        Returns None if no ID can be extracted (dedup is skipped).
+        """
+        if isinstance(payload, dict):
+            for key in ("message_id", "msg_id", "id"):
+                val = payload.get(key)
+                if val:
+                    return str(val).strip()
+            meta = payload.get("meta") or {}
+            for key in ("message_id", "msg_id"):
+                val = meta.get(key)
+                if val:
+                    return str(val).strip()
+        return None
+
+    def is_duplicate(self, payload: Any) -> bool:
+        """Return True if this message has already been processed.
+
+        Call this at the start of consume_one / _on_message to skip
+        duplicates.  Thread-safe for the single-consumer asyncio model.
+        """
+        if not self._dedup_enabled:
+            return False
+        msg_id = self._extract_message_id(payload)
+        if not msg_id:
+            return False
+        if msg_id in self._dedup_ids:
+            logger.debug(
+                "%s dedup: skipping duplicate msg_id=%s",
+                self.channel,
+                msg_id[:24],
+            )
+            return True
+        self._dedup_ids[msg_id] = None
+        while len(self._dedup_ids) > self._dedup_max:
+            self._dedup_ids.popitem(last=False)
+        return False
 
     @classmethod
     def from_env(

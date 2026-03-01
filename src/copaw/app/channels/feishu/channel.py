@@ -125,6 +125,8 @@ class FeishuChannel(BaseChannel):
 
         # message_id dedup (ordered, trim when over limit)
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        # Feishu has its own message_id dedup above; skip base-level dedup.
+        self._dedup_enabled = False
         # session_id -> (receive_id, receive_id_type) for send
         self._receive_id_store: Dict[str, Tuple[str, str]] = {}
         self._receive_id_lock = asyncio.Lock()
