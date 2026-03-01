@@ -81,6 +81,8 @@ SECRET_DIR = (
 
 JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
+TOKENS_FILE = EnvVarLoader.get_str("COPAW_TOKENS_FILE", "tokens.json")
+
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
 
 CONFIG_FILE = EnvVarLoader.get_str("COPAW_CONFIG_FILE", "config.json")

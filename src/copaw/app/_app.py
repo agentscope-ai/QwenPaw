@@ -19,7 +19,15 @@ from ..config import (  # pylint: disable=no-name-in-module
     ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
-from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
+from .auth import TokenStore
+from .auth.middleware import TokenAuthMiddleware
+from ..constant import (
+    CORS_ORIGINS,
+    DOCS_ENABLED,
+    LOG_LEVEL_ENV,
+    TOKENS_FILE,
+    WORKING_DIR,
+)
 from ..__version__ import __version__
 from ..utils.logging import setup_logger, add_copaw_file_handler
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
@@ -65,8 +73,18 @@ async def lifespan(
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
     await runner.start()
 
-    # --- MCP client manager init (independent module, hot-reloadable) ---
+    # --- token store init ---
     config = load_config()
+    token_store = TokenStore(path=WORKING_DIR / TOKENS_FILE)
+    app.state.token_store = token_store
+
+    auth_enabled = (
+        os.environ.get("COPAW_AUTH_ENABLED", "").lower() in ("true", "1", "yes")
+        or config.auth.enabled
+    )
+    logger.info("Auth: %s", "enabled" if auth_enabled else "disabled")
+
+    # --- MCP client manager init (independent module, hot-reloadable) ---
     mcp_manager = MCPClientManager()
     if hasattr(config, "mcp"):
         try:
@@ -440,16 +458,34 @@ app = FastAPI(
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
-# Apply CORS middleware if CORS_ORIGINS is set
+# --- CORS ---
+# Prefer env var COPAW_CORS_ORIGINS; fall back to config.auth.cors_origins.
 if CORS_ORIGINS:
-    origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    _origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
+else:
+    _cors_config = load_config().auth
+    _origins = _cors_config.cors_origins
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Token auth middleware ---
+_auth_enabled = (
+    os.environ.get("COPAW_AUTH_ENABLED", "").lower()
+    in ("true", "1", "yes")
+    or load_config().auth.enabled
+)
+_token_store = TokenStore(path=WORKING_DIR / TOKENS_FILE)
+app.add_middleware(
+    TokenAuthMiddleware,
+    token_store=_token_store,
+    enabled=_auth_enabled,
+)
 
 
 # Console static dir: env, or copaw package data (console), or cwd.

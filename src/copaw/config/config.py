@@ -414,6 +414,19 @@ class ToolsConfig(BaseModel):
     )
 
 
+class AuthConfig(BaseModel):
+    """Token authentication configuration."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Bearer token auth for API routes",
+    )
+    cors_origins: List[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed CORS origins",
+    )
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -425,6 +438,7 @@ class Config(BaseModel):
     last_dispatch: Optional[LastDispatchConfig] = None
     # When False, channel output hides tool call/result details (show "...").
     show_tool_details: bool = True
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 ChannelConfigUnion = Union[
