@@ -38,6 +38,7 @@ class DingTalkConfig(BaseChannelConfig):
 class FeishuConfig(BaseChannelConfig):
     """Feishu/Lark channel: app_id, app_secret; optional encrypt_key,
     verification_token for event handler. media_dir for received media.
+    group_at_only: when True, bot only responds in group chats when @mentioned.
     """
 
     app_id: str = ""
@@ -45,6 +46,7 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: str = "~/.copaw/media"
+    group_at_only: bool = False
 
 
 class QQConfig(BaseChannelConfig):
