@@ -83,11 +83,13 @@ class AgentRunner(Runner):
                 ),
             )
 
-            _bus.emit(Event(
-                type=EventType.AGENT_QUERY_START,
-                session_id=session_id,
-                data={"user_id": user_id, "channel": channel},
-            ))
+            _bus.emit(
+                Event(
+                    type=EventType.AGENT_QUERY_START,
+                    session_id=session_id,
+                    data={"user_id": user_id, "channel": channel},
+                ),
+            )
 
             env_context = build_env_context(
                 session_id=session_id,
@@ -152,22 +154,26 @@ class AgentRunner(Runner):
             ):
                 yield msg, last
 
-            _bus.emit(Event(
-                type=EventType.AGENT_QUERY_COMPLETE,
-                session_id=session_id,
-                data={"status": "success"},
-            ))
+            _bus.emit(
+                Event(
+                    type=EventType.AGENT_QUERY_COMPLETE,
+                    session_id=session_id,
+                    data={"status": "success"},
+                ),
+            )
 
         except asyncio.CancelledError:
             if agent is not None:
                 await agent.interrupt()
             raise
         except Exception as e:
-            _bus.emit(Event(
-                type=EventType.AGENT_QUERY_COMPLETE,
-                session_id=session_id,
-                data={"status": "error", "error": str(e)[:200]},
-            ))
+            _bus.emit(
+                Event(
+                    type=EventType.AGENT_QUERY_COMPLETE,
+                    session_id=session_id,
+                    data={"status": "error", "error": str(e)[:200]},
+                ),
+            )
             debug_dump_path = write_query_error_dump(
                 request=request,
                 exc=e,

@@ -251,26 +251,30 @@ class CoPawAgent(ReActAgent):
         """Register pre/post acting hooks to emit tool call events."""
         bus = get_event_bus()
 
-        async def _pre_acting_event(agent, kwargs):
+        async def _pre_acting_event(_agent, kwargs):
             tool_call = kwargs.get("tool_call", {})
-            bus.emit(Event(
-                type=EventType.AGENT_TOOL_CALL,
-                data={
-                    "tool_name": tool_call.get("name", ""),
-                    "tool_input": str(tool_call.get("input", ""))[:500],
-                },
-            ))
+            bus.emit(
+                Event(
+                    type=EventType.AGENT_TOOL_CALL,
+                    data={
+                        "tool_name": tool_call.get("name", ""),
+                        "tool_input": str(tool_call.get("input", ""))[:500],
+                    },
+                ),
+            )
             return None  # don't modify kwargs
 
-        async def _post_acting_event(agent, kwargs, output):
+        async def _post_acting_event(_agent, kwargs, output):
             tool_call = kwargs.get("tool_call", {})
-            bus.emit(Event(
-                type=EventType.AGENT_TOOL_RESULT,
-                data={
-                    "tool_name": tool_call.get("name", ""),
-                    "has_output": output is not None,
-                },
-            ))
+            bus.emit(
+                Event(
+                    type=EventType.AGENT_TOOL_RESULT,
+                    data={
+                        "tool_name": tool_call.get("name", ""),
+                        "has_output": output is not None,
+                    },
+                ),
+            )
             return None  # don't modify output
 
         self.register_instance_hook(

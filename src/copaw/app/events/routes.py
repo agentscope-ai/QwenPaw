@@ -69,7 +69,7 @@ async def _event_generator(
                     heartbeat_event.clear()
                     yield ": ping\n\n"
             # Cancel remaining tasks.
-            for task in _ :
+            for task in _:
                 task.cancel()
     finally:
         ticker.cancel()

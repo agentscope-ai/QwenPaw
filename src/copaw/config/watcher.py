@@ -156,10 +156,12 @@ class ConfigWatcher:
             logger.info(
                 f"ConfigWatcher: channel '{name}' config changed, reloading",
             )
-            get_event_bus().emit(Event(
-                type=EventType.CONFIG_CHANGED,
-                data={"channel": name},
-            ))
+            get_event_bus().emit(
+                Event(
+                    type=EventType.CONFIG_CHANGED,
+                    data={"channel": name},
+                ),
+            )
             try:
                 old_channel = await self._channel_manager.get_channel(name)
                 if old_channel is None:

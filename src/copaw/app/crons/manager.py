@@ -136,10 +136,12 @@ class CronManager:
             (job.dispatch.target.user_id or "")[:40],
             (job.dispatch.target.session_id or "")[:40],
         )
-        get_event_bus().emit(Event(
-            type=EventType.CRON_TRIGGERED,
-            data={"job_id": job_id, "job_name": job.name},
-        ))
+        get_event_bus().emit(
+            Event(
+                type=EventType.CRON_TRIGGERED,
+                data={"job_id": job_id, "job_name": job.name},
+            ),
+        )
         task = asyncio.create_task(
             self._execute_once(job),
             name=f"cron-run-{job_id}",
@@ -264,10 +266,12 @@ class CronManager:
                     "cron _execute_once: job_id=%s status=success",
                     job.id,
                 )
-                get_event_bus().emit(Event(
-                    type=EventType.CRON_COMPLETED,
-                    data={"job_id": job.id, "status": "success"},
-                ))
+                get_event_bus().emit(
+                    Event(
+                        type=EventType.CRON_COMPLETED,
+                        data={"job_id": job.id, "status": "success"},
+                    ),
+                )
             except Exception as e:  # pylint: disable=broad-except
                 st.last_status = "error"
                 st.last_error = repr(e)
@@ -276,11 +280,16 @@ class CronManager:
                     job.id,
                     repr(e),
                 )
-                get_event_bus().emit(Event(
-                    type=EventType.CRON_COMPLETED,
-                    data={"job_id": job.id, "status": "error",
-                           "error": str(e)[:200]},
-                ))
+                get_event_bus().emit(
+                    Event(
+                        type=EventType.CRON_COMPLETED,
+                        data={
+                            "job_id": job.id,
+                            "status": "error",
+                            "error": str(e)[:200],
+                        },
+                    ),
+                )
                 raise
             finally:
                 st.last_run_at = datetime.utcnow()
