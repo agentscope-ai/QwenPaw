@@ -10,12 +10,18 @@ type MCPTransport = "stdio" | "streamable_http" | "sse";
 function normalizeTransport(raw?: unknown): MCPTransport | undefined {
   if (typeof raw !== "string") return undefined;
   const value = raw.trim().toLowerCase();
-  if (value === "stdio") return "stdio";
-  if (value === "sse") return "sse";
-  if (value === "streamablehttp") return "streamable_http";
-  if (value === "streamable_http") return "streamable_http";
-  if (value === "http") return "streamable_http";
-  return undefined;
+  switch (value) {
+    case "stdio":
+      return "stdio";
+    case "sse":
+      return "sse";
+    case "streamablehttp":
+    case "streamable_http":
+    case "http":
+      return "streamable_http";
+    default:
+      return undefined;
+  }
 }
 
 function normalizeClientData(key: string, rawData: any) {
