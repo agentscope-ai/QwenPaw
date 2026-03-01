@@ -52,6 +52,7 @@ function ChannelsPage() {
   const handleCardClick = (key: ChannelKey) => {
     setActiveKey(key);
     setDrawerOpen(true);
+    form.resetFields();
     form.setFieldsValue(channels[key]);
   };
 

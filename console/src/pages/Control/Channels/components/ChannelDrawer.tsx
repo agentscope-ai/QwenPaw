@@ -164,6 +164,7 @@ export function ChannelDrawer({
           form={form}
           layout="vertical"
           initialValues={initialValues}
+          preserve={false}
           onFinish={onSubmit}
         >
           <Form.Item name="enabled" label="Enabled" valuePropName="checked">
