@@ -17,6 +17,7 @@ dependencies = [
     "reme-ai==0.3.0.0",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
+    "python-socks>=2.5.3",
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
 ]

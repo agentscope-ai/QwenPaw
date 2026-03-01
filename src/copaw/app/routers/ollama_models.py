@@ -49,6 +49,21 @@ class OllamaDownloadTaskResponse(BaseModel):
     result: Optional[OllamaModelResponse] = None
 
 
+def _is_ollama_connection_error(exc: Exception) -> bool:
+    """Return True when the exception indicates Ollama daemon is unreachable.
+
+    The ollama SDK may raise different exception types depending on version.
+    We keep detection tolerant by checking both type and message patterns.
+    """
+    if isinstance(exc, ConnectionError):
+        return True
+    msg = str(exc).lower()
+    return (
+        "failed to connect to ollama" in msg
+        or "connection refused" in msg
+    )
+
+
 def _task_to_response(task: DownloadTask) -> OllamaDownloadTaskResponse:
     result = None
     if task.result:
@@ -86,6 +101,14 @@ async def list_ollama_models() -> List[OllamaModelResponse]:
         models = OllamaModelManager.list_models()
     except Exception as exc:
         logger.exception("Failed to list Ollama models")
+        if _is_ollama_connection_error(exc):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Failed to connect to Ollama. "
+                    "Please ensure Ollama is installed and running."
+                ),
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Failed to list Ollama models: {exc}",
