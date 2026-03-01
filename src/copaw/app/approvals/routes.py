@@ -18,9 +18,16 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 
 def _get_service(request: Request) -> ApprovalService:
-    svc: ApprovalService | None = getattr(request.app.state, "approval_service", None)
+    svc: ApprovalService | None = getattr(
+        request.app.state,
+        "approval_service",
+        None,
+    )
     if svc is None:
-        raise HTTPException(status_code=503, detail="Approval service not ready")
+        raise HTTPException(
+            status_code=503,
+            detail="Approval service not ready",
+        )
     return svc
 
 
@@ -37,7 +44,10 @@ async def get_request(request_id: str, request: Request):
     svc = _get_service(request)
     req = svc.get_request(request_id)
     if req is None:
-        raise HTTPException(status_code=404, detail="Request not found or already resolved")
+        raise HTTPException(
+            status_code=404,
+            detail="Request not found or already resolved",
+        )
     return req.model_dump()
 
 
@@ -61,7 +71,11 @@ async def respond_to_request(
             status_code=404,
             detail="Request not found or already resolved",
         )
-    return {"status": "ok", "request_id": request_id, "reply": body.reply.value}
+    return {
+        "status": "ok",
+        "request_id": request_id,
+        "reply": body.reply.value,
+    }
 
 
 @router.get("/stream/events")

@@ -181,7 +181,7 @@ class ApprovalConfig(BaseModel):
 
     mode: str = Field(
         default="auto",
-        description="'auto' (all approved) or 'manual' (human review required)",
+        description="'auto' (all approved) or 'manual' (review)",
     )
     timeout: int = Field(
         default=120,
