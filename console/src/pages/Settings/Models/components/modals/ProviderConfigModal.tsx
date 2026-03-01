@@ -180,9 +180,7 @@ export function ProviderConfigModal({
           extra={canEditBaseUrl ? t("models.openAIEndpoint") : undefined}
         >
           <Input
-            placeholder={
-              canEditBaseUrl ? "http://localhost:11434/v1" : ""
-            }
+            placeholder={canEditBaseUrl ? "http://localhost:11434/v1" : ""}
             disabled={!canEditBaseUrl}
           />
         </Form.Item>
