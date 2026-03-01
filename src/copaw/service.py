@@ -86,6 +86,10 @@ class ServiceManager(abc.ABC):
         """Stop the service."""
 
     @abc.abstractmethod
+    def restart(self, *, system: bool = False) -> None:
+        """Restart the service."""
+
+    @abc.abstractmethod
     def status(self, *, system: bool = False) -> str:
         """Return a human-readable status string."""
 
@@ -217,6 +221,13 @@ class SystemdServiceManager(ServiceManager):
         else:
             print("CoPaw service stopped.")
 
+    def restart(self, *, system: bool = False) -> None:
+        r = self._systemctl(["restart", SERVICE_NAME], system=system)
+        if r.returncode != 0:
+            print(f"Failed to restart: {r.stderr.strip()}")
+        else:
+            print("CoPaw service restarted.")
+
     def status(self, *, system: bool = False) -> str:
         r = self._systemctl(["status", SERVICE_NAME], system=system)
         return r.stdout or r.stderr
@@ -346,6 +357,10 @@ class LaunchdServiceManager(ServiceManager):
             print(f"Failed to stop: {r.stderr.strip()}")
         else:
             print("CoPaw service stopped.")
+
+    def restart(self, *, system: bool = False) -> None:
+        self.stop(system=system)
+        self.start(system=system)
 
     def status(self, *, system: bool = False) -> str:
         r = subprocess.run(
@@ -522,6 +537,10 @@ class WindowsTaskSchedulerManager(ServiceManager):
                 print("CoPaw service is not running.")
             else:
                 print(f"Failed to stop: {r.stderr.strip()}")
+
+    def restart(self, *, system: bool = False) -> None:
+        self.stop(system=system)
+        self.start(system=system)
 
     def status(self, *, system: bool = False) -> str:
         r = subprocess.run(

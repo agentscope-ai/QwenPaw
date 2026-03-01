@@ -98,6 +98,17 @@ The server listens on `127.0.0.1:8088` by default. If you have already
 configured a channel, CoPaw will reply there; otherwise you can add one after
 this step via [Channels](./channels).
 
+#### Run as a background service (optional)
+
+To run CoPaw in the background with auto-start on boot, register it as a system service:
+
+```bash
+copaw service install          # register + enable auto-start
+copaw service start            # start now
+```
+
+No terminal needed afterwards, and it survives reboots. See [Service management](./service) for details.
+
 ---
 
 ## Option B: pip install

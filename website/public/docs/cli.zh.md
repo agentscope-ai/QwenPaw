@@ -351,6 +351,36 @@ copaw skills config   # 交互式开关
 
 ---
 
+## 服务管理
+
+将 CoPaw 注册为系统服务，实现后台运行和开机自启，替代 `nohup copaw app &`。
+
+### copaw service
+
+| 命令 | 说明 |
+| ---- | ---- |
+| `copaw service install` | 注册服务并启用开机自启 |
+| `copaw service uninstall` | 停止并移除服务 |
+| `copaw service start` | 启动服务 |
+| `copaw service stop` | 停止服务 |
+| `copaw service restart` | 重启服务 |
+| `copaw service status` | 查看服务状态 |
+| `copaw service logs` | 查看服务日志 |
+
+```bash
+copaw service install                          # 默认 127.0.0.1:8088
+copaw service install --host 0.0.0.0 --port 9090   # 自定义地址
+copaw service install --system                 # 系统级服务（仅 Linux，需 sudo）
+copaw service start                            # 启动
+copaw service restart                          # 重启
+copaw service logs -f                          # 持续查看日志
+copaw service uninstall --yes                  # 跳过确认直接移除
+```
+
+各平台使用不同后端：Linux 为 systemd，macOS 为 launchd，Windows 为任务计划程序。详见 [系统服务管理](./service)。
+
+---
+
 ## 维护
 
 ### copaw clean
@@ -406,6 +436,7 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
+| `copaw service` | `install` · `uninstall` · `start` · `stop` · `restart` · `status` · `logs`                                                     |        否         |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        否         |
 | `copaw clean`    | —                                                                                                                                      |        否         |
 
@@ -415,6 +446,7 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 - [项目介绍](./intro) —— CoPaw 可以做什么
 - [控制台](./console) —— Web 管理界面
+- [系统服务管理](./service) —— 后台运行与开机自启
 - [频道配置](./channels) —— 钉钉、飞书、iMessage、Discord、QQ 详细步骤
 - [心跳](./heartbeat) —— 定时自检/摘要
 - [技能](./skills) —— 内置技能与自定义技能

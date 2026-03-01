@@ -89,6 +89,14 @@ def stop_cmd(system: bool) -> None:
     mgr.stop(system=system)
 
 
+@service_group.command("restart")
+@click.option("--system", is_flag=True, help="Operate on the system-wide service.")
+def restart_cmd(system: bool) -> None:
+    """Restart the CoPaw service."""
+    mgr = get_service_manager()
+    mgr.restart(system=system)
+
+
 @service_group.command("status")
 @click.option("--system", is_flag=True, help="Query the system-wide service.")
 def status_cmd(system: bool) -> None:
