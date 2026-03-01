@@ -260,10 +260,11 @@ def _create_remote_model_instance(
     Returns:
         Configured chat model instance
     """
-    # Get configuration from llm_cfg or fall back to environment
-    if llm_cfg and (llm_cfg.api_key or llm_cfg.base_url):
+    # Prefer explicit active model config whenever available. Some providers
+    # (e.g. Ollama) intentionally run without API keys.
+    if llm_cfg and llm_cfg.model:
         model_name = llm_cfg.model or "qwen3-max"
-        api_key = llm_cfg.api_key
+        api_key = llm_cfg.api_key or ""
         base_url = llm_cfg.base_url
     else:
         logger.warning(
