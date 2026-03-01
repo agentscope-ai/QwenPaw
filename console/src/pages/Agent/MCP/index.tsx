@@ -32,7 +32,9 @@ function normalizeClientData(key: string, rawData: any) {
       : "stdio");
 
   const command =
-    transport === "stdio" ? (rawData.command ?? "").toString() : "";
+    (rawData.command ?? rawData.url ?? rawData.baseUrl ?? "")
+      .toString()
+      .trim();
 
   return {
     name: rawData.name || key,
@@ -130,6 +132,11 @@ function MCPPage() {
           }
         });
       }
+
+      // Filter invalid entries so we don't trigger backend validation failures.
+      clientsToCreate = clientsToCreate.filter(
+        ({ data }) => typeof data.command === "string" && data.command.length > 0,
+      );
 
       // Create all clients
       let allSuccess = true;
