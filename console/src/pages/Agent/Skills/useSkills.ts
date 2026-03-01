@@ -41,7 +41,11 @@ export function useSkills() {
 
   const createSkill = async (name: string, content: string) => {
     try {
-      await api.createSkill(name, content);
+      const result = await api.createSkill(name, content);
+      if (!result?.created) {
+        message.error("Failed to save");
+        return false;
+      }
       message.success("Created successfully");
       await fetchSkills();
       return true;

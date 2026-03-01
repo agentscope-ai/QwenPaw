@@ -5,7 +5,7 @@ export const skillApi = {
   listSkills: () => request<SkillSpec[]>("/skills"),
 
   createSkill: (skillName: string, content: string) =>
-    request<Record<string, unknown>>("/skills", {
+    request<{ created: boolean }>("/skills", {
       method: "POST",
       body: JSON.stringify({
         name: skillName,

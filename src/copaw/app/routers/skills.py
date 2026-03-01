@@ -160,6 +160,15 @@ async def create_skill(request: CreateSkillRequest):
         references=request.references,
         scripts=request.scripts,
     )
+    if not result:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Failed to create skill. Ensure SKILL.md front matter has "
+                "both 'name' and 'description', and skill name is not "
+                "duplicated."
+            ),
+        )
     return {"created": result}
 
 
