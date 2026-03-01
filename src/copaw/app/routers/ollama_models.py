@@ -53,18 +53,17 @@ def _is_ollama_connection_error(exc: Exception) -> bool:
     """Return True when exception indicates Ollama daemon is unreachable."""
     message = str(exc).lower()
     return (
-        isinstance(exc, (ConnectionError, OSError))
+        isinstance(exc, (ConnectionError, OSError, TimeoutError))
         or "failed to connect to ollama" in message
         or "connection refused" in message
         or "timed out" in message
     )
 
 
-def _connection_error_detail(exc: Exception) -> str:
+def _connection_error_detail() -> str:
     return (
         "Failed to connect to Ollama. Ensure Ollama is installed and running "
-        "(for example, run `ollama serve`) and verify the host is reachable. "
-        f"Original error: {exc}"
+        "(for example, run `ollama serve`) and verify the host is reachable."
     )
 
 
@@ -108,7 +107,7 @@ async def list_ollama_models() -> List[OllamaModelResponse]:
             logger.warning("Ollama is unreachable: %s", exc)
             raise HTTPException(
                 status_code=503,
-                detail=_connection_error_detail(exc),
+                detail=_connection_error_detail(),
             ) from exc
         logger.exception("Failed to list Ollama models")
         raise HTTPException(
@@ -173,10 +172,15 @@ async def _run_pull_in_background(
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Ollama model pull failed: %s", exc)
+        err_text = (
+            _connection_error_detail()
+            if _is_ollama_connection_error(exc)
+            else str(exc)
+        )
         await update_status(
             task_id,
             DownloadTaskStatus.FAILED,
-            error=str(exc),
+            error=err_text,
         )
 
 
@@ -224,9 +228,10 @@ async def delete_ollama_model(name: str) -> dict:
         OllamaModelManager.delete_model(name)
     except Exception as exc:  # pragma: no cover - defensive
         if _is_ollama_connection_error(exc):
+            logger.warning("Ollama is unreachable during delete: %s", exc)
             raise HTTPException(
                 status_code=503,
-                detail=_connection_error_detail(exc),
+                detail=_connection_error_detail(),
             ) from exc
 
         logger.exception("Failed to delete Ollama model: %s", exc)
