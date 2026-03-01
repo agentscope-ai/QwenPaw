@@ -28,6 +28,7 @@ from .crons.manager import CronManager
 from .runner.manager import ChatManager
 from .routers import router as api_router
 from ..envs import load_envs_into_environ
+from .events import get_event_bus
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -104,7 +105,11 @@ async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
         except Exception:
             logger.exception("Failed to start MCP watcher")
 
+    # --- event bus init ---
+    event_bus = get_event_bus()
+
     # expose to endpoints
+    app.state.event_bus = event_bus
     app.state.runner = runner
     app.state.channel_manager = channel_manager
     app.state.cron_manager = cron_manager

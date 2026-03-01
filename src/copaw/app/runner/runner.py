@@ -10,6 +10,7 @@ from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from dotenv import load_dotenv
 
+from ..events import Event, EventType, get_event_bus
 from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
@@ -65,6 +66,8 @@ class AgentRunner(Runner):
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
 
+            _bus = get_event_bus()
+
             logger.info(
                 "Handle agent query:\n%s",
                 json.dumps(
@@ -79,6 +82,12 @@ class AgentRunner(Runner):
                     indent=2,
                 ),
             )
+
+            _bus.emit(Event(
+                type=EventType.AGENT_QUERY_START,
+                session_id=session_id,
+                data={"user_id": user_id, "channel": channel},
+            ))
 
             env_context = build_env_context(
                 session_id=session_id,
@@ -143,11 +152,22 @@ class AgentRunner(Runner):
             ):
                 yield msg, last
 
+            _bus.emit(Event(
+                type=EventType.AGENT_QUERY_COMPLETE,
+                session_id=session_id,
+                data={"status": "success"},
+            ))
+
         except asyncio.CancelledError:
             if agent is not None:
                 await agent.interrupt()
             raise
         except Exception as e:
+            _bus.emit(Event(
+                type=EventType.AGENT_QUERY_COMPLETE,
+                session_id=session_id,
+                data={"status": "error", "error": str(e)[:200]},
+            ))
             debug_dump_path = write_query_error_dump(
                 request=request,
                 exc=e,

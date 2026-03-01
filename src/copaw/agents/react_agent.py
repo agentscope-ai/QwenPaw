@@ -36,6 +36,7 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
+from ..app.events import Event, EventType, get_event_bus
 from ..config import load_config
 from ..constant import (
     MEMORY_COMPACT_KEEP_RECENT,
@@ -129,6 +130,9 @@ class CoPawAgent(ReActAgent):
 
         # Register hooks
         self._register_hooks()
+
+        # Register event emission hooks for tool calls
+        self._register_event_hooks()
 
     def _create_toolkit(self) -> Toolkit:
         """Create and populate toolkit with built-in tools.
@@ -242,6 +246,44 @@ class CoPawAgent(ReActAgent):
                 hook=memory_compact_hook.__call__,
             )
             logger.debug("Registered memory compaction hook")
+
+    def _register_event_hooks(self) -> None:
+        """Register pre/post acting hooks to emit tool call events."""
+        bus = get_event_bus()
+
+        async def _pre_acting_event(agent, kwargs):
+            tool_call = kwargs.get("tool_call", {})
+            bus.emit(Event(
+                type=EventType.AGENT_TOOL_CALL,
+                data={
+                    "tool_name": tool_call.get("name", ""),
+                    "tool_input": str(tool_call.get("input", ""))[:500],
+                },
+            ))
+            return None  # don't modify kwargs
+
+        async def _post_acting_event(agent, kwargs, output):
+            tool_call = kwargs.get("tool_call", {})
+            bus.emit(Event(
+                type=EventType.AGENT_TOOL_RESULT,
+                data={
+                    "tool_name": tool_call.get("name", ""),
+                    "has_output": output is not None,
+                },
+            ))
+            return None  # don't modify output
+
+        self.register_instance_hook(
+            hook_type="pre_acting",
+            hook_name="event_tool_call",
+            hook=_pre_acting_event,
+        )
+        self.register_instance_hook(
+            hook_type="post_acting",
+            hook_name="event_tool_result",
+            hook=_post_acting_event,
+        )
+        logger.debug("Registered event emission hooks")
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
