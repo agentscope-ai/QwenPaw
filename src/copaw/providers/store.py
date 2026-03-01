@@ -233,7 +233,11 @@ def update_provider_settings(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> ProvidersData:
-    """Partially update a provider's settings. Returns updated state."""
+    """Partially update a provider's settings. Returns updated state.
+
+    If the provider becomes configured (api_key set) and there's no active_llm,
+    automatically set the first available model as active.
+    """
     data = load_providers_json()
     cpd = data.custom_providers.get(provider_id)
 
@@ -256,8 +260,20 @@ def update_provider_settings(
             if defn:
                 settings.base_url = defn.default_base_url
 
+    # Clear active_llm if api_key is being removed
     if api_key == "" and data.active_llm.provider_id == provider_id:
         data.active_llm = ModelSlotConfig()
+
+    # Auto-set active_llm if provider becomes configured and no active_llm
+    elif api_key and not data.active_llm.provider_id:
+        defn = PROVIDERS.get(provider_id)
+        if defn and defn.models:
+            # Use the first model as active
+            first_model = defn.models[0].id
+            data.active_llm = ModelSlotConfig(
+                provider_id=provider_id,
+                model=first_model,
+            )
 
     save_providers_json(data)
     return data
