@@ -13,7 +13,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type
 
-from agentscope.formatter import FormatterBase, OpenAIChatFormatter
+from agentscope.formatter import FormatterBase, OpenAIChatFormatter, DeepSeekChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
 
 from .utils.tool_message_utils import _sanitize_tool_messages
@@ -275,11 +275,27 @@ def _create_remote_model_instance(
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
     # Instantiate model
+    # Check if using Kimi API and add required User-Agent header
+    client_kwargs = {"base_url": base_url}
+    try:
+        providers_data = load_providers_json()
+        if providers_data.active_llm.provider_id == "kimi":
+            client_kwargs["default_headers"] = {"User-Agent": "KimiCLI/0.2.0"}
+    except Exception as e:
+        logger.debug(
+            "Failed to check provider for Kimi User-Agent: %s, "
+            "falling back to URL check.",
+            e,
+        )
+        # Fallback to original logic for safety
+        if base_url and "kimi.com" in base_url:
+            client_kwargs["default_headers"] = {"User-Agent": "KimiCLI/0.2.0"}
+
     model = chat_model_class(
         model_name,
         api_key=api_key,
         stream=True,
-        client_kwargs={"base_url": base_url},
+        client_kwargs=client_kwargs,
     )
 
     return model
@@ -299,7 +315,21 @@ def _create_formatter_instance(
     Returns:
         Formatter instance with file block support
     """
-    base_formatter_class = _get_formatter_for_chat_model(chat_model_class)
+    # Check if using Kimi API - use DeepSeekChatFormatter for reasoning_content support
+    try:
+        providers_data = load_providers_json()
+        provider_id = providers_data.active_llm.provider_id
+        if provider_id == "kimi":
+            base_formatter_class = DeepSeekChatFormatter
+        else:
+            base_formatter_class = _get_formatter_for_chat_model(chat_model_class)
+    except Exception as e:
+        logger.debug(
+            "Failed to determine formatter from provider, using default: %s",
+            e,
+        )
+        base_formatter_class = _get_formatter_for_chat_model(chat_model_class)
+
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
