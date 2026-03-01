@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Path
@@ -12,6 +13,7 @@ from ...config import load_config, save_config
 from ...config.config import MCPClientConfig
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+_INVALID_COMMAND_CHARS_RE = re.compile(r"[\x00\r\n]")
 
 
 class MCPClientInfo(BaseModel):
@@ -196,6 +198,15 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         cwd=client.cwd,
     )
 
+def _validate_command_input(command: str) -> str:
+    """Reject command strings with control characters."""
+    sanitized = (command or "").strip()
+    if sanitized and _INVALID_COMMAND_CHARS_RE.search(sanitized):
+        raise HTTPException(
+            status_code=400,
+            detail="MCP client command contains invalid control characters.",
+        )
+    return sanitized
 
 def _normalize_legacy_url(url: Optional[str], base_url: Optional[str]) -> str:
     """Normalize URL aliases from older payload formats."""
@@ -268,10 +279,11 @@ async def create_mcp_client(
     # Create new client config
     transport_explicit = "transport" in client.model_fields_set
     normalized_url = _normalize_legacy_url(client.url, client.baseUrl)
+    normalized_command = _validate_command_input(client.command)
     normalized_transport = _coerce_transport_for_legacy_payload(
         client.transport,
         normalized_url,
-        client.command,
+        normalized_command,
         transport_explicit,
     )
     new_client = MCPClientConfig(
@@ -281,7 +293,7 @@ async def create_mcp_client(
         transport=normalized_transport,
         url=normalized_url,
         headers=client.headers,
-        command=client.command,
+        command=normalized_command,
         args=client.args,
         env=client.env,
         cwd=client.cwd,
@@ -328,6 +340,8 @@ async def update_mcp_client(
             incoming_command,
             transport_explicit,
         )
+    if "command" in update_data and update_data["command"] is not None:
+        update_data["command"] = _validate_command_input(update_data["command"])
 
     # Special handling for env: merge with existing, don't replace
     if "env" in update_data and update_data["env"] is not None:
