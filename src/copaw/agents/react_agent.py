@@ -8,11 +8,13 @@ import logging
 import os
 from typing import Any, List, Optional, Type
 
+import asyncio
+
 from agentscope.agent import ReActAgent
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock, ToolResultBlock
+from agentscope.tool import Toolkit, ToolResponse
 from pydantic import BaseModel
 
-from .approval_toolkit import ApprovalToolkit
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .memory import CoPawInMemoryMemory
@@ -86,14 +88,15 @@ class CoPawAgent(ReActAgent):
         self._env_context = env_context
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
+        self._approval_service = approval_service
 
         # Memory compaction threshold: configurable ratio of max_input_length
         self._memory_compact_threshold = int(
             max_input_length * MEMORY_COMPACT_RATIO,
         )
 
-        # Initialize toolkit with built-in tools (and optional approval gate)
-        toolkit = self._create_toolkit(approval_service)
+        # Initialize toolkit with built-in tools
+        toolkit = self._create_toolkit()
 
         # Load and register skills
         self._register_skills(toolkit)
@@ -133,22 +136,13 @@ class CoPawAgent(ReActAgent):
         # Register hooks
         self._register_hooks()
 
-    def _create_toolkit(
-        self,
-        approval_service: Optional[Any] = None,
-    ) -> ApprovalToolkit:
+    def _create_toolkit(self) -> Toolkit:
         """Create and populate toolkit with built-in tools.
 
-        Args:
-            approval_service: Optional ApprovalService for gating
-                high-risk tool calls
-
         Returns:
-            Configured ApprovalToolkit instance
+            Configured Toolkit instance
         """
-        toolkit = ApprovalToolkit()
-        if approval_service is not None:
-            toolkit.set_approval_service(approval_service)
+        toolkit = Toolkit()
 
         # Register built-in tools
         toolkit.register_tool_function(execute_shell_command)
@@ -275,6 +269,72 @@ class CoPawAgent(ReActAgent):
         """Register MCP clients on this agent's toolkit after construction."""
         for client in self._mcp_clients:
             await self.toolkit.register_mcp_client(client)
+
+    async def _acting(self, tool_call) -> dict | None:
+        """Override to inject approval gate before high-risk tool calls.
+
+        If an ApprovalService is configured and the tool is high-risk,
+        we ask for human approval before delegating to the parent
+        ``_acting`` which calls ``self.toolkit.call_tool_function``.
+        """
+        from ..app.approvals.models import ApprovalStatus
+
+        name = tool_call.get("name", "")
+
+        if (
+            self._approval_service is not None
+            and self._approval_service.needs_approval(name)
+        ):
+            inputs = tool_call.get("input", {}) or {}
+            target = (
+                inputs.get("command", "")
+                or inputs.get("file_path", "")
+                or inputs.get("url", "")
+                or str(inputs)[:200]
+            )
+            summary = f"Agent wants to call {name}"
+            if target:
+                summary += f": {target[:100]}"
+
+            req = await self._approval_service.request_approval(
+                action=name,
+                target=target,
+                summary=summary,
+            )
+
+            if req.status != ApprovalStatus.APPROVED:
+                reason = req.status.value
+                logger.info("Tool call %s (%s): %s", reason, req.id, name)
+
+                # Build a denied tool result and record it, just like
+                # the parent _acting would do.
+                tool_res_msg = Msg(
+                    "system",
+                    [
+                        ToolResultBlock(
+                            type="tool_result",
+                            id=tool_call["id"],
+                            name=name,
+                            output=[
+                                TextBlock(
+                                    type="text",
+                                    text=(
+                                        f"Tool call '{name}' was {reason} "
+                                        f"by the user. Please inform the "
+                                        f"user and suggest alternatives."
+                                    ),
+                                ),
+                            ],
+                        ),
+                    ],
+                    "system",
+                )
+                await self.print(tool_res_msg, True)
+                await self.memory.add(tool_res_msg)
+                return None
+
+        # Approved or not high-risk — delegate to parent
+        return await super()._acting(tool_call)
 
     async def reply(
         self,
