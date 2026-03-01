@@ -371,15 +371,15 @@ boot, replacing `nohup copaw app &`.
 
 ### copaw service
 
-| Command | What it does |
-| ------- | ------------ |
-| `copaw service install` | Register service and enable auto-start |
-| `copaw service uninstall` | Stop and remove the service |
-| `copaw service start` | Start the service |
-| `copaw service stop` | Stop the service |
-| `copaw service restart` | Restart the service |
-| `copaw service status` | Show service status |
-| `copaw service logs` | View service logs |
+| Command                   | What it does                           |
+| ------------------------- | -------------------------------------- |
+| `copaw service install`   | Register service and enable auto-start |
+| `copaw service uninstall` | Stop and remove the service            |
+| `copaw service start`     | Start the service                      |
+| `copaw service stop`      | Stop the service                       |
+| `copaw service restart`   | Restart the service                    |
+| `copaw service status`    | Show service status                    |
+| `copaw service logs`      | View service logs                      |
 
 ```bash
 copaw service install                          # default 127.0.0.1:8088
@@ -452,7 +452,7 @@ See [Config & Working Directory](./config) for full details.
 | `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        No        |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |     **Yes**      |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |     **Yes**      |
-| `copaw service` | `install` · `uninstall` · `start` · `stop` · `restart` · `status` · `logs`                                                     |        No        |
+| `copaw service`  | `install` · `uninstall` · `start` · `stop` · `restart` · `status` · `logs`                                                             |        No        |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        No        |
 | `copaw clean`    | —                                                                                                                                      |        No        |
 

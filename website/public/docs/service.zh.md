@@ -31,14 +31,14 @@ copaw service start            # 启动
 
 ### 日常使用对比
 
-| 场景 | 之前 | 现在 |
-|------|------|------|
-| 启动 | `copaw app` 或 `nohup copaw app &` | `copaw service start` |
-| 停止 | Ctrl+C 或 `kill <pid>` | `copaw service stop` |
-| 重启 | 手动停止再启动 | `copaw service restart` |
-| 查看状态 | `ps aux \| grep copaw` | `copaw service status` |
-| 查看日志 | 看终端输出或 nohup.out | `copaw service logs` |
-| 重启机器后 | 需要手动重新启动 | 自动启动，无需操作 |
+| 场景       | 之前                               | 现在                    |
+| ---------- | ---------------------------------- | ----------------------- |
+| 启动       | `copaw app` 或 `nohup copaw app &` | `copaw service start`   |
+| 停止       | Ctrl+C 或 `kill <pid>`             | `copaw service stop`    |
+| 重启       | 手动停止再启动                     | `copaw service restart` |
+| 查看状态   | `ps aux \| grep copaw`             | `copaw service status`  |
+| 查看日志   | 看终端输出或 nohup.out             | `copaw service logs`    |
+| 重启机器后 | 需要手动重新启动                   | 自动启动，无需操作      |
 
 ### 对已有命令的影响
 
@@ -48,11 +48,11 @@ copaw service start            # 启动
 
 ## 支持的平台
 
-| 平台 | 后端 | 服务级别 | 自启动时机 |
-|------|------|---------|-----------|
-| Linux | systemd | 用户级（默认）/ 系统级（`--system`） | 开机后（无需登录） |
-| macOS | launchd | 用户级 LaunchAgent | 用户登录时 |
-| Windows | 任务计划程序 | 用户级计划任务 | 用户登录时 |
+| 平台    | 后端         | 服务级别                             | 自启动时机         |
+| ------- | ------------ | ------------------------------------ | ------------------ |
+| Linux   | systemd      | 用户级（默认）/ 系统级（`--system`） | 开机后（无需登录） |
+| macOS   | launchd      | 用户级 LaunchAgent                   | 用户登录时         |
+| Windows | 任务计划程序 | 用户级计划任务                       | 用户登录时         |
 
 ---
 
@@ -68,11 +68,11 @@ copaw service install --host 0.0.0.0 --port 9090   # 自定义地址
 copaw service install --system                 # 系统级服务（仅 Linux，需 sudo）
 ```
 
-| 参数 | 默认值 | 说明 |
-|------|-------|------|
-| `--host` | `127.0.0.1` | 绑定地址 |
-| `--port` | `8088` | 绑定端口 |
-| `--system` | 否 | 安装为系统级服务（仅 Linux） |
+| 参数       | 默认值      | 说明                         |
+| ---------- | ----------- | ---------------------------- |
+| `--host`   | `127.0.0.1` | 绑定地址                     |
+| `--port`   | `8088`      | 绑定端口                     |
+| `--system` | 否          | 安装为系统级服务（仅 Linux） |
 
 修改参数只需重新安装，新配置会覆盖旧配置：
 
@@ -116,10 +116,10 @@ copaw service logs -n 100        # 最近 100 行
 copaw service logs -f            # 持续跟踪（Ctrl+C 退出）
 ```
 
-| 参数 | 默认值 | 说明 |
-|------|-------|------|
-| `-n` / `--lines` | `50` | 显示行数 |
-| `-f` / `--follow` | 否 | 持续跟踪 |
+| 参数              | 默认值 | 说明     |
+| ----------------- | ------ | -------- |
+| `-n` / `--lines`  | `50`   | 显示行数 |
+| `-f` / `--follow` | 否     | 持续跟踪 |
 
 日志来源：Linux 通过 `journalctl`，macOS / Windows 读取 `~/.copaw/logs/` 下的日志文件。
 
@@ -182,6 +182,7 @@ WantedBy=default.target
 查看任务：按 `Win+R`，输入 `taskschd.msc`，在任务计划程序库中找到 `CoPaw`。
 
 > Windows 下 `--system` 参数会被忽略。如需以 Windows Service 运行（无需用户登录），建议使用 [NSSM](https://nssm.cc/)：
+>
 > ```cmd
 > nssm install CoPaw C:\Users\<user>\.copaw\venv\Scripts\copaw.exe app --host 127.0.0.1 --port 8088
 > ```
@@ -192,21 +193,21 @@ WantedBy=default.target
 
 ### 创建的文件
 
-| 平台 | 文件路径 | 说明 |
-|------|---------|------|
-| Linux | `~/.config/systemd/user/copaw.service` | systemd 用户级 unit 文件 |
-| Linux | `/etc/systemd/system/copaw.service` | 系统级 unit 文件（`--system`，需 sudo） |
-| macOS | `~/Library/LaunchAgents/com.copaw.app.plist` | launchd 用户代理配置 |
-| 全平台 | `~/.copaw/logs/` | 日志目录 |
+| 平台   | 文件路径                                     | 说明                                    |
+| ------ | -------------------------------------------- | --------------------------------------- |
+| Linux  | `~/.config/systemd/user/copaw.service`       | systemd 用户级 unit 文件                |
+| Linux  | `/etc/systemd/system/copaw.service`          | 系统级 unit 文件（`--system`，需 sudo） |
+| macOS  | `~/Library/LaunchAgents/com.copaw.app.plist` | launchd 用户代理配置                    |
+| 全平台 | `~/.copaw/logs/`                             | 日志目录                                |
 
 ### 修改的系统状态
 
-| 平台 | 变更 | 说明 |
-|------|------|------|
-| Linux | systemd enable | `systemctl --user enable copaw` |
-| Linux | linger | `loginctl enable-linger`，用户服务无需登录即可运行 |
-| macOS | launchd job | `launchctl load/unload` |
-| Windows | 任务计划程序 | `Register-ScheduledTask` / `schtasks` |
+| 平台    | 变更           | 说明                                               |
+| ------- | -------------- | -------------------------------------------------- |
+| Linux   | systemd enable | `systemctl --user enable copaw`                    |
+| Linux   | linger         | `loginctl enable-linger`，用户服务无需登录即可运行 |
+| macOS   | launchd job    | `launchctl load/unload`                            |
+| Windows | 任务计划程序   | `Register-ScheduledTask` / `schtasks`              |
 
 `copaw service uninstall` 会撤销上述所有变更。`copaw uninstall` 会自动检测并清理服务。
 

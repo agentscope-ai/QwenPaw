@@ -357,15 +357,15 @@ copaw skills config   # 交互式开关
 
 ### copaw service
 
-| 命令 | 说明 |
-| ---- | ---- |
-| `copaw service install` | 注册服务并启用开机自启 |
-| `copaw service uninstall` | 停止并移除服务 |
-| `copaw service start` | 启动服务 |
-| `copaw service stop` | 停止服务 |
-| `copaw service restart` | 重启服务 |
-| `copaw service status` | 查看服务状态 |
-| `copaw service logs` | 查看服务日志 |
+| 命令                      | 说明                   |
+| ------------------------- | ---------------------- |
+| `copaw service install`   | 注册服务并启用开机自启 |
+| `copaw service uninstall` | 停止并移除服务         |
+| `copaw service start`     | 启动服务               |
+| `copaw service stop`      | 停止服务               |
+| `copaw service restart`   | 重启服务               |
+| `copaw service status`    | 查看服务状态           |
+| `copaw service logs`      | 查看服务日志           |
 
 ```bash
 copaw service install                          # 默认 127.0.0.1:8088
@@ -436,7 +436,7 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
-| `copaw service` | `install` · `uninstall` · `start` · `stop` · `restart` · `status` · `logs`                                                     |        否         |
+| `copaw service`  | `install` · `uninstall` · `start` · `stop` · `restart` · `status` · `logs`                                                             |        否         |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        否         |
 | `copaw clean`    | —                                                                                                                                      |        否         |
 

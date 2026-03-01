@@ -74,7 +74,11 @@ def uninstall_cmd(system: bool, yes: bool) -> None:
 
 
 @service_group.command("start")
-@click.option("--system", is_flag=True, help="Operate on the system-wide service.")
+@click.option(
+    "--system",
+    is_flag=True,
+    help="Operate on the system-wide service.",
+)
 def start_cmd(system: bool) -> None:
     """Start the CoPaw service."""
     mgr = get_service_manager()
@@ -82,7 +86,11 @@ def start_cmd(system: bool) -> None:
 
 
 @service_group.command("stop")
-@click.option("--system", is_flag=True, help="Operate on the system-wide service.")
+@click.option(
+    "--system",
+    is_flag=True,
+    help="Operate on the system-wide service.",
+)
 def stop_cmd(system: bool) -> None:
     """Stop the CoPaw service."""
     mgr = get_service_manager()
@@ -90,7 +98,11 @@ def stop_cmd(system: bool) -> None:
 
 
 @service_group.command("restart")
-@click.option("--system", is_flag=True, help="Operate on the system-wide service.")
+@click.option(
+    "--system",
+    is_flag=True,
+    help="Operate on the system-wide service.",
+)
 def restart_cmd(system: bool) -> None:
     """Restart the CoPaw service."""
     mgr = get_service_manager()

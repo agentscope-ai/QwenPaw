@@ -31,14 +31,14 @@ copaw service start            # start now
 
 ### Day-to-day comparison
 
-| Task | Before | Now |
-|------|--------|-----|
-| Start | `copaw app` or `nohup copaw app &` | `copaw service start` |
-| Stop | Ctrl+C or `kill <pid>` | `copaw service stop` |
-| Restart | stop then start manually | `copaw service restart` |
-| Status | `ps aux \| grep copaw` | `copaw service status` |
-| Logs | terminal output or nohup.out | `copaw service logs` |
-| After reboot | must restart manually | starts automatically |
+| Task         | Before                             | Now                     |
+| ------------ | ---------------------------------- | ----------------------- |
+| Start        | `copaw app` or `nohup copaw app &` | `copaw service start`   |
+| Stop         | Ctrl+C or `kill <pid>`             | `copaw service stop`    |
+| Restart      | stop then start manually           | `copaw service restart` |
+| Status       | `ps aux \| grep copaw`             | `copaw service status`  |
+| Logs         | terminal output or nohup.out       | `copaw service logs`    |
+| After reboot | must restart manually              | starts automatically    |
 
 ### Impact on existing commands
 
@@ -48,11 +48,11 @@ copaw service start            # start now
 
 ## Supported platforms
 
-| Platform | Backend | Level | Auto-start trigger |
-|----------|---------|-------|--------------------|
-| Linux | systemd | User (default) / System (`--system`) | At boot (no login required) |
-| macOS | launchd | User LaunchAgent | At user login |
-| Windows | Task Scheduler | User task | At user login |
+| Platform | Backend        | Level                                | Auto-start trigger          |
+| -------- | -------------- | ------------------------------------ | --------------------------- |
+| Linux    | systemd        | User (default) / System (`--system`) | At boot (no login required) |
+| macOS    | launchd        | User LaunchAgent                     | At user login               |
+| Windows  | Task Scheduler | User task                            | At user login               |
 
 ---
 
@@ -68,11 +68,11 @@ copaw service install --host 0.0.0.0 --port 9090   # custom address
 copaw service install --system                 # system-wide (Linux only, needs sudo)
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--host` | `127.0.0.1` | Bind host |
-| `--port` | `8088` | Bind port |
-| `--system` | no | System-wide service (Linux only) |
+| Option     | Default     | Description                      |
+| ---------- | ----------- | -------------------------------- |
+| `--host`   | `127.0.0.1` | Bind host                        |
+| `--port`   | `8088`      | Bind port                        |
+| `--system` | no          | System-wide service (Linux only) |
 
 To change parameters, just re-install — new config overwrites the old one:
 
@@ -116,10 +116,10 @@ copaw service logs -n 100        # last 100 lines
 copaw service logs -f            # follow (Ctrl+C to stop)
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `-n` / `--lines` | `50` | Number of lines to show |
-| `-f` / `--follow` | off | Continuously follow output |
+| Option            | Default | Description                |
+| ----------------- | ------- | -------------------------- |
+| `-n` / `--lines`  | `50`    | Number of lines to show    |
+| `-f` / `--follow` | off     | Continuously follow output |
 
 Log sources: Linux uses `journalctl`; macOS and Windows read log files in `~/.copaw/logs/`.
 
@@ -182,6 +182,7 @@ Writes to `/etc/systemd/system/copaw.service` (needs sudo), with `WantedBy=multi
 To inspect: press `Win+R`, type `taskschd.msc`, find `CoPaw` in the library.
 
 > `--system` is ignored on Windows. For a true Windows Service (runs without user login), consider [NSSM](https://nssm.cc/):
+>
 > ```cmd
 > nssm install CoPaw C:\Users\<user>\.copaw\venv\Scripts\copaw.exe app --host 127.0.0.1 --port 8088
 > ```
@@ -192,21 +193,21 @@ To inspect: press `Win+R`, type `taskschd.msc`, find `CoPaw` in the library.
 
 ### Files created
 
-| Platform | Path | Description |
-|----------|------|-------------|
-| Linux | `~/.config/systemd/user/copaw.service` | systemd user unit file |
-| Linux | `/etc/systemd/system/copaw.service` | System unit file (`--system`, needs sudo) |
-| macOS | `~/Library/LaunchAgents/com.copaw.app.plist` | launchd user agent plist |
-| All | `~/.copaw/logs/` | Log directory |
+| Platform | Path                                         | Description                               |
+| -------- | -------------------------------------------- | ----------------------------------------- |
+| Linux    | `~/.config/systemd/user/copaw.service`       | systemd user unit file                    |
+| Linux    | `/etc/systemd/system/copaw.service`          | System unit file (`--system`, needs sudo) |
+| macOS    | `~/Library/LaunchAgents/com.copaw.app.plist` | launchd user agent plist                  |
+| All      | `~/.copaw/logs/`                             | Log directory                             |
 
 ### System state changes
 
-| Platform | Change | Description |
-|----------|--------|-------------|
-| Linux | systemd enable | `systemctl --user enable copaw` |
-| Linux | linger | `loginctl enable-linger` — user service runs without login |
-| macOS | launchd job | `launchctl load/unload` |
-| Windows | Task Scheduler | `Register-ScheduledTask` / `schtasks` |
+| Platform | Change         | Description                                                |
+| -------- | -------------- | ---------------------------------------------------------- |
+| Linux    | systemd enable | `systemctl --user enable copaw`                            |
+| Linux    | linger         | `loginctl enable-linger` — user service runs without login |
+| macOS    | launchd job    | `launchctl load/unload`                                    |
+| Windows  | Task Scheduler | `Register-ScheduledTask` / `schtasks`                      |
 
 `copaw service uninstall` reverses all of the above. `copaw uninstall` also auto-detects and cleans up the service.
 

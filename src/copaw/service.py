@@ -16,8 +16,6 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import Optional
-
 from .constant import WORKING_DIR
 
 logger = logging.getLogger(__name__)
@@ -30,6 +28,7 @@ LOG_DIR = WORKING_DIR / "logs"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_copaw_executable() -> str:
     """Find the absolute path to the ``copaw`` CLI entry-point."""
@@ -47,7 +46,7 @@ def _get_copaw_executable() -> str:
 
     raise FileNotFoundError(
         "Cannot locate the copaw executable. "
-        "Make sure CoPaw is properly installed and on your PATH."
+        "Make sure CoPaw is properly installed and on your PATH.",
     )
 
 
@@ -59,6 +58,7 @@ def _ensure_log_dir() -> Path:
 # ---------------------------------------------------------------------------
 # Abstract base
 # ---------------------------------------------------------------------------
+
 
 class ServiceManager(abc.ABC):
     """Platform-agnostic interface for service lifecycle management."""
@@ -108,29 +108,45 @@ class ServiceManager(abc.ABC):
 # Linux — systemd
 # ---------------------------------------------------------------------------
 
+
 class SystemdServiceManager(ServiceManager):
     """Manage CoPaw as a systemd service (user or system)."""
 
-    # --- paths ---
+    # --- paths (public for cross-class use) ---
 
     @staticmethod
-    def _user_unit_path() -> Path:
-        return Path.home() / ".config" / "systemd" / "user" / f"{SERVICE_NAME}.service"
+    def user_unit_path() -> Path:
+        return (
+            Path.home()
+            / ".config"
+            / "systemd"
+            / "user"
+            / f"{SERVICE_NAME}.service"
+        )
 
     @staticmethod
-    def _system_unit_path() -> Path:
+    def system_unit_path() -> Path:
         return Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
 
     def _unit_path(self, system: bool) -> Path:
-        return self._system_unit_path() if system else self._user_unit_path()
+        return self.system_unit_path() if system else self.user_unit_path()
 
     @staticmethod
-    def _systemctl(args: list[str], *, system: bool) -> subprocess.CompletedProcess:
+    def _systemctl(
+        args: list[str],
+        *,
+        system: bool,
+    ) -> subprocess.CompletedProcess:
         cmd = ["systemctl"]
         if not system:
             cmd.append("--user")
         cmd.extend(args)
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     # --- public API ---
 
@@ -144,7 +160,8 @@ class SystemdServiceManager(ServiceManager):
         copaw = _get_copaw_executable()
         _ensure_log_dir()
 
-        unit = textwrap.dedent(f"""\
+        unit = textwrap.dedent(
+            f"""\
             [Unit]
             Description=CoPaw Personal Assistant
             After=network-online.target
@@ -159,7 +176,8 @@ class SystemdServiceManager(ServiceManager):
 
             [Install]
             WantedBy={'multi-user.target' if system else 'default.target'}
-        """)
+        """,
+        )
 
         unit_path = self._unit_path(system)
         if system:
@@ -179,15 +197,21 @@ class SystemdServiceManager(ServiceManager):
         self._systemctl(["enable", SERVICE_NAME], system=system)
 
         if not system:
-            # Enable lingering so user service starts at boot even without login
+            # Enable lingering so user service starts
+            # at boot even without login
             subprocess.run(
-                ["loginctl", "enable-linger", os.environ.get("USER", "")],
+                [
+                    "loginctl",
+                    "enable-linger",
+                    os.environ.get("USER", ""),
+                ],
                 capture_output=True,
                 text=True,
+                check=False,
             )
 
         print(f"Service installed: {unit_path}")
-        print(f"Run 'copaw service start' to start the service.")
+        print("Run 'copaw service start' to start the service.")
 
     def uninstall(self, *, system: bool = False) -> None:
         self._systemctl(["stop", SERVICE_NAME], system=system)
@@ -200,6 +224,7 @@ class SystemdServiceManager(ServiceManager):
                     ["sudo", "rm", str(unit_path)],
                     capture_output=True,
                     text=True,
+                    check=False,
                 )
             else:
                 unit_path.unlink()
@@ -245,19 +270,22 @@ class SystemdServiceManager(ServiceManager):
         cmd.extend(["-u", SERVICE_NAME, "-n", str(lines)])
         if follow:
             cmd.append("-f")
-        subprocess.run(cmd)
+        subprocess.run(cmd, check=False)
 
 
 # ---------------------------------------------------------------------------
 # macOS — launchd
 # ---------------------------------------------------------------------------
 
+
 class LaunchdServiceManager(ServiceManager):
     """Manage CoPaw as a launchd LaunchAgent on macOS."""
 
     @staticmethod
-    def _plist_path() -> Path:
-        return Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+    def plist_path() -> Path:
+        return (
+            Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+        )
 
     def install(
         self,
@@ -269,12 +297,13 @@ class LaunchdServiceManager(ServiceManager):
         if system:
             print(
                 "System-wide launchd daemons require manual setup. "
-                "Installing as user LaunchAgent instead."
+                "Installing as user LaunchAgent instead.",
             )
         copaw = _get_copaw_executable()
         log_dir = _ensure_log_dir()
 
-        plist = textwrap.dedent(f"""\
+        plist = textwrap.dedent(
+            f"""\
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
               "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -306,9 +335,10 @@ class LaunchdServiceManager(ServiceManager):
                 </dict>
             </dict>
             </plist>
-        """)
+        """,
+        )
 
-        plist_path = self._plist_path()
+        plist_path = self.plist_path()
         plist_path.parent.mkdir(parents=True, exist_ok=True)
         plist_path.write_text(plist, encoding="utf-8")
 
@@ -316,12 +346,13 @@ class LaunchdServiceManager(ServiceManager):
         print("Run 'copaw service start' to start the service.")
 
     def uninstall(self, *, system: bool = False) -> None:
-        plist = self._plist_path()
+        plist = self.plist_path()
         if plist.exists():
             subprocess.run(
                 ["launchctl", "unload", "-w", str(plist)],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             plist.unlink()
             print(f"Service uninstalled (removed {plist}).")
@@ -329,14 +360,17 @@ class LaunchdServiceManager(ServiceManager):
             print("Service is not installed.")
 
     def start(self, *, system: bool = False) -> None:
-        plist = self._plist_path()
+        plist = self.plist_path()
         if not plist.exists():
-            print("Service is not installed. Run 'copaw service install' first.")
+            print(
+                "Service is not installed. Run 'copaw service install' first.",
+            )
             return
         r = subprocess.run(
             ["launchctl", "load", "-w", str(plist)],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0:
             print(f"Failed to start: {r.stderr.strip()}")
@@ -344,7 +378,7 @@ class LaunchdServiceManager(ServiceManager):
             print("CoPaw service started.")
 
     def stop(self, *, system: bool = False) -> None:
-        plist = self._plist_path()
+        plist = self.plist_path()
         if not plist.exists():
             print("Service is not installed.")
             return
@@ -352,6 +386,7 @@ class LaunchdServiceManager(ServiceManager):
             ["launchctl", "unload", str(plist)],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0:
             print(f"Failed to stop: {r.stderr.strip()}")
@@ -367,6 +402,7 @@ class LaunchdServiceManager(ServiceManager):
             ["launchctl", "list"],
             capture_output=True,
             text=True,
+            check=False,
         )
         for line in r.stdout.splitlines():
             if LAUNCHD_LABEL in line:
@@ -386,13 +422,14 @@ class LaunchdServiceManager(ServiceManager):
         err_file = LOG_DIR / "copaw.err"
 
         if follow:
-            # tail -f both logs
-            cmd = ["tail", "-f"]
             files = [str(f) for f in (log_file, err_file) if f.exists()]
             if not files:
                 print(f"No log files found in {LOG_DIR}")
                 return
-            subprocess.run(["tail", "-f"] + files)
+            subprocess.run(
+                ["tail", "-f"] + files,
+                check=False,
+            )
         else:
             for label, path in [("stdout", log_file), ("stderr", err_file)]:
                 if path.exists():
@@ -407,6 +444,7 @@ class LaunchdServiceManager(ServiceManager):
 # ---------------------------------------------------------------------------
 # Windows — Task Scheduler
 # ---------------------------------------------------------------------------
+
 
 class WindowsTaskSchedulerManager(ServiceManager):
     """Manage CoPaw via Windows Task Scheduler (runs at user logon).
@@ -425,11 +463,7 @@ class WindowsTaskSchedulerManager(ServiceManager):
         system: bool = False,
     ) -> None:
         copaw = _get_copaw_executable()
-        log_dir = _ensure_log_dir()
-
-        # Build the XML definition for a scheduled task.
-        # Using XML gives us more control than schtasks /Create flags.
-        log_file = str(log_dir / "copaw.log")
+        _ensure_log_dir()
 
         # Use PowerShell to register the task for maximum compatibility
         # We create a task that:
@@ -437,12 +471,15 @@ class WindowsTaskSchedulerManager(ServiceManager):
         #  - Does NOT stop if going on batteries
         #  - Has no execution time limit
         #  - Restarts on failure
-        ps_script = textwrap.dedent(f"""\
+        ps_script = textwrap.dedent(
+            f"""\
             $ErrorActionPreference = 'Stop'
             $taskName = '{self._TASK_NAME}'
 
             # Remove existing task if present
-            $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            $existing = Get-ScheduledTask `
+                -TaskName $taskName `
+                -ErrorAction SilentlyContinue
             if ($existing) {{
                 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
             }}
@@ -470,19 +507,24 @@ class WindowsTaskSchedulerManager(ServiceManager):
                 -Description 'CoPaw Personal Assistant' | Out-Null
 
             Write-Output "OK"
-        """)
+        """,
+        )
 
         r = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_script],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0 or "OK" not in r.stdout:
-            print(f"Failed to install service:\n{r.stderr.strip()}")
+            print(
+                "Failed to install service:\n" f"{r.stderr.strip()}",
+            )
             return
 
-        print(f"Scheduled task '{self._TASK_NAME}' created (runs at logon).")
-        print(f"Run 'copaw service start' to start the service now.")
+        task = self._TASK_NAME
+        print(f"Scheduled task '{task}' created (runs at logon).")
+        print("Run 'copaw service start' to start the service now.")
 
     def uninstall(self, *, system: bool = False) -> None:
         # Stop first
@@ -490,17 +532,23 @@ class WindowsTaskSchedulerManager(ServiceManager):
 
         r = subprocess.run(
             [
-                "schtasks", "/Delete",
-                "/TN", self._TASK_NAME,
+                "schtasks",
+                "/Delete",
+                "/TN",
+                self._TASK_NAME,
                 "/F",
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode == 0:
             print(f"Scheduled task '{self._TASK_NAME}' removed.")
         else:
-            if "cannot find" in r.stderr.lower() or "does not exist" in r.stderr.lower():
+            if (
+                "cannot find" in r.stderr.lower()
+                or "does not exist" in r.stderr.lower()
+            ):
                 print("Service is not installed.")
             else:
                 print(f"Failed to remove task: {r.stderr.strip()}")
@@ -508,11 +556,14 @@ class WindowsTaskSchedulerManager(ServiceManager):
     def start(self, *, system: bool = False) -> None:
         r = subprocess.run(
             [
-                "schtasks", "/Run",
-                "/TN", self._TASK_NAME,
+                "schtasks",
+                "/Run",
+                "/TN",
+                self._TASK_NAME,
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode == 0:
             print("CoPaw service started.")
@@ -522,11 +573,14 @@ class WindowsTaskSchedulerManager(ServiceManager):
     def stop(self, *, system: bool = False) -> None:
         r = subprocess.run(
             [
-                "schtasks", "/End",
-                "/TN", self._TASK_NAME,
+                "schtasks",
+                "/End",
+                "/TN",
+                self._TASK_NAME,
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode == 0:
             print("CoPaw service stopped.")
@@ -545,13 +599,17 @@ class WindowsTaskSchedulerManager(ServiceManager):
     def status(self, *, system: bool = False) -> str:
         r = subprocess.run(
             [
-                "schtasks", "/Query",
-                "/TN", self._TASK_NAME,
-                "/FO", "LIST",
+                "schtasks",
+                "/Query",
+                "/TN",
+                self._TASK_NAME,
+                "/FO",
+                "LIST",
                 "/V",
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0:
             return "CoPaw service is not installed."
@@ -568,19 +626,25 @@ class WindowsTaskSchedulerManager(ServiceManager):
         if not log_file.exists():
             print(
                 f"No log file found at {log_file}.\n"
-                "Note: Windows Task Scheduler does not capture stdout by default.\n"
-                "Check the console output or configure file logging in copaw."
+                "Note: Windows Task Scheduler does not "
+                "capture stdout by default.\n"
+                "Check the console output or configure "
+                "file logging in copaw.",
             )
             return
 
         if follow:
             print(f"Tailing {log_file} (Ctrl+C to stop)...")
-            # PowerShell Get-Content -Wait is the Windows equivalent of tail -f
             subprocess.run(
                 [
-                    "powershell", "-NoProfile", "-Command",
-                    f"Get-Content -Path '{log_file}' -Tail {lines} -Wait",
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "Get-Content"
+                    f" -Path '{log_file}'"
+                    f" -Tail {lines} -Wait",
                 ],
+                check=False,
             )
         else:
             text = log_file.read_text(encoding="utf-8", errors="replace")
@@ -591,6 +655,7 @@ class WindowsTaskSchedulerManager(ServiceManager):
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
 
 def get_service_manager() -> ServiceManager:
     """Return the appropriate :class:`ServiceManager` for the current OS."""
@@ -607,15 +672,18 @@ def get_service_manager() -> ServiceManager:
 def is_service_installed() -> bool:
     """Quick check: is the CoPaw service currently installed?"""
     if sys.platform == "linux":
-        return SystemdServiceManager._user_unit_path().exists() or \
-               SystemdServiceManager._system_unit_path().exists()
+        return (
+            SystemdServiceManager.user_unit_path().exists()
+            or SystemdServiceManager.system_unit_path().exists()
+        )
     elif sys.platform == "darwin":
-        return LaunchdServiceManager._plist_path().exists()
+        return LaunchdServiceManager.plist_path().exists()
     elif sys.platform == "win32":
         r = subprocess.run(
             ["schtasks", "/Query", "/TN", "CoPaw"],
             capture_output=True,
             text=True,
+            check=False,
         )
         return r.returncode == 0
     return False
