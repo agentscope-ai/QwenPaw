@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List, Optional, Type
 from agentscope.model import ChatModelBase, OpenAIChatModel
 
 from .models import CustomProviderData, ModelInfo, ProviderDefinition
+from .openai_responses_model import OpenAIResponsesChatModel
 
 if TYPE_CHECKING:
     from .models import ProvidersData
@@ -118,6 +119,17 @@ def get_provider(provider_id: str) -> Optional[ProviderDefinition]:
     return PROVIDERS.get(provider_id)
 
 
+def _resolve_chat_model_name(
+    chat_model: str,
+    wire_api: str,
+) -> str:
+    if wire_api == "responses":
+        return "OpenAIResponsesChatModel"
+    if chat_model:
+        return chat_model
+    return "OpenAIChatModel"
+
+
 def get_provider_chat_model(
     provider_id: str,
     providers_data: Optional[ProvidersData] = None,
@@ -138,11 +150,14 @@ def get_provider_chat_model(
 
     cpd = providers_data.custom_providers.get(provider_id)
     if cpd is not None:
-        return cpd.chat_model
+        return _resolve_chat_model_name(cpd.chat_model, cpd.wire_api)
 
     settings = providers_data.providers.get(provider_id)
-    if settings and settings.chat_model:
-        return settings.chat_model
+    if settings:
+        return _resolve_chat_model_name(
+            settings.chat_model,
+            settings.wire_api,
+        )
 
     provider_def = get_provider(provider_id)
     if provider_def:
@@ -262,6 +277,7 @@ def sync_ollama_models() -> None:
 
 _CHAT_MODEL_MAP: dict[str, Type[ChatModelBase]] = {
     "OpenAIChatModel": OpenAIChatModel,
+    "OpenAIResponsesChatModel": OpenAIResponsesChatModel,
 }
 
 

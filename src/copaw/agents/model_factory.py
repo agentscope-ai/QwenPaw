@@ -274,12 +274,16 @@ def _create_remote_model_instance(
         api_key = os.getenv("DASHSCOPE_API_KEY", "")
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+    client_kwargs = {"base_url": base_url}
+    if llm_cfg and llm_cfg.headers:
+        client_kwargs["default_headers"] = dict(llm_cfg.headers)
+
     # Instantiate model
     model = chat_model_class(
         model_name,
         api_key=api_key,
         stream=True,
-        client_kwargs={"base_url": base_url},
+        client_kwargs=client_kwargs,
     )
 
     return model

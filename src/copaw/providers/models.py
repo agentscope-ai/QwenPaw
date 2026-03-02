@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -49,6 +49,14 @@ class ProviderSettings(BaseModel):
         description="Chat model class name (e.g., 'OpenAIChatModel'). "
         "If empty, uses ProviderDefinition default.",
     )
+    headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional HTTP headers to attach to model requests.",
+    )
+    wire_api: Literal["chat_completions", "responses"] = Field(
+        default="chat_completions",
+        description="Wire API style for OpenAI-compatible providers.",
+    )
 
 
 class CustomProviderData(BaseModel):
@@ -68,6 +76,14 @@ class CustomProviderData(BaseModel):
     chat_model: str = Field(
         default="OpenAIChatModel",
         description="Chat model class name (e.g., 'OpenAIChatModel')",
+    )
+    headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional HTTP headers to attach to model requests.",
+    )
+    wire_api: Literal["chat_completions", "responses"] = Field(
+        default="chat_completions",
+        description="Wire API style for OpenAI-compatible providers.",
     )
 
 
@@ -126,6 +142,8 @@ class ProviderInfo(BaseModel):
     has_api_key: bool = Field(default=False)
     current_api_key: str = Field(default="")
     current_base_url: str = Field(default="")
+    current_headers: Dict[str, str] = Field(default_factory=dict)
+    wire_api: str = Field(default="chat_completions")
 
 
 class ActiveModelsInfo(BaseModel):
@@ -136,4 +154,6 @@ class ResolvedModelConfig(BaseModel):
     model: str = Field(default="")
     base_url: str = Field(default="")
     api_key: str = Field(default="")
+    headers: Dict[str, str] = Field(default_factory=dict)
+    wire_api: str = Field(default="chat_completions")
     is_local: bool = Field(default=False)

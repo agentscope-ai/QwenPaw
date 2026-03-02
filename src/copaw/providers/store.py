@@ -29,10 +29,17 @@ from .registry import (
 
 _PROVIDERS_DIR = Path(__file__).resolve().parent
 _PROVIDERS_JSON = _PROVIDERS_DIR / "providers.json"
+_VALID_WIRE_APIS = {"chat_completions", "responses"}
 
 
 def get_providers_json_path() -> Path:
     return _PROVIDERS_JSON
+
+
+def _validate_wire_api(wire_api: str) -> None:
+    if wire_api not in _VALID_WIRE_APIS:
+        options = ", ".join(sorted(_VALID_WIRE_APIS))
+        raise ValueError(f"Invalid wire_api '{wire_api}'. Expected: {options}")
 
 
 def _ensure_base_url(settings: ProviderSettings, defn) -> None:
@@ -269,16 +276,25 @@ def update_provider_settings(
     *,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    headers: Optional[dict[str, str]] = None,
+    wire_api: Optional[str] = None,
 ) -> ProvidersData:
     """Partially update a provider's settings. Returns updated state."""
     data = load_providers_json()
     cpd = data.custom_providers.get(provider_id)
+
+    if wire_api is not None:
+        _validate_wire_api(wire_api)
 
     if cpd is not None:
         if api_key is not None:
             cpd.api_key = api_key
         if base_url is not None:
             cpd.base_url = base_url
+        if headers is not None:
+            cpd.headers = headers
+        if wire_api is not None:
+            cpd.wire_api = wire_api
         if not cpd.base_url:
             cpd.base_url = cpd.default_base_url
         register_custom_provider(cpd)
@@ -288,6 +304,10 @@ def update_provider_settings(
             settings.api_key = api_key
         if base_url is not None:
             settings.base_url = base_url
+        if headers is not None:
+            settings.headers = headers
+        if wire_api is not None:
+            settings.wire_api = wire_api
         if not settings.base_url:
             defn = PROVIDERS.get(provider_id)
             if defn:
@@ -329,11 +349,27 @@ def _resolve_slot(
 
     if pid not in data.custom_providers and pid not in data.providers:
         return None
+
     base_url, api_key = data.get_credentials(pid)
+    headers: dict[str, str] = {}
+    wire_api = "chat_completions"
+
+    cpd = data.custom_providers.get(pid)
+    if cpd is not None:
+        headers = dict(cpd.headers or {})
+        wire_api = cpd.wire_api
+    else:
+        settings = data.providers.get(pid)
+        if settings is not None:
+            headers = dict(settings.headers or {})
+            wire_api = settings.wire_api
+
     return ResolvedModelConfig(
         model=slot.model,
         base_url=base_url,
         api_key=api_key,
+        headers=headers,
+        wire_api=wire_api,
     )
 
 
@@ -366,10 +402,14 @@ def create_custom_provider(
     default_base_url: str = "",
     api_key_prefix: str = "",
     models: Optional[list[ModelInfo]] = None,
+    wire_api: str = "chat_completions",
+    headers: Optional[dict[str, str]] = None,
 ) -> ProvidersData:
     err = validate_custom_provider_id(provider_id)
     if err:
         raise ValueError(err)
+
+    _validate_wire_api(wire_api)
 
     data = load_providers_json()
     if provider_id in data.custom_providers:
@@ -382,6 +422,8 @@ def create_custom_provider(
         api_key_prefix=api_key_prefix,
         models=models or [],
         base_url=default_base_url,
+        headers=headers or {},
+        wire_api=wire_api,
     )
     data.custom_providers[provider_id] = cpd
     register_custom_provider(cpd)

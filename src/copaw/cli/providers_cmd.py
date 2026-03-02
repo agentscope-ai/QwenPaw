@@ -23,6 +23,19 @@ from ..providers import (
 from .utils import prompt_choice
 
 
+def _parse_header_pairs(values: tuple[str, ...]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for value in values:
+        key, sep, header_value = value.partition("=")
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(
+                f"Invalid header '{value}'. Use KEY=VALUE format.",
+            )
+        headers[key] = header_value
+    return headers
+
+
 def _select_provider_interactive(
     prompt_text: str = "Select provider:",
     *,
@@ -352,6 +365,27 @@ def list_cmd() -> None:
                     f"  {'api_key_prefix':16s}: {defn.api_key_prefix}",
                 )
 
+            cpd = data.custom_providers.get(defn.id)
+            wire_api = (
+                cpd.wire_api
+                if cpd is not None
+                else settings.wire_api
+                if settings is not None
+                else "chat_completions"
+            )
+            headers = (
+                dict(cpd.headers)
+                if cpd is not None
+                else dict(settings.headers)
+                if settings is not None
+                else {}
+            )
+            click.echo(f"  {'wire_api':16s}: {wire_api}")
+            if headers:
+                click.echo(f"  {'headers':16s}:")
+                for key, value in headers.items():
+                    click.echo(f"    - {key}: {value}")
+
             extra = (
                 list(settings.extra_models)
                 if settings and not defn.is_custom
@@ -384,12 +418,71 @@ def config_cmd() -> None:
 
 @models_group.command("config-key")
 @click.argument("provider_id", required=False, default=None)
-def config_key_cmd(provider_id: str | None) -> None:
-    """Configure a provider's API key."""
+@click.option(
+    "--wire-api",
+    type=click.Choice(["chat_completions", "responses"]),
+    default=None,
+    help="OpenAI-compatible wire API style.",
+)
+@click.option(
+    "--header",
+    "headers",
+    multiple=True,
+    help="Custom request header in KEY=VALUE format. Repeatable.",
+)
+@click.option(
+    "--clear-headers",
+    is_flag=True,
+    help="Clear existing custom headers before applying --header values.",
+)
+def config_key_cmd(
+    provider_id: str | None,
+    wire_api: str | None,
+    headers: tuple[str, ...],
+    clear_headers: bool,
+) -> None:
+    """Configure a provider's API key and transport options."""
     if provider_id is not None and provider_id not in PROVIDERS:
         click.echo(click.style(f"Unknown provider: {provider_id}", fg="red"))
         raise SystemExit(1)
-    configure_provider_api_key_interactive(provider_id)
+
+    try:
+        parsed_headers = _parse_header_pairs(headers)
+    except ValueError as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"))
+        raise SystemExit(1) from exc
+
+    configured_provider_id = configure_provider_api_key_interactive(provider_id)
+
+    if wire_api is None and not headers and not clear_headers:
+        return
+
+    data = load_providers_json()
+    target = data.custom_providers.get(configured_provider_id)
+    if target is None:
+        target_settings = data.providers.get(configured_provider_id)
+        current_headers = (
+            dict(target_settings.headers)
+            if target_settings is not None
+            else {}
+        )
+    else:
+        current_headers = dict(target.headers)
+
+    next_headers = {} if clear_headers else current_headers
+    next_headers.update(parsed_headers)
+
+    try:
+        update_provider_settings(
+            configured_provider_id,
+            headers=next_headers,
+            wire_api=wire_api,
+        )
+    except ValueError as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"))
+        raise SystemExit(1) from exc
+
+    click.echo("✓ Provider transport options updated.")
 
 
 @models_group.command("set-llm")
@@ -403,19 +496,42 @@ def set_llm_cmd() -> None:
 @click.option("--name", "-n", required=True, help="Human-readable name")
 @click.option("--base-url", "-u", default="", help="Default API base URL")
 @click.option("--api-key-prefix", default="", help="Expected API key prefix")
+@click.option(
+    "--wire-api",
+    type=click.Choice(["chat_completions", "responses"]),
+    default="chat_completions",
+    show_default=True,
+    help="OpenAI-compatible wire API style.",
+)
+@click.option(
+    "--header",
+    "headers",
+    multiple=True,
+    help="Custom request header in KEY=VALUE format. Repeatable.",
+)
 def add_provider_cmd(
     provider_id: str,
     name: str,
     base_url: str,
     api_key_prefix: str,
+    wire_api: str,
+    headers: tuple[str, ...],
 ) -> None:
     """Add a new custom provider."""
+    try:
+        parsed_headers = _parse_header_pairs(headers)
+    except ValueError as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"))
+        raise SystemExit(1) from exc
+
     try:
         create_custom_provider(
             provider_id,
             name,
             default_base_url=base_url,
             api_key_prefix=api_key_prefix,
+            wire_api=wire_api,
+            headers=parsed_headers,
         )
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
@@ -423,6 +539,11 @@ def add_provider_cmd(
     click.echo(f"✓ Custom provider '{name}' ({provider_id}) created.")
     if base_url:
         click.echo(f"  base_url: {base_url}")
+    click.echo(f"  wire_api: {wire_api}")
+    if parsed_headers:
+        click.echo("  headers:")
+        for key, value in parsed_headers.items():
+            click.echo(f"    - {key}: {value}")
     click.echo(
         "  Run 'copaw models add-model' to add models, "
         "then 'copaw models config-key' to set the API key.",
