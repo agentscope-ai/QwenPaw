@@ -36,6 +36,24 @@ def _is_allowed_media_path(path: str) -> bool:
         return False
 
 
+def _extract_local_path_from_url(url: str) -> Optional[str]:
+    """Return local file path for file:// or existing plain local path."""
+    parsed = urllib.parse.urlparse(url)
+
+    if parsed.scheme == "file":
+        try:
+            return urllib.request.url2pathname(parsed.path)
+        except Exception:
+            return None
+
+    if parsed.scheme == "" and parsed.netloc == "":
+        candidate = Path(url).expanduser()
+        if candidate.exists():
+            return str(candidate)
+
+    return None
+
+
 async def _process_single_file_block(
     source: dict,
     filename: Optional[str],
@@ -67,17 +85,12 @@ async def _process_single_file_block(
     elif isinstance(source, dict) and source.get("type") == "url":
         url = source.get("url", "")
         if url:
-            parsed = urllib.parse.urlparse(url)
-            if parsed.scheme == "file":
-                try:
-                    local_path = urllib.request.url2pathname(parsed.path)
-                    if not _is_allowed_media_path(local_path):
-                        logger.warning(
-                            "Rejected file:// URL outside allowed media dir",
-                        )
-                        return None
-                except Exception:
-                    return None
+            local_path = _extract_local_path_from_url(url)
+            if local_path and not _is_allowed_media_path(local_path):
+                logger.warning(
+                    "Rejected local media path outside allowed media dir",
+                )
+                return None
             local_path = await download_file_from_url(
                 url,
                 filename,
@@ -148,22 +161,11 @@ def _update_block_with_local_path(
             block["filename"] = os.path.basename(local_path)
     else:
         if block_type == "image":
-            try:
-                block["source"] = {
-                    "type": "base64",
-                    "media_type": _image_media_type_from_path(local_path),
-                    "data": _read_file_base64(local_path),
-                }
-            except Exception as e:
-                logger.warning(
-                    "Failed to convert image to base64; "
-                    "fallback to local path: %s",
-                    e,
-                )
-                block["source"] = {
-                    "type": "url",
-                    "url": local_path,
-                }
+            block["source"] = {
+                "type": "base64",
+                "media_type": _image_media_type_from_path(local_path),
+                "data": _read_file_base64(local_path),
+            }
         elif block_type == "audio":
             block["source"] = {
                 "type": "url",

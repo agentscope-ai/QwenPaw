@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import base64
+import asyncio
 
 from copaw.agents.utils.message_processing import (
+    _process_single_file_block,
     _update_block_with_local_path,
 )
 
@@ -31,3 +33,19 @@ def test_update_audio_block_keeps_url_source_with_media_type(tmp_path):
     assert source["type"] == "url"
     assert source["url"].startswith("file://")
     assert source["media_type"] == "audio/wav"
+
+
+def test_process_single_file_block_rejects_plain_local_path_outside_media_root(
+    tmp_path,
+):
+    outside_path = tmp_path / "outside.png"
+    outside_path.write_bytes(b"fake")
+
+    result = asyncio.run(
+        _process_single_file_block(
+            source={"type": "url", "url": str(outside_path)},
+            filename=None,
+        ),
+    )
+
+    assert result is None
