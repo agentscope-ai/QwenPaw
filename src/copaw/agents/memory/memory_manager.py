@@ -405,15 +405,11 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
 
             total_token_count += msg_token_count
             # Check if adding this message would exceed threshold
-            if (
-                self._memory_compact_threshold
-                < total_token_count + msg_token_count
-            ):
+            if self._memory_compact_threshold <= total_token_count:
                 # Skip older messages when threshold exceeded
                 logger.info(
-                    "Skipping older messages: token count %d + %d > %d",
+                    "Skipping older messages: token count %d >= %d",
                     total_token_count,
-                    msg_token_count,
                     self._memory_compact_threshold,
                 )
                 break
@@ -476,6 +472,9 @@ class MemoryManager(ReMeFb):
             embedding_model_name,
             embedding_dimensions,
             embedding_cache_enabled,
+            embedding_max_cache_size,
+            embedding_max_input_length,
+            embedding_max_batch_size,
         ) = self.get_emb_envs()
 
         vector_enabled = bool(embedding_api_key)
@@ -516,6 +515,9 @@ class MemoryManager(ReMeFb):
                 "model_name": embedding_model_name,
                 "dimensions": embedding_dimensions,
                 "enable_cache": embedding_cache_enabled,
+                "max_cache_size": embedding_max_cache_size,
+                "max_input_length": embedding_max_input_length,
+                "max_batch_size": embedding_max_batch_size,
             },
             default_file_store_config={
                 "backend": memory_backend,
@@ -552,6 +554,19 @@ class MemoryManager(ReMeFb):
         self.formatter: FormatterBase | None = None
 
     @staticmethod
+    def _safe_int(value: str | None, default: int) -> int:
+        """Safely convert string to int, return default on failure."""
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            logger.warning(
+                f"Invalid int value '{value}', using default {default}",
+            )
+            return default
+
+    @staticmethod
     def get_emb_envs():
         embedding_api_key = os.environ.get("EMBEDDING_API_KEY", "")
         embedding_base_url = os.environ.get(
@@ -562,11 +577,24 @@ class MemoryManager(ReMeFb):
             "EMBEDDING_MODEL_NAME",
             "text-embedding-v4",
         )
-        embedding_dimensions = int(
-            os.environ.get("EMBEDDING_DIMENSIONS", "1024"),
+        embedding_dimensions = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_DIMENSIONS"),
+            1024,
         )
         embedding_cache_enabled = (
             os.environ.get("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
+        )
+        embedding_max_cache_size = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_MAX_CACHE_SIZE"),
+            2000,
+        )
+        embedding_max_input_length = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_MAX_INPUT_LENGTH"),
+            8192,
+        )
+        embedding_max_batch_size = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_MAX_BATCH_SIZE"),
+            10,
         )
         return (
             embedding_api_key,
@@ -574,6 +602,9 @@ class MemoryManager(ReMeFb):
             embedding_model_name,
             embedding_dimensions,
             embedding_cache_enabled,
+            embedding_max_cache_size,
+            embedding_max_input_length,
+            embedding_max_batch_size,
         )
 
     def update_emb_envs(self):
@@ -583,6 +614,9 @@ class MemoryManager(ReMeFb):
             embedding_model_name,
             embedding_dimensions,
             embedding_cache_enabled,
+            embedding_max_cache_size,
+            embedding_max_input_length,
+            embedding_max_batch_size,
         ) = self.get_emb_envs()
 
         if embedding_api_key:
@@ -594,6 +628,11 @@ class MemoryManager(ReMeFb):
         self.default_embedding_model.model_name = embedding_model_name
         self.default_embedding_model.dimensions = embedding_dimensions
         self.default_embedding_model.enable_cache = embedding_cache_enabled
+        self.default_embedding_model.max_cache_size = embedding_max_cache_size
+        self.default_embedding_model.max_input_length = (
+            embedding_max_input_length
+        )
+        self.default_embedding_model.max_batch_size = embedding_max_batch_size
 
     async def start(self):
         """Start the memory manager and initialize services."""
