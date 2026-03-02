@@ -6,13 +6,19 @@ native window (pywebview). Close window to quit server and app.
 from __future__ import annotations
 
 import os
+import socket
 import sys
 import threading
 import time
 import traceback
 import urllib.request
-
 import uvicorn
+
+# Set working dir before any copaw import (constant.WORKING_DIR is read at import).
+_SUPPORT = os.path.abspath(
+    os.path.expanduser("~/Library/Application Support/CoPaw"),
+)
+os.environ["COPAW_WORKING_DIR"] = _SUPPORT
 
 
 def _log(msg: str) -> None:
@@ -33,12 +39,10 @@ def _log(msg: str) -> None:
         pass
 
 
-# Set working dir and init before importing copaw (uses COPAW_WORKING_DIR).
+# Create support dir and init config; COPAW_WORKING_DIR already set at top.
 def _ensure_working_dir() -> None:
-    support = os.path.expanduser(
-        "~/Library/Application Support/CoPaw",
-    )
-    os.environ["COPAW_WORKING_DIR"] = support
+    support = _SUPPORT
+    os.makedirs(support, exist_ok=True)
     config = os.path.join(support, "config.json")
     if not os.path.isfile(config):
         from copaw.cli.init_cmd import init_cmd
@@ -47,6 +51,15 @@ def _ensure_working_dir() -> None:
             args=["--defaults", "--accept-security"],
             standalone_mode=False,
         )
+    # Ensure data files exist so backend APIs return valid structure (not 404/500).
+    for name in ("jobs.json", "chats.json"):
+        path = os.path.join(support, name)
+        if not os.path.isfile(path):
+            with open(path, "w", encoding="utf-8") as f:
+                if name == "jobs.json":
+                    f.write('{"version":1,"jobs":[]}')
+                else:
+                    f.write('{"version":1,"chats":[]}')
 
 
 def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
@@ -71,16 +84,26 @@ def _run_server(server: "uvicorn.Server") -> None:
         loop.close()
 
 
+def _pick_free_port() -> int:
+    """Bind to 127.0.0.1:0 and return the chosen port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 def main() -> None:
     _ensure_working_dir()
+    support = os.environ.get("COPAW_WORKING_DIR", "")
+    _log(f"COPAW_WORKING_DIR={support}")
 
     from copaw.utils.logging import setup_logger
 
     setup_logger("info")
+    port = _pick_free_port()
     config = uvicorn.Config(
         "copaw.app._app:app",
-        host="0.0.0.0",
-        port=8088,
+        host="127.0.0.1",
+        port=port,
         log_level="info",
     )
     server = uvicorn.Server(config)
@@ -91,16 +114,26 @@ def main() -> None:
     )
     thread.start()
 
-    if not _wait_for_server("http://127.0.0.1:8088/"):
-        _log("CoPaw server failed to start (port 8088).")
+    base_url = f"http://127.0.0.1:{port}/"
+    if not _wait_for_server(base_url):
+        _log(f"CoPaw server failed to start (port {port}).")
         server.should_exit = True
         sys.exit(1)
+    try:
+        with open(
+            os.path.join(support, "last_base_url.txt"),
+            "w",
+            encoding="utf-8",
+        ) as f:
+            f.write(base_url)
+    except OSError:
+        pass
 
     import webview
 
     webview.create_window(
         "CoPaw",
-        "http://127.0.0.1:8088/",
+        base_url,
         width=1200,
         height=800,
         min_size=(800, 600),
