@@ -197,7 +197,7 @@ class BaseChannel(ABC):
         del existing_items
 
     def _content_has_text(self, contents: List[Any]) -> bool:
-        """True if contents has actionable text/media payload."""
+        """True if contents has at least one TEXT or REFUSAL with non-empty."""
         if not contents:
             return False
         for c in contents:
@@ -210,14 +210,6 @@ class BaseChannel(ABC):
             if (
                 t == ContentType.REFUSAL
                 and (getattr(c, "refusal", None) or "").strip()
-            ):
-                return True
-            # Media/file-only messages should also be processed immediately.
-            if t in (
-                ContentType.IMAGE,
-                ContentType.VIDEO,
-                ContentType.AUDIO,
-                ContentType.FILE,
             ):
                 return True
         return False
