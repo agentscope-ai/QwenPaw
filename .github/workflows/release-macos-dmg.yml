@@ -1,6 +1,11 @@
 # Build CoPaw macOS DMG on release and attach to the GitHub Release.
 # Users can download CoPaw-<version>.dmg from the release page.
 # Compatible with macOS 10.15+ (Catalina and later; Intel and Apple Silicon).
+#
+# If users see "damaged" or cannot open after download (Gatekeeper on unsigned
+# apps), they can: right-click the .app → Open, or run in Terminal:
+#   xattr -cr ~/Downloads/CoPaw-*.dmg
+# then open the DMG again.
 name: Release macOS DMG
 
 on:
@@ -61,6 +66,30 @@ jobs:
           else
             bash scripts/macos/build_dmg.sh
           fi
+
+      # Ad-hoc sign the app so Gatekeeper does not show "damaged" when user
+      # downloads the DMG. Then recreate DMG so the uploaded file contains the
+      # signed app (without Apple Developer ID we cannot notarize; user may need
+      # right-click → Open or: xattr -cr <dmg> then open).
+      - name: Sign app and recreate DMG
+        run: |
+          APP_DIR="dist/CoPaw.app"
+          DMG_GLOB="dist/CoPaw-*.dmg"
+          if [[ ! -d "$APP_DIR" ]]; then
+            echo "No $APP_DIR found" >&2
+            exit 1
+          fi
+          codesign --force --deep --sign - "$APP_DIR"
+          DMG_NAME=$(ls $DMG_GLOB 2>/dev/null | head -1)
+          if [[ -z "$DMG_NAME" ]]; then
+            echo "No DMG found" >&2
+            exit 1
+          fi
+          VERSION=$(basename "$DMG_NAME" .dmg | sed 's/^CoPaw-//')
+          rm -f "$DMG_NAME"
+          # Use hdiutil only (create-dmg can hang on GitHub Actions headless runner)
+          hdiutil create -volname "CoPaw $VERSION" -srcfolder "$APP_DIR" \
+            -ov -format UDZO "$DMG_NAME"
 
       - name: Upload DMG to Release
         if: github.event_name == 'release' && github.event.action == 'published'

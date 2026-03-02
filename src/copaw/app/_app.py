@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+import mimetypes
 import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
@@ -17,7 +18,7 @@ from ..config import (  # pylint: disable=no-name-in-module
     ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
-from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV
+from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS
 from ..__version__ import __version__
 from ..utils.logging import setup_logger
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
@@ -32,6 +33,14 @@ from ..envs import load_envs_into_environ
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+
+# Ensure static assets are served with browser-compatible MIME types across
+# platforms (notably Windows may miss .js/.mjs mappings).
+mimetypes.init()
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/wasm", ".wasm")
 
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
@@ -87,8 +96,11 @@ async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
 
     runner.set_chat_manager(chat_manager)
 
-    # --- config file watcher (auto-reload channels on config.json change) ---
-    config_watcher = ConfigWatcher(channel_manager=channel_manager)
+    # --- config file watcher (channels + heartbeat hot-reload on change) ---
+    config_watcher = ConfigWatcher(
+        channel_manager=channel_manager,
+        cron_manager=cron_manager,
+    )
     await config_watcher.start()
 
     # --- MCP config watcher (auto-reload MCP clients on change) ---
@@ -146,6 +158,17 @@ app = FastAPI(
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
+# Apply CORS middleware if CORS_ORIGINS is set
+if CORS_ORIGINS:
+    origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 # Console static dir: env, or copaw package data (console), or cwd.
 _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
@@ -154,18 +177,6 @@ _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
 def _resolve_console_static_dir() -> str:
     if os.environ.get(_CONSOLE_STATIC_ENV):
         return os.environ[_CONSOLE_STATIC_ENV]
-    # PyInstaller frozen bundle: console is under MEIPASS or exe dir.
-    if getattr(sys, "frozen", False):
-        bases = [
-            getattr(sys, "_MEIPASS", None),
-            Path(sys.executable).resolve().parent,
-        ]
-        for base in bases:
-            if base is None:
-                continue
-            candidate = Path(base) / "copaw" / "console"
-            if candidate.is_dir() and (candidate / "index.html").exists():
-                return str(candidate)
     # Shipped dist lives in copaw package as static data (not a Python pkg).
     pkg_dir = Path(__file__).resolve().parent.parent
     candidate = pkg_dir / "console"
