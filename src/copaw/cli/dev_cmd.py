@@ -222,15 +222,19 @@ def dev_cmd(
     procs: list[subprocess.Popen] = [backend_proc]
 
     frontend_proc: subprocess.Popen | None = None
-    if use_frontend and npm is not None:
-        frontend_proc = _start_frontend(
-            npm,
-            console_dir,
-            host,
-            port,
-            frontend_port,
-        )
-        procs.append(frontend_proc)
+    try:
+        if use_frontend and npm is not None:
+            frontend_proc = _start_frontend(
+                npm,
+                console_dir,
+                host,
+                port,
+                frontend_port,
+            )
+            procs.append(frontend_proc)
+    except Exception:
+        _terminate_all(procs)
+        raise
 
     # Stream output on background threads (daemon – exit when main exits).
     assert backend_proc.stdout is not None
