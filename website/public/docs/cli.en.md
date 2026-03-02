@@ -138,7 +138,7 @@ copaw models remove-local <model_id> --yes   # skip confirmation
 
 CoPaw integrates with Ollama to run models locally. Models are dynamically loaded from your Ollama daemon — install Ollama first from [ollama.com](https://ollama.com).
 
-Install the Ollama SDK: `pip install ollama`
+Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer with `--extras ollama`)
 
 ```bash
 # Download an Ollama model

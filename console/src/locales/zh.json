@@ -27,6 +27,7 @@
     "channels": "频道",
     "sessions": "会话",
     "cronJobs": "定时任务",
+    "heartbeat": "心跳",
     "agent": "智能体",
     "workspace": "工作区",
     "skills": "技能",
@@ -103,6 +104,25 @@
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
     "deleteError": "MCP 客户端删除失败"
+  },
+  "heartbeat": {
+    "title": "心跳",
+    "description": "按固定间隔用 HEARTBEAT.md 内容执行自检，并可选择将回复发到上次对话频道。",
+    "enabled": "开启心跳",
+    "every": "执行间隔",
+    "everyRequired": "请填写间隔",
+    "everyMin": "间隔至少为 1",
+    "unitMinutes": "分钟",
+    "unitHours": "小时",
+    "target": "回复目标",
+    "targetMain": "仅运行不发送（main）",
+    "targetLast": "发到上次对话频道（last）",
+    "activeHours": "活跃时段（可选）",
+    "activeStart": "开始时间",
+    "activeEnd": "结束时间",
+    "loadFailed": "加载心跳配置失败",
+    "saveSuccess": "保存成功，心跳已热重载",
+    "saveFailed": "保存心跳配置失败"
   },
   "cronJobs": {
     "title": "定时任务",
@@ -226,6 +246,7 @@
     "enterApiKey": "输入 API 密钥 ({{prefix}}-...)",
     "enterApiKeyOptional": "输入 API 密钥（可选）",
     "openAIEndpoint": "OpenAI 兼容端点，例如 http://localhost:11434/v1",
+    "azureEndpointHint": "Azure OpenAI 端点，例如 https://<resource>.openai.azure.com/openai/v1",
     "pleaseEnterBaseURL": "请输入 API 基础 URL",
     "pleaseEnterValidURL": "请输入有效的 URL",
     "apiKeyShouldStart": "API 密钥应以 \"{{prefix}}\" 开头",
@@ -323,7 +344,12 @@
     "localCancelDownloadConfirm": "确定取消下载 \"{{repo}}\"？",
     "localDownloadCancelled": "下载已取消",
     "localCancelDownloadFailed": "取消下载失败",
-    "ollamaModelNamePlaceholder": "例如 mistral:7b, qwen3:8b"
+    "ollamaModelNamePlaceholder": "例如 mistral:7b, qwen3:8b",
+    "testConnection": "测试连接",
+    "testConnectionSuccess": "连接测试成功",
+    "testConnectionFailed": "连接测试失败",
+    "testConnectionError": "测试连接时发生错误",
+    "modelTestFailed": "模型验证失败，请检查模型ID是否正确"
   },
   "agentConfig": {
     "title": "运行配置",

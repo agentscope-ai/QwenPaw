@@ -11,7 +11,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, TYPE_CHECKING
 
-from agentscope.mcp import StdIOStatefulClient
+from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 
 if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig
@@ -32,7 +32,7 @@ class MCPClientManager:
 
     def __init__(self) -> None:
         """Initialize an empty MCP client manager."""
-        self._clients: Dict[str, StdIOStatefulClient] = {}
+        self._clients: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
 
     async def init_from_config(self, config: "MCPConfig") -> None:
@@ -90,12 +90,7 @@ class MCPClientManager:
         """
         # 1. Create and connect new client outside lock (may be slow)
         logger.debug(f"Connecting new MCP client: {key}")
-        new_client = StdIOStatefulClient(
-            name=client_config.name,
-            command=client_config.command,
-            args=client_config.args,
-            env=client_config.env,
-        )
+        new_client = self._build_client(client_config)
 
         try:
             # Add timeout to prevent indefinite blocking
@@ -179,15 +174,29 @@ class MCPClientManager:
             client_config: Client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
-        client = StdIOStatefulClient(
-            name=client_config.name,
-            command=client_config.command,
-            args=client_config.args,
-            env=client_config.env,
-        )
+        client = self._build_client(client_config)
 
         # Add timeout to prevent indefinite blocking
         await asyncio.wait_for(client.connect(), timeout=timeout)
 
         async with self._lock:
             self._clients[key] = client
+
+    @staticmethod
+    def _build_client(client_config: "MCPClientConfig") -> Any:
+        """Build MCP client instance by configured transport."""
+        if client_config.transport == "stdio":
+            return StdIOStatefulClient(
+                name=client_config.name,
+                command=client_config.command,
+                args=client_config.args,
+                env=client_config.env,
+                cwd=client_config.cwd or None,
+            )
+
+        return HttpStatefulClient(
+            name=client_config.name,
+            transport=client_config.transport,
+            url=client_config.url,
+            headers=client_config.headers or None,
+        )

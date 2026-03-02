@@ -7,7 +7,7 @@ import {
   Tag,
   message,
 } from "@agentscope-ai/design";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, PlusOutlined, ApiOutlined } from "@ant-design/icons";
 import type { ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -29,6 +29,7 @@ export function RemoteModelManageModal({
   const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   // For custom providers ALL models are deletable.
@@ -42,9 +43,21 @@ export function RemoteModelManageModal({
   const handleAddModel = async () => {
     try {
       const values = await form.validateFields();
-      setSaving(true);
       const id = values.id.trim();
       const name = values.name?.trim() || id;
+
+      // Step 1: Test the model connection first
+      setSaving(true);
+      const testResult = await api.testModelConnection(provider.id, {
+        model_id: id,
+      });
+
+      if (!testResult.success) {
+        message.error(testResult.message || t("models.modelTestFailed"));
+        return;
+      }
+
+      // Step 2: If test passed, add the model
       await api.addModel(provider.id, { id, name });
       message.success(t("models.modelAdded", { name }));
       form.resetFields();
@@ -57,6 +70,28 @@ export function RemoteModelManageModal({
       message.error(errMsg);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestModel = async (modelId: string) => {
+    setTestingModelId(modelId);
+    try {
+      const result = await api.testModelConnection(provider.id, {
+        model_id: modelId,
+      });
+      if (result.success) {
+        message.success(result.message || t("models.testConnectionSuccess"));
+      } else {
+        message.warning(result.message || t("models.testConnectionFailed"));
+      }
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.testConnectionError");
+      message.error(errMsg);
+    } finally {
+      setTestingModelId(null);
     }
   };
 
@@ -97,7 +132,13 @@ export function RemoteModelManageModal({
       title={t("models.manageModelsTitle", { provider: provider.name })}
       open={open}
       onCancel={handleClose}
-      footer={null}
+      footer={
+        <div className={styles.modalFooter}>
+          <div className={styles.modalFooterRight}>
+            <Button onClick={handleClose}>{t("models.cancel")}</Button>
+          </div>
+        </div>
+      }
       width={560}
       destroyOnHidden
     >
@@ -126,15 +167,39 @@ export function RemoteModelManageModal({
                       <Button
                         type="text"
                         size="small"
+                        icon={<ApiOutlined />}
+                        onClick={() => handleTestModel(m.id)}
+                        loading={testingModelId === m.id}
+                        style={{ marginRight: 4 }}
+                      >
+                        {t("models.testConnection")}
+                      </Button>
+                      <Button
+                        type="text"
+                        size="small"
                         danger
                         icon={<DeleteOutlined />}
                         onClick={() => handleRemoveModel(m.id, m.name)}
                       />
                     </>
                   ) : (
-                    <Tag color="green" style={{ fontSize: 11 }}>
-                      {t("models.builtin")}
-                    </Tag>
+                    <>
+                      <Tag
+                        color="green"
+                        style={{ fontSize: 11, marginRight: 4 }}
+                      >
+                        {t("models.builtin")}
+                      </Tag>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ApiOutlined />}
+                        onClick={() => handleTestModel(m.id)}
+                        loading={testingModelId === m.id}
+                      >
+                        {t("models.testConnection")}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>

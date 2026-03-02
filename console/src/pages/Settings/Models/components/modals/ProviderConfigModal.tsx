@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Form, Input, Modal, message, Button } from "@agentscope-ai/design";
+import { ApiOutlined } from "@ant-design/icons";
 import type { ProviderConfigRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -13,6 +14,7 @@ interface ProviderConfigModalProps {
     api_key_prefix?: string;
     current_base_url?: string;
     is_custom: boolean;
+    needs_base_url: boolean;
     has_api_key: boolean;
   };
   activeModels: any;
@@ -30,8 +32,10 @@ export function ProviderConfigModal({
 }: ProviderConfigModalProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const [form] = Form.useForm<ProviderConfigRequest>();
+  const canEditBaseUrl = provider.needs_base_url || provider.id === "ollama";
 
   const apiKeyExtra = useMemo(() => {
     if (provider.current_api_key) {
@@ -68,6 +72,19 @@ export function ProviderConfigModal({
     try {
       const values = await form.validateFields();
       setSaving(true);
+
+      // Validate connection before saving
+      // For local providers, we might skip this or just check if models exist (which the backend does)
+      const result = await api.testProviderConnection(provider.id, {
+        api_key: values.api_key,
+        base_url: values.base_url,
+      });
+
+      if (!result.success) {
+        message.error(result.message || t("models.testConnectionFailed"));
+        return;
+      }
+
       await api.configureProvider(provider.id, values);
       await onSaved();
       setFormDirty(false);
@@ -80,6 +97,31 @@ export function ProviderConfigModal({
       message.error(errMsg);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const values = await form.validateFields();
+      const result = await api.testProviderConnection(provider.id, {
+        api_key: values.api_key,
+        base_url: values.base_url,
+      });
+      if (result.success) {
+        message.success(result.message || t("models.testConnectionSuccess"));
+      } else {
+        message.warning(result.message || t("models.testConnectionFailed"));
+      }
+    } catch (error) {
+      if (error && typeof error === "object" && "errorFields" in error) return;
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.testConnectionError");
+      message.error(errMsg);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -133,6 +175,14 @@ export function ProviderConfigModal({
                 {t("models.revokeAuthorization")}
               </Button>
             )}
+            <Button
+              size="small"
+              icon={<ApiOutlined />}
+              onClick={handleTest}
+              loading={testing}
+            >
+              {t("models.testConnection")}
+            </Button>
           </div>
           <div className={styles.modalFooterRight}>
             <Button onClick={onClose}>{t("models.cancel")}</Button>
@@ -162,21 +212,37 @@ export function ProviderConfigModal({
           name="base_url"
           label="Base URL"
           rules={
-            provider.is_custom
+            canEditBaseUrl
               ? [
-                  {
-                    required: true,
-                    message: t("models.pleaseEnterBaseURL"),
-                  },
+                  ...(provider.needs_base_url
+                    ? [
+                        {
+                          required: true,
+                          message: t("models.pleaseEnterBaseURL"),
+                        },
+                      ]
+                    : []),
                   { type: "url", message: t("models.pleaseEnterValidURL") },
                 ]
               : []
           }
-          extra={provider.is_custom ? t("models.openAIEndpoint") : undefined}
+          extra={
+            canEditBaseUrl
+              ? provider.id === "azure-openai"
+                ? t("models.azureEndpointHint")
+                : t("models.openAIEndpoint")
+              : undefined
+          }
         >
           <Input
-            placeholder={provider.is_custom ? "http://localhost:11434/v1" : ""}
-            disabled={!provider.is_custom}
+            placeholder={
+              canEditBaseUrl
+                ? provider.id === "azure-openai"
+                  ? "https://<resource>.openai.azure.com/openai/v1"
+                  : "http://localhost:11434/v1"
+                : ""
+            }
+            disabled={!canEditBaseUrl}
           />
         </Form.Item>
 

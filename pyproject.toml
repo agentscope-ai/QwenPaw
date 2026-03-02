@@ -20,6 +20,7 @@ dependencies = [
     "python-socks>=2.5.3",
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
+    "python-telegram-bot>=20.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -62,6 +63,9 @@ llamacpp = [
 mlx = [
     "copaw[local]",
     "mlx-lm>=0.10.0",
+]
+ollama = [
+    "ollama>=0.6.1",
 ]
 
 [tool.pytest.ini_options]

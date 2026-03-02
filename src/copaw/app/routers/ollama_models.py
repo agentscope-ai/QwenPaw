@@ -84,18 +84,16 @@ async def list_ollama_models() -> List[OllamaModelResponse]:
 
     If the Ollama SDK is not installed, returns HTTP 501.
     """
-    try:
-        from ...providers.ollama_manager import OllamaModelManager
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "Ollama SDK not installed. Install with: pip install ollama"
-            ),
-        ) from exc
+    from ...providers.ollama_manager import OllamaModelManager
 
     try:
         models = OllamaModelManager.list_models()
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=501,
+            detail="Ollama SDK not installed. Install with: "
+            "pip install 'copaw[ollama]'",
+        ) from exc
     except Exception as exc:
         if _is_ollama_connection_error(exc):
             logger.warning(
@@ -170,6 +168,16 @@ async def _run_pull_in_background(
             DownloadTaskStatus.COMPLETED,
             result=result_dict,
         )
+    except ImportError:
+        logger.exception("Ollama SDK not installed")
+        await update_status(
+            task_id,
+            DownloadTaskStatus.FAILED,
+            error=(
+                "Ollama SDK not installed. "
+                "Install with: pip install 'copaw[ollama]'"
+            ),
+        )
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Ollama model pull failed: %s", exc)
         await update_status(
@@ -211,16 +219,16 @@ async def cancel_ollama_download(task_id: str) -> dict:
 )
 async def delete_ollama_model(name: str) -> dict:
     """Delete an Ollama model via the SDK."""
-    try:
-        from ...providers.ollama_manager import OllamaModelManager
-    except ImportError as exc:  # pragma: no cover - import guard
-        raise HTTPException(
-            status_code=501,
-            detail="Ollama SDK not installed.",
-        ) from exc
+    from ...providers.ollama_manager import OllamaModelManager
 
     try:
         OllamaModelManager.delete_model(name)
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=501,
+            detail="Ollama SDK not installed. Install with: "
+            "pip install 'copaw[ollama]'",
+        ) from exc
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed to delete Ollama model: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc

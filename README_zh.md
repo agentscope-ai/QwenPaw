@@ -96,6 +96,18 @@ copaw app
 curl -fsSL https://copaw.agentscope.io/install.sh | bash
 ```
 
+如需安装 Ollama 支持：
+
+```bash
+curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama
+```
+
+如需安装多个扩展（例如 Ollama + llama.cpp）：
+
+```bash
+curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
+```
+
 **Windows（PowerShell）：**
 
 ```powershell
@@ -160,10 +172,14 @@ copaw uninstall --purge  # 删除所有内容
 
 ### 使用 Docker
 
+镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。
+
 ```bash
 docker pull agentscope/copaw:latest
 docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
+
+国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
 然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
@@ -199,10 +215,11 @@ docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 
 CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。
 
-| 后端          | 适用场景                          | 安装                            |
-| ------------- | --------------------------------- | ------------------------------- |
-| **llama.cpp** | 跨平台（macOS / Linux / Windows） | `pip install 'copaw[llamacpp]'` |
-| **MLX**       | Apple Silicon（M1/M2/M3/M4）      | `pip install 'copaw[mlx]'`      |
+| 后端          | 适用场景                          | 安装                                                                 |
+| ------------- | --------------------------------- | -------------------------------------------------------------------- |
+| **llama.cpp** | 跨平台（macOS / Linux / Windows） | `pip install 'copaw[llamacpp]'` 或 `bash install.sh --extras llamacpp` |
+| **MLX**       | Apple Silicon（M1/M2/M3/M4）      | `pip install 'copaw[mlx]'` 或 `bash install.sh --extras mlx`         |
+| **Ollama**    | 跨平台（需要 Ollama 服务运行）    | `pip install 'copaw[ollama]'` 或 `bash install.sh --extras ollama`   |
 
 安装后下载模型并开始对话：
 

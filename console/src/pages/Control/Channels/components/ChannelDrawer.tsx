@@ -126,6 +126,27 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+      case "telegram":
+        return (
+          <>
+            <Form.Item name="bot_token" label="Bot Token">
+              <Input.Password placeholder="Telegram bot token from BotFather" />
+            </Form.Item>
+            <Form.Item name="http_proxy" label="HTTP Proxy">
+              <Input placeholder="http://127.0.0.1:18118" />
+            </Form.Item>
+            <Form.Item name="http_proxy_auth" label="HTTP Proxy Auth">
+              <Input placeholder="user:password" />
+            </Form.Item>
+            <Form.Item
+              name="show_typing"
+              label="Show Typing"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+          </>
+        );
       default:
         return null;
     }

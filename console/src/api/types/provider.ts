@@ -13,6 +13,8 @@ export interface ProviderInfo {
   extra_models: ModelInfo[];
   is_custom: boolean;
   is_local: boolean;
+  /** True when the user must supply a base URL (custom or no default URL). */
+  needs_base_url: boolean;
   has_api_key: boolean;
   current_api_key: string;
   current_base_url: string;
@@ -102,4 +104,20 @@ export interface OllamaDownloadTaskResponse {
   name: string;
   error: string | null;
   result: OllamaModelResponse | null;
+}
+
+/* ---- Test Connection ---- */
+
+export interface TestConnectionResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface TestProviderRequest {
+  api_key?: string;
+  base_url?: string;
+}
+
+export interface TestModelRequest {
+  model_id: string;
 }
