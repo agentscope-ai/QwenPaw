@@ -71,6 +71,25 @@ def is_model_timeout_error(exc: BaseException) -> bool:
     )
 
 
+def _pick_timeout_detail_exception(exc: BaseException) -> BaseException:
+    """Pick the most relevant timeout exception for user-facing details."""
+    chain = list(_iter_exception_chain(exc))
+
+    # Prefer innermost timeout exception from network/provider modules.
+    for item in reversed(chain):
+        if _is_timeout_like(item) and type(item).__module__.startswith(
+            _NETWORK_TIMEOUT_MODULE_PREFIXES,
+        ):
+            return item
+
+    # Fallback to any timeout-like exception in the chain.
+    for item in reversed(chain):
+        if _is_timeout_like(item):
+            return item
+
+    return exc
+
+
 def _build_timeout_error_message(exc: BaseException) -> str:
     """Build a concise and actionable timeout error message."""
     detail = str(exc).strip()
@@ -87,5 +106,8 @@ def _build_timeout_error_message(exc: BaseException) -> str:
 def map_query_exception(exc: Exception) -> Exception:
     """Map internal exceptions to user-facing runtime exceptions."""
     if is_model_timeout_error(exc):
-        return AgentModelTimeoutError(_build_timeout_error_message(exc))
+        timeout_detail_exc = _pick_timeout_detail_exception(exc)
+        return AgentModelTimeoutError(
+            _build_timeout_error_message(timeout_detail_exc),
+        )
     return exc

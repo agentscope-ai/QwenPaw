@@ -177,7 +177,9 @@ class AgentRunner(Runner):
                 exc=e,
                 locals_=locals(),
             )
-            _attach_debug_dump_path(normalized_exc, debug_dump_path)
+            _attach_debug_dump_path(e, debug_dump_path)
+            if normalized_exc is not e:
+                _attach_debug_dump_path(normalized_exc, debug_dump_path)
             logger.exception(
                 "Error in query handler: %s",
                 normalized_exc,
