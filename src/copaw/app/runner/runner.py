@@ -22,6 +22,31 @@ from ...constant import WORKING_DIR
 logger = logging.getLogger(__name__)
 
 
+def _normalize_user_facing_exception(exc: Exception) -> Exception:
+    """Rewrite known upstream 5xx exceptions into actionable messages."""
+    exc_type = type(exc).__name__
+    text = str(exc)
+    is_upstream_5xx = any(
+        code in text
+        for code in (
+            " 500",
+            " 502",
+            " 503",
+            " 504",
+            "'500'",
+            "'502'",
+            "'503'",
+            "'504'",
+        )
+    )
+    if exc_type in {"InternalServerError", "APIStatusError"} and is_upstream_5xx:
+        return RuntimeError(
+            "Upstream model service returned a temporary server error (5xx). "
+            "Please retry later or switch endpoint/model.",
+        )
+    return exc
+
+
 class AgentRunner(Runner):
     def __init__(self) -> None:
         super().__init__()
@@ -148,6 +173,7 @@ class AgentRunner(Runner):
                 await agent.interrupt()
             raise
         except Exception as e:
+            e = _normalize_user_facing_exception(e)
             debug_dump_path = write_query_error_dump(
                 request=request,
                 exc=e,
