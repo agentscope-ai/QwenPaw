@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Verify fix for issue #155: thinking blocks preserved as reasoning_content."""
+"""Verify fix for #155: thinking blocks preserved as reasoning_content."""
 import asyncio
 import json
 
@@ -20,7 +20,11 @@ def test_reasoning_content_preserved():
     formatter = _create_formatter_instance(OpenAIChatModel)
 
     msgs = [
-        Msg(name="system", role="system", content="You are a helpful assistant."),
+        Msg(
+            name="system",
+            role="system",
+            content="You are a helpful assistant.",
+        ),
         Msg(name="user", role="user", content="What time is it now?"),
         Msg(
             name="assistant",
@@ -56,19 +60,21 @@ def test_reasoning_content_preserved():
     formatted = asyncio.run(formatter.format(msgs))
 
     assistant_msgs = [
-        m for m in formatted
+        m
+        for m in formatted
         if m.get("role") == "assistant" and m.get("tool_calls")
     ]
     assert len(assistant_msgs) == 1, (
-        f"Expected 1 assistant msg with tool_calls, got {len(assistant_msgs)}. "
-        f"All formatted: {json.dumps(formatted, ensure_ascii=False, indent=2)}"
+        f"Expected 1 assistant msg with tool_calls, "
+        f"got {len(assistant_msgs)}. "
+        f"All formatted: {json.dumps(formatted, ensure_ascii=False)}"
     )
 
     msg = assistant_msgs[0]
     reasoning = msg.get("reasoning_content")
     assert reasoning, (
-        f"reasoning_content missing! Formatted msg: "
-        f"{json.dumps(msg, ensure_ascii=False, indent=2)}"
+        f"reasoning_content missing! "
+        f"Formatted msg: {json.dumps(msg, ensure_ascii=False, indent=2)}"
     )
     assert "get_current_time" in reasoning
     print(f"✅ PASS — reasoning_content preserved: {reasoning}")
@@ -93,8 +99,11 @@ def test_no_reasoning_when_no_thinking():
     assert len(assistant_msgs) == 1
 
     msg = assistant_msgs[0]
-    assert "reasoning_content" not in msg, (
-        "reasoning_content should not be present when there are no thinking blocks"
+    assert (
+        "reasoning_content" not in msg
+    ), (
+        "reasoning_content should not be present "
+        "when there are no thinking blocks"
     )
     print("✅ PASS — no reasoning_content when no thinking blocks")
 
@@ -110,48 +119,82 @@ def test_multiple_assistant_messages():
             name="assistant",
             role="assistant",
             content=[
-                ThinkingBlock(type="thinking", thinking="First task thinking"),
+                ThinkingBlock(
+                    type="thinking",
+                    thinking="First task thinking",
+                ),
                 TextBlock(type="text", text="Doing first thing."),
-                ToolUseBlock(type="tool_use", id="c1", name="tool_a", input={}),
+                ToolUseBlock(
+                    type="tool_use",
+                    id="c1",
+                    name="tool_a",
+                    input={},
+                ),
             ],
         ),
         Msg(
             name="system",
             role="system",
             content=[
-                ToolResultBlock(type="tool_result", id="c1", name="tool_a", output="done"),
+                ToolResultBlock(
+                    type="tool_result",
+                    id="c1",
+                    name="tool_a",
+                    output="done",
+                ),
             ],
         ),
         Msg(
             name="assistant",
             role="assistant",
             content=[
-                ThinkingBlock(type="thinking", thinking="Second task thinking"),
+                ThinkingBlock(
+                    type="thinking",
+                    thinking="Second task thinking",
+                ),
                 TextBlock(type="text", text="Doing second thing."),
-                ToolUseBlock(type="tool_use", id="c2", name="tool_b", input={}),
+                ToolUseBlock(
+                    type="tool_use",
+                    id="c2",
+                    name="tool_b",
+                    input={},
+                ),
             ],
         ),
         Msg(
             name="system",
             role="system",
             content=[
-                ToolResultBlock(type="tool_result", id="c2", name="tool_b", output="done"),
+                ToolResultBlock(
+                    type="tool_result",
+                    id="c2",
+                    name="tool_b",
+                    output="done",
+                ),
             ],
         ),
     ]
 
     formatted = asyncio.run(formatter.format(msgs))
     assistant_msgs = [
-        m for m in formatted
+        m
+        for m in formatted
         if m.get("role") == "assistant" and m.get("tool_calls")
     ]
-    assert len(assistant_msgs) == 2, (
-        f"Expected 2 assistant msgs, got {len(assistant_msgs)}"
-    )
+    assert (
+        len(assistant_msgs) == 2
+    ), f"Expected 2 assistant msgs, got {len(assistant_msgs)}"
 
-    assert assistant_msgs[0].get("reasoning_content") == "First task thinking"
-    assert assistant_msgs[1].get("reasoning_content") == "Second task thinking"
-    print("✅ PASS — multiple assistant messages each get correct reasoning_content")
+    assert (
+        assistant_msgs[0].get("reasoning_content") == "First task thinking"
+    )
+    assert (
+        assistant_msgs[1].get("reasoning_content") == "Second task thinking"
+    )
+    print(
+        "✅ PASS — multiple assistant messages "
+        "each get correct reasoning_content"
+    )
 
 
 if __name__ == "__main__":
