@@ -123,6 +123,11 @@ function Ensure-Uv {
 
 Ensure-Uv
 
+# On Windows, uv parallel wheel installs can intermittently fail with
+# file-lock "Access Denied" errors. Force serial install for reliability.
+$env:UV_CONCURRENT_INSTALLS = "1"
+Write-Info "Set UV_CONCURRENT_INSTALLS=1 for stable package installation on Windows"
+
 # ── Step 2: Create / update virtual environment ──────────────────────────────
 if (Test-Path $CopawVenv) {
     Write-Info "Existing environment found, upgrading..."
