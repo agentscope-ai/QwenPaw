@@ -151,6 +151,130 @@ def _start_frontend(
     )
 
 
+def _start_stream_threads(
+    backend_proc: "subprocess.Popen[bytes]",
+    frontend_proc: "subprocess.Popen[bytes] | None",
+) -> None:
+    """Start daemon threads that stream backend/frontend process output."""
+    assert backend_proc.stdout is not None
+    threading.Thread(
+        target=_stream,
+        args=(backend_proc.stdout, "[backend]", "\033[36m"),
+        daemon=True,
+    ).start()
+    if frontend_proc is not None:
+        assert frontend_proc.stdout is not None
+        threading.Thread(
+            target=_stream,
+            args=(frontend_proc.stdout, "[frontend]", "\033[32m"),
+            daemon=True,
+        ).start()
+
+
+def _print_dev_banner(
+    host: str,
+    port: int,
+    frontend_port: int,
+    use_frontend: bool,
+) -> None:
+    """Print startup summary and usage hint for dev mode."""
+    click.echo("")
+    click.secho("  CoPaw dev mode", bold=True)
+    click.secho(
+        f"  Backend  → http://{host}:{port}  (uvicorn --reload)",
+        fg="cyan",
+    )
+    if use_frontend:
+        click.secho(
+            f"  Frontend → http://localhost:{frontend_port}  (vite --hmr)",
+            fg="green",
+        )
+        click.secho(
+            f"  Open http://localhost:{frontend_port} in your browser",
+            fg="yellow",
+        )
+    else:
+        click.secho(
+            f"  Open http://{host}:{port} in your browser"
+            " (serving built assets)",
+            fg="yellow",
+        )
+    label = "both servers" if use_frontend else "the server"
+    click.echo(f"  Press Ctrl+C to stop {label}.\n")
+
+
+def _terminate_all(procs: list[subprocess.Popen]) -> None:
+    """Terminate all child processes, ignoring already-exited ones."""
+    for proc in procs:
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _register_signal_handlers(
+    done: threading.Event,
+    procs: list[subprocess.Popen],
+) -> None:
+    """Register SIGINT/SIGTERM handlers that terminate all child processes."""
+
+    def _shutdown(  # pylint: disable=unused-argument
+        signum: int,
+        frame: object,
+    ) -> None:
+        if done.is_set():
+            return
+        done.set()
+        click.echo("\n\nShutting down…")
+        _terminate_all(procs)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    if hasattr(signal, "SIGTERM"):  # SIGTERM is not available on Windows
+        signal.signal(signal.SIGTERM, _shutdown)
+
+
+def _wait_watchdogs_and_cleanup(
+    procs: list[subprocess.Popen],
+    done: threading.Event,
+) -> None:
+    """Monitor child processes and ensure all are stopped before returning."""
+
+    def _watch(proc: "subprocess.Popen[bytes]") -> None:
+        """Terminate sibling processes when *proc* exits unexpectedly."""
+        proc.wait()
+        if not done.is_set():
+            done.set()
+            click.echo(
+                "\n\nA dev server exited unexpectedly"
+                " – shutting down remaining servers…",
+            )
+            _terminate_all(procs)
+
+    watchdog_threads = [
+        threading.Thread(target=_watch, args=(proc,), daemon=True)
+        for proc in procs
+    ]
+    for thread in watchdog_threads:
+        thread.start()
+
+    # Wait for watchdog threads to finish, but do not block indefinitely if a
+    # child process ignores SIGTERM. After a grace period, escalate to SIGKILL.
+    for thread, proc in zip(watchdog_threads, procs):
+        thread.join(timeout=10)
+        if thread.is_alive() and proc.poll() is None:
+            try:
+                click.echo(
+                    "\nForce killing dev server "
+                    f"(PID {proc.pid}) after timeout…",
+                )
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+            # After killing the process, wait for
+            # the watchdog thread to finish.
+            thread.join()
+
+
 @click.command("dev")
 @click.option(
     "--host",
@@ -200,8 +324,9 @@ def dev_cmd(
     Run from the repository root (the directory containing console/).
 
     \b
-    Backend:  http://localhost:8088  (uvicorn --reload)
-    Frontend: http://localhost:5173  (vite dev, proxies /api → backend)
+    Backend:  http://localhost:{PORT}  (default: 8088, uvicorn --reload)
+    Frontend: http://localhost:{PORT}  (default: 5173, vite dev,
+              proxies /api → backend)
     """
     write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
@@ -232,100 +357,10 @@ def dev_cmd(
         )
         procs.append(frontend_proc)
 
-    # Stream output on background threads (daemon – exit when main exits).
-    assert backend_proc.stdout is not None
-    threading.Thread(
-        target=_stream,
-        args=(backend_proc.stdout, "[backend]", "\033[36m"),
-        daemon=True,
-    ).start()
-    if frontend_proc is not None:
-        assert frontend_proc.stdout is not None
-        threading.Thread(
-            target=_stream,
-            args=(frontend_proc.stdout, "[frontend]", "\033[32m"),
-            daemon=True,
-        ).start()
-
-    click.echo("")
-    click.secho("  CoPaw dev mode", bold=True)
-    click.secho(
-        f"  Backend  → http://{host}:{port}  (uvicorn --reload)",
-        fg="cyan",
-    )
-    if use_frontend:
-        click.secho(
-            f"  Frontend → http://localhost:{frontend_port}  (vite --hmr)",
-            fg="green",
-        )
-        click.secho(
-            f"  Open http://localhost:{frontend_port} in your browser",
-            fg="yellow",
-        )
-    else:
-        click.secho(
-            f"  Open http://{host}:{port} in your browser"
-            " (serving built assets)",
-            fg="yellow",
-        )
-    label = "both servers" if use_frontend else "the server"
-    click.echo(f"  Press Ctrl+C to stop {label}.\n")
-
-    # Event shared between the signal handler and the watchdog threads so that
-    # only the first exit (deliberate or unexpected) triggers a shutdown.
     done = threading.Event()
-
-    def _terminate_all() -> None:
-        for p in procs:
-            try:
-                p.terminate()
-            except Exception:  # noqa: BLE001
-                pass
-
-    def _shutdown(  # pylint: disable=unused-argument
-        signum: int,
-        frame: object,
-    ) -> None:
-        if done.is_set():
-            return
-        done.set()
-        click.echo("\n\nShutting down…")
-        _terminate_all()
-
-    signal.signal(signal.SIGINT, _shutdown)
-    if hasattr(signal, "SIGTERM"):  # SIGTERM is not available on Windows
-        signal.signal(signal.SIGTERM, _shutdown)
-
-    def _watch(proc: "subprocess.Popen[bytes]") -> None:
-        """Wait for *proc* to exit; if it exits before *done* is set, it
-        exited unexpectedly – terminate all sibling processes."""
-        proc.wait()
-        if not done.is_set():
-            done.set()
-            click.echo(
-                "\n\nA dev server exited unexpectedly"
-                " – shutting down remaining servers…",
-            )
-            _terminate_all()
-
-    watchdog_threads = [
-        threading.Thread(target=_watch, args=(p,), daemon=True) for p in procs
-    ]
-    for t in watchdog_threads:
-        t.start()
-    # Wait for watchdog threads to finish, but do not block indefinitely if a
-    # child process ignores SIGTERM. After a grace period, escalate to SIGKILL.
-    for t, p in zip(watchdog_threads, procs):
-        t.join(timeout=10)
-        if t.is_alive() and p.poll() is None:
-            try:
-                click.echo(
-                    f"\nForce killing dev server (PID {p.pid}) after timeout…",
-                )
-                p.kill()
-            except Exception:  # noqa: BLE001
-                pass
-            # After killing the process, wait for the watchdog thread to finish.
-            t.join()
+    _start_stream_threads(backend_proc, frontend_proc)
+    _print_dev_banner(host, port, frontend_port, use_frontend)
+    _register_signal_handlers(done, procs)
+    _wait_watchdogs_and_cleanup(procs, done)
 
     click.secho("All dev servers stopped.", fg="yellow")
