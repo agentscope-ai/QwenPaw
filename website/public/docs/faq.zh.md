@@ -4,6 +4,10 @@
 
 ---
 
+### CoPaw 与 OpenClaw 的功能对比
+
+请查看 [对比](/docs/comparison) 页面了解详细的功能对比。
+
 ### CoPaw如何安装
 
 CoPaw 支持多种安装方式，详情请见文档 [快速开始](https://copaw.agentscope.io/docs/quickstart)：

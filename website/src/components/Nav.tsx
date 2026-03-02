@@ -128,7 +128,7 @@ export function Nav({
             <span>{t(lang, "nav.github")}</span>
           </a>
           <a
-            href="https://github.com/agentscope-ai"
+            href="https://agentscope.io/"
             target="_blank"
             rel="noopener noreferrer"
             className={linkClass}
@@ -208,7 +208,7 @@ export function Nav({
           <Github size={18} /> {t(lang, "nav.github")}
         </a>
         <a
-          href="https://github.com/agentscope-ai"
+          href="https://agentscope.io/"
           target="_blank"
           rel="noopener noreferrer"
           className={linkClass}

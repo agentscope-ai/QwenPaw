@@ -11,7 +11,7 @@ from typing import Optional
 from .utils import load_config, get_config_path
 from .config import ChannelConfig
 from ..app.channels import ChannelManager  # pylint: disable=no-name-in-module
-from ..constant import get_available_channels
+from .utils import get_available_channels
 
 logger = logging.getLogger(__name__)
 

@@ -9,14 +9,29 @@ This module handles:
 import logging
 import os
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
 from agentscope.message import Msg
 
+from ...constant import WORKING_DIR
 from .file_handling import download_file_from_base64, download_file_from_url
 
 logger = logging.getLogger(__name__)
+
+# Only allow local paths under this dir (channels save media here).
+_ALLOWED_MEDIA_ROOT = WORKING_DIR / "media"
+
+
+def _is_allowed_media_path(path: str) -> bool:
+    """True if path is a file under _ALLOWED_MEDIA_ROOT."""
+    try:
+        resolved = Path(path).expanduser().resolve()
+        root = _ALLOWED_MEDIA_ROOT.resolve()
+        return resolved.is_file() and str(resolved).startswith(str(root))
+    except Exception:
+        return False
 
 
 async def _process_single_file_block(
@@ -50,6 +65,17 @@ async def _process_single_file_block(
     elif isinstance(source, dict) and source.get("type") == "url":
         url = source.get("url", "")
         if url:
+            parsed = urllib.parse.urlparse(url)
+            if parsed.scheme == "file":
+                try:
+                    local_path = urllib.request.url2pathname(parsed.path)
+                    if not _is_allowed_media_path(local_path):
+                        logger.warning(
+                            "Rejected file:// URL outside allowed media dir",
+                        )
+                        return None
+                except Exception:
+                    return None
             local_path = await download_file_from_url(
                 url,
                 filename,
@@ -83,6 +109,17 @@ def _extract_source_and_filename(block: dict, block_type: str):
     return source, filename
 
 
+def _media_type_from_path(path: str) -> str:
+    """Infer audio media_type from file path suffix."""
+    ext = (os.path.splitext(path)[1] or "").lower()
+    return {
+        ".amr": "audio/amr",
+        ".wav": "audio/wav",
+        ".mp3": "audio/mp3",
+        ".opus": "audio/opus",
+    }.get(ext, "audio/octet-stream")
+
+
 def _update_block_with_local_path(
     block: dict,
     block_type: str,
@@ -94,7 +131,17 @@ def _update_block_with_local_path(
         if not block.get("filename"):
             block["filename"] = os.path.basename(local_path)
     else:
-        block["source"] = {"type": "url", "url": Path(local_path).as_uri()}
+        if block_type == "audio":
+            block["source"] = {
+                "type": "url",
+                "url": Path(local_path).as_uri(),
+                "media_type": _media_type_from_path(local_path),
+            }
+        else:
+            block["source"] = {
+                "type": "url",
+                "url": Path(local_path).as_uri(),
+            }
     return block
 
 
@@ -128,6 +175,26 @@ async def _process_single_block(
     source, filename = _extract_source_and_filename(block, block_type)
     if source is None:
         return None
+
+    # Normalize: when source is "base64" but data is a local path (e.g.
+    # DingTalk voice returns path), treat as url only if under allowed dir.
+    if (
+        block_type == "audio"
+        and isinstance(source, dict)
+        and source.get("type") == "base64"
+    ):
+        data = source.get("data")
+        if (
+            isinstance(data, str)
+            and os.path.isfile(data)
+            and _is_allowed_media_path(data)
+        ):
+            block["source"] = {
+                "type": "url",
+                "url": Path(data).as_uri(),
+                "media_type": _media_type_from_path(data),
+            }
+            source = block["source"]
 
     try:
         local_path = await _process_single_file_block(source, filename)

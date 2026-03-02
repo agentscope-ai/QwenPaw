@@ -10,6 +10,7 @@ wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 """
 
 import asyncio
+import atexit
 import json
 import logging
 import subprocess
@@ -19,6 +20,11 @@ from typing import Any
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
+
+from ...config import (
+    is_running_in_container,
+    get_playwright_chromium_executable_path,
+)
 
 from .browser_snapshot import build_role_snapshot_from_aria
 
@@ -39,7 +45,61 @@ _state: dict[str, Any] = {
     "headless": True,
     "current_page_id": None,
     "page_counter": 0,  # monotonic counter for page_N ids, avoids reuse after close
+    "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
+    "_idle_task": None,  # background asyncio.Task for idle watchdog
 }
+
+# Stop the browser after this many seconds of inactivity (default 30 minutes).
+_BROWSER_IDLE_TIMEOUT = 1800.0
+
+
+def _touch_activity() -> None:
+    """Record the current time as the last browser activity timestamp."""
+    _state["last_activity_time"] = time.monotonic()
+
+
+async def _idle_watchdog(idle_seconds: float = _BROWSER_IDLE_TIMEOUT) -> None:
+    """Background task: stop the browser after it has been idle for *idle_seconds*.
+
+    This reclaims Chrome renderer processes that accumulate when pages are
+    opened during agent tasks but never explicitly closed.
+    """
+    try:
+        while True:
+            await asyncio.sleep(60)  # check every minute
+            if _state["browser"] is None:
+                return
+            idle = time.monotonic() - _state.get("last_activity_time", 0.0)
+            if idle >= idle_seconds:
+                logger.info(
+                    "Browser idle for %.0fs (limit %.0fs), stopping to release resources",
+                    idle,
+                    idle_seconds,
+                )
+                await _action_stop()
+                return
+    except asyncio.CancelledError:
+        pass
+
+
+def _atexit_cleanup() -> None:
+    """Best-effort browser cleanup registered with :func:`atexit`.
+
+    Playwright child processes are cleaned up by the OS when the parent
+    exits, but this gives Playwright a chance to flush any pending I/O and
+    close Chrome gracefully before the process disappears.
+    """
+    if _state.get("browser") is None:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        if not loop.is_running() and not loop.is_closed():
+            loop.run_until_complete(_action_stop())
+    except Exception:
+        pass
+
+
+atexit.register(_atexit_cleanup)
 
 
 def _tool_response(text: str) -> ToolResponse:
@@ -47,6 +107,18 @@ def _tool_response(text: str) -> ToolResponse:
     return ToolResponse(
         content=[TextBlock(type="text", text=text)],
     )
+
+
+def _chromium_launch_args() -> list[str]:
+    """Extra args for Chromium when running in container."""
+    if is_running_in_container():
+        return ["--no-sandbox", "--disable-dev-shm-usage"]
+    return []
+
+
+def _chromium_executable_path() -> str | None:
+    """Chromium executable path when set (e.g. container); else None."""
+    return get_playwright_chromium_executable_path()
 
 
 def _ensure_playwright_async():
@@ -504,19 +576,45 @@ def _attach_context_listeners(context) -> None:
 async def _ensure_browser() -> bool:
     """Start browser if not running. Return True if ready, False on failure."""
     if _state["browser"] is not None and _state["context"] is not None:
+        _touch_activity()
         return True
     try:
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
-        pw_browser = await pw.chromium.launch(headless=_state["headless"])
+        launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
+        exe = _chromium_executable_path()
+        if exe:
+            launch_kwargs["executable_path"] = exe
+        pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
         _state["playwright"] = pw
         _state["browser"] = pw_browser
         _state["context"] = context
+        _touch_activity()
+        _start_idle_watchdog()
         return True
     except Exception:
         return False
+
+
+def _start_idle_watchdog() -> None:
+    """Cancel any existing idle watchdog and start a fresh one."""
+    old_task = _state.get("_idle_task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+    _state["_idle_task"] = asyncio.ensure_future(_idle_watchdog())
+
+
+def _cancel_idle_watchdog() -> None:
+    """Cancel the idle watchdog, if running."""
+    task = _state.get("_idle_task")
+    if task and not task.done():
+        task.cancel()
+    _state["_idle_task"] = None
 
 
 async def _action_start(headed: bool = False) -> ToolResponse:
@@ -524,6 +622,7 @@ async def _action_start(headed: bool = False) -> ToolResponse:
     # but browser is already running headless, restart with headed
     if _state["browser"] is not None:
         if headed and _state["headless"]:
+            _cancel_idle_watchdog()
             try:
                 await _state["browser"].close()
                 if _state["playwright"] is not None:
@@ -543,6 +642,7 @@ async def _action_start(headed: bool = False) -> ToolResponse:
                 _state["pending_file_choosers"].clear()
                 _state["current_page_id"] = None
                 _state["page_counter"] = 0
+                _state["last_activity_time"] = 0.0
         else:
             return _tool_response(
                 json.dumps(
@@ -565,17 +665,21 @@ async def _action_start(headed: bool = False) -> ToolResponse:
         )
     try:
         pw = await async_playwright().start()
-        pw_browser = await pw.chromium.launch(headless=_state["headless"])
+        launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
+        exe = _chromium_executable_path()
+        if exe:
+            launch_kwargs["executable_path"] = exe
+        pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
         _state["playwright"] = pw
         _state["browser"] = pw_browser
         _state["context"] = context
-        msg = (
-            "Browser started (visible window)"
-            if _state["headless"] is False
-            else "Browser started"
-        )
+        _touch_activity()
+        _start_idle_watchdog()
         msg = (
             "Browser started (visible window)"
             if _state["headless"] is False
@@ -599,6 +703,7 @@ async def _action_start(headed: bool = False) -> ToolResponse:
 
 
 async def _action_stop() -> ToolResponse:
+    _cancel_idle_watchdog()
     if _state["browser"] is None:
         return _tool_response(
             json.dumps(
@@ -632,6 +737,7 @@ async def _action_stop() -> ToolResponse:
         _state["pending_file_choosers"].clear()
         _state["current_page_id"] = None
         _state["page_counter"] = 0
+        _state["last_activity_time"] = 0.0
         _state["headless"] = True  # next start defaults to background
     return _tool_response(
         json.dumps(
@@ -670,7 +776,6 @@ async def _action_open(url: str, page_id: str) -> ToolResponse:
         _attach_page_listeners(page, page_id)
         await page.goto(url)
         _state["pages"][page_id] = page
-        _state["current_page_id"] = page_id
         _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
@@ -715,7 +820,6 @@ async def _action_navigate(url: str, page_id: str) -> ToolResponse:
         )
     try:
         await page.goto(url)
-        _state["current_page_id"] = page_id
         _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
@@ -1943,7 +2047,6 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
         return await _action_close(target_id)
     if tab_action == "select":
         target_id = page_ids[index] if 0 <= index < len(page_ids) else page_id
-        _state["current_page_id"] = target_id
         _state["current_page_id"] = target_id
         return _tool_response(
             json.dumps(

@@ -400,7 +400,7 @@ export function LocalModelManageModal({
                 onClick={handleDownload}
                 icon={<DownloadOutlined />}
               >
-                {t("models.localDownload")}
+                {t("models.localDownloadModel")}
               </Button>
             </div>
           </Form>

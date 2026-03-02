@@ -1,10 +1,12 @@
 # 快速开始
 
-本节介绍三种方式运行 CoPAW：
+本节介绍五种方式运行 CoPAW：
 
 - **方式一 — 一键安装（推荐）**：无需手动配置 Python，一行命令自动完成安装。
 - **方式二 — pip 安装**：适合自行管理 Python 环境的用户。
 - **方式三 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
+- **方式四 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（PyPI 预发布版）。
+- **方式五 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
 
 > 📖 阅读前请先了解 [项目介绍](./intro)，完成安装与启动后可查看 [控制台](./console)。
 
@@ -48,6 +50,7 @@ curl -fsSL ... | bash -s -- --from-source
 # 安装本地模型支持（详见本地模型文档）
 bash install.sh --extras llamacpp    # llama.cpp（跨平台）
 bash install.sh --extras mlx         # MLX（Apple Silicon）
+bash install.sh --extras ollama      # Ollama（跨平台，需 Ollama 服务运行）
 ```
 
 **Windows（PowerShell）：**
@@ -62,6 +65,7 @@ bash install.sh --extras mlx         # MLX（Apple Silicon）
 # 安装本地模型支持（详见本地模型文档）
 .\install.ps1 -Extras llamacpp      # llama.cpp（跨平台）
 .\install.ps1 -Extras mlx           # MLX
+.\install.ps1 -Extras ollama        # Ollama
 ```
 
 升级只需重新运行安装命令。卸载请运行 `copaw uninstall`。
@@ -108,7 +112,7 @@ pip install copaw
 
 ---
 
-## 方式二：魔搭创空间一键配置（无需安装）
+## 方式三：魔搭创空间一键配置（无需安装）
 
 若不想在本地安装 Python，可通过魔搭创空间将 CoPaw 部署到云端运行：
 
@@ -116,6 +120,32 @@ pip install copaw
 2. 打开 [CoPaw 创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)，一键配置即可使用。
 
 **重要**：使用创空间请将空间设为 **非公开**，否则你的 CoPaw 可能被他人操纵。
+
+---
+
+## 方式四：Docker
+
+镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。国内用户也可选用阿里云 ACR：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
+
+拉取并运行：
+
+```bash
+docker pull agentscope/copaw:latest
+docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+```
+
+然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。传入 API Key 可在 `docker run` 时加 `-e DASHSCOPE_API_KEY=xxx` 或 `--env-file .env`。
+
+---
+
+## 方式五：部署到阿里云 ECS
+
+若希望将 CoPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：
+
+1. 打开 [CoPaw 阿里云 ECS 部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884)，按页面提示填写部署参数；
+2. 参数配置完成后确认费用并创建实例，部署完成后即可获取访问地址并使用服务。
+
+详细步骤与说明请参考 [阿里云开发者社区：CoPaw 3 分钟部署你的 AI 助理](https://developer.aliyun.com/article/1713682)。
 
 ---
 

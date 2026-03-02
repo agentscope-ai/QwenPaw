@@ -1661,6 +1661,7 @@ class DingTalkChannel(BaseChannel):
         *,
         download_code: str,
         robot_code: str,
+        filename_hint: str = "file.bin",
     ) -> Optional[str]:
         """Get download URL from API, save to local, return path."""
         url = await self._get_message_file_download_url(
@@ -1675,7 +1676,7 @@ class DingTalkChannel(BaseChannel):
         return await self._download_media_to_local(
             url,
             key,
-            "file.bin",
+            filename_hint,
         )
 
     def _guess_filename_and_ext(

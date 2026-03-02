@@ -40,13 +40,15 @@ from ..tools import (
     write_file,
     edit_file,
 )
+from ..utils import safe_count_str_tokens
 from ..utils.tool_message_utils import _truncate_text as _truncate_text_impl
 from ...config.utils import load_config
+from ...constant import MEMORY_COMPACT_RATIO
 
 logger = logging.getLogger(__name__)
 
 # Default max length for text truncation
-_DEFAULT_MAX_FORMATTER_TEXT_LENGTH = 4000
+_DEFAULT_MAX_FORMATTER_TEXT_LENGTH = 10000
 
 
 def _truncate_text(text: str, max_length: int | None = None) -> str:
@@ -75,6 +77,10 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
     Extends DashScopeChatFormatter to add the timestamp to each formatted
     message as a 'time_created' field. Also supports file blocks.
     """
+
+    def __init__(self, memory_compact_threshold: int, **kwargs):
+        super().__init__(**kwargs)
+        self._memory_compact_threshold = memory_compact_threshold
 
     @staticmethod
     def convert_tool_result_to_string(
@@ -181,11 +187,15 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
                 multimodal_data,
             )
 
+    # pylint: disable=too-many-statements,too-many-nested-blocks
     async def _format(
         self,
         msgs: list[Msg],
     ) -> list[dict[str, Any]]:
         """Format message objects into DashScope API format with timestamps.
+
+        Messages are processed in reverse order (newest first) and older
+        messages are skipped when token count exceeds memory_compact_threshold.
 
         Args:
             msgs (`list[Msg]`):
@@ -200,22 +210,24 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
         self.assert_list_of_msgs(msgs)
 
         formatted_msgs: list[dict] = []
+        total_token_count = 0
 
-        i = 0
-        while i < len(msgs):
+        # Process messages in reverse order (newest first)
+        # Use index-based iteration to handle inserted messages
+        i = len(msgs) - 1
+        while i >= 0:
             msg = msgs[i]
             content_blocks: list[dict[str, Any]] = []
             tool_calls = []
+            msg_token_count = 0
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
 
                 if typ == "text":
-                    content_blocks.append(
-                        {
-                            "text": _truncate_text(block.get("text", "")),
-                        },
-                    )
+                    text_content = _truncate_text(block.get("text", ""))
+                    content_blocks.append({"text": text_content})
+                    msg_token_count += safe_count_str_tokens(text_content)
 
                 elif typ in ["image", "audio", "video"]:
                     content_blocks.append(
@@ -223,21 +235,25 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
                             block,  # type: ignore[arg-type]
                         ),
                     )
+                    # Estimate fixed token cost for media
+                    msg_token_count += 100
 
                 elif typ == "tool_use":
+                    arguments_str = json.dumps(
+                        block.get("input", {}),
+                        ensure_ascii=False,
+                    )
                     tool_calls.append(
                         {
                             "id": block.get("id"),
                             "type": "function",
                             "function": {
                                 "name": block.get("name"),
-                                "arguments": json.dumps(
-                                    block.get("input", {}),
-                                    ensure_ascii=False,
-                                ),
+                                "arguments": arguments_str,
                             },
                         },
                     )
+                    msg_token_count += safe_count_str_tokens(arguments_str)
 
                 elif typ == "tool_result":
                     (
@@ -247,6 +263,7 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
 
                     # Truncate tool result text
                     textual_output = _truncate_text(textual_output)
+                    msg_token_count += safe_count_str_tokens(textual_output)
 
                     # First add the tool result message in DashScope API format
                     formatted_msgs.append(
@@ -320,7 +337,10 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
                             )
 
                     if promoted_blocks:
-                        # Insert promoted blocks as new user message(s)
+                        # Format promoted blocks directly
+                        # and add to formatted_msgs
+                        # (instead of inserting into msgs,
+                        # which won't work in reverse iteration)
                         promoted_blocks = [
                             TextBlock(
                                 type="text",
@@ -335,13 +355,37 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
                             ),
                         ]
 
-                        msgs.insert(
-                            i + 1,
-                            Msg(
-                                name="user",
-                                content=promoted_blocks,
-                                role="user",
-                            ),
+                        # Format the promoted blocks directly
+                        promoted_content_blocks: list[dict[str, Any]] = []
+                        for promoted_block in promoted_blocks:
+                            promoted_block_dict = (
+                                promoted_block
+                                if isinstance(promoted_block, dict)
+                                else promoted_block.model_dump()
+                            )
+                            promoted_typ = promoted_block_dict.get("type")
+                            if promoted_typ == "text":
+                                promoted_content_blocks.append(
+                                    {
+                                        "text": promoted_block_dict.get(
+                                            "text",
+                                            "",
+                                        ),
+                                    },
+                                )
+                            elif promoted_typ in ["image", "audio", "video"]:
+                                promoted_content_blocks.append(
+                                    _format_dashscope_media_block(
+                                        promoted_block_dict,
+                                    ),
+                                )
+
+                        # Add the promoted user message to formatted_msgs
+                        formatted_msgs.append(
+                            {
+                                "role": "user",
+                                "content": promoted_content_blocks,
+                            },
                         )
 
                 else:
@@ -359,11 +403,24 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
             if tool_calls:
                 msg_dashscope["tool_calls"] = tool_calls
 
-            if msg_dashscope["content"] or msg_dashscope.get("tool_calls"):
-                formatted_msgs.append(msg_dashscope)
+            total_token_count += msg_token_count
+            # Check if adding this message would exceed threshold
+            if self._memory_compact_threshold <= total_token_count:
+                # Skip older messages when threshold exceeded
+                logger.info(
+                    "Skipping older messages: token count %d >= %d",
+                    total_token_count,
+                    self._memory_compact_threshold,
+                )
+                break
 
-            # Move to next message
-            i += 1
+            formatted_msgs.append(msg_dashscope)
+
+            # Move to previous message
+            i -= 1
+
+        # Reverse to restore chronological order
+        formatted_msgs.reverse()
 
         return _reformat_messages(formatted_msgs)
 
@@ -388,10 +445,26 @@ class MemoryManager(ReMeFb):
     and retrieving specific memory content.
     """
 
-    def __init__(self, *args, working_dir: str, **kwargs):
+    def __init__(
+        self,
+        *args,
+        working_dir: str,
+        **kwargs,
+    ):
         """Initialize MemoryManager with ReMeFs configuration."""
         if not _REME_AVAILABLE:
             raise RuntimeError("reme package not installed.")
+
+        # Get max_input_length from config
+        config = load_config()
+        max_input_length = config.agents.running.max_input_length
+
+        # Memory compaction threshold: configurable ratio of max_input_length
+        self._memory_compact_threshold = int(
+            max_input_length
+            * MEMORY_COMPACT_RATIO
+            * 0.9,  # Safety factor to stay below token limit
+        )
 
         (
             embedding_api_key,
@@ -399,6 +472,9 @@ class MemoryManager(ReMeFb):
             embedding_model_name,
             embedding_dimensions,
             embedding_cache_enabled,
+            embedding_max_cache_size,
+            embedding_max_input_length,
+            embedding_max_batch_size,
         ) = self.get_emb_envs()
 
         vector_enabled = bool(embedding_api_key)
@@ -439,6 +515,9 @@ class MemoryManager(ReMeFb):
                 "model_name": embedding_model_name,
                 "dimensions": embedding_dimensions,
                 "enable_cache": embedding_cache_enabled,
+                "max_cache_size": embedding_max_cache_size,
+                "max_input_length": embedding_max_input_length,
+                "max_batch_size": embedding_max_batch_size,
             },
             default_file_store_config={
                 "backend": memory_backend,
@@ -475,6 +554,19 @@ class MemoryManager(ReMeFb):
         self.formatter: FormatterBase | None = None
 
     @staticmethod
+    def _safe_int(value: str | None, default: int) -> int:
+        """Safely convert string to int, return default on failure."""
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            logger.warning(
+                f"Invalid int value '{value}', using default {default}",
+            )
+            return default
+
+    @staticmethod
     def get_emb_envs():
         embedding_api_key = os.environ.get("EMBEDDING_API_KEY", "")
         embedding_base_url = os.environ.get(
@@ -485,11 +577,24 @@ class MemoryManager(ReMeFb):
             "EMBEDDING_MODEL_NAME",
             "text-embedding-v4",
         )
-        embedding_dimensions = int(
-            os.environ.get("EMBEDDING_DIMENSIONS", "1024"),
+        embedding_dimensions = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_DIMENSIONS"),
+            1024,
         )
         embedding_cache_enabled = (
             os.environ.get("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
+        )
+        embedding_max_cache_size = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_MAX_CACHE_SIZE"),
+            2000,
+        )
+        embedding_max_input_length = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_MAX_INPUT_LENGTH"),
+            8192,
+        )
+        embedding_max_batch_size = MemoryManager._safe_int(
+            os.environ.get("EMBEDDING_MAX_BATCH_SIZE"),
+            10,
         )
         return (
             embedding_api_key,
@@ -497,6 +602,9 @@ class MemoryManager(ReMeFb):
             embedding_model_name,
             embedding_dimensions,
             embedding_cache_enabled,
+            embedding_max_cache_size,
+            embedding_max_input_length,
+            embedding_max_batch_size,
         )
 
     def update_emb_envs(self):
@@ -506,6 +614,9 @@ class MemoryManager(ReMeFb):
             embedding_model_name,
             embedding_dimensions,
             embedding_cache_enabled,
+            embedding_max_cache_size,
+            embedding_max_input_length,
+            embedding_max_batch_size,
         ) = self.get_emb_envs()
 
         if embedding_api_key:
@@ -517,6 +628,11 @@ class MemoryManager(ReMeFb):
         self.default_embedding_model.model_name = embedding_model_name
         self.default_embedding_model.dimensions = embedding_dimensions
         self.default_embedding_model.enable_cache = embedding_cache_enabled
+        self.default_embedding_model.max_cache_size = embedding_max_cache_size
+        self.default_embedding_model.max_input_length = (
+            embedding_max_input_length
+        )
+        self.default_embedding_model.max_batch_size = embedding_max_batch_size
 
     async def start(self):
         """Start the memory manager and initialize services."""
@@ -552,7 +668,9 @@ class MemoryManager(ReMeFb):
         """
         self.update_emb_envs()
 
-        formatter = TimestampedDashScopeChatFormatter()
+        formatter = TimestampedDashScopeChatFormatter(
+            memory_compact_threshold=self._memory_compact_threshold,
+        )
         if not messages_to_summarize and not turn_prefix_messages:
             return ""
 
@@ -654,7 +772,9 @@ class MemoryManager(ReMeFb):
         """Generate a summary of the given messages."""
         self.update_emb_envs()
 
-        formatter = TimestampedDashScopeChatFormatter()
+        formatter = TimestampedDashScopeChatFormatter(
+            memory_compact_threshold=self._memory_compact_threshold,
+        )
         messages = await formatter.format(messages)
 
         try:

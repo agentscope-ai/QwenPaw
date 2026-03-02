@@ -32,6 +32,13 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
 
 ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(id="qwen3.5-plus", name="Qwen3.5 Plus"),
+    ModelInfo(id="glm-5", name="GLM-5"),
+    ModelInfo(id="glm-4.7", name="GLM-4.7"),
+    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
+    ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
+    ModelInfo(id="qwen3-max-2026-01-23", name="Qwen3 Max 2026-01-23"),
+    ModelInfo(id="qwen3-coder-next", name="Qwen3 Coder Next"),
+    ModelInfo(id="qwen3-coder-plus", name="Qwen3 Coder Plus"),
 ]
 
 PROVIDER_MODELSCOPE = ProviderDefinition(

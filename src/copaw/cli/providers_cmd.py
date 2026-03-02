@@ -680,16 +680,7 @@ def ollama_pull_cmd(model_name: str) -> None:
       copaw models ollama-pull mistral:7b
       copaw models ollama-pull qwen2.5:3b
     """
-    try:
-        from ..providers.ollama_manager import OllamaModelManager
-    except ImportError as exc:
-        click.echo(
-            click.style(
-                "Ollama SDK not installed. Install with: pip install ollama",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1) from exc
+    from ..providers.ollama_manager import OllamaModelManager
 
     click.echo(f"Downloading Ollama model: {model_name}...")
     try:
@@ -697,6 +688,14 @@ def ollama_pull_cmd(model_name: str) -> None:
         manager.pull_model(model_name)
         click.echo(f"✓ Model '{model_name}' downloaded successfully.")
         click.echo("\nTo use this model, run:\n  copaw models set-llm")
+    except ImportError as exc:
+        click.echo(
+            click.style(
+                str(exc),
+                fg="red",
+            ),
+        )
+        raise SystemExit(1) from exc
     except Exception as exc:
         click.echo(click.style(f"Download failed: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -705,20 +704,19 @@ def ollama_pull_cmd(model_name: str) -> None:
 @models_group.command("ollama-list")
 def ollama_list_cmd() -> None:
     """List all Ollama models."""
-    try:
-        from ..providers.ollama_manager import OllamaModelManager
-    except ImportError as exc:
-        click.echo(
-            click.style(
-                "Ollama SDK not installed. Install with: pip install ollama",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1) from exc
+    from ..providers.ollama_manager import OllamaModelManager
 
     try:
         manager = OllamaModelManager()
         models = manager.list_models()
+    except ImportError as exc:
+        click.echo(
+            click.style(
+                str(exc),
+                fg="red",
+            ),
+        )
+        raise SystemExit(1) from exc
     except Exception as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -751,16 +749,7 @@ def ollama_remove_cmd(model_name: str, yes: bool) -> None:
       copaw models ollama-remove mistral:7b
       copaw models ollama-remove qwen2.5:3b -y
     """
-    try:
-        from ..providers.ollama_manager import OllamaModelManager
-    except ImportError as exc:
-        click.echo(
-            click.style(
-                "Ollama SDK not installed. Install with: pip install ollama",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1) from exc
+    from ..providers.ollama_manager import OllamaModelManager
 
     if not yes:
         if not click.confirm(f"Delete Ollama model '{model_name}'?"):
@@ -770,6 +759,14 @@ def ollama_remove_cmd(model_name: str, yes: bool) -> None:
         manager = OllamaModelManager()
         manager.delete_model(model_name)
         click.echo(f"✓ Model '{model_name}' deleted.")
+    except ImportError as exc:
+        click.echo(
+            click.style(
+                str(exc),
+                fg="red",
+            ),
+        )
+        raise SystemExit(1) from exc
     except Exception as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc

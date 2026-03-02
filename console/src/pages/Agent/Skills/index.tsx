@@ -12,6 +12,7 @@ function SkillsPage() {
   const {
     skills,
     loading,
+    importing,
     createSkill,
     importFromHub,
     toggleEnabled,
@@ -46,6 +47,9 @@ function SkillsPage() {
   };
 
   const closeImportModal = () => {
+    if (importing) {
+      return;
+    }
     setImportModalOpen(false);
     setImportUrl("");
     setImportUrlError("");
@@ -66,6 +70,7 @@ function SkillsPage() {
   };
 
   const handleConfirmImport = async () => {
+    if (importing) return;
     const trimmed = importUrl.trim();
     if (!trimmed) return;
     if (!isSupportedSkillUrl(trimmed)) {
@@ -135,12 +140,24 @@ function SkillsPage() {
         title={t("skills.importSkills")}
         open={importModalOpen}
         onCancel={closeImportModal}
+        maskClosable={!importing}
+        closable={!importing}
+        keyboard={!importing}
         footer={
           <div style={{ textAlign: "right" }}>
-            <Button onClick={closeImportModal} style={{ marginRight: 8 }}>
+            <Button
+              onClick={closeImportModal}
+              style={{ marginRight: 8 }}
+              disabled={importing}
+            >
               {t("common.cancel")}
             </Button>
-            <Button type="primary" onClick={handleConfirmImport}>
+            <Button
+              type="primary"
+              onClick={handleConfirmImport}
+              loading={importing}
+              disabled={importing || !importUrl.trim() || !!importUrlError}
+            >
               {t("skills.importSkills")}
             </Button>
           </div>
@@ -171,9 +188,13 @@ function SkillsPage() {
           value={importUrl}
           onChange={(e) => handleImportUrlChange(e.target.value)}
           placeholder={t("skills.enterSkillUrl")}
+          disabled={importing}
         />
         {importUrlError ? (
           <div className={styles.importUrlError}>{importUrlError}</div>
+        ) : null}
+        {importing ? (
+          <div className={styles.importLoadingText}>{t("common.loading")}</div>
         ) : null}
       </Modal>
 
