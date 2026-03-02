@@ -26,13 +26,3 @@ bash scripts/docker_build.sh [IMAGE_TAG] [EXTRA_ARGS...]
 
 - Default tag: `copaw:latest`. Uses `deploy/Dockerfile` (multi-stage: builds console then Python app).
 - Example: `bash scripts/docker_build.sh myreg/copaw:v1 --no-cache`.
-
-## Build macOS DMG
-
-See **[scripts/macos/README.md](macos/README.md)**. From repo root:
-
-```bash
-bash scripts/macos/build_dmg.sh [VERSION]
-```
-
-- Output: `dist/CoPaw.app` and `dist/CoPaw-<version>.dmg`. On release, the workflow attaches the DMG to the GitHub Release.
