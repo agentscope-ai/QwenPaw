@@ -46,6 +46,16 @@ from ..constant import (
 logger = logging.getLogger(__name__)
 
 
+def normalize_reasoning_tool_choice(
+    tool_choice: Literal["auto", "none", "required"] | None,
+    has_tools: bool,
+) -> Literal["auto", "none", "required"] | None:
+    """Normalize tool_choice for reasoning to reduce provider variance."""
+    if tool_choice is None and has_tools:
+        return "auto"
+    return tool_choice
+
+
 class CoPawAgent(ReActAgent):
     """CoPaw Agent with integrated tools, skills, and memory management.
 
@@ -269,8 +279,10 @@ class CoPawAgent(ReActAgent):
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
         """Ensure a stable default tool-choice behavior across providers."""
-        if tool_choice is None and self.toolkit.get_json_schemas():
-            tool_choice = "auto"
+        tool_choice = normalize_reasoning_tool_choice(
+            tool_choice=tool_choice,
+            has_tools=bool(self.toolkit.get_json_schemas()),
+        )
 
         return await super()._reasoning(tool_choice=tool_choice)
 
