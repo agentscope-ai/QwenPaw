@@ -46,6 +46,19 @@ from ..constant import (
 logger = logging.getLogger(__name__)
 
 
+def _build_active_skills_guidance(skill_names: list[str]) -> str:
+    """Build a compact prompt section describing active skills."""
+    if not skill_names:
+        return ""
+    lines = [
+        "# Active Skills",
+        "The following skills are installed and available. Use them "
+        "proactively when the task matches:",
+    ]
+    lines.extend(f"- {name}" for name in sorted(skill_names))
+    return "\n".join(lines)
+
+
 class CoPawAgent(ReActAgent):
     """CoPaw Agent with integrated tools, skills, and memory management.
 
@@ -182,6 +195,9 @@ class CoPawAgent(ReActAgent):
             Complete system prompt string
         """
         sys_prompt = build_system_prompt_from_working_dir()
+        skills_guidance = _build_active_skills_guidance(list_available_skills())
+        if skills_guidance:
+            sys_prompt = f"{sys_prompt}\n\n{skills_guidance}"
         if self._env_context is not None:
             sys_prompt = self._env_context + "\n\n" + sys_prompt
         return sys_prompt
