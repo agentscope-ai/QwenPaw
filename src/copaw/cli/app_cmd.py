@@ -15,9 +15,9 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 @click.command("app")
 @click.option(
     "--host",
-    default="0.0.0.0",
+    default="127.0.0.1",
     show_default=True,
-    help="Bind host",
+    help="Bind host (use 0.0.0.0 for LAN access)",
 )
 @click.option(
     "--port",
@@ -66,9 +66,9 @@ def app_cmd(
             click.style(
                 "⚠️  Warning: CoPaw is listening on all network interfaces "
                 "(0.0.0.0). Other devices on your network can access this "
-                "instance. Use --host 127.0.0.1 to restrict to localhost.",
+                "instance. This should only be used on trusted networks.",
                 fg="yellow",
-            )
+            ),
         )
 
     # Persist last used host/port for other terminals
