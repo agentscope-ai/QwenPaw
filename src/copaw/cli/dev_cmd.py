@@ -130,9 +130,12 @@ def _start_frontend(
     frontend_port: int,
 ) -> "subprocess.Popen[bytes]":
     """Spawn the Vite dev server process and return it."""
+    # Use a routable host for the frontend proxy even if the backend binds
+    # to a wildcard address like 0.0.0.0 or ::.
+    backend_url_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
     frontend_env = {
         **os.environ,
-        "BACKEND_URL": f"http://{host}:{port}",
+        "BACKEND_URL": f"http://{backend_url_host}:{port}",
     }
     frontend_cmd = [
         npm,
