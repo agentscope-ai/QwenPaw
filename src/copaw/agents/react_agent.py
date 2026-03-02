@@ -6,6 +6,7 @@ with integrated tools, skills, and memory management.
 """
 import logging
 import os
+import re
 from typing import Any, List, Optional, Type
 
 from agentscope.agent import ReActAgent
@@ -44,18 +45,38 @@ from ..constant import (
 )
 
 logger = logging.getLogger(__name__)
+_SAFE_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _sanitize_skill_name_for_prompt(name: str) -> str | None:
+    """Allow only conservative skill-name characters in prompt content."""
+    text = str(name or "").strip()
+    if not text:
+        return None
+    if not _SAFE_SKILL_NAME_RE.fullmatch(text):
+        return None
+    return text
 
 
 def _build_active_skills_guidance(skill_names: list[str]) -> str:
     """Build a compact prompt section describing active skills."""
     if not skill_names:
         return ""
+    safe_skill_names: list[str] = []
+    for name in skill_names:
+        safe = _sanitize_skill_name_for_prompt(name)
+        if safe is None:
+            logger.warning("Skip unsafe skill name in prompt guidance")
+            continue
+        safe_skill_names.append(safe)
+    if not safe_skill_names:
+        return ""
     lines = [
         "# Active Skills",
         "The following skills are installed and available. Use them "
         "proactively when the task matches:",
     ]
-    lines.extend(f"- {name}" for name in sorted(skill_names))
+    lines.extend(f"- `{name}`" for name in sorted(safe_skill_names))
     return "\n".join(lines)
 
 
