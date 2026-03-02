@@ -330,10 +330,6 @@ def _resolve_slot(
     if pid not in data.custom_providers and pid not in data.providers:
         return None
     base_url, api_key = data.get_credentials(pid)
-    if pid == "ollama" and not api_key:
-        # Ollama's OpenAI-compatible endpoint ignores api_key, but some
-        # OpenAI-compatible clients still expect a non-empty value.
-        api_key = "ollama"
     return ResolvedModelConfig(
         model=slot.model,
         base_url=base_url,
