@@ -9,6 +9,7 @@ run in the background and their status can be polled by the frontend.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from typing import List, Optional
 
@@ -62,8 +63,13 @@ def _is_ollama_connection_error(exc: Exception) -> bool:
     return "failed to connect to ollama" in msg or "connection refused" in msg
 
 
+@functools.lru_cache(maxsize=1)
 def _get_ollama_host() -> str:
-    """Resolve configured Ollama base URL from providers settings."""
+    """Resolve configured Ollama base URL from providers settings.
+
+    Cached to avoid repeated file I/O on every API request.
+    Call _get_ollama_host.cache_clear() when provider settings change.
+    """
     providers_data = load_providers_json()
     base_url, _ = providers_data.get_credentials("ollama")
     return base_url
@@ -119,8 +125,9 @@ async def list_ollama_models() -> List[OllamaModelResponse]:
             ) from exc
         logger.exception("Failed to list Ollama models")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list Ollama models: {exc}",
+            status_code=503,
+            detail="Failed to connect to Ollama. Ensure the Ollama daemon "
+            "is running and the configured base URL is correct.",
         ) from exc
 
     return [OllamaModelResponse(**m.model_dump()) for m in models]
@@ -247,6 +254,9 @@ async def delete_ollama_model(name: str) -> dict:
         OllamaModelManager.delete_model(name, host=_get_ollama_host())
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed to delete Ollama model: %s", exc)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to delete model '{name}'. Check Ollama daemon.",
+        ) from exc
 
     return {"status": "deleted", "name": name}

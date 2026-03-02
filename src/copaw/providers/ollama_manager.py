@@ -56,8 +56,14 @@ def _ensure_ollama():
     return ollama
 
 
+_ALLOWED_OLLAMA_SCHEMES = {"http", "https"}
+
+
 def _normalize_ollama_host(host: Optional[str]) -> Optional[str]:
-    """Normalize OpenAI-compatible base URL to Ollama host URL."""
+    """Normalize OpenAI-compatible base URL to Ollama host URL.
+
+    Validates that the URL uses http/https to prevent SSRF attacks.
+    """
     value = (host or "").strip()
     if not value:
         return None
@@ -71,6 +77,13 @@ def _normalize_ollama_host(host: Optional[str]) -> Optional[str]:
         return None
 
     parsed = urlsplit(value)
+    # SSRF protection: only allow http and https schemes
+    if parsed.scheme and parsed.scheme not in _ALLOWED_OLLAMA_SCHEMES:
+        logger.warning(
+            "Rejecting Ollama host with unsupported scheme: %s",
+            parsed.scheme,
+        )
+        return None
     if parsed.scheme and parsed.netloc:
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
     return value
