@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from importlib import import_module
 
+# Provide a static symbol for linters/importers, while keeping runtime
+# tolerant in lightweight environments that do not install all deps.
+try:  # pragma: no cover
+    AgentRunner = getattr(import_module(".runner", __name__), "AgentRunner")
+except Exception:  # pragma: no cover
+    AgentRunner = None
+
 # pylint: disable=undefined-all-variable
 __all__ = [
     # Core classes
@@ -23,6 +30,9 @@ __all__ = [
 
 def __getattr__(name: str):
     """Lazy-load runner exports to avoid importing heavy dependencies."""
+    if name == "AgentRunner" and AgentRunner is not None:
+        return AgentRunner
+
     export_map = {
         "AgentRunner": ("runner", "AgentRunner"),
         "router": ("api", "router"),
