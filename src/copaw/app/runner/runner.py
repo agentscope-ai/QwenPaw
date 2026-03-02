@@ -40,10 +40,12 @@ def _normalize_user_facing_exception(exc: Exception) -> Exception:
         )
     )
     if exc_type in {"InternalServerError", "APIStatusError"} and is_upstream_5xx:
-        return RuntimeError(
+        wrapped = RuntimeError(
             "Upstream model service returned a temporary server error (5xx). "
             "Please retry later or switch endpoint/model.",
         )
+        wrapped.__cause__ = exc
+        return wrapped
     return exc
 
 
@@ -193,7 +195,7 @@ class AgentRunner(Runner):
                 e.args = (
                     (f"{e.args[0]}{suffix}" if e.args else suffix.strip()),
                 ) + e.args[1:]
-            raise
+            raise e
         finally:
             if agent is not None:
                 await self.session.save_session_state(

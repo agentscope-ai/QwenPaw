@@ -17,6 +17,7 @@ def test_normalize_upstream_5xx_exception() -> None:
 
     assert isinstance(normalized, RuntimeError)
     assert "server error" in str(normalized).lower()
+    assert normalized.__cause__ is exc
 
 
 def test_keep_non_5xx_exception_unchanged() -> None:
