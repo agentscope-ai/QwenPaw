@@ -13,8 +13,6 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
-
 from ..models import Finding, Severity, SkillFile, ThreatCategory
 from ..scan_policy import ScanPolicy
 from . import BaseAnalyzer
@@ -119,7 +117,8 @@ _EXTERNAL_NETWORK_IMPORTS = [
 class ConsistencyAnalyzer(BaseAnalyzer):
     """Analyzer that performs consistency and behavioral-pattern checks.
 
-    This utilizes the heuristic checks that are **not** covered by YAML regex signatures or YARA rules:
+    This utilizes the heuristic checks that are **not** covered by
+    YAML regex signatures or YARA rules:
 
     * File I/O detection (read / write patterns)
     * Network usage detection

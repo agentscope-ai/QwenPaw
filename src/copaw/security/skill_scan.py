@@ -123,13 +123,12 @@ def scan_skill_directory(
         should_block = block if block is not None else _scan_blocks()
         if should_block:
             raise SkillScanError(result)
-        else:
-            logger.warning(
-                "Skill '%s' has %d security finding(s) (max severity: %s) "
-                "but blocking is disabled – proceeding anyway.",
-                result.skill_name,
-                len(result.findings),
-                result.max_severity.value,
-            )
+        logger.warning(
+            "Skill '%s' has %d security finding(s) (max severity: %s) "
+            "but blocking is disabled – proceeding anyway.",
+            result.skill_name,
+            len(result.findings),
+            result.max_severity.value,
+        )
 
     return result

@@ -411,7 +411,9 @@ class ScanPolicy:
             },
             "analysis_thresholds": {
                 "min_confidence_pct": self.analysis_thresholds.min_confidence_pct,
-                "exception_handler_context_lines": self.analysis_thresholds.exception_handler_context_lines,
+                "exception_handler_context_lines": (
+                    self.analysis_thresholds.exception_handler_context_lines
+                ),
                 "max_regex_pattern_length": self.analysis_thresholds.max_regex_pattern_length,
             },
             "severity_overrides": [

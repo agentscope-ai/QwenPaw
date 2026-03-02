@@ -51,15 +51,6 @@ _CLASSIFICATION_SEVERITY: dict[str, Severity] = {
 }
 
 
-def _yara_x_available() -> bool:
-    """Return *True* if the ``yara_x`` package can be imported."""
-    try:
-        import yara_x  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Low-level YARA scanning wrapper
 # ---------------------------------------------------------------------------
@@ -77,13 +68,6 @@ class YaraRuleEngine:
         self.max_scan_file_size = max_scan_file_size
         self.rules_dir = Path(rules_dir or _DEFAULT_YARA_DIR)
         self._rules: Any = None  # yara_x.Rules | None
-
-        if not _yara_x_available():
-            logger.info(
-                "yara-x is not installed – YaraAnalyzer will be a no-op. "
-                "Install with: pip install yara-x",
-            )
-            return
 
         self._compile_rules()
 
@@ -405,7 +389,10 @@ class YaraAnalyzer(BaseAnalyzer):
             file_path=file_path,
             line_number=line_number,
             snippet=snippet,
-            remediation="Review the flagged content and remove or mitigate the detected threat pattern.",
+            remediation=(
+                "Review the flagged content and remove or"
+                " mitigate the detected threat pattern."
+            ),
             analyzer="yara",
             metadata={
                 "yara_rule": rule_name,
