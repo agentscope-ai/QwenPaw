@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
-from typing import Optional, Union, Dict, List
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, Union, Dict, List, Literal
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
@@ -147,12 +147,73 @@ class LastDispatchConfig(BaseModel):
 class MCPClientConfig(BaseModel):
     """Configuration for a single MCP client."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     description: str = ""
     enabled: bool = True
-    command: str
+    transport: Literal["stdio", "streamable_http", "sse"] = "stdio"
+    url: str = ""
+    headers: Dict[str, str] = Field(default_factory=dict)
+    command: str = ""
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
+    cwd: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_fields(cls, data):
+        """Normalize common MCP field aliases from third-party examples."""
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+
+        if "isActive" in payload and "enabled" not in payload:
+            payload["enabled"] = payload["isActive"]
+
+        if "baseUrl" in payload and "url" not in payload:
+            payload["url"] = payload["baseUrl"]
+
+        if "type" in payload and "transport" not in payload:
+            payload["transport"] = payload["type"]
+
+        if (
+            "transport" not in payload
+            and (payload.get("url") or payload.get("baseUrl"))
+            and not payload.get("command")
+        ):
+            payload["transport"] = "streamable_http"
+
+        raw_transport = payload.get("transport")
+        if isinstance(raw_transport, str):
+            normalized = raw_transport.strip().lower()
+            transport_alias_map = {
+                "streamablehttp": "streamable_http",
+                "http": "streamable_http",
+                "stdio": "stdio",
+                "sse": "sse",
+            }
+            payload["transport"] = transport_alias_map.get(
+                normalized,
+                normalized,
+            )
+
+        return payload
+
+    @model_validator(mode="after")
+    def _validate_transport_config(self):
+        """Validate required fields for each MCP transport type."""
+        if self.transport == "stdio":
+            if not self.command.strip():
+                raise ValueError("stdio MCP client requires non-empty command")
+            return self
+
+        if not self.url.strip():
+            raise ValueError(
+                f"{self.transport} MCP client requires non-empty url",
+            )
+        return self
 
 
 class MCPConfig(BaseModel):

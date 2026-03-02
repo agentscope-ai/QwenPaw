@@ -33,9 +33,7 @@ export function MCPClientCard({
 
   // Determine if MCP client is remote or local based on command
   const isRemote =
-    client.command.startsWith("http://") ||
-    client.command.startsWith("https://") ||
-    client.command.includes("://");
+    client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
 
   const handleToggleClick = (e: React.MouseEvent) => {

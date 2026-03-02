@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from .models import (
     CustomProviderData,
@@ -37,6 +38,41 @@ def get_providers_json_path() -> Path:
 def _ensure_base_url(settings: ProviderSettings, defn) -> None:
     if not settings.base_url and defn.default_base_url:
         settings.base_url = defn.default_base_url
+
+
+def _normalize_ollama_base_url(base_url: str) -> str:
+    """Normalize Ollama OpenAI-compatible endpoint to include /v1.
+
+    Older configs may use http://localhost:11434 (missing /v1), which leads
+    to OpenAI client requests returning 404.
+    """
+    value = (base_url or "").strip()
+    if not value:
+        return value
+
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return value
+
+    path = parts.path or ""
+    if path in ("", "/"):
+        path = "/v1"
+    elif path == "/v1/":
+        path = "/v1"
+
+    return urlunsplit(
+        (parts.scheme, parts.netloc, path, parts.query, parts.fragment),
+    )
+
+
+def _normalize_special_provider_settings(
+    provider_id: str,
+    settings: ProviderSettings,
+) -> None:
+    """Apply provider-specific settings normalization."""
+    if provider_id == "ollama" and settings.base_url:
+        settings.base_url = _normalize_ollama_base_url(settings.base_url)
 
 
 def _migrate_legacy_custom(
@@ -157,6 +193,7 @@ def _ensure_all_providers(providers: dict[str, ProviderSettings]) -> None:
             providers[pid] = ProviderSettings(base_url=defn.default_base_url)
         else:
             _ensure_base_url(providers[pid], defn)
+        _normalize_special_provider_settings(pid, providers[pid])
 
 
 # -- Load / Save --
@@ -255,6 +292,7 @@ def update_provider_settings(
             defn = PROVIDERS.get(provider_id)
             if defn:
                 settings.base_url = defn.default_base_url
+        _normalize_special_provider_settings(provider_id, settings)
 
     if api_key == "" and data.active_llm.provider_id == provider_id:
         data.active_llm = ModelSlotConfig()

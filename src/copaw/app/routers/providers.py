@@ -117,7 +117,8 @@ async def configure_provider(
     if provider is None:
         raise HTTPException(404, detail=f"Provider '{provider_id}' not found")
 
-    base_url = body.base_url if provider.is_custom else None
+    allow_base_url = provider.is_custom or provider.id == "ollama"
+    base_url = body.base_url if allow_base_url else None
     data = update_provider_settings(
         provider_id,
         api_key=body.api_key,

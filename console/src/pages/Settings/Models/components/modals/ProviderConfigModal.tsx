@@ -32,6 +32,7 @@ export function ProviderConfigModal({
   const [saving, setSaving] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const [form] = Form.useForm<ProviderConfigRequest>();
+  const canEditBaseUrl = provider.is_custom || provider.id === "ollama";
 
   const apiKeyExtra = useMemo(() => {
     if (provider.current_api_key) {
@@ -162,21 +163,25 @@ export function ProviderConfigModal({
           name="base_url"
           label="Base URL"
           rules={
-            provider.is_custom
+            canEditBaseUrl
               ? [
-                  {
-                    required: true,
-                    message: t("models.pleaseEnterBaseURL"),
-                  },
+                  ...(provider.is_custom
+                    ? [
+                        {
+                          required: true,
+                          message: t("models.pleaseEnterBaseURL"),
+                        },
+                      ]
+                    : []),
                   { type: "url", message: t("models.pleaseEnterValidURL") },
                 ]
               : []
           }
-          extra={provider.is_custom ? t("models.openAIEndpoint") : undefined}
+          extra={canEditBaseUrl ? t("models.openAIEndpoint") : undefined}
         >
           <Input
-            placeholder={provider.is_custom ? "http://localhost:11434/v1" : ""}
-            disabled={!provider.is_custom}
+            placeholder={canEditBaseUrl ? "http://localhost:11434/v1" : ""}
+            disabled={!canEditBaseUrl}
           />
         </Form.Item>
 
