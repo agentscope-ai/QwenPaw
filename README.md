@@ -114,7 +114,9 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,l
 irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
-Then open a new terminal and run:
+## Run it
+
+- Then open a new terminal and run:
 
 ```bash
 copaw init --defaults   # or: copaw init (interactive)
