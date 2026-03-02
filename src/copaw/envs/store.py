@@ -17,6 +17,9 @@ from typing import Optional
 
 _ENVS_DIR = Path(__file__).resolve().parent
 _ENVS_JSON = _ENVS_DIR / "envs.json"
+# Security-sensitive envs should come from process/system environment,
+# not persisted envs.json.
+_PROTECTED_BOOTSTRAP_KEYS = frozenset({"COPAW_WORKING_DIR"})
 
 
 def get_envs_json_path() -> Path:
@@ -29,9 +32,20 @@ def get_envs_json_path() -> Path:
 # ------------------------------------------------------------------
 
 
-def _apply_to_environ(envs: dict[str, str]) -> None:
-    """Set every key/value into ``os.environ``."""
+def _apply_to_environ(
+    envs: dict[str, str],
+    *,
+    overwrite: bool = True,
+) -> None:
+    """Set key/value pairs into ``os.environ``.
+
+    Args:
+        envs: Key-value mapping to inject.
+        overwrite: When False, existing process env values take precedence.
+    """
     for key, value in envs.items():
+        if not overwrite and key in os.environ:
+            continue
         os.environ[key] = value
 
 
@@ -45,10 +59,10 @@ def _sync_environ(
     new: dict[str, str],
 ) -> None:
     """Synchronise ``os.environ``: set *new*, remove stale *old*."""
-    for key in old:
-        if key not in new:
+    for key, old_value in old.items():
+        if key not in new and os.environ.get(key) == old_value:
             _remove_from_environ(key)
-    _apply_to_environ(new)
+    _apply_to_environ(new, overwrite=True)
 
 
 # ------------------------------------------------------------------
@@ -117,5 +131,11 @@ def load_envs_into_environ() -> dict[str, str]:
     immediately.
     """
     envs = load_envs()
-    _apply_to_environ(envs)
+    envs = {
+        key: value
+        for key, value in envs.items()
+        if key not in _PROTECTED_BOOTSTRAP_KEYS
+    }
+    # Do not override explicit runtime/system env vars.
+    _apply_to_environ(envs, overwrite=False)
     return envs
