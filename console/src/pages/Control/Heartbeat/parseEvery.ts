@@ -41,4 +41,3 @@ export function serializeEvery(parts: EveryParts): string {
   }
   return `${parts.number}m`;
 }
-
