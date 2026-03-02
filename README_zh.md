@@ -172,7 +172,7 @@ copaw uninstall --purge  # 删除所有内容
 
 ### 使用 Docker
 
-镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（当前最新 release，来自 beta 分支）。
+镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。
 
 ```bash
 docker pull agentscope/copaw:latest

@@ -172,7 +172,7 @@ copaw uninstall --purge  # removes everything
 
 ### Using Docker
 
-Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable); `pre` (current latest release from the beta branch).
+Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable); `pre` (PyPI pre-release).
 
 ```bash
 docker pull agentscope/copaw:latest

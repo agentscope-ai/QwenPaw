@@ -5,7 +5,7 @@
 - **方式一 — 一键安装（推荐）**：无需手动配置 Python，一行命令自动完成安装。
 - **方式二 — pip 安装**：适合自行管理 Python 环境的用户。
 - **方式三 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
-- **方式四 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（当前最新 beta 分支）。
+- **方式四 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（PyPI 预发布版）。
 - **方式五 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
 
 > 📖 阅读前请先了解 [项目介绍](./intro)，完成安装与启动后可查看 [控制台](./console)。
@@ -125,7 +125,7 @@ pip install copaw
 
 ## 方式四：Docker
 
-镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（当前最新 release，来自 beta 分支）。国内用户也可选用阿里云 ACR：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
+镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。国内用户也可选用阿里云 ACR：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
 拉取并运行：
 
