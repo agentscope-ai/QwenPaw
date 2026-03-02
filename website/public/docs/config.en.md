@@ -408,7 +408,7 @@ Memory search relies on vector embeddings for semantic retrieval. Configure via 
 
 ## Agent Prompt Files at a Glance
 
-> Condensed from [Agent Prompt Files](./agent_md_intro.en.md) — see the full page for details.
+The content below provides a summary of Agent Prompt Files.
 >
 > The prompt design in this section is inspired by [OpenClaw](https://github.com/openclaw/openclaw).
 
