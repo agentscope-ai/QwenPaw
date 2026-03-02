@@ -268,8 +268,14 @@ class YaraAnalyzer(BaseAnalyzer):
         # Merge explicitly disabled rules with policy disabled rules
         self._disabled = set(disabled_rules or set())
         self._disabled.update(self.policy.disabled_rules)
+        # Wire policy YARA file-size limit into the engine so that org
+        # overrides actually take effect.
+        yara_size_limit = self.policy.file_limits.max_yara_scan_file_size_bytes
         try:
-            self._engine = YaraRuleEngine(rules_dir)
+            self._engine = YaraRuleEngine(
+                rules_dir,
+                max_scan_file_size=yara_size_limit or _MAX_SCAN_FILE_SIZE,
+            )
         except Exception as exc:
             logger.warning("YaraAnalyzer disabled: %s", exc)
             self._engine = None  # type: ignore[assignment]
@@ -379,6 +385,15 @@ class YaraAnalyzer(BaseAnalyzer):
         fid = f"YARA:{rule_name}:{file_path}"
         if line_number:
             fid += f":{line_number}"
+        # Include string identifier and offset to distinguish multiple
+        # YARA string matches on the same line within the same rule.
+        if match_info:
+            ident = match_info.get("identifier")
+            offset = match_info.get("offset")
+            if ident is not None:
+                fid += f":{ident}"
+            if offset is not None:
+                fid += f"@{offset}"
         return Finding(
             id=fid,
             rule_id=f"YARA_{rule_name}",

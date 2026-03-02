@@ -30,8 +30,10 @@ from .scan_policy import ScanPolicy
 
 logger = logging.getLogger(__name__)
 
-# Extensions we skip by default (binaries, images, etc.)
-_SKIP_EXTENSIONS: set[str] = {
+# Fallback extensions to skip when the policy's file_classification
+# section has no inert/archive entries.  Kept as a safety net only;
+# prefer configuring extensions via the ScanPolicy YAML.
+_FALLBACK_SKIP_EXTENSIONS: set[str] = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp",
     ".woff", ".woff2", ".eot", ".ttf", ".otf",
     ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
@@ -41,11 +43,10 @@ _SKIP_EXTENSIONS: set[str] = {
     ".lock",
 }
 
-# Maximum number of files to scan per skill (safety valve).
-_MAX_FILES = 500
-
-# Maximum single file size to read (10 MB).
-_MAX_FILE_SIZE = 10 * 1024 * 1024
+# Fallback numeric limits used when no policy is provided *and* the
+# caller does not pass explicit constructor values.
+_FALLBACK_MAX_FILES = 500
+_FALLBACK_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 class SkillScanner:
@@ -61,11 +62,15 @@ class SkillScanner:
         and allowlists.  When *None*, the built-in default policy is used.
         Pass ``ScanPolicy.from_yaml("my_policy.yaml")`` to customise.
     skip_extensions:
-        Extra file extensions to skip (merged with built-in set).
+        Extra file extensions to skip (merged with policy / built-in set).
     max_files:
         Safety cap on the number of files to scan per skill.
+        When *None*, the value is read from
+        ``policy.file_limits.max_file_count`` (fallback: 500).
     max_file_size:
         Maximum individual file size in bytes to load for scanning.
+        When *None*, the value is read from
+        ``policy.file_limits.max_file_size_bytes`` (fallback: 10 MB).
     """
 
     def __init__(
@@ -74,8 +79,8 @@ class SkillScanner:
         *,
         policy: ScanPolicy | None = None,
         skip_extensions: set[str] | None = None,
-        max_files: int = _MAX_FILES,
-        max_file_size: int = _MAX_FILE_SIZE,
+        max_files: int | None = None,
+        max_file_size: int | None = None,
     ) -> None:
         self._policy = policy or ScanPolicy.default()
 
@@ -84,9 +89,24 @@ class SkillScanner:
         else:
             self._analyzers = self._default_analyzers(self._policy)
 
-        self._skip_ext = _SKIP_EXTENSIONS | (skip_extensions or set())
-        self._max_files = max_files
-        self._max_file_size = max_file_size
+        # --- file limits: explicit arg > policy > hardcoded fallback ------
+        policy_limits = self._policy.file_limits
+        self._max_files = (
+            max_files
+            if max_files is not None
+            else policy_limits.max_file_count or _FALLBACK_MAX_FILES
+        )
+        self._max_file_size = (
+            max_file_size
+            if max_file_size is not None
+            else policy_limits.max_file_size_bytes or _FALLBACK_MAX_FILE_SIZE
+        )
+
+        # --- skip extensions: policy classification > hardcoded fallback --
+        policy_fc = self._policy.file_classification
+        policy_skip = policy_fc.inert_extensions | policy_fc.archive_extensions
+        base_skip = policy_skip if policy_skip else _FALLBACK_SKIP_EXTENSIONS
+        self._skip_ext = base_skip | (skip_extensions or set())
 
     @property
     def policy(self) -> ScanPolicy:
@@ -167,13 +187,16 @@ class SkillScanner:
                     {"analyzer": analyzer.get_name(), "error": str(exc)}
                 )
 
-        # 3. De-duplicate by finding id ------------------------------------
-        seen: set[str] = set()
-        unique: list[Finding] = []
-        for f in all_findings:
-            if f.id not in seen:
-                seen.add(f.id)
-                unique.append(f)
+        # 3. De-duplicate by finding id (if policy permits) ----------------
+        if self._policy.rule_scoping.dedupe_duplicate_findings:
+            seen: set[str] = set()
+            unique: list[Finding] = []
+            for f in all_findings:
+                if f.id not in seen:
+                    seen.add(f.id)
+                    unique.append(f)
+        else:
+            unique = all_findings
 
         elapsed = time.monotonic() - t0
         result = ScanResult(
@@ -222,7 +245,7 @@ class SkillScanner:
                 real = p.resolve(strict=True)
             except OSError:
                 continue
-            if not str(real).startswith(str(skill_dir) + "/") and real != skill_dir:
+            if not real.is_relative_to(skill_dir):
                 logger.warning(
                     "Skipping file outside skill directory: %s -> %s",
                     p, real,
