@@ -24,8 +24,17 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Check if privacy mode is enabled for shell commands
-HIDE_SHELL_DETAILS = os.environ.get("COPAW_HIDE_SHELL_DETAILS", "false").lower() in ("true", "1", "yes")
+# Tools whose call arguments and output are hidden in channel messages
+# when privacy mode is enabled via COPAW_HIDE_TOOL_DETAILS (or the legacy
+# COPAW_HIDE_SHELL_DETAILS).
+_PRIVACY_ENABLED = any(
+    os.environ.get(k, "false").lower() in ("true", "1", "yes")
+    for k in ("COPAW_HIDE_TOOL_DETAILS", "COPAW_HIDE_SHELL_DETAILS")
+)
+_PRIVACY_TOOLS: frozenset[str] = frozenset({
+    "execute_shell_command",
+    "read_file",
+})
 
 # Same union as base.OutgoingContentPart (renderer must not import base).
 _OutgoingPart = Union[
@@ -107,10 +116,8 @@ class MessageRenderer:
                 data = getattr(c, "data", None) or {}
                 name = data.get("name") or "tool"
                 
-                # Privacy mode: hide execute_shell_command details
-                if HIDE_SHELL_DETAILS and name == "execute_shell_command":
-                    text = "🔧 **execute_shell_command** running"
-                    out.append(TextContent(text=text))
+                if _PRIVACY_ENABLED and name in _PRIVACY_TOOLS:
+                    out.append(TextContent(text=f"🔧 **{name}** running"))
                     continue
                 
                 if s.show_tool_details:
@@ -175,6 +182,10 @@ class MessageRenderer:
                 data = getattr(c, "data", None) or {}
                 name = data.get("name") or "tool"
                 output = data.get("output", "")
+
+                if _PRIVACY_ENABLED and name in _PRIVACY_TOOLS:
+                    out.append(TextContent(text=f"✅ **{name}** done"))
+                    continue
 
                 try:
                     output = json.loads(output)
