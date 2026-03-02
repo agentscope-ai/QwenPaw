@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 import shutil
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 from ..constant import WORKING_DIR
@@ -39,8 +42,12 @@ def _migrate_legacy_envs(path: Path) -> None:
         return
     if not _LEGACY_ENVS_JSON.is_file():
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_LEGACY_ENVS_JSON, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        shutil.copyfile(_LEGACY_ENVS_JSON, path)
+        path.chmod(0o600)
+    except OSError:
+        logger.warning("Failed to migrate legacy envs.json to %s", path)
 
 
 def get_envs_json_path() -> Path:
