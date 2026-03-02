@@ -90,13 +90,16 @@ graph LR
 
 通过以下环境变量配置 Embedding 服务，用于语义向量搜索：
 
-| 环境变量                  | 说明                           | 默认值                                              |
-| ------------------------- | ------------------------------ | --------------------------------------------------- |
-| `EMBEDDING_API_KEY`       | Embedding 服务的 API Key       | （空，不配置则禁用向量搜索）                        |
-| `EMBEDDING_BASE_URL`      | Embedding 服务的 URL           | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `EMBEDDING_MODEL_NAME`    | Embedding 模型名称             | `text-embedding-v4`                                 |
-| `EMBEDDING_DIMENSIONS`    | 向量维度，用于初始化向量数据库 | `1024`                                              |
-| `EMBEDDING_CACHE_ENABLED` | 是否启用 Embedding 缓存        | `true`                                              |
+| 环境变量                     | 说明                           | 默认值                                              |
+| ---------------------------- | ------------------------------ | --------------------------------------------------- |
+| `EMBEDDING_API_KEY`          | Embedding 服务的 API Key       | （空，不配置则禁用向量搜索）                        |
+| `EMBEDDING_BASE_URL`         | Embedding 服务的 URL           | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `EMBEDDING_MODEL_NAME`       | Embedding 模型名称             | `text-embedding-v4`                                 |
+| `EMBEDDING_DIMENSIONS`       | 向量维度，用于初始化向量数据库 | `1024`                                              |
+| `EMBEDDING_CACHE_ENABLED`    | 是否启用 Embedding 缓存        | `true`                                              |
+| `EMBEDDING_MAX_CACHE_SIZE`   | Embedding 缓存最大条目数       | `2000`                                              |
+| `EMBEDDING_MAX_INPUT_LENGTH` | 单次 Embedding 最大输入长度    | `8192`                                              |
+| `EMBEDDING_MAX_BATCH_SIZE`   | Embedding 批处理最大数量       | `10`                                                |
 
 ### 检索模式配置
 
