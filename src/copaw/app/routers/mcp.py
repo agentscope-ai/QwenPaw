@@ -239,7 +239,6 @@ def _normalize_legacy_url(url: Optional[str], base_url: Optional[str]) -> str:
     return value
 
 
-
 def _coerce_transport_for_legacy_payload(
     transport: Literal["stdio", "streamable_http", "sse"],
     url: str,
@@ -368,7 +367,9 @@ async def update_mcp_client(
             transport_explicit,
         )
     if "command" in update_data and update_data["command"] is not None:
-        update_data["command"] = _validate_command_input(update_data["command"])
+        update_data["command"] = _validate_command_input(
+            update_data["command"],
+        )
 
     # Special handling for env: merge with existing, don't replace
     if "env" in update_data and update_data["env"] is not None:
