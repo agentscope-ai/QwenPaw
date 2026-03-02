@@ -330,7 +330,34 @@ ORDER BY m.ROWID ASC
 
         # Send media parts
         for media_part in media_parts:
-            await self.send_media(to_handle, media_part, meta)
+            try:
+                await self.send_media(to_handle, media_part, meta)
+            except Exception as exc:
+                # Fallback: send a textual placeholder if media delivery fails
+                logger.warning(
+                    "imessage send_content_parts: send_media failed for %s: %s",
+                    getattr(media_part, "type", None),
+                    exc,
+                )
+                # Try to extract a useful URL or identifier from the media part
+                url_candidates = [
+                    getattr(media_part, "url", None),
+                    getattr(media_part, "file_url", None),
+                    getattr(media_part, "image_url", None),
+                    getattr(media_part, "audio_url", None),
+                    getattr(media_part, "video_url", None),
+                ]
+                fallback_url = next((u for u in url_candidates if u), None)
+                if fallback_url:
+                    fallback_text = f"[File: {fallback_url}]"
+                else:
+                    content_type = getattr(
+                        getattr(media_part, "type", None),
+                        "value",
+                        getattr(media_part, "type", None),
+                    )
+                    fallback_text = f"[File could not be sent ({content_type})]"
+                await self.send(to_handle, fallback_text, meta)
 
     def _extract_url_and_filename(self, part: OutgoingContentPart):
         """Extract URL and filename hint from media part based on
