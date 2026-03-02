@@ -137,6 +137,9 @@ https://help.aliyun.com/zh/model-studio/coding-plan-quickstart#2531c37fd64f9
 
 Error: Unknown agent error: AgentModelTimeoutError: Model provider request timed out. Please retry. If this keeps happening, check network stability, provider service status, and model settings (base_url/model).
 
+说明：实际报错信息末尾还会追加
+`Upstream detail: <ExceptionType>: <detail>`。
+
 原因：模型服务请求在超时时间内未返回，常见于网络抖动、上游服务拥塞或模型配置不正确。
 
 建议排查：

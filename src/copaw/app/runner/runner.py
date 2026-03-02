@@ -177,14 +177,10 @@ class AgentRunner(Runner):
                 exc=e,
                 locals_=locals(),
             )
-            path_hint = (
-                f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
-            )
             _attach_debug_dump_path(normalized_exc, debug_dump_path)
             logger.exception(
-                "Error in query handler: %s%s",
+                "Error in query handler: %s",
                 normalized_exc,
-                path_hint,
             )
             if normalized_exc is e:
                 raise

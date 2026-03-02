@@ -160,6 +160,9 @@ Error detail (example):
 Error: Unknown agent error: AgentModelTimeoutError: Model provider request timed out. Please retry. If this keeps happening, check network stability, provider service status, and model settings (base_url/model).
 ```
 
+Note: the actual message also appends
+`Upstream detail: <ExceptionType>: <detail>`.
+
 Cause: the request to the model provider did not return within timeout.
 Typical reasons include transient network instability, upstream congestion, or
 incorrect model configuration.
