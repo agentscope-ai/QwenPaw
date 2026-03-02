@@ -61,6 +61,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_IMAGE_LIKE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
 
 class DingTalkChannel(BaseChannel):
     """DingTalk Channel: DingTalk Stream -> Incoming -> to_agent_request ->
@@ -1644,7 +1646,7 @@ class DingTalkChannel(BaseChannel):
             real_suffix = guess_suffix_from_file_content(path)
             if real_suffix:
                 current = path.suffix.lower()
-                image_like = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+                image_like = _IMAGE_LIKE_SUFFIXES
                 should_replace = current in (".file", ".bin") or (
                     current in image_like and real_suffix in image_like
                     and current != real_suffix
