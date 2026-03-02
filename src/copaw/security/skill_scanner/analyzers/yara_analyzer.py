@@ -325,7 +325,7 @@ class YaraAnalyzer(BaseAnalyzer):
                     continue
             for match in raw_matches:
                 rule_name: str = match["rule_name"]
-                if rule_name in self._disabled:
+                if self.policy.is_rule_disabled(f"YARA_{rule_name}") or rule_name in self._disabled:
                     continue
 
                 meta: dict[str, Any] = match.get("meta", {})
