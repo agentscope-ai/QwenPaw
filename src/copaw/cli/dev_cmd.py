@@ -39,7 +39,7 @@ def _stream(pipe: IO[bytes], prefix: str, color: str) -> None:
     bold = "\033[1m"
     try:
         for raw in iter(pipe.readline, b""):
-            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
             click.echo(f"{bold}{color}{prefix}{reset} {line}")
     except Exception:  # noqa: BLE001  – pipe closed, process exited
         pass
