@@ -32,13 +32,14 @@ export function MCPClientCard({
   const [isEditing, setIsEditing] = useState(false);
 
   // Determine client type from transport field
-  const isRemote = client.transport === "sse" || client.transport === "streamable_http";
+  const isRemote =
+    client.transport === "sse" || client.transport === "streamable_http";
   const transportLabel =
     client.transport === "sse"
       ? "SSE"
       : client.transport === "streamable_http"
-        ? "HTTP"
-        : "Local";
+      ? "HTTP"
+      : "Local";
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();

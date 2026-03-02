@@ -3,7 +3,7 @@
  */
 
 /** Transport mode for MCP clients */
-export type MCPTransport = 'stdio' | 'sse' | 'streamable_http';
+export type MCPTransport = "stdio" | "sse" | "streamable_http";
 
 export interface MCPClientInfo {
   /** Unique client key identifier */

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for MCP multi-transport support (stdio, sse, streamable_http)."""
 
 import pytest
@@ -50,10 +51,13 @@ class TestMCPClientConfig:
     def test_full_config_roundtrip(self):
         config = Config()
         config.mcp.clients["remote"] = MCPClientConfig(
-            name="r", transport="sse", url="http://a/sse",
+            name="r",
+            transport="sse",
+            url="http://a/sse",
         )
         config.mcp.clients["local"] = MCPClientConfig(
-            name="l", command="echo",
+            name="l",
+            command="echo",
         )
         dump = config.model_dump(mode="json")
         restored = Config(**dump)
@@ -61,34 +65,43 @@ class TestMCPClientConfig:
         assert restored.mcp.clients["local"].transport == "stdio"
 
 
-class TestMCPClientManager:
+class TestMCPClientManager:  # pylint: disable=protected-access
     """Manager _create_client factory tests."""
 
     def test_create_stdio_client(self):
         from agentscope.mcp import StdIOStatefulClient
+
         cfg = MCPClientConfig(name="s", command="echo", args=["hi"])
         client = MCPClientManager._create_client(cfg)
         assert isinstance(client, StdIOStatefulClient)
 
     def test_create_sse_client(self):
         from agentscope.mcp import HttpStatefulClient
+
         cfg = MCPClientConfig(
-            name="e", transport="sse", url="http://localhost/sse",
+            name="e",
+            transport="sse",
+            url="http://localhost/sse",
         )
         client = MCPClientManager._create_client(cfg)
         assert isinstance(client, HttpStatefulClient)
 
     def test_create_streamable_http_client(self):
         from agentscope.mcp import HttpStatefulClient
+
         cfg = MCPClientConfig(
-            name="h", transport="streamable_http", url="http://localhost/mcp",
+            name="h",
+            transport="streamable_http",
+            url="http://localhost/mcp",
         )
         client = MCPClientManager._create_client(cfg)
         assert isinstance(client, HttpStatefulClient)
 
     def test_invalid_transport_raises(self):
         cfg = MCPClientConfig(
-            name="bad", transport="websocket", url="ws://localhost",
+            name="bad",
+            transport="websocket",
+            url="ws://localhost",
         )
         with pytest.raises(ValueError, match="websocket"):
             MCPClientManager._create_client(cfg)

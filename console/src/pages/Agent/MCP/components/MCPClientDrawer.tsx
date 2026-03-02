@@ -1,4 +1,11 @@
-import { Drawer, Form, Input, Switch, Button, Select } from "@agentscope-ai/design";
+import {
+  Drawer,
+  Form,
+  Input,
+  Switch,
+  Button,
+  Select,
+} from "@agentscope-ai/design";
 import type { MCPClientInfo, MCPTransport } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
@@ -28,7 +35,11 @@ const jsonObjectValidator = (_: unknown, value: string) => {
   if (!value || !value.trim()) return Promise.resolve();
   try {
     const parsed = JSON.parse(value);
-    if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+    if (
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      parsed === null
+    ) {
       return Promise.reject(new Error("Must be a JSON object, e.g. {}"));
     }
     return Promise.resolve();
@@ -71,9 +82,7 @@ export function MCPClientDrawer({
         clientData.env = values.env ? JSON.parse(values.env) : {};
       } else {
         clientData.url = values.url;
-        clientData.headers = values.headers
-          ? JSON.parse(values.headers)
-          : {};
+        clientData.headers = values.headers ? JSON.parse(values.headers) : {};
       }
 
       const key = isEditing ? client.key : values.key;
@@ -157,9 +166,7 @@ export function MCPClientDrawer({
             <Form.Item
               name="command"
               label={t("mcp.command")}
-              rules={[
-                { required: true, message: t("mcp.commandRequired") },
-              ]}
+              rules={[{ required: true, message: t("mcp.commandRequired") }]}
             >
               <Input placeholder={t("mcp.commandPlaceholder")} />
             </Form.Item>
@@ -178,10 +185,7 @@ export function MCPClientDrawer({
               extra={t("mcp.envHelp")}
               rules={[{ validator: jsonObjectValidator }]}
             >
-              <Input.TextArea
-                rows={4}
-                placeholder={t("mcp.envPlaceholder")}
-              />
+              <Input.TextArea rows={4} placeholder={t("mcp.envPlaceholder")} />
             </Form.Item>
           </>
         )}

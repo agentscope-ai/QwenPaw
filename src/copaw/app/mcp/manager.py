@@ -68,11 +68,7 @@ class MCPClientManager:
             List of connected MCP client instances
         """
         async with self._lock:
-            return [
-                client
-                for client in self._clients.values()
-                if client is not None
-            ]
+            return [client for client in self._clients.values() if client is not None]
 
     async def replace_client(
         self,
@@ -183,14 +179,14 @@ class MCPClientManager:
             raise ValueError(
                 f"Invalid MCP transport '{transport}' for client "
                 f"'{client_config.name}'. "
-                f"Must be one of {_VALID_TRANSPORTS}."
+                f"Must be one of {_VALID_TRANSPORTS}.",
             )
 
         if transport == "stdio":
             if not client_config.command:
                 raise ValueError(
                     f"MCP client '{client_config.name}' uses stdio transport "
-                    f"but 'command' is not set."
+                    f"but 'command' is not set.",
                 )
             return StdIOStatefulClient(
                 name=client_config.name,
@@ -204,7 +200,7 @@ class MCPClientManager:
         if not url:
             raise ValueError(
                 f"MCP client '{client_config.name}' uses {transport} "
-                f"transport but 'url' is not set."
+                f"transport but 'url' is not set.",
             )
         headers = getattr(client_config, "headers", None) or None
         return HttpStatefulClient(
