@@ -77,6 +77,18 @@ docs(skills): document Skills Hub import
   ```bash
   pytest
   ```
+- **开发模式（热加载）：** 在仓库根目录使用 `copaw dev` 可同时启动后端和前端：
+  ```bash
+  copaw dev
+  # Backend  → http://localhost:8088  (uvicorn --reload，Python 热加载)
+  # Frontend → http://localhost:5173  (vite dev，HMR)
+  # 在浏览器中打开 http://localhost:5173
+  ```
+  两个服务的输出显示在同一终端，分别以 `[backend]` / `[frontend]` 为前缀。按 Ctrl+C 同时停止两个服务。
+
+  可用选项：`--port`（后端端口，默认 8088）、`--frontend-port`（Vite 端口，默认 5173）、`--no-frontend`（仅启动后端）。详见 `copaw dev --help`。
+
+  如需修改后端地址（例如自定义端口），可将 `console/.env.development.example` 复制为 `console/.env.development` 并设置 `BACKEND_URL`。
 - **前端代码格式化：** 如果你的修改涉及到 `console` 或 `website` 目录，请在提交前运行格式化：
   ```bash
   cd console && npm run format

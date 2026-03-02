@@ -77,6 +77,18 @@ docs(skills): document Skills Hub import
   ```bash
   pytest
   ```
+- **Development mode (hot-reload):** Use `copaw dev` to start backend and frontend together from the repository root:
+  ```bash
+  copaw dev
+  # Backend  → http://localhost:8088  (uvicorn --reload, Python hot-reload)
+  # Frontend → http://localhost:5173  (vite dev, HMR)
+  # Open http://localhost:5173 in your browser
+  ```
+  Both servers' output appears in the same terminal, prefixed with `[backend]` / `[frontend]`. Press Ctrl+C to stop both at once.
+
+  Options: `--port` (backend, default 8088), `--frontend-port` (Vite, default 5173), `--no-frontend` (backend only). See `copaw dev --help`.
+
+  If you need to change the backend URL (e.g. different port), copy `console/.env.development.example` to `console/.env.development` and set `BACKEND_URL`.
 - **Frontend formatting:** If your changes involve the `console` or `website` directories, run the formatter before committing:
   ```bash
   cd console && npm run format

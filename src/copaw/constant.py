@@ -68,5 +68,7 @@ DASHSCOPE_BASE_URL = os.environ.get(
 
 # CORS configuration — comma-separated list of allowed origins for dev mode.
 # Example: COPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
-# When unset, CORS middleware is not applied.
+# In production (copaw app) the frontend is served by the same origin, so CORS
+# is not needed and defaults to off.
+# In dev mode (copaw dev) this is set automatically based on --frontend-port.
 CORS_ORIGINS = os.environ.get("COPAW_CORS_ORIGINS", "").strip()
