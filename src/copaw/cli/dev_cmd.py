@@ -90,7 +90,7 @@ def _start_backend(
 ) -> "subprocess.Popen[bytes]":
     """Spawn the uvicorn backend process and return it."""
     backend_env = dict(os.environ)
-    if cors_origins and "COPAW_CORS_ORIGINS" not in backend_env:
+    if cors_origins and not backend_env.get("COPAW_CORS_ORIGINS"):
         backend_env["COPAW_CORS_ORIGINS"] = cors_origins
     backend_cmd = [
         sys.executable,
