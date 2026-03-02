@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
@@ -34,6 +36,12 @@ _PROVIDERS_JSON = _PROVIDERS_DIR / "providers.json"
 
 
 def get_providers_json_path() -> Path:
+    """
+    Use COPAW_WORKING_DIR when frozen so DMG/read-only bundle is not written.
+    """
+    if getattr(sys, "frozen", False):
+        wd = os.environ.get("COPAW_WORKING_DIR", "~/.copaw")
+        return Path(wd).expanduser().resolve() / "providers.json"
     return _PROVIDERS_JSON
 
 
@@ -205,6 +213,7 @@ def load_providers_json(path: Optional[Path] = None) -> ProvidersData:
     """Load providers.json, creating/repairing as needed."""
     if path is None:
         path = get_providers_json_path()
+    path = _writable_providers_path(path)
 
     providers: dict[str, ProviderSettings] = {}
     custom_providers: dict[str, CustomProviderData] = {}
@@ -240,13 +249,34 @@ def load_providers_json(path: Optional[Path] = None) -> ProvidersData:
     return data
 
 
+def _writable_providers_path(path: Path) -> Path:
+    """
+    Redirect to COPAW_WORKING_DIR when path is on read-only media (e.g. DMG).
+    """
+    if getattr(sys, "frozen", False) and str(path.resolve()).startswith(
+        "/Volumes/",
+    ):
+        wd = os.environ.get("COPAW_WORKING_DIR", "~/.copaw")
+        return Path(wd).expanduser().resolve() / "providers.json"
+    return path
+
+
 def save_providers_json(
     data: ProvidersData,
     path: Optional[Path] = None,
 ) -> None:
     if path is None:
         path = get_providers_json_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = _writable_providers_path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        if e.errno == 30:  # Read-only file system
+            wd = os.environ.get("COPAW_WORKING_DIR", "~/.copaw")
+            path = Path(wd).expanduser().resolve() / "providers.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            raise
 
     out: dict = {
         "providers": {
