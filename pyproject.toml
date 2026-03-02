@@ -7,20 +7,19 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "agentscope==1.0.16.dev0",
     "agentscope-runtime==1.1.0",
-    "discord-py>=2.3",
-    "dingtalk-stream>=0.24.3",
-    "uvicorn>=0.40.0",
     "apscheduler>=3.11.2,<4",
-    "playwright>=1.49.0",
-    "questionary>=2.1.1",
+    "dingtalk-stream>=0.24.3",
+    "discord-py>=2.3",
+    "lark-oapi>=1.5.3",
     "mss>=9.0.0",
+    "onnxruntime<1.24",
+    "playwright>=1.49.0",
+    "python-dotenv>=1.0.0",
     "python-socks>=2.7.2",
+    "questionary>=2.1.1",
     "reme-ai==0.3.0.0",
     "transformers>=4.30.0",
-    "python-dotenv>=1.0.0",
-    "python-socks>=2.5.3",
-    "onnxruntime<1.24",
-    "lark-oapi>=1.5.3",
+    "uvicorn>=0.40.0",
 ]
 
 [tool.setuptools.dynamic]
