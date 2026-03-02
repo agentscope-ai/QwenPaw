@@ -18,10 +18,20 @@ from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
 
 
 def get_playwright_chromium_executable_path() -> Optional[str]:
-    """Chromium path from env when set and existing file (e.g. container)."""
+    """Chromium path from env when set and existing file (e.g. container).
+    In container, if env unset or path missing, try common system paths.
+    """
     path = os.environ.get(PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV)
     if path and os.path.isfile(path):
         return path
+    if is_running_in_container():
+        for candidate in (
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/lib/chromium/chromium",
+        ):
+            if os.path.isfile(candidate):
+                return candidate
     return None
 
 

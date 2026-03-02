@@ -18,7 +18,7 @@ autorestart=true
 priority=30
 stderr_logfile=/var/log/app.err.log
 stdout_logfile=/var/log/app.out.log
-environment=DISPLAY=":1"
+environment=DISPLAY=":1",PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="/usr/bin/chromium",COPAW_RUNNING_IN_CONTAINER="1"
 
 [program:xvfb]
 command=/bin/sh -c "rm -f /tmp/.X1-lock /tmp/.X11-unix/X1; mkdir -p /tmp/.X11-unix; exec /usr/bin/Xvfb :1 -screen 0 1280x800x24"
