@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import re
 from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -152,8 +153,41 @@ async def batch_enable_skills(skill_name: list[str]) -> None:
         SkillService.enable_skill(skill)
 
 
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_skill_name(name: str) -> None:
+    """Reject skill names that could escape the skills directory."""
+    if not name or not _SAFE_NAME_RE.match(name):
+        raise HTTPException(
+            status_code=400,
+            detail="Skill name must contain only alphanumeric characters, "
+            "hyphens, and underscores.",
+        )
+
+
+def _validate_tree_keys(tree: dict | None, field_name: str) -> None:
+    """Validate that keys in references/scripts trees have no path traversal."""
+    if not tree:
+        return
+    for key, value in tree.items():
+        if ".." in key or key.startswith("/"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid path in '{field_name}': '{key}'. "
+                f"Path traversal sequences are not allowed.",
+            )
+        if isinstance(value, dict):
+            _validate_tree_keys(value, field_name)
+
+
 @router.post("")
 async def create_skill(request: CreateSkillRequest):
+    # Validate inputs to prevent path traversal
+    _validate_skill_name(request.name)
+    _validate_tree_keys(request.references, "references")
+    _validate_tree_keys(request.scripts, "scripts")
+
     result = SkillService.create_skill(
         name=request.name,
         content=request.content,
@@ -164,9 +198,9 @@ async def create_skill(request: CreateSkillRequest):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Failed to create skill. Ensure SKILL.md front matter has "
-                "both 'name' and 'description', and skill name is not "
-                "duplicated."
+                "Failed to create skill. Possible reasons include: invalid "
+                "SKILL.md front matter (e.g. missing 'name' or 'description'), "
+                "a duplicate skill name, or a server error."
             ),
         )
     return {"created": result}
