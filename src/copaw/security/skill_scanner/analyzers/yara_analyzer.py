@@ -39,6 +39,7 @@ _THREAT_TYPE_MAP: dict[str, ThreatCategory] = {
     "COERCIVE INJECTION": ThreatCategory.PROMPT_INJECTION,
     "INDIRECT PROMPT INJECTION": ThreatCategory.PROMPT_INJECTION,
     "EMBEDDED BINARY": ThreatCategory.OBFUSCATION,
+    "SUPPLY CHAIN ATTACK": ThreatCategory.OBFUSCATION,
     "UNICODE STEGANOGRAPHY": ThreatCategory.UNICODE_STEGANOGRAPHY,
 }
 
@@ -307,10 +308,21 @@ class YaraAnalyzer(BaseAnalyzer):
 
         for sf in files:
             content = sf.read_content()
-            if not content:
-                continue
 
-            raw_matches = self._engine.scan_content(content, file_path=sf.relative_path)
+            # Prefer text-mode scanning when content is available.
+            # If decoding failed (read_content returns "") fall back to
+            # file-based scanning which includes binary-mode support so
+            # that binary-focused YARA rules can still fire.
+            if content:
+                raw_matches = self._engine.scan_content(
+                    content, file_path=sf.relative_path,
+                )
+            else:
+                raw_matches = self._engine.scan_file(
+                    sf.path, display_path=sf.relative_path,
+                )
+                if not raw_matches:
+                    continue
             for match in raw_matches:
                 rule_name: str = match["rule_name"]
                 if rule_name in self._disabled:

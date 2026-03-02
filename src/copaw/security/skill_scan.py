@@ -5,8 +5,8 @@ Security scanning integration for CoPaw skill lifecycle.
 Provides a thin API that the skill management layer (``skills_hub``,
 ``skills_manager``) calls at key lifecycle points:
 
-* **on_skill_install** – after downloading / creating a skill, before
-  it is written to ``customized_skills/``.
+* **on_skill_install** – after downloading / creating a skill, after
+  it has been written to ``customized_skills/``.
 * **on_skill_enable** – before a skill is copied to ``active_skills/``.
 
 The scanner itself is lazily instantiated so that import-time is

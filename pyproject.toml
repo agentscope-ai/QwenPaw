@@ -40,6 +40,7 @@ include-package-data = true
     "agents/skills/**",
     "tokenizer/**",
     "security/skill_scanner/rules/**",
+    "security/skill_scanner/data/**",
 ]
 
 [build-system]

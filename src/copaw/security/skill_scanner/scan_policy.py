@@ -40,10 +40,9 @@ _DATA_DIR = Path(__file__).resolve().parent / "data"
 _DEFAULT_POLICY_PATH = _DATA_DIR / "default_policy.yaml"
 
 # Named preset policies
+# TODO: add "strict" and "permissive" presets once their YAML files are shipped
 _PRESET_POLICIES: dict[str, Path] = {
-    "strict": _DATA_DIR / "strict_policy.yaml",
     "balanced": _DEFAULT_POLICY_PATH,
-    "permissive": _DATA_DIR / "permissive_policy.yaml",
 }
 
 

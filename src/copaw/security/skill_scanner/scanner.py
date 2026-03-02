@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any
 
 from .analyzers import BaseAnalyzer
 from .analyzers.consistency_analyzer import ConsistencyAnalyzer
@@ -209,12 +208,30 @@ class SkillScanner:
             return result
 
         for p in candidates:
+            # Skip symlinks to prevent path-traversal attacks where a
+            # malicious skill symlinks to sensitive files outside the
+            # skill directory (e.g. /etc/shadow).
+            if p.is_symlink():
+                logger.warning("Skipping symlink %s", p)
+                continue
             if not p.is_file():
+                continue
+            # Even for non-symlink entries, resolve and verify the real
+            # path stays within the skill directory boundary.
+            try:
+                real = p.resolve(strict=True)
+            except OSError:
+                continue
+            if not str(real).startswith(str(skill_dir) + "/") and real != skill_dir:
+                logger.warning(
+                    "Skipping file outside skill directory: %s -> %s",
+                    p, real,
+                )
                 continue
             if p.suffix.lower() in self._skip_ext:
                 continue
             try:
-                size = p.stat().st_size
+                size = real.stat().st_size
             except OSError:
                 continue
             if size > self._max_file_size:

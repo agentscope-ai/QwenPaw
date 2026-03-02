@@ -25,11 +25,10 @@
 rule embedded_elf_binary
 {
     meta:
-        author = "Cisco Security"
+        author = "Cisco Security & Ping"
         description = "Detects ELF executable headers embedded in skill package files"
-        classification = "SUPPLY CHAIN ATTACK"
-        threat_type = "supply_chain_attack"
-        severity = "HIGH"
+        classification = "harmful"
+        threat_type = "EMBEDDED BINARY"
 
     strings:
         $elf_magic = { 7F 45 4C 46 }  // ELF magic bytes
@@ -41,11 +40,10 @@ rule embedded_elf_binary
 rule embedded_pe_executable
 {
     meta:
-        author = "Cisco Security"
+        author = "Cisco Security & Ping"
         description = "Detects PE (Windows) executable headers embedded in skill package files"
-        classification = "SUPPLY CHAIN ATTACK"
-        threat_type = "supply_chain_attack"
-        severity = "HIGH"
+        classification = "harmful"
+        threat_type = "EMBEDDED BINARY"
 
     strings:
         $mz_header = { 4D 5A }  // MZ header
@@ -60,9 +58,8 @@ rule embedded_macho_binary
     meta:
         author = "Cisco Security"
         description = "Detects Mach-O (macOS) executable headers embedded in skill package files"
-        classification = "SUPPLY CHAIN ATTACK"
-        threat_type = "supply_chain_attack"
-        severity = "HIGH"
+        classification = "harmful"
+        threat_type = "EMBEDDED BINARY"
 
     strings:
         $macho_32 = { CE FA ED FE }  // 32-bit Mach-O
@@ -78,9 +75,8 @@ rule embedded_shebang_in_binary
     meta:
         author = "Cisco Security"
         description = "Detects shebang script headers embedded within binary content"
-        classification = "SUPPLY CHAIN ATTACK"
-        threat_type = "supply_chain_attack"
-        severity = "MEDIUM"
+        classification = "suspicious"
+        threat_type = "EMBEDDED BINARY"
 
     strings:
         $shebang_bash = "#!/bin/bash"
