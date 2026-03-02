@@ -6,6 +6,7 @@
 import asyncio
 import locale
 import os
+import shlex
 import signal
 import subprocess
 from pathlib import Path
@@ -21,6 +22,17 @@ def _decode_output(output: bytes) -> str:
     """Decode process output using preferred locale with fallback."""
     encoding = locale.getpreferredencoding(False) or "utf-8"
     return output.decode(encoding, errors="replace").strip("\n")
+
+
+def _resolve_working_dir(cwd: Optional[Path]) -> Path:
+    """Resolve and validate working directory to stay within WORKING_DIR."""
+    root = WORKING_DIR.resolve()
+    candidate = (cwd if cwd is not None else WORKING_DIR).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise ValueError(
+            f"Working directory must be under {root}, got: {candidate}",
+        )
+    return candidate
 
 
 async def _terminate_process_tree(
@@ -57,7 +69,7 @@ async def _terminate_process_tree(
     await proc.wait()
 
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-return-statements,too-many-statements
 async def execute_shell_command(
     command: str,
     timeout: int = 60,
@@ -85,21 +97,68 @@ async def execute_shell_command(
     """
 
     cmd = (command or "").strip()
+    if not cmd:
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text="Error: command must be a non-empty string.",
+                ),
+            ],
+        )
+    if any(ch in cmd for ch in ("\x00", "\n", "\r")):
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text="Error: command contains invalid control characters.",
+                ),
+            ],
+        )
+    try:
+        # Use exec form to avoid shell expansion/injection via metacharacters.
+        args = shlex.split(cmd, posix=os.name != "nt")
+    except ValueError as exc:
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: invalid command syntax: {exc}",
+                ),
+            ],
+        )
+    if not args:
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text="Error: command must include an executable.",
+                ),
+            ],
+        )
 
     # Set working directory
-    working_dir = cwd if cwd is not None else WORKING_DIR
+    try:
+        working_dir = _resolve_working_dir(cwd)
+    except ValueError as exc:
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: {exc}",
+                ),
+            ],
+        )
 
     try:
         popen_kwargs = {}
         if os.name == "nt":
-            popen_kwargs["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP
-            )
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             popen_kwargs["start_new_session"] = True
 
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        proc = await asyncio.create_subprocess_exec(
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             bufsize=0,
@@ -129,16 +188,8 @@ async def execute_shell_command(
                 await _terminate_process_tree(proc)
                 # Read remaining output directly from streams instead of
                 # calling communicate() again (it can only be called once).
-                stdout = (
-                    await proc.stdout.read()
-                    if proc.stdout
-                    else b""
-                )
-                stderr = (
-                    await proc.stderr.read()
-                    if proc.stderr
-                    else b""
-                )
+                stdout = await proc.stdout.read() if proc.stdout else b""
+                stderr = await proc.stderr.read() if proc.stderr else b""
                 stdout_str = _decode_output(stdout)
                 stderr_str = _decode_output(stderr)
                 if stderr_str:
