@@ -1,0 +1,105 @@
+{
+  "teamName": "iamaako",
+  "leaderName": "iamaako",
+  "branchName": "iamaako_ai-fix",
+  "failuresDetected": 12,
+  "fixesApplied": 12,
+  "fixes": [
+    {
+      "file": "console/eslint.config.js",
+      "bugType": "LINTING",
+      "line": 4,
+      "commitMessage": "[AI-AGENT] Remove unused import 'reactRefresh'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'reactRefresh'."
+    },
+    {
+      "file": "console/src/App.tsx",
+      "bugType": "LINTING",
+      "line": 4,
+      "commitMessage": "[AI-AGENT] Remove unused import 'MainLayout'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'MainLayout'."
+    },
+    {
+      "file": "console/src/api/modules/agent.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/channel.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/chat.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/cronjob.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/env.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/heartbeat.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/localModel.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/mcp.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/ollamaModel.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    },
+    {
+      "file": "console/src/api/modules/provider.ts",
+      "bugType": "LINTING",
+      "line": 2,
+      "commitMessage": "[AI-AGENT] Remove unused import 'type'",
+      "status": "fixed",
+      "explanation": "Detected unused import for 'type'."
+    }
+  ]
+}
