@@ -11,6 +11,7 @@ from typing import Optional
 from .utils import load_config, get_config_path
 from .config import ChannelConfig
 from ..app.channels import ChannelManager  # pylint: disable=no-name-in-module
+from ..app.events import Event, EventType, get_event_bus
 from ..constant import get_available_channels
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,12 @@ class ConfigWatcher:
 
             logger.info(
                 f"ConfigWatcher: channel '{name}' config changed, reloading",
+            )
+            get_event_bus().emit(
+                Event(
+                    type=EventType.CONFIG_CHANGED,
+                    data={"channel": name},
+                ),
             )
             try:
                 old_channel = await self._channel_manager.get_channel(name)

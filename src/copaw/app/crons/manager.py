@@ -14,6 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from ...config import get_heartbeat_config
 
 from ..console_push_store import append as push_store_append
+from ..events import Event, EventType, get_event_bus
 from .executor import CronExecutor
 from .heartbeat import parse_heartbeat_every, run_heartbeat_once
 from .models import CronJobSpec, CronJobState
@@ -134,6 +135,12 @@ class CronManager:
             job.task_type,
             (job.dispatch.target.user_id or "")[:40],
             (job.dispatch.target.session_id or "")[:40],
+        )
+        get_event_bus().emit(
+            Event(
+                type=EventType.CRON_TRIGGERED,
+                data={"job_id": job_id, "job_name": job.name},
+            ),
         )
         task = asyncio.create_task(
             self._execute_once(job),
@@ -259,6 +266,12 @@ class CronManager:
                     "cron _execute_once: job_id=%s status=success",
                     job.id,
                 )
+                get_event_bus().emit(
+                    Event(
+                        type=EventType.CRON_COMPLETED,
+                        data={"job_id": job.id, "status": "success"},
+                    ),
+                )
             except Exception as e:  # pylint: disable=broad-except
                 st.last_status = "error"
                 st.last_error = repr(e)
@@ -266,6 +279,16 @@ class CronManager:
                     "cron _execute_once: job_id=%s status=error error=%s",
                     job.id,
                     repr(e),
+                )
+                get_event_bus().emit(
+                    Event(
+                        type=EventType.CRON_COMPLETED,
+                        data={
+                            "job_id": job.id,
+                            "status": "error",
+                            "error": str(e)[:200],
+                        },
+                    ),
                 )
                 raise
             finally:
