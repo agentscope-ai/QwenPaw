@@ -18,6 +18,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import {
+  BookOpen,
   Rocket,
   Zap,
   Terminal,
@@ -444,7 +445,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
               const isParentActive =
                 activeSlug === s ||
                 (children?.some((c) => c.slug === activeSlug) ?? false);
-              const ParentIcon = DOC_SLUG_ICONS[s] ?? Rocket;
+              const ParentIcon = DOC_SLUG_ICONS[s] ?? BookOpen;
               return (
                 <div key={s}>
                   <Link
@@ -483,7 +484,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                   {children && isParentActive && (
                     <div style={{ paddingLeft: "1.25rem" }}>
                       {children.map(({ slug: cs, titleKey: ct }) => {
-                        const ChildIcon = DOC_SLUG_ICONS[cs] ?? Rocket;
+                        const ChildIcon = DOC_SLUG_ICONS[cs] ?? BookOpen;
                         return (
                           <Link
                             key={cs}
