@@ -148,6 +148,7 @@ function Ensure-Uv {
     }
 
     # 3. Try astral.sh (standard installer, fast outside China)
+    Write-Warn "If automatic uv installation fails, please manually install uv first by following https://docs.astral.sh/uv/getting-started/installation/, then re-run this installer. Alternatively, if Python is already installed, run: python -m pip install -U uv"
     Write-Info "Installing uv via astral.sh..."
     $astralOk = $false
     try {
