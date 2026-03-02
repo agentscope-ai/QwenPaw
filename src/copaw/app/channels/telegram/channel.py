@@ -28,7 +28,6 @@ from ..base import (
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
 
 _DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
@@ -75,32 +74,6 @@ async def _download_telegram_file(
     except Exception:
         logger.exception("telegram: download failed for file_id=%s", file_id)
         return None
-
-
-async def _resolve_telegram_file_url(
-    *,
-    bot: Any,
-    file_id: str,
-    bot_token: str,
-) -> str:
-    """Resolve the remote URL for a Telegram file.
-
-    Returns the file URL (either Telegram API URL or external URL).
-    Never exposes the bot token in the returned URL.
-    """
-    try:
-        from telegram.error import TelegramError
-
-        tg_file = await bot.get_file(file_id)
-    except TelegramError:
-        logger.exception("telegram: get_file failed for file_id=%s", file_id)
-        return ""
-    file_path = getattr(tg_file, "file_path", None) or ""
-    if not file_path:
-        return ""
-    if file_path.startswith("http"):
-        return file_path
-    return f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
 
 
 async def _build_content_parts_from_message(
@@ -153,7 +126,10 @@ async def _build_content_parts_from_message(
             )
             if local_path:
                 content_parts.append(
-                    ImageContent(type=ContentType.IMAGE, image_url=local_path),
+                    ImageContent(
+                        type=ContentType.IMAGE,
+                        image_url=f"file://{local_path}",
+                    ),
                 )
 
     for attr_name, content_cls, content_type, url_field in _MEDIA_ATTRS:
@@ -172,7 +148,10 @@ async def _build_content_parts_from_message(
         )
         if local_path:
             content_parts.append(
-                content_cls(type=content_type, **{url_field: local_path}),
+                content_cls(
+                    type=content_type,
+                    **{url_field: f"file://{local_path}"},
+                ),
             )
 
     if not content_parts:
@@ -450,7 +429,11 @@ class TelegramChannel(BaseChannel):
         chunks = self._chunk_text(text)
         for chunk in chunks:
             try:
-                await bot.send_message(chat_id=chat_id, text=chunk)
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    parse_mode="Markdown",
+                )
             except Exception:
                 logger.exception("telegram send_message failed")
                 return
