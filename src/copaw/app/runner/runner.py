@@ -10,6 +10,7 @@ from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from dotenv import load_dotenv
 
+from .error_mapping import map_query_exception
 from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
@@ -20,6 +21,28 @@ from ...config import load_config
 from ...constant import WORKING_DIR
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_debug_dump_path(
+    exc: Exception,
+    debug_dump_path: str | None,
+) -> None:
+    """Attach debug dump path to an exception instance."""
+    if not debug_dump_path:
+        return
+
+    setattr(exc, "debug_dump_path", debug_dump_path)
+    note = f"(Details:  {debug_dump_path})"
+    if hasattr(exc, "add_note"):
+        exc.add_note(note)
+
+    suffix = f"\n{note}"
+    if exc.args:
+        message = str(exc.args[0])
+        if note not in message:
+            exc.args = (f"{message}{suffix}",) + exc.args[1:]
+    else:
+        exc.args = (note,)
 
 
 class AgentRunner(Runner):
@@ -148,6 +171,7 @@ class AgentRunner(Runner):
                 await agent.interrupt()
             raise
         except Exception as e:
+            normalized_exc = map_query_exception(e)
             debug_dump_path = write_query_error_dump(
                 request=request,
                 exc=e,
@@ -156,18 +180,15 @@ class AgentRunner(Runner):
             path_hint = (
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
-            logger.exception(f"Error in query handler: {e}{path_hint}")
-            if debug_dump_path:
-                setattr(e, "debug_dump_path", debug_dump_path)
-                if hasattr(e, "add_note"):
-                    e.add_note(
-                        f"(Details:  {debug_dump_path})",
-                    )
-                suffix = f"\n(Details:  {debug_dump_path})"
-                e.args = (
-                    (f"{e.args[0]}{suffix}" if e.args else suffix.strip()),
-                ) + e.args[1:]
-            raise
+            _attach_debug_dump_path(normalized_exc, debug_dump_path)
+            logger.exception(
+                "Error in query handler: %s%s",
+                normalized_exc,
+                path_hint,
+            )
+            if normalized_exc is e:
+                raise
+            raise normalized_exc from e
         finally:
             if agent is not None:
                 await self.session.save_session_state(

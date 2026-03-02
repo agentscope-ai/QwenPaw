@@ -152,6 +152,25 @@ please check:
 Reference for the correct key acquisition flow:
 https://help.aliyun.com/zh/model-studio/coding-plan-quickstart#2531c37fd64f9
 
+2. Error pattern: `APITimeoutError` / `Model provider request timed out`
+
+Error detail (example):
+
+```
+Error: Unknown agent error: AgentModelTimeoutError: Model provider request timed out. Please retry. If this keeps happening, check network stability, provider service status, and model settings (base_url/model).
+```
+
+Cause: the request to the model provider did not return within timeout.
+Typical reasons include transient network instability, upstream congestion, or
+incorrect model configuration.
+
+Recommended checks:
+
+- Retry first (temporary spikes often recover);
+- Verify `base_url` and model name;
+- Check network connectivity (container network, proxy, DNS);
+- Check provider status, throttling, or incident announcements.
+
 ---
 
 ### How to get support when errors occur
