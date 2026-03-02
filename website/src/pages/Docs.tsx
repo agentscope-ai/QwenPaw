@@ -19,12 +19,27 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import {
   BookOpen,
+  Rocket,
+  Zap,
+  Terminal,
+  MessageSquare,
+  Wrench,
+  Plug,
+  Brain,
+  Archive,
+  Command,
+  Activity,
+  Settings,
+  CircleHelp,
+  Users,
+  GitBranch,
   Menu,
   ChevronRight,
   ChevronDown,
   ArrowUp,
   Copy,
   Check,
+  type LucideIcon,
 } from "lucide-react";
 import { Nav } from "../components/Nav";
 import { Footer } from "../components/Footer";
@@ -158,6 +173,24 @@ function parseFaqContent(md: string): { intro: string; items: FaqItem[] } {
     items,
   };
 }
+
+const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
+  intro: Rocket,
+  quickstart: Zap,
+  console: Terminal,
+  channels: MessageSquare,
+  skills: Wrench,
+  mcp: Plug,
+  memory: Brain,
+  compact: Archive,
+  commands: Command,
+  heartbeat: Activity,
+  config: Settings,
+  cli: Terminal,
+  faq: CircleHelp,
+  community: Users,
+  contributing: GitBranch,
+};
 
 const DOC_SLUGS: DocEntry[] = [
   { slug: "intro", titleKey: "docs.intro" },
@@ -412,6 +445,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
               const isParentActive =
                 activeSlug === s ||
                 (children?.some((c) => c.slug === activeSlug) ?? false);
+              const ParentIcon = DOC_SLUG_ICONS[s] ?? BookOpen;
               return (
                 <div key={s}>
                   <Link
@@ -429,7 +463,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                         activeSlug === s ? "var(--bg)" : "transparent",
                     }}
                   >
-                    <BookOpen size={16} strokeWidth={1.5} aria-hidden />
+                    <ParentIcon size={16} strokeWidth={1.5} aria-hidden />
                     {DOC_TITLES[lang][titleKey] ?? titleKey}
                     {children && children.length > 0 && (
                       <ChevronDown
@@ -449,34 +483,42 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                   </Link>
                   {children && isParentActive && (
                     <div style={{ paddingLeft: "1.25rem" }}>
-                      {children.map(({ slug: cs, titleKey: ct }) => (
-                        <Link
-                          key={cs}
-                          to={`/docs/${cs}`}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "var(--space-1)",
-                            padding: "var(--space-1) var(--space-2)",
-                            borderRadius: "0.375rem",
-                            fontSize: "0.875rem",
-                            color:
-                              activeSlug === cs
-                                ? "var(--text)"
-                                : "var(--text-muted)",
-                            background:
-                              activeSlug === cs ? "var(--bg)" : "transparent",
-                          }}
-                        >
-                          {DOC_TITLES[lang][ct] ?? ct}
-                          {activeSlug === cs && (
-                            <ChevronRight
+                      {children.map(({ slug: cs, titleKey: ct }) => {
+                        const ChildIcon = DOC_SLUG_ICONS[cs] ?? BookOpen;
+                        return (
+                          <Link
+                            key={cs}
+                            to={`/docs/${cs}`}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "var(--space-1)",
+                              padding: "var(--space-1) var(--space-2)",
+                              borderRadius: "0.375rem",
+                              fontSize: "0.875rem",
+                              color:
+                                activeSlug === cs
+                                  ? "var(--text)"
+                                  : "var(--text-muted)",
+                              background:
+                                activeSlug === cs ? "var(--bg)" : "transparent",
+                            }}
+                          >
+                            <ChildIcon
                               size={14}
-                              style={{ marginLeft: "auto" }}
+                              strokeWidth={1.5}
+                              aria-hidden
                             />
-                          )}
-                        </Link>
-                      ))}
+                            {DOC_TITLES[lang][ct] ?? ct}
+                            {activeSlug === cs && (
+                              <ChevronRight
+                                size={14}
+                                style={{ marginLeft: "auto" }}
+                              />
+                            )}
+                          </Link>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

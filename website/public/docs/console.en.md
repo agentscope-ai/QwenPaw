@@ -294,7 +294,7 @@ loads models from it.
 **Prerequisites:**
 
 - Install Ollama from [ollama.com](https://ollama.com)
-- Install the Ollama SDK: `pip install ollama`
+- Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer with `--extras ollama`)
 
 **Download a model:**
 

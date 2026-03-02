@@ -50,7 +50,7 @@ def _ensure_ollama():
     except ImportError as e:  # pragma: no cover - import guard
         raise ImportError(
             "The 'ollama' Python package is required for Ollama management. "
-            "Install it with: pip install ollama",
+            "Install it with: pip install 'copaw[ollama]'",
         ) from e
     return ollama
 

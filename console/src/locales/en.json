@@ -27,6 +27,7 @@
     "channels": "Channels",
     "sessions": "Sessions",
     "cronJobs": "Cron Jobs",
+    "heartbeat": "Heartbeat",
     "agent": "Agent",
     "workspace": "Workspace",
     "skills": "Skills",
@@ -103,6 +104,25 @@
     "deleteConfirm": "Are you sure you want to delete this MCP client?",
     "deleteSuccess": "MCP client deleted successfully",
     "deleteError": "Failed to delete MCP client"
+  },
+  "heartbeat": {
+    "title": "Heartbeat",
+    "description": "Run HEARTBEAT.md at a fixed interval; optionally send replies to the last chat channel.",
+    "enabled": "Enable heartbeat",
+    "every": "Interval",
+    "everyRequired": "Required",
+    "everyMin": "Must be at least 1",
+    "unitMinutes": "Minutes",
+    "unitHours": "Hours",
+    "target": "Reply target",
+    "targetMain": "Run only, do not send (main)",
+    "targetLast": "Send to last chat channel (last)",
+    "activeHours": "Active hours (optional)",
+    "activeStart": "Start time",
+    "activeEnd": "End time",
+    "loadFailed": "Failed to load heartbeat config",
+    "saveSuccess": "Saved successfully; heartbeat hot-reloaded",
+    "saveFailed": "Failed to save heartbeat config"
   },
   "cronJobs": {
     "title": "Cron Jobs",
@@ -226,6 +246,7 @@
     "enterApiKey": "Enter API key ({{prefix}}-...)",
     "enterApiKeyOptional": "Enter API key (optional)",
     "openAIEndpoint": "OpenAI-compatible endpoint, e.g. http://localhost:11434/v1",
+    "azureEndpointHint": "Azure OpenAI endpoint, e.g. https://<resource>.openai.azure.com/openai/v1",
     "pleaseEnterBaseURL": "Please enter the API base URL",
     "pleaseEnterValidURL": "Please enter a valid URL",
     "apiKeyShouldStart": "API Key should start with \"{{prefix}}\"",
@@ -323,7 +344,12 @@
     "localCancelDownloadConfirm": "Cancel download of \"{{repo}}\"?",
     "localDownloadCancelled": "Download cancelled",
     "localCancelDownloadFailed": "Failed to cancel download",
-    "ollamaModelNamePlaceholder": "e.g. mistral:7b, qwen3:8b"
+    "ollamaModelNamePlaceholder": "e.g. mistral:7b, qwen3:8b",
+    "testConnection": "Test Connection",
+    "testConnectionSuccess": "Connection test successful",
+    "testConnectionFailed": "Connection test failed",
+    "testConnectionError": "An error occurred while testing connection",
+    "modelTestFailed": "Model validation failed, please check if the model ID is correct"
   },
   "agentConfig": {
     "title": "Configuration",

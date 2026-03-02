@@ -1,5 +1,6 @@
 export * from "./agent";
 export * from "./channel";
+export * from "./heartbeat";
 export * from "./chat";
 export * from "./cronjob";
 export * from "./env";

@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 import type { SiteConfig } from "../config";
 import { t, type Lang } from "../i18n";
 
+const DOCKER_IMAGE = "agentscope/copaw:latest";
+
 const COMMANDS = {
   pip: ["pip install copaw", "copaw init --defaults", "copaw app"],
   unix: [
@@ -17,13 +19,17 @@ const COMMANDS = {
     "copaw init --defaults",
     "copaw app",
   ],
+  docker: [
+    `docker pull ${DOCKER_IMAGE}`,
+    `docker run -p 8088:8088 -v copaw-data:/app/working ${DOCKER_IMAGE}`,
+  ],
 } as const;
 
 const ECS_DEPLOY_URL =
   "https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884";
 const ECS_DOC_URL = "https://developer.aliyun.com/article/1713682";
 
-const TABS = ["pip", "unix", "windows", "aliyun"] as const;
+const TABS = ["pip", "unix", "windows", "docker", "aliyun"] as const;
 type OsTab = (typeof TABS)[number];
 
 interface QuickStartProps {
@@ -41,6 +47,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
   const channelsDocPath = `${docsBase}/channels`;
 
   const isAliyun = activeTab === "aliyun";
+  const isDocker = activeTab === "docker";
   const lines = isAliyun ? [] : COMMANDS[activeTab];
   const fullCommand = lines.join("\n");
 
@@ -110,6 +117,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   ? t(lang, "quickstart.tabUnix")
                   : tab === "windows"
                   ? t(lang, "quickstart.tabWindows")
+                  : tab === "docker"
+                  ? t(lang, "quickstart.tabDocker")
                   : t(lang, "quickstart.tabAliyun");
               const shortLabel =
                 tab === "pip"
@@ -118,6 +127,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   ? t(lang, "quickstart.tabUnixShort")
                   : tab === "windows"
                   ? t(lang, "quickstart.tabWindowsShort")
+                  : tab === "docker"
+                  ? t(lang, "quickstart.tabDockerShort")
                   : t(lang, "quickstart.tabAliyunShort");
               const BadgeIcon =
                 tab === "pip"
@@ -198,6 +209,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
               >
                 {isAliyun
                   ? t(lang, "quickstart.optionAliyun")
+                  : isDocker
+                  ? t(lang, "quickstart.optionDocker")
                   : activeTab === "pip"
                   ? t(lang, "quickstart.optionPip")
                   : t(lang, "quickstart.optionLocal")}
