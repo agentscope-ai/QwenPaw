@@ -136,18 +136,12 @@ def _start_frontend(
         "--port",
         str(frontend_port),
     ]
-    # On Windows, create a new process group so the entire tree can be
-    # terminated reliably (e.g. via `taskkill /T`).
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     return subprocess.Popen(  # pylint: disable=consider-using-with
         frontend_cmd,
         cwd=console_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=frontend_env,
-        creationflags=creationflags,
     )
 
 
