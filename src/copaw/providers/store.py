@@ -329,6 +329,17 @@ def _resolve_slot(
             is_local=True,
         )
 
+    # Ollama runs an OpenAI-compatible server on localhost without auth.
+    # Treat it as a remote model with the default base URL even when the
+    # user hasn't explicitly saved credentials in providers.json.
+    if defn is not None and defn.id == "ollama":
+        base_url, api_key = data.get_credentials(pid)
+        return ResolvedModelConfig(
+            model=slot.model,
+            base_url=base_url or defn.default_base_url,
+            api_key=api_key or "ollama",  # Ollama accepts any non-empty key
+        )
+
     if pid not in data.custom_providers and pid not in data.providers:
         return None
     base_url, api_key = data.get_credentials(pid)
