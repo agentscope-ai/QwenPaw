@@ -79,7 +79,8 @@ def _create_file_block_support_formatter(
             tool messages.
             """
             msgs = _sanitize_tool_messages(msgs)
-            return await super()._format(msgs)
+            messages = await super()._format(msgs)
+            return _strip_top_level_message_name(messages)
 
         @staticmethod
         def convert_tool_result_to_string(
@@ -155,6 +156,20 @@ def _create_file_block_support_formatter(
         f"FileBlockSupport{base_formatter_class.__name__}"
     )
     return FileBlockSupportFormatter
+
+
+def _strip_top_level_message_name(
+    messages: list[dict],
+) -> list[dict]:
+    """Strip top-level `name` from OpenAI chat messages.
+
+    Some strict OpenAI-compatible backends reject `messages[*].name`
+    (especially for assistant/tool roles) and may return 500/400 on
+    follow-up turns. Keep function/tool names unchanged.
+    """
+    for message in messages:
+        message.pop("name", None)
+    return messages
 
 
 def create_model_and_formatter(
