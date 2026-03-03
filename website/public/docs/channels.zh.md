@@ -11,7 +11,7 @@
 
 - **enabled** — 是否启用
 - **bot_prefix** — 机器人回复前缀（如 `[BOT]`），方便区分
-- **filter_tool_messages** — （可选，默认 `true`）过滤工具调用和输出消息，不发送给用户。设为 `false` 可显示工具执行详情。
+- **filter_tool_messages** — （可选，默认 `false`）过滤工具调用和输出消息，不发送给用户。设为 `true` 可隐藏工具执行详情。
 
 下面按频道说明如何获取凭证并填写配置。
 
@@ -77,12 +77,12 @@
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
-  "client_secret": "你的 Client Secret",
-  "filter_tool_messages": true
+  "client_secret": "你的 Client Secret"
+  "filter_tool_messages": false
 }
 ```
 
-- 若希望在聊天中看到工具执行详情，可设置 `filter_tool_messages: false`。
+- 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
 
 保存后若服务已运行会自动重载；未运行则执行 `copaw app` 启动。
 

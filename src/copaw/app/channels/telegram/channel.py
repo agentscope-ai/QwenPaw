@@ -222,7 +222,7 @@ class TelegramChannel(BaseChannel):
         show_tool_details: bool = True,
         media_dir: str = "",
         show_typing: bool = True,
-        filter_tool_messages: bool = True,
+        filter_tool_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -352,7 +352,7 @@ class TelegramChannel(BaseChannel):
         config: Union[TelegramChannelConfig, dict],
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = True,
+        filter_tool_messages: bool = False,
     ) -> "TelegramChannel":
         channel_show_typing = None
         if isinstance(config, dict):

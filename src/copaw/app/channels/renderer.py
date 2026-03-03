@@ -42,7 +42,7 @@ class RenderStyle:
     supports_markdown: bool = True
     supports_code_fence: bool = True
     use_emoji: bool = True
-    filter_tool_messages: bool = True
+    filter_tool_messages: bool = False
 
 
 def _fmt_tool_call(

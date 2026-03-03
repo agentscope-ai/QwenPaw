@@ -38,7 +38,7 @@ class DiscordChannel(BaseChannel):
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = True,
+        filter_tool_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -194,7 +194,7 @@ class DiscordChannel(BaseChannel):
         config: DiscordChannelConfig,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = True,
+        filter_tool_messages: bool = False,
     ) -> "DiscordChannel":
         return cls(
             process=process,

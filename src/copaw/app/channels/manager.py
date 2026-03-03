@@ -192,7 +192,7 @@ class ChannelManager:
                 filter_tool_messages = getattr(
                     ch_cfg,
                     "filter_tool_messages",
-                    True,
+                    False,
                 )
                 channels.append(
                     ch_cls.from_config(

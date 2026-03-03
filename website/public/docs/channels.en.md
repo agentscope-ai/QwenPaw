@@ -12,7 +12,7 @@ All channels share two fields:
 
 - **enabled** — Turn the channel on or off.
 - **bot_prefix** — Prefix for bot replies (e.g. `[BOT]`) so they're easy to spot.
-- **filter_tool_messages** — (optional, default `true`) Filter tool call and output messages from being sent to users. Set to `false` to show tool execution details.
+- **filter_tool_messages** — (optional, default `false`) Filter tool call and output messages from being sent to users. Set to `true` to hide tool execution details.
 
 Below is how to get credentials and fill config for each channel.
 
@@ -78,12 +78,12 @@ In `config.json`, find `channels.dingtalk` and fill in the corresponding informa
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "your Client ID",
-  "client_secret": "your Client Secret",
-  "filter_tool_messages": true
+  "client_secret": "your Client Secret"
+  "filter_tool_messages": false
 }
 ```
 
-- Set `filter_tool_messages: false` if you want to see tool execution details in the chat.
+- Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run
 `copaw app`.

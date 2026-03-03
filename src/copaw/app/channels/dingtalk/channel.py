@@ -88,7 +88,7 @@ class DingTalkChannel(BaseChannel):
         media_dir: str = "~/.copaw/media",
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = True,
+        filter_tool_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -108,11 +108,16 @@ class DingTalkChannel(BaseChannel):
         self._stop_event = threading.Event()
         self._http: Optional[aiohttp.ClientSession] = None
 
+        # Store sessionWebhook for proactive send (in-memory).
+        # Key is a handle string, e.g. "dingtalk:sw:<sender>"
         self._session_webhook_store: Dict[str, str] = {}
         self._session_webhook_lock = asyncio.Lock()
 
+        # Time debounce disabled: manager drains same-session from queue
+        # and merges before calling us.
         self._debounce_seconds = 0.0
 
+        # Token cache (instance-level for multi-instance / tests)
         self._token_lock = asyncio.Lock()
         self._token_value: Optional[str] = None
         self._token_expires_at: float = 0.0
@@ -140,7 +145,7 @@ class DingTalkChannel(BaseChannel):
         config: DingTalkChannelConfig,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = True,
+        filter_tool_messages: bool = False,
     ) -> "DingTalkChannel":
         return cls(
             process=process,

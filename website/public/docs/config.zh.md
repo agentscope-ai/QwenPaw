@@ -144,11 +144,11 @@ copaw app
 
 **通用字段（所有频道都有）：**
 
-| 字段                   | 类型   | 默认值  | 说明                                  |
-| ---------------------- | ------ | ------- | ------------------------------------- |
-| `enabled`              | bool   | `false` | 是否启用该频道                        |
-| `bot_prefix`           | string | `""`    | 可选命令前缀（如 `/paw`）             |
-| `filter_tool_messages` | bool   | `true`  | 过滤工具调用/输出消息，不发送（默认） |
+| 字段                   | 类型   | 默认值  | 说明                            |
+| ---------------------- | ------ | ------- | ------------------------------- |
+| `enabled`              | bool   | `false` | 是否启用该频道                  |
+| `bot_prefix`           | string | `""`    | 可选命令前缀（如 `/paw`）       |
+| `filter_tool_messages` | bool   | `false` | 过滤工具调用/输出消息（默认关） |
 
 **`channels.imessage`** — macOS iMessage
 
