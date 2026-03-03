@@ -57,6 +57,7 @@ class VoiceChannel(BaseChannel):
         config: Any,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
     ) -> "VoiceChannel":
         instance = cls(process, on_reply_sent, show_tool_details)
         instance._config = config
