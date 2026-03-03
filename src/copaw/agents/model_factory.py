@@ -20,8 +20,8 @@ try:
     from agentscope.formatter import AnthropicChatFormatter
     from agentscope.model import AnthropicChatModel
 except ImportError:  # pragma: no cover - compatibility fallback
-    AnthropicChatFormatter = OpenAIChatFormatter
-    AnthropicChatModel = OpenAIChatModel
+    AnthropicChatFormatter = None
+    AnthropicChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..local_models import create_local_chat_model
@@ -41,8 +41,9 @@ logger = logging.getLogger(__name__)
 # Mapping from chat model class to formatter class
 _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
     OpenAIChatModel: OpenAIChatFormatter,
-    AnthropicChatModel: AnthropicChatFormatter,
 }
+if AnthropicChatModel is not None and AnthropicChatFormatter is not None:
+    _CHAT_MODEL_FORMATTER_MAP[AnthropicChatModel] = AnthropicChatFormatter
 
 
 def _get_formatter_for_chat_model(

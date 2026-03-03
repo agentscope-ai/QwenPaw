@@ -117,7 +117,7 @@ export function ProviderConfigModal({
       return "http://localhost:11434/v1";
     }
     if (provider.is_custom && effectiveChatModel === "AnthropicChatModel") {
-      return "https://api.anthropic.com";
+      return "https://api.anthropic.com/v1";
     }
     return "https://api.example.com";
   }, [canEditBaseUrl, provider.id, provider.is_custom, effectiveChatModel]);
