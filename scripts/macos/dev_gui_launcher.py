@@ -57,6 +57,9 @@ class _Tee:
     def fileno(self):
         return self._stream.fileno()
 
+    def isatty(self):
+        return getattr(self._stream, "isatty", lambda: False)()
+
 
 def _install_log_tee():
     """Redirect stdout/stderr to console + log file."""
