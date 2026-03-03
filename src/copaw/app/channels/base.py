@@ -698,18 +698,21 @@ class BaseChannel(ABC):
         process and on_reply_sent from self.
 
         Subclasses must implement from_config(process, config, on_reply_sent).
+
+        show_tool_details is global config (not in channel config), so we
+        preserve from self. filter_tool_messages is per-channel config, so
+        we read from new config.
         """
-        filter_tool_messages = getattr(
-            config,
-            "filter_tool_messages",
-            getattr(self, "_filter_tool_messages", False),
-        )
         return self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
             show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=filter_tool_messages,
+            filter_tool_messages=getattr(
+                config,
+                "filter_tool_messages",
+                False,
+            ),
         )
 
     async def start(self) -> None:
