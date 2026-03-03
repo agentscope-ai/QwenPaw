@@ -123,8 +123,9 @@ def _chromium_executable_path() -> str | None:
 
 
 def _use_webkit_fallback() -> bool:
-    """Use Safari (WebKit) when on macOS and no Chrome/Edge/Chromium found.
-    Avoids downloading Chromium and gives instant browser on Mac.
+    """True only on macOS when no system Chrome/Edge/Chromium found.
+    Use WebKit (Safari) to avoid downloading Chromium. Windows has no system
+    WebKit, so we never use webkit there.
     """
     return sys.platform == "darwin" and _chromium_executable_path() is None
 
@@ -591,16 +592,25 @@ async def _ensure_browser() -> bool:
     try:
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
-        if _use_webkit_fallback():
-            pw_browser = await pw.webkit.launch(headless=_state["headless"])
-        else:
+        exe = _chromium_executable_path()
+        if exe:
+            # Prefer system Chrome/Edge/Chromium when available
             launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
             extra_args = _chromium_launch_args()
             if extra_args:
                 launch_kwargs["args"] = extra_args
-            exe = _chromium_executable_path()
-            if exe:
-                launch_kwargs["executable_path"] = exe
+            launch_kwargs["executable_path"] = exe
+            pw_browser = await pw.chromium.launch(**launch_kwargs)
+        elif sys.platform == "darwin":
+            # macOS only: no system Chromium → use WebKit (Safari). Windows has no system WebKit.
+            pw_browser = await pw.webkit.launch(headless=_state["headless"])
+        else:
+            # Windows/Linux without system Chromium →
+            # use Playwright's Chromium (may need playwright install)
+            launch_kwargs = {"headless": _state["headless"]}
+            extra_args = _chromium_launch_args()
+            if extra_args:
+                launch_kwargs["args"] = extra_args
             pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
@@ -683,16 +693,21 @@ async def _action_start(
         )
     try:
         pw = await async_playwright().start()
-        if _use_webkit_fallback():
-            pw_browser = await pw.webkit.launch(headless=_state["headless"])
-        else:
-            launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
+        exe = _chromium_executable_path()
+        if exe:
+            launch_kwargs = {"headless": _state["headless"]}
             extra_args = _chromium_launch_args()
             if extra_args:
                 launch_kwargs["args"] = extra_args
-            exe = _chromium_executable_path()
-            if exe:
-                launch_kwargs["executable_path"] = exe
+            launch_kwargs["executable_path"] = exe
+            pw_browser = await pw.chromium.launch(**launch_kwargs)
+        elif sys.platform == "darwin":
+            pw_browser = await pw.webkit.launch(headless=_state["headless"])
+        else:
+            launch_kwargs = {"headless": _state["headless"]}
+            extra_args = _chromium_launch_args()
+            if extra_args:
+                launch_kwargs["args"] = extra_args
             pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
@@ -706,7 +721,7 @@ async def _action_start(
             if _state["headless"] is False
             else "Browser started"
         )
-        if _use_webkit_fallback():
+        if not exe and sys.platform == "darwin":
             msg += " (Safari/WebKit)"
         return _tool_response(
             json.dumps(
