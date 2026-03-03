@@ -361,8 +361,8 @@ class ModelManager:
                     "and no active_llm set",
                 )
 
-        # Create cache key
-        key = f"{resolved.base_url}:{resolved.model}"
+        # Create cache key including api_key to handle credential rotation
+        key = f"{resolved.base_url}:{resolved.model}:{resolved.api_key}"
 
         # Check cache
         if key not in cls._instances:

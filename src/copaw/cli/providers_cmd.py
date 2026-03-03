@@ -962,19 +962,18 @@ def routing_cmd(action: str, mode: str | None) -> None:
       copaw models routing status
     """
     data = load_providers_json()
+    changed = False
 
     if action == "enable":
-        data.routing.enabled = True
-        from ..providers import save_providers_json
-
-        save_providers_json(data)
+        if not data.routing.enabled:
+            data.routing.enabled = True
+            changed = True
         click.echo("✓ Task routing enabled")
 
     elif action == "disable":
-        data.routing.enabled = False
-        from ..providers import save_providers_json
-
-        save_providers_json(data)
+        if data.routing.enabled:
+            data.routing.enabled = False
+            changed = True
         click.echo("✓ Task routing disabled")
 
     elif action == "status":
@@ -988,8 +987,12 @@ def routing_cmd(action: str, mode: str | None) -> None:
         if mode is None:
             click.echo(click.style("Error: --mode option required", fg="red"))
             raise SystemExit(1)
-        data.routing.mode = mode
-        from ..providers import save_providers_json
-
-        save_providers_json(data)
+        if data.routing.mode != mode:
+            data.routing.mode = mode
+            changed = True
         click.echo(f"✓ Routing mode set to '{mode}'")
+
+    # Only save if a change was actually made
+    if changed:
+        from ..providers import save_providers_json
+        save_providers_json(data)

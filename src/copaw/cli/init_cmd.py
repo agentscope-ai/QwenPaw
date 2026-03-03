@@ -246,10 +246,10 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
 
     if use_defaults:
         # Default: single model mode, no multi-model routing
-        data.routing.enabled = False
-        from ..providers import save_providers_json
-
-        save_providers_json(data)
+        if data.routing.enabled:
+            data.routing.enabled = False
+            from ..providers import save_providers_json
+            save_providers_json(data)
         click.echo(
             "\n✓ Using single model mode (multi-model routing disabled)",
         )
@@ -266,11 +266,13 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
             default=False,
         )
 
-        if use_multi_model:
-            data.routing.enabled = True
+        # Only update and save if the setting actually changes
+        if data.routing.enabled != use_multi_model:
+            data.routing.enabled = use_multi_model
             from ..providers import save_providers_json
-
             save_providers_json(data)
+
+        if use_multi_model:
             click.echo("✓ Multi-model routing enabled")
 
             # Configure each tier
@@ -295,10 +297,6 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
                 "  Use 'copaw models set-tier <tier> -p <provider> -m <model>' to update",
             )
         else:
-            data.routing.enabled = False
-            from ..providers import save_providers_json
-
-            save_providers_json(data)
             click.echo("✓ Single model mode (routing disabled)")
 
     # --- skills (prompt if needed) ---
