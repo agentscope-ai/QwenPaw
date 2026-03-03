@@ -375,7 +375,7 @@ def _truncate_text(text: str, max_length: int) -> str:
 
     half_length = max_length // 2
     truncated_chars = len(text) - max_length
-    logger.info(
+    logger.debug(
         "Text truncated: original %d chars, kept head %d + tail %d, "
         "removed %d chars.",
         len(text),
