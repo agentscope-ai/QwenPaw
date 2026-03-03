@@ -13,17 +13,19 @@ import asyncio
 import atexit
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...config import (
-    is_running_in_container,
     get_playwright_chromium_executable_path,
+    get_system_default_browser,
+    is_running_in_container,
 )
 
 from .browser_snapshot import build_role_snapshot_from_aria
@@ -592,21 +594,32 @@ async def _ensure_browser() -> bool:
     try:
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
-        exe = _chromium_executable_path()
+        # Prefer OS default browser when available (e.g. user's default Chrome/Safari).
+        use_default = not is_running_in_container() and os.environ.get(
+            "COPAW_BROWSER_USE_DEFAULT",
+            "1",
+        ).strip().lower() in ("1", "true", "yes")
+        default_kind, default_path = (
+            get_system_default_browser() if use_default else (None, None)
+        )
+        exe: Optional[str] = None
+        if default_kind == "chromium" and default_path:
+            exe = default_path
+        elif default_kind != "webkit":
+            exe = _chromium_executable_path()
         if exe:
-            # Prefer system Chrome/Edge/Chromium when available
+            # System Chrome/Edge/Chromium (default or discovered)
             launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
             extra_args = _chromium_launch_args()
             if extra_args:
                 launch_kwargs["args"] = extra_args
             launch_kwargs["executable_path"] = exe
             pw_browser = await pw.chromium.launch(**launch_kwargs)
-        elif sys.platform == "darwin":
-            # macOS only: no system Chromium → use WebKit (Safari). Windows has no system WebKit.
+        elif default_kind == "webkit" or sys.platform == "darwin":
+            # macOS: default Safari or no Chromium → use WebKit (Safari)
             pw_browser = await pw.webkit.launch(headless=_state["headless"])
         else:
-            # Windows/Linux without system Chromium →
-            # use Playwright's Chromium (may need playwright install)
+            # Windows/Linux without system Chromium → Playwright's Chromium
             launch_kwargs = {"headless": _state["headless"]}
             extra_args = _chromium_launch_args()
             if extra_args:
@@ -693,7 +706,18 @@ async def _action_start(
         )
     try:
         pw = await async_playwright().start()
-        exe = _chromium_executable_path()
+        use_default = not is_running_in_container() and os.environ.get(
+            "COPAW_BROWSER_USE_DEFAULT",
+            "1",
+        ).strip().lower() in ("1", "true", "yes")
+        default_kind, default_path = (
+            get_system_default_browser() if use_default else (None, None)
+        )
+        exe: Optional[str] = None
+        if default_kind == "chromium" and default_path:
+            exe = default_path
+        elif default_kind != "webkit":
+            exe = _chromium_executable_path()
         if exe:
             launch_kwargs = {"headless": _state["headless"]}
             extra_args = _chromium_launch_args()
@@ -701,7 +725,7 @@ async def _action_start(
                 launch_kwargs["args"] = extra_args
             launch_kwargs["executable_path"] = exe
             pw_browser = await pw.chromium.launch(**launch_kwargs)
-        elif sys.platform == "darwin":
+        elif default_kind == "webkit" or sys.platform == "darwin":
             pw_browser = await pw.webkit.launch(headless=_state["headless"])
         else:
             launch_kwargs = {"headless": _state["headless"]}
@@ -721,7 +745,7 @@ async def _action_start(
             if _state["headless"] is False
             else "Browser started"
         )
-        if not exe and sys.platform == "darwin":
+        if not exe and (default_kind == "webkit" or sys.platform == "darwin"):
             msg += " (Safari/WebKit)"
         return _tool_response(
             json.dumps(
