@@ -17,14 +17,28 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from ..constant import SECRET_DIR, WORKING_DIR
-
 logger = logging.getLogger(__name__)
 
-_ENVS_JSON = SECRET_DIR / "envs.json"
+_BOOTSTRAP_WORKING_DIR = (
+    Path(os.environ.get("COPAW_WORKING_DIR", "~/.copaw"))
+    .expanduser()
+    .resolve()
+)
+_BOOTSTRAP_SECRET_DIR = (
+    Path(
+        os.environ.get(
+            "COPAW_SECRET_DIR",
+            f"{_BOOTSTRAP_WORKING_DIR}.secret",
+        ),
+    )
+    .expanduser()
+    .resolve()
+)
+
+_ENVS_JSON = _BOOTSTRAP_SECRET_DIR / "envs.json"
 _LEGACY_ENVS_JSON_CANDIDATES = (
     Path(__file__).resolve().parent / "envs.json",
-    WORKING_DIR / "envs.json",
+    _BOOTSTRAP_WORKING_DIR / "envs.json",
 )
 
 
@@ -68,8 +82,12 @@ def _migrate_legacy_envs_json(path: Path) -> None:
             _chmod_best_effort(path, 0o600)
             return
         except OSError as exc:
-            logger.warning("Failed to migrate legacy envs.json: %s", exc)
-            return
+            logger.warning(
+                "Failed to migrate legacy envs.json from %s: %s",
+                legacy,
+                exc,
+            )
+            continue
 
 
 # Security-sensitive envs should come from process/system environment,
