@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +23,7 @@ class _FakeToolkit:
         self.always_fail_names = always_fail_names or set()
         self.calls: dict[str, int] = {}
         self.registered: list[str] = []
+        self.cancel_once_names: set[str] = set()
 
     async def register_mcp_client(self, client) -> None:
         name = client.name
@@ -28,6 +31,9 @@ class _FakeToolkit:
 
         if name in self.always_fail_names:
             raise ClosedResourceError()
+
+        if name in self.cancel_once_names and self.calls[name] == 1:
+            raise asyncio.CancelledError()
 
         if name in self.fail_once_names and self.calls[name] == 1:
             raise ClosedResourceError()
@@ -68,7 +74,10 @@ def test_build_client_attaches_rebuild_info() -> None:
     assert isinstance(rebuild_info, dict)
     assert rebuild_info["transport"] == "stdio"
     assert rebuild_info["command"] == "npx"
-    assert rebuild_info["args"] == ["-y", "@modelcontextprotocol/server-everything"]
+    assert rebuild_info["args"] == [
+        "-y",
+        "@modelcontextprotocol/server-everything",
+    ]
     assert rebuild_info["env"] == {"A": "1"}
     assert rebuild_info["cwd"] == "/tmp"
 
@@ -110,6 +119,23 @@ async def test_register_mcp_clients_skips_unrecoverable_client() -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_mcp_clients_handles_cancelled_error() -> None:
+    toolkit = _FakeToolkit()
+    toolkit.cancel_once_names = {"flaky"}
+    flaky = _FakeMCPClient(name="flaky", connect_ok=True)
+
+    agent = object.__new__(CoPawAgent)
+    agent.toolkit = toolkit
+    agent._mcp_clients = [flaky]
+
+    await CoPawAgent.register_mcp_clients(agent)
+
+    assert toolkit.calls["flaky"] == 2
+    assert flaky.connect_calls == 1
+    assert toolkit.registered == ["flaky"]
+
+
+@pytest.mark.asyncio
 async def test_register_mcp_clients_rebuilds_client_when_reconnect_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -146,7 +172,10 @@ async def test_query_handler_skips_session_save_when_load_not_reached(
         async def register_mcp_clients(self) -> None:
             raise ClosedResourceError()
 
-        def set_console_output_enabled(self, enabled: bool) -> None:  # noqa: ARG002
+        def set_console_output_enabled(
+            self,
+            enabled: bool,
+        ) -> None:  # noqa: ARG002
             return
 
     class _FakeSession:
@@ -194,7 +223,10 @@ async def test_query_handler_skips_session_save_when_load_not_reached(
     )
 
     with pytest.raises(ClosedResourceError):
-        async for _ in runner.query_handler([_DummyInputMsg()], request=request):
+        async for _ in runner.query_handler(
+            [_DummyInputMsg()],
+            request=request,
+        ):
             pass
 
     assert fake_session.load_calls == 0

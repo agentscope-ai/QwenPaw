@@ -4,6 +4,7 @@
 This module provides the main CoPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
+import asyncio
 import logging
 import os
 from typing import Any, List, Literal, Optional, Type
@@ -277,9 +278,11 @@ class CoPawAgent(ReActAgent):
             client_name = getattr(client, "name", repr(client))
             try:
                 await self.toolkit.register_mcp_client(client)
-            except ClosedResourceError:
+            except (ClosedResourceError, asyncio.CancelledError) as error:
+                if self._should_propagate_cancelled_error(error):
+                    raise
                 logger.warning(
-                    "MCP client '%s' session closed while listing tools; "
+                    "MCP client '%s' session interrupted while listing tools; "
                     "trying recovery",
                     client_name,
                 )
@@ -287,12 +290,24 @@ class CoPawAgent(ReActAgent):
                 if recovered_client is not None:
                     self._mcp_clients[i] = recovered_client
                     try:
-                        await self.toolkit.register_mcp_client(recovered_client)
+                        await self.toolkit.register_mcp_client(
+                            recovered_client,
+                        )
                         continue
+                    except asyncio.CancelledError as recover_error:
+                        if self._should_propagate_cancelled_error(
+                            recover_error,
+                        ):
+                            raise
+                        logger.warning(
+                            "MCP client '%s' registration cancelled after "
+                            "recovery, skipping",
+                            client_name,
+                        )
                     except Exception as e:  # pylint: disable=broad-except
                         logger.warning(
-                            "MCP client '%s' still unavailable after recovery, "
-                            "skipping: %s",
+                            "MCP client '%s' still unavailable after "
+                            "recovery, skipping: %s",
                             client_name,
                             e,
                         )
@@ -321,6 +336,15 @@ class CoPawAgent(ReActAgent):
             return rebuilt_client
 
         return None
+
+    @staticmethod
+    def _should_propagate_cancelled_error(error: BaseException) -> bool:
+        """Only swallow MCP-internal cancellations, not task cancellation."""
+        if not isinstance(error, asyncio.CancelledError):
+            return False
+
+        task = asyncio.current_task()
+        return bool(task is not None and task.cancelling() > 0)
 
     @staticmethod
     async def _reconnect_mcp_client(client: Any) -> bool:
