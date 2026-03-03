@@ -9,12 +9,16 @@ or a manifest.json. Ollama remains the single source of truth for its models.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
+
+_OLLAMA_LIST_TIMEOUT_ENV = "COPAW_OLLAMA_LIST_TIMEOUT_SECONDS"
+_DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS = 10.0
 
 
 class OllamaModelInfo(BaseModel):
@@ -55,6 +59,38 @@ def _ensure_ollama():
     return ollama
 
 
+def _get_ollama_list_timeout_seconds() -> float:
+    """Resolve list_models timeout seconds from environment.
+
+    The default is 10 seconds. Invalid or non-positive values are ignored.
+    """
+    raw = os.environ.get(_OLLAMA_LIST_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
+
+    try:
+        timeout = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r, fallback to %.1fs",
+            _OLLAMA_LIST_TIMEOUT_ENV,
+            raw,
+            _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
+
+    if timeout <= 0:
+        logger.warning(
+            "Non-positive %s=%r, fallback to %.1fs",
+            _OLLAMA_LIST_TIMEOUT_ENV,
+            raw,
+            _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
+
+    return timeout
+
+
 class OllamaModelManager:
     """High-level wrapper around the Ollama SDK for model lifecycle.
 
@@ -68,7 +104,10 @@ class OllamaModelManager:
         """Return the current model list from ``ollama.list()``."""
 
         ollama = _ensure_ollama()
-        raw = ollama.list()
+        # Use a bounded timeout to avoid blocking app requests indefinitely
+        # when the Ollama daemon/host is unreachable.
+        client = ollama.Client(timeout=_get_ollama_list_timeout_seconds())
+        raw = client.list()
         models: List[OllamaModelInfo] = []
         for m in raw.get("models", []):
             models.append(
