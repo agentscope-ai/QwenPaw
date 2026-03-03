@@ -81,10 +81,11 @@ def _migrate_legacy_providers_json(path: Path) -> None:
             return
         except OSError as exc:
             logger.warning(
-                "Failed to migrate legacy providers.json: %s",
+                "Failed to migrate legacy providers.json from %s: %s",
+                legacy,
                 exc,
             )
-            return
+            continue
 
 
 def get_providers_json_path() -> Path:
