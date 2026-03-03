@@ -58,6 +58,7 @@ copaw app --log-level debug           # 详细日志
 
 - macOS：`launchd`（`~/Library/LaunchAgents/ai.copaw.app.plist`）
 - Linux：`systemd --user`（`~/.config/systemd/user/copaw-app.service`）
+- 别名：`copaw daemon`（与 `copaw service` 子命令和行为完全一致）
 
 ```bash
 copaw service install                    # 安装并启动后台服务
@@ -67,14 +68,14 @@ copaw service stop                       # 停止托管服务
 copaw service uninstall                  # 移除托管定义
 ```
 
-| 命令                      | 说明                                                           |
-| ------------------------- | -------------------------------------------------------------- |
-| `copaw service install`   | 安装并启动服务（支持 `--host` / `--port` / `--log-level`）   |
+| 命令                      | 说明                                                          |
+| ------------------------- | ------------------------------------------------------------- |
+| `copaw service install`   | 安装并启动服务（支持 `--host` / `--port` / `--log-level`）    |
 | `copaw service status`    | 查看安装与运行状态（`--no-probe` 可跳过 `/api/version` 探活） |
-| `copaw service start`     | 启动已安装服务                                                 |
-| `copaw service stop`      | 停止已安装服务                                                 |
-| `copaw service restart`   | 重启已安装服务                                                 |
-| `copaw service uninstall` | 卸载服务定义                                                   |
+| `copaw service start`     | 启动已安装服务                                                |
+| `copaw service stop`      | 停止已安装服务                                                |
+| `copaw service restart`   | 重启已安装服务                                                |
+| `copaw service uninstall` | 卸载服务定义                                                  |
 
 > **提示（Linux）：** 如需退出登录后继续运行，执行
 > `sudo loginctl enable-linger <user>`。
@@ -428,7 +429,7 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | :---------------: |
 | `copaw init`     | —                                                                                                                                      |        否         |
 | `copaw app`      | —                                                                                                                                      | —（启动服务本身） |
-| `copaw service`  | `install` · `status` · `start` · `stop` · `restart` · `uninstall`                                                                     |        否         |
+| `copaw service`  | `install` · `status` · `start` · `stop` · `restart` · `uninstall`                                                                      |        否         |
 | `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        否         |
 | `copaw env`      | `list` · `set` · `delete`                                                                                                              |        否         |
 | `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |

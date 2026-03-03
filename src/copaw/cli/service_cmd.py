@@ -134,7 +134,9 @@ def _launchd_label() -> str:
 
 def _launchd_domain() -> str:
     if not hasattr(os, "getuid"):
-        raise click.ClickException("launchd management requires a POSIX user session")
+        raise click.ClickException(
+            "launchd management requires a POSIX user session",
+        )
     return f"gui/{os.getuid()}"
 
 
@@ -152,12 +154,12 @@ def build_launchd_plist(
     stderr_path: Path,
 ) -> str:
     args_xml = "\n".join(
-        f"      <string>{xml_escape(arg)}</string>" for arg in program_arguments
+        f"      <string>{xml_escape(arg)}</string>"
+        for arg in program_arguments
     )
     env_xml = "\n".join(
-        ("      <key>{}</key>\n      <string>{}</string>").format(
-            xml_escape(k), xml_escape(v)
-        )
+        f"      <key>{xml_escape(k)}</key>\n"
+        f"      <string>{xml_escape(v)}</string>"
         for k, v in sorted(environment.items())
     )
     return (
@@ -171,15 +173,18 @@ def build_launchd_plist(
         "  <array>\n"
         f"{args_xml}\n"
         "  </array>\n"
-        f"  <key>WorkingDirectory</key>\n  <string>{xml_escape(str(working_directory))}</string>\n"
+        "  <key>WorkingDirectory</key>\n"
+        f"  <string>{xml_escape(str(working_directory))}</string>\n"
         "  <key>EnvironmentVariables</key>\n"
         "  <dict>\n"
         f"{env_xml}\n"
         "  </dict>\n"
         "  <key>RunAtLoad</key>\n  <true/>\n"
         "  <key>KeepAlive</key>\n  <true/>\n"
-        f"  <key>StandardOutPath</key>\n  <string>{xml_escape(str(stdout_path))}</string>\n"
-        f"  <key>StandardErrorPath</key>\n  <string>{xml_escape(str(stderr_path))}</string>\n"
+        "  <key>StandardOutPath</key>\n"
+        f"  <string>{xml_escape(str(stdout_path))}</string>\n"
+        "  <key>StandardErrorPath</key>\n"
+        f"  <string>{xml_escape(str(stderr_path))}</string>\n"
         "</dict>\n"
         "</plist>\n"
     )
@@ -218,7 +223,9 @@ def _launchd_status() -> ServiceStatus:
     pid: Optional[int] = None
     detail = ""
     if loaded:
-        running, pid, state = _parse_launchctl_print(status.stdout or status.stderr)
+        running, pid, state = _parse_launchctl_print(
+            status.stdout or status.stderr,
+        )
         detail = state
     else:
         detail = (status.stderr or status.stdout).strip()
@@ -244,7 +251,10 @@ def _launchd_install(
     plist_path = _launchd_plist_path(label)
     if plist_path.exists() and not force:
         raise click.ClickException(
-            f"LaunchAgent already exists: {plist_path}\nUse --force to overwrite.",
+            (
+                f"LaunchAgent already exists: {plist_path}\n"
+                "Use --force to overwrite."
+            ),
         )
 
     logs_dir = WORKING_DIR / "logs"
@@ -253,7 +263,7 @@ def _launchd_install(
     plist = build_launchd_plist(
         label=label,
         program_arguments=program_arguments,
-        working_directory=Path.cwd(),
+        working_directory=WORKING_DIR,
         environment=environment,
         stdout_path=logs_dir / "service.log",
         stderr_path=logs_dir / "service.err.log",
@@ -261,9 +271,18 @@ def _launchd_install(
     plist_path.write_text(plist, encoding="utf-8")
 
     _run_command(["launchctl", "bootout", f"{domain}/{label}"], check=False)
-    _run_command(["launchctl", "bootout", domain, str(plist_path)], check=False)
-    _run_command(["launchctl", "bootstrap", domain, str(plist_path)], check=True)
-    _run_command(["launchctl", "kickstart", "-k", f"{domain}/{label}"], check=True)
+    _run_command(
+        ["launchctl", "bootout", domain, str(plist_path)],
+        check=False,
+    )
+    _run_command(
+        ["launchctl", "bootstrap", domain, str(plist_path)],
+        check=True,
+    )
+    _run_command(
+        ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
+        check=True,
+    )
 
 
 def _launchd_start() -> None:
@@ -272,7 +291,10 @@ def _launchd_start() -> None:
     plist_path = _launchd_plist_path(label)
     if not plist_path.exists():
         raise click.ClickException(
-            f"LaunchAgent is not installed: {plist_path}\nRun: copaw service install",
+            (
+                f"LaunchAgent is not installed: {plist_path}\n"
+                "Run: copaw service install"
+            ),
         )
     kick = _run_command(
         ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
@@ -294,7 +316,10 @@ def _launchd_start() -> None:
         if not detail:
             detail = "bootstrap failed"
         raise click.ClickException(f"Failed to start LaunchAgent: {detail}")
-    _run_command(["launchctl", "kickstart", "-k", f"{domain}/{label}"], check=True)
+    _run_command(
+        ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
+        check=True,
+    )
 
 
 def _launchd_stop() -> None:
@@ -308,11 +333,29 @@ def _launchd_stop() -> None:
         return
     plist_path = _launchd_plist_path(label)
     if plist_path.exists():
-        _run_command(["launchctl", "bootout", domain, str(plist_path)], check=False)
+        _run_command(
+            ["launchctl", "bootout", domain, str(plist_path)],
+            check=False,
+        )
 
 
 def _launchd_restart() -> None:
-    _launchd_stop()
+    label = _launchd_label()
+    domain = _launchd_domain()
+    plist_path = _launchd_plist_path(label)
+    if not plist_path.exists():
+        raise click.ClickException(
+            (
+                f"LaunchAgent is not installed: {plist_path}\n"
+                "Run: copaw service install"
+            ),
+        )
+    kick = _run_command(
+        ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
+        check=False,
+    )
+    if kick.returncode == 0:
+        return
     _launchd_start()
 
 
@@ -335,7 +378,18 @@ def _systemd_unit_path(unit_name: str) -> Path:
 
 
 def _systemd_escape_env_value(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+
+
+def _validate_systemd_line(name: str, value: str) -> None:
+    if "\n" in value or "\r" in value:
+        raise click.ClickException(f"{name} cannot contain newlines")
 
 
 def build_systemd_unit(
@@ -345,9 +399,14 @@ def build_systemd_unit(
     working_directory: Path,
     environment: dict[str, str],
 ) -> str:
+    _validate_systemd_line("Description", description)
+    _validate_systemd_line("WorkingDirectory", str(working_directory))
     exec_start = " ".join(shlex.quote(arg) for arg in program_arguments)
     env_lines = "\n".join(
-        f'Environment="{k}={_systemd_escape_env_value(v)}"'
+        (
+            f'Environment="{_systemd_escape_env_value(k)}='
+            f'{_systemd_escape_env_value(v)}"'
+        )
         for k, v in sorted(environment.items())
     )
     return (
@@ -387,6 +446,14 @@ def _parse_systemctl_show(output: str) -> tuple[bool, Optional[int], str]:
     return running, pid, state
 
 
+def _parse_systemctl_load_state(output: str) -> str:
+    for raw in output.splitlines():
+        line = raw.strip()
+        if line.startswith("LoadState="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
 def _systemd_status() -> ServiceStatus:
     unit_name = _systemd_unit_name()
     unit_path = _systemd_unit_path(unit_name)
@@ -395,16 +462,30 @@ def _systemd_status() -> ServiceStatus:
         check=False,
     )
     show = _run_command(
-        ["systemctl", "--user", "show", unit_name, "--property", "ActiveState,MainPID"],
+        [
+            "systemctl",
+            "--user",
+            "show",
+            unit_name,
+            "--property",
+            "LoadState,ActiveState,MainPID",
+        ],
         check=False,
     )
-    loaded = enabled.returncode == 0
+    loaded = False
     running = False
     pid: Optional[int] = None
     detail = ""
     if show.returncode == 0:
         running, pid, state = _parse_systemctl_show(show.stdout)
-        detail = state
+        load_state = _parse_systemctl_load_state(show.stdout)
+        loaded = load_state == "loaded"
+        enabled_text = "yes" if enabled.returncode == 0 else "no"
+        detail = (
+            f"active={state}, "
+            f"load={load_state or 'unknown'}, "
+            f"enabled={enabled_text}"
+        )
     else:
         detail = (show.stderr or show.stdout).strip()
     return ServiceStatus(
@@ -428,14 +509,17 @@ def _systemd_install(
     unit_path = _systemd_unit_path(unit_name)
     if unit_path.exists() and not force:
         raise click.ClickException(
-            f"systemd unit already exists: {unit_path}\nUse --force to overwrite.",
+            (
+                f"systemd unit already exists: {unit_path}\n"
+                "Use --force to overwrite."
+            ),
         )
 
     unit_path.parent.mkdir(parents=True, exist_ok=True)
     unit_content = build_systemd_unit(
         description="CoPaw application service",
         program_arguments=program_arguments,
-        working_directory=Path.cwd(),
+        working_directory=WORKING_DIR,
         environment=environment,
     )
     unit_path.write_text(unit_content, encoding="utf-8")
@@ -449,23 +533,35 @@ def _systemd_start() -> None:
     unit_path = _systemd_unit_path(unit_name)
     if not unit_path.exists():
         raise click.ClickException(
-            f"systemd unit is not installed: {unit_path}\nRun: copaw service install",
+            (
+                f"systemd unit is not installed: {unit_path}\n"
+                "Run: copaw service install"
+            ),
         )
     _run_command(["systemctl", "--user", "start", unit_name], check=True)
 
 
 def _systemd_stop() -> None:
-    _run_command(["systemctl", "--user", "stop", _systemd_unit_name()], check=False)
+    _run_command(
+        ["systemctl", "--user", "stop", _systemd_unit_name()],
+        check=False,
+    )
 
 
 def _systemd_restart() -> None:
-    _run_command(["systemctl", "--user", "restart", _systemd_unit_name()], check=True)
+    _run_command(
+        ["systemctl", "--user", "restart", _systemd_unit_name()],
+        check=True,
+    )
 
 
 def _systemd_uninstall() -> None:
     unit_name = _systemd_unit_name()
     unit_path = _systemd_unit_path(unit_name)
-    _run_command(["systemctl", "--user", "disable", "--now", unit_name], check=False)
+    _run_command(
+        ["systemctl", "--user", "disable", "--now", unit_name],
+        check=False,
+    )
     if unit_path.exists():
         unit_path.unlink()
     _run_command(["systemctl", "--user", "daemon-reload"], check=False)
@@ -599,7 +695,12 @@ def install_cmd(
 ) -> None:
     """Install and start background service."""
     host, port = _resolve_host_port(ctx, host, port)
-    _install_service(host=host, port=port, log_level=log_level.lower(), force=force)
+    _install_service(
+        host=host,
+        port=port,
+        log_level=log_level.lower(),
+        force=force,
+    )
     write_last_api(host, port)
     backend = _detect_backend()
     click.echo(f"✓ Installed CoPaw service ({backend})")
@@ -607,7 +708,10 @@ def install_cmd(
     if backend == "systemd":
         click.echo("  Tip: To keep service alive after logout, run:")
         click.echo(
-            f"    sudo loginctl enable-linger {os.environ.get('USER', '<user>')}"
+            (
+                "    sudo loginctl enable-linger "
+                f"{os.environ.get('USER', '<user>')}"
+            ),
         )
 
 
