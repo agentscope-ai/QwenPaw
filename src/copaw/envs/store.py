@@ -71,6 +71,7 @@ def _migrate_legacy_envs_json(path: Path) -> None:
             logger.warning("Failed to migrate legacy envs.json: %s", exc)
             return
 
+
 # Security-sensitive envs should come from process/system environment,
 # not persisted envs.json.
 _PROTECTED_BOOTSTRAP_KEYS = frozenset({"COPAW_WORKING_DIR"})
