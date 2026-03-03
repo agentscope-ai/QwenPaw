@@ -1,13 +1,3 @@
-# Build CoPaw macOS DMG on release and attach to the GitHub Release.
-# Users can download CoPaw-<version>.dmg from the release page.
-# Compatible with macOS 10.15+ (Catalina and later; Intel and Apple Silicon).
-#
-# NOTE:
-# - Without a real "Developer ID Application" certificate + notarization,
-#   Gatekeeper may still warn. Ad-hoc signing helps but does not replace notarization.
-# - PyInstaller apps contain folders like _internal/python3.10 that are NOT valid
-#   macOS bundles. Therefore DO NOT use `codesign --deep` and DO NOT sign the whole
-#   .app bundle here (that can still recurse into invalid subcomponents).
 name: Release macOS DMG
 
 on:
@@ -72,29 +62,30 @@ jobs:
             bash scripts/macos/build_dmg.sh
           fi
 
-      - name: Ad-hoc sign Mach-O files and recreate DMG (no app-bundle signing)
+      - name: Ad-hoc sign Mach-O files and recreate DMG (skip main exe)
         shell: bash
         run: |
           set -euo pipefail
 
           APP_DIR="dist/CoPaw.app"
+          MAIN_EXE="$APP_DIR/Contents/MacOS/CoPaw"
           DMG_GLOB="dist/CoPaw-*.dmg"
 
           [[ -d "$APP_DIR" ]] || { echo "No $APP_DIR found" >&2; exit 1; }
 
-          # Remove packaging metadata that is irrelevant at runtime (optional)
+          # Optional cleanup
           find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf || true
-
-          # Some packages include marker files like py.typed; not signable, safe to keep,
-          # but deleting reduces any chance of odd subcomponent checks.
           find "$APP_DIR" -type f -name "py.typed" -delete || true
 
-          # Sign ONLY Mach-O binaries (executables / dylibs / python extension modules).
-          # This avoids `codesign` trying to treat PyInstaller directories (e.g. python3.10)
-          # as nested bundles, which causes "bundle format unrecognized".
+          # Sign ONLY Mach-O binaries, but SKIP the main executable to avoid
+          # subcomponent/resource validation failures (e.g. grpc roots.pem).
           while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -q 'Mach-O'; then
-              codesign --force --sign - "$f"
+            if [[ "$f" == "$MAIN_EXE" ]]; then
+              continue
+            fi
+
+            if /usr/bin/file -b "$f" | /usr/bin/grep -q 'Mach-O'; then
+              /usr/bin/codesign --force --sign - --timestamp=none "$f"
             fi
           done < <(find "$APP_DIR" -type f -print0)
 
@@ -105,7 +96,7 @@ jobs:
           VERSION="$(basename "$DMG_NAME" .dmg | sed 's/^CoPaw-//')"
           rm -f "$DMG_NAME"
 
-          hdiutil create -volname "CoPaw $VERSION" -srcfolder "$APP_DIR" \
+          /usr/bin/hdiutil create -volname "CoPaw $VERSION" -srcfolder "$APP_DIR" \
             -ov -format UDZO "$DMG_NAME"
 
       - name: Upload DMG to Release
