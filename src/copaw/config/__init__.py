@@ -4,6 +4,7 @@ from .config import (
     ChannelConfig,
     ChannelConfigUnion,
     AgentsRunningConfig,
+    HeartbeatConfig,
 )
 from .utils import (
     get_available_channels,
@@ -24,6 +25,7 @@ __all__ = [
     "Config",
     "ChannelConfig",
     "ChannelConfigUnion",
+    "HeartbeatConfig",
     "ConfigWatcher",
     "get_available_channels",
     "get_config_path",

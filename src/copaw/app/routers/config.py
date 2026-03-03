@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
 
-from typing import List
+from typing import Any, List
 
-from fastapi import APIRouter, Body, HTTPException, Path
+from fastapi import APIRouter, Body, HTTPException, Path, Request
+
 from ...config import (
     load_config,
     save_config,
+    get_heartbeat_config,
     ChannelConfig,
     ChannelConfigUnion,
+    get_available_channels,
 )
+from ...config.config import HeartbeatConfig
 
-from ...config import get_available_channels
+from .schemas_config import HeartbeatBody
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -121,3 +125,41 @@ async def put_channel(
     setattr(config.channels, channel_name, single_channel_config)
     save_config(config)
     return single_channel_config
+
+
+@router.get(
+    "/heartbeat",
+    summary="Get heartbeat config",
+    description="Return current heartbeat config (interval, target, etc.)",
+)
+async def get_heartbeat() -> Any:
+    """Return effective heartbeat config (from file or default)."""
+    hb = get_heartbeat_config()
+    return hb.model_dump(mode="json", by_alias=True)
+
+
+@router.put(
+    "/heartbeat",
+    summary="Update heartbeat config",
+    description="Update heartbeat and hot-reload the scheduler",
+)
+async def put_heartbeat(
+    request: Request,
+    body: HeartbeatBody = Body(..., description="Heartbeat configuration"),
+) -> Any:
+    """Update heartbeat config and reschedule the heartbeat job."""
+    config = load_config()
+    hb = HeartbeatConfig(
+        enabled=body.enabled,
+        every=body.every,
+        target=body.target,
+        active_hours=body.active_hours,
+    )
+    config.agents.defaults.heartbeat = hb
+    save_config(config)
+
+    cron_manager = getattr(request.app.state, "cron_manager", None)
+    if cron_manager is not None:
+        await cron_manager.reschedule_heartbeat()
+
+    return hb.model_dump(mode="json", by_alias=True)

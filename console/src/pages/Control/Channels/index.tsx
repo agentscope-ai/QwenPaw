@@ -31,6 +31,7 @@ function ChannelsPage() {
       "feishu",
       "imessage",
       "discord",
+      "telegram",
       "qq",
     ];
 

@@ -31,6 +31,8 @@ from .store import (
     remove_model,
     save_providers_json,
     set_active_llm,
+    test_model_connection,
+    test_provider_connection,
     update_provider_settings,
 )
 
@@ -60,5 +62,7 @@ __all__ = [
     "remove_model",
     "save_providers_json",
     "set_active_llm",
+    "test_model_connection",
+    "test_provider_connection",
     "update_provider_settings",
 ]

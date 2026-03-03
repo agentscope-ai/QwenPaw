@@ -96,8 +96,11 @@ async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
 
     runner.set_chat_manager(chat_manager)
 
-    # --- config file watcher (auto-reload channels on config.json change) ---
-    config_watcher = ConfigWatcher(channel_manager=channel_manager)
+    # --- config file watcher (channels + heartbeat hot-reload on change) ---
+    config_watcher = ConfigWatcher(
+        channel_manager=channel_manager,
+        cron_manager=cron_manager,
+    )
     await config_watcher.start()
 
     # --- MCP config watcher (auto-reload MCP clients on change) ---

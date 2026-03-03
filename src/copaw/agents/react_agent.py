@@ -7,7 +7,7 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
-from typing import Any, List, Optional, Type
+from typing import Any, List, Literal, Optional, Type
 
 from agentscope.agent import ReActAgent
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -46,6 +46,16 @@ from ..constant import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_reasoning_tool_choice(
+    tool_choice: Literal["auto", "none", "required"] | None,
+    has_tools: bool,
+) -> Literal["auto", "none", "required"] | None:
+    """Normalize tool_choice for reasoning to reduce provider variance."""
+    if tool_choice is None and has_tools:
+        return "auto"
+    return tool_choice
 
 
 class CoPawAgent(ReActAgent):
@@ -423,6 +433,18 @@ class CoPawAgent(ReActAgent):
             )
 
         return restored
+
+    async def _reasoning(
+        self,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
+    ) -> Msg:
+        """Ensure a stable default tool-choice behavior across providers."""
+        tool_choice = normalize_reasoning_tool_choice(
+            tool_choice=tool_choice,
+            has_tools=bool(self.toolkit.get_json_schemas()),
+        )
+
+        return await super()._reasoning(tool_choice=tool_choice)
 
     async def reply(
         self,

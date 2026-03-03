@@ -80,9 +80,20 @@ def configure_provider_api_key_interactive(
     current_base, current_key = data.get_credentials(provider_id)
 
     base_url: Optional[str] = None
-    if defn.is_custom:
+    # Prompt for base_url if the provider is custom or has no default URL
+    # (e.g. Azure OpenAI requires user to provide their endpoint).
+    if defn.is_custom or not defn.default_base_url:
+        azure_hint = (
+            "Azure endpoint "
+            "(e.g. https://<resource>.openai.azure.com/openai/v1)"
+        )
+        url_hint = (
+            azure_hint
+            if provider_id == "azure-openai"
+            else "Base URL (OpenAI-compatible endpoint)"
+        )
         base_url = click.prompt(
-            "Base URL (OpenAI-compatible endpoint)",
+            url_hint,
             default=current_base or "",
             show_default=bool(current_base),
         ).strip()
@@ -341,7 +352,7 @@ def list_cmd() -> None:
                 click.echo("  No models downloaded.")
                 click.echo("  Use 'copaw models download' to add models.")
         else:
-            if defn.is_custom:
+            if defn.is_custom or not defn.default_base_url:
                 click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
             click.echo(
                 f"  {'api_key':16s}: "
