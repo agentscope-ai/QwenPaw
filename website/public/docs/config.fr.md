@@ -355,7 +355,7 @@ Gérez les Skills via :
 
 ## Mémoire
 
-CoPaw dispose d'une mémoire persistante inter-conversations : il compresse automatiquement le contexte et sauvegarde les informations clés dans des fichiers Markdown pour une rétention à long terme. Voir [Mémoire](./memory.en.md) pour tous les détails.
+CoPaw dispose d'une mémoire persistante inter-conversations : il compresse automatiquement le contexte et sauvegarde les informations clés dans des fichiers Markdown pour une rétention à long terme. Voir [Mémoire](./memory.fr.md) pour tous les détails.
 
 Les fichiers de mémoire sont stockés dans deux emplacements :
 
@@ -408,7 +408,7 @@ La recherche mémoire repose sur des embeddings vectoriels pour la récupératio
 
 ## Fichiers de prompt de l'agent en un coup d'œil
 
-> Condensé depuis [Fichiers de prompt de l'agent](./agent_md_intro.en.md) — voir la page complète pour les détails.
+> Condensé depuis [Fichiers de prompt de l'agent](./agent_md_intro.fr.md) — voir la page complète pour les détails.
 >
 > La conception du prompt dans cette section est inspirée par [OpenClaw](https://github.com/openclaw/openclaw).
 

@@ -1,4 +1,4 @@
-export type Lang = "zh" | "en";
+export type Lang = "zh" | "en" | "fr";
 
 export const i18n: Record<Lang, Record<string, string>> = {
   zh: {
@@ -121,7 +121,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "nav.docs": "Docs",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
-    "nav.lang": "中文",
+    "nav.lang": "FR",
     "nav.agentscopeTeam": "AgentScope",
     "hero.slogan": "Works for you, grows with you",
     "hero.sub":
@@ -238,6 +238,128 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "docs.searchResultsTitle": "Search results",
     "docs.searchResultsTitleEmpty": "Search docs",
     "docs.searchHint": "Enter a keyword and press Enter to search.",
+  },
+  fr: {
+    "nav.docs": "Docs",
+    "nav.github": "GitHub",
+    "nav.githubComingSoon": "Bientôt disponible",
+    "nav.lang": "中文",
+    "nav.agentscopeTeam": "AgentScope",
+    "hero.slogan": "À votre service, grandissant avec vous",
+    "hero.sub":
+      "Votre assistant IA personnel ; facile à installer, déployable sur votre machine ou dans le cloud ; prend en charge plusieurs applications de messagerie avec des capacités facilement extensibles.",
+    "hero.cta": "Lire la documentation",
+    "brandstory.title": "Pourquoi CoPaw ?",
+    "brandstory.para1":
+      'CoPaw représente à la fois un Co Personal Agent Workstation et une « co-patte » — un partenaire toujours à vos côtés.',
+    "brandstory.para2":
+      'Plus qu\'un simple outil froid, CoPaw est une « petite patte » chaleureuse toujours prête à donner un coup de main. C\'est le coéquipier ultime pour votre vie numérique.',
+    "features.title": "Capacités clés",
+    "features.channels.title": "Tous les canaux",
+    "features.channels.desc":
+      "DingTalk, Feishu, QQ, Discord, iMessage, et plus — un seul assistant, connectez selon vos besoins.",
+    "features.private.title": "Sous votre contrôle",
+    "features.private.desc":
+      "Mémoire et personnalisation sous votre contrôle. Déployez localement ou dans le cloud ; rappels planifiés et collaboration vers n'importe quel canal.",
+    "features.skills.title": "Skills",
+    "features.skills.desc":
+      "Cron intégré ; skills personnalisées dans votre espace de travail, chargées automatiquement.",
+    "testimonials.title": "Ce que les gens disent",
+    "testimonials.viewAll": "Voir tout",
+    "testimonials.1":
+      "Voilà ce que devrait être un assistant personnel : une entrée, tous les canaux.",
+    "testimonials.2":
+      "Cron et heartbeat sont très pratiques. Ajoutez vos propres skills ; les données restent locales.",
+    "testimonials.3": "Les équipes qui veulent un contrôle total l'adorent.",
+    "usecases.title": "Ce que vous pouvez faire avec CoPaw",
+    "usecases.sub": "",
+    "usecases.category.social": "Réseaux sociaux",
+    "usecases.category.creative": "Créativité & construction",
+    "usecases.category.productivity": "Productivité",
+    "usecases.category.research": "Recherche & apprentissage",
+    "usecases.category.assistant": "Bureau & fichiers",
+    "usecases.category.explore": "Explorer davantage",
+    "usecases.social.1":
+      "Résumé quotidien des publications populaires selon vos intérêts, avec des recommandations qui s'améliorent au fil du temps.",
+    "usecases.social.2":
+      "Résumés quotidiens des nouvelles vidéos par chaîne ou mot-clé, pour vous faire gagner du temps.",
+    "usecases.social.3":
+      "Analysez votre compte pour découvrir les tendances de contenu et vous inspirer pour vos prochaines publications.",
+    "usecases.creative.1":
+      "Décrivez votre objectif à CoPaw et lancez-le la nuit ; obtenez une ébauche fonctionnelle le lendemain.",
+    "usecases.creative.2":
+      "De la sélection du sujet à la collecte de matériel jusqu'à la définition de la direction, CoPaw soutient l'ensemble du flux de travail.",
+    "usecases.productivity.1":
+      "Résumés quotidiens des newsletters et emails importants, livrés dans votre messagerie.",
+    "usecases.productivity.2":
+      "Contacts extraits des emails et du calendrier, avec recherche en langage naturel.",
+    "usecases.productivity.3":
+      "Enregistrez régime et symptômes ; CoPaw analyse et révèle les tendances au fil du temps.",
+    "usecases.research.1":
+      "Suivez les résultats et actualités des entreprises tech et IA ; obtenez automatiquement les points clés et résumés.",
+    "usecases.research.2":
+      "Enregistrez liens, articles et publications dans une base de connaissances personnelle et réutilisez-les.",
+    "usecases.assistant.1":
+      "Organisez et recherchez des fichiers locaux, lisez et résumez des documents ; demandez des fichiers et recevez-les dans la conversation.",
+    "usecases.explore.1":
+      "Explorez davantage de possibilités — combinez Skills et cron pour créer votre propre application agentique.",
+    "quickstart.title": "Démarrage rapide",
+    "quickstart.hintBefore":
+      "Installer → initialiser → démarrer. Configurez les canaux pour utiliser CoPaw. Voir ",
+    "quickstart.hintLink": "la documentation",
+    "quickstart.hintAfter": ".",
+    "quickstart.optionLocal":
+      "En un clic : uv crée le venv et installe, sans Python requis",
+    "quickstart.badgeRecommended": "Recommandé",
+    "quickstart.badgeBeta": "Bêta",
+    "quickstart.optionPip": "pip install",
+    "quickstart.tabPip": "pip install (recommandé)",
+    "quickstart.tabPipMain": "pip install",
+    "quickstart.tabPipSub": "(recommandé)",
+    "quickstart.tabUnix": "macOS / Linux (Bêta)",
+    "quickstart.tabUnixMain": "macOS / Linux",
+    "quickstart.tabUnixSub": "(Bêta)",
+    "quickstart.tabWindows": "Windows (Bêta)",
+    "quickstart.tabWindowsMain": "Windows",
+    "quickstart.tabWindowsSub": "(Bêta)",
+    "quickstart.tabDocker": "Docker",
+    "quickstart.tabDockerShort": "Docker",
+    "quickstart.optionDocker": "Image Docker (Docker Hub)",
+    "quickstart.tabAliyun": "Alibaba Cloud ECS",
+    "quickstart.tabAliyunMain": "Alibaba Cloud ECS",
+    "quickstart.tabAliyunSub": "",
+    "quickstart.tabPipShort": "pip",
+    "quickstart.tabUnixShort": "Mac/Linux",
+    "quickstart.tabWindowsShort": "Windows",
+    "quickstart.tabAliyunShort": "Alibaba Cloud",
+    "quickstart.optionAliyun": "Déployer sur Alibaba Cloud ECS",
+    "quickstart.aliyunDeployLink": "Lien de déploiement",
+    "quickstart.aliyunDocLink": "Guide",
+    footer: "CoPaw — À votre service, grandissant avec vous",
+    "footer.poweredBy.p1": "Créé par ",
+    "footer.poweredBy.p2": " avec ",
+    "footer.poweredBy.p3": ", ",
+    "footer.poweredBy.p3b": ", et ",
+    "footer.poweredBy.p4": ".",
+    "footer.poweredBy.team": "L'équipe AgentScope",
+    "footer.poweredBy.agentscope": "AgentScope",
+    "footer.poweredBy.runtime": "AgentScope Runtime",
+    "footer.poweredBy.reme": "ReMe",
+    "footer.inspiredBy": "Partiellement inspiré par ",
+    "footer.inspiredBy.name": "OpenClaw",
+    "footer.thanksSkills": "Merci à ",
+    "footer.thanksSkills.name": "anthropics/skills",
+    "footer.thanksSkills.suffix":
+      " pour la spécification et les exemples de Skills.",
+    "docs.backToTop": "Retour en haut",
+    "docs.copy": "Copier",
+    "docs.copied": "Copié",
+    "docs.searchPlaceholder": "Rechercher dans la doc",
+    "docs.searchLoading": "Chargement…",
+    "docs.searchNoResults": "Aucun résultat",
+    "docs.searchResultsTitle": "Résultats de recherche",
+    "docs.searchResultsTitleEmpty": "Rechercher dans la doc",
+    "docs.searchHint": "Entrez un mot-clé et appuyez sur Entrée pour rechercher.",
   },
 };
 

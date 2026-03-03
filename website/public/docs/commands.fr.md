@@ -12,7 +12,7 @@ Cinq commandes sont actuellement supportées :
 - **`/history`** — Voir l'historique de la conversation avec le détail de l'utilisation des tokens
 - **`/compact_str`** — Voir le résumé compressé actuel (lecture seule)
 
-> Si vous n'êtes pas encore familier avec des concepts comme « compaction » ou « mémoire à long terme », nous vous recommandons de lire d'abord l'[Introduction](./intro.en.md).
+> Si vous n'êtes pas encore familier avec des concepts comme « compaction » ou « mémoire à long terme », nous vous recommandons de lire d'abord l'[Introduction](./intro.fr.md).
 
 ---
 
@@ -156,7 +156,7 @@ Exemple de réponse (quand il n'y a pas de résumé) :
 
 ## Pages associées
 
-- [Introduction](./intro.en.md) — Ce que ce projet peut faire
-- [Console](./console.en.md) — Gérer l'état de l'agent dans la console
-- [Configuration & Répertoire de travail](./config.en.md) — Répertoire de travail & configuration
-- [CLI](./cli.en.md) — Référence de l'outil en ligne de commande
+- [Introduction](./intro.fr.md) — Ce que ce projet peut faire
+- [Console](./console.fr.md) — Gérer l'état de l'agent dans la console
+- [Configuration & Répertoire de travail](./config.fr.md) — Répertoire de travail & configuration
+- [CLI](./cli.fr.md) — Référence de l'outil en ligne de commande

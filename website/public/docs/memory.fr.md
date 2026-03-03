@@ -223,7 +223,7 @@ graph LR
 
 ## Pages associées
 
-- [Introduction](./intro.en.md) — Ce que ce projet peut faire
-- [Console](./console.en.md) — Gérer la mémoire et la configuration dans la console
-- [Skills](./skills.en.md) — Capacités intégrées et personnalisées
-- [Configuration & Répertoire de travail](./config.en.md) — Répertoire de travail et configuration
+- [Introduction](./intro.fr.md) — Ce que ce projet peut faire
+- [Console](./console.fr.md) — Gérer la mémoire et la configuration dans la console
+- [Skills](./skills.fr.md) — Capacités intégrées et personnalisées
+- [Configuration & Répertoire de travail](./config.fr.md) — Répertoire de travail et configuration

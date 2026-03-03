@@ -31,12 +31,12 @@ export default function LanguageSwitcher() {
     },
   ];
 
-  const currentLabel =
-    currentLanguage === "zh"
-      ? "简体中文"
-      : currentLanguage === "fr"
-        ? "Français"
-        : "English";
+  const languageLabels: Record<string, string> = {
+    en: "English",
+    zh: "简体中文",
+    fr: "Français",
+  };
+  const currentLabel = languageLabels[currentLanguage] ?? "English";
 
   return (
     <Dropdown

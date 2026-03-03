@@ -264,6 +264,24 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.contributing": "Open source & contribution",
     "docs.roadmap": "Roadmap",
   },
+  fr: {
+    "docs.intro": "Introduction",
+    "docs.quickstart": "Démarrage rapide",
+    "docs.channels": "Canaux",
+    "docs.heartbeat": "Heartbeat",
+    "docs.cli": "CLI",
+    "docs.console": "Console",
+    "docs.skills": "Skills",
+    "docs.mcp": "MCP",
+    "docs.memory": "Mémoire",
+    "docs.compact": "Compaction",
+    "docs.config": "Configuration & répertoire de travail",
+    "docs.commands": "Commandes",
+    "docs.faq": "FAQ",
+    "docs.community": "Rapports de bugs & communauté",
+    "docs.contributing": "Open source & contribution",
+    "docs.roadmap": "Feuille de route",
+  },
 };
 
 interface DocsProps {
@@ -337,7 +355,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
     }
     setContent("");
     let cancelled = false;
-    const langSuffix = lang === "zh" ? "zh" : "en";
+    const langSuffix = lang === "zh" ? "zh" : lang === "fr" ? "fr" : "en";
     const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "") || "";
     const url = `${base}/docs/${activeSlug}.${langSuffix}.md`;
     fetch(url)

@@ -10,7 +10,8 @@ const LANG_KEY = "site-lang";
 
 function getStoredLang(): Lang {
   const v = localStorage.getItem(LANG_KEY);
-  return v === "en" ? "en" : "zh";
+  if (v === "en" || v === "fr") return v;
+  return "zh";
 }
 
 export default function App() {
@@ -22,7 +23,8 @@ export default function App() {
   }, []);
 
   const toggleLang = () => {
-    const next: Lang = lang === "zh" ? "en" : "zh";
+    const cycle: Lang[] = ["zh", "en", "fr"];
+    const next = cycle[(cycle.indexOf(lang) + 1) % cycle.length];
     setLang(next);
     localStorage.setItem(LANG_KEY, next);
   };
