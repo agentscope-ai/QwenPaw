@@ -9,6 +9,21 @@ from copaw.providers.openai_chat_model_compat import OpenAIChatModelCompat
 from copaw.providers.registry import get_chat_model_class
 
 
+class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
+    async def parse_stream_for_test(
+        self,
+        start_datetime: datetime,
+        stream: Any,
+    ) -> list[Any]:
+        responses = []
+        async for response in self._parse_openai_stream_response(
+            start_datetime,
+            stream,
+        ):
+            responses.append(response)
+        return responses
+
+
 class FakeAsyncStream:
     def __init__(self, items: list[Any]):
         self._items = items
@@ -47,7 +62,11 @@ async def test_registry_maps_openai_model_to_compat() -> None:
 
 
 async def test_stream_parser_skips_tool_call_without_function() -> None:
-    model = OpenAIChatModelCompat("dummy", api_key="sk-test", stream=True)
+    model = CompatHarnessOpenAIChatModel(
+        "dummy",
+        api_key="sk-test",
+        stream=True,
+    )
 
     malformed_tool_call = SimpleNamespace(
         index=0,
@@ -67,12 +86,10 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
         ],
     )
 
-    responses = []
-    async for response in model._parse_openai_stream_response(
+    responses = await model.parse_stream_for_test(
         datetime.now(),
         stream,
-    ):
-        responses.append(response)
+    )
 
     assert responses
     tool_blocks = [
