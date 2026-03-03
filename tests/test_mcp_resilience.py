@@ -19,9 +19,11 @@ class _FakeToolkit:
         self,
         fail_once_names: set[str] | None = None,
         always_fail_names: set[str] | None = None,
+        runtime_fail_names: set[str] | None = None,
     ) -> None:
         self.fail_once_names = fail_once_names or set()
         self.always_fail_names = always_fail_names or set()
+        self.runtime_fail_names = runtime_fail_names or set()
         self.calls: dict[str, int] = {}
         self.registered: list[str] = []
         self.cancel_once_names: set[str] = set()
@@ -32,6 +34,9 @@ class _FakeToolkit:
 
         if name in self.always_fail_names:
             raise ClosedResourceError()
+
+        if name in self.runtime_fail_names:
+            raise RuntimeError("unexpected toolkit failure")
 
         if name in self.cancel_once_names and self.calls[name] == 1:
             raise asyncio.CancelledError()
@@ -134,6 +139,19 @@ async def test_register_mcp_clients_handles_cancelled_error() -> None:
     assert toolkit.calls["flaky"] == 2
     assert flaky.connect_calls == 1
     assert toolkit.registered == ["flaky"]
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_clients_reraises_unexpected_error() -> None:
+    toolkit = _FakeToolkit(runtime_fail_names={"boom"})
+    boom = _FakeMCPClient(name="boom", connect_ok=True)
+
+    agent = object.__new__(CoPawAgent)
+    agent.toolkit = toolkit
+    agent._mcp_clients = [boom]
+
+    with pytest.raises(RuntimeError, match="unexpected toolkit failure"):
+        await CoPawAgent.register_mcp_clients(agent)
 
 
 @pytest.mark.asyncio

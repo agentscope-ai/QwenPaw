@@ -317,11 +317,12 @@ class CoPawAgent(ReActAgent):
                         client_name,
                     )
             except Exception as e:  # pylint: disable=broad-except
-                logger.warning(
-                    "Failed to register MCP client '%s', skipping: %s",
+                logger.exception(
+                    "Unexpected error registering MCP client '%s': %s",
                     client_name,
                     e,
                 )
+                raise
 
     async def _recover_mcp_client(self, client: Any) -> Any | None:
         """Recover MCP client from broken session and return healthy client."""
@@ -372,9 +373,8 @@ class CoPawAgent(ReActAgent):
         if callable(close_fn):
             try:
                 await close_fn()
-            except BaseException as e:  # pylint: disable=broad-except
-                if isinstance(e, asyncio.CancelledError):
-                    raise
+            except Exception:  # pylint: disable=broad-except
+                pass
 
         connect_fn = getattr(client, "connect", None)
         if not callable(connect_fn):
@@ -383,9 +383,7 @@ class CoPawAgent(ReActAgent):
         try:
             await asyncio.wait_for(connect_fn(), timeout=timeout)
             return True
-        except BaseException as e:  # pylint: disable=broad-except
-            if isinstance(e, asyncio.CancelledError):
-                raise
+        except Exception:  # pylint: disable=broad-except
             return False
 
     @staticmethod
