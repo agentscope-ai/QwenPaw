@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint:disable=unused-import
 """
 macOS .app GUI entry: start CoPaw server in background and show Console in a
 native window (pywebview). Close window to quit server and app.
@@ -19,6 +20,12 @@ _SUPPORT = os.path.abspath(
     os.path.expanduser("~/Library/Application Support/CoPaw"),
 )
 os.environ["COPAW_WORKING_DIR"] = _SUPPORT
+
+# Force PyInstaller to bundle reme (import is optional at runtime for dev from source).
+try:
+    import reme  # noqa: F401
+except ImportError:
+    pass
 
 
 def _log(msg: str) -> None:

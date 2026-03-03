@@ -46,15 +46,19 @@ Behaviour is the same; the Dev build adds live logs in the terminal and persiste
 First launch runs `copaw init --defaults --accept-security` in
 `~/Library/Application Support/CoPaw`. Closing the Console window quits the app and server.
 
-## If macOS says the app is "damaged"
+## If macOS says the app is "damaged" (or "from an unidentified developer")
 
-Downloads from the internet are quarantined. If you see "damaged" (common on macOS 15+), remove the quarantine attribute:
+**Apps downloaded from the internet** (e.g. from GitHub Releases) are **quarantined** by macOS. Opening them before removing the quarantine often shows **"damaged"** or **"cannot be opened"**. This is normal for unsigned apps; the app is not actually damaged.
+
+**Fix: remove the quarantine attribute, then open the app:**
 
 ```bash
+# Typical: app is in Downloads after opening the DMG
 xattr -cr ~/Downloads/CoPaw.app
-# or if you put it elsewhere:
-xattr -cr /path/to/CoPaw.app
-xattr -cr /path/to/CoPaw-Dev.app   # for Dev build
+xattr -cr ~/Downloads/CoPaw-Dev.app   # for Dev build
+
+# If you moved the app elsewhere:
+xattr -cr "/path/to/CoPaw.app"
 ```
 
-Then open the app again, or in **System Settings → Privacy & Security** allow the app.
+Then open the app again. Alternatively, in **System Settings → Privacy & Security** you can click **"Open Anyway"** for the blocked app (after the first failed open).
