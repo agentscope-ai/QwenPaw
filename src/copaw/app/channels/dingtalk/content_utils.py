@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import re
-from typing import Any, Optional
+from typing import Any, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -93,6 +94,17 @@ def conversation_id_from_chatbot_message(incoming_message: Any) -> str:
         None,
     )
     return str(cid).strip() if cid else ""
+
+
+def content_hash_from_parts(parts: List[Any]) -> str:
+    """Stable hash of content for dedup (resends may use new msgId)."""
+    texts: List[str] = []
+    for p in parts or []:
+        t = getattr(p, "type", None)
+        if t == "text" and getattr(p, "text", None):
+            texts.append((p.text or "").strip())
+    canonical = "\n".join(sorted(texts)) if texts else ""
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def short_session_id_from_conversation_id(conversation_id: str) -> str:

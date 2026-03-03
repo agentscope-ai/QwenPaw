@@ -122,6 +122,13 @@ class DingTalkChannel(BaseChannel):
         self._token_value: Optional[str] = None
         self._token_expires_at: float = 0.0
 
+        # Dedup: in-flight msg ids + session content (DingTalk resends with new
+        # msgId when agent runs long).
+        self._processing_message_ids: set = set()
+        self._msg_id_to_session_key: Dict[str, str] = {}
+        self._processing_session_hashes: Dict[str, str] = {}
+        self._processing_message_ids_lock = threading.Lock()
+
     @classmethod
     def from_env(
         cls,
@@ -321,6 +328,67 @@ class DingTalkChannel(BaseChannel):
     # Reply via stream thread
     # ---------------------------
 
+    def _try_accept_message(
+        self,
+        msg_id: str,
+        session_key: str,
+        content_hash: str,
+    ) -> bool:
+        """Return True if accepted; False if duplicate (same msgId or same
+        session+content in progress). Thread-safe; handler in stream thread.
+        """
+        with self._processing_message_ids_lock:
+            if msg_id and msg_id in self._processing_message_ids:
+                logger.info(
+                    "dingtalk dedup reject: raw msgId already in progress "
+                    "msg_id=%r session_key=%s",
+                    msg_id,
+                    session_key,
+                )
+                return False
+            if session_key and content_hash:
+                prev = self._processing_session_hashes.get(session_key)
+                if prev == content_hash:
+                    logger.info(
+                        "dingtalk dedup reject: same session+content in "
+                        "progress msg_id=%r session_key=%s",
+                        msg_id,
+                        session_key,
+                    )
+                    return False
+            if msg_id:
+                self._processing_message_ids.add(msg_id)
+                if session_key:
+                    self._msg_id_to_session_key[msg_id] = session_key
+            if session_key and content_hash:
+                self._processing_session_hashes[session_key] = content_hash
+            logger.debug(
+                "dingtalk dedup accept: msg_id=%r session_key=%s "
+                "in_flight_count=%s",
+                msg_id or "(empty)",
+                session_key,
+                len(self._processing_message_ids),
+            )
+            return True
+
+    def _release_message_ids(self, msg_ids: List[str]) -> None:
+        """Release msg ids and session content hash after reply."""
+        if not msg_ids:
+            return
+        with self._processing_message_ids_lock:
+            for mid in msg_ids:
+                if not mid:
+                    continue
+                self._processing_message_ids.discard(mid)
+                sk = self._msg_id_to_session_key.pop(mid, None)
+                if sk:
+                    self._processing_session_hashes.pop(sk, None)
+        logger.info(
+            "dingtalk dedup release: raw msg_ids=%s in_flight_count=%s",
+            msg_ids,
+            len(self._processing_message_ids),
+        )
+
     def _reply_sync(self, meta: Dict[str, Any], text: str) -> None:
         """Resolve reply_future on the stream thread's loop so process()
         can continue and reply.
@@ -330,6 +398,10 @@ class DingTalkChannel(BaseChannel):
         if reply_loop is None or reply_future is None:
             return
         reply_loop.call_soon_threadsafe(reply_future.set_result, text)
+        ids = meta.get("_message_ids") or (
+            [meta.get("message_id")] if meta.get("message_id") else []
+        )
+        self._release_message_ids(ids)
 
     def _reply_sync_batch(self, meta: Dict[str, Any], text: str) -> None:
         """
@@ -343,6 +415,7 @@ class DingTalkChannel(BaseChannel):
                         reply_future.set_result,
                         text,
                     )
+            self._release_message_ids(meta.get("_message_ids") or [])
         else:
             self._reply_sync(meta, text)
 
@@ -1315,6 +1388,7 @@ class DingTalkChannel(BaseChannel):
         merged_meta: Dict[str, Any] = dict(first.get("meta") or {})
 
         reply_futures_list: List[tuple] = []
+        message_ids_list: List[str] = []
         for it in items:
             payload = it if isinstance(it, dict) else {}
             merged_parts.extend(payload.get("content_parts") or [])
@@ -1330,9 +1404,13 @@ class DingTalkChannel(BaseChannel):
                     merged_meta[k] = m[k]
             if m.get("reply_loop") and m.get("reply_future"):
                 reply_futures_list.append((m["reply_loop"], m["reply_future"]))
+            mid = m.get("message_id") or payload.get("message_id")
+            if mid:
+                message_ids_list.append(str(mid))
 
         merged_meta["batched_count"] = len(items)
         merged_meta["_reply_futures_list"] = reply_futures_list
+        merged_meta["_message_ids"] = message_ids_list
         # Queue is FIFO: batch = [oldest, ..., newest]. Prefer
         # session_webhook from newest (last item) so send uses current
         # session.
@@ -1448,6 +1526,7 @@ class DingTalkChannel(BaseChannel):
             enqueue_callback=enqueue_cb,
             bot_prefix=self.bot_prefix,
             download_url_fetcher=self._fetch_and_download_media,
+            try_accept_message=self._try_accept_message,
         )
         self._client.register_callback_handler(
             ChatbotMessage.TOPIC,
