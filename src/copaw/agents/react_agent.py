@@ -431,6 +431,7 @@ class CoPawAgent(ReActAgent):
         # Fall back to propagating CancelledError to avoid swallowing
         # genuine task cancellations when we cannot inspect the state.
         return True
+
     @staticmethod
     async def _reconnect_mcp_client(
         client: Any,
