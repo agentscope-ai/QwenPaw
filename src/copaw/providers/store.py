@@ -545,6 +545,32 @@ def _resolve_slot(
     )
 
 
+def get_routing_enabled() -> bool:
+    """Read routing.enabled flag without side effects.
+
+    Lightweight read-only accessor for hot paths (e.g., agent reply).
+    Does NOT trigger sync operations or file writes.
+
+    Returns:
+        True if routing is enabled, False otherwise.
+    """
+    path = get_providers_json_path()
+    if not path.is_file():
+        return False
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw: dict = json.load(fh)
+
+        # Parse just the routing.enabled flag
+        routing_raw = raw.get("routing")
+        if isinstance(routing_raw, dict):
+            return bool(routing_raw.get("enabled", False))
+        return False
+    except (json.JSONDecodeError, OSError, ValueError):
+        return False
+
+
 def get_active_llm_config() -> Optional[ResolvedModelConfig]:
     data = load_providers_json()
     return _resolve_slot(data.active_llm, data)

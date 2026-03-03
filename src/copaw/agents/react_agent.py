@@ -5,7 +5,6 @@ This module provides the main CoPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
 import asyncio
-import json
 import logging
 import os
 from typing import Any, List, Literal, Optional, Type
@@ -46,21 +45,12 @@ from ..constant import (
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
-from ..providers import load_providers_json
+from ..providers import get_routing_enabled
 
 logger = logging.getLogger(__name__)
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
-
-
-def _load_routing_enabled():
-    """Load routing enabled status from providers configuration."""
-    try:
-        providers_data = load_providers_json()
-        return providers_data.routing.enabled
-    except (json.JSONDecodeError, OSError, ValueError):
-        return False
 
 
 def normalize_reasoning_tool_choice(
@@ -411,7 +401,7 @@ class CoPawAgent(ReActAgent):
             )
 
             # Check if routing is enabled (read live config)
-            routing_enabled = _load_routing_enabled()
+            routing_enabled = get_routing_enabled()
 
             if override_tier:
                 # User explicitly requested a tier
