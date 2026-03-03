@@ -699,12 +699,17 @@ class BaseChannel(ABC):
 
         Subclasses must implement from_config(process, config, on_reply_sent).
         """
+        filter_tool_messages = getattr(
+            config,
+            "filter_tool_messages",
+            getattr(self, "_filter_tool_messages", False),
+        )
         return self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
             show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=getattr(self, "_filter_tool_messages", True),
+            filter_tool_messages=filter_tool_messages,
         )
 
     async def start(self) -> None:

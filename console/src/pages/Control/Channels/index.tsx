@@ -53,7 +53,11 @@ function ChannelsPage() {
   const handleCardClick = (key: ChannelKey) => {
     setActiveKey(key);
     setDrawerOpen(true);
-    form.setFieldsValue(channels[key]);
+    const channelConfig = channels[key];
+    form.setFieldsValue({
+      ...channelConfig,
+      filter_tool_messages: !channelConfig.filter_tool_messages,
+    });
   };
 
   const handleDrawerClose = () => {
@@ -67,6 +71,7 @@ function ChannelsPage() {
     const updatedChannel: SingleChannelConfig = {
       ...channels[activeKey],
       ...values,
+      filter_tool_messages: !values.filter_tool_messages,
     };
 
     setSaving(true);
