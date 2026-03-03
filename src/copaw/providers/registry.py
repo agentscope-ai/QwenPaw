@@ -18,7 +18,23 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
         id="Qwen/Qwen3-235B-A22B-Instruct-2507",
         name="Qwen3-235B-A22B-Instruct-2507",
     ),
+    ModelInfo(
+        id="Qwen/Qwen3.5-397B-A17B",
+        name="Qwen3.5-397B-A17B",
+    ),
     ModelInfo(id="deepseek-ai/DeepSeek-V3.2", name="DeepSeek-V3.2"),
+    ModelInfo(
+        id="moonshotai/Kimi-K2.5",
+        name="Kimi-K2.5",
+    ),
+    ModelInfo(
+        id="MiniMax/MiniMax-M2.5",
+        name="MiniMax-M2.5",
+    ),
+    ModelInfo(
+        id="ZhipuAI/GLM-5",
+        name="GLM-5",
+    ),
 ]
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
