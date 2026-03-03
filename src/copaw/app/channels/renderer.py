@@ -257,6 +257,9 @@ class MessageRenderer:
                 parts = [TextContent(text=f"[{msg_type}]")]
             return parts
 
+        if msg_type == MessageType.REASONING and s.filter_thinking:
+            return []
+
         result: List[_OutgoingPart] = []
         for c in content:
             ctype = getattr(c, "type", None)
