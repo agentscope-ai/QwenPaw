@@ -622,15 +622,31 @@ def _uninstall_service() -> None:
     _systemd_uninstall()
 
 
+def _normalize_probe_host(host: str) -> tuple[str, bool]:
+    normalized = host.strip()
+    lowered = normalized.lower()
+    if lowered in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        return "127.0.0.1", True
+    if lowered in {"::", "::1"}:
+        return "::1", True
+    return normalized, False
+
+
+def _url_host(host: str) -> str:
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return f"[{host}]"
+    return host
+
+
 def _probe_version(host: str, port: int, timeout: float) -> tuple[bool, str]:
-    url = f"http://{host}:{port}/api/version"
+    probe_host, use_local_opener = _normalize_probe_host(host)
+    url = f"http://{_url_host(probe_host)}:{port}/api/version"
     request_timeout = max(min(timeout, 5.0), 0.2)
     deadline = time.monotonic() + max(timeout, 0.2)
     last_error = "unreachable"
     while True:
         try:
-            probe_host = host.strip().lower()
-            if probe_host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+            if use_local_opener:
                 opener = build_opener(ProxyHandler({}))
                 response = opener.open(url, timeout=request_timeout)
             else:

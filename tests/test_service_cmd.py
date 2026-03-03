@@ -252,6 +252,66 @@ def test_probe_version_retries_until_success(monkeypatch) -> None:
     assert attempts["count"] == 3
 
 
+def test_probe_version_maps_wildcard_host_to_loopback(monkeypatch) -> None:
+    seen = {"url": ""}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"version":"0.2.0"}'
+
+    class _Opener:
+        def open(self, url: str, timeout: float):
+            _ = timeout
+            seen["url"] = url
+            return _Resp()
+
+    monkeypatch.setattr(
+        "copaw.cli.service_cmd.build_opener",
+        lambda *a, **k: _Opener(),
+    )
+
+    ok, message = _probe_version("0.0.0.0", 8088, 2.0)
+    assert ok is True
+    assert "version=0.2.0" in message
+    assert seen["url"].startswith("http://127.0.0.1:8088/")
+
+
+def test_probe_version_brackets_ipv6_host(monkeypatch) -> None:
+    seen = {"url": ""}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"version":"0.2.0"}'
+
+    class _Opener:
+        def open(self, url: str, timeout: float):
+            _ = timeout
+            seen["url"] = url
+            return _Resp()
+
+    monkeypatch.setattr(
+        "copaw.cli.service_cmd.build_opener",
+        lambda *a, **k: _Opener(),
+    )
+
+    ok, message = _probe_version("::1", 8088, 2.0)
+    assert ok is True
+    assert "version=0.2.0" in message
+    assert seen["url"].startswith("http://[::1]:8088/")
+
+
 def test_build_systemd_unit_escapes_control_chars_in_env() -> None:
     unit = build_systemd_unit(
         description="CoPaw application service",
