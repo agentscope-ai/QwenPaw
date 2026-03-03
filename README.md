@@ -59,7 +59,7 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 - **[v0.0.4]** **FEAT:** Token-based memory compaction; file block processing; embedding configuration; normalized tool_choice behavior.
 - **[v0.0.4]** **BUGFIX:** Windows file paths; empty tool calls; console workspace UI; Ollama URL & connectivity; MCP transport; browser resource leak; static asset MIME types; API headers; Playwright Docker; heartbeat parsing; media message queuing.
 - **[v0.0.4]** **RELS:** Installation scripts with PowerShell; Docker guide; channel CLI docs; Feishu SOCKS proxy; MCP & runtime docs; FAQ (EN/ZH); skill-writing guide; CONTRIBUTING; console docs; website improvements.
-- **[v0.0.4]** **COMM:** Special thanks to all new contributors: @ekzhu, @fancyboi999, @zhaozhuang521, @hobostay, @dhbxs, @longway-code, @ydlstartx, @LudovicoYIN, @fenixc9, @dittotang, @forestxieCode, @yongtenglei, @kerwin612, @luixiao0, @gongpx20069.
+- **[v0.0.4]** **COMM:** Special thanks to all new contributors: [@ekzhu](https://github.com/ekzhu), [@fancyboi999](https://github.com/fancyboi999), [@zhaozhuang521](https://github.com/zhaozhuang521), [@hobostay](https://github.com/hobostay), [@dhbxs](https://github.com/dhbxs), [@longway-code](https://github.com/longway-code), [@ydlstartx](https://github.com/ydlstartx), [@LudovicoYIN](https://github.com/LudovicoYIN), [@fenixc9](https://github.com/fenixc9), [@dittotang](https://github.com/dittotang), [@forestxieCode](https://github.com/forestxieCode), [@yongtenglei](https://github.com/yongtenglei), [@kerwin612](https://github.com/kerwin612), [@luixiao0](https://github.com/luixiao0), [@gongpx20069](https://github.com/gongpx20069).
 
 ---
 

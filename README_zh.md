@@ -59,7 +59,7 @@
 - **[v0.0.4]** **FEAT：** 基于 token 的记忆压缩；文件块处理；嵌入配置；tool_choice 行为统一。
 - **[v0.0.4]** **BUGFIX：** Windows 路径；空 tool call 处理；控制台工作区 UI；Ollama URL 与连通性；MCP 传输；浏览器资源占用；静态资源 MIME 类型；API 请求头；Playwright Docker；心跳解析；纯媒体消息排队。
 - **[v0.0.4]** **RELS：** 安装脚本（含 PowerShell）；Docker 指南；频道 CLI 文档；飞书 SOCKS 代理；MCP 与运行时文档；FAQ（中/英）；Skill 编写指南；CONTRIBUTING；控制台文档；网站优化。
-- **[v0.0.4]** **COMM：** 感谢新贡献者：@ekzhu, @fancyboi999, @zhaozhuang521, @hobostay, @dhbxs, @longway-code, @ydlstartx, @LudovicoYIN, @fenixc9, @dittotang, @forestxieCode, @yongtenglei, @kerwin612, @luixiao0, @gongpx20069。
+- **[v0.0.4]** **COMM：** 感谢新贡献者：[@ekzhu](https://github.com/ekzhu)、[@fancyboi999](https://github.com/fancyboi999)、[@zhaozhuang521](https://github.com/zhaozhuang521)、[@hobostay](https://github.com/hobostay)、[@dhbxs](https://github.com/dhbxs)、[@longway-code](https://github.com/longway-code)、[@ydlstartx](https://github.com/ydlstartx)、[@LudovicoYIN](https://github.com/LudovicoYIN)、[@fenixc9](https://github.com/fenixc9)、[@dittotang](https://github.com/dittotang)、[@forestxieCode](https://github.com/forestxieCode)、[@yongtenglei](https://github.com/yongtenglei)、[@kerwin612](https://github.com/kerwin612)、[@luixiao0](https://github.com/luixiao0)、[@gongpx20069](https://github.com/gongpx20069)。
 
 ---
 
@@ -299,7 +299,7 @@ copaw app # 启动服务
 
 ### 参与贡献
 
-CoPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) 了解如何开始。我们特别欢迎：
+CoPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
 
 - **横向拓展** — 新频道、模型提供商、Skills、MCP。
 - **已有功能扩展与完善** — 展示与交互优化、下载提示、Windows 路径兼容等。
