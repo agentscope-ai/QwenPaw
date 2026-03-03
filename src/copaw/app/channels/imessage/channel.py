@@ -124,13 +124,17 @@ class IMessageChannel(BaseChannel):
         if self._enqueue is not None:
             self._enqueue(request)
 
-    def _should_skip_incoming_text(self, text: Any) -> bool:
+    def should_skip_incoming_text(self, text: Any) -> bool:
         """Return True when incoming message should be ignored."""
         if not text:
             return True
         if self.bot_prefix and not str(text).startswith(self.bot_prefix):
             return True
         return False
+
+    def _should_skip_incoming_text(self, text: Any) -> bool:
+        """Backward-compatible alias for older callers/tests."""
+        return self.should_skip_incoming_text(text)
 
     def _watcher_loop(self) -> None:
         logger.info(
@@ -166,7 +170,7 @@ ORDER BY m.ROWID ASC
                         if r["is_from_me"] == 1:
                             continue
                         text = r["text"]
-                        if self._should_skip_incoming_text(text):
+                        if self.should_skip_incoming_text(text):
                             continue
                         sender = (r["sender"] or "").strip()
                         if not sender:
