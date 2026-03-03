@@ -90,6 +90,19 @@ class FeishuChannel(BaseChannel):
     """
 
     channel = "feishu"
+    REASON_FILE_FETCH_FAILED = "file_fetch_failed"
+    REASON_FILE_NOT_FOUND = "file_not_found"
+    REASON_FILE_NOT_ALLOWED = "file_not_allowed"
+    REASON_FILE_TOO_LARGE = "file_too_large"
+    REASON_TOKEN_FETCH_FAILED = "token_fetch_failed"
+    REASON_FILE_UPLOAD_HTTP_ERROR = "file_upload_http_error"
+    REASON_FILE_UPLOAD_API_ERROR = "file_upload_api_error"
+    REASON_FILE_UPLOAD_EXCEPTION = "file_upload_exception"
+    REASON_FILE_DECODE_FAILED = "file_decode_failed"
+    REASON_FILE_WRITE_FAILED = "file_write_failed"
+    REASON_FILE_NO_SOURCE = "file_no_source"
+    REASON_FILE_UPLOAD_FAILED = "file_upload_failed"
+    REASON_FILE_MESSAGE_FAILED = "file_message_failed"
 
     def __init__(
         self,
@@ -1053,7 +1066,7 @@ class FeishuChannel(BaseChannel):
             if path_or_url.startswith(("http://", "https://")):
                 data = await self._fetch_bytes_from_url(path_or_url)
                 if not data:
-                    return (None, "file_fetch_failed")
+                    return (None, self.REASON_FILE_FETCH_FAILED)
                 ext = Path(path_or_url).suffix
                 safe_ext = (
                     ext if (ext and "/" not in ext and "\\" not in ext) else ""
@@ -1066,15 +1079,15 @@ class FeishuChannel(BaseChannel):
                 path.write_bytes(data)
                 temp_download_path = path
             else:
-                return (None, "file_not_found")
+                return (None, self.REASON_FILE_NOT_FOUND)
         if not self._is_local_file_allowed(path):
-            return (None, "file_not_allowed")
+            return (None, self.REASON_FILE_NOT_ALLOWED)
         if not path.is_file():
-            return (None, "file_not_found")
+            return (None, self.REASON_FILE_NOT_FOUND)
         size = path.stat().st_size
         if size > FEISHU_FILE_MAX_BYTES:
             logger.warning("feishu file too large size=%s", size)
-            return (None, "file_too_large")
+            return (None, self.REASON_FILE_TOO_LARGE)
         ext = path.suffix.lower().lstrip(".")
         file_type = "stream"
         if ext in (
@@ -1104,7 +1117,7 @@ class FeishuChannel(BaseChannel):
         try:
             token = await self._get_tenant_access_token()
             if not token:
-                return (None, "token_fetch_failed")
+                return (None, self.REASON_TOKEN_FETCH_FAILED)
             async with self._http.post(
                 url,
                 headers={"Authorization": f"Bearer {token}"},
@@ -1117,14 +1130,14 @@ class FeishuChannel(BaseChannel):
                         resp.status,
                         data,
                     )
-                    return (None, "file_upload_http_error")
+                    return (None, self.REASON_FILE_UPLOAD_HTTP_ERROR)
                 if data.get("code") != 0:
                     logger.info(
                         "feishu _upload_file api code=%s msg=%s",
                         data.get("code"),
                         data.get("msg"),
                     )
-                    return (None, "file_upload_api_error")
+                    return (None, self.REASON_FILE_UPLOAD_API_ERROR)
                 fk = (data.get("data") or {}).get("file_key")
                 logger.info(
                     "feishu _upload_file ok: file_key=%s",
@@ -1134,8 +1147,8 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("feishu _upload_file failed")
             if not token:
-                return (None, "token_fetch_failed")
-            return (None, "file_upload_exception")
+                return (None, self.REASON_TOKEN_FETCH_FAILED)
+            return (None, self.REASON_FILE_UPLOAD_EXCEPTION)
         finally:
             if temp_download_path and temp_download_path.exists():
                 try:
@@ -1395,7 +1408,7 @@ class FeishuChannel(BaseChannel):
                     "feishu _part_to_file_path_or_url base64 decode: %s",
                     e,
                 )
-                return (None, "file_decode_failed")
+                return (None, self.REASON_FILE_DECODE_FAILED)
             self._media_dir.mkdir(parents=True, exist_ok=True)
             path = self._media_dir / f"upload_{uuid.uuid4().hex}_{filename}"
             try:
@@ -1404,7 +1417,7 @@ class FeishuChannel(BaseChannel):
                 logger.exception(
                     "feishu _part_to_file_path_or_url temp write failed",
                 )
-                return (None, "file_write_failed")
+                return (None, self.REASON_FILE_WRITE_FAILED)
             return (str(path), "")
         if url:
             if url.startswith("file://"):
@@ -1413,21 +1426,21 @@ class FeishuChannel(BaseChannel):
                     path = Path(local_path)
                     if path.exists() and path.is_file():
                         if not self._is_local_file_allowed(path):
-                            return (None, "file_not_allowed")
+                            return (None, self.REASON_FILE_NOT_ALLOWED)
                         return (str(path), "")
-                    return (None, "file_not_found")
+                    return (None, self.REASON_FILE_NOT_FOUND)
             else:
                 path = Path(url)
                 if path.exists() and path.is_file():
                     if not self._is_local_file_allowed(path):
-                        return (None, "file_not_allowed")
+                        return (None, self.REASON_FILE_NOT_ALLOWED)
                     return (url, "")
                 if url.startswith(("http://", "https://")):
                     return (url, "")
         logger.info(
             "feishu _send_file: part has no file_url/url/base64",
         )
-        return (None, "file_no_source")
+        return (None, self.REASON_FILE_NO_SOURCE)
 
     async def _send_file(
         self,
@@ -1447,13 +1460,13 @@ class FeishuChannel(BaseChannel):
             logger.info(
                 "feishu _send_file: no path/url/base64, skip",
             )
-            return (False, resolve_reason or "file_no_source")
+            return (False, resolve_reason or self.REASON_FILE_NO_SOURCE)
         file_key, reason = await self._upload_file(path_or_url)
         if not file_key:
             logger.info(
                 "feishu _send_file: upload failed, no file_key",
             )
-            return (False, reason or "file_upload_failed")
+            return (False, reason or self.REASON_FILE_UPLOAD_FAILED)
         logger.info(
             "feishu _send_file: upload ok file_key=%s",
             file_key[:24] if file_key else "",
@@ -1470,41 +1483,44 @@ class FeishuChannel(BaseChannel):
             ),
         )
         if not ok:
-            return (False, "file_message_failed")
+            return (False, self.REASON_FILE_MESSAGE_FAILED)
         return (True, "")
 
     def _file_send_failure_hint(self, reason: str) -> str:
         """Return user-visible hint when file upload/send fails."""
-        if reason == "file_too_large":
+        if reason == self.REASON_FILE_TOO_LARGE:
             limit_mb = FEISHU_FILE_MAX_BYTES // (1024 * 1024)
             return (
                 "文件发送失败：飞书限制单文件大小，"
                 f"当前渠道上限约 {limit_mb}MB。"
                 "请压缩后重试，或改为发送下载链接。"
             )
-        if reason == "file_not_found":
+        if reason == self.REASON_FILE_NOT_FOUND:
             return "文件发送失败：源文件不存在或已被删除。"
-        if reason == "file_not_allowed":
+        if reason == self.REASON_FILE_NOT_ALLOWED:
             return (
                 "文件发送失败：本地文件路径不在允许目录中。"
                 "请将文件放到工作目录或 FEISHU_MEDIA_DIR，"
                 "或配置 FEISHU_ALLOWED_FILE_DIRS。"
             )
-        if reason == "file_no_source":
+        if reason == self.REASON_FILE_NO_SOURCE:
             return "文件发送失败：未找到可发送的文件地址或数据。"
-        if reason == "file_decode_failed":
+        if reason == self.REASON_FILE_DECODE_FAILED:
             return "文件发送失败：文件内容解析失败，请检查编码或数据格式。"
-        if reason == "file_fetch_failed":
+        if reason == self.REASON_FILE_FETCH_FAILED:
             return "文件发送失败：文件下载失败，请检查文件链接是否可访问。"
-        if reason == "token_fetch_failed":
+        if reason == self.REASON_TOKEN_FETCH_FAILED:
             return "文件发送失败：飞书鉴权失败，请检查应用配置后重试。"
-        if reason == "file_message_failed":
+        if reason == self.REASON_FILE_MESSAGE_FAILED:
             return "文件发送失败：上传成功但消息发送失败，请稍后重试。"
-        if reason in ("file_upload_http_error", "file_upload_api_error"):
+        if reason in (
+            self.REASON_FILE_UPLOAD_HTTP_ERROR,
+            self.REASON_FILE_UPLOAD_API_ERROR,
+        ):
             return "文件发送失败：上传接口返回错误，请稍后重试。"
-        if reason == "file_upload_exception":
+        if reason == self.REASON_FILE_UPLOAD_EXCEPTION:
             return "文件发送失败：上传过程异常，请稍后重试。"
-        if reason == "file_write_failed":
+        if reason == self.REASON_FILE_WRITE_FAILED:
             return "文件发送失败：临时文件写入失败，请检查磁盘权限。"
         return "文件发送失败：请稍后重试。"
 
