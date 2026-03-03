@@ -23,6 +23,8 @@ from ...providers import (
     mask_api_key,
     remove_model,
     set_active_llm,
+    test_model_connection,
+    test_provider_connection,
     update_provider_settings,
 )
 
@@ -88,6 +90,7 @@ def _build_provider_info(
         extra_models=extra,
         is_custom=provider.is_custom,
         is_local=provider.is_local,
+        needs_base_url=provider.is_custom or not provider.default_base_url,
         has_api_key=configured,
         current_api_key=mask_api_key(cur_api_key),
         current_base_url=cur_base_url,
@@ -117,7 +120,14 @@ async def configure_provider(
     if provider is None:
         raise HTTPException(404, detail=f"Provider '{provider_id}' not found")
 
-    base_url = body.base_url if provider.is_custom else None
+    # Allow base_url for custom providers, providers without a default
+    # base URL (e.g. Azure OpenAI), and Ollama (user may override).
+    allow_base_url = (
+        provider.is_custom
+        or not provider.default_base_url
+        or provider.id == "ollama"
+    )
+    base_url = body.base_url if allow_base_url else None
     data = update_provider_settings(
         provider_id,
         api_key=body.api_key,
@@ -149,6 +159,66 @@ async def create_custom_provider_endpoint(
     provider = get_provider(body.id)
     assert provider is not None
     return _build_provider_info(provider, data)
+
+
+class TestConnectionResponse(BaseModel):
+    success: bool = Field(..., description="Whether the test passed")
+    message: str = Field(..., description="Human-readable result message")
+
+
+class TestProviderRequest(BaseModel):
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Optional API key to test",
+    )
+    base_url: Optional[str] = Field(
+        default=None,
+        description="Optional Base URL to test",
+    )
+
+
+class TestModelRequest(BaseModel):
+    model_id: str = Field(..., description="Model ID to test")
+
+
+@router.post(
+    "/{provider_id}/test",
+    response_model=TestConnectionResponse,
+    summary="Test provider connection",
+)
+async def test_provider(
+    provider_id: str = Path(...),
+    body: Optional[TestProviderRequest] = Body(default=None),
+) -> TestConnectionResponse:
+    """Test if a provider's URL and API key are valid."""
+    try:
+        api_key = body.api_key if body else None
+        base_url = body.base_url if body else None
+        result = await test_provider_connection(
+            provider_id,
+            api_key=api_key,
+            base_url=base_url,
+        )
+        return TestConnectionResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{provider_id}/models/test",
+    response_model=TestConnectionResponse,
+    summary="Test a specific model",
+)
+async def test_model(
+    provider_id: str = Path(...),
+    body: TestModelRequest = Body(...),
+) -> TestConnectionResponse:
+    """Test if a specific model works with the configured provider."""
+    try:
+        result = await test_model_connection(provider_id, body.model_id)
+        return TestConnectionResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.delete(
@@ -230,7 +300,7 @@ async def set_active_model(
 
     data = load_providers_json()
     if not data.is_configured(provider):
-        if provider.is_custom:
+        if provider.is_custom or not provider.default_base_url:
             msg = (
                 f"Provider '{provider.name}' has no base_url configured. "
                 "Please configure the base URL first."

@@ -90,13 +90,16 @@ The Memory Manager's LLM parameters are consistent with the global configuration
 
 Configure the Embedding service via the following environment variables for vector semantic search:
 
-| Environment Variable      | Description                                            | Default                                              |
-| ------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| `EMBEDDING_API_KEY`       | API Key for the Embedding service                      | (empty; vector search is disabled if not configured) |
-| `EMBEDDING_BASE_URL`      | URL of the Embedding service                           | `https://dashscope.aliyuncs.com/compatible-mode/v1`  |
-| `EMBEDDING_MODEL_NAME`    | Embedding model name                                   | `text-embedding-v4`                                  |
-| `EMBEDDING_DIMENSIONS`    | Vector dimensions for initializing the vector database | `1024`                                               |
-| `EMBEDDING_CACHE_ENABLED` | Whether to enable Embedding cache                      | `true`                                               |
+| Environment Variable         | Description                                            | Default                                              |
+| ---------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| `EMBEDDING_API_KEY`          | API Key for the Embedding service                      | (empty; vector search is disabled if not configured) |
+| `EMBEDDING_BASE_URL`         | URL of the Embedding service                           | `https://dashscope.aliyuncs.com/compatible-mode/v1`  |
+| `EMBEDDING_MODEL_NAME`       | Embedding model name                                   | `text-embedding-v4`                                  |
+| `EMBEDDING_DIMENSIONS`       | Vector dimensions for initializing the vector database | `1024`                                               |
+| `EMBEDDING_CACHE_ENABLED`    | Whether to enable Embedding cache                      | `true`                                               |
+| `EMBEDDING_MAX_CACHE_SIZE`   | Maximum number of Embedding cache entries              | `2000`                                               |
+| `EMBEDDING_MAX_INPUT_LENGTH` | Maximum input length per Embedding request             | `8192`                                               |
+| `EMBEDDING_MAX_BATCH_SIZE`   | Maximum batch size for Embedding requests              | `10`                                                 |
 
 ### Search Mode Configuration
 

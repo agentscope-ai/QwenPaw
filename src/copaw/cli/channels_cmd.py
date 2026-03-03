@@ -21,7 +21,8 @@ from ..config.config import (
     QQConfig,
 )
 from .utils import prompt_confirm, prompt_path, prompt_select
-from ..constant import CUSTOM_CHANNELS_DIR, get_available_channels
+from ..config import get_available_channels
+from ..constant import CUSTOM_CHANNELS_DIR
 from ..app.channels.registry import (
     BUILTIN_CHANNEL_KEYS,
     get_channel_registry,

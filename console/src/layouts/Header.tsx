@@ -9,6 +9,7 @@ const keyToLabel: Record<string, string> = {
   channels: "nav.channels",
   sessions: "nav.sessions",
   "cron-jobs": "nav.cronJobs",
+  heartbeat: "nav.heartbeat",
   skills: "nav.skills",
   mcp: "nav.mcp",
   "agent-config": "nav.agentConfig",

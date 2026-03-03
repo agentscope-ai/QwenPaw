@@ -114,3 +114,65 @@ async def count_message_tokens(
         len(messages),
     )
     return token_count
+
+
+async def safe_count_message_tokens(
+    messages: list[dict],
+) -> int:
+    """Safely count tokens in messages with fallback estimation.
+
+    This is a wrapper around count_message_tokens that catches exceptions
+    and falls back to a character-based estimation (len // 4) if the
+    tokenizer fails.
+
+    Args:
+        messages: List of message dictionaries in chat format.
+
+    Returns:
+        int: The estimated number of tokens in the messages.
+    """
+    try:
+        return await count_message_tokens(messages)
+    except Exception as e:
+        # Fallback to character-based estimation
+        text = _extract_text_from_messages(messages)
+        estimated_tokens = len(text) // 4
+        logger.warning(
+            "Failed to count tokens: %s, using estimated_tokens=%d",
+            e,
+            estimated_tokens,
+        )
+        return estimated_tokens
+
+
+def safe_count_str_tokens(text: str) -> int:
+    """Safely count tokens in a string with fallback estimation.
+
+    Uses the tokenizer to count tokens in the given text. If the tokenizer
+    fails, falls back to a character-based estimation (len // 4).
+
+    Args:
+        text: The string to count tokens for.
+
+    Returns:
+        int: The estimated number of tokens in the string.
+    """
+    try:
+        token_counter = _get_token_counter()
+        token_ids = token_counter.tokenizer.encode(text)
+        token_count = len(token_ids)
+        logger.debug(
+            "Counted %d tokens in string of length %d",
+            token_count,
+            len(text),
+        )
+        return token_count
+    except Exception as e:
+        # Fallback to character-based estimation
+        estimated_tokens = len(text) // 4
+        logger.warning(
+            "Failed to count string tokens: %s, using estimated_tokens=%d",
+            e,
+            estimated_tokens,
+        )
+        return estimated_tokens

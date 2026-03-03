@@ -10,7 +10,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    AudioContent,
+    # AudioContent,
     FileContent,
     ImageContent,
     VideoContent,
@@ -37,7 +37,14 @@ def dingtalk_content_from_type(mapped: str, url: str) -> Any:
     if mapped == "video":
         return VideoContent(type=ContentType.VIDEO, video_url=url)
     if mapped == "audio":
-        return AudioContent(type=ContentType.AUDIO, data=url)
+        # Use subtype only: runtime prefixes with "audio/" -> "audio/amr".
+        # TODO: change to audio block when as support amr
+        return FileContent(
+            type=ContentType.FILE,
+            file_url=url,
+            # data=url,
+            # format="amr",
+        )
     return FileContent(type=ContentType.FILE, file_url=url)
 
 

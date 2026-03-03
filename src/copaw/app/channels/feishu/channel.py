@@ -22,8 +22,6 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
-from urllib.request import url2pathname
 
 import aiohttp
 
@@ -38,7 +36,14 @@ from lark_oapi.api.im.v1 import (
     Emoji,
     P2ImMessageReceiveV1,
 )
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    # AudioContent,
+    FileContent,
+    ImageContent,
+    TextContent,
+)
 
+from ..utils import file_url_to_local_path
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
 from ..base import (
@@ -513,12 +518,6 @@ class FeishuChannel(BaseChannel):
 
             await self._add_reaction(message_id, "Typing")
 
-            from agentscope_runtime.engine.schemas.agent_schemas import (
-                TextContent,
-                ImageContent,
-                FileContent,
-            )
-
             content_parts: List[Any] = []
             text_parts: List[str] = []
 
@@ -572,6 +571,30 @@ class FeishuChannel(BaseChannel):
                         text_parts.append("[file: download failed]")
                 else:
                     text_parts.append("[file: missing key]")
+            elif msg_type == "audio":
+                file_key = extract_json_key(
+                    content_raw,
+                    "file_key",
+                    "fileKey",
+                )
+                if file_key:
+                    url_or_path = await self._download_file_resource(
+                        message_id,
+                        file_key,
+                        filename_hint="audio.opus",
+                    )
+                    if url_or_path:
+                        # TODO: change to audio block when as support opus
+                        content_parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[audio: download failed]")
+                else:
+                    text_parts.append("[audio: missing key]")
             else:
                 text_parts.append(f"[{msg_type}]")
 
@@ -712,6 +735,7 @@ class FeishuChannel(BaseChannel):
         self,
         message_id: str,
         file_key: str,
+        filename_hint: str = "file.bin",
     ) -> Optional[str]:
         """Download file to media_dir; return local path or None.
         Uses message resources API (user-sent files); /im/v1/files only
@@ -736,13 +760,27 @@ class FeishuChannel(BaseChannel):
                     "Content-Disposition",
                     "",
                 )
-            filename = "file.bin"
+                content_type = (
+                    resp.headers.get("Content-Type", "").split(";")[0].strip()
+                )
+            filename = filename_hint
             if "filename=" in disposition:
                 part = (
                     disposition.split("filename=", 1)[-1].strip().strip("'\"")
                 )
                 if part:
-                    filename = part
+                    part = Path(part).name
+                    if part.strip():
+                        filename = part
+            # Prevent path traversal: keep only the base name.
+            filename = Path(filename).name
+            if not filename.strip():
+                filename = filename_hint
+            # If hint has an extension but chosen filename has none or
+            # .bin/.file, force the hint extension so e.g. audio.opus is kept.
+            hint_ext = Path(filename_hint).suffix
+            if hint_ext and Path(filename).suffix in ("", ".bin", ".file"):
+                filename = (Path(filename).stem or "file") + hint_ext
             safe_key = (
                 "".join(c for c in file_key if c.isalnum() or c in "-_.")
                 or "file"
@@ -750,6 +788,12 @@ class FeishuChannel(BaseChannel):
             self._media_dir.mkdir(parents=True, exist_ok=True)
             path = self._media_dir / f"{message_id}_{safe_key}_{filename}"
             path.write_bytes(data)
+            if path.suffix in (".bin", ".file") and content_type:
+                ext = mimetypes.guess_extension(content_type)
+                if ext:
+                    new_path = path.with_suffix(ext)
+                    path.rename(new_path)
+                    path = new_path
             return str(path)
         except Exception:
             logger.exception("feishu _download_file_resource failed")
@@ -938,7 +982,6 @@ class FeishuChannel(BaseChannel):
             "xlsx",
             "ppt",
             "pptx",
-            "opus",
             "mp4",
         ):
             file_type = "doc" if ext == "docx" else ext
@@ -989,10 +1032,11 @@ class FeishuChannel(BaseChannel):
     async def _fetch_bytes_from_url(self, url: str) -> Optional[bytes]:
         """Download binary from URL. Supports http(s):// and file://."""
         try:
-            parsed = urlparse(url)
-            if parsed.scheme == "file":
-                path = url2pathname(parsed.path)
+            path = file_url_to_local_path(url)
+            if path is not None:
                 return await asyncio.to_thread(Path(path).read_bytes)
+            if url.strip().lower().startswith("file:"):
+                return None
             async with self._http.get(url) as resp:
                 if resp.status >= 400:
                     return None
@@ -1167,6 +1211,7 @@ class FeishuChannel(BaseChannel):
         url = (
             getattr(part, "file_url", None)
             or getattr(part, "image_url", None)
+            or getattr(part, "data", None)
             or ""
         )
         url = (url or "").strip() if isinstance(url, str) else ""
@@ -1199,9 +1244,11 @@ class FeishuChannel(BaseChannel):
             return str(path)
         if url:
             if url.startswith("file://"):
-                path = Path(url2pathname(urlparse(url).path))
-                if path.exists():
-                    return str(path)
+                local_path = file_url_to_local_path(url)
+                if local_path:
+                    path = Path(local_path)
+                    if path.exists():
+                        return str(path)
             else:
                 path = Path(url)
                 if path.exists():

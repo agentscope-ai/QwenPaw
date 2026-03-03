@@ -1,10 +1,12 @@
 # Quick start
 
-This section describes three ways to run CoPAW:
+This section describes five ways to run CoPAW:
 
 - **Option A — One-line install (recommended)**: run on your machine with no Python setup required.
 - **Option B — pip install**: if you prefer managing Python yourself.
 - **Option C — ModelScope Studio**: one-click cloud deploy, no local install needed.
+- **Option D — Docker**: use official images from Docker Hub (ACR also available for users in China); tags include `latest` (stable) and `pre` (PyPI pre-release).
+- **Option E — Alibaba Cloud ECS**: one-click deploy on Alibaba Cloud, no local install.
 
 > 📖 Read [Introduction](./intro) first; after install see [Console](./console).
 
@@ -48,6 +50,7 @@ curl -fsSL ... | bash -s -- --from-source
 # With local model support (see Local Models docs)
 bash install.sh --extras llamacpp    # llama.cpp (cross-platform)
 bash install.sh --extras mlx         # MLX (Apple Silicon)
+bash install.sh --extras ollama      # Ollama (cross-platform, requires Ollama service)
 ```
 
 **Windows (PowerShell):**
@@ -62,6 +65,7 @@ bash install.sh --extras mlx         # MLX (Apple Silicon)
 # With local model support (see Local Models docs)
 .\install.ps1 -Extras llamacpp      # llama.cpp (cross-platform)
 .\install.ps1 -Extras mlx           # MLX
+.\install.ps1 -Extras ollama        # Ollama
 ```
 
 To upgrade, simply re-run the install command. To uninstall, run `copaw uninstall`.
@@ -114,7 +118,7 @@ Then follow [Step 2: Init](#step-2-init) and [Step 3: Start the server](#step-3-
 
 ---
 
-## Option B: ModelScope Studio one-click setup (no install)
+## Option C: ModelScope Studio one-click setup (no install)
 
 If you prefer not to install Python locally, you can deploy CoPaw to ModelScope Studio's cloud:
 
@@ -123,6 +127,32 @@ If you prefer not to install Python locally, you can deploy CoPaw to ModelScope 
 
 **Important**: Set your Studio to **non-public**, or others may control your
 CoPaw.
+
+---
+
+## Option D: Docker
+
+Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable); `pre` (PyPI pre-release). Also available on Alibaba Cloud ACR for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
+
+Pull and run:
+
+```bash
+docker pull agentscope/copaw:latest
+docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+```
+
+Then open **http://127.0.0.1:8088/** in your browser for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys, add `-e DASHSCOPE_API_KEY=xxx` or `--env-file .env` to `docker run`.
+
+---
+
+## Option E: Deploy on Alibaba Cloud ECS
+
+To run CoPaw on Alibaba Cloud, use the ECS one-click deployment:
+
+1. Open the [CoPaw on Alibaba Cloud (ECS) deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) and fill in the parameters as prompted;
+2. Confirm the cost and create the instance; when deployment finishes, you can get the access URL and start using the service.
+
+For step-by-step instructions, see [Alibaba Cloud Developer: Deploy your AI assistant in 3 minutes](https://developer.aliyun.com/article/1713682).
 
 ---
 

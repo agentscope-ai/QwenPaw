@@ -11,10 +11,14 @@ interface MCPClientDrawerProps {
     key: string,
     values: {
       name: string;
-      command: string;
+      command?: string;
       enabled?: boolean;
+      transport?: "stdio" | "streamable_http" | "sse";
+      url?: string;
+      headers?: Record<string, string>;
       args?: string[];
       env?: Record<string, string>;
+      cwd?: string;
     },
   ) => Promise<boolean>;
   form: any;

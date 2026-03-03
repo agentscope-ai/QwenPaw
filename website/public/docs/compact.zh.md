@@ -68,7 +68,8 @@ graph TB
 | 环境变量                           | 默认值   | 说明                                         |
 | ---------------------------------- | -------- | -------------------------------------------- |
 | `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000` | 触发自动压缩的 token 阈值（背包容量警戒线）  |
-| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `5`      | 压缩后保留的最近消息数（保持新鲜的对话数量） |
+| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`      | 压缩后保留的最近消息数（保持新鲜的对话数量） |
+| `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`    | 触发压缩的阈值比例（相对于上下文窗口大小）   |
 
 ## 何时触发压缩？
 

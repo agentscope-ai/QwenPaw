@@ -6,7 +6,7 @@ with integrated tools, skills, and memory management.
 """
 import logging
 import os
-from typing import Any, List, Optional, Type
+from typing import Any, List, Literal, Optional, Type
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
@@ -39,10 +39,21 @@ from ..agents.memory import MemoryManager
 from ..config import load_config
 from ..constant import (
     MEMORY_COMPACT_KEEP_RECENT,
+    MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_reasoning_tool_choice(
+    tool_choice: Literal["auto", "none", "required"] | None,
+    has_tools: bool,
+) -> Literal["auto", "none", "required"] | None:
+    """Normalize tool_choice for reasoning to reduce provider variance."""
+    if tool_choice is None and has_tools:
+        return "auto"
+    return tool_choice
 
 
 class CoPawAgent(ReActAgent):
@@ -83,8 +94,10 @@ class CoPawAgent(ReActAgent):
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
 
-        # Memory compaction threshold: 80% of max_input_length
-        self._memory_compact_threshold = int(max_input_length * 0.8)
+        # Memory compaction threshold: configurable ratio of max_input_length
+        self._memory_compact_threshold = int(
+            max_input_length * MEMORY_COMPACT_RATIO,
+        )
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit()
@@ -119,6 +132,7 @@ class CoPawAgent(ReActAgent):
         self.command_handler = CommandHandler(
             agent_name=self.name,
             memory=self.memory,
+            formatter=self.formatter,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
         )
@@ -259,6 +273,18 @@ class CoPawAgent(ReActAgent):
         """Register MCP clients on this agent's toolkit after construction."""
         for client in self._mcp_clients:
             await self.toolkit.register_mcp_client(client)
+
+    async def _reasoning(
+        self,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
+    ) -> Msg:
+        """Ensure a stable default tool-choice behavior across providers."""
+        tool_choice = normalize_reasoning_tool_choice(
+            tool_choice=tool_choice,
+            has_tools=bool(self.toolkit.get_json_schemas()),
+        )
+
+        return await super()._reasoning(tool_choice=tool_choice)
 
     async def reply(
         self,

@@ -67,6 +67,13 @@ RUN apt-get update && apt-get install -y --fix-missing \
 
 RUN sed -i 's/^CHROMIUM_FLAGS=""/CHROMIUM_FLAGS="--no-sandbox"/' /usr/bin/chromium
 
+# Playwright: use system Chromium (already installed above).
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+# Avoid Playwright downloading its own browser when executable_path is used.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Indicate running in container (used e.g. for Chromium --no-sandbox).
+ENV COPAW_RUNNING_IN_CONTAINER=1
+
 WORKDIR ${WORKSPACE_DIR}
 
 RUN python3 -m venv venv

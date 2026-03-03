@@ -25,13 +25,13 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
-from urllib.request import url2pathname
 
 import aiohttp
 import dingtalk_stream
 from dingtalk_stream import ChatbotMessage
 from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
+from ..utils import file_url_to_local_path
 from ....config.config import DingTalkConfig as DingTalkChannelConfig
 from ....config.utils import get_config_path
 
@@ -588,15 +588,20 @@ class DingTalkChannel(BaseChannel):
             url[:80] + "..." if len(url) > 80 else url,
         )
         try:
-            parsed = urlparse(url)
-            if parsed.scheme == "file":
-                path = url2pathname(parsed.path)
+            path = file_url_to_local_path(url)
+            if path is not None:
                 data = await asyncio.to_thread(Path(path).read_bytes)
                 logger.info(
                     "dingtalk fetch_bytes_from_url ok: size=%s (file)",
                     len(data),
                 )
                 return data
+            if url.strip().lower().startswith("file:"):
+                logger.warning(
+                    f"dingtalk fetch_bytes_from_url: empty file path for "
+                    f"url={url[:80]}",
+                )
+                return None
             async with self._http.get(url) as resp:
                 if resp.status >= 400:
                     logger.warning(
@@ -1656,6 +1661,7 @@ class DingTalkChannel(BaseChannel):
         *,
         download_code: str,
         robot_code: str,
+        filename_hint: str = "file.bin",
     ) -> Optional[str]:
         """Get download URL from API, save to local, return path."""
         url = await self._get_message_file_download_url(
@@ -1670,7 +1676,7 @@ class DingTalkChannel(BaseChannel):
         return await self._download_media_to_local(
             url,
             key,
-            "file.bin",
+            filename_hint,
         )
 
     def _guess_filename_and_ext(

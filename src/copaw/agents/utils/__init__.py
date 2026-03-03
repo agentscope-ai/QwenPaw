@@ -27,11 +27,18 @@ from .message_processing import (
 from .setup_utils import copy_md_files
 
 # Token counting
-from .token_counting import _get_token_counter, count_message_tokens
+from .token_counting import (
+    _get_token_counter,
+    count_message_tokens,
+    safe_count_message_tokens,
+    safe_count_str_tokens,
+)
 
 # Tool message utilities
 from .tool_message_utils import (
     _dedup_tool_blocks,
+    _remove_invalid_tool_blocks,
+    _repair_empty_tool_inputs,
     _sanitize_tool_messages,
     check_valid_messages,
     extract_tool_ids,
@@ -50,8 +57,12 @@ __all__ = [
     # Token counting
     "_get_token_counter",
     "count_message_tokens",
+    "safe_count_message_tokens",
+    "safe_count_str_tokens",
     # Tool message utilities
     "_dedup_tool_blocks",
+    "_remove_invalid_tool_blocks",
+    "_repair_empty_tool_inputs",
     "_sanitize_tool_messages",
     "check_valid_messages",
     "extract_tool_ids",

@@ -8,5 +8,6 @@ export const CHANNEL_LABELS: Record<ChannelKey, string> = {
   dingtalk: "DingTalk",
   feishu: "Feishu",
   qq: "QQ",
+  telegram: "Telegram",
   console: "Console",
 };

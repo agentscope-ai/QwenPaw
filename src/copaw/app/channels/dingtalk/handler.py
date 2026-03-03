@@ -26,6 +26,14 @@ from .content_utils import (
 
 logger = logging.getLogger(__name__)
 
+# Download filename hint by type (e.g. voice -> .amr).
+FILENAME_HINT_BY_MAPPED = {
+    "audio": "audio.amr",
+    "image": "image.png",
+    "video": "video.mp4",
+}
+DEFAULT_FILENAME_HINT = "file.bin"
+
 
 class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     """Internal handler: convert DingTalk message to native dict, enqueue via
@@ -50,6 +58,28 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 self._enqueue_callback,
                 native,
             )
+
+    def _fetch_download_url_and_content(
+        self,
+        download_code: str,
+        robot_code: str,
+        mapped: str,
+    ) -> Optional[Any]:
+        """Fetch media by download_code; return Content to append or None."""
+        hint = FILENAME_HINT_BY_MAPPED.get(mapped, DEFAULT_FILENAME_HINT)
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                self._download_url_fetcher(
+                    download_code=download_code,
+                    robot_code=robot_code,
+                    filename_hint=hint,
+                ),
+                self._main_loop,
+            )
+            download_url = fut.result(timeout=15)
+            return dingtalk_content_from_type(mapped, download_url)
+        except Exception:
+            return None
 
     def _parse_rich_content(
         self,
@@ -82,35 +112,22 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 dl_code = item.get("downloadCode")
                 if not dl_code or not robot_code:
                     continue
-                fut = asyncio.run_coroutine_threadsafe(
-                    self._download_url_fetcher(
-                        download_code=dl_code,
-                        robot_code=robot_code,
-                    ),
-                    self._main_loop,
-                )
-                download_url = fut.result(timeout=15)
                 mapped = type_mapping.get(
                     item.get("type", "file"),
                     item.get("type", "file"),
                 )
-                content.append(
-                    dingtalk_content_from_type(mapped, download_url),
+                part_content = self._fetch_download_url_and_content(
+                    dl_code,
+                    robot_code,
+                    mapped,
                 )
+                if part_content is not None:
+                    content.append(part_content)
 
             # -------- 2) single downloadCode (pure picture/file) --------
             if not content:
                 dl_code = c.get("downloadCode") or c.get("download_code")
                 if dl_code and robot_code:
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self._download_url_fetcher(
-                            download_code=dl_code,
-                            robot_code=robot_code,
-                        ),
-                        self._main_loop,
-                    )
-                    download_url = fut.result(timeout=15)
-
                     msgtype = (
                         (
                             msg_dict.get(
@@ -127,10 +144,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     )
                     if mapped not in ("image", "file", "video", "audio"):
                         mapped = "file"
-
-                    content.append(
-                        dingtalk_content_from_type(mapped, download_url),
+                    part_content = self._fetch_download_url_and_content(
+                        dl_code,
+                        robot_code,
+                        mapped,
                     )
+                    if part_content is not None:
+                        content.append(part_content)
 
         except Exception:
             logger.exception("failed to fetch richText download url(s)")

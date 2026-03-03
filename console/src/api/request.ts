@@ -1,14 +1,21 @@
 import { getApiUrl, getApiToken } from "./config";
 
-function buildHeaders(extra?: HeadersInit): HeadersInit {
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...extra,
-  };
+function buildHeaders(method?: string, extra?: HeadersInit): Headers {
+  // Normalize extra to a Headers instance for consistent handling
+  const headers = extra instanceof Headers ? extra : new Headers(extra);
 
+  // Only add Content-Type for methods that typically have a body
+  if (method && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
+    // Don't override if caller explicitly set Content-Type
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+  }
+
+  // Add authorization token if available
   const token = getApiToken();
   if (token) {
-    (headers as Record<string, string>).Authorization = `Bearer ${token}`;
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   return headers;
@@ -19,8 +26,8 @@ export async function request<T = unknown>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = getApiUrl(path);
-
-  const headers = buildHeaders(options.headers);
+  const method = options.method || "GET";
+  const headers = buildHeaders(method, options.headers);
 
   const response = await fetch(url, {
     ...options,
