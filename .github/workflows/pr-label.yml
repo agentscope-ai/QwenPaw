@@ -1,0 +1,50 @@
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened]
+
+jobs:
+  first-time-contributor:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check if first-time contributor
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 2,
+            });
+
+            const prsByAuthor = prs.filter(
+              pr => pr.user.login === author && pr.number !== context.payload.pull_request.number
+            );
+
+            if (prsByAuthor.length === 0) {
+              // Double-check with a search to handle repos with many PRs
+              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author}`,
+              });
+
+              const isFirstTime = searchResult.total_count <= 1;
+
+              if (isFirstTime) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  labels: ['first-time-contributor'],
+                });
+                core.info(`Labeled PR #${context.payload.pull_request.number} as first-time-contributor`);
+              } else {
+                core.info(`${author} has ${searchResult.total_count} PRs, skipping label`);
+              }
+            } else {
+              core.info(`${author} already has PRs in this repo, skipping label`);
+            }
