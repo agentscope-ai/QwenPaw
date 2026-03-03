@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Any, List, Literal, Optional, Type
 
+from anyio import ClosedResourceError
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
@@ -272,7 +273,57 @@ class CoPawAgent(ReActAgent):
     async def register_mcp_clients(self) -> None:
         """Register MCP clients on this agent's toolkit after construction."""
         for client in self._mcp_clients:
-            await self.toolkit.register_mcp_client(client)
+            client_name = getattr(client, "name", repr(client))
+            try:
+                await self.toolkit.register_mcp_client(client)
+            except ClosedResourceError:
+                logger.warning(
+                    "MCP client '%s' session closed while listing tools; "
+                    "trying reconnect once",
+                    client_name,
+                )
+                if await self._reconnect_mcp_client(client):
+                    try:
+                        await self.toolkit.register_mcp_client(client)
+                        continue
+                    except Exception as e:  # pylint: disable=broad-except
+                        logger.warning(
+                            "MCP client '%s' still unavailable after "
+                            "reconnect, skipping: %s",
+                            client_name,
+                            e,
+                        )
+                else:
+                    logger.warning(
+                        "MCP client '%s' reconnect failed, skipping",
+                        client_name,
+                    )
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to register MCP client '%s', skipping: %s",
+                    client_name,
+                    e,
+                )
+
+    @staticmethod
+    async def _reconnect_mcp_client(client: Any) -> bool:
+        """Best-effort reconnect for stateful MCP clients."""
+        close_fn = getattr(client, "close", None)
+        if callable(close_fn):
+            try:
+                await close_fn()
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+        connect_fn = getattr(client, "connect", None)
+        if not callable(connect_fn):
+            return False
+
+        try:
+            await connect_fn()
+            return True
+        except Exception:  # pylint: disable=broad-except
+            return False
 
     async def _reasoning(
         self,

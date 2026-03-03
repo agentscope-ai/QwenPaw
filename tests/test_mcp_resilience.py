@@ -1,0 +1,151 @@
+# -*- coding: utf-8 -*-
+from types import SimpleNamespace
+
+import pytest
+from anyio import ClosedResourceError
+
+import copaw.app.runner.runner as runner_module
+from copaw.agents.react_agent import CoPawAgent
+from copaw.app.runner.runner import AgentRunner
+
+
+class _FakeToolkit:
+    def __init__(
+        self,
+        fail_once_names: set[str] | None = None,
+        always_fail_names: set[str] | None = None,
+    ) -> None:
+        self.fail_once_names = fail_once_names or set()
+        self.always_fail_names = always_fail_names or set()
+        self.calls: dict[str, int] = {}
+        self.registered: list[str] = []
+
+    async def register_mcp_client(self, client) -> None:
+        name = client.name
+        self.calls[name] = self.calls.get(name, 0) + 1
+
+        if name in self.always_fail_names:
+            raise ClosedResourceError()
+
+        if name in self.fail_once_names and self.calls[name] == 1:
+            raise ClosedResourceError()
+
+        self.registered.append(name)
+
+
+class _FakeMCPClient:
+    def __init__(self, name: str, connect_ok: bool = True) -> None:
+        self.name = name
+        self.connect_ok = connect_ok
+        self.close_calls = 0
+        self.connect_calls = 0
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+    async def connect(self) -> None:
+        self.connect_calls += 1
+        if not self.connect_ok:
+            raise RuntimeError("connect failed")
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_clients_retries_once_on_closed_resource() -> None:
+    toolkit = _FakeToolkit(fail_once_names={"flaky"})
+    flaky = _FakeMCPClient(name="flaky", connect_ok=True)
+    healthy = _FakeMCPClient(name="healthy", connect_ok=True)
+
+    agent = object.__new__(CoPawAgent)
+    agent.toolkit = toolkit
+    agent._mcp_clients = [flaky, healthy]
+
+    await CoPawAgent.register_mcp_clients(agent)
+
+    assert toolkit.calls["flaky"] == 2
+    assert flaky.connect_calls == 1
+    assert toolkit.calls["healthy"] == 1
+    assert toolkit.registered == ["flaky", "healthy"]
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_clients_skips_unrecoverable_client() -> None:
+    toolkit = _FakeToolkit(always_fail_names={"broken"})
+    broken = _FakeMCPClient(name="broken", connect_ok=False)
+    healthy = _FakeMCPClient(name="healthy", connect_ok=True)
+
+    agent = object.__new__(CoPawAgent)
+    agent.toolkit = toolkit
+    agent._mcp_clients = [broken, healthy]
+
+    await CoPawAgent.register_mcp_clients(agent)
+
+    assert toolkit.calls["broken"] == 1
+    assert broken.connect_calls == 1
+    assert "broken" not in toolkit.registered
+    assert toolkit.registered == ["healthy"]
+
+
+@pytest.mark.asyncio
+async def test_query_handler_skips_session_save_when_load_not_reached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeAgent:
+        def __init__(self, *args, **kwargs) -> None:  # noqa: ARG002
+            pass
+
+        async def register_mcp_clients(self) -> None:
+            raise ClosedResourceError()
+
+        def set_console_output_enabled(self, enabled: bool) -> None:  # noqa: ARG002
+            return
+
+    class _FakeSession:
+        def __init__(self) -> None:
+            self.load_calls = 0
+            self.save_calls = 0
+
+        async def load_session_state(self, **kwargs) -> None:  # noqa: ARG002
+            self.load_calls += 1
+
+        async def save_session_state(self, **kwargs) -> None:  # noqa: ARG002
+            self.save_calls += 1
+
+    class _DummyInputMsg:
+        def get_text_content(self) -> str:
+            return "你好"
+
+    cfg = SimpleNamespace(
+        agents=SimpleNamespace(
+            running=SimpleNamespace(max_iters=1, max_input_length=2048),
+        ),
+    )
+
+    monkeypatch.setattr(runner_module, "CoPawAgent", _FakeAgent)
+    monkeypatch.setattr(runner_module, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        runner_module,
+        "build_env_context",
+        lambda **kwargs: "env",
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "write_query_error_dump",
+        lambda **kwargs: None,
+    )
+
+    runner = AgentRunner()
+    fake_session = _FakeSession()
+    runner.session = fake_session
+
+    request = SimpleNamespace(
+        session_id="s1",
+        user_id="u1",
+        channel="console",
+    )
+
+    with pytest.raises(ClosedResourceError):
+        async for _ in runner.query_handler([_DummyInputMsg()], request=request):
+            pass
+
+    assert fake_session.load_calls == 0
+    assert fake_session.save_calls == 0

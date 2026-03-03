@@ -59,6 +59,7 @@ class AgentRunner(Runner):
 
         agent = None
         chat = None
+        session_state_loaded = False
 
         try:
             session_id = request.session_id
@@ -131,6 +132,7 @@ class AgentRunner(Runner):
                 user_id=user_id,
                 agent=agent,
             )
+            session_state_loaded = True
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
@@ -169,7 +171,7 @@ class AgentRunner(Runner):
                 ) + e.args[1:]
             raise
         finally:
-            if agent is not None:
+            if agent is not None and session_state_loaded:
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,
