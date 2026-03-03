@@ -83,6 +83,7 @@ jobs:
             exit 1
           fi
           find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf
+          find "$APP_DIR" -type f -name "py.typed" -delete
           find "$APP_DIR" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 \
             | xargs -0 -n1 codesign --force --sign -
           codesign --force --sign - "$APP_DIR/Contents/MacOS/CoPaw"
