@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from ..constant import SECRET_DIR, WORKING_DIR
 from .models import (
     CustomProviderData,
     ModelInfo,
@@ -29,11 +33,65 @@ from .registry import (
     validate_custom_provider_id,
 )
 
-_PROVIDERS_DIR = Path(__file__).resolve().parent
-_PROVIDERS_JSON = _PROVIDERS_DIR / "providers.json"
+logger = logging.getLogger(__name__)
+
+_PROVIDERS_JSON = SECRET_DIR / "providers.json"
+_LEGACY_PROVIDERS_JSON_CANDIDATES = (
+    Path(__file__).resolve().parent / "providers.json",
+    WORKING_DIR / "providers.json",
+)
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
+def _chmod_best_effort(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        # Some systems/filesystems may not support chmod semantics.
+        pass
+
+
+def _prepare_secret_parent(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _chmod_best_effort(path.parent, 0o700)
+
+
+def _migrate_legacy_providers_json(path: Path) -> None:
+    """Copy old providers.json into secret dir once (best effort)."""
+    if path.is_file():
+        return
+    if path.exists() and not path.is_file():
+        logger.error(
+            "providers.json path exists but is not a regular file: %s",
+            path,
+        )
+        return
+
+    for legacy in _LEGACY_PROVIDERS_JSON_CANDIDATES:
+        if not legacy.is_file() or _same_path(legacy, path):
+            continue
+        try:
+            _prepare_secret_parent(path)
+            shutil.copy2(legacy, path)
+            _chmod_best_effort(path, 0o600)
+            return
+        except OSError as exc:
+            logger.warning(
+                "Failed to migrate legacy providers.json from %s: %s",
+                legacy,
+                exc,
+            )
+            continue
 
 
 def get_providers_json_path() -> Path:
+    """Return providers.json path under SECRET_DIR."""
     return _PROVIDERS_JSON
 
 
@@ -205,6 +263,11 @@ def load_providers_json(path: Optional[Path] = None) -> ProvidersData:
     """Load providers.json, creating/repairing as needed."""
     if path is None:
         path = get_providers_json_path()
+        _migrate_legacy_providers_json(path)
+    if path.exists() and not path.is_file():
+        raise IsADirectoryError(
+            f"providers.json path exists but is not a regular file: {path}",
+        )
 
     providers: dict[str, ProviderSettings] = {}
     custom_providers: dict[str, CustomProviderData] = {}
@@ -246,7 +309,12 @@ def save_providers_json(
 ) -> None:
     if path is None:
         path = get_providers_json_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+        _migrate_legacy_providers_json(path)
+    if path.exists() and not path.is_file():
+        raise IsADirectoryError(
+            f"providers.json path exists but is not a regular file: {path}",
+        )
+    _prepare_secret_parent(path)
 
     out: dict = {
         "providers": {
@@ -261,6 +329,7 @@ def save_providers_json(
     }
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=2, ensure_ascii=False)
+    _chmod_best_effort(path, 0o600)
 
 
 # -- Mutators --

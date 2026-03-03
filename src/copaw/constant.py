@@ -7,6 +7,16 @@ WORKING_DIR = (
     .expanduser()
     .resolve()
 )
+SECRET_DIR = (
+    Path(
+        os.environ.get(
+            "COPAW_SECRET_DIR",
+            f"{WORKING_DIR}.secret",
+        ),
+    )
+    .expanduser()
+    .resolve()
+)
 
 JOBS_FILE = os.environ.get("COPAW_JOBS_FILE", "jobs.json")
 
