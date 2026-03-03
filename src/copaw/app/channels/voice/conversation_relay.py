@@ -284,5 +284,5 @@ class ConversationRelayHandler:
                 await self.ws.close()
             except Exception:
                 logger.exception(
-                    "Failed to close WebSocket in ConversationRelay"
+                    "Failed to close WebSocket in ConversationRelay",
                 )
