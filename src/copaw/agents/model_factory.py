@@ -241,9 +241,9 @@ def _get_chat_model_class_from_provider() -> Type[ChatModelBase]:
     """Get the chat model class from provider configuration.
 
     Returns:
-        Chat model class, defaults to OpenAIChatModel if not found
+        Chat model class, defaults to OpenAI-compatible chat model if not found
     """
-    chat_model_class = OpenAIChatModel  # default
+    chat_model_class = get_chat_model_class("OpenAIChatModel")
     try:
         providers_data = load_providers_json()
         provider_id = providers_data.active_llm.provider_id
@@ -256,7 +256,7 @@ def _get_chat_model_class_from_provider() -> Type[ChatModelBase]:
     except Exception as e:
         logger.debug(
             "Failed to determine chat model from provider: %s, "
-            "using OpenAIChatModel",
+            "using OpenAI-compatible default chat model",
             e,
         )
     return chat_model_class

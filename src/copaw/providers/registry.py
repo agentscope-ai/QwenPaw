@@ -6,9 +6,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, List, Optional, Type
 
-from agentscope.model import ChatModelBase, OpenAIChatModel
+from agentscope.model import ChatModelBase
 
 from .models import CustomProviderData, ModelInfo, ProviderDefinition
+from .openai_chat_model_compat import OpenAIChatModelCompat
 
 if TYPE_CHECKING:
     from .models import ProvidersData
@@ -305,7 +306,7 @@ def sync_ollama_models() -> None:
 
 
 _CHAT_MODEL_MAP: dict[str, Type[ChatModelBase]] = {
-    "OpenAIChatModel": OpenAIChatModel,
+    "OpenAIChatModel": OpenAIChatModelCompat,
 }
 
 
@@ -316,6 +317,6 @@ def get_chat_model_class(chat_model_name: str) -> Type[ChatModelBase]:
         chat_model_name: Name of the chat model class (e.g., "OpenAIChatModel")
 
     Returns:
-        Chat model class, defaults to OpenAIChatModel if not found.
+        Chat model class, defaults to OpenAIChatModel-compatible parser.
     """
-    return _CHAT_MODEL_MAP.get(chat_model_name, OpenAIChatModel)
+    return _CHAT_MODEL_MAP.get(chat_model_name, OpenAIChatModelCompat)
