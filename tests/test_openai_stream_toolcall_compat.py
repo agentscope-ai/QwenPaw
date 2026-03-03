@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
-from copaw.providers.openai_chat_model_compat import OpenAIChatModelCompat
+from copaw.providers.openai_chat_model_compat import (
+    OpenAIChatModelCompat,
+    _sanitize_tool_call,
+)
 from copaw.providers.registry import get_chat_model_class
 
 
@@ -73,6 +77,11 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
         id="call_bad",
         function=None,
     )
+    none_arguments_tool_call = SimpleNamespace(
+        index=1,
+        id="call_partial",
+        function=SimpleNamespace(name="ping", arguments=None),
+    )
     valid_tool_call = SimpleNamespace(
         index=0,
         id="call_ok",
@@ -82,6 +91,7 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
     stream = FakeAsyncStream(
         [
             _make_chunk([malformed_tool_call]),
+            _make_chunk([none_arguments_tool_call]),
             _make_chunk([valid_tool_call]),
         ],
     )
@@ -101,3 +111,29 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
     assert tool_blocks
     assert tool_blocks[-1]["name"] == "ping"
     assert tool_blocks[-1]["input"] == {"x": 1}
+
+
+def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:
+    none_arguments_tool_call = SimpleNamespace(
+        index=0,
+        id="call_partial",
+        function=SimpleNamespace(name="ping", arguments=None),
+    )
+    non_string_arguments_tool_call = SimpleNamespace(
+        index=1,
+        id="call_dict",
+        function=SimpleNamespace(name="ping", arguments={"x": 2}),
+    )
+
+    sanitized_none_arguments = _sanitize_tool_call(none_arguments_tool_call)
+    assert sanitized_none_arguments is not None
+    assert sanitized_none_arguments.function.name == "ping"
+    assert sanitized_none_arguments.function.arguments == ""
+
+    sanitized_non_string_arguments = _sanitize_tool_call(
+        non_string_arguments_tool_call,
+    )
+    assert sanitized_non_string_arguments is not None
+    assert sanitized_non_string_arguments.function.name == "ping"
+    assert isinstance(sanitized_non_string_arguments.function.arguments, str)
+    assert json.loads(sanitized_non_string_arguments.function.arguments) == {"x": 2}

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Type
@@ -28,12 +29,36 @@ def _sanitize_tool_call(tool_call: Any) -> Any | None:
     if function is None:
         return None
 
-    if hasattr(function, "name") and hasattr(function, "arguments"):
+    raw_name = getattr(function, "name", "")
+    if isinstance(raw_name, str):
+        safe_name = raw_name
+    elif raw_name is None:
+        safe_name = ""
+    else:
+        safe_name = str(raw_name)
+
+    raw_arguments = getattr(function, "arguments", "")
+    if isinstance(raw_arguments, str):
+        safe_arguments = raw_arguments
+    elif raw_arguments is None:
+        safe_arguments = ""
+    else:
+        try:
+            safe_arguments = json.dumps(raw_arguments, ensure_ascii=False)
+        except (TypeError, ValueError):
+            safe_arguments = str(raw_arguments)
+
+    if (
+        isinstance(raw_name, str)
+        and isinstance(raw_arguments, str)
+        and safe_name == raw_name
+        and safe_arguments == raw_arguments
+    ):
         return tool_call
 
     safe_function = SimpleNamespace(
-        name=getattr(function, "name", None),
-        arguments=getattr(function, "arguments", None),
+        name=safe_name,
+        arguments=safe_arguments,
     )
     return _clone_with_overrides(tool_call, function=safe_function)
 
