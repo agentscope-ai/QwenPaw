@@ -142,7 +142,7 @@ https://open.bigmodel.cn/api/coding/paas/v4
 
 同时检查：
 
-- 提供商是否选择 `aliyun-codingplan`（这是 CoPaw 中 GLM 编程计划的提供商名称，与阿里云无关）；
+- 自定义提供商填写 `glm-codingplan`（这是 CoPaw 中 GLM 编程计划的提供商名称）；
 - 模型 ID 是否与平台完全一致（区分大小写）；
 - API key 是否包含首尾空格。
 
