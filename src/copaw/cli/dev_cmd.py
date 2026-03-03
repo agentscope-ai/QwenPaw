@@ -110,6 +110,7 @@ def _start_backend(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=backend_env,
+        start_new_session=True,
     )
 
 
@@ -142,6 +143,7 @@ def _start_frontend(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=frontend_env,
+        start_new_session=True,
     )
 
 
@@ -198,12 +200,47 @@ def _print_dev_banner(
 
 
 def _terminate_all(procs: list[subprocess.Popen]) -> None:
-    """Terminate all child processes, ignoring already-exited ones."""
+    """Terminate all child processes (and their children).
+
+    Ignores already-exited ones.
+
+    Since subprocesses are launched with ``start_new_session=True`` each one
+    becomes a process-group leader.  Sending SIGTERM to the group ensures that
+    *all* children (e.g. uvicorn's reload worker) are also signalled.
+    """
     for proc in procs:
+        if proc.poll() is not None:
+            continue
         try:
-            proc.terminate()
-        except Exception:  # noqa: BLE001
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except ProcessLookupError:
             pass
+        except (
+            Exception
+        ):  # noqa: BLE001 – fallback to single-process terminate
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _kill_all(procs: list[subprocess.Popen]) -> None:
+    """Force-kill all child processes and their children.
+
+    Sends SIGKILL to the whole process group.
+    """
+    for proc in procs:
+        if proc.poll() is not None:
+            continue
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception:  # noqa: BLE001 – fallback
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def _register_signal_handlers(
@@ -231,7 +268,13 @@ def _wait_watchdogs_and_cleanup(
     procs: list[subprocess.Popen],
     done: threading.Event,
 ) -> None:
-    """Monitor child processes and ensure all are stopped before returning."""
+    """Monitor child processes and ensure all are stopped before returning.
+
+    Blocks until ``done`` is set (either by Ctrl+C or because a process exited
+    unexpectedly), then gives every process up to 10 seconds to shut down
+    gracefully before escalating to SIGKILL (on the whole process group so that
+    uvicorn's reload-worker child is also reaped).
+    """
 
     def _watch(proc: "subprocess.Popen[bytes]") -> None:
         """Terminate sibling processes when *proc* exits unexpectedly."""
@@ -251,22 +294,24 @@ def _wait_watchdogs_and_cleanup(
     for thread in watchdog_threads:
         thread.start()
 
-    # Wait for watchdog threads to finish, but do not block indefinitely if a
-    # child process ignores SIGTERM. After a grace period, escalate to SIGKILL.
-    for thread, proc in zip(watchdog_threads, procs):
-        thread.join(timeout=10)
-        if thread.is_alive() and proc.poll() is None:
-            try:
-                click.echo(
-                    "\nForce killing dev server "
-                    f"(PID {proc.pid}) after timeout…",
-                )
-                proc.kill()
-            except Exception:  # noqa: BLE001
-                pass
-            # After killing the process, wait for
-            # the watchdog thread to finish.
-            thread.join()
+    # Block here until a shutdown is triggered (Ctrl+C sets done via the signal
+    # handler; an unexpected process exit sets done inside _watch above).
+    done.wait()
+
+    # Give every process up to 10 seconds to exit gracefully, then SIGKILL the
+    # whole process group so no orphan children (e.g. uvicorn workers) survive.
+    for proc in procs:
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            click.echo(
+                f"\nForce killing dev server (PID {proc.pid}) after timeout…",
+            )
+            _kill_all([proc])
+            proc.wait()
+
+    for thread in watchdog_threads:
+        thread.join(timeout=5)
 
 
 @click.command("dev")
