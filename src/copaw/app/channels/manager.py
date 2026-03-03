@@ -21,7 +21,7 @@ from typing import (
 
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
 from .registry import get_channel_registry
-from ...constant import get_available_channels
+from ...config import get_available_channels
 
 if TYPE_CHECKING:
     from ....config.config import Config

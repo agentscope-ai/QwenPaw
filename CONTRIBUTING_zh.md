@@ -77,6 +77,11 @@ docs(skills): document Skills Hub import
   ```bash
   pytest
   ```
+- **前端代码格式化：** 如果你的修改涉及到 `console` 或 `website` 目录，请在提交前运行格式化：
+  ```bash
+  cd console && npm run format
+  cd website && npm run format
+  ```
 - **文档：** 当你添加或更改面向用户的行为时，更新文档和 README。文档位于 `website/public/docs/` 下。
 
 ---

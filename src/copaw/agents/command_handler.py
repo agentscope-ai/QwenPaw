@@ -91,7 +91,15 @@ class CommandHandler:
 
     # Supported system commands
     SYSTEM_COMMANDS = frozenset(
-        {"compact", "new", "clear", "history", "compact_str", "await_summary"},
+        {
+            "start",
+            "compact",
+            "new",
+            "clear",
+            "history",
+            "compact_str",
+            "await_summary",
+        },
     )
 
     def __init__(
@@ -154,6 +162,32 @@ class CommandHandler:
         return await self.memory.update_messages_mark(
             new_mark=_MemoryMark.COMPRESSED,
             msg_ids=[msg.id for msg in messages],
+        )
+
+    async def _process_start(self, messages: list[Msg]) -> Msg:
+        """Process /start command - same as /new."""
+        if not messages:
+            await self.memory.update_compressed_summary("")
+            return await self._make_system_msg(
+                "**Welcome!**\n\n"
+                "- This is a fresh conversation\n"
+                "- Ready to help you!",
+            )
+        if not self._has_memory_manager():
+            return await self._make_system_msg(
+                "**Memory Manager Disabled**\n\n"
+                "- Cannot start new conversation with summary\n"
+                "- Enable memory manager to use this feature",
+            )
+
+        self.memory_manager.add_async_summary_task(messages=messages)
+        await self.memory.update_compressed_summary("")
+        updated_count = await self._mark_messages_compressed(messages)
+        logger.info(f"Marked {updated_count} messages as compacted")
+        return await self._make_system_msg(
+            "**New Conversation Started!**\n\n"
+            "- Summary task started in background\n"
+            "- Ready for new conversation",
         )
 
     async def _process_compact(self, messages: list[Msg]) -> Msg:

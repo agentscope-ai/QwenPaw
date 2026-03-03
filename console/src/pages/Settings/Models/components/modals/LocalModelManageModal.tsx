@@ -13,6 +13,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   LoadingOutlined,
+  ApiOutlined,
 } from "@ant-design/icons";
 import type {
   ProviderInfo,
@@ -47,6 +48,7 @@ export function LocalModelManageModal({
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
+  const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
   const [localModels, setLocalModels] = useState<LocalModelResponse[]>([]);
   const [loadingLocal, setLoadingLocal] = useState(false);
@@ -218,6 +220,30 @@ export function LocalModelManageModal({
     });
   };
 
+  const handleTest = async (modelId: string) => {
+    setTestingModelId(modelId);
+    try {
+      const result = await api.testModelConnection(provider.id, {
+        model_id: modelId,
+      });
+      if (result.success) {
+        message.success(result.message || t("models.testConnectionSuccess"));
+        // Refresh model list on successful test
+        fetchLocalModels();
+      } else {
+        message.warning(result.message || t("models.testConnectionFailed"));
+      }
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.testConnectionError");
+      message.error(errMsg);
+    } finally {
+      setTestingModelId(null);
+    }
+  };
+
   const handleClose = () => {
     setAdding(false);
     form.resetFields();
@@ -229,7 +255,13 @@ export function LocalModelManageModal({
       title={t("models.localModelsTitle", { provider: provider.name })}
       open={open}
       onCancel={handleClose}
-      footer={null}
+      footer={
+        <div className={styles.modalFooter}>
+          <div className={styles.modalFooterRight}>
+            <Button onClick={handleClose}>{t("models.cancel")}</Button>
+          </div>
+        </div>
+      }
       width={600}
       destroyOnHidden
     >
@@ -292,6 +324,16 @@ export function LocalModelManageModal({
                 >
                   {m.source === "huggingface" ? "HF" : "MS"}
                 </Tag>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ApiOutlined />}
+                  onClick={() => handleTest(m.id)}
+                  loading={testingModelId === m.id}
+                  style={{ marginRight: 4 }}
+                >
+                  {t("models.testConnection")}
+                </Button>
                 <Button
                   type="text"
                   size="small"

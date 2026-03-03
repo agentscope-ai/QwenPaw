@@ -2,11 +2,75 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional, Tuple
 
-from ..constant import HEARTBEAT_FILE, JOBS_FILE, CHATS_FILE, WORKING_DIR
+from ..constant import (
+    HEARTBEAT_FILE,
+    JOBS_FILE,
+    CHATS_FILE,
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
+    RUNNING_IN_CONTAINER,
+    WORKING_DIR,
+)
 from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+
+
+def get_playwright_chromium_executable_path() -> Optional[str]:
+    """Chromium path from env when set and existing file (e.g. container).
+    In container, if env unset or path missing, try common system paths.
+    """
+    path = os.environ.get(PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV)
+    if path and os.path.isfile(path):
+        return path
+    if is_running_in_container():
+        for candidate in (
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/lib/chromium/chromium",
+        ):
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
+def get_available_channels() -> Tuple[str, ...]:
+    """Return channel keys enabled for this run (built-in + entry point
+    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    """
+    from ..app.channels.registry import get_channel_registry
+
+    registry = get_channel_registry()
+    all_keys = tuple(registry.keys())
+    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    if not raw:
+        return all_keys
+    enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())
+    return tuple(k for k in all_keys if k in enabled) or all_keys
+
+
+def is_running_in_container() -> bool:
+    """Return True if running inside a container (Docker/Kubernetes).
+    Prefer env COPAW_RUNNING_IN_CONTAINER (1/true/yes) at call time so
+    supervisord child gets correct value; else check /.dockerenv and cgroup.
+    """
+    if os.environ.get("COPAW_RUNNING_IN_CONTAINER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return True
+    if RUNNING_IN_CONTAINER.strip().lower() in ("1", "true", "yes"):
+        return True
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", encoding="utf-8") as f:
+            content = f.read()
+            return "docker" in content or "kubepods" in content
+    except (OSError, FileNotFoundError):
+        return False
 
 
 def get_config_path() -> Path:

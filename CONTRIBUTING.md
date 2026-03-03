@@ -77,6 +77,11 @@ docs(skills): document Skills Hub import
   ```bash
   pytest
   ```
+- **Frontend formatting:** If your changes involve the `console` or `website` directories, run the formatter before committing:
+  ```bash
+  cd console && npm run format
+  cd website && npm run format
+  ```
 - **Documentation:** Update docs and README when you add or change user-facing behavior. The docs live under `website/public/docs/`.
 
 ---
@@ -147,6 +152,42 @@ If you contribute a **new built-in channel**, add it to the registry and, if nee
 - **Skills Hub:** CoPaw supports importing skills from a community hub (e.g. ClawHub). If you want your skill to be installable via hub, follow the same `SKILL.md` + `references/`/`scripts/` layout and the hub’s packaging format.
 
 Examples of in-repo base skills: **cron**, **file_reader**, **news**, **pdf**, **docx**, **pptx**, **xlsx**, **browser_visible**. Contributing a new base skill usually means: add the directory under `agents/skills/`, add a short entry in the docs (e.g. Skills table in `website/public/docs/skills.*.md`), and ensure it syncs correctly to the working directory.
+
+#### Writing Effective Skill Descriptions
+
+To help the model accurately recognize and invoke your skill, the `description` field in your SKILL.md front matter must be **clear, specific, and include trigger keywords**. Follow these best practices:
+
+**✅ Recommended format:**
+```yaml
+---
+name: example_skill
+description: "Use this skill whenever user wants to [main functionality]. Trigger especially when user mentions: [trigger keywords]. Also use when [other scenarios]."
+
+# Detailed instructions below
+...
+```
+
+**✅ Best practices:**
+1. **Clearly state when to trigger**: Use phrases like "Use this skill whenever user wants to..." or "Trigger when user asks for..."
+2. **List trigger keywords explicitly**: Make it easy for the model to recognize, for example:
+   - "Trigger especially when user mentions: \"call\", \"dial\", \"phone\", \"microsip\""
+   - "Also trigger for desktop automation tasks like opening apps, controlling windows"
+3. **Be specific about the skill's scope**: Say exactly what it does, avoid vague terms
+   - ✅ Good: "Make phone calls via MicroSIP or similar desktop apps"
+   - ❌ Not ideal: "Control desktop"
+4. **Provide usage examples**: If the skill has specific usage patterns, explain them in the body of SKILL.md
+
+**❌ Common pitfalls:**
+- Overly abstract descriptions (like "control desktop", "process files")
+- Missing trigger keywords, making it hard for the model to identify use cases
+- Lack of usage scenario context
+
+**📝 Examples comparison:**
+
+| Skill | Description (Not ideal) | Description (Better) |
+|-------|-------------------------|----------------------|
+| Desktop Control | "Control desktop applications" | "Use this skill whenever user wants to control desktop applications or make phone calls. Trigger especially when user mentions: \"call\", \"dial\", \"phone\", \"microsip\", or requests to use specific desktop apps." |
+| File Reader | "Read files" | "Use this skill when user asks to read or summarize local text-based files. PDFs, Office documents, images are out of scope." |
 
 ---
 
