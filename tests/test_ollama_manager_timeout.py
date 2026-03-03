@@ -9,6 +9,7 @@ from copaw.providers import ollama_manager
 def _make_fake_ollama(timeout_box: dict, response: dict):
     class _FakeClient:
         def __init__(self, *, timeout=None, **kwargs):
+            _ = kwargs
             timeout_box["timeout"] = timeout
 
         def list(self):
@@ -67,3 +68,45 @@ def test_list_models_falls_back_on_invalid_env_timeout(monkeypatch) -> None:
     ollama_manager.OllamaModelManager.list_models()
 
     assert timeout_box["timeout"] == 10.0
+
+
+def test_list_models_falls_back_on_non_positive_env_timeout(
+    monkeypatch,
+) -> None:
+    timeout_box: dict = {}
+    fake_ollama = _make_fake_ollama(timeout_box, {"models": []})
+
+    monkeypatch.setattr(
+        ollama_manager,
+        "_ensure_ollama",
+        lambda: fake_ollama,
+    )
+
+    for timeout_value in ("0", "-1"):
+        monkeypatch.setenv(
+            "COPAW_OLLAMA_LIST_TIMEOUT_SECONDS",
+            timeout_value,
+        )
+        ollama_manager.OllamaModelManager.list_models()
+        assert timeout_box["timeout"] == 10.0
+
+
+def test_list_models_falls_back_on_non_finite_env_timeout(
+    monkeypatch,
+) -> None:
+    timeout_box: dict = {}
+    fake_ollama = _make_fake_ollama(timeout_box, {"models": []})
+
+    monkeypatch.setattr(
+        ollama_manager,
+        "_ensure_ollama",
+        lambda: fake_ollama,
+    )
+
+    for timeout_value in ("nan", "inf", "-inf"):
+        monkeypatch.setenv(
+            "COPAW_OLLAMA_LIST_TIMEOUT_SECONDS",
+            timeout_value,
+        )
+        ollama_manager.OllamaModelManager.list_models()
+        assert timeout_box["timeout"] == 10.0

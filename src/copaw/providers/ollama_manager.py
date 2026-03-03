@@ -9,6 +9,7 @@ or a manifest.json. Ollama remains the single source of truth for its models.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from datetime import datetime
 from typing import List, Optional, Union
@@ -59,6 +60,15 @@ def _ensure_ollama():
     return ollama
 
 
+def _warn_timeout_fallback(raw: str) -> None:
+    logger.warning(
+        "Invalid %s=%r, fallback to %.1fs",
+        _OLLAMA_LIST_TIMEOUT_ENV,
+        raw,
+        _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS,
+    )
+
+
 def _get_ollama_list_timeout_seconds() -> float:
     """Resolve list_models timeout seconds from environment.
 
@@ -71,21 +81,11 @@ def _get_ollama_list_timeout_seconds() -> float:
     try:
         timeout = float(raw)
     except ValueError:
-        logger.warning(
-            "Invalid %s=%r, fallback to %.1fs",
-            _OLLAMA_LIST_TIMEOUT_ENV,
-            raw,
-            _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS,
-        )
+        _warn_timeout_fallback(raw)
         return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
 
-    if timeout <= 0:
-        logger.warning(
-            "Non-positive %s=%r, fallback to %.1fs",
-            _OLLAMA_LIST_TIMEOUT_ENV,
-            raw,
-            _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS,
-        )
+    if not math.isfinite(timeout) or timeout <= 0:
+        _warn_timeout_fallback(raw)
         return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
 
     return timeout
