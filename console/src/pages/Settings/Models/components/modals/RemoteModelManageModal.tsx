@@ -39,7 +39,7 @@ export function RemoteModelManageModal({
   const [form] = Form.useForm();
   const canDiscover = provider.is_custom
     ? !!provider.current_base_url
-    : provider.has_api_key;
+    : !!provider.current_api_key;
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
