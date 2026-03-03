@@ -28,14 +28,25 @@
 
 ## Checklist
 
-- [ ] Pre-commit hooks pass (`pre-commit run --all-files` or CI)
-- [ ] Tests pass locally (`pytest` or as relevant)
+- [ ] I ran `pre-commit run --all-files` locally and it passes
+- [ ] If pre-commit auto-fixed files, I committed those changes and reran checks
+- [ ] I ran tests locally (`pytest` or as relevant) and they pass
 - [ ] Documentation updated (if needed)
 - [ ] Ready for review
 
 ## Testing
 
 [How to test these changes]
+
+## Local Verification Evidence
+
+```bash
+pre-commit run --all-files
+# paste summary result
+
+pytest
+# paste summary result
+```
 
 ## Additional Notes
 
