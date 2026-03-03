@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional
 
 import dingtalk_stream
@@ -33,6 +34,10 @@ FILENAME_HINT_BY_MAPPED = {
     "video": "video.mp4",
 }
 DEFAULT_FILENAME_HINT = "file.bin"
+# Maximum number of completed msg IDs to keep for deduplication.
+DINGTALK_PROCESSED_IDS_MAX = 2048
+# Timeout for fetching and downloading one DingTalk media object.
+DINGTALK_DOWNLOAD_FETCH_TIMEOUT_SECONDS = 15
 
 
 class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
@@ -51,6 +56,57 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         self._enqueue_callback = enqueue_callback
         self._bot_prefix = bot_prefix
         self._download_url_fetcher = download_url_fetcher
+        # Dedup state:
+        # - inflight: currently being processed in this process
+        # - processed: recently completed callbacks (FIFO bounded cache)
+        self._inflight_message_ids: set[str] = set()
+        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+
+    @staticmethod
+    def _normalize_message_id(raw: Any) -> str:
+        """Normalize message ID to non-empty string; else empty string."""
+        if raw is None:
+            return ""
+        if isinstance(raw, str):
+            return raw.strip()
+        if isinstance(raw, (int, float)):
+            return str(raw).strip()
+        return ""
+
+    @classmethod
+    def _extract_msg_id(
+        cls,
+        incoming_message: Any,
+        callback: CallbackMessage,
+    ) -> str:
+        """Extract message id for dedup from known SDK fields."""
+        for attr in ("message_id", "msgId", "msg_id"):
+            val = cls._normalize_message_id(
+                getattr(incoming_message, attr, None),
+            )
+            if val:
+                return val
+
+        data = callback.data if isinstance(callback.data, dict) else {}
+        for key in ("msgId", "msg_id", "messageId", "message_id"):
+            val = cls._normalize_message_id(data.get(key))
+            if val:
+                return val
+
+        headers = getattr(callback, "headers", None)
+        val = cls._normalize_message_id(getattr(headers, "message_id", None))
+        if val:
+            return val
+        return ""
+
+    def _mark_completed(self, msg_id: str) -> None:
+        """Move one message id from inflight into completed dedup cache."""
+        if not msg_id:
+            return
+        self._inflight_message_ids.discard(msg_id)
+        self._processed_message_ids[msg_id] = None
+        while len(self._processed_message_ids) > DINGTALK_PROCESSED_IDS_MAX:
+            self._processed_message_ids.popitem(last=False)
 
     def _emit_native_threadsafe(self, native: dict) -> None:
         if self._enqueue_callback:
@@ -59,7 +115,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 native,
             )
 
-    def _fetch_download_url_and_content(
+    async def _fetch_download_url_and_content(
         self,
         download_code: str,
         robot_code: str,
@@ -76,12 +132,23 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 ),
                 self._main_loop,
             )
-            download_url = fut.result(timeout=15)
+            download_url = await asyncio.wait_for(
+                asyncio.wrap_future(fut),
+                timeout=DINGTALK_DOWNLOAD_FETCH_TIMEOUT_SECONDS,
+            )
+            if not download_url:
+                return None
             return dingtalk_content_from_type(mapped, download_url)
         except Exception:
+            logger.debug(
+                "dingtalk media fetch failed: mapped=%s download_code=%s",
+                mapped,
+                str(download_code)[:24],
+                exc_info=True,
+            )
             return None
 
-    def _parse_rich_content(
+    async def _parse_rich_content(
         self,
         incoming_message: Any,
     ) -> List[Any]:
@@ -116,7 +183,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     item.get("type", "file"),
                     item.get("type", "file"),
                 )
-                part_content = self._fetch_download_url_and_content(
+                part_content = await self._fetch_download_url_and_content(
                     dl_code,
                     robot_code,
                     mapped,
@@ -144,7 +211,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     )
                     if mapped not in ("image", "file", "video", "audio"):
                         mapped = "file"
-                    part_content = self._fetch_download_url_and_content(
+                    part_content = await self._fetch_download_url_and_content(
                         dl_code,
                         robot_code,
                         mapped,
@@ -156,9 +223,28 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             logger.exception("failed to fetch richText download url(s)")
         return content
 
-    async def process(self, callback: CallbackMessage) -> tuple[int, str]:
+    async def process(  # pylint: disable=too-many-branches,too-many-statements
+        self,
+        callback: CallbackMessage,
+    ) -> tuple[int, str]:
+        msg_id = ""
         try:
             incoming_message = ChatbotMessage.from_dict(callback.data)
+            msg_id = self._extract_msg_id(incoming_message, callback)
+            if msg_id and msg_id in self._processed_message_ids:
+                logger.info(
+                    "dingtalk dedup: skip completed msg_id=%s",
+                    msg_id[:24],
+                )
+                return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+            if msg_id and msg_id in self._inflight_message_ids:
+                logger.info(
+                    "dingtalk dedup: skip inflight msg_id=%s",
+                    msg_id[:24],
+                )
+                return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+            if msg_id:
+                self._inflight_message_ids.add(msg_id)
 
             logger.debug(
                 "Dingtalk message received: %s",
@@ -174,7 +260,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 )
             # Always parse rich content so images/files are not dropped
             # when the message also contains text.
-            content = self._parse_rich_content(incoming_message)
+            content = await self._parse_rich_content(incoming_message)
             # If text was extracted separately and rich content has no
             # text items, prepend the text so both text and media are
             # preserved in the content list.
@@ -194,6 +280,8 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
 
             sender, skip = sender_from_chatbot_message(incoming_message)
             if skip:
+                if msg_id:
+                    self._inflight_message_ids.discard(msg_id)
                 return dingtalk_stream.AckMessage.STATUS_OK, "ok"
 
             conversation_id = conversation_id_from_chatbot_message(
@@ -262,8 +350,11 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 out = self._bot_prefix + response_text
                 self.reply_text(out, incoming_message)
                 logger.info("sent to=%s text=%r", sender, out[:100])
+            self._mark_completed(msg_id)
             return dingtalk_stream.AckMessage.STATUS_OK, "ok"
 
         except Exception:
             logger.exception("process failed")
+            if msg_id:
+                self._inflight_message_ids.discard(msg_id)
             return dingtalk_stream.AckMessage.STATUS_SYSTEM_EXCEPTION, "error"
