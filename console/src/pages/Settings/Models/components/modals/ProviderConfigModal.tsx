@@ -15,7 +15,6 @@ interface ProviderConfigModalProps {
     current_base_url?: string;
     is_custom: boolean;
     needs_base_url: boolean;
-    has_api_key: boolean;
   };
   activeModels: any;
   open: boolean;
@@ -170,7 +169,7 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.has_api_key && (
+            {provider.current_api_key && provider.id !== "ollama" && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>

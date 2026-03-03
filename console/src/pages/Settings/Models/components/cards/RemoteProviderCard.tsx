@@ -69,10 +69,26 @@ export function RemoteProviderCard({
     </Tag>
   );
 
-  const statusReady = provider.has_api_key;
-  const statusLabel = provider.has_api_key
-    ? t("models.authorized")
-    : t("models.unauthorized");
+  // Determine status logic:
+  // - Ollama: need base_url AND models (to connect to daemon)
+  // - Local providers (llama.cpp, mlx): need models only
+  // - Custom providers: need base_url AND models
+  // - Built-in remote providers: need API key
+  let statusReady: boolean;
+  if (provider.id === "ollama") {
+    statusReady = !!provider.current_base_url && provider.models.length > 0;
+  } else if (provider.is_local) {
+    statusReady = provider.models.length > 0;
+  } else if (provider.is_custom) {
+    statusReady = !!provider.current_base_url && provider.models.length > 0;
+  } else {
+    // Built-in remote providers (modelscope, dashscope, aliyun-codingplan)
+    statusReady = !!provider.current_api_key;
+  }
+
+  const statusLabel = statusReady
+    ? t("models.available")
+    : t("models.unavailable");
 
   return (
     <Card

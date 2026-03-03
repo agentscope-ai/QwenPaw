@@ -67,13 +67,11 @@ def _build_provider_info(
             extra_models=[],
             is_custom=False,
             is_local=True,
-            has_api_key=True,  # always "configured"
             current_api_key="",
             current_base_url="",
         )
 
     cur_base_url, cur_api_key = data.get_credentials(provider.id)
-    configured = data.is_configured(provider)
 
     settings = data.providers.get(provider.id)
     extra = (
@@ -91,7 +89,6 @@ def _build_provider_info(
         is_custom=provider.is_custom,
         is_local=provider.is_local,
         needs_base_url=provider.is_custom or not provider.default_base_url,
-        has_api_key=configured,
         current_api_key=mask_api_key(cur_api_key),
         current_base_url=cur_base_url,
     )
@@ -299,18 +296,34 @@ async def set_active_model(
         )
 
     data = load_providers_json()
-    if not data.is_configured(provider):
-        if provider.is_custom or not provider.default_base_url:
+    base_url, api_key = data.get_credentials(provider.id)
+
+    # Validation based on provider type
+    if provider.is_custom:
+        # Custom providers need base_url
+        if not base_url:
             msg = (
                 f"Provider '{provider.name}' has no base_url configured. "
                 "Please configure the base URL first."
             )
-        else:
+            raise HTTPException(status_code=400, detail=msg)
+    elif provider.id == "ollama":
+        # Ollama needs base_url to connect to daemon
+        if not base_url:
+            msg = (
+                f"Provider '{provider.name}' has no base_url configured. "
+                "Please configure the base URL first."
+            )
+            raise HTTPException(status_code=400, detail=msg)
+    elif not provider.is_local:
+        # Built-in remote providers (modelscope, dashscope, etc.) need API key
+        if not api_key:
             msg = (
                 f"Provider '{provider.name}' has no API key configured. "
                 "Please configure the API key first."
             )
-        raise HTTPException(status_code=400, detail=msg)
+            raise HTTPException(status_code=400, detail=msg)
+    # Local providers (llama.cpp, mlx) don't need validation
 
     if not body.model:
         raise HTTPException(status_code=400, detail="Model is required.")

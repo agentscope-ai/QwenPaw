@@ -13,7 +13,7 @@ interface ModelsSectionProps {
     models?: Array<{ id: string; name: string }>;
     extra_models?: Array<{ id: string; name: string }>;
     current_base_url?: string;
-    has_api_key: boolean;
+    current_api_key?: string;
     is_custom: boolean;
     is_local?: boolean;
   }>;
@@ -46,8 +46,20 @@ export function ModelsSection({
   const eligible = useMemo(
     () =>
       providers.filter((p) => {
-        if (p.is_local) return (p.models?.length ?? 0) > 0;
-        return p.is_custom ? !!p.current_base_url : p.has_api_key;
+        // Ollama: need base_url AND models (to connect to daemon)
+        if (p.id === "ollama") {
+          return !!p.current_base_url && (p.models?.length ?? 0) > 0;
+        }
+        // Local providers (llama.cpp, mlx): need models only
+        if (p.is_local) {
+          return (p.models?.length ?? 0) > 0;
+        }
+        // Custom providers: need base_url AND models
+        if (p.is_custom) {
+          return !!p.current_base_url && (p.models?.length ?? 0) > 0;
+        }
+        // Built-in remote providers (modelscope, dashscope, etc.): need API key
+        return !!p.current_api_key;
       }),
     [providers],
   );

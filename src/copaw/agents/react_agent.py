@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Any, List, Literal, Optional, Type
 
+
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
@@ -45,6 +46,9 @@ from ..constant import (
 
 logger = logging.getLogger(__name__)
 
+# Valid namesake strategies for tool registration
+NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
+
 
 def normalize_reasoning_tool_choice(
     tool_choice: Literal["auto", "none", "required"] | None,
@@ -75,6 +79,7 @@ class CoPawAgent(ReActAgent):
         memory_manager: MemoryManager | None = None,
         max_iters: int = 50,
         max_input_length: int = 128 * 1024,  # 128K = 131072 tokens
+        namesake_strategy: NamesakeStrategy = "skip",
     ):
         """Initialize CoPawAgent.
 
@@ -89,10 +94,14 @@ class CoPawAgent(ReActAgent):
                 (default: 50)
             max_input_length: Maximum input length in tokens for model
                 context window (default: 128K = 131072)
+            namesake_strategy: Strategy to handle namesake tool functions.
+                Options: "override", "skip", "raise", "rename"
+                (default: "skip")
         """
         self._env_context = env_context
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
+        self._namesake_strategy = namesake_strategy
 
         # Memory compaction threshold: configurable ratio of max_input_length
         self._memory_compact_threshold = int(
@@ -100,7 +109,7 @@ class CoPawAgent(ReActAgent):
         )
 
         # Initialize toolkit with built-in tools
-        toolkit = self._create_toolkit()
+        toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
 
         # Load and register skills
         self._register_skills(toolkit)
@@ -126,6 +135,7 @@ class CoPawAgent(ReActAgent):
         self._setup_memory_manager(
             enable_memory_manager,
             memory_manager,
+            namesake_strategy,
         )
 
         # Setup command handler
@@ -140,8 +150,16 @@ class CoPawAgent(ReActAgent):
         # Register hooks
         self._register_hooks()
 
-    def _create_toolkit(self) -> Toolkit:
+    def _create_toolkit(
+        self,
+        namesake_strategy: NamesakeStrategy = "skip",
+    ) -> Toolkit:
         """Create and populate toolkit with built-in tools.
+
+        Args:
+            namesake_strategy: Strategy to handle namesake tool functions.
+                Options: "override", "skip", "raise", "rename"
+                (default: "skip")
 
         Returns:
             Configured toolkit instance
@@ -149,14 +167,38 @@ class CoPawAgent(ReActAgent):
         toolkit = Toolkit()
 
         # Register built-in tools
-        toolkit.register_tool_function(execute_shell_command)
-        toolkit.register_tool_function(read_file)
-        toolkit.register_tool_function(write_file)
-        toolkit.register_tool_function(edit_file)
-        toolkit.register_tool_function(browser_use)
-        toolkit.register_tool_function(desktop_screenshot)
-        toolkit.register_tool_function(send_file_to_user)
-        toolkit.register_tool_function(get_current_time)
+        toolkit.register_tool_function(
+            execute_shell_command,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            read_file,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            write_file,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            edit_file,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            browser_use,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            desktop_screenshot,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            send_file_to_user,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            get_current_time,
+            namesake_strategy=namesake_strategy,
+        )
 
         return toolkit
 
@@ -200,12 +242,14 @@ class CoPawAgent(ReActAgent):
         self,
         enable_memory_manager: bool,
         memory_manager: MemoryManager | None,
+        namesake_strategy: NamesakeStrategy,
     ) -> None:
         """Setup memory manager and register memory search tool if enabled.
 
         Args:
             enable_memory_manager: Whether to enable memory manager
             memory_manager: Optional memory manager instance
+            namesake_strategy: Strategy to handle namesake tool functions
         """
         # Check env var: if ENABLE_MEMORY_MANAGER=false, disable memory manager
         env_enable_mm = os.getenv("ENABLE_MEMORY_MANAGER", "")
@@ -221,7 +265,10 @@ class CoPawAgent(ReActAgent):
             self.memory_manager.formatter = self.formatter
 
             memory_search_tool = create_memory_search_tool(self.memory_manager)
-            self.toolkit.register_tool_function(memory_search_tool)
+            self.toolkit.register_tool_function(
+                memory_search_tool,
+                namesake_strategy=namesake_strategy,
+            )
             logger.debug("Registered memory_search tool")
 
     def _register_hooks(self) -> None:
@@ -269,10 +316,22 @@ class CoPawAgent(ReActAgent):
                 msg.content = self.sys_prompt
             break
 
-    async def register_mcp_clients(self) -> None:
-        """Register MCP clients on this agent's toolkit after construction."""
+    async def register_mcp_clients(
+        self,
+        namesake_strategy: NamesakeStrategy = "skip",
+    ) -> None:
+        """Register MCP clients on this agent's toolkit after construction.
+
+        Args:
+            namesake_strategy: Strategy to handle namesake tool functions.
+                Options: "override", "skip", "raise", "rename"
+                (default: "skip")
+        """
         for client in self._mcp_clients:
-            await self.toolkit.register_mcp_client(client)
+            await self.toolkit.register_mcp_client(
+                client,
+                namesake_strategy=namesake_strategy,
+            )
 
     async def _reasoning(
         self,

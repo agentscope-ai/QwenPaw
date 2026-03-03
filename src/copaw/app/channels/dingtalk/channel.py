@@ -627,7 +627,12 @@ class DingTalkChannel(BaseChannel):
         to_handle: str,
         meta: Optional[Dict[str, Any]],
     ) -> Optional[str]:
-        """Resolve session_webhook for sending (from meta or to_handle)."""
+        """Resolve session_webhook for sending. Prefer current request's
+        webhook (meta); only use store for proactive send (e.g. cron).
+        When this is a reply to a user message (meta has reply_future or
+        conversation_id) and meta has no session_webhook, do not fall back
+        to store so we never use a stale/expired webhook.
+        """
         m = meta or {}
         webhook = m.get("session_webhook") or m.get("sessionWebhook")
         if webhook:
@@ -648,6 +653,15 @@ class DingTalkChannel(BaseChannel):
                 session_param_from_webhook_url(webhook),
             )
             return webhook
+        # Current-request context but no webhook in meta: do not use store
+        # (could be expired after long idle).
+        if m.get("reply_future") is not None or m.get("conversation_id"):
+            logger.info(
+                "dingtalk _get_session_webhook_for_send: to_handle=%s "
+                "current request has no session_webhook, skip store",
+                to_handle[:40] if to_handle else "",
+            )
+            return None
         key = route.get("webhook_key")
         if key:
             webhook = await self._load_session_webhook(key)
@@ -1109,7 +1123,16 @@ class DingTalkChannel(BaseChannel):
             "dingtalk _run_process_loop: after set channel_meta has_sw=%s",
             bool((request.channel_meta or {}).get("session_webhook")),
         )
-        await self._process_one_request(request, reply_meta=send_meta)
+        try:
+            await self._process_one_request(request, reply_meta=send_meta)
+        except Exception:
+            logger.exception("dingtalk _process_one_request failed")
+            self._reply_sync_batch(
+                send_meta,
+                self.bot_prefix
+                + "An error occurred while processing your request.",
+            )
+            raise
 
     async def _process_one_request(
         self,
@@ -1120,6 +1143,10 @@ class DingTalkChannel(BaseChannel):
         reply_meta = reply_meta or meta
         session_webhook = self._get_session_webhook(meta)
         use_multi = bool(session_webhook)
+        logger.debug(
+            "dingtalk _process_one_request: has_session_webhook=%s",
+            use_multi,
+        )
         logger.info(
             "dingtalk _process_one_request: meta has_sw=%s use_multi=%s",
             bool(meta.get("session_webhook")),

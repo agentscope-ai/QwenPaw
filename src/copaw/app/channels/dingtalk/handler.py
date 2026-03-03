@@ -213,6 +213,11 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 "session_webhook",
                 None,
             )
+            logger.debug(
+                "dingtalk request: has_session_webhook=%s sender=%s",
+                bool(sw),
+                sender,
+            )
             if sw:
                 meta["session_webhook"] = sw
                 sw_exp = getattr(
@@ -258,6 +263,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "sent to=%s via sessionWebhook (multi-message)",
                     sender,
                 )
+                # Stream connection still expects a reply frame;
+                # send minimal ack so the connection completes and next
+                # messages work.
+                self.reply_text(" ", incoming_message)
             else:
                 out = self._bot_prefix + response_text
                 self.reply_text(out, incoming_message)
