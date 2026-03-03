@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint:disable=unused-import
 """
 macOS .app Dev entry: same as gui_launcher but tee stdout/stderr to a log file
 and install excepthooks so crashes leave a trace in ~/Library/.../logs/.
@@ -15,6 +16,12 @@ _SUPPORT = os.path.abspath(
     os.path.expanduser("~/Library/Application Support/CoPaw"),
 )
 os.environ["COPAW_WORKING_DIR"] = _SUPPORT
+
+# Force PyInstaller to bundle reme (import is optional at runtime for dev from source).
+try:
+    import reme  # noqa: F401
+except ImportError:
+    pass
 
 _LOG_DIR = os.path.join(_SUPPORT, "logs")
 _LOG_FILE = os.path.join(_LOG_DIR, "copaw_dev.log")
