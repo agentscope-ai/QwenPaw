@@ -110,10 +110,7 @@ class ProvidersData(BaseModel):
         s = self.providers.get(defn.id)
         if not s:
             return False
-        if defn.is_custom:
-            return bool(s.base_url)
-        # Providers without a default base URL (e.g. Azure OpenAI)
-        # require both base_url and api_key to be considered configured.
+        # No default URL: require both base_url and api_key.
         if not defn.default_base_url:
             return bool(s.base_url) and bool(s.api_key)
         return bool(s.api_key)
@@ -129,11 +126,6 @@ class ProviderInfo(BaseModel):
     extra_models: List[ModelInfo] = Field(default_factory=list)
     is_custom: bool = Field(default=False)
     is_local: bool = Field(default=False)
-    needs_base_url: bool = Field(
-        default=False,
-        description="True when the user must supply a base URL "
-        "(custom providers or providers without a default URL).",
-    )
     has_api_key: bool = Field(default=False)
     current_api_key: str = Field(default="")
     current_base_url: str = Field(default="")

@@ -81,19 +81,9 @@ def configure_provider_api_key_interactive(
 
     base_url: Optional[str] = None
     # Prompt for base_url if the provider is custom or has no default URL
-    # (e.g. Azure OpenAI requires user to provide their endpoint).
     if defn.is_custom or not defn.default_base_url:
-        azure_hint = (
-            "Azure endpoint "
-            "(e.g. https://<resource>.openai.azure.com/openai/v1)"
-        )
-        url_hint = (
-            azure_hint
-            if provider_id == "azure-openai"
-            else "Base URL (OpenAI-compatible endpoint)"
-        )
         base_url = click.prompt(
-            url_hint,
+            "Base URL (OpenAI-compatible endpoint)",
             default=current_base or "",
             show_default=bool(current_base),
         ).strip()

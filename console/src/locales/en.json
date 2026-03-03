@@ -246,7 +246,6 @@
     "enterApiKey": "Enter API key ({{prefix}}-...)",
     "enterApiKeyOptional": "Enter API key (optional)",
     "openAIEndpoint": "OpenAI-compatible endpoint, e.g. http://localhost:11434/v1",
-    "azureEndpointHint": "Azure OpenAI endpoint, e.g. https://<resource>.openai.azure.com/openai/v1",
     "pleaseEnterBaseURL": "Please enter the API base URL",
     "pleaseEnterValidURL": "Please enter a valid URL",
     "apiKeyShouldStart": "API Key should start with \"{{prefix}}\"",

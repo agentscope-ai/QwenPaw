@@ -54,17 +54,6 @@ OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
 
-AZURE_OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gpt-5-chat", name="GPT-5 Chat"),
-    ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
-    ModelInfo(id="gpt-5-nano", name="GPT-5 Nano"),
-    ModelInfo(id="gpt-4.1", name="GPT-4.1"),
-    ModelInfo(id="gpt-4.1-mini", name="GPT-4.1 Mini"),
-    ModelInfo(id="gpt-4.1-nano", name="GPT-4.1 Nano"),
-    ModelInfo(id="gpt-4o", name="GPT-4o"),
-    ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
-]
-
 PROVIDER_MODELSCOPE = ProviderDefinition(
     id="modelscope",
     name="ModelScope",
@@ -115,14 +104,6 @@ PROVIDER_OPENAI = ProviderDefinition(
     models=OPENAI_MODELS,
 )
 
-PROVIDER_AZURE_OPENAI = ProviderDefinition(
-    id="azure-openai",
-    name="Azure OpenAI",
-    default_base_url="",
-    api_key_prefix="",
-    models=AZURE_OPENAI_MODELS,
-)
-
 PROVIDER_OLLAMA = ProviderDefinition(
     id="ollama",
     name="Ollama",
@@ -137,7 +118,6 @@ _BUILTIN_IDS: frozenset[str] = frozenset(
         "dashscope",
         "aliyun-codingplan",
         "openai",
-        "azure-openai",
         "ollama",
         "llamacpp",
         "mlx",
@@ -149,7 +129,6 @@ PROVIDERS: dict[str, ProviderDefinition] = {
     PROVIDER_DASHSCOPE.id: PROVIDER_DASHSCOPE,
     PROVIDER_ALIYUN_CODINGPLAN.id: PROVIDER_ALIYUN_CODINGPLAN,
     PROVIDER_OPENAI.id: PROVIDER_OPENAI,
-    PROVIDER_AZURE_OPENAI.id: PROVIDER_AZURE_OPENAI,
     PROVIDER_OLLAMA.id: PROVIDER_OLLAMA,
     PROVIDER_LLAMACPP.id: PROVIDER_LLAMACPP,
     PROVIDER_MLX.id: PROVIDER_MLX,

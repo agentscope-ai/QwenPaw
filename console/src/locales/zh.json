@@ -246,7 +246,6 @@
     "enterApiKey": "输入 API 密钥 ({{prefix}}-...)",
     "enterApiKeyOptional": "输入 API 密钥（可选）",
     "openAIEndpoint": "OpenAI 兼容端点，例如 http://localhost:11434/v1",
-    "azureEndpointHint": "Azure OpenAI 端点，例如 https://<resource>.openai.azure.com/openai/v1",
     "pleaseEnterBaseURL": "请输入 API 基础 URL",
     "pleaseEnterValidURL": "请输入有效的 URL",
     "apiKeyShouldStart": "API 密钥应以 \"{{prefix}}\" 开头",
