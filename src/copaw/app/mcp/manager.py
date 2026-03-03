@@ -185,18 +185,33 @@ class MCPClientManager:
     @staticmethod
     def _build_client(client_config: "MCPClientConfig") -> Any:
         """Build MCP client instance by configured transport."""
+        rebuild_info = {
+            "name": client_config.name,
+            "transport": client_config.transport,
+            "url": client_config.url,
+            "headers": client_config.headers or None,
+            "command": client_config.command,
+            "args": list(client_config.args),
+            "env": dict(client_config.env),
+            "cwd": client_config.cwd or None,
+        }
+
         if client_config.transport == "stdio":
-            return StdIOStatefulClient(
+            client = StdIOStatefulClient(
                 name=client_config.name,
                 command=client_config.command,
                 args=client_config.args,
                 env=client_config.env,
                 cwd=client_config.cwd or None,
             )
+            setattr(client, "_copaw_rebuild_info", rebuild_info)
+            return client
 
-        return HttpStatefulClient(
+        client = HttpStatefulClient(
             name=client_config.name,
             transport=client_config.transport,
             url=client_config.url,
             headers=client_config.headers or None,
         )
+        setattr(client, "_copaw_rebuild_info", rebuild_info)
+        return client

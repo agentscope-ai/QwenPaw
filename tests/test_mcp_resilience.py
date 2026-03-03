@@ -6,7 +6,9 @@ from anyio import ClosedResourceError
 
 import copaw.app.runner.runner as runner_module
 from copaw.agents.react_agent import CoPawAgent
+from copaw.app.mcp.manager import MCPClientManager
 from copaw.app.runner.runner import AgentRunner
+from copaw.config.config import MCPClientConfig
 
 
 class _FakeToolkit:
@@ -49,6 +51,28 @@ class _FakeMCPClient:
             raise RuntimeError("connect failed")
 
 
+def test_build_client_attaches_rebuild_info() -> None:
+    cfg = MCPClientConfig(
+        name="mcp_everything",
+        enabled=True,
+        transport="stdio",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-everything"],
+        env={"A": "1"},
+        cwd="/tmp",
+    )
+
+    client = MCPClientManager._build_client(cfg)
+    rebuild_info = getattr(client, "_copaw_rebuild_info", None)
+
+    assert isinstance(rebuild_info, dict)
+    assert rebuild_info["transport"] == "stdio"
+    assert rebuild_info["command"] == "npx"
+    assert rebuild_info["args"] == ["-y", "@modelcontextprotocol/server-everything"]
+    assert rebuild_info["env"] == {"A": "1"}
+    assert rebuild_info["cwd"] == "/tmp"
+
+
 @pytest.mark.asyncio
 async def test_register_mcp_clients_retries_once_on_closed_resource() -> None:
     toolkit = _FakeToolkit(fail_once_names={"flaky"})
@@ -83,6 +107,32 @@ async def test_register_mcp_clients_skips_unrecoverable_client() -> None:
     assert broken.connect_calls == 1
     assert "broken" not in toolkit.registered
     assert toolkit.registered == ["healthy"]
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_clients_rebuilds_client_when_reconnect_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit = _FakeToolkit(always_fail_names={"broken"})
+    broken = _FakeMCPClient(name="broken", connect_ok=False)
+    rebuilt = _FakeMCPClient(name="rebuilt", connect_ok=True)
+
+    monkeypatch.setattr(
+        CoPawAgent,
+        "_rebuild_mcp_client",
+        staticmethod(lambda client: rebuilt),  # noqa: ARG005
+    )
+
+    agent = object.__new__(CoPawAgent)
+    agent.toolkit = toolkit
+    agent._mcp_clients = [broken]
+
+    await CoPawAgent.register_mcp_clients(agent)
+
+    assert broken.connect_calls == 1
+    assert rebuilt.connect_calls == 1
+    assert toolkit.registered == ["rebuilt"]
+    assert agent._mcp_clients[0] is rebuilt
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from typing import Any, List, Literal, Optional, Type
 
 from anyio import ClosedResourceError
 from agentscope.agent import ReActAgent
+from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from pydantic import BaseModel
@@ -272,30 +273,32 @@ class CoPawAgent(ReActAgent):
 
     async def register_mcp_clients(self) -> None:
         """Register MCP clients on this agent's toolkit after construction."""
-        for client in self._mcp_clients:
+        for i, client in enumerate(self._mcp_clients):
             client_name = getattr(client, "name", repr(client))
             try:
                 await self.toolkit.register_mcp_client(client)
             except ClosedResourceError:
                 logger.warning(
                     "MCP client '%s' session closed while listing tools; "
-                    "trying reconnect once",
+                    "trying recovery",
                     client_name,
                 )
-                if await self._reconnect_mcp_client(client):
+                recovered_client = await self._recover_mcp_client(client)
+                if recovered_client is not None:
+                    self._mcp_clients[i] = recovered_client
                     try:
-                        await self.toolkit.register_mcp_client(client)
+                        await self.toolkit.register_mcp_client(recovered_client)
                         continue
                     except Exception as e:  # pylint: disable=broad-except
                         logger.warning(
-                            "MCP client '%s' still unavailable after "
-                            "reconnect, skipping: %s",
+                            "MCP client '%s' still unavailable after recovery, "
+                            "skipping: %s",
                             client_name,
                             e,
                         )
                 else:
                     logger.warning(
-                        "MCP client '%s' reconnect failed, skipping",
+                        "MCP client '%s' recovery failed, skipping",
                         client_name,
                     )
             except Exception as e:  # pylint: disable=broad-except
@@ -304,6 +307,20 @@ class CoPawAgent(ReActAgent):
                     client_name,
                     e,
                 )
+
+    async def _recover_mcp_client(self, client: Any) -> Any | None:
+        """Recover MCP client from broken session and return healthy client."""
+        if await self._reconnect_mcp_client(client):
+            return client
+
+        rebuilt_client = self._rebuild_mcp_client(client)
+        if rebuilt_client is None:
+            return None
+
+        if await self._reconnect_mcp_client(rebuilt_client):
+            return rebuilt_client
+
+        return None
 
     @staticmethod
     async def _reconnect_mcp_client(client: Any) -> bool:
@@ -324,6 +341,39 @@ class CoPawAgent(ReActAgent):
             return True
         except Exception:  # pylint: disable=broad-except
             return False
+
+    @staticmethod
+    def _rebuild_mcp_client(client: Any) -> Any | None:
+        """Rebuild a fresh MCP client instance from stored config metadata."""
+        rebuild_info = getattr(client, "_copaw_rebuild_info", None)
+        if not isinstance(rebuild_info, dict):
+            return None
+
+        transport = rebuild_info.get("transport")
+        name = rebuild_info.get("name")
+
+        try:
+            if transport == "stdio":
+                rebuilt_client = StdIOStatefulClient(
+                    name=name,
+                    command=rebuild_info.get("command"),
+                    args=rebuild_info.get("args", []),
+                    env=rebuild_info.get("env", {}),
+                    cwd=rebuild_info.get("cwd"),
+                )
+                setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+                return rebuilt_client
+
+            rebuilt_client = HttpStatefulClient(
+                name=name,
+                transport=transport,
+                url=rebuild_info.get("url"),
+                headers=rebuild_info.get("headers"),
+            )
+            setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+            return rebuilt_client
+        except Exception:  # pylint: disable=broad-except
+            return None
 
     async def _reasoning(
         self,
