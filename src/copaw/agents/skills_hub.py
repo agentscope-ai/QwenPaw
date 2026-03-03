@@ -646,7 +646,12 @@ def _github_list_skill_md_roots(
     ref: str,
 ) -> list[str]:
     tree_url = _github_api_url(owner, repo, f"git/trees/{ref}")
-    data = _http_json_get(tree_url, {"recursive": "1"})
+    try:
+        data = _http_json_get(tree_url, {"recursive": "1"})
+    except HTTPError as e:
+        if getattr(e, "code", 0) == 404:
+            return []
+        raise
     if not isinstance(data, dict):
         return []
     tree = data.get("tree")
@@ -784,8 +789,12 @@ def _fetch_bundle_from_skills_sh_url(
     if requested_version.strip():
         branch_candidates = [requested_version.strip()]
     else:
-        # Avoid extra API call for default branch on every import.
-        branch_candidates = ["main", "master"]
+        # Prefer repo default branch (e.g. master).
+        default_branch = _github_get_default_branch(owner, repo)
+        branch_candidates = [default_branch] if default_branch else []
+        for b in ("main", "master"):
+            if b and b not in branch_candidates:
+                branch_candidates.append(b)
 
     selected_root = ""
     skill_md_entry: dict[str, Any] | None = None

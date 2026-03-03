@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -11,6 +12,9 @@ from ...agents.skills_hub import (
     search_hub_skills,
     install_skill_from_hub,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class SkillSpec(SkillInfo):
@@ -113,6 +117,16 @@ async def search_hub(
     ]
 
 
+def _github_token_hint(bundle_url: str) -> str:
+    """Hint to set GITHUB_TOKEN when URL is from GitHub/skills.sh."""
+    if not bundle_url:
+        return ""
+    lower = bundle_url.lower()
+    if "skills.sh" in lower or "github.com" in lower:
+        return " Tip: set GITHUB_TOKEN (or GH_TOKEN) to avoid rate limits."
+    return ""
+
+
 @router.post("/hub/install")
 async def install_from_hub(request: HubInstallRequest):
     try:
@@ -126,12 +140,18 @@ async def install_from_hub(request: HubInstallRequest):
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
         # Upstream hub is flaky/rate-limited sometimes; surface as bad gateway.
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        detail = str(e) + _github_token_hint(request.bundle_url)
+        logger.exception(
+            "Skill hub install failed (upstream/rate limit): %s",
+            e,
+        )
+        raise HTTPException(status_code=502, detail=detail) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Skill hub import failed: {e}",
-        ) from e
+        detail = f"Skill hub import failed: {e}" + _github_token_hint(
+            request.bundle_url,
+        )
+        logger.exception("Skill hub import failed: %s", e)
+        raise HTTPException(status_code=502, detail=detail) from e
     return {
         "installed": True,
         "name": result.name,
