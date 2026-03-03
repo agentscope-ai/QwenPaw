@@ -29,6 +29,9 @@ def _sanitize_tool_call(tool_call: Any) -> Any | None:
     if function is None:
         return None
 
+    has_name = hasattr(function, "name")
+    has_arguments = hasattr(function, "arguments")
+
     raw_name = getattr(function, "name", "")
     if isinstance(raw_name, str):
         safe_name = raw_name
@@ -49,10 +52,13 @@ def _sanitize_tool_call(tool_call: Any) -> Any | None:
             safe_arguments = str(raw_arguments)
 
     if (
-        isinstance(raw_name, str)
-        and isinstance(raw_arguments, str)
-        and safe_name == raw_name
-        and safe_arguments == raw_arguments
+        has_name
+        and has_arguments
+        and isinstance(raw_name, str)
+        and isinstance(
+            raw_arguments,
+            str,
+        )
     ):
         return tool_call
 

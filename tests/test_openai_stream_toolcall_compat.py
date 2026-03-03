@@ -124,6 +124,21 @@ def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:
         id="call_dict",
         function=SimpleNamespace(name="ping", arguments={"x": 2}),
     )
+    missing_arguments_tool_call = SimpleNamespace(
+        index=2,
+        id="call_missing_args",
+        function=SimpleNamespace(name="ping"),
+    )
+    missing_name_tool_call = SimpleNamespace(
+        index=3,
+        id="call_missing_name",
+        function=SimpleNamespace(arguments={"x": 3}),
+    )
+    missing_name_and_arguments_tool_call = SimpleNamespace(
+        index=4,
+        id="call_missing_both",
+        function=SimpleNamespace(),
+    )
 
     sanitized_none_arguments = _sanitize_tool_call(none_arguments_tool_call)
     assert sanitized_none_arguments is not None
@@ -136,4 +151,26 @@ def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:
     assert sanitized_non_string_arguments is not None
     assert sanitized_non_string_arguments.function.name == "ping"
     assert isinstance(sanitized_non_string_arguments.function.arguments, str)
-    assert json.loads(sanitized_non_string_arguments.function.arguments) == {"x": 2}
+    assert json.loads(sanitized_non_string_arguments.function.arguments) == {
+        "x": 2,
+    }
+
+    sanitized_missing_arguments = _sanitize_tool_call(
+        missing_arguments_tool_call,
+    )
+    assert sanitized_missing_arguments is not None
+    assert sanitized_missing_arguments.function.name == "ping"
+    assert sanitized_missing_arguments.function.arguments == ""
+
+    sanitized_missing_name = _sanitize_tool_call(missing_name_tool_call)
+    assert sanitized_missing_name is not None
+    assert sanitized_missing_name.function.name == ""
+    assert isinstance(sanitized_missing_name.function.arguments, str)
+    assert json.loads(sanitized_missing_name.function.arguments) == {"x": 3}
+
+    sanitized_missing_name_and_arguments = _sanitize_tool_call(
+        missing_name_and_arguments_tool_call,
+    )
+    assert sanitized_missing_name_and_arguments is not None
+    assert sanitized_missing_name_and_arguments.function.name == ""
+    assert sanitized_missing_name_and_arguments.function.arguments == ""
