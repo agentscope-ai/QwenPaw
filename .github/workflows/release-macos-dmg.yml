@@ -2,10 +2,12 @@
 # Users can download CoPaw-<version>.dmg from the release page.
 # Compatible with macOS 10.15+ (Catalina and later; Intel and Apple Silicon).
 #
-# If users see "damaged" or cannot open after download (Gatekeeper on unsigned
-# apps), they can: right-click the .app → Open, or run in Terminal:
-#   xattr -cr ~/Downloads/CoPaw-*.dmg
-# then open the DMG again.
+# NOTE:
+# - Without a real "Developer ID Application" certificate + notarization,
+#   Gatekeeper may still warn. Ad-hoc signing helps but does not replace notarization.
+# - PyInstaller apps contain folders like _internal/python3.10 that are NOT valid
+#   macOS bundles. Therefore DO NOT use `codesign --deep` and DO NOT sign the whole
+#   .app bundle here (that can still recurse into invalid subcomponents).
 name: Release macOS DMG
 
 on:
@@ -70,7 +72,7 @@ jobs:
             bash scripts/macos/build_dmg.sh
           fi
 
-      - name: Sign app and recreate DMG (ad-hoc, no --deep)
+      - name: Ad-hoc sign Mach-O files and recreate DMG (no app-bundle signing)
         shell: bash
         run: |
           set -euo pipefail
@@ -80,21 +82,23 @@ jobs:
 
           [[ -d "$APP_DIR" ]] || { echo "No $APP_DIR found" >&2; exit 1; }
 
-          # Optional cleanup
+          # Remove packaging metadata that is irrelevant at runtime (optional)
           find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf || true
+
+          # Some packages include marker files like py.typed; not signable, safe to keep,
+          # but deleting reduces any chance of odd subcomponent checks.
           find "$APP_DIR" -type f -name "py.typed" -delete || true
 
-          # Ad-hoc sign ONLY Mach-O files (executables/dylibs/extension modules)
+          # Sign ONLY Mach-O binaries (executables / dylibs / python extension modules).
+          # This avoids `codesign` trying to treat PyInstaller directories (e.g. python3.10)
+          # as nested bundles, which causes "bundle format unrecognized".
           while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -qE 'Mach-O'; then
+            if file -b "$f" | grep -q 'Mach-O'; then
               codesign --force --sign - "$f"
             fi
           done < <(find "$APP_DIR" -type f -print0)
 
-          # Finally sign the .app bundle itself (no --deep)
-          codesign --force --sign - "$APP_DIR"
-
-          # Recreate DMG so it contains the signed app
+          # Recreate DMG so it contains the signed binaries
           DMG_NAME="$(ls $DMG_GLOB 2>/dev/null | head -1 || true)"
           [[ -n "${DMG_NAME:-}" ]] || { echo "No DMG found" >&2; exit 1; }
 
