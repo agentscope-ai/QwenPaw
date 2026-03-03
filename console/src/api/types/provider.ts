@@ -120,3 +120,10 @@ export interface TestProviderRequest {
 export interface TestModelRequest {
   model_id: string;
 }
+
+export interface DiscoverModelsResponse {
+  success: boolean;
+  message: string;
+  models: ModelInfo[];
+  added_count: number;
+}

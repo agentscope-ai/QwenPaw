@@ -8,6 +8,7 @@ import type {
   AddModelRequest,
   TestConnectionResponse,
   TestModelRequest,
+  DiscoverModelsResponse,
 } from "../types";
 
 export const providerApi = {
@@ -77,6 +78,18 @@ export const providerApi = {
       {
         method: "POST",
         body: JSON.stringify(body),
+      },
+    ),
+
+  discoverModels: (
+    providerId: string,
+    body?: { api_key?: string; base_url?: string },
+  ) =>
+    request<DiscoverModelsResponse>(
+      `/models/${encodeURIComponent(providerId)}/discover`,
+      {
+        method: "POST",
+        body: body ? JSON.stringify(body) : undefined,
       },
     ),
 };

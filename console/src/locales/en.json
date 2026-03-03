@@ -275,6 +275,9 @@
     "notSet": "Not set",
     "available": "Available",
     "unavailable": "Unavailable",
+    "providerAvailable": "Ready (with models)",
+    "providerNoModels": "Not Ready (no models)",
+    "providerNotConfigured": "Not Ready (not configured)",
     "settings": "Settings",
     "actions": "Actions",
     "custom": "Custom",
@@ -348,7 +351,12 @@
     "testConnectionSuccess": "Connection test successful",
     "testConnectionFailed": "Connection test failed",
     "testConnectionError": "An error occurred while testing connection",
-    "modelTestFailed": "Model validation failed, please check if the model ID is correct"
+    "discoverModels": "Discover Models",
+    "discoverModelsFailed": "Failed to discover models",
+    "modelTestFailed": "Model validation failed, please check if the model ID is correct",
+    "autoDiscoveredAndAdded": "Auto-discovered {{count}} models and added {{added}} new model(s)",
+    "autoDiscoveredNoNew": "Auto-discovered {{count}} models; model list is already up to date",
+    "autoDiscoverFailed": "Automatic model discovery failed; you can add models manually"
   },
   "agentConfig": {
     "title": "Configuration",

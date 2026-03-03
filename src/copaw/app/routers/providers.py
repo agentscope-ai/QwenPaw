@@ -17,6 +17,7 @@ from ...providers import (
     add_model,
     create_custom_provider,
     delete_custom_provider,
+    discover_provider_models,
     get_provider,
     list_providers,
     load_providers_json,
@@ -178,6 +179,30 @@ class TestModelRequest(BaseModel):
     model_id: str = Field(..., description="Model ID to test")
 
 
+class DiscoverModelsRequest(BaseModel):
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Optional API key to use for discovery",
+    )
+    base_url: Optional[str] = Field(
+        default=None,
+        description="Optional Base URL to use for discovery",
+    )
+
+
+class DiscoverModelsResponse(BaseModel):
+    success: bool = Field(..., description="Whether discovery succeeded")
+    message: str = Field(..., description="Human-readable result message")
+    models: List[ModelInfo] = Field(
+        default_factory=list,
+        description="Discovered models",
+    )
+    added_count: int = Field(
+        default=0,
+        description="How many new models were added into provider config",
+    )
+
+
 @router.post(
     "/{provider_id}/test",
     response_model=TestConnectionResponse,
@@ -197,6 +222,26 @@ async def test_provider(
             base_url=base_url,
         )
         return TestConnectionResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{provider_id}/discover",
+    response_model=DiscoverModelsResponse,
+    summary="Discover available models from provider",
+)
+async def discover_models(
+    provider_id: str = Path(...),
+    body: Optional[DiscoverModelsRequest] = Body(default=None),
+) -> DiscoverModelsResponse:
+    try:
+        result = await discover_provider_models(
+            provider_id,
+            api_key=body.api_key if body else None,
+            base_url=body.base_url if body else None,
+        )
+        return DiscoverModelsResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -571,6 +571,263 @@ def remove_model(provider_id: str, model_id: str) -> ProvidersData:
     return data
 
 
+def _dedupe_models(models: list[ModelInfo]) -> list[ModelInfo]:
+    """Keep insertion order while deduplicating by model id."""
+    out: list[ModelInfo] = []
+    seen: set[str] = set()
+    for model in models:
+        model_id = (model.id or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        name = (model.name or "").strip() or model_id
+        out.append(ModelInfo(id=model_id, name=name))
+    return out
+
+
+def _merge_discovered_models(
+    provider_id: str,
+    discovered: list[ModelInfo],
+    data: ProvidersData,
+) -> int:
+    """Merge discovered models into provider config and return added count."""
+    defn = PROVIDERS.get(provider_id)
+    if defn is None:
+        raise ValueError(f"Provider '{provider_id}' not found.")
+
+    discovered = _dedupe_models(discovered)
+    if not discovered:
+        return 0
+
+    added_count = 0
+
+    if is_builtin(provider_id):
+        # Ollama models come from daemon sync and should not be persisted here.
+        if provider_id == "ollama":
+            return 0
+
+        settings = data.providers.setdefault(
+            provider_id,
+            ProviderSettings(base_url=defn.default_base_url),
+        )
+        existing_ids = {m.id for m in defn.models} | {
+            m.id for m in settings.extra_models
+        }
+        for model in discovered:
+            if model.id in existing_ids:
+                continue
+            settings.extra_models.append(model)
+            existing_ids.add(model.id)
+            added_count += 1
+        return added_count
+
+    cpd = data.custom_providers.get(provider_id)
+    if cpd is None:
+        raise ValueError(f"Custom provider '{provider_id}' not found.")
+
+    existing_ids = {m.id for m in cpd.models}
+    for model in discovered:
+        if model.id in existing_ids:
+            continue
+        cpd.models.append(model)
+        existing_ids.add(model.id)
+        added_count += 1
+
+    if added_count > 0:
+        register_custom_provider(cpd)
+
+    return added_count
+
+
+async def discover_provider_models(
+    provider_id: str,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> dict[str, Any]:
+    """Discover available models from a provider's /models endpoint.
+
+    Returns:
+        dict with keys:
+        - success: bool
+        - message: str
+        - models: list[ModelInfo]
+        - added_count: int
+    """
+    defn = PROVIDERS.get(provider_id)
+    if defn is None:
+        raise ValueError(f"Provider '{provider_id}' not found.")
+
+    # Local providers are already represented by local model registry.
+    if defn.is_local:
+        return {
+            "success": True,
+            "message": f"{defn.name} uses local models; no remote discovery.",
+            "models": list(defn.models),
+            "added_count": 0,
+        }
+
+    # Ollama model list comes from local daemon.
+    if provider_id == "ollama":
+        try:
+            from .ollama_manager import OllamaModelManager
+
+            models = [
+                ModelInfo(id=m.name, name=m.name)
+                for m in OllamaModelManager.list_models()
+            ]
+            return {
+                "success": True,
+                "message": f"Discovered {len(models)} Ollama model(s).",
+                "models": models,
+                "added_count": 0,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Failed to query Ollama models: {str(e)}",
+                "models": [],
+                "added_count": 0,
+            }
+
+    try:
+        import httpx
+    except ImportError:
+        return {
+            "success": False,
+            "message": "httpx library is not installed.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    data = load_providers_json()
+    saved_base_url, saved_api_key = data.get_credentials(provider_id)
+    resolved_base_url = (
+        base_url or saved_base_url or defn.default_base_url
+    ).strip()
+    resolved_api_key = saved_api_key if api_key is None else api_key
+
+    if not resolved_base_url:
+        return {
+            "success": False,
+            "message": "Base URL is required to discover models.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    endpoint = f"{resolved_base_url.rstrip('/')}/models"
+    headers = {"Accept": "application/json"}
+    if resolved_api_key:
+        headers["Authorization"] = f"Bearer {resolved_api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(endpoint, headers=headers)
+    except httpx.ConnectError:
+        return {
+            "success": False,
+            "message": "Cannot connect to provider. Please check Base URL.",
+            "models": [],
+            "added_count": 0,
+        }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Model discovery timed out.",
+            "models": [],
+            "added_count": 0,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Model discovery failed: {str(e)}",
+            "models": [],
+            "added_count": 0,
+        }
+
+    if response.status_code in (401, 403):
+        return {
+            "success": False,
+            "message": "API key is invalid or has insufficient permission.",
+            "models": [],
+            "added_count": 0,
+        }
+    if response.status_code != 200:
+        msg = f"Provider returned {response.status_code} when listing models."
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                detail = payload.get("error") or payload.get("message")
+                if detail:
+                    msg = f"{msg} {detail}"
+        except Exception:
+            pass
+        return {
+            "success": False,
+            "message": msg,
+            "models": [],
+            "added_count": 0,
+        }
+
+    try:
+        payload = response.json()
+    except Exception:
+        return {
+            "success": False,
+            "message": "Provider returned non-JSON response for /models.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return {
+            "success": False,
+            "message": "Provider /models response format is unsupported.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    discovered: list[ModelInfo] = []
+    for row in rows:
+        if isinstance(row, str):
+            model_id = row.strip()
+            if model_id:
+                discovered.append(ModelInfo(id=model_id, name=model_id))
+            continue
+        if not isinstance(row, dict):
+            continue
+
+        model_id = str(row.get("id") or row.get("name") or "").strip()
+        if not model_id:
+            continue
+        model_name = str(row.get("name") or model_id).strip() or model_id
+        discovered.append(ModelInfo(id=model_id, name=model_name))
+
+    discovered = _dedupe_models(discovered)
+    if not discovered:
+        return {
+            "success": False,
+            "message": "No models discovered from provider /models endpoint.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    latest = load_providers_json()
+    added_count = _merge_discovered_models(provider_id, discovered, latest)
+    if added_count > 0:
+        save_providers_json(latest)
+
+    return {
+        "success": True,
+        "message": (
+            f"Discovered {len(discovered)} model(s), "
+            f"added {added_count} new model(s)."
+        ),
+        "models": discovered,
+        "added_count": added_count,
+    }
+
+
 # pylint: disable=too-many-return-statements,too-many-branches
 # pylint: disable=too-many-statements
 async def test_provider_connection(

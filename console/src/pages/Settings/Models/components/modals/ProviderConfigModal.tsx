@@ -85,6 +85,37 @@ export function ProviderConfigModal({
       }
 
       await api.configureProvider(provider.id, values);
+
+      // Auto-discover models from /models endpoint so users don't need
+      // to enter model IDs manually.
+      try {
+        const discovered = await api.discoverModels(provider.id, {
+          api_key: values.api_key,
+          base_url: values.base_url,
+        });
+        if (discovered.success) {
+          if (discovered.added_count > 0) {
+            message.success(
+              t("models.autoDiscoveredAndAdded", {
+                count: discovered.models.length,
+                added: discovered.added_count,
+              }),
+            );
+          } else if (discovered.models.length > 0) {
+            message.info(
+              t("models.autoDiscoveredNoNew", {
+                count: discovered.models.length,
+              }),
+            );
+          }
+        } else {
+          message.warning(discovered.message || t("models.autoDiscoverFailed"));
+        }
+      } catch (discoverError) {
+        console.warn("Failed to auto-discover models:", discoverError);
+        message.warning(t("models.autoDiscoverFailed"));
+      }
+
       await onSaved();
       setFormDirty(false);
       onClose();
