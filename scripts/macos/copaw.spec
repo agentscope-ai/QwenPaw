@@ -52,11 +52,13 @@ try:
     _reme_hidden = _reme_hidden + list(_fm_hidden or [])
 except Exception:
     pass
+# chromadb telemetry needs opentelemetry-sdk metadata in frozen app.
 _metadata_datas = []
-try:
-    _metadata_datas = copy_metadata("fastmcp")
-except Exception:
-    pass
+for _pkg in ("fastmcp", "opentelemetry-sdk", "opentelemetry-api"):
+    try:
+        _metadata_datas += copy_metadata(_pkg)
+    except Exception:
+        pass
 
 try:
     _chroma_datas, _chroma_binaries, _chroma_hidden = collect_all("chromadb")

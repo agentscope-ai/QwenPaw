@@ -52,11 +52,13 @@ except Exception:
     pass
 
 # reme/flowllm need fastmcp at import time; include metadata so it is found.
+# chromadb telemetry imports opentelemetry.sdk which needs opentelemetry-sdk metadata.
 _metadata_datas = []
-try:
-    _metadata_datas = copy_metadata("fastmcp")
-except Exception:
-    pass
+for _pkg in ("fastmcp", "opentelemetry-sdk", "opentelemetry-api"):
+    try:
+        _metadata_datas += copy_metadata(_pkg)
+    except Exception:
+        pass
 
 # chromadb: bundle datas (migrations etc.) and hiddenimports for frozen app.
 try:
