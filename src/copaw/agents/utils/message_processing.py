@@ -30,8 +30,34 @@ def _is_allowed_media_path(path: str) -> bool:
         resolved = Path(path).expanduser().resolve()
         root = _ALLOWED_MEDIA_ROOT.resolve()
         return resolved.is_file() and resolved.is_relative_to(root)
-    except Exception:
+    except Exception as e:
+        logger.debug("Error checking allowed media path '%s': %s", path, e)
         return False
+
+
+def _looks_like_windows_abs_path(
+    url: str,
+    parsed: urllib.parse.ParseResult,
+) -> bool:
+    """True when url is like C:\\foo\\bar (urlparse sees scheme='c')."""
+    return (
+        len(parsed.scheme) == 1
+        and len(url) > 2
+        and url[1] == ":"
+        and url[2] in ("/", "\\")
+    )
+
+
+def _looks_like_local_path_reference(
+    url: str,
+    parsed: urllib.parse.ParseResult,
+) -> bool:
+    """True when URL should be treated as local path input."""
+    return (
+        parsed.scheme == "file"
+        or (parsed.scheme == "" and parsed.netloc == "")
+        or _looks_like_windows_abs_path(url, parsed)
+    )
 
 
 def _extract_local_path_from_url(url: str) -> Optional[str]:
@@ -45,13 +71,26 @@ def _extract_local_path_from_url(url: str) -> Optional[str]:
             if candidate.is_file():
                 return str(candidate)
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                "Error extracting local path from file URL '%s': %s",
+                url,
+                e,
+            )
             return None
 
-    if parsed.scheme == "" and parsed.netloc == "":
-        candidate = Path(url).expanduser()
-        if candidate.is_file():
-            return str(candidate)
+    if _looks_like_local_path_reference(url, parsed):
+        try:
+            candidate = Path(url).expanduser()
+            if candidate.is_file():
+                return str(candidate)
+        except Exception as e:
+            logger.debug(
+                "Error extracting local path from plain path '%s': %s",
+                url,
+                e,
+            )
+            return None
 
     return None
 
@@ -87,12 +126,20 @@ async def _process_single_file_block(
     elif isinstance(source, dict) and source.get("type") == "url":
         url = source.get("url", "")
         if url:
-            local_path = _extract_local_path_from_url(url)
-            if local_path and not _is_allowed_media_path(local_path):
-                logger.warning(
-                    "Rejected local media path outside allowed media dir",
-                )
-                return None
+            parsed = urllib.parse.urlparse(url)
+            if _looks_like_local_path_reference(url, parsed):
+                local_path = _extract_local_path_from_url(url)
+                if not local_path:
+                    logger.warning(
+                        "Rejected local media path that is not a regular file",
+                    )
+                    return None
+                if not _is_allowed_media_path(local_path):
+                    logger.warning(
+                        "Rejected local media path outside allowed media dir",
+                    )
+                    return None
+                return str(Path(local_path).expanduser().resolve())
             local_path = await download_file_from_url(
                 url,
                 filename,
