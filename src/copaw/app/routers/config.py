@@ -29,17 +29,21 @@ async def list_channels() -> dict:
     """List all channel configs (filtered by available channels)."""
     config = load_config()
     available = get_available_channels()
-    
+
     # Get all channel configs from model_dump and __pydantic_extra__
     all_configs = config.channels.model_dump()
     extra = getattr(config.channels, "__pydantic_extra__", None) or {}
     all_configs.update(extra)
-    
+
     # Return all available channels (use default config if not saved)
     result = {}
     for key in available:
         if key in all_configs:
-            channel_data = dict(all_configs[key]) if isinstance(all_configs[key], dict) else all_configs[key]
+            channel_data = (
+                dict(all_configs[key])
+                if isinstance(all_configs[key], dict)
+                else all_configs[key]
+            )
         else:
             # Channel registered but no config saved yet, use empty default
             channel_data = {"enabled": False, "bot_prefix": ""}

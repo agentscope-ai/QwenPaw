@@ -1,4 +1,4 @@
-import { Card } from "@agentscope-ai/design";
+import { Card, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
@@ -41,14 +41,16 @@ export function ChannelCard({
       bodyStyle={{ padding: 20 }}
     >
       <div className={styles.cardHeader}>
-        <div className={styles.cardTitleRow}>
-          <div className={styles.cardTitle}>{label}</div>
-          {isBuiltin ? (
-            <span className={styles.builtinTag}>{t("channels.builtin")}</span>
-          ) : (
-            <span className={styles.customTag}>{t("channels.custom")}</span>
-          )}
-        </div>
+        <Tooltip title={label} placement="top">
+          <div className={styles.cardTitleRow}>
+            <div className={styles.cardTitle}>{label}</div>
+            {isBuiltin ? (
+              <span className={styles.builtinTag}>{t("channels.builtin")}</span>
+            ) : (
+              <span className={styles.customTag}>{t("channels.custom")}</span>
+            )}
+          </div>
+        </Tooltip>
 
         <div className={styles.statusContainer}>
           <div

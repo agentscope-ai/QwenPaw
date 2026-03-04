@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import api from "../../../api";
 
 export function useChannels() {
@@ -8,7 +8,7 @@ export function useChannels() {
   const [channelTypes, setChannelTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchChannels = async () => {
+  const fetchChannels = useCallback(async () => {
     setLoading(true);
     try {
       const [data, types] = await Promise.all([
@@ -23,30 +23,39 @@ export function useChannels() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchChannels();
-  }, []);
+  }, [fetchChannels]);
 
   // Built-in channels come first (in a fixed order), then custom channels
-  const builtinOrder = [
-    "console",
-    "dingtalk",
-    "feishu",
-    "imessage",
-    "discord",
-    "telegram",
-    "qq",
-  ];
+  const builtinOrder = useMemo(
+    () => [
+      "console",
+      "dingtalk",
+      "feishu",
+      "imessage",
+      "discord",
+      "telegram",
+      "qq",
+    ],
+    [],
+  );
 
-  const orderedKeys = [
-    ...builtinOrder.filter((k) => channelTypes.includes(k)),
-    ...channelTypes.filter((k) => !builtinOrder.includes(k)),
-  ];
+  const orderedKeys = useMemo(
+    () => [
+      ...builtinOrder.filter((k) => channelTypes.includes(k)),
+      ...channelTypes.filter((k) => !builtinOrder.includes(k)),
+    ],
+    [builtinOrder, channelTypes],
+  );
 
   // Read isBuiltin from API response
-  const isBuiltin = (key: string) => Boolean(channels[key]?.isBuiltin);
+  const isBuiltin = useCallback(
+    (key: string) => Boolean(channels[key]?.isBuiltin),
+    [channels],
+  );
 
   return {
     channels,

@@ -170,7 +170,12 @@ export function ChannelDrawer({
     if (!initialValues) return null;
 
     // Get extra fields (exclude base fields)
-    const baseFields = ["enabled", "bot_prefix", "filter_tool_messages"];
+    const baseFields = [
+      "enabled",
+      "bot_prefix",
+      "filter_tool_messages",
+      "isBuiltin",
+    ];
     const extraKeys = Object.keys(initialValues).filter(
       (k) => !baseFields.includes(k),
     );

@@ -168,8 +168,14 @@
 }
 
 .cardTitle {
+  max-width: 150px;
   font-size: 16px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .cardDescription {
