@@ -45,8 +45,11 @@ from ..constant import (
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
-from ..providers import get_routing_enabled
 
+from ..providers import get_routing_enabled  
+
+def _load_routing_enabled(self) -> bool:
+    return get_routing_enabled() 
 logger = logging.getLogger(__name__)
 
 # Valid namesake strategies for tool registration
