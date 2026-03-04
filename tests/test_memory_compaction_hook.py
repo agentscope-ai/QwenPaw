@@ -87,7 +87,7 @@ class FakeFormatter:
                 "content": str(getattr(msg, "content", "")),
                 "_test_token_count": int(
                     getattr(msg, "token_count", 0)
-                    or max(len(str(getattr(msg, "content", ""))) // 4, 1)
+                    or max(len(str(getattr(msg, "content", ""))) // 4, 1),
                 ),
             }
             for msg in msgs
@@ -132,7 +132,8 @@ async def test_compaction_triggers_on_total_context_budget(
         keep_recent=1,
     )
 
-    # message_tokens = 950 (at threshold, so no compaction by message-only count)
+    # message_tokens = 950 (at threshold),
+    # so no compaction by message-only count
     # summary_tokens > 0 for non-empty wrapped summary
     # total = message_tokens + summary_tokens > threshold => should compact.
     messages = [

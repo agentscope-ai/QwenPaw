@@ -175,9 +175,7 @@ class MemoryCompactionHook:
                 full_prompt,
             )
             summary_tokens = safe_count_str_tokens(previous_summary)
-            estimated_total_tokens = (
-                estimated_message_tokens + summary_tokens
-            )
+            estimated_total_tokens = estimated_message_tokens + summary_tokens
             logger.debug(
                 "Estimated context tokens total=%d "
                 "(messages=%d, summary=%d, summary_prepended=%s, "
