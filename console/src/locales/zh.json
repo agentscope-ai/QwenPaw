@@ -445,5 +445,14 @@
     "chatDisabledMessage": "聊天功能已禁用，因为未配置模型。请配置模型以启用聊天功能。",
     "configureNow": "配置模型",
     "modelNotConfigured": "请先在设置中配置模型后再使用聊天功能"
+  },
+  "chat": {
+    "defaultPrompt1": "让我们开启一段新的旅程吧！",
+    "defaultPrompt2": "能告诉我你有哪些技能吗？",
+    "newChat": "新对话",
+    "leftHeaderTitle": "与 CoPaw 一起工作",
+    "welcomeGreeting": "你好，今天我能帮你什么？",
+    "welcomeDescription": "我是一个有帮助的助手，可以回答你的问题。",
+    "disclaimer": "为你服务，与你共成长"
   }
 }

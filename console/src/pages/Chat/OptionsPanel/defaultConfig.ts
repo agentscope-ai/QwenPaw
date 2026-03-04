@@ -1,29 +1,30 @@
-const defaultConfig = {
+import i18n from "../../../i18n";
+
+const getDefaultConfig = () => ({
   theme: {
     colorPrimary: "#615CED",
     darkMode: false,
     prefix: "copaw",
     leftHeader: {
       logo: "",
-      title: "Work with CoPaw",
+      title: i18n.t("chat.leftHeaderTitle"),
     },
   },
   sender: {
     attachments: false,
     maxLength: 10000,
-    disclaimer: "Works for you, grows with you",
+    disclaimer: i18n.t("chat.disclaimer"),
   },
   welcome: {
-    greeting: "Hello, how can I help you today?",
-    description:
-      "I am a helpful assistant that can help you with your questions.",
+    greeting: i18n.t("chat.welcomeGreeting"),
+    description: i18n.t("chat.welcomeDescription"),
     avatar: `${import.meta.env.BASE_URL}copaw-symbol.svg`,
     prompts: [
       {
-        value: "让我们开启一段新的旅程吧！",
+        value: i18n.t("chat.defaultPrompt1"),
       },
       {
-        value: "能告诉我你有哪些技能吗？",
+        value: i18n.t("chat.defaultPrompt2"),
       },
     ],
   },
@@ -31,8 +32,8 @@ const defaultConfig = {
     baseURL: "",
     token: "",
   },
-} as const;
+});
 
-export default defaultConfig;
+export default getDefaultConfig;
 
-export type DefaultConfig = typeof defaultConfig;
+export type DefaultConfig = ReturnType<typeof getDefaultConfig>;

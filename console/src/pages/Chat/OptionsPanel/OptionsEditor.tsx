@@ -4,7 +4,7 @@ import { createStyles } from "antd-style";
 import { Button, IconButton, Switch } from "@agentscope-ai/design";
 import { SparkDeleteLine, SparkPlusLine } from "@agentscope-ai/icons";
 import FormItem from "./FormItem";
-import defaultConfig from "./defaultConfig";
+import getDefaultConfig from "./defaultConfig";
 
 const useStyles = createStyles(({ token }) => ({
   container: {
@@ -41,7 +41,20 @@ const OptionsEditor: React.FC<OptionsEditorProps> = ({ value, onChange }) => {
     form
       .validateFields()
       .then((values) => {
-        onChange?.(values);
+        const defaults = getDefaultConfig();
+        onChange?.({
+          ...values,
+          _customized: {
+            disclaimer:
+              values.sender?.disclaimer !== defaults.sender.disclaimer,
+            greeting: values.welcome?.greeting !== defaults.welcome.greeting,
+            description:
+              values.welcome?.description !== defaults.welcome.description,
+            prompts:
+              JSON.stringify(values.welcome?.prompts) !==
+              JSON.stringify(defaults.welcome.prompts),
+          },
+        });
       })
       .catch((error) => {
         console.error("Validation failed:", error);
@@ -49,7 +62,7 @@ const OptionsEditor: React.FC<OptionsEditorProps> = ({ value, onChange }) => {
   };
 
   const handleReset = () => {
-    form.setFieldsValue(defaultConfig);
+    form.setFieldsValue(getDefaultConfig());
   };
 
   return (

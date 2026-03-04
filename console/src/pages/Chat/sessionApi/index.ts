@@ -4,6 +4,7 @@ import {
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec, type Message } from "../../../api";
+import i18n from "../../../i18n";
 
 interface CustomWindow extends Window {
   currentSessionId?: string;
@@ -180,7 +181,7 @@ function convertMessages(
 function chatSpecToSession(chat: ChatSpec): ExtendedSession {
   return {
     id: chat.id,
-    name: (chat as ChatSpec & { name?: string }).name || "New Chat",
+    name: (chat as ChatSpec & { name?: string }).name || i18n.t("chat.newChat"),
     sessionId: chat.session_id,
     userId: chat.user_id,
     channel: chat.channel,
@@ -218,7 +219,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     return {
       id: sessionId,
-      name: "New Chat",
+      name: i18n.t("chat.newChat"),
       sessionId: sessionId,
       userId: "default",
       channel: "console",

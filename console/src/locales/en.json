@@ -445,5 +445,14 @@
     "chatDisabledMessage": "Chat functionality is disabled because no model is configured. Please configure a model to enable chat.",
     "configureNow": "Configure Model",
     "modelNotConfigured": "Please configure a model in Settings before using chat"
+  },
+  "chat": {
+    "defaultPrompt1": "Let's start a new journey!",
+    "defaultPrompt2": "Can you tell me what skills you have?",
+    "newChat": "New Chat",
+    "leftHeaderTitle": "Work with CoPaw",
+    "welcomeGreeting": "Hello, how can I help you today?",
+    "welcomeDescription": "I am a helpful assistant that can help you with your questions.",
+    "disclaimer": "Works for you, grows with you"
   }
 }

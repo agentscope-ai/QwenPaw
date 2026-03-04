@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import { useLocalStorageState } from "ahooks";
-import defaultConfig, { DefaultConfig } from "./OptionsPanel/defaultConfig";
+import getDefaultConfig, { DefaultConfig } from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
 import { getApiUrl, getApiToken } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
@@ -26,13 +26,13 @@ declare const window: CustomWindow;
 type OptionsConfig = DefaultConfig;
 
 export default function ChatPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [optionsConfig] = useLocalStorageState<OptionsConfig>(
     "agent-scope-runtime-webui-options",
     {
-      defaultValue: defaultConfig,
+      defaultValue: getDefaultConfig(),
       listenStorageChange: true,
     },
   );
@@ -116,8 +116,29 @@ export default function ChatPage() {
       });
     };
 
+    const freshDefaults = getDefaultConfig();
+    const customized =
+      (optionsConfig as Record<string, any>)?._customized ?? {};
     return {
       ...optionsConfig,
+      sender: {
+        ...optionsConfig.sender,
+        disclaimer: customized.disclaimer
+          ? optionsConfig.sender?.disclaimer
+          : freshDefaults.sender.disclaimer,
+      },
+      welcome: {
+        ...optionsConfig.welcome,
+        greeting: customized.greeting
+          ? optionsConfig.welcome?.greeting
+          : freshDefaults.welcome.greeting,
+        description: customized.description
+          ? optionsConfig.welcome?.description
+          : freshDefaults.welcome.description,
+        prompts: customized.prompts
+          ? optionsConfig.welcome?.prompts
+          : freshDefaults.welcome.prompts,
+      },
       session: {
         multiple: true,
         api: sessionApi,
@@ -136,7 +157,7 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [optionsConfig]);
+  }, [optionsConfig, i18n.language]);
 
   return (
     <div style={{ height: "100%", width: "100%" }}>
