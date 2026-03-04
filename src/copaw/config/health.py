@@ -349,13 +349,14 @@ class HealthChecker:
             True if connection successful, False otherwise
         """
         try:
-            from ..agents.model_factory import create_model
+            from ..agents.model_factory import create_model_and_formatter
+            from ..providers import get_active_llm_config
+
+            # Get active LLM config
+            llm_cfg = get_active_llm_config()
 
             # Create model instance
-            model_instance = create_model(
-                model_name=model,
-                provider_id=provider_id,
-            )
+            model_instance, _ = create_model_and_formatter(llm_cfg)
 
             # Try a minimal completion request
             response = model_instance(
