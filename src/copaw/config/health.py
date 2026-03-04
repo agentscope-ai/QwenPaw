@@ -358,6 +358,40 @@ class HealthChecker:
                 f"Failed to check disk space: {e}",
             )
 
+    async def _async_test_llm_connection(self) -> bool:
+        """Async helper to test LLM connection."""
+        try:
+            from ..agents.model_factory import create_model_and_formatter
+            from ..providers import get_active_llm_config
+
+            # Get active LLM config
+            llm_cfg = get_active_llm_config()
+
+            # Create model instance
+            model_instance, _ = create_model_and_formatter(llm_cfg)
+
+            # Try a minimal completion request (await the coroutine)
+            await model_instance(
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=1,
+            )
+
+            # If we got here without exception, connection works
+            return True
+
+        except ImportError as e:
+            logger.error(f"Failed to import model factory: {e}")
+            return False
+        except ValueError as e:
+            logger.error(f"Invalid model configuration: {e}")
+            return False
+        except ConnectionError as e:
+            logger.warning(f"Network connection failed: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"LLM connection test failed: {e}")
+            return False
+
     def _test_llm_connection(self, provider_id: str, model: str) -> bool:
         """Test LLM API connection with a simple request.
 
@@ -369,48 +403,18 @@ class HealthChecker:
             True if connection successful, False otherwise
         """
         import asyncio
+        import concurrent.futures
 
-        async def _async_test() -> bool:
-            """Async helper to test LLM connection."""
-            try:
-                from ..agents.model_factory import create_model_and_formatter
-                from ..providers import get_active_llm_config
-
-                # Get active LLM config
-                llm_cfg = get_active_llm_config()
-
-                # Create model instance
-                model_instance, _ = create_model_and_formatter(llm_cfg)
-
-                # Try a minimal completion request (await the coroutine)
-                await model_instance(
-                    messages=[{"role": "user", "content": "test"}],
-                    max_tokens=1,
-                )
-
-                # If we got here without exception, connection works
-                return True
-
-            except ImportError as e:
-                logger.error(f"Failed to import model factory: {e}")
-                return False
-            except ValueError as e:
-                logger.error(f"Invalid model configuration: {e}")
-                return False
-            except ConnectionError as e:
-                logger.warning(f"Network connection failed: {e}")
-                return False
-            except Exception as e:
-                logger.warning(f"LLM connection test failed: {e}")
-                return False
-
-        # Run the async test in a new event loop
+        # Check if we're already in an event loop
         try:
-            return asyncio.run(_async_test())
+            loop = asyncio.get_running_loop()
+            # We're in a running loop, use thread pool
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._async_test_llm_connection())
+                return future.result()
         except RuntimeError:
-            # If we're already in an event loop, use get_event_loop
-            loop = asyncio.get_event_loop()
-            return loop.run_until_complete(_async_test())
+            # No running loop, we can use asyncio.run directly
+            return asyncio.run(self._async_test_llm_connection())
 
     def check_channels(self) -> None:
         """Check enabled channels configuration."""
