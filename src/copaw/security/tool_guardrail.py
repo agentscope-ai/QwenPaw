@@ -23,6 +23,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
+from .tool_guard.engine import get_guard_engine
+
 if TYPE_CHECKING:
     from .tool_guard.models import ToolGuardResult  # noqa: F401 – type-only
 
@@ -46,23 +48,6 @@ def _guard_enabled() -> bool:
 
 def _guard_blocks() -> bool:
     return os.environ.get("COPAW_TOOL_GUARD_BLOCK", "false").lower() in _TRUE_STRINGS
-
-
-# ---------------------------------------------------------------------------
-# Lazy singleton
-# ---------------------------------------------------------------------------
-
-_engine_instance = None
-
-
-def _get_engine():
-    """Return a lazily-initialised :class:`ToolGuardEngine` singleton."""
-    global _engine_instance
-    if _engine_instance is None:
-        from .tool_guard.engine import ToolGuardEngine
-
-        _engine_instance = ToolGuardEngine()
-    return _engine_instance
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +109,7 @@ def guard_tool_call(
     if not _guard_enabled():
         return None
 
-    engine = _get_engine()
+    engine = get_guard_engine()
     result = engine.guard(tool_name, params)
 
     if result is not None and not result.is_safe:
