@@ -14,7 +14,9 @@ from agentscope.agent._react_agent import _MemoryMark
 from ..utils import (
     check_valid_messages,
     safe_count_message_tokens,
+    safe_count_str_tokens,
 )
+from ..memory.copaw_memory import build_previous_summary
 from ..utils.tool_message_utils import _truncate_text
 
 if TYPE_CHECKING:
@@ -107,8 +109,8 @@ class MemoryCompactionHook:
         """Pre-reasoning hook to check and compact memory if needed.
 
         This hook extracts system prompt messages and recent messages,
-        then counts tokens for the middle compactable messages only.
-        If the token count exceeds the threshold, it triggers compaction.
+        builds an estimated full context prompt, and triggers compaction
+        when the total estimated token count exceeds the threshold.
 
         Memory structure:
             [System Prompt (preserved)] + [Compactable (counted)] +
@@ -158,20 +160,46 @@ class MemoryCompactionHook:
             if self.enable_truncate_tool_result_texts and messages_to_keep:
                 _truncate_tool_result_texts(messages_to_keep)
 
-            prompt = await agent.formatter.format(msgs=messages_to_compact)
-            estimated_tokens: int = await safe_count_message_tokens(prompt)
+            messages_for_estimate = [
+                *system_prompt_messages,
+                *messages_to_compact,
+                *messages_to_keep,
+            ]
+            previous_summary = build_previous_summary(
+                agent.memory.get_compressed_summary() or "",
+            )
+            full_prompt = await agent.formatter.format(
+                msgs=messages_for_estimate,
+            )
+            estimated_message_tokens = await safe_count_message_tokens(
+                full_prompt,
+            )
+            summary_tokens = safe_count_str_tokens(previous_summary)
+            estimated_total_tokens = estimated_message_tokens + summary_tokens
             logger.debug(
-                "Estimated tokens for compaction: %d vs %s",
-                estimated_tokens,
+                "Estimated context tokens total=%d "
+                "(messages=%d, summary=%d, summary_prepended=%s, "
+                "system_prompt_msgs=%d, "
+                "compactable_msgs=%d, keep_recent_msgs=%d) vs threshold=%d",
+                estimated_total_tokens,
+                estimated_message_tokens,
+                summary_tokens,
+                bool(previous_summary),
+                len(system_prompt_messages),
+                len(messages_to_compact),
+                len(messages_to_keep),
                 self.memory_compact_threshold,
             )
 
-            if estimated_tokens > self.memory_compact_threshold:
+            if estimated_total_tokens > self.memory_compact_threshold:
                 logger.info(
-                    "Memory compaction triggered: estimated %d tokens "
-                    "(threshold: %d), system_prompt_msgs: %d, "
+                    "Memory compaction triggered: estimated total %d tokens "
+                    "(messages: %d, summary: %d, threshold: %d), "
+                    "system_prompt_msgs: %d, "
                     "compactable_msgs: %d, keep_recent_msgs: %d",
-                    estimated_tokens,
+                    estimated_total_tokens,
+                    estimated_message_tokens,
+                    summary_tokens,
                     self.memory_compact_threshold,
                     len(system_prompt_messages),
                     len(messages_to_compact),

@@ -1,0 +1,36 @@
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened]
+
+jobs:
+  first-time-contributor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check if first-time contributor
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+
+            const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author} is:closed`,
+            });
+
+            const isFirstTime = searchResult.total_count === 0;
+
+            if (isFirstTime) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ['first-time-contributor'],
+              });
+              core.info(`Labeled PR #${context.payload.pull_request.number} as first-time-contributor`);
+            } else {
+              core.info(`${author} has ${searchResult.total_count} PRs, skipping label`);
+            }

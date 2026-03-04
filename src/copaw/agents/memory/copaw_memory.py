@@ -9,6 +9,20 @@ from agentscope.message import Msg
 logger = logging.getLogger(__name__)
 
 
+def build_previous_summary(summary: str) -> str:
+    """Build wrapped summary text that is prepended to memory context."""
+    if not summary:
+        return ""
+
+    return (
+        "<previous-summary>\n"
+        f"{summary}\n"
+        "</previous-summary>\n"
+        "The above is a summary of our previous conversation.\n"
+        "Use it as context to maintain continuity."
+    )
+
+
 class CoPawInMemoryMemory(InMemoryMemory):
     """Extended InMemoryMemory with bugfixes and summary support."""
 
@@ -57,13 +71,9 @@ class CoPawInMemoryMemory(InMemoryMemory):
             ]
 
         if prepend_summary and self._compressed_summary:
-            previous_summary = f"""
-<previous-summary>
-{self._compressed_summary}
-</previous-summary>
-The above is a summary of our previous conversation.
-Use it as context to maintain continuity.
-                    """.strip()
+            previous_summary = build_previous_summary(
+                self._compressed_summary,
+            )
 
             return [
                 Msg(

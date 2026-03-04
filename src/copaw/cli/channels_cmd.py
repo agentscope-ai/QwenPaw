@@ -15,6 +15,7 @@ from ..config.config import (
     Config,
     ConsoleConfig,
     DiscordConfig,
+    TelegramConfig,
     DingTalkConfig,
     FeishuConfig,
     IMessageChannelConfig,
@@ -39,6 +40,7 @@ _SECRET_FIELDS = {
 _ALL_CHANNEL_NAMES = {
     "imessage": "iMessage",
     "discord": "Discord",
+    "telegram": "Telegram",
     "dingtalk": "DingTalk",
     "feishu": "Feishu",
     "qq": "QQ",
@@ -389,6 +391,83 @@ def configure_qq(current_config: QQConfig) -> QQConfig:
     return current_config
 
 
+def configure_telegram(current_config: TelegramConfig) -> TelegramConfig:
+    """Configure Telegram channel interactively."""
+    click.echo("\n=== Configure Telegram Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable Telegram channel?",
+        default=current_config.enabled,
+    )
+
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+
+    bot_prefix = click.prompt(
+        "Bot prefix (e.g., @bot)",
+        default=current_config.bot_prefix or "[BOT]",
+        type=str,
+    )
+    current_config.bot_prefix = bot_prefix
+
+    bot_token = click.prompt(
+        "Telegram Bot Token",
+        default=current_config.bot_token or "",
+        hide_input=True,
+        type=str,
+    )
+    token = bot_token.strip()
+    current_config.bot_token = token
+    if not token:
+        click.echo("Warning: Empty bot token provided.")
+        click.echo("Disabling Telegram channel.")
+        current_config.enabled = False
+        return current_config
+
+    show_typing = prompt_confirm(
+        "Show typing indicator?",
+        default=current_config.show_typing is not False,
+    )
+    current_config.show_typing = show_typing
+
+    use_proxy = prompt_confirm(
+        "Use HTTP proxy?",
+        default=bool(current_config.http_proxy),
+    )
+
+    if use_proxy:
+        http_proxy = click.prompt(
+            "HTTP proxy address (e.g., http://127.0.0.1:7890)",
+            default=current_config.http_proxy or "",
+            type=str,
+        )
+        current_config.http_proxy = http_proxy
+
+        use_proxy_auth = prompt_confirm(
+            "Does proxy require authentication?",
+            default=bool(current_config.http_proxy_auth),
+        )
+
+        if use_proxy_auth:
+            http_proxy_auth = click.prompt(
+                "Proxy authentication (format: username:password)",
+                default=current_config.http_proxy_auth or "",
+                hide_input=True,
+                type=str,
+            )
+            current_config.http_proxy_auth = http_proxy_auth
+        else:
+            current_config.http_proxy_auth = ""
+    else:
+        current_config.http_proxy = ""
+        current_config.http_proxy_auth = ""
+
+    return current_config
+
+
 def configure_console(current_config: ConsoleConfig) -> ConsoleConfig:
     """Configure Console channel interactively."""
     click.echo("\n=== Configure Console Channel ===")
@@ -420,6 +499,7 @@ def configure_console(current_config: ConsoleConfig) -> ConsoleConfig:
 _ALL_CHANNEL_CONFIGURATORS = {
     "imessage": ("iMessage", configure_imessage),
     "discord": ("Discord", configure_discord),
+    "telegram": ("Telegram", configure_telegram),
     "dingtalk": ("DingTalk", configure_dingtalk),
     "feishu": ("Feishu", configure_feishu),
     "qq": ("QQ", configure_qq),
