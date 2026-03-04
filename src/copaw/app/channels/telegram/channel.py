@@ -141,6 +141,21 @@ async def _build_content_parts_from_message(
                 has_bot_command = True
                 break
 
+    # 处理引用消息
+    reply_to_message = getattr(message, "reply_to_message", None)
+    if reply_to_message:
+        reply_user = getattr(reply_to_message, "from_user", None)
+        reply_username = (getattr(reply_user, "username", None) or "") if reply_user else ""
+        reply_text = getattr(reply_to_message, "text", None) or ""
+        if reply_text:
+            # 格式化引用信息
+            if reply_username:
+                quoted_text = f"> [{reply_username}]: {reply_text[:300]}"
+            else:
+                quoted_text = f"> {reply_text[:300]}"
+            # 将引用信息添加到消息前面
+            text = f"{quoted_text}\n\n{text}" if text else quoted_text
+
     if text:
         content_parts.append(TextContent(type=ContentType.TEXT, text=text))
 
