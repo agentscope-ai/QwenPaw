@@ -139,10 +139,10 @@ irm https://copaw.agentscope.io/install.ps1 | iex
 > **注意**：安装程序将自动检查 uv 状态，若未安装则尝试自动下载配置。如遇自动安装失败，请遵循屏幕提示操作，或执行 `python -m pip install -U uv`，然后重新运行安装程序。
 
 > **⚠️ Windows 企业版 LTSC 用户特别提示**
-> 
+>
 > 如果您使用的是 Windows LTSC 或受严格安全策略管控的企业环境，PowerShell 可能运行在 **受限语言模式** 下，可能会遇到以下问题：
 > 1. **如果你使用的是 CMD（.bat）：脚本执行成功但无法写入`Path`**
-> 
+>
 >    脚本已完成文件安装，由于 **受限语言模式** ，脚本无法自动写入环境变量，此时只需手动配置：
 >    - **找到安装目录**：
 >      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version` ，如果显示版本号，则**只需配置 CoPaw 路径**；如果提示 `'uv' 不是内部或外部命令，也不是可运行的程序或批处理文件。`，则需同时配置两者。
@@ -154,7 +154,7 @@ irm https://copaw.agentscope.io/install.ps1 | iex
 >      - 在 “系统变量” 中找到并选中 `Path`，点击 “编辑”。
 >      - 点击 “新建”，依次填入上述两个目录路径，点击确定保存。
 > 2. **如果你使用的是 PowerShell（.ps1）：脚本运行中断**
-> 
+>
 >   由于 **受限语言模式** ，脚本可能无法自动下载`uv`。
 >   - **手动安装uv**：参考 [GitHub Release](https://github.com/astral-sh/uv/releases)下载并将`uv.exe`放至`%USERPROFILE%\.local\bin`或`%USERPROFILE%\AppData\Local\uv`；或者确保已安装 Python ，然后运行`python -m pip install -U uv`
 >   - **配置`uv`环境变量**：将`uv`所在目录和 `%USERPROFILE%\.copaw\bin` 添加到系统的 `Path` 变量中。
