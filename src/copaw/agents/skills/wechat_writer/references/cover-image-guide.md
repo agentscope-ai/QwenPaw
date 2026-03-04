@@ -338,7 +338,7 @@ All Chinese characters must be clear and correct.
 **使用generate_image.py脚本**：
 
 ```bash
-cd /root/.claude/skills/wechat-tech-writer
+cd {skill_dir}
 
 python scripts/generate_image.py \
   --prompt "你构建的完整提示词" \

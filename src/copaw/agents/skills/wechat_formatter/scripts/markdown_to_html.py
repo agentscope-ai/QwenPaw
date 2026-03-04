@@ -115,8 +115,8 @@ class WeChatHTMLConverter:
                     # 生成新的style字符串
                     new_style = '; '.join(f'{k}: {v}' for k, v in style_dict.items())
                     elem['style'] = new_style
-            except Exception as e:
-                # 忽略无法处理的选择器
+            except Exception:
+                # 忽略无法处理的选择器（如伪类、复杂组合器等）
                 continue
 
         return str(soup)
@@ -142,6 +142,55 @@ class WeChatHTMLConverter:
                     pre['data-lang'] = language
 
         return str(soup)
+
+    def _convert_code_blocks_for_wechat(self, html: str) -> str:
+        """将 <pre><code> 代码块转换为微信兼容的 div + br + &nbsp; 格式"""
+        import re
+
+        def convert_pre_block(match):
+            pre_tag = match.group(0)
+            pre_styles = re.search(r'<pre\s+style="([^"]+)"', pre_tag)
+            code_content = match.group(1)
+
+            result = []
+            i = 0
+            while i < len(code_content):
+                if code_content[i:i+1] == '<':
+                    tag_end = code_content.find('>', i)
+                    if tag_end != -1:
+                        result.append(code_content[i:tag_end+1])
+                        i = tag_end + 1
+                    else:
+                        result.append(code_content[i])
+                        i += 1
+                elif code_content[i] == '\n':
+                    result.append('<br>\n')
+                    i += 1
+                elif code_content[i] == ' ':
+                    result.append('&nbsp;')
+                    i += 1
+                else:
+                    result.append(code_content[i])
+                    i += 1
+
+            converted_content = ''.join(result)
+
+            if pre_styles:
+                style = pre_styles.group(1)
+                style = re.sub(r'white-space:\s*[^;]+;?', '', style)
+                style = re.sub(r'overflow[^:]*:\s*[^;]+;?', '', style)
+                style = style.strip()
+                return f'<div style="{style}">{converted_content}</div>'
+            else:
+                return f'<div>{converted_content}</div>'
+
+        html = re.sub(
+            r'<pre[^>]*><code>(.*?)</code></pre>',
+            convert_pre_block,
+            html,
+            flags=re.DOTALL
+        )
+        return html
 
     def _process_images(self, html: str) -> str:
         """处理图片标签，确保适合微信显示"""
@@ -193,6 +242,9 @@ class WeChatHTMLConverter:
 
         # 增强代码块
         html_content = self._enhance_code_blocks(html_content)
+
+        # 转换代码块为微信兼容的 div + br + &nbsp; 格式
+        html_content = self._convert_code_blocks_for_wechat(html_content)
 
         # 处理图片
         html_content = self._process_images(html_content)
@@ -317,7 +369,7 @@ def main():
         # 转换文件
         output_path = converter.convert_file(args.input, args.output)
 
-        print(f'✅ 转换成功！')
+        print('✅ 转换成功！')
         print(f'📄 输入文件: {args.input}')
         print(f'📄 输出文件: {output_path}')
         print(f'🎨 使用主题: {args.theme}')
@@ -326,7 +378,7 @@ def main():
         if args.preview:
             import webbrowser
             webbrowser.open(f'file://{Path(output_path).absolute()}')
-            print(f'🌐 已在浏览器中打开预览')
+            print('🌐 已在浏览器中打开预览')
 
         print('\n💡 提示：')
         print('   1. 在浏览器中打开HTML文件预览效果')

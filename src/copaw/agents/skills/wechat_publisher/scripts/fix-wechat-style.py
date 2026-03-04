@@ -113,5 +113,5 @@ if __name__ == '__main__':
     print("✓ 修复完成！")
     print("\n修复内容：")
     print("  - 首行缩进: 强制设置为0 !important")
-    print("  - 段落间距: 统一为6px")
+    print("  - 段落间距: 统一为8-12px")
     print("  - 删除所有多余空白")

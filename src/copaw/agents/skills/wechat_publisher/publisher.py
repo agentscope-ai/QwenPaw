@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import time
+import mimetypes
 import requests
 import argparse
 from pathlib import Path
@@ -21,6 +22,7 @@ class WeChatPublisher:
     BASE_URL = "https://api.weixin.qq.com/cgi-bin"
     TOKEN_CACHE_FILE = os.path.expanduser("~/.wechat-publisher/token_cache.json")
     CONFIG_FILE = os.path.expanduser("~/.wechat-publisher/config.json")
+    REQUEST_TIMEOUT = 30  # 所有 API 请求的超时时间（秒）
 
     # 微信API错误码映射
     ERROR_CODES = {
@@ -175,7 +177,8 @@ class WeChatPublisher:
             'secret': self.appsecret
         }
 
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=self.REQUEST_TIMEOUT)
+        response.raise_for_status()
         result = response.json()
 
         if 'errcode' in result:
@@ -199,6 +202,12 @@ class WeChatPublisher:
 
         with open(self.TOKEN_CACHE_FILE, 'w') as f:
             json.dump(cache_data, f, indent=2)
+
+        # 限制 token 缓存文件权限
+        try:
+            os.chmod(self.TOKEN_CACHE_FILE, 0o600)
+        except OSError:
+            pass  # Windows 可能不支持 chmod
 
         print(f"✓ 获取access_token成功 (有效期: {expires_in}秒)")
         return access_token
@@ -227,9 +236,14 @@ class WeChatPublisher:
             'type': 'image'
         }
 
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type:
+            mime_type = 'image/jpeg'
+
         with open(image_path, 'rb') as f:
-            files = {'media': (os.path.basename(image_path), f, 'image/jpeg')}
-            response = requests.post(url, params=params, files=files)
+            files = {'media': (os.path.basename(image_path), f, mime_type)}
+            response = requests.post(url, params=params, files=files, timeout=self.REQUEST_TIMEOUT)
+            response.raise_for_status()
 
         result = response.json()
 
@@ -321,8 +335,12 @@ class WeChatPublisher:
             if 'cover' in src.lower():
                 return match.group(0)
 
-            # 构建完整路径
-            image_path = Path(base_dir) / src
+            # 构建完整路径并防止目录穿越
+            image_path = (Path(base_dir) / src).resolve()
+            base_dir_resolved = Path(base_dir).resolve()
+            if not str(image_path).startswith(str(base_dir_resolved)):
+                print(f"  ⚠️ 图片路径超出基础目录，跳过: {src}")
+                return match.group(0)
 
             if not image_path.exists():
                 print(f"  ⚠️ 图片不存在，跳过: {src}")
@@ -688,24 +706,24 @@ class WeChatPublisher:
 
         # 优先按字符数检查（微信官方限制是64字符）
         if title_chars > MAX_TITLE_CHARS:
-            print(f"\n⚠️  标题过长警告")
+            print("\n⚠️  标题过长警告")
             print(f"原标题: {original_title}")
             print(f"长度: {title_chars} 字符（限制: {MAX_TITLE_CHARS} 字符）")
 
             # 按字符数截断
             title = title[:MAX_TITLE_CHARS]
             print(f"已截断为: {title}")
-            print(f"\n提示: 您可以在微信编辑器中手动修改为完整标题\n")
+            print("\n提示: 您可以在微信编辑器中手动修改为完整标题\n")
         # 备用检查：如果字节数超过192（极端情况）
         elif title_bytes > MAX_TITLE_BYTES:
-            print(f"\n⚠️  标题字节数过长")
+            print("\n⚠️  标题字节数过长")
             print(f"原标题: {original_title}")
             print(f"字节数: {title_bytes} 字节（限制: {MAX_TITLE_BYTES} 字节）")
 
             # 按字节截断
             title = truncate_by_bytes(title, MAX_TITLE_BYTES)
             print(f"已截断为: {title}")
-            print(f"\n提示: 您可以在微信编辑器中手动修改为完整标题\n")
+            print("\n提示: 您可以在微信编辑器中手动修改为完整标题\n")
 
         print(f"→ 正在创建草稿: {title}")
 
@@ -721,7 +739,7 @@ class WeChatPublisher:
         original_digest = digest
         digest = truncate_by_bytes(digest, MAX_DIGEST_BYTES)
         if digest != original_digest:
-            print(f"⚠ 摘要超长，已自动截断")
+            print("⚠ 摘要超长，已自动截断")
 
         token = self.get_access_token()
         url = f"{self.BASE_URL}/draft/add?access_token={token}"
@@ -744,7 +762,8 @@ class WeChatPublisher:
         headers = {'Content-Type': 'application/json; charset=utf-8'}
         # 手动序列化JSON，确保中文不被转义
         data = json.dumps(articles, ensure_ascii=False).encode('utf-8')
-        response = requests.post(url, data=data, headers=headers)
+        response = requests.post(url, data=data, headers=headers, timeout=self.REQUEST_TIMEOUT)
+        response.raise_for_status()
         result = response.json()
 
         if 'errcode' in result and result['errcode'] != 0:
@@ -755,7 +774,8 @@ class WeChatPublisher:
                 token = self.access_token
                 url = f"{self.BASE_URL}/draft/add?access_token={token}"
                 data = json.dumps(articles, ensure_ascii=False).encode('utf-8')
-                response = requests.post(url, data=data, headers=headers)
+                response = requests.post(url, data=data, headers=headers, timeout=self.REQUEST_TIMEOUT)
+                response.raise_for_status()
                 result = response.json()
 
                 if 'errcode' in result and result['errcode'] != 0:
@@ -773,7 +793,7 @@ class WeChatPublisher:
                 )
                 raise Exception(error_msg)
 
-        print(f"✓ 草稿创建成功!")
+        print("✓ 草稿创建成功!")
         print(f"  media_id: {result.get('media_id')}")
 
         return result
@@ -845,7 +865,7 @@ def main():
             thumb_media_id = publisher.upload_image(cover)
 
         # 创建草稿
-        result = publisher.create_draft(
+        publisher.create_draft(
             title=title,
             content=content,
             author=author,

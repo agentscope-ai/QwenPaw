@@ -68,8 +68,10 @@ class QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
 
 def start_http_server(directory: Path, port: int = 8000):
     """启动HTTP服务器"""
-    os.chdir(directory)
-    server = HTTPServer(('localhost', port), QuietHTTPRequestHandler)
+    import functools
+
+    handler = functools.partial(QuietHTTPRequestHandler, directory=str(directory))
+    server = HTTPServer(('localhost', port), handler)
     print(f'🌐 本地服务器已启动: http://localhost:{port}')
     server.serve_forever()
 

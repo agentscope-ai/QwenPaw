@@ -71,7 +71,7 @@ def convert_code_blocks(html_content):
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        print("用法: python3 convert-to-div-br.py <输入文件> <输出文件>")
+        print("用法: python3 convert-code-blocks.py <输入文件> <输出文件>")
         sys.exit(1)
 
     with open(sys.argv[1], 'r', encoding='utf-8') as f:

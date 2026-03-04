@@ -90,7 +90,7 @@ class BatchConverter:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             print(f'📁 输出目录: {self.output_dir}')
         else:
-            print(f'📁 输出目录: 与源文件相同')
+            print('📁 输出目录: 与源文件相同')
 
         print()
         print('🚀 开始转换...')

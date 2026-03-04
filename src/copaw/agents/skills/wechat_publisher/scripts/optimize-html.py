@@ -59,6 +59,6 @@ if __name__ == '__main__':
 
     print("✓ 优化完成！")
     print("\n调整内容：")
-    print("  - 段落间距: 18px → 8px")
+    print("  - 段落间距: 18px → 4px")
     print("  - 标题间距: 减小20-30%")
-    print("  - 图片间距: 24px → 12px")
+    print("  - 图片间距: 24px → 8px")

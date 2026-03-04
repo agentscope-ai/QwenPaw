@@ -55,7 +55,7 @@ IMPORTANT: All text in simplified Chinese (简体中文), minimal text, accurate
 Aspect ratio: 16:9, high quality, magazine cover style.
 """
 
-    output_path = r"G:\git_pull\微信公众号文章\AI提效系列\claude_skills_cover_optimized.png"
+    output_path = os.path.join(os.getcwd(), "cover_optimized.png")
 
     try:
         print("Generating optimized cover image with enhanced design principles...")
