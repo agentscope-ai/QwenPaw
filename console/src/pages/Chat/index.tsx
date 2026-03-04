@@ -26,7 +26,7 @@ declare const window: CustomWindow;
 type OptionsConfig = DefaultConfig;
 
 export default function ChatPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [optionsConfig] = useLocalStorageState<OptionsConfig>(
@@ -114,8 +114,19 @@ export default function ChatPage() {
       });
     };
 
+    const freshDefaults = getDefaultConfig();
     return {
       ...optionsConfig,
+      sender: {
+        ...optionsConfig.sender,
+        disclaimer: freshDefaults.sender.disclaimer,
+      },
+      welcome: {
+        ...optionsConfig.welcome,
+        greeting: freshDefaults.welcome.greeting,
+        description: freshDefaults.welcome.description,
+        prompts: freshDefaults.welcome.prompts,
+      },
       session: {
         multiple: true,
         api: sessionApi,
@@ -134,7 +145,7 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [optionsConfig]);
+  }, [optionsConfig, i18n.language]);
 
   return (
     <div style={{ height: "100%", width: "100%" }}>

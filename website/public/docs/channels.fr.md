@@ -78,7 +78,7 @@ Dans `config.json`, trouvez `channels.dingtalk` et renseignez les informations c
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "votre Client ID",
-  "client_secret": "votre Client Secret"
+  "client_secret": "votre Client Secret",
   "filter_tool_messages": false
 }
 ```

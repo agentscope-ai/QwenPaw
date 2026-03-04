@@ -70,7 +70,7 @@ iMessage et Console.
    | Canal        | Champs obligatoires                                             |
    | ------------ | --------------------------------------------------------------- |
    | **DingTalk** | Client ID, Client Secret                                        |
-   | **Feishu**   | App ID, App Secret, Encrypt Key, Verification Token, Media Dir  |
+   | **Feishu**   | App ID, App Secret _(Encrypt Key / Verification Token / Media Dir optionnels)_ |
    | **Discord**  | Bot Token, Proxy HTTP, Auth Proxy                               |
    | **QQ**       | App ID, Client Secret                                           |
    | **iMessage** | Chemin de la base de données, Intervalle de sondage             |

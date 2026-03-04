@@ -245,7 +245,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "nav.githubComingSoon": "Bientôt disponible",
     "nav.lang": "中文",
     "nav.agentscopeTeam": "AgentScope",
-    "hero.slogan": "À votre service, grandissant avec vous",
+    "hero.slogan": "Travaille pour vous, évolue avec vous",
     "hero.sub":
       "Votre assistant IA personnel ; facile à installer, déployable sur votre machine ou dans le cloud ; prend en charge plusieurs applications de messagerie avec des capacités facilement extensibles.",
     "hero.cta": "Lire la documentation",
@@ -335,7 +335,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.optionAliyun": "Déployer sur Alibaba Cloud ECS",
     "quickstart.aliyunDeployLink": "Lien de déploiement",
     "quickstart.aliyunDocLink": "Guide",
-    footer: "CoPaw — À votre service, grandissant avec vous",
+    footer: "CoPaw — Travaille pour vous, évolue avec vous",
     "footer.poweredBy.p1": "Créé par ",
     "footer.poweredBy.p2": " avec ",
     "footer.poweredBy.p3": ", ",

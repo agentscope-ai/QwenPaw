@@ -177,7 +177,7 @@ Basée sur les statistiques de fréquence des termes pour la correspondance de s
 
 **Logique de scoring** : Divise la requête en termes, compte le ratio de hits de chaque terme dans le texte cible, et accorde un bonus pour les correspondances de phrase complète :
 
-```
+```text
 base_score = termes_touchés / total_termes_requête           # plage [0, 1]
 phrase_bonus = 0.2 (seulement quand la requête multi-mots correspond à la phrase complète)
 score = min(1.0, base_score + phrase_bonus)                   # plafonné à 1.0

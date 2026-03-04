@@ -103,13 +103,13 @@ graph LR
 
 Parfois vous voulez proactivement « vider votre sac à dos » ? Pas de problème ! Envoyez la formule magique :
 
-```
+```bash
 /compact
 ```
 
 Après exécution, vous verrez une réponse comme celle-ci :
 
-```
+```text
 **Compaction terminée !**
 
 - Messages compactés : 12

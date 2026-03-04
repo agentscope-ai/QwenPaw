@@ -77,7 +77,7 @@ Votre assistant IA personnel ; facile à installer, déployez sur votre propre m
 - [Modèles locaux](#modèles-locaux)
 - [Documentation](#documentation)
 - [Feuille de route](#feuille-de-route)
-- [Contribuer](#s-impliquer)
+- [Contribuer](#simpliquer)
 - [Installer depuis les sources](#installer-depuis-les-sources)
 - [Pourquoi CoPaw ?](#pourquoi-copaw-)
 - [Développé par](#développé-par)

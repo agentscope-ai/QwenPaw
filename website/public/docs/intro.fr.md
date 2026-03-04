@@ -7,7 +7,7 @@ suivant la documentation.
 
 ## Qu'est-ce que CoPaw ?
 
-CoPAW est un **assistant personnel** qui s'exécute dans votre propre environnement.
+CoPaw est un **assistant personnel** qui s'exécute dans votre propre environnement.
 
 - **Chat multicanal** — Communiquez avec lui via DingTalk, Feishu, QQ, Discord, iMessage et plus encore.
 - **Exécution planifiée** — Exécutez des tâches automatiquement selon le calendrier que vous configurez.
@@ -64,7 +64,7 @@ Chaque terme est expliqué en détail dans son chapitre.
 1. **[Démarrage rapide](./quickstart)** — Faites tourner le serveur en trois commandes.
 2. **[Console](./console)** — Une fois le serveur démarré, **avant de configurer les canaux**,
    vous pouvez utiliser la Console (ouvrez l'URL racine dans votre navigateur) pour
-   discuter avec CoPAW et configurer l'agent. Cela vous permet de voir comment CoPAW fonctionne.
+   discuter avec CoPaw et configurer l'agent. Cela vous permet de voir comment CoPaw fonctionne.
 3. **Configurer et utiliser selon vos besoins** :
    - [Canaux](./channels) — Connectez DingTalk / Feishu / QQ / Discord / iMessage pour
      discuter avec CoPaw dans ces applications ;

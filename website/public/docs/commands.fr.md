@@ -32,7 +32,7 @@ Cinq commandes sont actuellement supportées :
 
 Déclenche manuellement la compaction de la conversation, condensant tous les messages actuels en un résumé (nécessite d'attendre), tout en sauvegardant dans la mémoire à long terme en arrière-plan.
 
-```
+```bash
 /compact
 ```
 
