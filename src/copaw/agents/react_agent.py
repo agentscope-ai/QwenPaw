@@ -35,6 +35,7 @@ from .tools import (
     read_file,
     send_file_to_user,
     write_file,
+    create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
@@ -284,7 +285,7 @@ class CoPawAgent(ReActAgent):
 
             # Register memory_search as a tool function
             self.toolkit.register_tool_function(
-                self.memory_manager.memory_search,
+                create_memory_search_tool(self.memory_manager),
                 namesake_strategy=namesake_strategy,
             )
             logger.debug("Registered memory_search tool")

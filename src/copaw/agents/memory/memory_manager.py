@@ -70,7 +70,6 @@ class MemoryManager(ReMeCopaw):
             max_input_length: Maximum allowed input length in tokens
             memory_compact_ratio: Ratio at which to trigger compaction
                 (0.0-1.0)
-            language: Language code for localization ("zh" or "")
             vector_weight: Weight for vector search in hybrid search (0.0-1.0)
             candidate_multiplier: Multiplier for candidate retrieval in search
             tool_result_threshold: Size threshold for tool result compaction
