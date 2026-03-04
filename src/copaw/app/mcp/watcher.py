@@ -105,21 +105,6 @@ class MCPConfigWatcher:
 
         logger.debug("MCPConfigWatcher stopped")
 
-    async def force_reload(self) -> None:
-        """Reload MCP clients from current config (for /daemon restart)."""
-        if self._config_path:
-            try:
-                self._last_mtime = self._config_path.stat().st_mtime
-            except FileNotFoundError:
-                self._last_mtime = 0.0
-        try:
-            new_mcp = self._load_mcp_config()
-        except Exception:
-            logger.exception("MCPConfigWatcher: force_reload failed to load")
-            return
-        await self._reload_changed_clients_wrapper(new_mcp)
-        logger.info("MCPConfigWatcher: force_reload completed")
-
     # ------------------------------------------------------------------
     # Internal methods
     # ------------------------------------------------------------------

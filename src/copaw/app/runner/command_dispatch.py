@@ -8,8 +8,9 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator
 
+from reme.memory.file_based_copaw import CoPawInMemoryMemory
+
 from ...agents.command_handler import CommandHandler
-from ...agents.memory.copaw_memory import CoPawInMemoryMemory
 from ...agents.model_factory import create_model_and_formatter
 from ...config import load_config
 from .daemon_commands import (
@@ -115,11 +116,10 @@ async def run_command_path(
     except ValueError:
         pass  # No session file yet
 
-    _, formatter = create_model_and_formatter()
+    create_model_and_formatter()  # ensure model/formatter config loaded
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=light.memory,
-        formatter=formatter,
         memory_manager=runner.memory_manager,
         enable_memory_manager=runner.memory_manager is not None,
     )

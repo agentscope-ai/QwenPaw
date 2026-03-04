@@ -71,27 +71,6 @@ class ConfigWatcher:
             self._task = None
         logger.info("ConfigWatcher stopped")
 
-    async def force_reload(self) -> None:
-        """Reload config from disk and apply channel + heartbeat changes.
-
-        Used by /daemon restart to restart in-process services (Mac/Windows)
-        without exiting the process.
-        """
-        try:
-            self._last_mtime = self._config_path.stat().st_mtime
-        except FileNotFoundError:
-            self._last_mtime = 0.0
-        try:
-            loaded = load_config(self._config_path)
-        except Exception:
-            logger.exception(
-                "ConfigWatcher: force_reload failed to load config",
-            )
-            return
-        await self._apply_channel_changes(loaded)
-        await self._apply_heartbeat_change(loaded)
-        logger.info("ConfigWatcher: force_reload completed")
-
     # ------------------------------------------------------------------
 
     def _snapshot(self) -> None:

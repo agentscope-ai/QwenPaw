@@ -9,81 +9,11 @@ from typing import TYPE_CHECKING
 from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
-from .utils.token_counting import safe_count_str_tokens
-
 if TYPE_CHECKING:
     from .memory import MemoryManager
     from reme.memory.file_based_copaw import CoPawInMemoryMemory
 
 logger = logging.getLogger(__name__)
-
-
-# pylint: disable=too-many-return-statements
-def _get_block_tokens(
-    block: dict,
-    block_type: str,
-) -> tuple[int, str]:
-    """Get token count and content string for different block types.
-
-    Args:
-        block: The content block dict
-        block_type: The type of the block
-
-    Returns:
-        Tuple of (token count, content string)
-    """
-    if block_type == "text":
-        text = block.get("text", "")
-        return (safe_count_str_tokens(text), text) if text else (0, "")
-
-    if block_type == "thinking":
-        thinking = block.get("thinking", "")
-        return (
-            (safe_count_str_tokens(thinking), thinking)
-            if thinking
-            else (0, "")
-        )
-
-    if block_type == "tool_use":
-        # Count input dict and raw_input string
-        input_dict = block.get("input", {})
-        raw_input = block.get("raw_input", "")
-        input_str = str(input_dict) if input_dict else ""
-        total = input_str + raw_input
-        return (safe_count_str_tokens(total), total) if total else (0, "")
-
-    if block_type == "tool_result":
-        output = block.get("output")
-        if isinstance(output, str):
-            return (
-                (safe_count_str_tokens(output), output) if output else (0, "")
-            )
-        if isinstance(output, list):
-            # Recursively count tokens in nested blocks
-            total_tokens = 0
-            total_str = ""
-            for item in output:
-                if isinstance(item, dict):
-                    item_type = item.get("type", "unknown")
-                    item_tokens, item_str = _get_block_tokens(item, item_type)
-                    total_tokens += item_tokens
-                    total_str += item_str
-            return (total_tokens, total_str)
-        return (0, "")
-
-    if block_type in ("image", "audio", "video"):
-        # For media blocks, count the URL or indicate base64 size
-        source = block.get("source", {})
-        if source.get("type") == "url":
-            url = source.get("url", "")
-            return (safe_count_str_tokens(url), url)
-        if source.get("type") == "base64":
-            # Base64 data can be large, return approximate token count
-            data = source.get("data", "")
-            return (len(data) // 4, "[base64]") if data else (0, "")
-        return (0, "")
-
-    return (0, "")
 
 
 class ConversationCommandHandlerMixin:
