@@ -190,7 +190,7 @@ class LocalModelManager:
         filename: Optional[str],
         backend: BackendType,
     ) -> LocalModelInfo:
-        snapshot_download = None
+        snapshot_download_fn = None
         try:
             from modelscope.hub.file_download import model_file_download
         except ImportError as e:
@@ -199,13 +199,21 @@ class LocalModelManager:
                 "Install it with: pip install modelscope",
             ) from e
         try:
-            from modelscope.hub.snapshot_download import snapshot_download
+            from modelscope.hub.snapshot_download import (
+                snapshot_download as _hub_snapshot_download,
+            )
+
+            snapshot_download_fn = _hub_snapshot_download
         except ImportError:
             try:
                 # Compatibility fallback for old ModelScope versions.
-                from modelscope import snapshot_download  # type: ignore[assignment]
+                from modelscope import (
+                    snapshot_download as _legacy_snapshot_download,
+                )
+
+                snapshot_download_fn = _legacy_snapshot_download
             except ImportError:
-                snapshot_download = None
+                snapshot_download_fn = None
 
         _ensure_models_dir()
         local_dir = MODELS_DIR / _sanitize_repo_id(repo_id)
@@ -214,7 +222,7 @@ class LocalModelManager:
         # MLX models require config/tokenizer files in addition to weights.
         # ModelScope file download pulls only one file, so use full snapshot.
         if backend == BackendType.MLX:
-            if snapshot_download is None:
+            if snapshot_download_fn is None:
                 raise ImportError(
                     "ModelScope snapshot download is required for MLX models. "
                     "Please upgrade modelscope to a newer version.",
@@ -224,7 +232,7 @@ class LocalModelManager:
                 "Downloading full repo %s from ModelScope (MLX)...",
                 repo_id,
             )
-            snapshot_dir = snapshot_download(
+            snapshot_dir = snapshot_download_fn(
                 model_id=repo_id,
                 local_dir=str(local_dir),
             )

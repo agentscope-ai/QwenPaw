@@ -11,8 +11,8 @@ from copaw.local_models import manager
 from copaw.local_models.schema import BackendType, DownloadSource
 
 
-@pytest.fixture
-def isolated_models_dir(monkeypatch, tmp_path: Path) -> Path:
+@pytest.fixture(autouse=True)
+def _isolate_models_dir(monkeypatch, tmp_path: Path) -> Path:
     models_dir = tmp_path / "models"
     monkeypatch.setattr(manager, "MODELS_DIR", models_dir)
     monkeypatch.setattr(manager, "MANIFEST_PATH", models_dir / "manifest.json")
@@ -30,10 +30,13 @@ def _install_fake_modelscope(
     hub_mod = types.ModuleType("modelscope.hub")
     api_mod = types.ModuleType("modelscope.hub.api")
     file_download_mod = types.ModuleType("modelscope.hub.file_download")
-    snapshot_download_mod = types.ModuleType("modelscope.hub.snapshot_download")
+    snapshot_download_mod = types.ModuleType(
+        "modelscope.hub.snapshot_download",
+    )
 
     class HubApi:
         def get_model_files(self, repo_id: str):
+            _ = repo_id
             return [{"Path": f} for f in (hub_files or [])]
 
     def _default_file_download(
@@ -41,12 +44,14 @@ def _install_fake_modelscope(
         file_path: str,
         local_dir: str,
     ) -> str:
+        _ = model_id
         target = Path(local_dir) / file_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"GGUF")
         return str(target)
 
     def _default_snapshot_download(model_id: str, local_dir: str) -> str:
+        _ = model_id
         target_dir = Path(local_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         (target_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -80,15 +85,15 @@ def _install_fake_modelscope(
 
 def test_modelscope_mlx_downloads_full_repo(
     monkeypatch,
-    isolated_models_dir: Path,
 ) -> None:
     calls = {"file": 0, "snapshot": 0}
 
-    def _never_file_download(*args, **kwargs):
+    def _never_file_download(*_, **__):
         calls["file"] += 1
         raise AssertionError("MLX path should not use model_file_download")
 
     def _snapshot_download(model_id: str, local_dir: str) -> str:
+        _ = model_id
         calls["snapshot"] += 1
         target_dir = Path(local_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -123,9 +128,12 @@ def test_modelscope_mlx_downloads_full_repo(
 
 def test_modelscope_mlx_missing_config_raises(
     monkeypatch,
-    isolated_models_dir: Path,
 ) -> None:
-    def _snapshot_download_missing_config(model_id: str, local_dir: str) -> str:
+    def _snapshot_download_missing_config(
+        model_id: str,
+        local_dir: str,
+    ) -> str:
+        _ = model_id
         target_dir = Path(local_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         (target_dir / "model.safetensors").write_bytes(b"ST")
@@ -150,11 +158,11 @@ def test_modelscope_mlx_missing_config_raises(
 
 def test_modelscope_llamacpp_still_uses_single_file_download(
     monkeypatch,
-    isolated_models_dir: Path,
 ) -> None:
     calls = {"file": 0, "snapshot": 0}
 
     def _file_download(model_id: str, file_path: str, local_dir: str) -> str:
+        _ = model_id
         calls["file"] += 1
         target = Path(local_dir) / file_path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -162,6 +170,8 @@ def test_modelscope_llamacpp_still_uses_single_file_download(
         return str(target)
 
     def _snapshot_download(model_id: str, local_dir: str) -> str:
+        _ = model_id
+        _ = local_dir
         calls["snapshot"] += 1
         raise AssertionError("llamacpp path should not use snapshot_download")
 
