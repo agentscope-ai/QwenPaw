@@ -1024,11 +1024,19 @@ class DingTalkChannel(BaseChannel):
         text_parts = []
         media_parts: List[OutgoingContentPart] = []
         for p in parts:
-            t = getattr(p, "type", None)
-            if t == ContentType.TEXT and getattr(p, "text", None):
-                text_parts.append(p.text or "")
-            elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
-                text_parts.append(p.refusal or "")
+            t = getattr(p, "type", None) or (
+                p.get("type") if isinstance(p, dict) else None
+            )
+            text_val = getattr(p, "text", None) or (
+                p.get("text") if isinstance(p, dict) else None
+            )
+            refusal_val = getattr(p, "refusal", None) or (
+                p.get("refusal") if isinstance(p, dict) else None
+            )
+            if t == ContentType.TEXT and text_val:
+                text_parts.append(text_val or "")
+            elif t == ContentType.REFUSAL and refusal_val:
+                text_parts.append(refusal_val or "")
             elif t == ContentType.IMAGE:
                 media_parts.append(p)
             elif t == ContentType.FILE:
@@ -1175,12 +1183,12 @@ class DingTalkChannel(BaseChannel):
         )
         try:
             await self._process_one_request(request, reply_meta=send_meta)
-        except Exception:
+        except Exception as e:
             logger.exception("dingtalk _process_one_request failed")
+            err_msg = str(e).strip() or "An error occurred while processing."
             self._reply_sync_batch(
                 send_meta,
-                self.bot_prefix
-                + "An error occurred while processing your request.",
+                self.bot_prefix + f"Error: {err_msg}",
             )
             raise
 
@@ -1296,13 +1304,9 @@ class DingTalkChannel(BaseChannel):
             use_multi,
         )
 
-        if last_response and getattr(last_response, "error", None):
-            err = getattr(
-                last_response.error,
-                "message",
-                str(last_response.error),
-            )
-            err_text = self.bot_prefix + f"Error: {err}"
+        err_msg = self._get_response_error_message(last_response)
+        if err_msg:
+            err_text = self.bot_prefix + f"Error: {err_msg}"
             if use_multi and session_webhook:
                 await self._send_via_session_webhook(
                     session_webhook,

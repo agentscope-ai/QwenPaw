@@ -1,8 +1,6 @@
-# System Commands
+# Magic Commands
 
-> **Experimental**: System commands do not yet fully cover all scenarios and edge cases; using them may lead to errors or unexpected behavior. Please rely on actual behavior as the source of truth.
-
-**System commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
+**Magic commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
 
 Five commands are currently supported:
 
@@ -150,6 +148,28 @@ Example response (when no summary):
 
 - No summary has been generated yet
 - Use /compact or wait for auto-compaction
+```
+
+---
+
+## Daemon commands (ops)
+
+In chat, send `/daemon <subcommand>` or use short names (e.g. `/status`). From the terminal, run `copaw daemon <subcommand>`. These run without the Agent.
+
+| Command                             | Description                                                                                  |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/daemon status` or `/status`       | Show status (config, working dir, memory manager)                                            |
+| `/daemon restart` or `/restart`     | In-process restart (channels, cron, MCP) when in chat; from CLI prints instructions          |
+| `/daemon reload-config`             | Re-read and validate config (channel/MCP changes require /daemon restart or process restart) |
+| `/daemon version`                   | Version and paths (working dir, log file)                                                    |
+| `/daemon logs` or `/daemon logs 50` | Last N lines of console log (default 100; from `copaw.log` in working dir)                   |
+
+From the terminal:
+
+```bash
+copaw daemon status
+copaw daemon version
+copaw daemon logs -n 50
 ```
 
 ---

@@ -90,9 +90,53 @@ def _migrate_legacy_providers_json(path: Path) -> None:
             continue
 
 
+_SUPPORTED_CHAT_MODELS: frozenset[str] = frozenset(
+    ["OpenAIChatModel", "AnthropicChatModel"],
+)
+
+
 def get_providers_json_path() -> Path:
     """Return providers.json path under SECRET_DIR."""
     return _PROVIDERS_JSON
+
+
+def _normalize_chat_model_name(chat_model: Optional[str]) -> str:
+    """Validate and normalize chat model class name."""
+    normalized = (chat_model or "").strip()
+    if not normalized:
+        return "OpenAIChatModel"
+    if normalized not in _SUPPORTED_CHAT_MODELS:
+        allowed = ", ".join(sorted(_SUPPORTED_CHAT_MODELS))
+        raise ValueError(
+            f"Unsupported chat model '{normalized}'. "
+            f"Supported values: {allowed}.",
+        )
+    return normalized
+
+
+def _resolve_chat_model_name(
+    provider_id: str,
+    data: ProvidersData,
+    chat_model: Optional[str] = None,
+) -> str:
+    if chat_model is not None:
+        return _normalize_chat_model_name(chat_model)
+    return _normalize_chat_model_name(
+        get_provider_chat_model(provider_id, data),
+    )
+
+
+def _uses_anthropic_protocol(
+    provider_id: str,
+    data: ProvidersData,
+    chat_model: Optional[str] = None,
+) -> bool:
+    if provider_id == "anthropic":
+        return True
+    return (
+        _resolve_chat_model_name(provider_id, data, chat_model)
+        == "AnthropicChatModel"
+    )
 
 
 def _ensure_base_url(settings: ProviderSettings, defn) -> None:
@@ -133,6 +177,29 @@ def _normalize_special_provider_settings(
     """Apply provider-specific settings normalization."""
     if provider_id == "ollama" and settings.base_url:
         settings.base_url = _normalize_ollama_base_url(settings.base_url)
+
+
+def _build_remote_provider_headers(
+    provider_id: str,
+    api_key: Optional[str],
+    *,
+    chat_model_name: Optional[str] = None,
+    json_body: bool = False,
+) -> dict[str, str]:
+    """Build request headers for remote provider APIs."""
+    headers: dict[str, str] = {}
+    if json_body:
+        headers["Content-Type"] = "application/json"
+
+    if provider_id == "anthropic" or chat_model_name == "AnthropicChatModel":
+        headers["anthropic-version"] = "2023-06-01"
+        if api_key:
+            headers["x-api-key"] = api_key
+        return headers
+
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
 
 
 def _migrate_legacy_custom(
@@ -340,6 +407,7 @@ def update_provider_settings(
     *,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    chat_model: Optional[str] = None,
 ) -> ProvidersData:
     """Partially update a provider's settings. Returns updated state."""
     data = load_providers_json()
@@ -350,6 +418,8 @@ def update_provider_settings(
             cpd.api_key = api_key
         if base_url is not None:
             cpd.base_url = base_url
+        if chat_model is not None:
+            cpd.chat_model = _normalize_chat_model_name(chat_model)
         if not cpd.base_url:
             cpd.base_url = cpd.default_base_url
         register_custom_provider(cpd)
@@ -437,6 +507,7 @@ def create_custom_provider(
     default_base_url: str = "",
     api_key_prefix: str = "",
     models: Optional[list[ModelInfo]] = None,
+    chat_model: str = "OpenAIChatModel",
 ) -> ProvidersData:
     err = validate_custom_provider_id(provider_id)
     if err:
@@ -453,6 +524,7 @@ def create_custom_provider(
         api_key_prefix=api_key_prefix,
         models=models or [],
         base_url=default_base_url,
+        chat_model=_normalize_chat_model_name(chat_model),
     )
     data.custom_providers[provider_id] = cpd
     register_custom_provider(cpd)
@@ -571,12 +643,295 @@ def remove_model(provider_id: str, model_id: str) -> ProvidersData:
     return data
 
 
+def _dedupe_models(models: list[ModelInfo]) -> list[ModelInfo]:
+    """Keep insertion order while deduplicating by model id."""
+    out: list[ModelInfo] = []
+    seen: set[str] = set()
+    for model in models:
+        model_id = (model.id or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        name = (model.name or "").strip() or model_id
+        out.append(ModelInfo(id=model_id, name=name))
+    return out
+
+
+def _merge_discovered_models(
+    provider_id: str,
+    discovered: list[ModelInfo],
+    data: ProvidersData,
+) -> int:
+    """Merge discovered models into provider config and return added count."""
+    defn = PROVIDERS.get(provider_id)
+    if defn is None:
+        raise ValueError(f"Provider '{provider_id}' not found.")
+
+    discovered = _dedupe_models(discovered)
+    if not discovered:
+        return 0
+
+    added_count = 0
+
+    if is_builtin(provider_id):
+        # Ollama models come from daemon sync and should not be persisted here.
+        if provider_id == "ollama":
+            return 0
+
+        settings = data.providers.setdefault(
+            provider_id,
+            ProviderSettings(base_url=defn.default_base_url),
+        )
+        existing_ids = {m.id for m in defn.models} | {
+            m.id for m in settings.extra_models
+        }
+        for model in discovered:
+            if model.id in existing_ids:
+                continue
+            settings.extra_models.append(model)
+            existing_ids.add(model.id)
+            added_count += 1
+        return added_count
+
+    cpd = data.custom_providers.get(provider_id)
+    if cpd is None:
+        raise ValueError(f"Custom provider '{provider_id}' not found.")
+
+    existing_ids = {m.id for m in cpd.models}
+    for model in discovered:
+        if model.id in existing_ids:
+            continue
+        cpd.models.append(model)
+        existing_ids.add(model.id)
+        added_count += 1
+
+    if added_count > 0:
+        register_custom_provider(cpd)
+
+    return added_count
+
+
+# pylint: disable=R0911,R0912,R0915
+async def discover_provider_models(
+    provider_id: str,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    chat_model: Optional[str] = None,
+) -> dict[str, Any]:
+    """Discover available models from a provider's /models endpoint.
+
+    Returns:
+        dict with keys:
+        - success: bool
+        - message: str
+        - models: list[ModelInfo]
+        - added_count: int
+    """
+    defn = PROVIDERS.get(provider_id)
+    if defn is None:
+        raise ValueError(f"Provider '{provider_id}' not found.")
+
+    # Local providers are already represented by local model registry.
+    if defn.is_local:
+        return {
+            "success": True,
+            "message": f"{defn.name} uses local models; no remote discovery.",
+            "models": list(defn.models),
+            "added_count": 0,
+        }
+
+    # Ollama model list comes from local daemon.
+    if provider_id == "ollama":
+        try:
+            from .ollama_manager import OllamaModelManager
+
+            models = [
+                ModelInfo(id=m.name, name=m.name)
+                for m in OllamaModelManager.list_models()
+            ]
+            return {
+                "success": True,
+                "message": f"Discovered {len(models)} Ollama model(s).",
+                "models": models,
+                "added_count": 0,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Failed to query Ollama models: {str(e)}",
+                "models": [],
+                "added_count": 0,
+            }
+
+    try:
+        import httpx
+    except ImportError:
+        return {
+            "success": False,
+            "message": "httpx library is not installed.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    data = load_providers_json()
+    try:
+        chat_model_name = _resolve_chat_model_name(
+            provider_id,
+            data,
+            chat_model,
+        )
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "models": [],
+            "added_count": 0,
+        }
+    saved_base_url, saved_api_key = data.get_credentials(provider_id)
+    resolved_base_url = (
+        base_url or saved_base_url or defn.default_base_url
+    ).strip()
+    resolved_api_key = saved_api_key if api_key is None else api_key
+
+    if not resolved_base_url:
+        return {
+            "success": False,
+            "message": "Base URL is required to discover models.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    endpoint = f"{resolved_base_url.rstrip('/')}/models"
+    headers = {"Accept": "application/json"}
+    headers.update(
+        _build_remote_provider_headers(
+            provider_id,
+            resolved_api_key,
+            chat_model_name=chat_model_name,
+        ),
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(endpoint, headers=headers)
+    except httpx.ConnectError:
+        return {
+            "success": False,
+            "message": "Cannot connect to provider. Please check Base URL.",
+            "models": [],
+            "added_count": 0,
+        }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Model discovery timed out.",
+            "models": [],
+            "added_count": 0,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Model discovery failed: {str(e)}",
+            "models": [],
+            "added_count": 0,
+        }
+
+    if response.status_code in (401, 403):
+        return {
+            "success": False,
+            "message": "API key is invalid or has insufficient permission.",
+            "models": [],
+            "added_count": 0,
+        }
+    if response.status_code != 200:
+        msg = f"Provider returned {response.status_code} when listing models."
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                detail = payload.get("error") or payload.get("message")
+                if detail:
+                    msg = f"{msg} {detail}"
+        except Exception:
+            pass
+        return {
+            "success": False,
+            "message": msg,
+            "models": [],
+            "added_count": 0,
+        }
+
+    try:
+        payload = response.json()
+    except Exception:
+        return {
+            "success": False,
+            "message": "Provider returned non-JSON response for /models.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return {
+            "success": False,
+            "message": "Provider /models response format is unsupported.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    discovered: list[ModelInfo] = []
+    for row in rows:
+        if isinstance(row, str):
+            model_id = row.strip()
+            if model_id:
+                discovered.append(ModelInfo(id=model_id, name=model_id))
+            continue
+        if not isinstance(row, dict):
+            continue
+
+        model_id = str(row.get("id") or row.get("name") or "").strip()
+        if not model_id:
+            continue
+        model_name = (
+            str(
+                row.get("name") or row.get("display_name") or model_id,
+            ).strip()
+            or model_id
+        )
+        discovered.append(ModelInfo(id=model_id, name=model_name))
+
+    discovered = _dedupe_models(discovered)
+    if not discovered:
+        return {
+            "success": True,
+            "message": "No models discovered from provider /models endpoint.",
+            "models": [],
+            "added_count": 0,
+        }
+
+    latest = load_providers_json()
+    added_count = _merge_discovered_models(provider_id, discovered, latest)
+    if added_count > 0:
+        save_providers_json(latest)
+
+    return {
+        "success": True,
+        "message": (
+            f"Discovered {len(discovered)} model(s), "
+            f"added {added_count} new model(s)."
+        ),
+        "models": discovered,
+        "added_count": added_count,
+    }
+
+
 # pylint: disable=too-many-return-statements,too-many-branches
 # pylint: disable=too-many-statements
 async def test_provider_connection(
     provider_id: str,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    chat_model: Optional[str] = None,
 ) -> dict[str, Any]:
     """Test if a provider's URL and API key are valid.
 
@@ -656,7 +1011,7 @@ async def test_provider_connection(
     if not base_url or not api_key:
         saved_base_url, saved_api_key = data.get_credentials(provider_id)
         if not base_url:
-            base_url = saved_base_url
+            base_url = saved_base_url or defn.default_base_url
         if not api_key:
             api_key = saved_api_key
 
@@ -671,8 +1026,24 @@ async def test_provider_connection(
             }
 
     # Get chat model class for this provider
-    chat_model_class_name = get_provider_chat_model(provider_id, data)
-    chat_model_class = get_chat_model_class(chat_model_class_name)
+    try:
+        chat_model_class_name = _resolve_chat_model_name(
+            provider_id,
+            data,
+            chat_model,
+        )
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": str(e),
+        }
+    try:
+        chat_model_class = get_chat_model_class(chat_model_class_name)
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": str(e),
+        }
 
     # Use a lightweight test approach: try to make a simple API call
     # For OpenAI-compatible APIs, we can use the models list endpoint
@@ -682,14 +1053,16 @@ async def test_provider_connection(
         # This is a lightweight way to test credentials
         test_url = f"{base_url.rstrip('/')}/models"
 
-        headers = {}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = _build_remote_provider_headers(
+            provider_id,
+            api_key,
+            chat_model_name=chat_model_class_name,
+        )
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(test_url, headers=headers)
 
-            if response.status_code == 401:
+            if response.status_code in (401, 403):
                 return {
                     "success": False,
                     "message": f"{defn.name} API key is invalid or expired.",
@@ -740,8 +1113,12 @@ async def test_provider_connection(
             "dashscope": "qwen-max",
             "modelscope": "Qwen/Qwen3-235B-A22B-Instruct-2507",
             "aliyun-codingplan": "qwen3.5-plus",
+            "anthropic": "claude-3-5-sonnet-latest",
         }
-        test_model = fallback_models.get(provider_id, "gpt-3.5-turbo")
+        if chat_model_class_name == "AnthropicChatModel":
+            test_model = fallback_models["anthropic"]
+        else:
+            test_model = fallback_models.get(provider_id, "gpt-3.5-turbo")
 
     try:
         # Try to instantiate the model with the configured credentials
@@ -865,23 +1242,43 @@ async def test_model_connection(
         }
 
     base_url, api_key = data.get_credentials(provider_id)
+    try:
+        uses_anthropic_protocol = _uses_anthropic_protocol(provider_id, data)
+        chat_model_name = _resolve_chat_model_name(provider_id, data)
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": str(e),
+        }
 
     # For remote providers, use direct API call for more reliable testing
-    # Most OpenAI-compatible APIs use the chat completions endpoint
-    chat_url = f"{base_url.rstrip('/')}/chat/completions"
-
-    headers = {
-        "Content-Type": "application/json",
-    }
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    # Prepare a minimal test request
-    test_payload = {
-        "model": model_id,
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 1,
-    }
+    if uses_anthropic_protocol:
+        chat_url = f"{base_url.rstrip('/')}/messages"
+        headers = _build_remote_provider_headers(
+            provider_id,
+            api_key,
+            chat_model_name=chat_model_name,
+            json_body=True,
+        )
+        test_payload = {
+            "model": model_id,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        }
+    else:
+        # Most OpenAI-compatible APIs use the chat completions endpoint
+        chat_url = f"{base_url.rstrip('/')}/chat/completions"
+        headers = _build_remote_provider_headers(
+            provider_id,
+            api_key,
+            chat_model_name=chat_model_name,
+            json_body=True,
+        )
+        test_payload = {
+            "model": model_id,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        }
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -891,7 +1288,7 @@ async def test_model_connection(
                 headers=headers,
             )
 
-            if response.status_code == 401:
+            if response.status_code in (401, 403):
                 return {
                     "success": False,
                     "message": "API key is invalid or expired.",
@@ -954,6 +1351,19 @@ async def test_model_connection(
                         }
 
                     # Verify we got actual choices/content
+                    if (
+                        uses_anthropic_protocol
+                        and "content" in result
+                        and isinstance(result["content"], list)
+                        and len(result["content"]) > 0
+                    ):
+                        return {
+                            "success": True,
+                            "message": (
+                                f"Model '{model_id}' is working correctly."
+                            ),
+                        }
+
                     if "choices" in result and len(result["choices"]) > 0:
                         return {
                             "success": True,

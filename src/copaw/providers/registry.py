@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING, List, Optional, Type
 
 from agentscope.model import ChatModelBase
 
+try:
+    from agentscope.model import AnthropicChatModel
+except ImportError:  # pragma: no cover - compatibility fallback
+    AnthropicChatModel = None
+
 from .models import CustomProviderData, ModelInfo, ProviderDefinition
 from .openai_chat_model_compat import OpenAIChatModelCompat
 
@@ -67,6 +72,8 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
 
+ANTHROPIC_MODELS: List[ModelInfo] = []
+
 PROVIDER_MODELSCOPE = ProviderDefinition(
     id="modelscope",
     name="ModelScope",
@@ -125,6 +132,15 @@ PROVIDER_AZURE_OPENAI = ProviderDefinition(
     models=AZURE_OPENAI_MODELS,
 )
 
+PROVIDER_ANTHROPIC = ProviderDefinition(
+    id="anthropic",
+    name="Anthropic",
+    default_base_url="https://api.anthropic.com/v1",
+    api_key_prefix="sk-ant-",
+    models=ANTHROPIC_MODELS,
+    chat_model="AnthropicChatModel",
+)
+
 PROVIDER_OLLAMA = ProviderDefinition(
     id="ollama",
     name="Ollama",
@@ -143,6 +159,7 @@ _BUILTIN_IDS: frozenset[str] = frozenset(
         "aliyun-codingplan",
         "openai",
         "azure-openai",
+        "anthropic",
         "ollama",
         "llamacpp",
         "mlx",
@@ -155,6 +172,7 @@ PROVIDERS: dict[str, ProviderDefinition] = {
     PROVIDER_ALIYUN_CODINGPLAN.id: PROVIDER_ALIYUN_CODINGPLAN,
     PROVIDER_OPENAI.id: PROVIDER_OPENAI,
     PROVIDER_AZURE_OPENAI.id: PROVIDER_AZURE_OPENAI,
+    PROVIDER_ANTHROPIC.id: PROVIDER_ANTHROPIC,
     PROVIDER_OLLAMA.id: PROVIDER_OLLAMA,
     PROVIDER_LLAMACPP.id: PROVIDER_LLAMACPP,
     PROVIDER_MLX.id: PROVIDER_MLX,
@@ -312,6 +330,8 @@ def sync_ollama_models() -> None:
 _CHAT_MODEL_MAP: dict[str, Type[ChatModelBase]] = {
     "OpenAIChatModel": OpenAIChatModelCompat,
 }
+if AnthropicChatModel is not None:
+    _CHAT_MODEL_MAP["AnthropicChatModel"] = AnthropicChatModel
 
 
 def get_chat_model_class(chat_model_name: str) -> Type[ChatModelBase]:
@@ -323,4 +343,8 @@ def get_chat_model_class(chat_model_name: str) -> Type[ChatModelBase]:
     Returns:
         Chat model class, defaults to OpenAIChatModel-compatible parser.
     """
+    if chat_model_name == "AnthropicChatModel" and AnthropicChatModel is None:
+        raise ValueError(
+            "AnthropicChatModel is unavailable in current agentscope version.",
+        )
     return _CHAT_MODEL_MAP.get(chat_model_name, OpenAIChatModelCompat)
