@@ -217,7 +217,13 @@ class ChannelManager:
                             filter_thinking=filter_thinking,
                         ),
                     )
-                except TypeError:
+                except TypeError as exc:
+                    msg = str(exc)
+                    if (
+                        "unexpected keyword argument" not in msg
+                        or "filter_thinking" not in msg
+                    ):
+                        raise
                     logger.warning(
                         "channel %s.from_config does not accept "
                         "filter_thinking; falling back without it",
