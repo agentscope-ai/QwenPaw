@@ -42,6 +42,7 @@ async def take(session_id: str) -> List[Dict[str, Any]]:
     if not session_id:
         return []
     async with _lock:
+        _prune_expired_locked(_MAX_AGE_SECONDS)
         out = [m for m in _list if m.get("session_id") == session_id]
         _list[:] = [m for m in _list if m.get("session_id") != session_id]
         return _strip_ts(out)
@@ -50,6 +51,7 @@ async def take(session_id: str) -> List[Dict[str, Any]]:
 async def take_all() -> List[Dict[str, Any]]:
     """Return and remove all messages."""
     async with _lock:
+        _prune_expired_locked(_MAX_AGE_SECONDS)
         out = list(_list)
         _list.clear()
         return _strip_ts(out)
@@ -59,6 +61,12 @@ def _strip_ts(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [{"id": m["id"], "text": m["text"]} for m in msgs]
 
 
+def _prune_expired_locked(max_age_seconds: int) -> None:
+    """Drop expired messages in-place. Caller must hold _lock."""
+    cutoff = time.time() - max_age_seconds
+    _list[:] = [m for m in _list if m["ts"] >= cutoff]
+
+
 async def get_recent(
     max_age_seconds: int = _MAX_AGE_SECONDS,
 ) -> List[Dict[str, Any]]:
@@ -66,9 +74,6 @@ async def get_recent(
     Return recent messages (not consumed). Drop older than max_age_seconds
     from store to bound memory.
     """
-    now = time.time()
-    cutoff = now - max_age_seconds
     async with _lock:
-        out = [m for m in _list if m["ts"] >= cutoff]
-        _list[:] = out
-        return _strip_ts(out)
+        _prune_expired_locked(max_age_seconds)
+        return _strip_ts(_list)
