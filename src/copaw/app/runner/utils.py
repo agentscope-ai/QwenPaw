@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+from datetime import datetime
 from typing import Optional, Union, List
 from urllib.parse import urlparse
 from agentscope.message import Msg
@@ -10,6 +11,26 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     MessageType,
 )
 from agentscope_runtime.engine.helpers.agent_api_builder import ResponseBuilder
+
+
+def _build_local_time_context() -> list[str]:
+    """Build local time context based on the host machine timezone."""
+    now = datetime.now().astimezone()
+    timezone_name = getattr(now.tzinfo, "key", None) or now.tzname() or "Local"
+
+    utc_offset = now.strftime("%z")
+    if len(utc_offset) == 5:
+        utc_offset = f"UTC{utc_offset[:3]}:{utc_offset[3:]}"
+    elif utc_offset:
+        utc_offset = f"UTC{utc_offset}"
+    else:
+        utc_offset = "UTC"
+
+    return [
+        f"- 当前本地时间: {now.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 当前本地时区: {timezone_name} ({utc_offset})",
+        "- 日期解释规则: 处理“今天/明天/昨天/本周”等相对日期时，必须基于上述本地时区和时间。",
+    ]
 
 
 def build_env_context(
@@ -41,6 +62,8 @@ def build_env_context(
 
     if working_dir is not None:
         parts.append(f"- 工作目录: {working_dir}")
+
+    parts.extend(_build_local_time_context())
 
     if add_hint:
         parts.append(
