@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """Tests for console_push_store — expired message filtering."""
+
 from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import patch
-
 import pytest
 
 from copaw.app.console_push_store import (
@@ -28,6 +27,7 @@ def _clear_store():
 
 # ── helpers ──────────────────────────────────────────────────────────
 
+
 def _run(coro):
     return asyncio.run(coro)
 
@@ -40,11 +40,12 @@ def _inject_expired(session_id: str = "s1", age: int = _MAX_AGE_SECONDS + 10):
             "text": "old",
             "ts": time.time() - age,
             "session_id": session_id,
-        }
+        },
     )
 
 
 # ── take() ───────────────────────────────────────────────────────────
+
 
 def test_take_returns_fresh_messages():
     _run(append("s1", "hello"))
@@ -76,6 +77,7 @@ def test_take_cleans_expired_from_other_sessions():
 
 # ── take_all() ───────────────────────────────────────────────────────
 
+
 def test_take_all_returns_fresh_messages():
     _run(append("s1", "a"))
     _run(append("s2", "b"))
@@ -95,6 +97,7 @@ def test_take_all_drops_expired_messages():
 
 
 # ── get_recent() (existing behaviour, regression guard) ──────────────
+
 
 def test_get_recent_only_returns_fresh():
     _inject_expired("s1")
