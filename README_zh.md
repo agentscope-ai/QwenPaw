@@ -76,6 +76,7 @@
 - [API Key](#api-key)
 - [本地模型](#本地模型)
 - [文档](#文档)
+- [常见问题](#常见问题)
 - [路线图](#路线图)
 - [参与贡献](#参与贡献)
 - [从源码安装](#从源码安装)
@@ -265,6 +266,12 @@ copaw app # 启动服务
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
 
 完整文档见本仓库 [website/public/docs/](website/public/docs/)。
+
+---
+
+## 常见问题
+
+常见问题、排错指南与已知问题，请访问 **[FAQ 页面](https://copaw.agentscope.io/docs/faq)**。
 
 ---
 

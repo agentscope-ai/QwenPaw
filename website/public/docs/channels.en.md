@@ -410,6 +410,61 @@ You can also fill them in the Console UI.
 
 ---
 
+## Telegram
+
+### Get Telegram bot credentials
+
+1. Open Telegram and search for `@BotFather` to add a Bot (make sure it is the official @BotFather with a blue verified badge).
+2. Open the chat with @BotFather and follow the instructions to create a new bot
+
+   ![Create bot](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
+
+3. Create the bot name in the dialog and copy the bot_token
+
+   ![Copy token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
+
+### Configure the Bot
+
+You can configure via the Console UI or by editing `~/.copaw/config.json`.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
+
+![Console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
+
+**Method 2:** Edit `~/.copaw/config.json`
+
+Find `channels.telegram` in `config.json` and fill in the fields, for example:
+
+```json
+"telegram": {
+    "enabled": true,
+    "bot_prefix": "[BOT]",
+    "bot_token": "your Bot Token",
+    "http_proxy": "",
+    "http_proxy_auth": ""
+}
+```
+
+If you need a proxy to access the Telegram API (e.g. for network restrictions):
+
+- **http_proxy** — e.g. `http://127.0.0.1:7890`
+- **http_proxy_auth** — `username:password` if the proxy requires auth, otherwise leave empty
+
+### Notes
+
+The Telegram whitelist mechanism is still under construction. It is recommended to deploy for personal use only and avoid exposing your bot username publicly.
+
+It is recommended to configure the following in `@BotFather`:
+
+```
+/setprivacy -> ENABLED    # Restrict bot reply permissions
+/setjoingroups -> DISABLED # Block group invitations
+```
+
+---
+
 ## Appendix
 
 ### Config overview
@@ -421,6 +476,7 @@ You can also fill them in the Console UI.
 | iMessage | imessage   | db_path, poll_sec (macOS only)                                          |
 | Discord  | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
 | QQ       | qq         | app_id, client_secret                                                   |
+| Telegram | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -438,6 +494,7 @@ done). **✗** = not supported (not possible on this channel).
 | Discord  | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | iMessage | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ       | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Telegram | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 
 Notes:
 
@@ -452,6 +509,7 @@ Notes:
   possible on this channel).
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
+- **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 
 ### Changing config via HTTP
 

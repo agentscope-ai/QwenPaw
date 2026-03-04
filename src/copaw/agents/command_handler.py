@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING
 from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
-from ..config import load_config
-from .utils import safe_count_message_tokens, safe_count_str_tokens
+from .utils.token_counting import safe_count_str_tokens
 
 if TYPE_CHECKING:
     from .memory import MemoryManager
+    from reme.memory.file_based_copaw import CoPawInMemoryMemory
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,6 @@ class ConversationCommandHandlerMixin:
     # Supported conversation commands (unchanged set)
     SYSTEM_COMMANDS = frozenset(
         {
-            "start",
             "compact",
             "new",
             "clear",
@@ -126,8 +125,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory,
-        formatter,
+        memory: "CoPawInMemoryMemory",
         memory_manager: "MemoryManager | None" = None,
         enable_memory_manager: bool = True,
     ):
@@ -135,14 +133,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         Args:
             agent_name: Name of the agent for message creation
-            memory: Agent's memory instance
-            formatter: Agent's formatter instance for message formatting
+            memory: Agent's CoPawInMemoryMemory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
         """
         self.agent_name = agent_name
         self.memory = memory
-        self.formatter = formatter
         self.memory_manager = memory_manager
         self._enable_memory_manager = enable_memory_manager
 
@@ -169,39 +165,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self._enable_memory_manager and self.memory_manager is not None
 
-    async def _mark_messages_compressed(self, messages: list[Msg]) -> int:
-        """Mark messages as compressed and return count."""
-        return await self.memory.update_messages_mark(
-            new_mark=_MemoryMark.COMPRESSED,
-            msg_ids=[msg.id for msg in messages],
-        )
-
-    async def _process_start(self, messages: list[Msg]) -> Msg:
-        """Process /start command - same as /new."""
-        if not messages:
-            await self.memory.update_compressed_summary("")
-            return await self._make_system_msg(
-                "**Welcome!**\n\n"
-                "- This is a fresh conversation\n"
-                "- Ready to help you!",
-            )
-        if not self._has_memory_manager():
-            return await self._make_system_msg(
-                "**Memory Manager Disabled**\n\n"
-                "- Cannot start new conversation with summary\n"
-                "- Enable memory manager to use this feature",
-            )
-
-        self.memory_manager.add_async_summary_task(messages=messages)
-        await self.memory.update_compressed_summary("")
-        updated_count = await self._mark_messages_compressed(messages)
-        logger.info(f"Marked {updated_count} messages as compacted")
-        return await self._make_system_msg(
-            "**New Conversation Started!**\n\n"
-            "- Summary task started in background\n"
-            "- Ready for new conversation",
-        )
-
     async def _process_compact(self, messages: list[Msg]) -> Msg:
         """Process /compact command."""
         if not messages:
@@ -219,11 +182,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         self.memory_manager.add_async_summary_task(messages=messages)
         compact_content = await self.memory_manager.compact_memory(
-            messages_to_summarize=messages,
+            messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
         )
         await self.memory.update_compressed_summary(compact_content)
-        updated_count = await self._mark_messages_compressed(messages)
+        updated_count = await self.memory.mark_messages_compressed(messages)
         logger.info(
             f"Marked {updated_count} messages as compacted "
             f"with:\n{compact_content}",
@@ -238,7 +201,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def _process_new(self, messages: list[Msg]) -> Msg:
         """Process /new command."""
         if not messages:
-            await self.memory.update_compressed_summary("")
+            self.memory.clear_compressed_summary()
             return await self._make_system_msg(
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
@@ -253,8 +216,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         self.memory_manager.add_async_summary_task(messages=messages)
-        await self.memory.update_compressed_summary("")
-        updated_count = await self._mark_messages_compressed(messages)
+        self.memory.clear_compressed_summary()
+        updated_count = await self.memory.mark_messages_compressed(messages)
         logger.info(f"Marked {updated_count} messages as compacted")
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
@@ -264,8 +227,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_clear(self, _messages: list[Msg]) -> Msg:
         """Process /clear command."""
-        self.memory.content.clear()
-        await self.memory.update_compressed_summary("")
+        self.memory.clear_content()
+        self.memory.clear_compressed_summary()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
@@ -285,80 +248,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"**Compressed Summary**\n\n{summary}",
         )
 
-    async def _process_history(self, messages: list[Msg]) -> Msg:
+    async def _process_history(self, _messages: list[Msg]) -> Msg:
         """Process /history command."""
-
-        compressed_summary = self.memory.get_compressed_summary() or ""
-        compressed_summary_tokens = safe_count_str_tokens(compressed_summary)
-
-        # Calculate total token count using formatter
-        prompt = await self.formatter.format(msgs=messages)
-        messages_tokens = await safe_count_message_tokens(prompt)
-        estimated_tokens = messages_tokens + compressed_summary_tokens
-
-        # Get max_input_length from config and calculate context usage ratio
-        config = load_config()
-        max_input_length = config.agents.running.max_input_length
-        context_usage_ratio = (
-            (estimated_tokens / max_input_length * 100)
-            if max_input_length > 0
-            else 0
-        )
-
-        lines = []
-        for i, msg in enumerate(messages, 1):
-            try:
-                # Content blocks info and total tokens calculation
-                content = msg.content
-                if isinstance(content, str):
-                    text_tokens = safe_count_str_tokens(content)
-                    seq_blocks = ""
-                    preview = (
-                        f"{content[:100]}..."
-                        if len(content) > 100
-                        else content
-                    )
-                else:
-                    block_infos = []
-                    total_tokens = 0
-                    text_parts = []
-                    for block in content:
-                        block_type = block.get("type", "unknown")
-                        block_tokens, block_str = _get_block_tokens(
-                            block,
-                            block_type,
-                        )
-                        total_tokens += block_tokens
-                        text_parts.append(block_str)
-                        block_infos.append(
-                            f"{block_type}(tokens={block_tokens})",
-                        )
-                    text_tokens = total_tokens
-                    seq_blocks = f"\n    content: [{', '.join(block_infos)}]"
-                    text_preview = "".join(text_parts)
-                    preview = (
-                        f"{text_preview[:100]}..."
-                        if len(text_preview) > 100
-                        else text_preview
-                    )
-            except Exception as e:
-                text_tokens = 0
-                seq_blocks = ""
-                preview = f"<error: {e}>"
-            lines.append(
-                f"[{i}] **{msg.role}** (text_tokens={text_tokens})"
-                f"{seq_blocks}\n    preview: {preview}",
-            )
-
-        return await self._make_system_msg(
-            f"**Conversation History**\n\n"
-            f"- Total messages: {len(messages)}\n"
-            f"- Estimated tokens: {estimated_tokens}\n"
-            f"- Max input length: {max_input_length}\n"
-            f"- Context usage: {context_usage_ratio:.1f}%\n"
-            f"- Compressed summary tokens: {compressed_summary_tokens}\n\n"
-            + "\n\n".join(lines),
-        )
+        history_str = await self.memory.get_history_str()
+        return await self._make_system_msg(history_str)
 
     async def _process_await_summary(self, _messages: list[Msg]) -> Msg:
         """Process /await_summary command to wait for all summary tasks."""

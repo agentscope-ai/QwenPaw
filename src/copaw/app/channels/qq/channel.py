@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -61,6 +62,18 @@ MAX_QUICK_DISCONNECT_COUNT = 3
 
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
+_URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+
+
+def _sanitize_qq_text(text: str) -> tuple[str, bool]:
+    """QQ API disallows URL links in plain messages.
+
+    Return the sanitized text and whether any URL was removed.
+    """
+    if not text:
+        return "", False
+    sanitized, count = _URL_PATTERN.subn("[链接已省略]", text)
+    return sanitized, count > 0
 
 
 def _get_api_base() -> str:
@@ -379,6 +392,10 @@ class QQChannel(BaseChannel):
         """
         if not self.enabled or not text.strip():
             return
+        text = text.strip()
+        text, had_url = _sanitize_qq_text(text)
+        if had_url:
+            logger.info("qq send: stripped URL content for API compatibility")
         meta = meta or {}
         message_type = meta.get("message_type")
         msg_id = meta.get("message_id")
@@ -405,7 +422,7 @@ class QQChannel(BaseChannel):
                     self._http,
                     token,
                     sender_id,
-                    text.strip(),
+                    text,
                     msg_id,
                 )
             elif message_type == "group" and group_openid:
@@ -413,7 +430,7 @@ class QQChannel(BaseChannel):
                     self._http,
                     token,
                     group_openid,
-                    text.strip(),
+                    text,
                     msg_id,
                 )
             elif channel_id:
@@ -421,7 +438,7 @@ class QQChannel(BaseChannel):
                     self._http,
                     token,
                     channel_id,
-                    text.strip(),
+                    text,
                     msg_id,
                 )
             else:
@@ -429,7 +446,7 @@ class QQChannel(BaseChannel):
                     self._http,
                     token,
                     sender_id,
-                    text.strip(),
+                    text,
                     msg_id,
                 )
         except Exception:

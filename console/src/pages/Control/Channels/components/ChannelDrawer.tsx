@@ -33,6 +33,7 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
     "https://copaw.agentscope.io/docs/channels/#iMessage%E4%BB%85-macOS",
   discord: "https://copaw.agentscope.io/docs/channels/#Discord",
   qq: "https://copaw.agentscope.io/docs/channels/#QQ",
+  telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
 };
 
 export function ChannelDrawer({

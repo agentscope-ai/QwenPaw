@@ -287,6 +287,9 @@ def _resolve_console_static_dir() -> str:
     candidate = pkg_dir / "console"
     if candidate.is_dir() and (candidate / "index.html").exists():
         return str(candidate)
+    # the following code can be removed after next release,
+    # because the console will be output to copaw's
+    # `src/copaw/console/` directory directly by vite.
     cwd = Path(os.getcwd())
     for subdir in ("console/dist", "console_dist"):
         candidate = cwd / subdir
@@ -306,7 +309,14 @@ logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
         return FileResponse(_CONSOLE_INDEX)
-    return {"message": "Hello World"}
+    return {
+        "message": (
+            "CoPaw Web Console is not available. "
+            "If you installed CoPaw from source code, please run "
+            "`npm ci && npm run build` in CoPaw's `console/` "
+            "directory, and restart CoPaw to enable the web console."
+        ),
+    }
 
 
 @app.get("/api/version")

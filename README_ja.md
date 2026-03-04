@@ -63,6 +63,7 @@
 - [APIキー](#apiキー)
 - [ローカルモデル](#ローカルモデル)
 - [ドキュメント](#ドキュメント)
+- [FAQ](#faq)
 - [ソースからインストール](#ソースからインストール)
 - [なぜCoPaw？](#なぜcopaw)
 - [開発チーム](#開発チーム)
@@ -244,6 +245,12 @@ copaw app # サーバーを起動
 | [Config](https://copaw.agentscope.io/docs/config)             | ワーキングディレクトリと設定ファイル                 |
 
 リポジトリ内の完全なドキュメント: [website/public/docs/](website/public/docs/)
+
+---
+
+## FAQ
+
+よくある質問、トラブルシューティングのヒント、既知の問題については、**[FAQページ](https://copaw.agentscope.io/docs/faq)** をご覧ください。
 
 ---
 
