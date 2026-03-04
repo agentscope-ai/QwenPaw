@@ -1410,11 +1410,19 @@ class FeishuChannel(BaseChannel):
         text_parts: List[str] = []
         media_parts: List[OutgoingContentPart] = []
         for p in parts:
-            t = getattr(p, "type", None)
-            if t == ContentType.TEXT and getattr(p, "text", None):
-                text_parts.append(p.text or "")
-            elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
-                text_parts.append(p.refusal or "")
+            t = getattr(p, "type", None) or (
+                p.get("type") if isinstance(p, dict) else None
+            )
+            text_val = getattr(p, "text", None) or (
+                p.get("text") if isinstance(p, dict) else None
+            )
+            refusal_val = getattr(p, "refusal", None) or (
+                p.get("refusal") if isinstance(p, dict) else None
+            )
+            if t == ContentType.TEXT and text_val:
+                text_parts.append(text_val or "")
+            elif t == ContentType.REFUSAL and refusal_val:
+                text_parts.append(refusal_val or "")
             elif t in (
                 ContentType.IMAGE,
                 ContentType.FILE,
