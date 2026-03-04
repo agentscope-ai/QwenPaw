@@ -9,12 +9,16 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
+
 import logging
 import os
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type, Any
+from functools import wraps
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
+from agentscope.message import Msg
+import agentscope
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..local_models import create_local_chat_model
@@ -24,6 +28,35 @@ from ..providers import (
     get_provider_chat_model,
     load_providers_json,
 )
+
+
+def _monkey_patch(func):
+    """A monkey patch wrapper for agentscope <= 1.0.16dev"""
+
+    @wraps(func)
+    async def wrapper(msgs: list[Msg], **kwargs: Any) -> list[dict[str, Any]]:
+        for msg in msgs:
+            if isinstance(msg.content, str):
+                continue
+            if isinstance(msg.content, list):
+                for block in msg.content:
+                    if (
+                        block["type"] in ["audio", "image", "video"]
+                        and block.get("source", {}).get("type") == "url"
+                    ):
+                        url = block["source"]["url"]
+                        if url.startswith("file://"):
+                            block["source"]["url"] = url.removeprefix(
+                                "file://",
+                            )
+        return func(msgs, **kwargs)
+
+    return wrapper
+
+
+if agentscope.__version__ == "1.0.16dev":
+    # pylint: disable=protected-access
+    OpenAIChatFormatter._format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
     from ..providers import ResolvedModelConfig
