@@ -425,6 +425,7 @@ def configure_telegram(current_config: TelegramConfig) -> TelegramConfig:
         click.echo("Warning: Empty bot token provided.")
         click.echo("Disabling Telegram channel.")
         current_config.enabled = False
+        return current_config
 
     show_typing = prompt_confirm(
         "Show typing indicator?",
