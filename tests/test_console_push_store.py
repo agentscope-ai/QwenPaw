@@ -67,3 +67,14 @@ async def test_get_recent_prunes_expired_messages() -> None:
     assert [item["text"] for item in out] == ["fresh"]
     async with push_store._lock:
         assert [m["text"] for m in push_store._list] == ["fresh"]
+
+
+@pytest.mark.asyncio
+async def test_get_recent_rejects_negative_max_age() -> None:
+    await push_store.append("s1", "fresh")
+
+    with pytest.raises(ValueError, match="non-negative"):
+        await push_store.get_recent(max_age_seconds=-1)
+
+    async with push_store._lock:
+        assert [m["text"] for m in push_store._list] == ["fresh"]
