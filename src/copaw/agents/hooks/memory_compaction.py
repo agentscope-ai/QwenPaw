@@ -14,6 +14,7 @@ from agentscope.agent._react_agent import _MemoryMark
 from ..utils import (
     check_valid_messages,
     safe_count_message_tokens,
+    safe_count_str_tokens,
 )
 from ..utils.tool_message_utils import _truncate_text
 
@@ -158,20 +159,48 @@ class MemoryCompactionHook:
             if self.enable_truncate_tool_result_texts and messages_to_keep:
                 _truncate_tool_result_texts(messages_to_keep)
 
-            prompt = await agent.formatter.format(msgs=messages_to_compact)
-            estimated_tokens: int = await safe_count_message_tokens(prompt)
+            compactable_prompt = await agent.formatter.format(
+                msgs=messages_to_compact,
+            )
+            compactable_tokens = await safe_count_message_tokens(
+                compactable_prompt,
+            )
+
+            preserved_tokens = 0
+            preserved_messages = [
+                *system_prompt_messages,
+                *messages_to_keep,
+            ]
+            if preserved_messages:
+                preserved_prompt = await agent.formatter.format(
+                    msgs=preserved_messages,
+                )
+                preserved_tokens = await safe_count_message_tokens(
+                    preserved_prompt,
+                )
+
+            summary_tokens = safe_count_str_tokens(
+                agent.memory.get_compressed_summary() or "",
+            )
+            estimated_total_tokens = (
+                compactable_tokens + preserved_tokens + summary_tokens
+            )
             logger.debug(
-                "Estimated tokens for compaction: %d vs %s",
-                estimated_tokens,
+                "Estimated context tokens total=%d "
+                "(compactable=%d, preserved=%d, summary=%d) vs threshold=%d",
+                estimated_total_tokens,
+                compactable_tokens,
+                preserved_tokens,
+                summary_tokens,
                 self.memory_compact_threshold,
             )
 
-            if estimated_tokens > self.memory_compact_threshold:
+            if estimated_total_tokens > self.memory_compact_threshold:
                 logger.info(
-                    "Memory compaction triggered: estimated %d tokens "
+                    "Memory compaction triggered: estimated total %d tokens "
                     "(threshold: %d), system_prompt_msgs: %d, "
                     "compactable_msgs: %d, keep_recent_msgs: %d",
-                    estimated_tokens,
+                    estimated_total_tokens,
                     self.memory_compact_threshold,
                     len(system_prompt_messages),
                     len(messages_to_compact),
