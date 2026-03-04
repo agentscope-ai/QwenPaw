@@ -190,30 +190,30 @@ class LocalModelManager:
         filename: Optional[str],
         backend: BackendType,
     ) -> LocalModelInfo:
-        snapshot_download_fn = None
-        try:
-            from modelscope.hub.snapshot_download import (
-                snapshot_download as _hub_snapshot_download,
-            )
-
-            snapshot_download_fn = _hub_snapshot_download
-        except ImportError:
-            try:
-                # Compatibility fallback for old ModelScope versions.
-                from modelscope import (
-                    snapshot_download as _legacy_snapshot_download,
-                )
-
-                snapshot_download_fn = _legacy_snapshot_download
-            except ImportError:
-                snapshot_download_fn = None
-
         _ensure_models_dir()
         local_dir = MODELS_DIR / _sanitize_repo_id(repo_id)
 
         # MLX models require config/tokenizer files in addition to weights.
         # ModelScope file download pulls only one file, so use full snapshot.
         if backend == BackendType.MLX:
+            snapshot_download_fn = None
+            try:
+                from modelscope.hub.snapshot_download import (
+                    snapshot_download as _hub_snapshot_download,
+                )
+
+                snapshot_download_fn = _hub_snapshot_download
+            except ImportError:
+                try:
+                    # Compatibility fallback for old ModelScope versions.
+                    from modelscope import (
+                        snapshot_download as _legacy_snapshot_download,
+                    )
+
+                    snapshot_download_fn = _legacy_snapshot_download
+                except ImportError:
+                    snapshot_download_fn = None
+
             if snapshot_download_fn is None:
                 raise ImportError(
                     "ModelScope snapshot download is required for MLX models. "
@@ -253,7 +253,6 @@ class LocalModelManager:
                 "modelscope is required for ModelScope downloads. "
                 "Install it with: pip install modelscope",
             ) from e
-        local_dir.mkdir(parents=True, exist_ok=True)
 
         if filename is None:
             try:
@@ -272,6 +271,7 @@ class LocalModelManager:
                 ) from e
             filename = LocalModelManager._auto_select_file(files, backend)
 
+        local_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "Downloading %s/%s from ModelScope...",
             repo_id,
