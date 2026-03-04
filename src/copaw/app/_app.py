@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+import asyncio
 import mimetypes
 import os
 from contextlib import asynccontextmanager
@@ -18,9 +19,9 @@ from ..config import (  # pylint: disable=no-name-in-module
     ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
-from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS
+from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
 from ..__version__ import __version__
-from ..utils.logging import setup_logger
+from ..utils.logging import setup_logger, add_copaw_file_handler
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
 from .channels.utils import make_process_from_runner
 from .mcp import MCPClientManager, MCPConfigWatcher  # MCP hot-reload support
@@ -55,8 +56,19 @@ agent_app = AgentApp(
 )
 
 
+def _schedule_restart_exit() -> None:
+    """Schedule process exit so process manager can restart (single worker)."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.call_later(1.0, os._exit, 0)
+    except RuntimeError:
+        os._exit(0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
+    add_copaw_file_handler(WORKING_DIR / "copaw.log")
+    setattr(runner, "_restart_callback", _schedule_restart_exit)
     await runner.start()
 
     # --- MCP client manager init (independent module, hot-reloadable) ---

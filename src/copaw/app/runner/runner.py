@@ -10,6 +10,7 @@ from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from dotenv import load_dotenv
 
+from .command_dispatch import _get_last_user_text, _is_command, run_command_path
 from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
@@ -56,6 +57,13 @@ class AgentRunner(Runner):
         """
         Handle agent query.
         """
+        # Command path: do not create agent; yield from run_command_path
+        query = _get_last_user_text(msgs)
+        if query and _is_command(query):
+            logger.info("Command path: %s", query.strip()[:50])
+            async for msg, last in run_command_path(request, msgs, self):
+                yield msg, last
+            return
 
         agent = None
         chat = None

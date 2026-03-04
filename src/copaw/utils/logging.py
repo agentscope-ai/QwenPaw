@@ -3,6 +3,7 @@ import logging
 import os
 import platform
 import sys
+from pathlib import Path
 
 
 _LEVEL_MAP = {
@@ -118,3 +119,22 @@ def setup_logger(level: int | str = logging.INFO):
         logger.addHandler(handler)
 
     return logger
+
+
+def add_copaw_file_handler(log_path: Path) -> None:
+    """Add a FileHandler to the copaw logger for tail-based /daemon logs.
+
+    Call this when the app starts (e.g. in lifespan) so that
+    WORKING_DIR / "copaw.log" is written. /daemon logs tails this file.
+
+    Args:
+        log_path: Path to the log file (e.g. WORKING_DIR / "copaw.log").
+    """
+    log_path = Path(log_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(message)s", "%Y-%m-%d %H:%M:%S"),
+    )
+    logger = logging.getLogger(LOG_NAMESPACE)
+    logger.addHandler(file_handler)

@@ -86,10 +86,14 @@ def _get_block_tokens(
     return (0, "")
 
 
-class CommandHandler:
-    """Handler for agent system commands."""
+class ConversationCommandHandlerMixin:
+    """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
-    # Supported system commands
+    Expects self to have: agent_name, memory, formatter, memory_manager,
+    _enable_memory_manager.
+    """
+
+    # Supported conversation commands (unchanged set)
     SYSTEM_COMMANDS = frozenset(
         {
             "start",
@@ -101,6 +105,23 @@ class CommandHandler:
             "await_summary",
         },
     )
+
+    def is_conversation_command(self, query: str | None) -> bool:
+        """Check if the query is a conversation system command.
+
+        Args:
+            query: User query string
+
+        Returns:
+            True if query is a system command
+        """
+        if not isinstance(query, str) or not query.startswith("/"):
+            return False
+        return query.strip().lstrip("/") in self.SYSTEM_COMMANDS
+
+
+class CommandHandler(ConversationCommandHandlerMixin):
+    """Handler for system commands (uses ConversationCommandHandlerMixin)."""
 
     def __init__(
         self,
@@ -126,17 +147,8 @@ class CommandHandler:
         self._enable_memory_manager = enable_memory_manager
 
     def is_command(self, query: str | None) -> bool:
-        """Check if the query is a system command.
-
-        Args:
-            query: User query string
-
-        Returns:
-            True if query is a system command
-        """
-        if not isinstance(query, str) or not query.startswith("/"):
-            return False
-        return query.strip().lstrip("/") in self.SYSTEM_COMMANDS
+        """Check if the query is a system command (alias for mixin)."""
+        return self.is_conversation_command(query)
 
     async def _make_system_msg(self, text: str) -> Msg:
         """Create a system response message.
@@ -372,8 +384,8 @@ class CommandHandler:
             f"- All tasks have finished",
         )
 
-    async def handle_command(self, query: str) -> Msg:
-        """Process system commands.
+    async def handle_conversation_command(self, query: str) -> Msg:
+        """Process conversation system commands.
 
         Args:
             query: Command string (e.g., "/compact", "/new")
@@ -395,3 +407,7 @@ class CommandHandler:
         if handler is None:
             raise RuntimeError(f"Unknown command: {query}")
         return await handler(messages)
+
+    async def handle_command(self, query: str) -> Msg:
+        """Process system commands (alias for handle_conversation_command)."""
+        return await self.handle_conversation_command(query)
