@@ -137,3 +137,25 @@
 - No summary has been generated yet
 - Use /compact or wait for auto-compaction
 ```
+
+---
+
+## Daemon 命令（运维）
+
+在对话中发送 `/daemon <子命令>` 或在终端执行 `copaw daemon <子命令>`，可查看状态、最近日志、版本等，无需经过 Agent。支持短名（如 `/status` 等价于 `/daemon status`）。
+
+| 命令 | 说明 |
+|------|------|
+| `/daemon status` 或 `/status` | 查看运行状态（配置、工作目录、记忆服务等） |
+| `/daemon restart` 或 `/restart` | 请求重启（单 worker 下进程退出，由 systemd/supervisor 等拉起） |
+| `/daemon reload-config` | 热加载配置（不重启进程） |
+| `/daemon version` | 版本号与工作目录、日志路径 |
+| `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行控制台日志（默认 100 行，来自工作目录下 `copaw.log`） |
+
+终端中可直接使用：
+
+```bash
+copaw daemon status
+copaw daemon version
+copaw daemon logs -n 50
+```

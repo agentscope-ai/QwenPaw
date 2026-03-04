@@ -154,6 +154,28 @@ Example response (when no summary):
 
 ---
 
+## Daemon commands (ops)
+
+In chat, send `/daemon <subcommand>` or use short names (e.g. `/status`). From the terminal, run `copaw daemon <subcommand>`. These run without the Agent.
+
+| Command | Description |
+|---------|-------------|
+| `/daemon status` or `/status` | Show status (config, working dir, memory manager) |
+| `/daemon restart` or `/restart` | Request restart (process exits; use systemd/supervisor to relaunch) |
+| `/daemon reload-config` | Reload config without restarting the process |
+| `/daemon version` | Version and paths (working dir, log file) |
+| `/daemon logs` or `/daemon logs 50` | Last N lines of console log (default 100; from `copaw.log` in working dir) |
+
+From the terminal:
+
+```bash
+copaw daemon status
+copaw daemon version
+copaw daemon logs -n 50
+```
+
+---
+
 ## Related Pages
 
 - [Introduction](./intro.en.md) — What this project can do

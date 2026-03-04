@@ -70,6 +70,26 @@ but the API still works.
 `npm ci && npm run build` (output in `console/dist/`). Docker images and pip
 packages already include the Console.
 
+### copaw daemon
+
+Inspect status, version, and recent logs without starting a conversation. Same
+behavior as sending `/daemon status` etc. in chat (CLI can show local info when
+the app is not running).
+
+| Command | Description |
+|---------|-------------|
+| `copaw daemon status` | Status (config, working dir, memory manager) |
+| `copaw daemon restart` | Print restart instructions (CLI cannot restart the process) |
+| `copaw daemon reload-config` | Reload config from disk |
+| `copaw daemon version` | Version and paths |
+| `copaw daemon logs [-n N]` | Last N lines of log (default 100; from `copaw.log` in working dir) |
+
+```bash
+copaw daemon status
+copaw daemon version
+copaw daemon logs -n 50
+```
+
 ---
 
 ## Models & environment variables
