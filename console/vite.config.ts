@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
     build: {
       // Output to CoPaw's console directory,
       // so we don't need to copy files manually after build.
-      outDir: '../src/copaw/console',
+      outDir: "../src/copaw/console",
       emptyOutDir: true,
     },
   };
