@@ -27,6 +27,7 @@ from copaw.security.tool_guard.guardians.rule_guardian import (
 )
 from copaw.security.tool_guard.engine import ToolGuardEngine, guard_tool_call
 from copaw.security.tool_guard.hook import ToolGuardHook
+from copaw.security.tool_guard import hook as tool_guard_hook_module
 
 
 # =====================================================================
@@ -472,6 +473,112 @@ class TestToolGuardHook:
         # Should not raise
         result = await hook(agent, kwargs)
         assert result is None
+
+    async def test_hook_skips_non_sensitive_tool_by_default(self):
+        engine = MagicMock()
+        engine.guard = MagicMock()
+        hook = ToolGuardHook(engine=engine)
+
+        agent = MagicMock()
+        kwargs = {
+            "tool_call": {
+                "name": "get_current_time",
+                "input": {"format": "iso"},
+            }
+        }
+
+        result = await hook(agent, kwargs)
+        assert result is None
+        engine.guard.assert_not_called()
+
+    async def test_hook_can_guard_non_sensitive_tool_via_env(self, monkeypatch):
+        monkeypatch.setenv("COPAW_TOOL_GUARD_TOOLS", "get_current_time")
+        engine = MagicMock()
+        engine.guard = MagicMock(return_value=ToolGuardResult(tool_name="get_current_time", params={}))
+        hook = ToolGuardHook(engine=engine)
+
+        agent = MagicMock()
+        kwargs = {
+            "tool_call": {
+                "name": "get_current_time",
+                "input": {"format": "iso"},
+            }
+        }
+
+        result = await hook(agent, kwargs)
+        assert result is None
+        engine.guard.assert_called_once()
+
+    async def test_hook_can_guard_all_tools_via_guarded_tools_all(self):
+        engine = MagicMock()
+        engine.guard = MagicMock(return_value=ToolGuardResult(tool_name="get_current_time", params={}))
+        hook = ToolGuardHook(engine=engine, guarded_tools={"all"})
+
+        agent = MagicMock()
+        kwargs = {
+            "tool_call": {
+                "name": "get_current_time",
+                "input": {"format": "iso"},
+            }
+        }
+
+        result = await hook(agent, kwargs)
+        assert result is None
+        engine.guard.assert_called_once()
+
+    async def test_hook_can_disable_via_guarded_tools_none(self):
+        engine = MagicMock()
+        engine.guard = MagicMock()
+        hook = ToolGuardHook(engine=engine, guarded_tools={"none"})
+
+        agent = MagicMock()
+        kwargs = {
+            "tool_call": {
+                "name": "execute_shell_command",
+                "input": {"command": "ls"},
+            }
+        }
+
+        result = await hook(agent, kwargs)
+        assert result is None
+        engine.guard.assert_not_called()
+
+    async def test_hook_can_load_guarded_tools_from_config_file(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            (
+                "{"
+                '"security": {"tool_guard": {"guarded_tools": ["get_current_time"]}}'
+                "}"
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.delenv("COPAW_TOOL_GUARD_TOOLS", raising=False)
+        monkeypatch.setattr(tool_guard_hook_module, "WORKING_DIR", tmp_path)
+        monkeypatch.setattr(tool_guard_hook_module, "CONFIG_FILE", "config.json")
+
+        engine = MagicMock()
+        engine.guard = MagicMock(
+            return_value=ToolGuardResult(tool_name="get_current_time", params={}),
+        )
+        hook = ToolGuardHook(engine=engine)
+
+        agent = MagicMock()
+        kwargs = {
+            "tool_call": {
+                "name": "get_current_time",
+                "input": {"format": "iso"},
+            }
+        }
+
+        result = await hook(agent, kwargs)
+        assert result is None
+        engine.guard.assert_called_once()
 
 
 # =====================================================================

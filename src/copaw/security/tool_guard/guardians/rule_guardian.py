@@ -198,7 +198,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
             self._rules.extend(extra_rules)
 
     @property
-    def rules(self) -> list[AuditRule]:
+    def rules(self) -> list[GuardRule]:
         """Return the loaded rules (read-only view)."""
         return list(self._rules)
 
