@@ -1,4 +1,4 @@
-import { Card, Button, Modal } from "@agentscope-ai/design";
+import { Card, Button, Modal, Tooltip } from "@agentscope-ai/design";
 import { DeleteOutlined } from "@ant-design/icons";
 import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
@@ -92,7 +92,9 @@ export function MCPClientCard({
             <span className={styles.fileIcon}>
               <Server style={{ color: "#1890ff", fontSize: 20 }} />
             </span>
-            <h3 className={styles.mcpTitle}>{client.name}</h3>
+            <Tooltip title={client.name}>
+              <h3 className={styles.mcpTitle}>{client.name}</h3>
+            </Tooltip>
             <span
               className={`${styles.typeBadge} ${
                 isRemote ? styles.remote : styles.local
