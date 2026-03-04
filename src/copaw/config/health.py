@@ -363,7 +363,7 @@ class HealthChecker:
                 model_instance, _ = create_model_and_formatter(llm_cfg)
 
                 # Try a minimal completion request (await the coroutine)
-                response = await model_instance(
+                await model_instance(
                     messages=[{"role": "user", "content": "test"}],
                     max_tokens=1,
                 )

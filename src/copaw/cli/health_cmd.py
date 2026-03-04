@@ -3,7 +3,7 @@
 import json
 import click
 
-from ..config.validator import ConfigValidator, ValidationLevel
+from ..config.validator import ConfigValidator
 from ..config.health import HealthChecker, HealthStatus
 
 
