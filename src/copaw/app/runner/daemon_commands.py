@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 DAEMON_PREFIX = "/daemon"
 DAEMON_SUBCOMMANDS = frozenset(
-    {"status", "restart", "reload-config", "reload_config", "version", "logs"},
+    {"status", "restart", "reload-config", "version", "logs"},
 )
 # Short names: /restart -> /daemon restart, etc.
 DAEMON_SHORT_ALIASES = {
@@ -47,14 +47,34 @@ class DaemonContext:
     restart_callback: Optional[RestartCallback] = None
 
 
-def _get_last_lines(path: Path, lines: int = 100) -> str:
-    """Read last N lines from a text file (tail)."""
+def _get_last_lines(
+    path: Path,
+    lines: int = 100,
+    max_bytes: int = 512 * 1024,
+) -> str:
+    """Read last N lines from a text file (tail) with bounded memory.
+
+    Reads at most max_bytes from the end of the file so large logs
+    do not cause high memory usage or latency.
+    """
     path = Path(path)
     if not path.exists() or not path.is_file():
         return f"(Log file not found: {path})"
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        size = path.stat().st_size
+        if size == 0:
+            return "(empty)"
+        with open(path, "rb") as f:
+            if size <= max_bytes:
+                content = f.read().decode("utf-8", errors="replace")
+            else:
+                f.seek(size - max_bytes)
+                content = f.read().decode("utf-8", errors="replace")
+                first_nl = content.find("\n")
+                if first_nl != -1:
+                    content = content[first_nl + 1 :]
+                else:
+                    content = ""
         all_lines = content.splitlines()
         last = all_lines[-lines:] if len(all_lines) > lines else all_lines
         return "\n".join(last) if last else "(empty)"
@@ -154,15 +174,9 @@ def parse_daemon_query(query: str) -> Optional[tuple[str, list[str]]]:
         if len(parts) < 2:
             return ("status", [])
         sub = parts[1].lower().replace("_", "-")
-        if sub not in DAEMON_SUBCOMMANDS and sub != "reload_config":
-            sub = "reload-config" if "reload" in sub else sub
-        if sub not in (
-            "status",
-            "restart",
-            "reload-config",
-            "version",
-            "logs",
-        ):
+        if sub not in DAEMON_SUBCOMMANDS and "reload" in sub:
+            sub = "reload-config"
+        if sub not in DAEMON_SUBCOMMANDS:
             return None
         args = parts[2:] if len(parts) > 2 else []
         return (sub, args)
