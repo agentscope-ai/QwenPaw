@@ -177,11 +177,3 @@ def get_guard_engine() -> ToolGuardEngine:
     if _engine_instance is None:
         _engine_instance = ToolGuardEngine()
     return _engine_instance
-
-
-def guard_tool_call(
-    tool_name: str,
-    params: dict[str, Any],
-) -> ToolGuardResult | None:
-    """Convenience function: guard a tool call via the singleton engine."""
-    return get_guard_engine().guard(tool_name, params)
