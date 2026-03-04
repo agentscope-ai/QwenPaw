@@ -85,7 +85,8 @@ def parse_feishu_post_content(
             locale_blocks.append(data)
         for value in data.values():
             if isinstance(value, dict) and isinstance(
-                value.get("content"), list
+                value.get("content"),
+                list,
             ):
                 locale_blocks.append(value)
 

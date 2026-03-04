@@ -79,7 +79,7 @@ def test_agentscope_msg_to_message_keeps_image_as_image_content() -> None:
 
 def test_agentscope_msg_to_message_maps_file_urls_for_console() -> None:
     file_path = str(
-        (WORKING_DIR / "media" / "feishu" / "report.pdf").resolve()
+        (WORKING_DIR / "media" / "feishu" / "report.pdf").resolve(),
     )
     msg = Msg(
         name="user",

@@ -16,7 +16,7 @@ MEDIA_ROUTE_PREFIX = "/api/media"
 def _build_media_roots() -> tuple[tuple[str, Path], ...]:
     """Build the set of local media roots that the web console may serve."""
     roots: list[tuple[str, Path]] = [
-        ("workspace", (WORKING_DIR / "media").resolve())
+        ("workspace", (WORKING_DIR / "media").resolve()),
     ]
     home_root = (Path("~/.copaw").expanduser().resolve() / "media").resolve()
     if home_root != roots[0][1]:
