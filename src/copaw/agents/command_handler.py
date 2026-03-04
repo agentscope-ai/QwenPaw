@@ -64,7 +64,7 @@ class CommandHandler:
         if not isinstance(query, str) or not query.startswith("/"):
             return False
         # Extract command name (first word after /)
-        cmd_part = query.strip().lstrip("/").split()[0]
+        cmd_part = query.strip().lstrip("/").split(" ", maxsplit=1)[0]
         return cmd_part in self.SYSTEM_COMMANDS
 
     async def _make_system_msg(self, text: str) -> Msg:
@@ -286,7 +286,7 @@ class CommandHandler:
             prepend_summary=False,
         )
         # Parse command and arguments
-        parts = query.strip().lstrip("/").split(maxsplit=1)
+        parts = query.strip().lstrip("/").split(" ", maxsplit=1)
         command = parts[0]
         args = parts[1] if len(parts) > 1 else ""
         logger.info(f"Processing command: {command}, args: {args}")
