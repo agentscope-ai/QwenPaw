@@ -91,7 +91,7 @@ class CommandHandler:
         messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /compact command."""
+        """Process /compact command. """
         if not messages:
             return await self._make_system_msg(
                 "**No messages to compact.**\n\n"
