@@ -58,9 +58,8 @@ async def execute_shell_command(
         try:
             await asyncio.wait_for(proc.wait(), timeout=timeout)
             stdout, stderr = await proc.communicate()
-            encoding = locale.getpreferredencoding(False) or "utf-8"
-            stdout_str = stdout.decode(encoding, errors="replace").strip("\n")
-            stderr_str = stderr.decode(encoding, errors="replace").strip("\n")
+            stdout_str = smart_decode(stdout)
+            stderr_str = smart_decode(stderr)
             returncode = proc.returncode
 
         except asyncio.TimeoutError:
@@ -83,13 +82,8 @@ async def execute_shell_command(
                     await proc.wait()
 
                 stdout, stderr = await proc.communicate()
-                encoding = locale.getpreferredencoding(False) or "utf-8"
-                stdout_str = stdout.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
-                stderr_str = stderr.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
+                stdout_str = smart_decode(stdout)
+                stderr_str = smart_decode(stderr)
                 if stderr_str:
                     stderr_str += f"\n{stderr_suffix}"
                 else:
@@ -132,3 +126,11 @@ async def execute_shell_command(
                 ),
             ],
         )
+
+def smart_decode(data: bytes) -> str:
+    try:
+        return data.decode("utf-8").strip("\n")
+    except UnicodeDecodeError:
+        pass
+
+    return data.decode(locale.getpreferredencoding(False), errors="replace").strip("\n")
