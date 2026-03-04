@@ -78,7 +78,7 @@ if ! "$PYTHON" -m pip --version &>/dev/null; then
   echo "[build_dmg] Bootstrapping pip..."
   "$PYTHON" -m ensurepip --upgrade
 fi
-"$PYTHON" -m pip install --quiet -e ".[dev]"
+"$PYTHON" -m pip install --quiet -e ".[full]"
 "$PYTHON" -m pip install --quiet pyinstaller pywebview
 
 export MACOSX_DEPLOYMENT_TARGET

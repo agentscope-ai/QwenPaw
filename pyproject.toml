@@ -53,6 +53,12 @@ dev = [
     "pre-commit>=4.2.0",
     "pytest-cov>=6.2.1",
 ]
+full = [
+    "huggingface_hub>=0.20.0",
+    "llama-cpp-python>=0.3.0",
+    "mlx-lm>=0.10.0",
+    "ollama>=0.6.1",
+]
 local = [
     "huggingface_hub>=0.20.0",
 ]
