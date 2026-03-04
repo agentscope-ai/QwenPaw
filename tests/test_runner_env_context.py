@@ -4,7 +4,7 @@ import re
 from copaw.app.runner.utils import build_env_context
 
 
-def test_build_env_context_includes_local_time_timezone_rules() -> None:
+def test_build_env_context_includes_local_date_timezone_rules() -> None:
     context = build_env_context(
         session_id="s1",
         user_id="u1",
@@ -14,9 +14,10 @@ def test_build_env_context_includes_local_time_timezone_rules() -> None:
     )
 
     assert re.search(
-        r"- 当前本地时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",
+        r"- 当前本地日期: \d{4}-\d{2}-\d{2}",
         context,
     )
+    assert "- 当前本地时间:" not in context
     assert "- 当前本地时区:" in context
     assert re.search(r"UTC(?:[+-]\d{2}:\d{2})?", context)
     assert "日期解释规则" in context

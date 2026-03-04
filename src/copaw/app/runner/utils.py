@@ -27,7 +27,7 @@ def _build_local_time_context() -> list[str]:
         utc_offset = "UTC"
 
     return [
-        f"- 当前本地时间: {now.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 当前本地日期: {now.strftime('%Y-%m-%d')}",
         f"- 当前本地时区: {timezone_name} ({utc_offset})",
         "- 日期解释规则: 处理“今天/明天/昨天/本周”等相对日期时，必须基于上述本地时区和时间。",
     ]
