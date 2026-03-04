@@ -58,12 +58,16 @@ class HealthChecker:
     def __init__(self):
         self.results: list[HealthCheckResult] = []
 
-    def check_all(self) -> SystemHealth:
-        """Run all health checks."""
+    def check_all(self, test_connection: bool = False) -> SystemHealth:
+        """Run all health checks.
+
+        Args:
+            test_connection: If True, test LLM API connection (slower).
+        """
         self.results = []
 
         self.check_config_files()
-        self.check_providers()
+        self.check_providers(test_connection=test_connection)
         self.check_skills()
         self.check_dependencies()
         self.check_environment()
@@ -130,8 +134,12 @@ class HealthChecker:
                 suggestion="Check config.json syntax or run 'copaw init --force'.",
             )
 
-    def check_providers(self) -> None:
-        """Check if LLM providers are configured."""
+    def check_providers(self, test_connection: bool = False) -> None:
+        """Check if LLM providers are configured.
+
+        Args:
+            test_connection: If True, actually test the API connection.
+        """
         try:
             from ..providers import load_providers_json
             from ..providers.registry import PROVIDERS
@@ -167,13 +175,34 @@ class HealthChecker:
                 )
                 return
 
+            # Test connection if requested
+            if test_connection:
+                connection_ok = self._test_llm_connection(
+                    data.active_llm.provider_id,
+                    data.active_llm.model
+                )
+                if not connection_ok:
+                    self._add_result(
+                        "providers",
+                        HealthStatus.DEGRADED,
+                        f"Provider configured but connection test failed: {defn.name} / {data.active_llm.model}",
+                        details={
+                            "provider": data.active_llm.provider_id,
+                            "model": data.active_llm.model,
+                        },
+                        suggestion="Check API key, network connection, and API endpoint availability.",
+                    )
+                    return
+
             self._add_result(
                 "providers",
                 HealthStatus.HEALTHY,
-                f"Active LLM: {defn.name} / {data.active_llm.model}",
+                f"Active LLM: {defn.name} / {data.active_llm.model}"
+                + (" (connection verified)" if test_connection else ""),
                 details={
                     "provider": data.active_llm.provider_id,
                     "model": data.active_llm.model,
+                    "connection_tested": test_connection,
                 },
             )
 
@@ -306,3 +335,35 @@ class HealthChecker:
                 HealthStatus.DEGRADED,
                 f"Failed to check disk space: {e}",
             )
+
+    def _test_llm_connection(self, provider_id: str, model: str) -> bool:
+        """Test LLM API connection with a simple request.
+
+        Args:
+            provider_id: Provider ID (e.g., 'dashscope', 'openai')
+            model: Model name
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            from ..agents.model_factory import create_model
+
+            # Create model instance
+            model_instance = create_model(
+                model_name=model,
+                provider_id=provider_id,
+            )
+
+            # Try a minimal completion request
+            response = model_instance(
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=1,
+            )
+
+            # If we got here without exception, connection works
+            return True
+
+        except Exception as e:
+            logger.debug(f"LLM connection test failed: {e}")
+            return False
