@@ -59,21 +59,24 @@ class HealthChecker:
         self.results: list[HealthCheckResult] = []
 
     def check_all(self) -> SystemHealth:
-        """Run all health checks (including LLM connection test)."""
+        """Run all health checks (including LLM connection test).
+
+        Each check is wrapped in exception handling to ensure one failing check
+        doesn't prevent other checks from running.
+        """
         self.results = []
 
-        self.check_config_files()
-        self.check_providers(test_connection=True)  # Always test connection
-        self.check_skills()
-        self.check_dependencies()
-        self.check_environment()
-        self.check_disk_space()
-
-        # New checks
-        self.check_channels()
-        self.check_mcp_clients()
-        self.check_required_files()
-        self.check_permissions()
+        # Run each check with exception protection
+        self._safe_check("config_files", self.check_config_files)
+        self._safe_check("providers", lambda: self.check_providers(test_connection=True))
+        self._safe_check("skills", self.check_skills)
+        self._safe_check("dependencies", self.check_dependencies)
+        self._safe_check("environment", self.check_environment)
+        self._safe_check("disk_space", self.check_disk_space)
+        self._safe_check("channels", self.check_channels)
+        self._safe_check("mcp_clients", self.check_mcp_clients)
+        self._safe_check("required_files", self.check_required_files)
+        self._safe_check("permissions", self.check_permissions)
 
         # Determine overall status
         if any(r.status == HealthStatus.UNHEALTHY for r in self.results):
@@ -84,6 +87,23 @@ class HealthChecker:
             overall = HealthStatus.HEALTHY
 
         return SystemHealth(status=overall, checks=self.results)
+
+    def _safe_check(self, check_name: str, check_func) -> None:
+        """Run a health check with exception protection.
+
+        If the check raises an unexpected exception, record it as UNHEALTHY
+        instead of aborting the entire health check process.
+        """
+        try:
+            check_func()
+        except Exception as e:
+            logger.exception(f"Unexpected error in {check_name} check")
+            self._add_result(
+                check_name,
+                HealthStatus.UNHEALTHY,
+                f"Check failed with unexpected error: {type(e).__name__}: {e}",
+                suggestion="This is an unexpected error. Please report this issue with the error details.",
+            )
 
     def _add_result(
         self,
