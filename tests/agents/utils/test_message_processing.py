@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 import asyncio
 from pathlib import Path
 
@@ -82,7 +83,10 @@ def test_process_single_file_block_accepts_plain_local_path_inside_media_root(
     assert result == str(inside_file.resolve())
 
 
-def test_is_allowed_media_path_rejects_same_prefix_not_child(tmp_path, monkeypatch):
+def test_is_allowed_media_path_rejects_same_prefix_not_child(
+    tmp_path,
+    monkeypatch,
+):
     media_root = tmp_path / "media"
     media_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(message_processing, "_ALLOWED_MEDIA_ROOT", media_root)
