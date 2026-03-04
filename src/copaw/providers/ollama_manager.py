@@ -9,17 +9,13 @@ or a manifest.json. Ollama remains the single source of truth for its models.
 from __future__ import annotations
 
 import logging
-import math
-import os
 from datetime import datetime
 from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
+from ..constant import MODEL_PROVIDER_CHECK_TIMEOUT
 
 logger = logging.getLogger(__name__)
-
-_OLLAMA_LIST_TIMEOUT_ENV = "COPAW_OLLAMA_LIST_TIMEOUT_SECONDS"
-_DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS = 10.0
 
 
 class OllamaModelInfo(BaseModel):
@@ -54,41 +50,12 @@ def _ensure_ollama():
         import ollama  # type: ignore[import]
     except ImportError as e:  # pragma: no cover - import guard
         raise ImportError(
-            "The 'ollama' Python package is required for Ollama management. "
-            "Install it with: pip install 'copaw[ollama]'",
+            "The 'ollama' Python package is required. You may have "
+            "installed Ollama via their CLI or desktop app, but you "
+            "also need the Python SDK to manage models from CoPaw. "
+            "Please install it with: pip install 'copaw[ollama]'",
         ) from e
     return ollama
-
-
-def _warn_timeout_fallback(raw: str) -> None:
-    logger.warning(
-        "Invalid %s=%r, fallback to %.1fs",
-        _OLLAMA_LIST_TIMEOUT_ENV,
-        raw,
-        _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS,
-    )
-
-
-def _get_ollama_list_timeout_seconds() -> float:
-    """Resolve list_models timeout seconds from environment.
-
-    The default is 10 seconds. Invalid or non-positive values are ignored.
-    """
-    raw = os.environ.get(_OLLAMA_LIST_TIMEOUT_ENV, "").strip()
-    if not raw:
-        return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
-
-    try:
-        timeout = float(raw)
-    except ValueError:
-        _warn_timeout_fallback(raw)
-        return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
-
-    if not math.isfinite(timeout) or timeout <= 0:
-        _warn_timeout_fallback(raw)
-        return _DEFAULT_OLLAMA_LIST_TIMEOUT_SECONDS
-
-    return timeout
 
 
 class OllamaModelManager:
@@ -106,7 +73,7 @@ class OllamaModelManager:
         ollama = _ensure_ollama()
         # Use a bounded timeout to avoid blocking app requests indefinitely
         # when the Ollama daemon/host is unreachable.
-        client = ollama.Client(timeout=_get_ollama_list_timeout_seconds())
+        client = ollama.Client(timeout=MODEL_PROVIDER_CHECK_TIMEOUT)
         raw = client.list()
         models: List[OllamaModelInfo] = []
         for m in raw.get("models", []):
