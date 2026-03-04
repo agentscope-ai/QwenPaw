@@ -298,6 +298,19 @@ def _create_remote_model_instance(
         api_key = os.getenv("DASHSCOPE_API_KEY", "")
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+    # The Anthropic SDK uses a base_url without the "/v1" suffix (it adds
+    # the versioned path internally), unlike OpenAI-compatible providers.
+    # Strip the trailing "/v1" to avoid a doubled path
+    # (e.g. "/v1/v1/messages").
+    if (
+        AnthropicChatModel is not None
+        and issubclass(chat_model_class, AnthropicChatModel)
+        and base_url
+    ):
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
+
     # Instantiate model
     model = chat_model_class(
         model_name,
