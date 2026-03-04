@@ -25,6 +25,20 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
+# Compatibility for setuptools>=82 where pkg_resources no longer exposes
+# declare_namespace, but lark-oapi still imports it.
+try:
+    import pkg_resources  # type: ignore
+except Exception:  # pragma: no cover - defensive fallback
+    pkg_resources = None
+else:
+    if not hasattr(pkg_resources, "declare_namespace"):
+
+        def _declare_namespace(_name: str) -> None:
+            return None
+
+        pkg_resources.declare_namespace = _declare_namespace  # type: ignore[attr-defined]
+
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
     CreateImageRequest,
