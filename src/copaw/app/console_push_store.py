@@ -43,8 +43,14 @@ async def take(session_id: str) -> List[Dict[str, Any]]:
         return []
     async with _lock:
         _prune_expired_locked(_MAX_AGE_SECONDS)
-        out = [m for m in _list if m.get("session_id") == session_id]
-        _list[:] = [m for m in _list if m.get("session_id") != session_id]
+        out = []
+        remaining = []
+        for msg in _list:
+            if msg.get("session_id") == session_id:
+                out.append(msg)
+            else:
+                remaining.append(msg)
+        _list[:] = remaining
         return _strip_ts(out)
 
 
