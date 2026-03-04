@@ -602,6 +602,84 @@ class FeishuChannel(BaseChannel):
                         text_parts.append("[audio: download failed]")
                 else:
                     text_parts.append("[audio: missing key]")
+            elif msg_type == "post":
+                # Feishu "post" is rich text: mixed text + images.
+                # Two possible structures from Feishu clients:
+                # 1) Unwrapped: {"title": "...", "content": [[...]]}
+                # 2) Wrapped:   {"zh_cn": {"title": "...", "content": [[...]]}}
+                try:
+                    post_data = json.loads(content_raw) if content_raw else {}
+                except (json.JSONDecodeError, Exception):
+                    logger.exception(
+                        "feishu post: failed to parse content_raw"
+                    )
+                    post_data = {}
+                if "content" in post_data:
+                    lang_content = post_data
+                else:
+                    lang_content = post_data.get("zh_cn") or next(
+                        (v for v in post_data.values() if isinstance(v, dict)),
+                        {},
+                    )
+                if isinstance(lang_content, dict):
+                    title = (lang_content.get("title") or "").strip()
+                    if title:
+                        text_parts.append(title)
+                    paragraphs = lang_content.get("content") or []
+                    for paragraph in paragraphs:
+                        if not isinstance(paragraph, list):
+                            continue
+                        para_texts: List[str] = []
+                        for elem in paragraph:
+                            if not isinstance(elem, dict):
+                                continue
+                            tag = elem.get("tag", "")
+                            if tag == "text":
+                                t = (elem.get("text") or "").strip()
+                                if t:
+                                    para_texts.append(t)
+                            elif tag == "img":
+                                image_key = elem.get("image_key", "")
+                                if image_key:
+                                    if para_texts:
+                                        text_parts.append(" ".join(para_texts))
+                                        para_texts = []
+                                    url_or_path = (
+                                        await self._download_image_resource(
+                                            message_id,
+                                            image_key,
+                                        )
+                                    )
+                                    if url_or_path:
+                                        content_parts.append(
+                                            ImageContent(
+                                                type=ContentType.IMAGE,
+                                                image_url=url_or_path,
+                                            ),
+                                        )
+                                    else:
+                                        text_parts.append(
+                                            "[image: download failed]",
+                                        )
+                            elif tag == "a":
+                                link_text = (elem.get("text") or "").strip()
+                                href = (elem.get("href") or "").strip()
+                                if link_text and href:
+                                    para_texts.append(f"{link_text}({href})")
+                                elif link_text:
+                                    para_texts.append(link_text)
+                                elif href:
+                                    para_texts.append(href)
+                            elif tag == "at":
+                                user_name = (
+                                    elem.get("user_name")
+                                    or elem.get("userName")
+                                    or ""
+                                ).strip()
+                                if user_name:
+                                    para_texts.append(f"@{user_name}")
+                        if para_texts:
+                            text_parts.append(" ".join(para_texts))
             else:
                 text_parts.append(f"[{msg_type}]")
 

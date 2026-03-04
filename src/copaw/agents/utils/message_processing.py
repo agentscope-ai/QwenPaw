@@ -6,6 +6,7 @@ This module handles:
 - Message content manipulation
 - Message validation
 """
+
 import logging
 import os
 import urllib.parse
@@ -138,9 +139,15 @@ def _update_block_with_local_path(
                 "media_type": _media_type_from_path(local_path),
             }
         else:
+            # Use the raw local path (not a file:// URI) so the OpenAI
+            # formatter (_to_openai_image_url) can detect it as a local
+            # file via os.path.exists() and encode it as base64.
+            # Converting to a file:// URI causes the formatter to treat it
+            # as a web URL and pass it unchanged to the provider (e.g.
+            # DashScope/Qwen), which rejects it with an invalid-URL error.
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": local_path,
             }
     return block
 
