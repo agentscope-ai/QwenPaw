@@ -5,6 +5,8 @@ Shares execution with in-chat /daemon <sub> via daemon_commands.
 """
 from __future__ import annotations
 
+import asyncio
+
 import click
 
 from ..app.runner.daemon_commands import (
@@ -42,7 +44,7 @@ def status_cmd() -> None:
 def restart_cmd() -> None:
     """Print restart instructions (CLI has no process to restart)."""
     ctx = _context()
-    click.echo(run_daemon_restart(ctx))
+    click.echo(asyncio.run(run_daemon_restart(ctx)))
 
 
 @daemon_group.command("reload-config")

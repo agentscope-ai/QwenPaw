@@ -2,7 +2,8 @@
 """Daemon command execution layer and DaemonCommandHandlerMixin.
 
 Shared by in-chat /daemon <sub> and CLI `copaw daemon <sub>`.
-Logs: tail WORKING_DIR / "copaw.log". Restart: single-worker exit or SIGHUP.
+Logs: tail WORKING_DIR / "copaw.log". Restart: in-process reload of channels,
+cron and MCP (no process exit); works on Mac/Windows without a process manager.
 """
 # pylint: disable=too-many-return-statements
 from __future__ import annotations
@@ -10,13 +11,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
 
+RestartCallback = Callable[[], Awaitable[None]]
 logger = logging.getLogger(__name__)
 
 DAEMON_PREFIX = "/daemon"
@@ -41,8 +43,8 @@ class DaemonContext:
     working_dir: Path = WORKING_DIR
     load_config_fn: Callable[[], Any] = load_config
     memory_manager: Optional[Any] = None
-    # Optional: call to trigger process exit (single worker) or SIGHUP (multi).
-    restart_callback: Optional[Callable[[], None]] = None
+    # Optional: async restart (channels, cron, MCP) in-process.
+    restart_callback: Optional[RestartCallback] = None
 
 
 def _get_last_lines(path: Path, lines: int = 100) -> str:
@@ -84,22 +86,22 @@ def run_daemon_status(context: DaemonContext) -> str:
     return "\n".join(parts)
 
 
-def run_daemon_restart(context: DaemonContext) -> str:
-    """Trigger restart: use callback or instruct user."""
+async def run_daemon_restart(context: DaemonContext) -> str:
+    """Trigger in-process restart (channels, cron, MCP) or instruct user."""
     if context.restart_callback is not None:
         try:
-            context.restart_callback()
+            await context.restart_callback()
             return (
-                "**Restart requested**\n\n"
-                "- Process will exit; restart with systemd/supervisor/docker."
+                "**Restart completed**\n\n"
+                "- Channels, cron and MCP reloaded in-process (no exit)."
             )
         except Exception as e:
             return f"**Restart failed**\n\n- {e}"
     return (
         "**Restart**\n\n"
-        "- No restart callback (e.g. single process). "
-        "Use systemd/supervisor/docker to restart the app, or run with "
-        "a process manager that restarts on exit."
+        "- No restart callback (e.g. not running inside app). "
+        "Run the app (e.g. `copaw app`) and use /daemon restart in chat, "
+        "or restart the process with systemd/supervisor/docker."
     )
 
 
@@ -196,7 +198,7 @@ class DaemonCommandHandlerMixin:
         if sub == "status":
             text = run_daemon_status(context)
         elif sub == "restart":
-            text = run_daemon_restart(context)
+            text = await run_daemon_restart(context)
         elif sub == "reload-config":
             text = run_daemon_reload_config(context)
         elif sub == "version":

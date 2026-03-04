@@ -1,8 +1,6 @@
-# System Commands
+# Magic Commands
 
-> **Experimental**: System commands do not yet fully cover all scenarios and edge cases; using them may lead to errors or unexpected behavior. Please rely on actual behavior as the source of truth.
-
-**System commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
+**Magic commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
 
 Five commands are currently supported:
 

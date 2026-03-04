@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
-import asyncio
 import mimetypes
 import os
 from contextlib import asynccontextmanager
@@ -56,19 +55,9 @@ agent_app = AgentApp(
 )
 
 
-def _schedule_restart_exit() -> None:
-    """Schedule process exit so process manager can restart (single worker)."""
-    try:
-        loop = asyncio.get_running_loop()
-        loop.call_later(1.0, os._exit, 0)
-    except RuntimeError:
-        os._exit(0)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
-    setattr(runner, "_restart_callback", _schedule_restart_exit)
     await runner.start()
 
     # --- MCP client manager init (independent module, hot-reloadable) ---
@@ -137,6 +126,110 @@ async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
     app.state.config_watcher = config_watcher
     app.state.mcp_manager = mcp_manager
     app.state.mcp_watcher = mcp_watcher
+
+    async def _restart_services() -> None:
+        """Stop all managers, then rebuild from config (no exit)."""
+        # pylint: disable=too-many-statements
+        # Use current refs from app.state so repeated restarts work
+        cfg_watcher = app.state.config_watcher
+        mcp_w = getattr(app.state, "mcp_watcher", None)
+        cron_mgr = app.state.cron_manager
+        ch_mgr = app.state.channel_manager
+        mcp_mgr = app.state.mcp_manager
+
+        # Stop in same order as lifespan shutdown
+        try:
+            await cfg_watcher.stop()
+        except Exception:
+            logger.exception("restart_services: config_watcher.stop failed")
+        if mcp_w is not None:
+            try:
+                await mcp_w.stop()
+            except Exception:
+                logger.exception("restart_services: mcp_watcher.stop failed")
+        try:
+            await cron_mgr.stop()
+        except Exception:
+            logger.exception("restart_services: cron_manager.stop failed")
+        try:
+            await ch_mgr.stop_all()
+        except Exception:
+            logger.exception(
+                "restart_services: channel_manager.stop_all failed",
+            )
+        if mcp_mgr is not None:
+            try:
+                await mcp_mgr.close_all()
+            except Exception:
+                logger.exception(
+                    "restart_services: mcp_manager.close_all failed",
+                )
+
+        # Reload config from disk and rebuild managers
+        try:
+            config = load_config(get_config_path())
+        except Exception:
+            logger.exception("restart_services: load_config failed")
+            return
+
+        # New MCP manager
+        new_mcp_manager = MCPClientManager()
+        if hasattr(config, "mcp"):
+            try:
+                await new_mcp_manager.init_from_config(config.mcp)
+                runner.set_mcp_manager(new_mcp_manager)
+            except Exception:
+                logger.exception(
+                    "restart_services: mcp init_from_config failed",
+                )
+
+        # New channel manager (full rebuild)
+        new_channel_manager = ChannelManager.from_config(
+            process=make_process_from_runner(runner),
+            config=config,
+            on_last_dispatch=update_last_dispatch,
+        )
+        await new_channel_manager.start_all()
+
+        # New cron manager (same repo, new instance)
+        job_repo = JsonJobRepository(get_jobs_path())
+        new_cron_manager = CronManager(
+            repo=job_repo,
+            runner=runner,
+            channel_manager=new_channel_manager,
+            timezone="UTC",
+        )
+        await new_cron_manager.start()
+
+        # New config watcher
+        new_config_watcher = ConfigWatcher(
+            channel_manager=new_channel_manager,
+            cron_manager=new_cron_manager,
+        )
+        await new_config_watcher.start()
+
+        # New MCP watcher if config has mcp
+        new_mcp_watcher = None
+        if hasattr(config, "mcp"):
+            try:
+                new_mcp_watcher = MCPConfigWatcher(
+                    mcp_manager=new_mcp_manager,
+                    config_loader=load_config,
+                    config_path=get_config_path(),
+                )
+                await new_mcp_watcher.start()
+            except Exception:
+                logger.exception("restart_services: mcp_watcher.start failed")
+
+        # Replace app.state so next request and next restart use new refs
+        app.state.channel_manager = new_channel_manager
+        app.state.cron_manager = new_cron_manager
+        app.state.config_watcher = new_config_watcher
+        app.state.mcp_manager = new_mcp_manager
+        app.state.mcp_watcher = new_mcp_watcher
+        logger.info("Daemon restart (in-process) completed: managers rebuilt")
+
+    setattr(runner, "_restart_callback", _restart_services)
 
     try:
         yield
