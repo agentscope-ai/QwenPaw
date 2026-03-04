@@ -329,7 +329,7 @@ automatiquement quand des modèles sont ajoutés/supprimés via Ollama CLI ou la
 > **Note :** La validité de la clé API cloud est votre responsabilité. CoPaw ne
 > vérifie pas l'exactitude de la clé.
 >
-> Pour les détails du fournisseur, voir [Config — Fournisseurs LLM](./config#llm-providers).
+> Pour les détails du fournisseur, voir [Config — Fournisseurs LLM](./config#fournisseurs-llm).
 
 ---
 
@@ -361,7 +361,7 @@ Sélectionnez des lignes → cliquez sur **Supprimer** dans la barre d'outils �
 > **Note :** La validité des variables est votre responsabilité. CoPaw ne fait que stocker et
 > charger les valeurs.
 >
-> Voir [Config — Variables d'environnement](./config#environment-variables) pour plus d'infos.
+> Voir [Config — Variables d'environnement](./config#variables-denvironnement) pour plus d'infos.
 
 ---
 

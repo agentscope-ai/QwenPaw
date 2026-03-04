@@ -115,17 +115,27 @@ export default function ChatPage() {
     };
 
     const freshDefaults = getDefaultConfig();
+    const customized =
+      (optionsConfig as Record<string, any>)?._customized ?? {};
     return {
       ...optionsConfig,
       sender: {
         ...optionsConfig.sender,
-        disclaimer: optionsConfig.sender?.disclaimer ?? freshDefaults.sender.disclaimer,
+        disclaimer: customized.disclaimer
+          ? optionsConfig.sender?.disclaimer
+          : freshDefaults.sender.disclaimer,
       },
       welcome: {
         ...optionsConfig.welcome,
-        greeting: optionsConfig.welcome?.greeting ?? freshDefaults.welcome.greeting,
-        description: optionsConfig.welcome?.description ?? freshDefaults.welcome.description,
-        prompts: optionsConfig.welcome?.prompts ?? freshDefaults.welcome.prompts,
+        greeting: customized.greeting
+          ? optionsConfig.welcome?.greeting
+          : freshDefaults.welcome.greeting,
+        description: customized.description
+          ? optionsConfig.welcome?.description
+          : freshDefaults.welcome.description,
+        prompts: customized.prompts
+          ? optionsConfig.welcome?.prompts
+          : freshDefaults.welcome.prompts,
       },
       session: {
         multiple: true,
