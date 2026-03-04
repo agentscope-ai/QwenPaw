@@ -152,6 +152,9 @@ def test_modelscope_mlx_downloads_full_repo(
 def test_modelscope_mlx_missing_config_raises(
     monkeypatch,
 ) -> None:
+    repo_id = "mlx-community/missing-config"
+    local_dir = manager.MODELS_DIR / repo_id.replace("/", "--")
+
     def _snapshot_download_missing_config(
         model_id: str,
         local_dir: str,
@@ -167,7 +170,6 @@ def test_modelscope_mlx_missing_config_raises(
         snapshot_download_impl=_snapshot_download_missing_config,
     )
 
-    repo_id = "mlx-community/missing-config"
     with pytest.raises(RuntimeError, match="missing files"):
         manager.LocalModelManager.download_model_sync(
             repo_id=repo_id,
@@ -177,6 +179,7 @@ def test_modelscope_mlx_missing_config_raises(
         )
 
     assert manager.get_local_model(repo_id) is None
+    assert not local_dir.exists()
 
 
 def test_modelscope_llamacpp_still_uses_single_file_download(

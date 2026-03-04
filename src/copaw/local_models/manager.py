@@ -217,20 +217,27 @@ class LocalModelManager:
             if snapshot_download_fn is None:
                 raise ImportError(
                     "ModelScope snapshot download is required for MLX models. "
-                    "Install it with: pip install modelscope, or upgrade "
-                    "modelscope to a newer version if it is already installed.",
+                    "Install it with: pip install modelscope, "
+                    "or upgrade modelscope "
+                    "to a newer version if it is already installed.",
                 )
 
             logger.info(
                 "Downloading full repo %s from ModelScope (MLX)...",
                 repo_id,
             )
+            local_dir_existed = local_dir.exists()
             local_dir.mkdir(parents=True, exist_ok=True)
-            snapshot_dir = snapshot_download_fn(
-                model_id=repo_id,
-                local_dir=str(local_dir),
-            )
-            LocalModelManager._validate_mlx_directory(Path(snapshot_dir))
+            try:
+                snapshot_dir = snapshot_download_fn(
+                    model_id=repo_id,
+                    local_dir=str(local_dir),
+                )
+                LocalModelManager._validate_mlx_directory(Path(snapshot_dir))
+            except Exception:
+                if not local_dir_existed:
+                    shutil.rmtree(local_dir, ignore_errors=True)
+                raise
             return LocalModelManager._register_model(
                 repo_id,
                 filename or "(full repo)",
