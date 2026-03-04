@@ -192,13 +192,6 @@ class LocalModelManager:
     ) -> LocalModelInfo:
         snapshot_download_fn = None
         try:
-            from modelscope.hub.file_download import model_file_download
-        except ImportError as e:
-            raise ImportError(
-                "modelscope is required for ModelScope downloads. "
-                "Install it with: pip install modelscope",
-            ) from e
-        try:
             from modelscope.hub.snapshot_download import (
                 snapshot_download as _hub_snapshot_download,
             )
@@ -217,7 +210,6 @@ class LocalModelManager:
 
         _ensure_models_dir()
         local_dir = MODELS_DIR / _sanitize_repo_id(repo_id)
-        local_dir.mkdir(parents=True, exist_ok=True)
 
         # MLX models require config/tokenizer files in addition to weights.
         # ModelScope file download pulls only one file, so use full snapshot.
@@ -232,6 +224,7 @@ class LocalModelManager:
                 "Downloading full repo %s from ModelScope (MLX)...",
                 repo_id,
             )
+            local_dir.mkdir(parents=True, exist_ok=True)
             snapshot_dir = snapshot_download_fn(
                 model_id=repo_id,
                 local_dir=str(local_dir),
@@ -244,6 +237,15 @@ class LocalModelManager:
                 DownloadSource.MODELSCOPE,
                 snapshot_dir,
             )
+
+        try:
+            from modelscope.hub.file_download import model_file_download
+        except ImportError as e:
+            raise ImportError(
+                "modelscope is required for ModelScope downloads. "
+                "Install it with: pip install modelscope",
+            ) from e
+        local_dir.mkdir(parents=True, exist_ok=True)
 
         if filename is None:
             try:
@@ -331,7 +333,16 @@ class LocalModelManager:
                 f"Delete the directory and try again.",
             )
         # Check for at least one safetensors file (not inside temp dirs)
-        st_files = [f for f in model_dir.glob("*.safetensors") if f.is_file()]
+        st_files = [
+            f
+            for f in model_dir.rglob("*.safetensors")
+            if f.is_file()
+            and not any(
+                p.name.startswith(".")
+                for p in f.relative_to(model_dir).parents
+                if p != Path(".")
+            )
+        ]
         if not st_files:
             raise RuntimeError(
                 f"MLX model download appears incomplete — no .safetensors "
