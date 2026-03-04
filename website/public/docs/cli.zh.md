@@ -57,10 +57,28 @@ copaw app --log-level debug           # 详细日志
 `copaw app` 启动后，在浏览器打开 `http://127.0.0.1:8088/` 即可进入 **控制台** ——
 一个用于对话、频道、定时任务、技能、模型等的 Web 管理界面。详见 [控制台](./console)。
 
-若未构建前端，根路径返回 `{"message": "Hello World"}`，API 仍可正常使用。
+若未构建前端，根路径会返回类似 `{"message": "CoPaw Web Console is not available."}` 的提示信息（实际文案可能调整），API 仍可正常使用。
 
 **构建方式：** 在项目 `console/` 目录下执行 `npm ci && npm run build`，产物在
-`console/dist/`。Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
+`src/copaw/console/`。Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
+
+### copaw daemon
+
+查看运行状态、版本、最近日志等，无需启动对话。与在对话中发送 `/daemon status` 等效果一致（CLI 无进程时可查看本地信息）。
+
+| 命令                         | 说明                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `copaw daemon status`        | 状态（配置、工作目录、记忆服务）                                               |
+| `copaw daemon restart`       | 打印说明（在对话中用 /daemon restart 可进程内重载）                            |
+| `copaw daemon reload-config` | 重新读取并校验配置（频道/MCP 变更需在对话中 /daemon restart 或重启进程后生效） |
+| `copaw daemon version`       | 版本与路径                                                                     |
+| `copaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `copaw.log`）                            |
+
+```bash
+copaw daemon status
+copaw daemon version
+copaw daemon logs -n 50
+```
 
 ---
 

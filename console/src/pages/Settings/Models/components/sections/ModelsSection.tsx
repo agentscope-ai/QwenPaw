@@ -46,19 +46,11 @@ export function ModelsSection({
   const eligible = useMemo(
     () =>
       providers.filter((p) => {
-        // Ollama: need base_url AND models (to connect to daemon)
-        if (p.id === "ollama") {
-          return !!p.current_base_url && (p.models?.length ?? 0) > 0;
-        }
-        // Local providers (llama.cpp, mlx): need models only
-        if (p.is_local) {
-          return (p.models?.length ?? 0) > 0;
-        }
-        // Custom providers: need base_url AND models
-        if (p.is_custom) {
-          return !!p.current_base_url && (p.models?.length ?? 0) > 0;
-        }
-        // Built-in remote providers (modelscope, dashscope, etc.): need API key
+        const hasModels = (p.models?.length ?? 0) > 0;
+        if (!hasModels) return false;
+        if (p.id === "ollama") return !!p.current_base_url;
+        if (p.is_local) return true;
+        if (p.is_custom) return !!p.current_base_url;
         return !!p.current_api_key;
       }),
     [providers],

@@ -28,6 +28,12 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash
 
 然后打开新终端（或执行 `source ~/.zshrc` / `source ~/.bashrc`）。
 
+**Windows (CMD):**
+
+```cmd
+curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat
+```
+
 **Windows（PowerShell）：**
 
 ```powershell
@@ -35,6 +41,33 @@ irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
 然后打开新终端（安装脚本会自动将 CoPaw 加入 PATH）。
+
+> **⚠️ Windows 企业版 LTSC 用户特别提示**
+>
+> 如果您使用的是 Windows LTSC 或受严格安全策略管控的企业环境，PowerShell 可能运行在 **受限语言模式** 下，可能会遇到以下问题：
+>
+> 1. **如果你使用的是 CMD（.bat）：脚本执行成功但无法写入`Path`**
+>
+>    脚本已完成文件安装，由于 **受限语言模式** ，脚本无法自动写入环境变量，此时只需手动配置：
+>
+>    - **找到安装目录**：
+>      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version` ，如果显示版本号，则**只需配置 CoPaw 路径**；如果提示 `'uv' 不是内部或外部命令，也不是可运行的程序或批处理文件。`，则需同时配置两者。
+>      - uv路径（任选其一，取决于安装位置，若`uv`不可用则填）：通常在`%USERPROFILE%\.local\bin`、`%USERPROFILE%\AppData\Local\uv`或 Python 安装目录下的 `Scripts` 文件夹
+>      - CoPaw路径：通常在 `%USERPROFILE%\.copaw\bin` 。
+>    - **手动添加到系统的 Path 环境变量**：
+>      - 按 `Win + R`，输入 `sysdm.cpl` 并回车，打开“系统属性”。
+>      - 点击 “高级” -> “环境变量”。
+>      - 在 “系统变量” 中找到并选中 `Path`，点击 “编辑”。
+>      - 点击 “新建”，依次填入上述两个目录路径，点击确定保存。
+>
+> 2. **如果你使用的是 PowerShell（.ps1）：脚本运行中断**
+>
+> 由于 **受限语言模式** ，脚本可能无法自动下载`uv`。
+>
+> - **手动安装uv**：参考 [GitHub Release](https://github.com/astral-sh/uv/releases)下载并将`uv.exe`放至`%USERPROFILE%\.local\bin`或`%USERPROFILE%\AppData\Local\uv`；或者确保已安装 Python ，然后运行`python -m pip install -U uv`
+> - **配置`uv`环境变量**：将`uv`所在目录和 `%USERPROFILE%\.copaw\bin` 添加到系统的 `Path` 变量中。
+> - **重新运行**：打开新终端，再次执行安装脚本以完成 `CoPaw` 安装。
+> - **配置`CoPaw`环境变量**：将 `%USERPROFILE%\.copaw\bin` 添加到系统的 `Path` 变量中。
 
 也可以指定选项：
 

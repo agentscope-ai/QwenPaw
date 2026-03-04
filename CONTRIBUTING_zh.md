@@ -67,16 +67,16 @@ docs(skills): document Skills Hub import
 
 ### 4. 代码和质量
 
-- **Pre-commit：** 安装并运行 pre-commit 以保持一致的风格和检查：
+- **本地必跑门禁（push/提 PR 前必须通过）：**
   ```bash
   pip install -e ".[dev]"
   pre-commit install
   pre-commit run --all-files
-  ```
-- **测试：** 提交前运行测试：
-  ```bash
   pytest
   ```
+- **如果 pre-commit 自动修改了文件：** 先提交这些修改，再重复执行
+  `pre-commit run --all-files`，直到无修改且通过。
+- **CI 策略：** pre-commit 检查失败的 PR 视为未就绪（not merge-ready）。
 - **前端代码格式化：** 如果你的修改涉及到 `console` 或 `website` 目录，请在提交前运行格式化：
   ```bash
   cd console && npm run format

@@ -5,6 +5,8 @@
 
 import asyncio
 import locale
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +14,57 @@ from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
 
 from copaw.constant import WORKING_DIR
+
+
+def _execute_subprocess_sync(
+    cmd: str,
+    cwd: str,
+    timeout: int,
+) -> tuple[int, str, str]:
+    """Execute subprocess synchronously in a thread.
+
+    This function runs in a separate thread to avoid Windows asyncio
+    subprocess limitations.
+
+    Args:
+        cmd (`str`):
+            The shell command to execute.
+        cwd (`str`):
+            The working directory for the command execution.
+        timeout (`int`):
+            The maximum time (in seconds) allowed for the command to run.
+
+    Returns:
+        `tuple[int, str, str]`:
+            A tuple containing the return code, standard output, and
+            standard error of the executed command. If timeout occurs, the
+            return code will be -1 and stderr will contain timeout information.
+    """
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=timeout,
+            encoding=locale.getpreferredencoding(False) or "utf-8",
+            errors="replace",
+            check=True,
+        )
+        return (
+            result.returncode,
+            result.stdout.strip("\n"),
+            result.stderr.strip("\n"),
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            -1,
+            "",
+            f"Command execution exceeded the timeout of {timeout} seconds.",
+        )
+    except Exception as e:
+        return -1, "", str(e)
 
 
 # pylint: disable=too-many-branches
@@ -47,41 +100,25 @@ async def execute_shell_command(
     working_dir = cwd if cwd is not None else WORKING_DIR
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            bufsize=0,
-            cwd=str(working_dir),
-        )
-
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=timeout)
-            stdout, stderr = await proc.communicate()
-            encoding = locale.getpreferredencoding(False) or "utf-8"
-            stdout_str = stdout.decode(encoding, errors="replace").strip("\n")
-            stderr_str = stderr.decode(encoding, errors="replace").strip("\n")
-            returncode = proc.returncode
-
-        except asyncio.TimeoutError:
-            # Handle timeout
-            stderr_suffix = (
-                f"⚠️ TimeoutError: The command execution exceeded "
-                f"the timeout of {timeout} seconds. "
-                f"Please consider increasing the timeout value if this command "
-                f"requires more time to complete."
+        if sys.platform == "win32":
+            # Windows: use thread pool to avoid asyncio subprocess limitations
+            returncode, stdout_str, stderr_str = await asyncio.to_thread(
+                _execute_subprocess_sync,
+                cmd,
+                str(working_dir),
+                timeout,
             )
-            returncode = -1
-            try:
-                proc.terminate()
-                # Wait a bit for graceful termination
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=1)
-                except asyncio.TimeoutError:
-                    # Force kill if graceful termination fails
-                    proc.kill()
-                    await proc.wait()
+        else:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                bufsize=0,
+                cwd=str(working_dir),
+            )
 
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=timeout)
                 stdout, stderr = await proc.communicate()
                 encoding = locale.getpreferredencoding(False) or "utf-8"
                 stdout_str = stdout.decode(encoding, errors="replace").strip(
@@ -90,13 +127,48 @@ async def execute_shell_command(
                 stderr_str = stderr.decode(encoding, errors="replace").strip(
                     "\n",
                 )
-                if stderr_str:
-                    stderr_str += f"\n{stderr_suffix}"
-                else:
+                returncode = proc.returncode
+
+            except asyncio.TimeoutError:
+                # Handle timeout
+                stderr_suffix = (
+                    f"⚠️ TimeoutError: The command execution exceeded "
+                    f"the timeout of {timeout} seconds. "
+                    f"Please consider increasing the timeout value if this command "
+                    f"requires more time to complete."
+                )
+                returncode = -1
+                try:
+                    proc.terminate()
+                    # Wait a bit for graceful termination
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=1)
+                    except asyncio.TimeoutError:
+                        # Force kill if graceful termination fails
+                        proc.kill()
+                        await proc.wait()
+
+                    stdout, stderr = await proc.communicate()
+                    encoding = locale.getpreferredencoding(False) or "utf-8"
+                    stdout_str = stdout.decode(
+                        encoding,
+                        errors="replace",
+                    ).strip(
+                        "\n",
+                    )
+                    stderr_str = stderr.decode(
+                        encoding,
+                        errors="replace",
+                    ).strip(
+                        "\n",
+                    )
+                    if stderr_str:
+                        stderr_str += f"\n{stderr_suffix}"
+                    else:
+                        stderr_str = stderr_suffix
+                except ProcessLookupError:
+                    stdout_str = ""
                     stderr_str = stderr_suffix
-            except ProcessLookupError:
-                stdout_str = ""
-                stderr_str = stderr_suffix
 
         # Format the response in a human-friendly way
         if returncode == 0:

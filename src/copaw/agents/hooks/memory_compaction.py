@@ -14,52 +14,13 @@ from agentscope.agent._react_agent import _MemoryMark
 from ..utils import (
     check_valid_messages,
     safe_count_message_tokens,
+    safe_count_str_tokens,
 )
-from ..utils.tool_message_utils import _truncate_text
 
 if TYPE_CHECKING:
     from ..memory import MemoryManager
 
 logger = logging.getLogger(__name__)
-
-# Default max length for tool result text truncation during compaction
-_DEFAULT_COMPACT_TOOL_RESULT_MAX_LENGTH = 10000
-
-
-def _truncate_tool_result_texts(
-    messages: list,
-    max_length: int | None = None,
-) -> None:
-    """Truncate text content in tool_result blocks within messages.
-
-    Args:
-        messages: List of Msg objects to process
-        max_length: Maximum allowed length for text content
-                   (from env TOOL_RESULT_MAX_LENGTH or default 10000)
-    """
-    if max_length is None:
-        max_length = int(
-            os.environ.get(
-                "DEFAULT_COMPACT_TOOL_RESULT_MAX_LENGTH",
-                _DEFAULT_COMPACT_TOOL_RESULT_MAX_LENGTH,
-            ),
-        )
-
-    for msg in messages:
-        # Use get_content_blocks to properly extract tool_result blocks
-        tool_result_blocks = msg.get_content_blocks("tool_result")
-
-        for block in tool_result_blocks:
-            output = block.get("output")
-            if isinstance(output, str):
-                # Direct string output
-                block["output"] = _truncate_text(output, max_length)
-            elif isinstance(output, list):
-                # List of content blocks (TextBlock, ImageBlock, etc.)
-                for item in output:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        text = item.get("text", "")
-                        item["text"] = _truncate_text(text, max_length)
 
 
 class MemoryCompactionHook:
@@ -107,8 +68,8 @@ class MemoryCompactionHook:
         """Pre-reasoning hook to check and compact memory if needed.
 
         This hook extracts system prompt messages and recent messages,
-        then counts tokens for the middle compactable messages only.
-        If the token count exceeds the threshold, it triggers compaction.
+        builds an estimated full context prompt, and triggers compaction
+        when the total estimated token count exceeds the threshold.
 
         Memory structure:
             [System Prompt (preserved)] + [Compactable (counted)] +
@@ -154,24 +115,44 @@ class MemoryCompactionHook:
                 messages_to_compact = remaining_messages
                 messages_to_keep = []
 
-            # Truncate tool result texts in messages_to_keep
-            if self.enable_truncate_tool_result_texts and messages_to_keep:
-                _truncate_tool_result_texts(messages_to_keep)
-
-            prompt = await agent.formatter.format(msgs=messages_to_compact)
-            estimated_tokens: int = await safe_count_message_tokens(prompt)
+            messages_for_estimate = [
+                *system_prompt_messages,
+                *messages_to_compact,
+                *messages_to_keep,
+            ]
+            previous_summary = agent.memory.get_compressed_summary()
+            full_prompt = await agent.formatter.format(
+                msgs=messages_for_estimate,
+            )
+            estimated_message_tokens = await safe_count_message_tokens(
+                full_prompt,
+            )
+            summary_tokens = safe_count_str_tokens(previous_summary)
+            estimated_total_tokens = estimated_message_tokens + summary_tokens
             logger.debug(
-                "Estimated tokens for compaction: %d vs %s",
-                estimated_tokens,
+                "Estimated context tokens total=%d "
+                "(messages=%d, summary=%d, summary_prepended=%s, "
+                "system_prompt_msgs=%d, "
+                "compactable_msgs=%d, keep_recent_msgs=%d) vs threshold=%d",
+                estimated_total_tokens,
+                estimated_message_tokens,
+                summary_tokens,
+                bool(previous_summary),
+                len(system_prompt_messages),
+                len(messages_to_compact),
+                len(messages_to_keep),
                 self.memory_compact_threshold,
             )
 
-            if estimated_tokens > self.memory_compact_threshold:
+            if estimated_total_tokens > self.memory_compact_threshold:
                 logger.info(
-                    "Memory compaction triggered: estimated %d tokens "
-                    "(threshold: %d), system_prompt_msgs: %d, "
+                    "Memory compaction triggered: estimated total %d tokens "
+                    "(messages: %d, summary: %d, threshold: %d), "
+                    "system_prompt_msgs: %d, "
                     "compactable_msgs: %d, keep_recent_msgs: %d",
-                    estimated_tokens,
+                    estimated_total_tokens,
+                    estimated_message_tokens,
+                    summary_tokens,
                     self.memory_compact_threshold,
                     len(system_prompt_messages),
                     len(messages_to_compact),
@@ -183,7 +164,7 @@ class MemoryCompactionHook:
                 )
 
                 compact_content = await self.memory_manager.compact_memory(
-                    messages_to_summarize=messages_to_compact,
+                    messages=messages_to_compact,
                     previous_summary=agent.memory.get_compressed_summary(),
                 )
 
@@ -193,6 +174,15 @@ class MemoryCompactionHook:
                     msg_ids=[msg.id for msg in messages_to_compact],
                 )
                 logger.info(f"Marked {updated_count} messages as compacted")
+
+            else:
+                if (
+                    self.enable_truncate_tool_result_texts
+                    and messages_to_compact
+                ):
+                    await self.memory_manager.compact_tool_result(
+                        messages_to_compact,
+                    )
 
         except Exception as e:
             logger.error(

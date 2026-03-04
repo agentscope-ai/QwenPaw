@@ -1,3 +1,5 @@
+import dayjs from "dayjs";
+
 export const TIMEZONE_OPTIONS = [
   { value: "UTC", label: "UTC" },
   { value: "Asia/Shanghai", label: "Asia/Shanghai (UTC+8)" },
@@ -24,8 +26,11 @@ export const DEFAULT_FORM_VALUES = {
   enabled: false,
   schedule: {
     type: "cron" as const,
+    cron: "0 9 * * *",
     timezone: "UTC",
   },
+  cronType: "daily",
+  cronTime: dayjs().hour(9).minute(0),
   task_type: "agent" as const,
   dispatch: {
     type: "channel" as const,
