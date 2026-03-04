@@ -74,27 +74,6 @@ const getFileIcon = (filePath: string) => {
   }
 };
 
-const getAuthorFromContent = (content: string): string | null => {
-  if (!content) return null;
-  const trimmed = content.trim();
-  if (!trimmed.startsWith("---")) return null;
-  const endIndex = trimmed.indexOf("---", 3);
-  if (endIndex === -1) return null;
-  const frontmatter = trimmed.slice(3, endIndex);
-  const match = frontmatter.match(/^author:\s*(.+)$/m);
-  if (match) {
-    let author = match[1].trim();
-    if (
-      (author.startsWith('"') && author.endsWith('"')) ||
-      (author.startsWith("'") && author.endsWith("'"))
-    ) {
-      author = author.slice(1, -1);
-    }
-    return author || null;
-  }
-  return null;
-};
-
 export function SkillCard({
   skill,
   isHover,
@@ -106,7 +85,6 @@ export function SkillCard({
 }: SkillCardProps) {
   const { t } = useTranslation();
   const isCustomized = skill.source === "customized";
-  const author = getAuthorFromContent(skill.content);
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -156,9 +134,7 @@ export function SkillCard({
 
         <div className={styles.infoSection}>
           <div className={styles.infoLabel}>{t("skills.source")}</div>
-          <code className={styles.infoCode}>
-            {author || skill.source}
-          </code>
+          <code className={styles.infoCode}>{skill.source}</code>
         </div>
 
         <div className={styles.infoSection}>

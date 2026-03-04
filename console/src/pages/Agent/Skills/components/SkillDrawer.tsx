@@ -187,17 +187,7 @@ export function SkillDrawer({
             </Form.Item>
 
             <Form.Item name="source" label="Source">
-              <Input
-                disabled
-                value={
-                  editingSkill
-                    ? (() => {
-                        const fm = parseFrontmatter(editingSkill.content);
-                        return fm?.author || editingSkill.source;
-                      })()
-                    : undefined
-                }
-              />
+              <Input disabled />
             </Form.Item>
 
             <Form.Item name="path" label="Path">
