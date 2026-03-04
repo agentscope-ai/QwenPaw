@@ -6,8 +6,9 @@ import {
   Select,
   Switch,
   Button,
+  Checkbox,
 } from "@agentscope-ai/design";
-import { Divider } from "antd";
+import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
@@ -22,14 +23,6 @@ interface JobDrawerProps {
   onClose: () => void;
   onSubmit: (values: CronJob) => void;
 }
-
-const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <Divider orientation="left" style={{ marginTop: 24, marginBottom: 16 }}>
-    <span style={{ fontSize: 14, fontWeight: 600, color: "#1890ff" }}>
-      {children}
-    </span>
-  </Divider>
-);
 
 export function JobDrawer({
   open,
@@ -55,9 +48,6 @@ export function JobDrawer({
         onFinish={onSubmit}
         initialValues={DEFAULT_FORM_VALUES}
       >
-        {/* Basic Information Section */}
-        <SectionTitle>{t("cronJobs.sectionBasicInfo")}</SectionTitle>
-
         <Form.Item
           name="id"
           label={t("cronJobs.id")}
@@ -84,36 +74,136 @@ export function JobDrawer({
           <Switch />
         </Form.Item>
 
-        {/* Schedule Configuration Section */}
-        <SectionTitle>{t("cronJobs.sectionSchedule")}</SectionTitle>
-
         <Form.Item name={["schedule", "type"]} label="ScheduleType" hidden>
           <Input disabled value="cron" />
         </Form.Item>
 
         <Form.Item
-          name={["schedule", "cron"]}
-          label={t("cronJobs.scheduleCron")}
-          rules={[{ required: true, message: t("cronJobs.pleaseInputCron") }]}
+          label={t("cronJobs.scheduleCronLabel")}
+          required
           tooltip={t("cronJobs.cronTooltip")}
-          extra={
-            <div style={{ fontSize: 12, color: "#8c8c8c" }}>
-              <div style={{ marginBottom: 4 }}>{t("cronJobs.cronExample")}</div>
-              <div>
-                {t("cronJobs.cronHelper")}{" "}
-                <a
-                  href="https://crontab.guru/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#1890ff" }}
-                >
-                  {t("cronJobs.cronHelperLink")} →
-                </a>
-              </div>
-            </div>
-          }
         >
-          <Input placeholder="0 9 * * *" />
+          <Form.Item name="cronType" noStyle>
+            <Select>
+              <Select.Option value="hourly">
+                {t("cronJobs.cronTypeHourly")}
+              </Select.Option>
+              <Select.Option value="daily">
+                {t("cronJobs.cronTypeDaily")}
+              </Select.Option>
+              <Select.Option value="weekly">
+                {t("cronJobs.cronTypeWeekly")}
+              </Select.Option>
+              <Select.Option value="custom">
+                {t("cronJobs.cronTypeCustom")}
+              </Select.Option>
+            </Select>
+          </Form.Item>
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+        >
+          {({ getFieldValue }) => {
+            const cronType = getFieldValue("cronType");
+
+            if (cronType === "daily" || cronType === "weekly") {
+              return (
+                <Form.Item
+                  name="cronTime"
+                  label={t("cronJobs.cronTime")}
+                  rules={[{ required: true }]}
+                >
+                  <TimePicker
+                    format="HH:mm"
+                    minuteStep={15}
+                    needConfirm={false}
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+              );
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+        >
+          {({ getFieldValue }) => {
+            const cronType = getFieldValue("cronType");
+
+            if (cronType === "weekly") {
+              return (
+                <Form.Item
+                  name="cronDaysOfWeek"
+                  label={t("cronJobs.cronDaysOfWeek")}
+                  rules={[{ required: true, message: "请选择至少一天" }]}
+                >
+                  <Checkbox.Group
+                    options={[
+                      { label: t("cronJobs.cronDayMon"), value: 1 },
+                      { label: t("cronJobs.cronDayTue"), value: 2 },
+                      { label: t("cronJobs.cronDayWed"), value: 3 },
+                      { label: t("cronJobs.cronDayThu"), value: 4 },
+                      { label: t("cronJobs.cronDayFri"), value: 5 },
+                      { label: t("cronJobs.cronDaySat"), value: 6 },
+                      { label: t("cronJobs.cronDaySun"), value: 0 },
+                    ]}
+                  />
+                </Form.Item>
+              );
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+        >
+          {({ getFieldValue }) => {
+            const cronType = getFieldValue("cronType");
+
+            if (cronType === "custom") {
+              return (
+                <Form.Item
+                  name="cronCustom"
+                  label={t("cronJobs.cronCustomExpression")}
+                  rules={[
+                    { required: true, message: t("cronJobs.pleaseInputCron") },
+                  ]}
+                  extra={
+                    <div style={{ fontSize: 12, color: "#8c8c8c" }}>
+                      <div style={{ marginBottom: 4 }}>
+                        {t("cronJobs.cronExample")}
+                      </div>
+                      <div>
+                        {t("cronJobs.cronHelper")}{" "}
+                        <a
+                          href="https://crontab.guru/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "#1890ff" }}
+                        >
+                          {t("cronJobs.cronHelperLink")} →
+                        </a>
+                      </div>
+                    </div>
+                  }
+                >
+                  <Input placeholder="0 9 * * *" />
+                </Form.Item>
+              );
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item name={["schedule", "cron"]} hidden>
+          <Input />
         </Form.Item>
 
         <Form.Item
@@ -132,9 +222,6 @@ export function JobDrawer({
             options={TIMEZONE_OPTIONS}
           />
         </Form.Item>
-
-        {/* Task Configuration Section */}
-        <SectionTitle>{t("cronJobs.sectionTask")}</SectionTitle>
 
         <Form.Item
           name="task_type"
@@ -210,9 +297,6 @@ export function JobDrawer({
           <Input placeholder="system" />
         </Form.Item>
 
-        {/* Dispatch Configuration Section */}
-        <SectionTitle>{t("cronJobs.sectionDispatch")}</SectionTitle>
-
         <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
           <Input disabled value="channel" />
         </Form.Item>
@@ -258,9 +342,6 @@ export function JobDrawer({
             <Select.Option value="final">final</Select.Option>
           </Select>
         </Form.Item>
-
-        {/* Runtime Options Section */}
-        <SectionTitle>{t("cronJobs.sectionRuntime")}</SectionTitle>
 
         <Form.Item
           name={["runtime", "max_concurrency"]}
