@@ -187,7 +187,12 @@ class ChannelManager:
                         ch_cfg,
                         on_reply_sent=on_last_dispatch,
                         show_tool_details=show_tool_details,
-                        filter_tool_messages=False,
+                        filter_tool_messages=getattr(
+                            ch_cfg, "filter_tool_messages", False,
+                        ),
+                        filter_thinking=getattr(
+                            ch_cfg, "filter_thinking", False,
+                        ),
                     ),
                 )
             else:
@@ -201,16 +206,32 @@ class ChannelManager:
                     "filter_thinking",
                     False,
                 )
-                channels.append(
-                    ch_cls.from_config(
-                        process,
-                        ch_cfg,
-                        on_reply_sent=on_last_dispatch,
-                        show_tool_details=show_tool_details,
-                        filter_tool_messages=filter_tool_messages,
-                        filter_thinking=filter_thinking,
-                    ),
-                )
+                try:
+                    channels.append(
+                        ch_cls.from_config(
+                            process,
+                            ch_cfg,
+                            on_reply_sent=on_last_dispatch,
+                            show_tool_details=show_tool_details,
+                            filter_tool_messages=filter_tool_messages,
+                            filter_thinking=filter_thinking,
+                        ),
+                    )
+                except TypeError:
+                    logger.warning(
+                        "channel %s.from_config does not accept "
+                        "filter_thinking; falling back without it",
+                        key,
+                    )
+                    channels.append(
+                        ch_cls.from_config(
+                            process,
+                            ch_cfg,
+                            on_reply_sent=on_last_dispatch,
+                            show_tool_details=show_tool_details,
+                            filter_tool_messages=filter_tool_messages,
+                        ),
+                    )
         return cls(channels)
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:

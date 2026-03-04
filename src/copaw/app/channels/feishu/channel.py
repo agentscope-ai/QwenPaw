@@ -98,8 +98,8 @@ class FeishuChannel(BaseChannel):
         media_dir: str = "~/.copaw/media",
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        filter_tool_messages: bool = True,
+        filter_thinking: bool = True,
     ):
         super().__init__(
             process,
@@ -163,8 +163,8 @@ class FeishuChannel(BaseChannel):
         config: FeishuChannelConfig,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        filter_tool_messages: bool = True,
+        filter_thinking: bool = True,
     ) -> "FeishuChannel":
         return cls(
             process=process,

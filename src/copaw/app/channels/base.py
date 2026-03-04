@@ -705,8 +705,8 @@ class BaseChannel(ABC):
         Subclasses must implement from_config(process, config, on_reply_sent).
 
         show_tool_details is global config (not in channel config), so we
-        preserve from self. filter_tool_messages is per-channel config, so
-        we read from new config.
+        preserve from self. filter_tool_messages and filter_thinking are
+        per-channel config, so we read from new config.
         """
         return self.__class__.from_config(
             process=self._process,
@@ -716,6 +716,11 @@ class BaseChannel(ABC):
             filter_tool_messages=getattr(
                 config,
                 "filter_tool_messages",
+                False,
+            ),
+            filter_thinking=getattr(
+                config,
+                "filter_thinking",
                 False,
             ),
         )
