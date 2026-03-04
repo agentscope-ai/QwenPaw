@@ -1,39 +1,49 @@
 # -*- coding: utf-8 -*-
 # pylint:disable=unused-import
 """
-PyInstaller runtime hook: fix opentelemetry context loading in frozen apps.
+PyInstaller runtime hook: fix opentelemetry in frozen apps.
 
-In frozen envs entry_points() for "opentelemetry_context" is often empty,
-so _load_runtime_context() raises StopIteration. We patch
-opentelemetry.util._importlib_metadata.entry_points to return a fake
-contextvars_context entry when the real one is missing.
-
-Chromadb telemetry imports opentelemetry.sdk.resources which calls
-importlib_metadata.version("opentelemetry-sdk"); in frozen apps that
-metadata is often missing. We patch version() to return a dummy for
-opentelemetry-* when PackageNotFoundError occurs.
+- entry_points("opentelemetry_context") empty -> fake contextvars entry.
+- entry_points("opentelemetry_resource_detector", name="otel") empty ->
+  fake OTELResourceDetector entry so Resource.create() next(iter(...))
+  does not raise StopIteration.
+- version() for missing dist-info (opentelemetry-*, email-validator, etc.)
+  patched in importlib_metadata and importlib.metadata to return "1.0.0".
 """
 from __future__ import annotations
 
-# Patch importlib_metadata so opentelemetry.sdk can load without dist-info.
+import sys
+
+
+def _make_version_patch(orig_version, not_found_exc):
+    def _patched(name: str) -> str:
+        try:
+            return orig_version(name)
+        except not_found_exc:
+            return "1.0.0"
+
+    return _patched
+
+
+# Patch package importlib_metadata (used by opentelemetry).
 try:
     import importlib_metadata as _meta
 
-    _orig_version = _meta.version
+    _meta.version = _make_version_patch(
+        _meta.version,
+        getattr(_meta, "PackageNotFoundError", Exception),
+    )
+except Exception:
+    pass
 
-    def _patched_version(name: str) -> str:
-        try:
-            return _orig_version(name)
-        except _meta.PackageNotFoundError:
-            if name in (
-                "opentelemetry-sdk",
-                "opentelemetry-api",
-                "opentelemetry-context",
-            ):
-                return "1.0.0"
-            raise
+# Patch stdlib importlib.metadata (used by pydantic/fastapi).
+try:
+    import importlib.metadata as _stdlib_meta
 
-    _meta.version = _patched_version
+    _stdlib_meta.version = _make_version_patch(
+        _stdlib_meta.version,
+        getattr(_stdlib_meta, "PackageNotFoundError", Exception),
+    )
 except Exception:
     pass
 
@@ -41,7 +51,11 @@ except Exception:
 def _install_patch() -> None:
     try:
         import opentelemetry.util._importlib_metadata as _otel_meta
-    except ImportError:
+    except ImportError as _e:
+        sys.stderr.write(
+            "CoPaw runtime hook: opentelemetry.util not found, "
+            "context may raise StopIteration in frozen app.\n",
+        )
         return
     _orig = _otel_meta.entry_points
 
@@ -56,16 +70,33 @@ def _install_patch() -> None:
 
             return _factory
 
+    class _FakeOtelDetectorEntry:
+        """Fake entry for opentelemetry_resource_detector 'otel' in frozen app."""
+
+        def load(self):
+            from opentelemetry.sdk.resources import OTELResourceDetector
+
+            return OTELResourceDetector
+
     def _patched_entry_points(**params):
         out = _orig(**params)
-        if params.get("group") != "opentelemetry_context":
+        group = params.get("group")
+        name = params.get("name")
+        if group == "opentelemetry_context":
+            try:
+                first = next(iter(out), None)
+            except (StopIteration, TypeError):
+                first = None
+            if first is None:
+                return iter([_FakeContextEntry()])
             return out
-        try:
-            first = next(iter(out), None)
-        except (StopIteration, TypeError):
-            first = None
-        if first is None:
-            return iter([_FakeContextEntry()])
+        if group == "opentelemetry_resource_detector" and name == "otel":
+            try:
+                first = next(iter(out), None)
+            except (StopIteration, TypeError):
+                first = None
+            if first is None:
+                return iter([_FakeOtelDetectorEntry()])
         return out
 
     _otel_meta.entry_points = _patched_entry_points
@@ -81,7 +112,6 @@ try:
     import chromadb  # noqa: F401
     from chromadb.config import Settings  # noqa: F401
 except Exception as _e:  # ImportError or OSError (dylib load fail)
-    import sys
     import traceback
 
     sys.stderr.write(

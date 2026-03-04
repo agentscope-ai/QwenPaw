@@ -64,6 +64,8 @@ class _Tee:
     def fileno(self):
         return self._stream.fileno()
 
+    # Required by uvicorn logging (ColourizedFormatter); missing -> ValueError
+    # "Unable to configure formatter 'default'".
     def isatty(self):
         return getattr(self._stream, "isatty", lambda: False)()
 
