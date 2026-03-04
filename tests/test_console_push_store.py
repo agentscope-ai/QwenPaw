@@ -29,7 +29,7 @@ def _clear_store():
 # ── helpers ──────────────────────────────────────────────────────────
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _inject_expired(session_id: str = "s1", age: int = _MAX_AGE_SECONDS + 10):
