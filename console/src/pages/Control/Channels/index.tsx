@@ -32,6 +32,7 @@ function ChannelsPage() {
       "imessage",
       "discord",
       "telegram",
+      "mqtt",
       "qq",
     ];
 

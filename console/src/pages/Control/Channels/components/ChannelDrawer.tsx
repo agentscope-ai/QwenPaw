@@ -147,6 +147,29 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+      case "mqtt":
+        return (
+          <>
+            <Form.Item name="host" label="MQTT Host">
+              <Input placeholder="127.0.0.1" />
+            </Form.Item>
+            <Form.Item name="port" label="MQTT Port">
+              <Input placeholder="1883" />
+            </Form.Item>
+            <Form.Item name="username" label="MQTT Username">
+              <Input placeholder="Leave blank to disable / not use" />
+            </Form.Item>
+            <Form.Item name="password" label="MQTT Password">
+              <Input.Password placeholder="Leave blank to disable / not use" />
+            </Form.Item>
+            <Form.Item name="subscribe_topic" label="Subscribe Topic">
+              <Input placeholder="server/+/up" />
+            </Form.Item>
+            <Form.Item name="publish_topic" label="Publish Topic">
+              <Input placeholder="client/{client_id}/down" />
+            </Form.Item>
+          </>
+        );
       default:
         return null;
     }

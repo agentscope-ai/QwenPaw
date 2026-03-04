@@ -60,6 +60,14 @@ class TelegramConfig(BaseChannelConfig):
     http_proxy_auth: str = ""
     show_typing: Optional[bool] = None
 
+class MQTTConfig(BaseChannelConfig):
+    host: str = ""
+    port: str = ""
+    username: str = ""
+    password: str = ""
+    subscribe_topic: str = ""
+    publish_topic: str = ""
+
 
 class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
@@ -78,6 +86,7 @@ class ChannelConfig(BaseModel):
     feishu: FeishuConfig = FeishuConfig()
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
+    mqtt: MQTTConfig = MQTTConfig()
     console: ConsoleConfig = ConsoleConfig()
 
 
@@ -267,5 +276,6 @@ ChannelConfigUnion = Union[
     FeishuConfig,
     QQConfig,
     TelegramConfig,
+    MQTTConfig,
     ConsoleConfig,
 ]

@@ -39,6 +39,15 @@ export interface TelegramConfig extends BaseChannelConfig {
   show_typing?: boolean;
 }
 
+export interface MQTTConfig extends BaseChannelConfig {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  subscribe_topic: string;
+  publish_topic: string;
+}
+
 export type ConsoleConfig = BaseChannelConfig;
 
 export interface ChannelConfig {
@@ -48,6 +57,7 @@ export interface ChannelConfig {
   feishu: FeishuConfig;
   qq: QQConfig;
   telegram: TelegramConfig;
+  mqtt: MQTTConfig;
   console: ConsoleConfig;
 }
 
@@ -58,4 +68,5 @@ export type SingleChannelConfig =
   | FeishuConfig
   | QQConfig
   | TelegramConfig
+  | MQTTConfig
   | ConsoleConfig;

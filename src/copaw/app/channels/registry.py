@@ -16,6 +16,7 @@ from .feishu import FeishuChannel
 from .imessage import IMessageChannel
 from .qq import QQChannel
 from .telegram import TelegramChannel
+from .mqtt import MQTTChannel
 
 if TYPE_CHECKING:
     pass
@@ -29,6 +30,7 @@ _BUILTIN: dict[str, type[BaseChannel]] = {
     "feishu": FeishuChannel,
     "qq": QQChannel,
     "telegram": TelegramChannel,
+    "mqtt": MQTTChannel,
     "console": ConsoleChannel,
 }
 
