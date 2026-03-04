@@ -29,7 +29,7 @@ import aiohttp
 # declare_namespace, but lark-oapi still imports it.
 try:
     import pkg_resources  # type: ignore
-except Exception:  # pragma: no cover - defensive fallback
+except ImportError:  # pragma: no cover - defensive fallback
     pkg_resources = None
 else:
     if not hasattr(pkg_resources, "declare_namespace"):
@@ -37,7 +37,9 @@ else:
         def _declare_namespace(_name: str) -> None:
             return None
 
-        pkg_resources.declare_namespace = _declare_namespace  # type: ignore[attr-defined]
+        pkg_resources.declare_namespace = (  # type: ignore[attr-defined]
+            _declare_namespace
+        )
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
