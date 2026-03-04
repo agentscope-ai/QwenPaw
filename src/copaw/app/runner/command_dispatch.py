@@ -12,6 +12,7 @@ from reme.memory.file_based_copaw import CoPawInMemoryMemory
 
 from ...agents.command_handler import CommandHandler
 from ...agents.model_factory import create_model_and_formatter
+from ...agents.utils.token_counting import _get_token_counter
 from ...config import load_config
 from .daemon_commands import (
     DaemonContext,
@@ -60,8 +61,8 @@ def _is_command(query: str | None) -> bool:
 class _LightweightSessionAgent:
     """Minimal agent-like object for session load/save (memory only)."""
 
-    def __init__(self) -> None:
-        self.memory = CoPawInMemoryMemory()
+    def __init__(self, memory: CoPawInMemoryMemory) -> None:
+        self.memory = memory
 
     def state_dict(self) -> dict:
         return {"memory": self.memory.state_dict()}
@@ -106,7 +107,13 @@ async def run_command_path(
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    light = _LightweightSessionAgent()
+    _, formatter = create_model_and_formatter()
+    token_counter = _get_token_counter()
+    memory = CoPawInMemoryMemory(
+        token_counter=token_counter,
+        formatter=formatter,
+    )
+    light = _LightweightSessionAgent(memory=memory)
     try:
         await runner.session.load_session_state(
             session_id=session_id,
@@ -116,7 +123,6 @@ async def run_command_path(
     except ValueError:
         pass  # No session file yet
 
-    create_model_and_formatter()  # ensure model/formatter config loaded
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=light.memory,
