@@ -16,7 +16,8 @@ type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
-  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } = useChannels();
+  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
+    useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [hoverKey, setHoverKey] = useState<ChannelKey | null>(null);
@@ -27,8 +28,12 @@ function ChannelsPage() {
 
   // Sort cards: enabled first, then disabled (preserve orderedKeys order within each group)
   const cards = useMemo(() => {
-    const enabledCards: { key: ChannelKey; config: Record<string, unknown> }[] = [];
-    const disabledCards: { key: ChannelKey; config: Record<string, unknown> }[] = [];
+    const enabledCards: { key: ChannelKey; config: Record<string, unknown> }[] =
+      [];
+    const disabledCards: {
+      key: ChannelKey;
+      config: Record<string, unknown>;
+    }[] = [];
 
     orderedKeys.forEach((key) => {
       const config = channels[key] || { enabled: false, bot_prefix: "" };
@@ -81,7 +86,12 @@ function ChannelsPage() {
 
     setSaving(true);
     try {
-      await api.updateChannelConfig(activeKey, updatedChannel as unknown as Parameters<typeof api.updateChannelConfig>[1]);
+      await api.updateChannelConfig(
+        activeKey,
+        updatedChannel as unknown as Parameters<
+          typeof api.updateChannelConfig
+        >[1],
+      );
       await fetchChannels();
 
       setDrawerOpen(false);
@@ -113,7 +123,9 @@ function ChannelsPage() {
           {FILTER_TABS.map(({ key, label }) => (
             <button
               key={key}
-              className={`${styles.filterTab} ${filter === key ? styles.filterTabActive : ""}`}
+              className={`${styles.filterTab} ${
+                filter === key ? styles.filterTabActive : ""
+              }`}
               onClick={() => setFilter(key)}
             >
               {label}

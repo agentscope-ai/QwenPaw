@@ -52,8 +52,9 @@ export function ChannelCard({
 
         <div className={styles.statusContainer}>
           <div
-            className={`${styles.statusDot} ${enabled ? styles.enabled : styles.disabled
-              }`}
+            className={`${styles.statusDot} ${
+              enabled ? styles.enabled : styles.disabled
+            }`}
           />
           <div>{enabled ? t("common.enabled") : t("common.disabled")}</div>
         </div>

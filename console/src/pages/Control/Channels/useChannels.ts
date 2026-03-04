@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import api from "../../../api";
 
 export function useChannels() {
-  const [channels, setChannels] = useState<Record<string, Record<string, unknown>>>({});
+  const [channels, setChannels] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
   const [channelTypes, setChannelTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -13,7 +15,8 @@ export function useChannels() {
         api.listChannels(),
         api.listChannelTypes(),
       ]);
-      if (data) setChannels(data as unknown as Record<string, Record<string, unknown>>);
+      if (data)
+        setChannels(data as unknown as Record<string, Record<string, unknown>>);
       if (types) setChannelTypes(types);
     } catch (error) {
       console.error("❌ Failed to load channels:", error);
@@ -43,8 +46,7 @@ export function useChannels() {
   ];
 
   // Read isBuiltin from API response
-  const isBuiltin = (key: string) =>
-    Boolean(channels[key]?.isBuiltin);
+  const isBuiltin = (key: string) => Boolean(channels[key]?.isBuiltin);
 
   return {
     channels,

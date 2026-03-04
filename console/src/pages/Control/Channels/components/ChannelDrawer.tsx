@@ -162,21 +162,21 @@ export function ChannelDrawer({
         return null;
     }
   };
-  
+
   // Renders custom channel fields as key-value editor
   const renderCustomExtraFields = (
-    initialValues: Record<string, unknown> | undefined
+    initialValues: Record<string, unknown> | undefined,
   ) => {
     if (!initialValues) return null;
-  
+
     // Get extra fields (exclude base fields)
     const baseFields = ["enabled", "bot_prefix", "filter_tool_messages"];
     const extraKeys = Object.keys(initialValues).filter(
-      (k) => !baseFields.includes(k)
+      (k) => !baseFields.includes(k),
     );
-  
+
     if (extraKeys.length === 0) return null;
-  
+
     return (
       <>
         <div style={{ marginBottom: 8, fontWeight: 500 }}>Custom Fields</div>
@@ -184,7 +184,7 @@ export function ChannelDrawer({
           const value = initialValues[fieldKey];
           const isBoolean = typeof value === "boolean";
           const isNumber = typeof value === "number";
-  
+
           return (
             <Form.Item key={fieldKey} name={fieldKey} label={fieldKey}>
               {isBoolean ? (
