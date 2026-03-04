@@ -348,37 +348,49 @@ class HealthChecker:
         Returns:
             True if connection successful, False otherwise
         """
+        import asyncio
+
+        async def _async_test() -> bool:
+            """Async helper to test LLM connection."""
+            try:
+                from ..agents.model_factory import create_model_and_formatter
+                from ..providers import get_active_llm_config
+
+                # Get active LLM config
+                llm_cfg = get_active_llm_config()
+
+                # Create model instance
+                model_instance, _ = create_model_and_formatter(llm_cfg)
+
+                # Try a minimal completion request (await the coroutine)
+                response = await model_instance(
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=1,
+                )
+
+                # If we got here without exception, connection works
+                return True
+
+            except ImportError as e:
+                logger.error(f"Failed to import model factory: {e}")
+                return False
+            except ValueError as e:
+                logger.error(f"Invalid model configuration: {e}")
+                return False
+            except ConnectionError as e:
+                logger.warning(f"Network connection failed: {e}")
+                return False
+            except Exception as e:
+                logger.warning(f"LLM connection test failed: {e}")
+                return False
+
+        # Run the async test in a new event loop
         try:
-            from ..agents.model_factory import create_model_and_formatter
-            from ..providers import get_active_llm_config
-
-            # Get active LLM config
-            llm_cfg = get_active_llm_config()
-
-            # Create model instance
-            model_instance, _ = create_model_and_formatter(llm_cfg)
-
-            # Try a minimal completion request
-            response = model_instance(
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=1,
-            )
-
-            # If we got here without exception, connection works
-            return True
-
-        except ImportError as e:
-            logger.error(f"Failed to import model factory: {e}")
-            return False
-        except ValueError as e:
-            logger.error(f"Invalid model configuration: {e}")
-            return False
-        except ConnectionError as e:
-            logger.warning(f"Network connection failed: {e}")
-            return False
-        except Exception as e:
-            logger.warning(f"LLM connection test failed: {e}")
-            return False
+            return asyncio.run(_async_test())
+        except RuntimeError:
+            # If we're already in an event loop, use get_event_loop
+            loop = asyncio.get_event_loop()
+            return loop.run_until_complete(_async_test())
 
     def check_channels(self) -> None:
         """Check enabled channels configuration."""
