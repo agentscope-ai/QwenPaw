@@ -273,7 +273,7 @@ class CoPawAgent(ReActAgent):
             logger.debug("Registered memory_search tool")
 
     def _register_hooks(self) -> None:
-        """Register pre-reasoning hooks for bootstrap and memory compaction."""
+        """Register pre-reasoning and pre-acting hooks."""
         # Bootstrap hook - checks BOOTSTRAP.md on first interaction
         config = load_config()
         bootstrap_hook = BootstrapHook(
@@ -298,6 +298,17 @@ class CoPawAgent(ReActAgent):
                 hook=memory_compact_hook.__call__,
             )
             logger.debug("Registered memory compaction hook")
+
+        # Tool guard hook - scans tool parameters before execution
+        from copaw.security.tool_guard.hook import ToolGuardHook
+
+        tool_guard_hook = ToolGuardHook()
+        self.register_instance_hook(
+            hook_type="pre_acting",
+            hook_name="tool_guard_hook",
+            hook=tool_guard_hook.__call__,
+        )
+        logger.debug("Registered tool guard hook")
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.

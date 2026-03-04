@@ -1,0 +1,83 @@
+# Sensitive File Access Detection Rules for Tool Parameters
+# These rules detect access to system-critical or credential files.
+
+# ── Reading system credential files ───────────────────────────────────
+- id: TOOL_FILE_SYSTEM_CREDENTIALS
+  tools: [read_file, execute_shell_command]
+  category: sensitive_file_access
+  severity: HIGH
+  patterns:
+    - "/etc/shadow"
+    - "/etc/master\\.passwd"
+    - "/etc/sudoers"
+  description: "Accessing system credential or security-critical files"
+  remediation: "Agent should not access system authentication files"
+
+# ── Reading SSH keys ──────────────────────────────────────────────────
+- id: TOOL_FILE_SSH_KEYS
+  tools: [read_file, execute_shell_command, send_file_to_user]
+  category: credential_exposure
+  severity: HIGH
+  patterns:
+    - "\\.ssh/id_(?:rsa|dsa|ecdsa|ed25519)"
+    - "\\.ssh/authorized_keys"
+    - "\\.ssh/known_hosts"
+    - "\\.ssh/config"
+  description: "Accessing SSH key files or configuration"
+  remediation: "Agent should not read or transmit SSH private keys"
+
+# ── Reading cloud credential files ────────────────────────────────────
+- id: TOOL_FILE_CLOUD_CREDS
+  tools: [read_file, execute_shell_command, send_file_to_user]
+  category: credential_exposure
+  severity: CRITICAL
+  patterns:
+    - "\\.aws/credentials"
+    - "\\.aws/config"
+    - "\\.azure/accessTokens\\.json"
+    - "\\.config/gcloud/credentials\\.db"
+    - "\\.config/gcloud/application_default_credentials\\.json"
+    - "\\.kube/config"
+    - "\\.docker/config\\.json"
+  description: "Accessing cloud provider credential files"
+  remediation: "Agent should not access cloud credential stores"
+
+# ── Reading environment / dotenv files ────────────────────────────────
+- id: TOOL_FILE_DOTENV
+  tools: [read_file, execute_shell_command, send_file_to_user]
+  category: credential_exposure
+  severity: MEDIUM
+  patterns:
+    - "\\.env(?:\\.local|\\.production|\\.staging|\\.development)?"
+    - "\\.env\\..*"
+  exclude_patterns:
+    - "\\.env\\.example"
+    - "\\.env\\.template"
+    - "\\.env\\.sample"
+  description: "Accessing .env files which commonly contain secrets"
+  remediation: "If reading .env is necessary, ensure no secrets are leaked to the output"
+
+# ── Path traversal ────────────────────────────────────────────────────
+- id: TOOL_FILE_PATH_TRAVERSAL
+  tools: [read_file, write_file, edit_file]
+  category: path_traversal
+  severity: HIGH
+  patterns:
+    - "(?:\\.\\.[\\/]){3,}"
+    - "\\.\\./\\.\\./\\.\\."
+  description: "Deep path traversal that may escape the working directory"
+  remediation: "Use absolute paths within the project directory"
+
+# ── Accessing browser credential stores ───────────────────────────────
+- id: TOOL_FILE_BROWSER_CREDS
+  tools: [read_file, execute_shell_command, send_file_to_user]
+  category: credential_exposure
+  severity: CRITICAL
+  patterns:
+    - "(?:Login Data|Cookies|Web Data|History)"
+    - "(?:Chrome|Firefox|Safari|Edge)/.*(?:logins|cookies|credential)"
+    - "places\\.sqlite|key[34]\\.db|cert[89]\\.db"
+  exclude_patterns:
+    - "(?:README|CHANGELOG|test|spec|mock)"
+  description: "Accessing browser credential or cookie stores"
+  remediation: "Agent should not access browser credential databases"

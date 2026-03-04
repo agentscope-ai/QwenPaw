@@ -1,0 +1,113 @@
+# Command Injection Detection Rules for Tool Parameters
+# These rules detect dangerous patterns in shell commands and code execution parameters.
+
+# ── Shell pipe-to-exec ────────────────────────────────────────────────
+- id: TOOL_CMD_PIPE_TO_SHELL
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "(?:curl|wget|fetch)\\s+.*\\|\\s*(?:sh|bash|zsh|dash|ksh|csh|python|perl|ruby|node)"
+  description: "Piping downloaded content directly to a shell interpreter"
+  remediation: "Download to a file first, inspect the content, then execute if safe"
+
+# ── Dangerous eval / exec patterns ───────────────────────────────────
+- id: TOOL_CMD_EVAL_EXEC
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\beval\\s+[\"']?\\$"
+    - 'eval\s+"?\$\('
+  description: "Using eval with variable expansion in shell command"
+  remediation: "Avoid eval with untrusted or dynamic input"
+
+# ── Reverse shell patterns ────────────────────────────────────────────
+- id: TOOL_CMD_REVERSE_SHELL
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "\\bbash\\s+-i\\s+>&\\s*/dev/tcp/"
+    - "\\bnc\\s+.*-e\\s+/bin/(?:ba)?sh"
+    - "\\bpython[23]?\\s+.*socket.*connect.*(?:sh|bash|subprocess)"
+    - "\\bperl\\s+.*socket.*(?:exec|system)"
+    - "\\bmkfifo\\s+.*\\bnc\\b"
+    - "/dev/tcp/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d+"
+  description: "Potential reverse shell command detected"
+  remediation: "Reverse shells should never be executed by the agent"
+
+# ── Destructive file operations ───────────────────────────────────────
+- id: TOOL_CMD_DESTRUCTIVE_RM
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\brm\\s+.*-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\\s+/"
+    - "\\brm\\s+.*-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*\\s+/"
+    - "\\brm\\s+-rf\\s+/(?:etc|usr|var|home|root|boot|sys|proc)\\b"
+    - "\\bmkfs\\b"
+    - "\\bdd\\s+.*of=/dev/"
+  description: "Destructive system command that could cause data loss"
+  remediation: "Use targeted file operations and avoid recursive force-delete on system paths"
+
+# ── Privilege escalation ──────────────────────────────────────────────
+- id: TOOL_CMD_PRIVILEGE_ESCALATION
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\bsudo\\s+.*(?:chmod\\s+[0-7]*7[0-7]*|chown\\s+root)"
+    - "\\bchmod\\s+(?:4|2|6)\\d{3}\\b"
+    - "\\bchmod\\s+[ugo]*\\+s\\b"
+    - "\\bpasswd\\s+(?:root|--stdin)"
+    - "\\busermod\\s+.*-aG\\s+(?:sudo|wheel|root)"
+  description: "Command attempts privilege escalation"
+  remediation: "Agent should not modify system security settings"
+
+# ── Cron job / scheduled task injection ───────────────────────────────
+- id: TOOL_CMD_CRON_INJECT
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\bcrontab\\b"
+    - "\\bat\\b.*\\bnow\\b"
+    - "echo\\s+.*>>?\\s*/etc/cron"
+    - "echo\\s+.*>>?\\s*/var/spool/cron"
+  description: "Attempting to install a scheduled task or cron job"
+  remediation: "Agent should not create persistent scheduled tasks"
+
+# ── Encoded / obfuscated command execution ────────────────────────────
+- id: TOOL_CMD_OBFUSCATED_EXEC
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\bbase64\\s+(?:-d|--decode)\\s*.*\\|\\s*(?:sh|bash|python|perl)"
+    - "echo\\s+[A-Za-z0-9+/=]{20,}\\s*\\|\\s*base64\\s+(?:-d|--decode)"
+    - "\\$\\(echo\\s+[A-Za-z0-9+/=]{20,}\\s*\\|\\s*base64\\s+(?:-d|--decode)\\)"
+    - "python[23]?\\s+-c\\s+['\"]import\\s+base64"
+  description: "Base64-encoded or obfuscated command execution"
+  remediation: "Commands should be transparent and readable, not encoded"
+
+# ── Python / Node inline code execution via shell ─────────────────────
+- id: TOOL_CMD_INLINE_CODE_EXEC
+  tools: [execute_shell_command]
+  params: [command]
+  category: code_execution
+  severity: MEDIUM
+  patterns:
+    - "python[23]?\\s+-c\\s+.*(?:__import__|subprocess|os\\.system|exec\\(|eval\\()"
+    - "node\\s+-e\\s+.*(?:child_process|exec|spawn|require\\(['\"]fs['\"]\\))"
+    - "perl\\s+-e\\s+.*(?:system|exec|`)"
+    - "ruby\\s+-e\\s+.*(?:system|exec|`)"
+  description: "Inline code execution via shell that may bypass file-based scanning"
+  remediation: "Write code to a file for review rather than executing inline"

@@ -1,0 +1,66 @@
+# Data Exfiltration Detection Rules for Tool Parameters
+# These rules detect patterns where agent tools might be used to exfiltrate data.
+
+# ── Shell: uploading sensitive files via curl/wget ────────────────────
+- id: TOOL_EXFIL_CURL_UPLOAD
+  tools: [execute_shell_command]
+  params: [command]
+  category: data_exfiltration
+  severity: CRITICAL
+  patterns:
+    - "\\bcurl\\s+.*(?:-F|-d|--data|--upload-file|--data-binary)\\s+.*(?:/etc/passwd|/etc/shadow|\\.ssh/|id_rsa|\\.env|credentials|\\.aws/)"
+    - "\\bcurl\\s+.*(?:-X\\s*POST|-d|--data).*(?:webhook|discord|telegram|pastebin|ngrok|requestbin)"
+  description: "Uploading potentially sensitive files or data to external service"
+  remediation: "Verify the destination and content before uploading files"
+
+# ── Shell: exfiltration via DNS or ICMP ───────────────────────────────
+- id: TOOL_EXFIL_DNS_TUNNEL
+  tools: [execute_shell_command]
+  params: [command]
+  category: data_exfiltration
+  severity: CRITICAL
+  patterns:
+    - "\\bnslookup\\b.*\\$"
+    - "\\bdig\\b.*\\$"
+    - "\\bhost\\b.*\\$\\("
+    - "\\bping\\s+-c\\s+1\\s+.*\\$"
+  description: "Potential DNS or ICMP tunneling for data exfiltration"
+  remediation: "Agent should not encode data into DNS or ICMP requests"
+
+# ── Shell: piping sensitive data to network tools ─────────────────────
+- id: TOOL_EXFIL_PIPE_TO_NET
+  tools: [execute_shell_command]
+  params: [command]
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    - "cat\\s+.*(?:/etc/passwd|/etc/shadow|\\.ssh/|\\.env|\\.aws/|credentials).*\\|\\s*(?:nc|ncat|netcat|curl|wget)"
+    - "tar\\s+.*\\|\\s*(?:nc|ncat|netcat|curl)"
+    - "(?:env|printenv|set)\\s*\\|\\s*(?:nc|ncat|curl|wget)"
+  description: "Piping sensitive file content to a network tool"
+  remediation: "Do not transmit sensitive files over the network without explicit user consent"
+
+# ── File write: writing sensitive data to public locations ────────────
+- id: TOOL_EXFIL_WRITE_PUBLIC
+  tools: [write_file, edit_file]
+  params: [file_path, path]
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    - "/tmp/\\.|/var/tmp/"
+    - "/dev/shm/"
+    - "(?:public_html|www|htdocs|wwwroot)/"
+  description: "Writing to a world-readable or web-accessible location"
+  remediation: "Write files to the project working directory instead of public locations"
+
+# ── Browser: navigating to known exfiltration endpoints ───────────────
+- id: TOOL_EXFIL_BROWSER_WEBHOOK
+  tools: [browser_use]
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    - "(?:webhook\\.site|requestbin|pipedream|hookbin|ngrok\\.io|burpcollaborator)"
+    - "discord\\.com/api/webhooks"
+    - "api\\.telegram\\.org/bot"
+  description: "Browser navigating to a known data exfiltration endpoint"
+  remediation: "Agent should not access webhook or data collection services"

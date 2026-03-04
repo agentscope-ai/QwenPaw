@@ -1,0 +1,76 @@
+# Network Abuse Detection Rules for Tool Parameters
+# These rules detect suspicious network operations via tool parameters.
+
+# ── Port scanning ─────────────────────────────────────────────────────
+- id: TOOL_NET_PORT_SCAN
+  tools: [execute_shell_command]
+  params: [command]
+  category: network_abuse
+  severity: HIGH
+  patterns:
+    - "\\bnmap\\b"
+    - "\\bmasscan\\b"
+    - "\\bnetstat\\s+.*-[a-z]*t[a-z]*[up]"
+    - "for\\s+.*\\bport\\b.*\\bdo\\b.*(?:nc|ncat|curl|/dev/tcp)"
+    - "/dev/tcp/[^/]+/\\$"
+  description: "Potential port scanning or network reconnaissance"
+  remediation: "Agent should not perform network scanning"
+
+# ── Connecting to suspicious services ─────────────────────────────────
+- id: TOOL_NET_SUSPICIOUS_HOST
+  tools: [execute_shell_command, browser_use]
+  category: network_abuse
+  severity: MEDIUM
+  patterns:
+    - "(?:tor2web|onion\\.to|onion\\.ws)"
+    - "\\.onion(?:/|\\s|$)"
+    - "(?:\\d{1,3}\\.){3}\\d{1,3}:\\d{4,5}"
+  exclude_patterns:
+    - "(?:127\\.0\\.0\\.1|0\\.0\\.0\\.0|localhost)"
+    - "192\\.168\\."
+    - "10\\."
+  description: "Connecting to suspicious hosts or Tor services"
+  remediation: "Agent should only connect to known, trusted services"
+
+# ── Network tunneling tools ───────────────────────────────────────────
+- id: TOOL_NET_TUNNEL
+  tools: [execute_shell_command]
+  params: [command]
+  category: network_abuse
+  severity: HIGH
+  patterns:
+    - "\\bssh\\s+.*-[a-zA-Z]*[LRD]\\s+\\d+"
+    - "\\bsocat\\b"
+    - "\\bchisel\\b"
+    - "\\bngrok\\b"
+    - "\\bfrp[cs]\\b"
+  description: "Setting up network tunnels or port forwarding"
+  remediation: "Agent should not create network tunnels or expose local services"
+
+# ── Cryptocurrency mining ─────────────────────────────────────────────
+- id: TOOL_NET_CRYPTO_MINING
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - "\\bxmrig\\b"
+    - "\\bcpuminer\\b"
+    - "\\bstratum\\+tcp://"
+    - "\\bminerd\\b"
+    - "\\bcgminer\\b"
+    - "\\bbfgminer\\b"
+  description: "Cryptocurrency mining tool execution"
+  remediation: "Agent should never execute cryptocurrency miners"
+
+# ── Downloading and executing remote scripts ──────────────────────────
+- id: TOOL_NET_REMOTE_EXEC
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "(?:curl|wget)\\s+.*(?:raw\\.githubusercontent|gist\\.github|pastebin)\\.com.*(?:-o|>)\\s+/tmp/"
+    - "(?:curl|wget)\\s+.*\\.(?:sh|py|pl|rb)\\s*(?:&&|;)\\s*(?:chmod|bash|sh|python)"
+  description: "Downloading and executing remote scripts"
+  remediation: "Scripts should be reviewed before execution"

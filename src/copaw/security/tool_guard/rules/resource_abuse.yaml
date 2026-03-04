@@ -1,0 +1,42 @@
+# Resource Abuse Detection Rules for Tool Parameters
+# These rules detect resource-intensive or denial-of-service patterns.
+
+# ── Fork bomb / infinite loops ────────────────────────────────────────
+- id: TOOL_RES_FORK_BOMB
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - ":\\(\\)\\{\\s*:\\|:&\\s*\\};:"
+    - "\\bfork\\b.*\\bwhile\\b.*\\btrue\\b"
+    - "while\\s+true\\s*;\\s*do\\s+(?:fork|:)\\s*;\\s*done"
+    - "\\byes\\s*\\|"
+  description: "Fork bomb or infinite resource consumption pattern"
+  remediation: "Agent should not execute resource-exhaustion commands"
+
+# ── Disk filling ──────────────────────────────────────────────────────
+- id: TOOL_RES_DISK_FILL
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: HIGH
+  patterns:
+    - "\\bdd\\s+.*if=/dev/(?:zero|urandom).*of=/"
+    - "\\bfallocate\\s+.*-l\\s+\\d+[TG]"
+    - "\\btruncate\\s+.*-s\\s+\\d+[TG]"
+    - "cat\\s+/dev/(?:zero|urandom)\\s*>\\s*/"
+  description: "Command that could rapidly consume disk space"
+  remediation: "Agent should not create extremely large files"
+
+# ── Memory exhaustion ─────────────────────────────────────────────────
+- id: TOOL_RES_MEMORY_EXHAUST
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: HIGH
+  patterns:
+    - "python[23]?\\s+-c\\s+.*\\[.*\\]\\s*\\*\\s*\\d{6,}"
+    - "stress(?:-ng)?\\b"
+  description: "Command that could exhaust system memory"
+  remediation: "Agent should not run memory stress tests"
