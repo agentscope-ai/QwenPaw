@@ -279,16 +279,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "dingtalk recv: no sessionWebhook on incoming_message",
                 )
 
-            if sw:
-                txt = text[:20]
-                preview = (
-                    (txt + "…" if len(text) > 20 else txt).strip()
-                    if text
-                    else "[消息]"
-                )
-                ack_msg = f'✅ 收到\n"{preview}"\n🌀正在处理中……'
-                self.reply_text(ack_msg, incoming_message)
-
             # Dedup by message_id only.
             if self._try_accept_message and not self._try_accept_message(
                 raw_msg_id,
@@ -300,6 +290,17 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 )
                 self.reply_text(" ", incoming_message)
                 return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+            
+            # 及时响应确认收到消息
+            if sw:
+                txt = text[:20]
+                preview = (
+                    (txt + "…" if len(text) > 20 else txt).strip()
+                    if text
+                    else "[消息]"
+                )
+                ack_msg = f'✅ 收到\n"{preview}"\n🌀正在处理中……'
+                self.reply_text(ack_msg, incoming_message)
 
             logger.info(
                 "dingtalk accept: raw_msg_id=%r",
