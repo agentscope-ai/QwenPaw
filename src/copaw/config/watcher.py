@@ -149,7 +149,11 @@ class ConfigWatcher:
                 "ConfigWatcher: failed to reload channel '%s'",
                 name,
             )
-            setattr(new_channels, name, old_ch if old_ch else new_ch)
+            setattr(
+                new_channels,
+                name,
+                old_ch if old_ch is not None else new_ch,
+            )
 
     async def _apply_channel_changes(self, loaded_config: Any) -> None:
         """Diff channels and reload changed ones; update snapshot."""

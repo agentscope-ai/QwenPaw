@@ -122,6 +122,7 @@ class ChannelManager:
         process: Optional[ProcessHandler] = None,
         on_last_dispatch: OnLastDispatch = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
     ):
         self.channels = channels
         self._lock = asyncio.Lock()
@@ -146,6 +147,19 @@ class ChannelManager:
                 getattr(channels[0], "_show_tool_details", show_tool_details)
                 if channels
                 else show_tool_details
+            )
+        )
+        self._filter_tool_messages = (
+            filter_tool_messages
+            if process is not None
+            else (
+                getattr(
+                    channels[0],
+                    "_filter_tool_messages",
+                    filter_tool_messages,
+                )
+                if channels
+                else filter_tool_messages
             )
         )
         # Session in progress: (channel_id, debounce_key) -> True while worker
@@ -241,6 +255,7 @@ class ChannelManager:
             process=process,
             on_last_dispatch=on_last_dispatch,
             show_tool_details=show_tool_details,
+            filter_tool_messages=False,
         )
 
     def _spawn_consumers_for_channel(self, channel_name: str) -> None:
@@ -310,12 +325,15 @@ class ChannelManager:
                 self._process,
                 cfg,
                 on_reply_sent=self._on_last_dispatch,
+                show_tool_details=self._show_tool_details,
+                filter_tool_messages=False,
             )
         return ch_cls.from_config(
             self._process,
             cfg,
             on_reply_sent=self._on_last_dispatch,
             show_tool_details=self._show_tool_details,
+            filter_tool_messages=self._filter_tool_messages,
         )
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
