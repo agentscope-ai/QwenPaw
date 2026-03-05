@@ -51,6 +51,26 @@
 
 ---
 
+## ニュース
+
+[2026-03-06] v0.0.5をリリースしました！詳細は[v0.0.5リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)をご覧ください。
+
+- **[v0.0.5]** **新機能:** チャネル管理システム; Twilio音声チャネル; DeepSeek Reasonerサポート; デーモンモード; エージェント中断API; バージョン更新通知; Windowsインストールスクリプト。
+- **[v0.0.5]** **最適化:** メモリシステムアップグレード（reme-ai 0.3.0.3）; コンソールUI改善（リクエストキャンセル、折りたたみサイドバー）; オプショナルチャネルの遅延読み込み。
+- **[v0.0.5]** **修正:** Docker設定の永続化; Ollama base URL; チャネル修正（DingTalk、Feishu、Telegram）; Windows互換性; MCPクライアント安定性。
+- **[v0.0.5]** **ドキュメント:** モデル設定ガイド; Docker + Ollama接続ガイド; 日本語README; リリースノートシステム。
+- **[v0.0.5]** **貢献者:** 新しい貢献者に感謝します: [@qoli](https://github.com/qoli), [@qbc2016](https://github.com/qbc2016), [@yunlzheng](https://github.com/yunlzheng), [@BlueSkyXN](https://github.com/BlueSkyXN), [@sidonsoft](https://github.com/sidonsoft), [@lishengzxc](https://github.com/lishengzxc), [@pikaxinge](https://github.com/pikaxinge), [@linshengli](https://github.com/linshengli), [@eltociear](https://github.com/eltociear), [@liuxiaopai-ai](https://github.com/liuxiaopai-ai), [@Leirunlin](https://github.com/Leirunlin), [@pan-x-c](https://github.com/pan-x-c), [@garyzhang99](https://github.com/garyzhang99), [@celestialhorse51D](https://github.com/celestialhorse51D), [@wwx814](https://github.com/wwx814), [@nszhsl](https://github.com/nszhsl), [@DavdGao](https://github.com/DavdGao), [@zhangckcup](https://github.com/zhangckcup)。
+
+[2026-03-02] v0.0.4をリリースしました！詳細は[v0.0.4リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)をご覧ください。
+
+- **[v0.0.4]** **新機能:** Telegramチャネル; OpenAI & Azure OpenAIプロバイダー; Ollama SDK; coding-planプロバイダー; モデル接続テスト; ハートビート監視パネル; CORS設定; DingTalk & Feishu音声ファイルサポート。
+- **[v0.0.4]** **新機能:** トークンベースのメモリ圧縮; ファイルブロック処理; 埋め込み設定; tool_choice動作の統一。
+- **[v0.0.4]** **修正:** Windowsファイルパス; 空のtool call; コンソールワークスペースUI; Ollama URLと接続性; MCPトランスポート; ブラウザリソースリーク; 静的アセットMIMEタイプ; APIヘッダー; Playwright Docker; ハートビート解析; メディアメッセージキューイング。
+- **[v0.0.4]** **リリース:** インストールスクリプト（PowerShell含む）; Dockerガイド; チャネルCLIドキュメント; Feishu SOCKSプロキシ; MCP & ランタイムドキュメント; FAQ（英/中）; スキル作成ガイド; CONTRIBUTING; コンソールドキュメント; ウェブサイト改善。
+- **[v0.0.4]** **貢献者:** 新しい貢献者に感謝します: [@ekzhu](https://github.com/ekzhu), [@fancyboi999](https://github.com/fancyboi999), [@zhaozhuang521](https://github.com/zhaozhuang521), [@hobostay](https://github.com/hobostay), [@dhbxs](https://github.com/dhbxs), [@longway-code](https://github.com/longway-code), [@ydlstartx](https://github.com/ydlstartx), [@LudovicoYIN](https://github.com/LudovicoYIN), [@fenixc9](https://github.com/fenixc9), [@dittotang](https://github.com/dittotang), [@forestxieCode](https://github.com/forestxieCode), [@yongtenglei](https://github.com/yongtenglei), [@kerwin612](https://github.com/kerwin612), [@luixiao0](https://github.com/luixiao0), [@gongpx20069](https://github.com/gongpx20069)。
+
+---
+
 ## 目次
 
 > **おすすめの読み方:**
