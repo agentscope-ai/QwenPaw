@@ -384,7 +384,7 @@ def _create_remote_model_instance(
         if base_url.endswith("/v1"):
             base_url = base_url[:-3]
 
-    agentapp = {
+    copaw_header = {
         "agentType": "CoPaw",
         "deployType": "UnKnown",
         "moduleCode": "model",
@@ -400,7 +400,7 @@ def _create_remote_model_instance(
             "base_url": base_url,
             "default_headers": {
                 "x-dashscope-agentapp": json.dumps(
-                    agentapp,
+                    copaw_header,
                     ensure_ascii=False,
                 ),
             },
