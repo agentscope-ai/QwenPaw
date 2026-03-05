@@ -18,10 +18,48 @@ from agentscope.message import Msg
 from ...constant import WORKING_DIR
 from .file_handling import download_file_from_base64, download_file_from_url
 
+_UPLOAD_DIR = WORKING_DIR / "uploads"
+_UPLOAD_URL_PREFIX = "/api/upload/files/"
+
 logger = logging.getLogger(__name__)
 
 # Only allow local paths under this dir (channels save media here).
 _ALLOWED_MEDIA_ROOT = WORKING_DIR / "media"
+
+
+def _resolve_upload_url_to_local(url: str) -> Optional[str]:
+    """If *url* points to a file previously uploaded via the console upload
+    endpoint, resolve it to the local filesystem path.  Handles both relative
+    URLs (``/api/upload/files/name``) and absolute URLs
+    (``http://host/api/upload/files/name``).  Returns ``None`` when the URL
+    does not match or the file does not exist on disk.
+    """
+    path_part: Optional[str] = None
+
+    if _UPLOAD_URL_PREFIX in url:
+        idx = url.index(_UPLOAD_URL_PREFIX)
+        path_part = url[idx + len(_UPLOAD_URL_PREFIX):]
+    else:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.path.startswith(_UPLOAD_URL_PREFIX):
+            path_part = parsed.path[len(_UPLOAD_URL_PREFIX):]
+
+    if not path_part:
+        return None
+
+    candidate = (_UPLOAD_DIR / path_part).resolve()
+    upload_root = _UPLOAD_DIR.resolve()
+
+    if not str(candidate).startswith(str(upload_root)):
+        logger.warning("Upload path traversal attempt blocked: %s", url)
+        return None
+
+    if candidate.is_file():
+        logger.debug("Resolved upload URL to local path: %s -> %s", url, candidate)
+        return str(candidate)
+
+    logger.warning("Upload URL refers to missing file: %s", url)
+    return None
 
 
 def _is_allowed_media_path(path: str) -> bool:
@@ -65,6 +103,10 @@ async def _process_single_file_block(
     elif isinstance(source, dict) and source.get("type") == "url":
         url = source.get("url", "")
         if url:
+            local = _resolve_upload_url_to_local(url)
+            if local is not None:
+                return local
+
             parsed = urllib.parse.urlparse(url)
             if parsed.scheme == "file":
                 try:
@@ -90,8 +132,36 @@ async def _process_single_file_block(
     return None
 
 
+def _normalize_block_source(block: dict, block_type: str) -> None:
+    """Normalize frontend content-block formats into the canonical
+    ``source`` / ``filename`` structure that downstream code expects.
+
+    The ``@agentscope-ai/chat`` frontend emits:
+    - image blocks:  ``{ type: "image", image_url: "..." }``
+    - file blocks:   ``{ type: "file",  file_url: "...",
+                         file_name: "...", file_size: ... }``
+
+    Channel messages (DingTalk, Feishu, etc.) already use:
+    - ``{ type: "...", source: { type: "url"|"base64", ... } }``
+
+    This helper converts the first format into the second so that
+    ``_extract_source_and_filename`` works uniformly.
+    """
+    if block.get("source"):
+        return
+
+    if block_type == "image" and block.get("image_url"):
+        block["source"] = {"type": "url", "url": block["image_url"]}
+    elif block_type == "file" and block.get("file_url"):
+        block["source"] = {"type": "url", "url": block["file_url"]}
+        if block.get("file_name") and not block.get("filename"):
+            block["filename"] = block["file_name"]
+
+
 def _extract_source_and_filename(block: dict, block_type: str):
     """Extract source and filename from a block."""
+    _normalize_block_source(block, block_type)
+
     if block_type == "file":
         return block.get("source", {}), block.get("filename")
 

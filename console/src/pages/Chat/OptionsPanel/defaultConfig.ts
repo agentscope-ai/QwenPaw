@@ -9,7 +9,6 @@ const defaultConfig = {
     },
   },
   sender: {
-    attachments: false,
     maxLength: 10000,
     disclaimer: "Works for you, grows with you",
   },
