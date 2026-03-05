@@ -689,11 +689,12 @@ def ollama_pull_cmd(model_name: str) -> None:
       copaw models ollama-pull qwen2.5:3b
     """
     from ..providers.ollama_manager import OllamaModelManager
+    from ..providers.store import get_ollama_host
 
     click.echo(f"Downloading Ollama model: {model_name}...")
     try:
-        manager = OllamaModelManager()
-        manager.pull_model(model_name)
+        host = get_ollama_host()
+        OllamaModelManager.pull_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' downloaded successfully.")
         click.echo("\nTo use this model, run:\n  copaw models set-llm")
     except ImportError as exc:
@@ -713,10 +714,11 @@ def ollama_pull_cmd(model_name: str) -> None:
 def ollama_list_cmd() -> None:
     """List all Ollama models."""
     from ..providers.ollama_manager import OllamaModelManager
+    from ..providers.store import get_ollama_host
 
     try:
-        manager = OllamaModelManager()
-        models = manager.list_models()
+        host = get_ollama_host()
+        models = OllamaModelManager.list_models(host=host)
     except ImportError as exc:
         click.echo(
             click.style(
@@ -758,14 +760,15 @@ def ollama_remove_cmd(model_name: str, yes: bool) -> None:
       copaw models ollama-remove qwen2.5:3b -y
     """
     from ..providers.ollama_manager import OllamaModelManager
+    from ..providers.store import get_ollama_host
 
     if not yes:
         if not click.confirm(f"Delete Ollama model '{model_name}'?"):
             return
 
     try:
-        manager = OllamaModelManager()
-        manager.delete_model(model_name)
+        host = get_ollama_host()
+        OllamaModelManager.delete_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' deleted.")
     except ImportError as exc:
         click.echo(

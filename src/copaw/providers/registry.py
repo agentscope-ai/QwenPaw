@@ -305,18 +305,22 @@ def sync_local_models() -> None:
         pass
 
 
-def sync_ollama_models() -> None:
+def sync_ollama_models(host: Optional[str] = None) -> None:
     """Refresh Ollama provider model list from the Ollama daemon.
 
     Models are derived from ``ollama.list()`` via :class:`OllamaModelManager`.
     If the SDK is not installed or the daemon is unavailable, the list is
     left unchanged.
+
+    Args:
+        host: Optional Ollama native host URL (e.g. ``http://remote:11434``).
+            When *None*, the SDK default (localhost) is used.
     """
     try:
         from ..providers.ollama_manager import OllamaModelManager
 
         models: list[ModelInfo] = []
-        for model in OllamaModelManager.list_models():
+        for model in OllamaModelManager.list_models(host=host):
             models.append(ModelInfo(id=model.name, name=model.name))
         PROVIDER_OLLAMA.models = models
     except ImportError:
