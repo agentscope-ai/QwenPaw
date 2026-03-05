@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-branches
 """Telegram channel: Bot API with polling; receive/send via chat_id."""
+
 from __future__ import annotations
 
 import asyncio
@@ -376,9 +377,11 @@ class TelegramChannel(BaseChannel):
                 show_tool_details=show_tool_details,
                 filter_tool_messages=filter_tool_messages,
                 filter_thinking=filter_thinking,
-                show_typing=channel_show_typing
-                if channel_show_typing is not None
-                else True,
+                show_typing=(
+                    channel_show_typing
+                    if channel_show_typing is not None
+                    else True
+                ),
             )
         return cls(
             process=process,
@@ -391,9 +394,11 @@ class TelegramChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
-            show_typing=channel_show_typing
-            if channel_show_typing is not None
-            else True,
+            show_typing=(
+                channel_show_typing
+                if channel_show_typing is not None
+                else True
+            ),
         )
 
     def _chunk_text(self, text: str) -> list[str]:

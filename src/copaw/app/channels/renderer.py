@@ -4,6 +4,7 @@
 Pluggable message renderer: Message -> sendable parts (runtime Content).
 Style/capabilities control markdown, emoji, code fence.
 """
+
 from __future__ import annotations
 
 import json

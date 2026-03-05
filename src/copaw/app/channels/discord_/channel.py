@@ -151,9 +151,9 @@ class DiscordChannel(BaseChannel):
                 meta = {
                     "user_id": str(message.author.id),
                     "channel_id": str(message.channel.id),
-                    "guild_id": str(message.guild.id)
-                    if message.guild
-                    else None,
+                    "guild_id": (
+                        str(message.guild.id) if message.guild else None
+                    ),
                     "message_id": str(message.id),
                     "is_dm": message.guild is None,
                 }
