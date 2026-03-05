@@ -95,7 +95,8 @@ LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"
 
 # Env to indicate running inside a container (e.g. Docker). Set to 1/true/yes.
 RUNNING_IN_CONTAINER = EnvVarLoader.get_bool(
-    "COPAW_RUNNING_IN_CONTAINER", False
+    "COPAW_RUNNING_IN_CONTAINER",
+    False,
 )
 
 # Timeout in seconds for checking if a provider is reachable.
