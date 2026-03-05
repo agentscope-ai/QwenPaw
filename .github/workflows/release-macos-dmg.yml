@@ -67,8 +67,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Fix dirs with a period that codesign --deep treats as bundles (e.g. python3.10).
-          # Rename dir to no-dot name, then symlink original name -> it so runtime still finds it.
+          # Dirs with a period (e.g. python3.10, *.dist-info) are treated as bundles by
+          # codesign --deep. Rename to no-dot name and symlink back so runtime finds them.
           fix_dotted_dirs_for_codesign() {
             local internal="$1"
             [[ -d "$internal" ]] || return 0
@@ -82,6 +82,15 @@ jobs:
               mv "$path" "$dir_renamed"
               ln -s "$(basename "$dir_renamed")" "$path"
             done
+            while IFS= read -r -d '' path; do
+              [[ -d "$path" ]] && ! [[ -L "$path" ]] || continue
+              name=$(basename "$path")
+              [[ "$name" != *.* ]] && continue
+              dir_renamed=$(dirname "$path")/${name//./}
+              [[ "$dir_renamed" != "$path" ]] && [[ ! -e "$dir_renamed" ]] || continue
+              mv "$path" "$dir_renamed"
+              ln -s "$(basename "$dir_renamed")" "$path"
+            done < <(find "$internal" -maxdepth 1 -type d -name "*.dist-info" -print0)
           }
 
           # Sign app bundle: fix dotted dirs, sign all Mach-O, then app with --deep.
@@ -89,8 +98,6 @@ jobs:
             local APP_DIR="$1"
             [[ -d "$APP_DIR" ]] || return 0
 
-            # Clean before signing (never modify after signing)
-            find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf || true
             find "$APP_DIR" -type f -name "py.typed" -delete || true
             mkdir -p "$APP_DIR/Contents/Resources"
 

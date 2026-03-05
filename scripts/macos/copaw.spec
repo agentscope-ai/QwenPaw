@@ -1,12 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for CoPaw macOS .app. Run from repo root: pyinstaller scripts/macos/copaw.spec
 
+import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 REPO_ROOT = Path.cwd().resolve()
 _SPEC_DIR = REPO_ROOT / "scripts" / "macos"
+sys.path.insert(0, str(_SPEC_DIR))
+from pyi_project_deps import get_collect_packages_from_installed
+
 CONSOLE_STATIC = REPO_ROOT / "src" / "copaw" / "console"
 MD_FILES_SRC = REPO_ROOT / "src" / "copaw" / "agents" / "md_files"
 SKILLS_SRC = REPO_ROOT / "src" / "copaw" / "agents" / "skills"
@@ -25,83 +29,47 @@ _skills_datas = (
 _tokenizer_datas = (
     [(str(TOKENIZER_SRC), "copaw/tokenizer")] if TOKENIZER_SRC.is_dir() else []
 )
-try:
-    _reme_datas, _reme_binaries, _reme_hidden = collect_all("reme")
-    _reme_datas = _reme_datas or []
-    _reme_binaries = _reme_binaries or []
-    _reme_hidden = ["reme"] + list(_reme_hidden or [])
-except Exception:
-    _reme_datas = []
-    _reme_binaries = []
-    _reme_hidden = ["reme"]
 
-# reme-ai imports flowllm at runtime; collect so it is bundled.
-try:
-    _fl_datas, _fl_binaries, _fl_hidden = collect_all("flowllm")
-    _reme_datas = _reme_datas + (_fl_datas or [])
-    _reme_binaries = _reme_binaries + (_fl_binaries or [])
-    _reme_hidden = _reme_hidden + list(_fl_hidden or [])
-except Exception:
-    pass
-
-# reme/flowllm may need fastmcp metadata at import time.
-try:
-    _fm_datas, _fm_binaries, _fm_hidden = collect_all("fastmcp")
-    _reme_datas = _reme_datas + (_fm_datas or [])
-    _reme_binaries = _reme_binaries + (_fm_binaries or [])
-    _reme_hidden = _reme_hidden + list(_fm_hidden or [])
-except Exception:
-    pass
-# chromadb telemetry needs opentelemetry-sdk metadata; pydantic needs email-validator.
-_metadata_datas = []
-for _pkg in ("fastmcp", "opentelemetry-sdk", "opentelemetry-api", "email-validator"):
+# Collect all installed packages (after pip install -e ".[full]") so we don't
+# miss transitive deps; no manual extra_collect.
+_dep_datas = []
+_dep_binaries = []
+_dep_hidden = []
+for _pkg in get_collect_packages_from_installed():
     try:
-        _metadata_datas += copy_metadata(_pkg)
+        _d, _b, _h = collect_all(_pkg)
+        _dep_datas += _d or []
+        _dep_binaries += _b or []
+        _dep_hidden.extend(_h or [])
     except Exception:
         pass
 
-try:
-    _chroma_datas, _chroma_binaries, _chroma_hidden = collect_all("chromadb")
-    _chroma_datas = _chroma_datas or []
-    _chroma_binaries = _chroma_binaries or []
-    _chroma_hidden = list(_chroma_hidden or [])
-except Exception:
-    _chroma_datas = []
-    _chroma_binaries = []
-    _chroma_hidden = []
+# Launcher and runtime still need these explicitly (dynamic or often missed).
+_extra_hidden = [
+    "webview",
+    "pyobjc",
+    "uvicorn.logging",
+    "uvicorn.loops",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols",
+    "uvicorn.protocols.http",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.lifespan",
+    "uvicorn.lifespan.on",
+]
 
 a = Analysis(
     [str(_LAUNCHER)],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
-    binaries=_reme_binaries + _chroma_binaries,
+    binaries=_dep_binaries,
     datas=(
-        _console_datas + _md_datas + _skills_datas + _tokenizer_datas
-        + _reme_datas + _metadata_datas + _chroma_datas
+        _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _dep_datas
     ),
-    hiddenimports=collect_submodules("copaw")
-    + _reme_hidden
-    + _chroma_hidden
-    + [
-        "chromadb",
-        "chromadb.config",
-        "chromadb.api",
-        "chromadb.api.client",
-        "chromadb.api.rust",
-        "chromadb.telemetry.product.posthog",
-        "webview",
-        "pyobjc",
-        "uvicorn.logging",
-        "uvicorn.loops",
-        "uvicorn.loops.auto",
-        "uvicorn.protocols",
-        "uvicorn.protocols.http",
-        "uvicorn.protocols.http.auto",
-        "uvicorn.protocols.websockets",
-        "uvicorn.protocols.websockets.auto",
-        "uvicorn.lifespan",
-        "uvicorn.lifespan.on",
-        "email_validator",
-    ],
+    hiddenimports=(
+        collect_submodules("copaw") + _dep_hidden + _extra_hidden
+    ),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[str(_SPEC_DIR / "pyi_rth_opentelemetry_context.py")],
