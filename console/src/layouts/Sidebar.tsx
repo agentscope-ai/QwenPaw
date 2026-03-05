@@ -366,7 +366,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       <Modal
         open={updateModalOpen}
         onCancel={() => setUpdateModalOpen(false)}
-        title={t("sidebar.updateModal.title", { version: latestVersion })}
+        title={
+          <h3 style={{ color: "#615ced" }}>
+            {t("sidebar.updateModal.title", { version: latestVersion })}
+          </h3>
+        }
         width={680}
         footer={[
           <Button
