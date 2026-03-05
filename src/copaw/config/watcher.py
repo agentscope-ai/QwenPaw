@@ -180,6 +180,7 @@ class ConfigWatcher:
             | self._channel_keys(new_channels)
             | self._channel_keys(old_channels)
         )
+        removal_failed = False
 
         for name in sorted(candidate_names):
             new_ch = getattr(new_channels, name, None)
@@ -212,6 +213,7 @@ class ConfigWatcher:
                             name,
                         )
                 except Exception:
+                    removal_failed = True
                     logger.exception(
                         "ConfigWatcher: failed to remove channel '%s'",
                         name,
@@ -226,6 +228,10 @@ class ConfigWatcher:
                 name,
             )
             await self._reload_one_channel(name, new_ch, new_channels, old_ch)
+        if removal_failed:
+            # Keep last snapshot and force next poll to retry removal.
+            self._last_mtime = 0.0
+            return
         self._last_channels = new_channels.model_copy(deep=True)
         self._last_channels_hash = self._channels_hash(new_channels)
 

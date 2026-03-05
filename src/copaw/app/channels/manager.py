@@ -122,7 +122,6 @@ class ChannelManager:
         process: Optional[ProcessHandler] = None,
         on_last_dispatch: OnLastDispatch = None,
         show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
     ):
         self.channels = channels
         self._lock = asyncio.Lock()
@@ -147,19 +146,6 @@ class ChannelManager:
                 getattr(channels[0], "_show_tool_details", show_tool_details)
                 if channels
                 else show_tool_details
-            )
-        )
-        self._filter_tool_messages = (
-            filter_tool_messages
-            if process is not None
-            else (
-                getattr(
-                    channels[0],
-                    "_filter_tool_messages",
-                    filter_tool_messages,
-                )
-                if channels
-                else filter_tool_messages
             )
         )
         # Session in progress: (channel_id, debounce_key) -> True while worker
@@ -255,7 +241,6 @@ class ChannelManager:
             process=process,
             on_last_dispatch=on_last_dispatch,
             show_tool_details=show_tool_details,
-            filter_tool_messages=False,
         )
 
     def _spawn_consumers_for_channel(self, channel_name: str) -> None:
@@ -328,12 +313,13 @@ class ChannelManager:
                 show_tool_details=self._show_tool_details,
                 filter_tool_messages=False,
             )
+        filter_tool_messages = getattr(cfg, "filter_tool_messages", False)
         return ch_cls.from_config(
             self._process,
             cfg,
             on_reply_sent=self._on_last_dispatch,
             show_tool_details=self._show_tool_details,
-            filter_tool_messages=self._filter_tool_messages,
+            filter_tool_messages=filter_tool_messages,
         )
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
@@ -515,6 +501,7 @@ class ChannelManager:
             new_channel: New channel instance to replace with
         """
         new_channel_name = new_channel.channel
+        created_queue = False
         # 1) Ensure queue and enqueue callback before start() so the channel
         #    (e.g. DingTalk) registers its handler with a valid callback.
         if new_channel_name not in self._queues:
@@ -523,6 +510,7 @@ class ChannelManager:
                     maxsize=_CHANNEL_QUEUE_MAXSIZE,
                 )
                 self._spawn_consumers_for_channel(new_channel_name)
+                created_queue = True
         new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
 
         # 2) Start new channel outside lock (may be slow, e.g. DingTalk stream)
@@ -537,6 +525,16 @@ class ChannelManager:
                 await new_channel.stop()
             except Exception:
                 pass
+            try:
+                new_channel.set_enqueue(None)
+                if created_queue:
+                    await self._stop_consumers_for_channel(new_channel_name)
+            except Exception:
+                logger.exception(
+                    "Failed to cleanup channel resources "
+                    "after start error: %s",
+                    new_channel_name,
+                )
             raise
 
         # 3) Swap + stop old inside lock
