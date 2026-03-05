@@ -127,20 +127,33 @@ class ConfigWatcher:
         new_ch: Any,
         new_channels: ChannelConfig,
         old_ch: Any,
+        available_names: set[str],
     ) -> None:
         """Reload a single channel; on failure revert new_channels entry."""
         try:
             old_channel = await self._channel_manager.get_channel(name)
             if old_channel is None:
+                is_builtin_channel = name in ChannelConfig.model_fields
+                if is_builtin_channel and name not in available_names:
+                    logger.info(
+                        "ConfigWatcher: channel '%s' not enabled, skip add",
+                        name,
+                    )
+                    return
                 added = await self._channel_manager.add_channel(name, new_ch)
                 if added:
                     logger.info("ConfigWatcher: channel '%s' added", name)
                 else:
-                    logger.warning(
-                        "ConfigWatcher: channel '%s' not found, skip",
+                    old_channel = await self._channel_manager.get_channel(
                         name,
                     )
-                return
+                    if old_channel is None:
+                        logger.warning(
+                            "ConfigWatcher: channel '%s' not found "
+                            "after add attempt, skip",
+                            name,
+                        )
+                        return
             new_channel = old_channel.clone(new_ch)
             await self._channel_manager.replace_channel(new_channel)
             logger.info("ConfigWatcher: channel '%s' reloaded", name)
@@ -174,9 +187,10 @@ class ConfigWatcher:
         extra_old: dict[str, Any] = (
             extra_old_raw if isinstance(extra_old_raw, dict) else {}
         )
+        available_names = set(get_available_channels())
 
         candidate_names = (
-            set(get_available_channels())
+            available_names
             | self._channel_keys(new_channels)
             | self._channel_keys(old_channels)
         )
@@ -227,7 +241,13 @@ class ConfigWatcher:
                 "ConfigWatcher: channel '%s' config changed, reloading",
                 name,
             )
-            await self._reload_one_channel(name, new_ch, new_channels, old_ch)
+            await self._reload_one_channel(
+                name,
+                new_ch,
+                new_channels,
+                old_ch,
+                available_names,
+            )
         if removal_failed:
             # Keep last snapshot and force next poll to retry removal.
             self._last_mtime = 0.0

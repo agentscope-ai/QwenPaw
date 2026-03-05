@@ -121,7 +121,7 @@ class ChannelManager:
         *,
         process: Optional[ProcessHandler] = None,
         on_last_dispatch: OnLastDispatch = None,
-        show_tool_details: bool = True,
+        show_tool_details: Optional[bool] = None,
     ):
         self.channels = channels
         self._lock = asyncio.Lock()
@@ -141,11 +141,11 @@ class ChannelManager:
         )
         self._show_tool_details = (
             show_tool_details
-            if process is not None
+            if show_tool_details is not None
             else (
-                getattr(channels[0], "_show_tool_details", show_tool_details)
+                getattr(channels[0], "_show_tool_details", True)
                 if channels
-                else show_tool_details
+                else True
             )
         )
         # Session in progress: (channel_id, debounce_key) -> True while worker

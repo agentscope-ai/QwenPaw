@@ -149,6 +149,49 @@ async def test_watcher_adds_channel_when_custom_key_appears(tmp_path: Path):
     assert "plugin_x" not in mgr.remove_calls
 
 
+@pytest.mark.asyncio
+async def test_watcher_skips_add_for_non_enabled_builtin_channel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config_path = tmp_path / "config.json"
+    _write_json(
+        config_path,
+        {
+            "channels": {
+                "console": {"enabled": True},
+                "discord": {"enabled": False},
+            },
+        },
+    )
+
+    mgr = _DummyManager()
+    watcher = ConfigWatcher(
+        channel_manager=mgr,
+        poll_interval=0.1,
+        config_path=config_path,
+    )
+    watcher._snapshot()
+
+    _write_json(
+        config_path,
+        {
+            "channels": {
+                "console": {"enabled": True},
+                "discord": {"enabled": True},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "copaw.config.watcher.get_available_channels",
+        lambda: ("console",),
+    )
+    watcher._last_mtime = 0.0
+    await watcher._check()
+
+    assert "discord" not in mgr.add_calls
+
+
 def test_load_config_treats_builtin_null_as_disabled(tmp_path: Path):
     config_path = tmp_path / "config.json"
     _write_json(
