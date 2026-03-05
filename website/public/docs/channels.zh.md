@@ -7,7 +7,7 @@
 - **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
 - **手动编辑 `config.json`** — 默认在 `~/.copaw/config.json` （由 `copaw init` 生成），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
 
-所有频道都有两个通用字段:
+所有频道都有如下通用字段:
 
 - **enabled** — 是否启用
 - **bot_prefix** — 机器人回复前缀（如 `[BOT]`），方便区分

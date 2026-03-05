@@ -54,15 +54,11 @@ function ChannelsPage() {
     setActiveKey(key);
     setDrawerOpen(true);
     const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
-    // Only invert filter_tool_messages for builtin channels
-    if (isBuiltin(key)) {
-      form.setFieldsValue({
-        ...channelConfig,
-        filter_tool_messages: !channelConfig.filter_tool_messages,
-      });
-    } else {
-      form.setFieldsValue(channelConfig);
-    }
+    form.setFieldsValue({
+      ...channelConfig,
+      filter_tool_messages: !channelConfig.filter_tool_messages,
+      filter_thinking: !channelConfig.filter_thinking,
+    });
   };
 
   const handleDrawerClose = () => {
@@ -73,15 +69,13 @@ function ChannelsPage() {
   const handleSubmit = async (values: Record<string, unknown>) => {
     if (!activeKey) return;
 
-    // Only invert filter_tool_messages for builtin channels
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
     const updatedChannel: Record<string, unknown> = {
       ...savedConfig,
       ...values,
-      ...(isBuiltin(activeKey)
-        ? { filter_tool_messages: !values.filter_tool_messages }
-        : {}),
+      filter_tool_messages: !values.filter_tool_messages,
+      filter_thinking: !values.filter_thinking,
     };
 
     setSaving(true);
