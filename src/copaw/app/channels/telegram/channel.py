@@ -239,10 +239,7 @@ class TelegramChannel(BaseChannel):
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         )
         self._show_typing = show_typing
-<<<<<<< HEAD
-=======
         self._typing_tasks: dict[str, asyncio.Task] = {}
->>>>>>> origin/main
         self._task: Optional[asyncio.Task] = None
         self._application = None
         if self.enabled and self._bot_token:
@@ -323,10 +320,7 @@ class TelegramChannel(BaseChannel):
                 "meta": meta,
             }
             if self._enqueue is not None:
-<<<<<<< HEAD
-=======
                 self._start_typing(chat_id)
->>>>>>> origin/main
                 self._enqueue(native)
             else:
                 logger.warning("telegram: _enqueue not set, message dropped")
@@ -440,8 +434,6 @@ class TelegramChannel(BaseChannel):
                 chat_id,
             )
 
-<<<<<<< HEAD
-=======
     def _start_typing(self, chat_id: str) -> None:
         """Start the typing indicator loop for a chat."""
         if not self._show_typing:
@@ -466,7 +458,6 @@ class TelegramChannel(BaseChannel):
         except asyncio.CancelledError:
             pass
 
->>>>>>> origin/main
     async def send(
         self,
         to_handle: str,
@@ -485,12 +476,7 @@ class TelegramChannel(BaseChannel):
         bot = self._application.bot
         if not bot:
             return
-<<<<<<< HEAD
-        if self._show_typing:
-            asyncio.create_task(self._send_chat_action(chat_id, "typing"))
-=======
         self._stop_typing(chat_id)
->>>>>>> origin/main
         chunks = self._chunk_text(text)
         for chunk in chunks:
             try:
@@ -518,10 +504,7 @@ class TelegramChannel(BaseChannel):
         bot = self._application.bot
         if not bot:
             return
-<<<<<<< HEAD
-=======
         self._stop_typing(chat_id)
->>>>>>> origin/main
 
         part_type = getattr(part, "type", None)
         try:
@@ -641,11 +624,8 @@ class TelegramChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
-<<<<<<< HEAD
-=======
         for cid in list(self._typing_tasks):
             self._stop_typing(cid)
->>>>>>> origin/main
         if self._task:
             self._task.cancel()
             try:

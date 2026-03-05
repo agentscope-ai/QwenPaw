@@ -11,6 +11,7 @@ from pathlib import Path
 _COPAW_LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
 _COPAW_LOG_BACKUP_COUNT = 3
 
+
 _LEVEL_MAP = {
     "critical": logging.CRITICAL,
     "error": logging.ERROR,

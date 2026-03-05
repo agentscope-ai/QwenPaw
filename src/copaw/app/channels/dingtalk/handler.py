@@ -166,7 +166,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             logger.exception("failed to fetch richText download url(s)")
         return content
 
-    # pylint: disable=too-many-branches,too-many-statements
     async def process(self, callback: CallbackMessage) -> tuple[int, str]:
         # pylint: disable=too-many-branches,too-many-statements
         try:
@@ -229,18 +228,12 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             conversation_id = conversation_id_from_chatbot_message(
                 incoming_message,
             )
-            # Extract senderStaffId and conversationType for OpenAPI
-            callback_data = callback.data or {}
-            sender_staff_id = callback_data.get("senderStaffId")
-            conversation_type = callback_data.get("conversationType")
             loop = asyncio.get_running_loop()
             reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
                 "incoming_message": incoming_message,
                 "reply_future": reply_future,
                 "reply_loop": loop,
-                "sender_staff_id": sender_staff_id,
-                "conversation_type": conversation_type,
             }
             if conversation_id:
                 meta["conversation_id"] = conversation_id
@@ -254,7 +247,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             logger.debug(
                 "dingtalk request: has_session_webhook=%s sender=%s",
                 bool(sw),
-                sender[:20],
+                sender,
             )
             if sw:
                 meta["session_webhook"] = sw
@@ -290,17 +283,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 )
                 self.reply_text(" ", incoming_message)
                 return dingtalk_stream.AckMessage.STATUS_OK, "ok"
-            
-            # 及时响应确认收到消息
-            if sw:
-                txt = text[:20]
-                preview = (
-                    (txt + "…" if len(text) > 20 else txt).strip()
-                    if text
-                    else "[消息]"
-                )
-                ack_msg = f'✅ 收到\n"{preview}"\n🌀正在处理中……'
-                self.reply_text(ack_msg, incoming_message)
 
             logger.info(
                 "dingtalk accept: raw_msg_id=%r",

@@ -3,7 +3,6 @@
 
 This module handles system commands like /compact, /new, /clear, etc.
 """
-
 import logging
 from typing import TYPE_CHECKING
 
@@ -17,12 +16,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-<<<<<<< HEAD
-class CommandHandler:
-    """Handler for agent system commands."""
-
-    # Supported system commands
-=======
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
@@ -31,7 +24,6 @@ class ConversationCommandHandlerMixin:
     """
 
     # Supported conversation commands (unchanged set)
->>>>>>> origin/main
     SYSTEM_COMMANDS = frozenset(
         {
             "compact",
@@ -43,33 +35,8 @@ class ConversationCommandHandlerMixin:
         },
     )
 
-<<<<<<< HEAD
-    def __init__(
-        self,
-        agent_name: str,
-        memory: "CoPawInMemoryMemory",
-        memory_manager: "MemoryManager | None" = None,
-        enable_memory_manager: bool = True,
-    ):
-        """Initialize command handler.
-
-        Args:
-            agent_name: Name of the agent for message creation
-            memory: Agent's CoPawInMemoryMemory instance
-            memory_manager: Optional memory manager instance
-            enable_memory_manager: Whether memory manager is enabled
-        """
-        self.agent_name = agent_name
-        self.memory = memory
-        self.memory_manager = memory_manager
-        self._enable_memory_manager = enable_memory_manager
-
-    def is_command(self, query: str | None) -> bool:
-        """Check if the query is a system command.
-=======
     def is_conversation_command(self, query: str | None) -> bool:
         """Check if the query is a conversation system command.
->>>>>>> origin/main
 
         Args:
             query: User query string
