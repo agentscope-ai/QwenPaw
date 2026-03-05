@@ -460,5 +460,20 @@
     "chatDisabledMessage": "Chat functionality is disabled because no model is configured. Please configure a model to enable chat.",
     "configureNow": "Configure Model",
     "modelNotConfigured": "Please configure a model in Settings before using chat"
+  },
+  "header": {
+    "changelog": "Changelog",
+    "docs": "Doc",
+    "tutorial": "Tutorial",
+    "faq": "FAQ",
+    "github": "GitHub"
+  },
+  "sidebar": {
+    "newVersion": "New version available: v{{version}}, click to upgrade",
+    "updateModal": {
+      "title": "New version available: v{{version}}",
+      "viewReleases": "View Releases",
+      "close": "Close"
+    }
   }
 }

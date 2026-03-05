@@ -460,5 +460,20 @@
     "chatDisabledMessage": "聊天功能已禁用，因为未配置模型。请配置模型以启用聊天功能。",
     "configureNow": "配置模型",
     "modelNotConfigured": "请先在设置中配置模型后再使用聊天功能"
+  },
+  "header": {
+    "changelog": "更新日志",
+    "docs": "文档",
+    "tutorial": "教程",
+    "faq": "常见问题",
+    "github": "GitHub"
+  },
+  "sidebar": {
+    "newVersion": "发现新版本 v{{version}}，点击前往升级",
+    "updateModal": {
+      "title": "发现新版本 v{{version}}",
+      "viewReleases": "查看 Releases",
+      "close": "关闭"
+    }
   }
 }
