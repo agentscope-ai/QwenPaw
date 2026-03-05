@@ -9,6 +9,7 @@ on:
       - "website/**"
       - "scripts/install.sh"
       - "scripts/install.ps1"
+      - "scripts/install.bat"
       - ".github/workflows/deploy-website.yml"
   workflow_dispatch:
 
@@ -52,7 +53,7 @@ jobs:
       # (e.g. copaw.agentscope.io/install.sh) instead of raw.githubusercontent.com,
       # which may be blocked by some firewalls.
       - name: Copy installation scripts to dist
-        run: cp scripts/install.sh scripts/install.ps1 website/dist/
+        run: cp scripts/install.sh scripts/install.ps1 scripts/install.bat website/dist/
 
       # 404.html fallback for unknown paths (real routes from build script).
       - name: 404 fallback for GitHub Pages
