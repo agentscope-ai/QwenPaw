@@ -63,7 +63,7 @@ class TestConversationRelayHandler:
                 "to": "+15559876543",
             },
         ]
-        handler, _ws, session_mgr = _make_handler(messages)
+        handler, _ws, _session_mgr = _make_handler(messages)
         await handler.handle()
 
         assert handler.call_sid == "CA123"
