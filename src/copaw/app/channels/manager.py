@@ -339,7 +339,11 @@ class ChannelManager:
             (c for c in snapshot if c.channel == "console"),
             None,
         )
-        if console_ch is not None and hasattr(console_ch, "_print_error"):
+        if (
+            console_ch is not None
+            and getattr(console_ch, "enabled", False)
+            and hasattr(console_ch, "_print_error")
+        ):
             for ch in snapshot:
                 err = getattr(ch, "last_error", None)
                 if err and ch.channel != "console":
