@@ -35,7 +35,16 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
     for key, (module_name, class_name) in _BUILTIN_SPECS.items():
         try:
             mod = importlib.import_module(module_name, package=__package__)
-        except (ImportError, ModuleNotFoundError):
+            cls = getattr(mod, class_name)
+            if not (
+                isinstance(cls, type)
+                and issubclass(cls, BaseChannel)
+                and cls is not BaseChannel
+            ):
+                raise TypeError(
+                    f"{module_name}.{class_name} is not a BaseChannel subtype",
+                )
+        except Exception:
             if key == "console":
                 logger.error(
                     'failed to load required built-in channel "%s"',
@@ -49,16 +58,6 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
                 exc_info=True,
             )
             continue
-
-        cls = getattr(mod, class_name)
-        if not (
-            isinstance(cls, type)
-            and issubclass(cls, BaseChannel)
-            and cls is not BaseChannel
-        ):
-            raise TypeError(
-                f"{module_name}.{class_name} is not a BaseChannel subtype",
-            )
         out[key] = cls
     return out
 

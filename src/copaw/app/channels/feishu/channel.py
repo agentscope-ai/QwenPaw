@@ -27,28 +27,45 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-# Compatibility for setuptools>=82 where pkg_resources no longer exposes
-# declare_namespace, but lark-oapi still imports it.
-# When pkg_resources is absent entirely (removed in setuptools>=82), inject a
-# minimal shim into sys.modules so that lark-oapi's own internal imports also
-# resolve without raising ModuleNotFoundError.
+# Compatibility for setuptools>=82 where pkg_resources may be absent.
+# lark-oapi imports pkg_resources.declare_namespace from its vendored protobuf
+# package init; install a minimal shim only while importing lark-oapi.
+def _declare_namespace_shim(_name: str) -> None:
+    return None
+
+
+_PKG_RESOURCES_MISSING = object()
+_original_pkg_resources: Any = sys.modules.get(
+    "pkg_resources",
+    _PKG_RESOURCES_MISSING,
+)
+_pkg_resources_shim: Optional[types.ModuleType] = None
+
 try:
     import pkg_resources  # type: ignore
 except ImportError:  # pragma: no cover - pkg_resources absent (setuptools>=82)
-    _shim = types.ModuleType("pkg_resources")
-    _shim.declare_namespace = lambda _name: None  # type: ignore[attr-defined]
-    sys.modules.setdefault("pkg_resources", _shim)
+    _pkg_resources_shim = types.ModuleType("pkg_resources")
+    _pkg_resources_shim.declare_namespace = (  # type: ignore[attr-defined]
+        _declare_namespace_shim
+    )
+    sys.modules["pkg_resources"] = _pkg_resources_shim
 else:
     if not hasattr(pkg_resources, "declare_namespace"):
-
-        def _declare_namespace(_name: str) -> None:
-            return None
-
         pkg_resources.declare_namespace = (  # type: ignore[attr-defined]
-            _declare_namespace
+            _declare_namespace_shim
         )
 
-import lark_oapi as lark
+try:
+    import lark_oapi as lark
+finally:
+    if (
+        _pkg_resources_shim is not None
+        and sys.modules.get("pkg_resources") is _pkg_resources_shim
+    ):
+        if _original_pkg_resources is _PKG_RESOURCES_MISSING:
+            del sys.modules["pkg_resources"]
+        else:
+            sys.modules["pkg_resources"] = _original_pkg_resources
 from lark_oapi.api.im.v1 import (
     CreateImageRequest,
     CreateImageRequestBody,
