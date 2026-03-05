@@ -20,6 +20,7 @@ from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
+from ..interaction import current_session_id
 from ...agents.memory import MemoryManager
 from ...agents.model_factory import create_model_and_formatter
 from ...agents.react_agent import CoPawAgent
@@ -97,6 +98,8 @@ class AgentRunner(Runner):
                     indent=2,
                 ),
             )
+
+            current_session_id.set(session_id)
 
             env_context = build_env_context(
                 session_id=session_id,

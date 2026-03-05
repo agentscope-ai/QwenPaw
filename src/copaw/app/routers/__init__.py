@@ -13,6 +13,7 @@ from .mcp import router as mcp_router
 from ..crons.api import router as cron_router
 from ..runner.api import router as runner_router
 from .console import router as console_router
+from .interaction import router as interaction_router
 
 
 router = APIRouter()
@@ -20,6 +21,7 @@ router = APIRouter()
 router.include_router(agent_router)
 router.include_router(config_router)
 router.include_router(console_router)
+router.include_router(interaction_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)
 router.include_router(mcp_router)

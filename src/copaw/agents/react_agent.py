@@ -32,6 +32,7 @@ from .tools import (
     edit_file,
     execute_shell_command,
     get_current_time,
+    interactive_choice,
     read_file,
     send_file_to_user,
     write_file,
@@ -198,6 +199,10 @@ class CoPawAgent(ReActAgent):
         )
         toolkit.register_tool_function(
             get_current_time,
+            namesake_strategy=namesake_strategy,
+        )
+        toolkit.register_tool_function(
+            interactive_choice,
             namesake_strategy=namesake_strategy,
         )
 
