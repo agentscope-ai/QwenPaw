@@ -51,6 +51,11 @@ class ConsoleChannel(BaseChannel):
 
     Input is handled by AgentApp's ``/agent/process`` endpoint; this
     channel only takes care of output (printing to the terminal).
+
+    Supports filtering options via config:
+        - show_tool_details: Display tool execution details
+        - filter_tool_messages: Hide intermediate tool messages
+        - filter_thinking: Hide agent thinking/reasoning blocks
     """
 
     channel = "console"
@@ -65,6 +70,17 @@ class ConsoleChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
     ):
+        """Initialize ConsoleChannel.
+
+        Args:
+            process: Handler for agent requests.
+            enabled: Whether this channel is active.
+            bot_prefix: Prefix string for bot messages.
+            on_reply_sent: Callback when reply is sent.
+            show_tool_details: Whether to show tool execution details.
+            filter_tool_messages: Whether to filter out tool messages.
+            filter_thinking: Whether to filter thinking/reasoning blocks.
+        """
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
@@ -100,6 +116,19 @@ class ConsoleChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
     ) -> "ConsoleChannel":
+        """Create ConsoleChannel from config.
+
+        Args:
+            process: Handler for agent requests.
+            config: Console channel configuration.
+            on_reply_sent: Callback when reply is sent.
+            show_tool_details: Whether to show tool execution details.
+            filter_tool_messages: Whether to filter out tool messages.
+            filter_thinking: Whether to filter thinking/reasoning blocks.
+
+        Returns:
+            Configured ConsoleChannel instance.
+        """
         return cls(
             process=process,
             enabled=config.enabled,
