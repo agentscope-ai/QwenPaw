@@ -15,6 +15,7 @@ class FeishuDocWriter:
     """飞书文档写入模块"""
 
     BASE_URL = "https://open.feishu.cn/open-apis"
+    REQUEST_TIMEOUT = 30  # HTTP 请求超时（秒）
 
     def __init__(self, auth: FeishuAuth):
         self.auth = auth
@@ -37,7 +38,7 @@ class FeishuDocWriter:
         if folder_token:
             data["folder_token"] = folder_token
 
-        resp = requests.post(url, headers=self._headers(), json=data)
+        resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
         resp.raise_for_status()
         result = resp.json()
 
@@ -50,7 +51,7 @@ class FeishuDocWriter:
     def get_document_block_id(self, document_id: str) -> str:
         """获取文档的根 block_id"""
         url = f"{self.BASE_URL}/docx/v1/documents/{document_id}"
-        resp = requests.get(url, headers=self._headers())
+        resp = requests.get(url, headers=self._headers(), timeout=self.REQUEST_TIMEOUT)
         resp.raise_for_status()
         result = resp.json()
 
@@ -72,7 +73,7 @@ class FeishuDocWriter:
             batch = blocks[i:i + batch_size]
             data = {"children": batch}
 
-            resp = requests.post(url, headers=self._headers(), json=data)
+            resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 
@@ -83,27 +84,41 @@ class FeishuDocWriter:
         return True
 
     def list_documents_in_folder(self, folder_token: str) -> List[Dict]:
-        """列出文件夹中的文档"""
+        """列出文件夹中的文档（支持分页）"""
         url = f"{self.BASE_URL}/drive/v1/files"
-        params = {
-            "folder_token": folder_token,
-            "page_size": 200
-        }
+        all_files = []
+        page_token = None
 
-        resp = requests.get(url, headers=self._headers(), params=params)
-        resp.raise_for_status()
-        result = resp.json()
+        while True:
+            params = {
+                "folder_token": folder_token,
+                "page_size": 200
+            }
+            if page_token:
+                params["page_token"] = page_token
 
-        if result.get("code") != 0:
-            return []
+            resp = requests.get(url, headers=self._headers(), params=params, timeout=self.REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            result = resp.json()
 
-        return result.get("data", {}).get("files", [])
+            if result.get("code") != 0:
+                return all_files
+
+            all_files.extend(result.get("data", {}).get("files", []))
+
+            # 检查是否有下一页
+            if result.get("data", {}).get("has_more"):
+                page_token = result.get("data", {}).get("page_token")
+            else:
+                break
+
+        return all_files
 
     def delete_document_content(self, document_id: str) -> bool:
         """清空文档内容（用于更新）"""
         # 获取文档所有 block
         url = f"{self.BASE_URL}/docx/v1/documents/{document_id}/blocks"
-        resp = requests.get(url, headers=self._headers())
+        resp = requests.get(url, headers=self._headers(), timeout=self.REQUEST_TIMEOUT)
         resp.raise_for_status()
         result = resp.json()
 
@@ -117,7 +132,14 @@ class FeishuDocWriter:
             block_id = block.get("block_id")
             if block_id and block_id != document_id:
                 delete_url = f"{self.BASE_URL}/docx/v1/documents/{document_id}/blocks/{block_id}"
-                requests.delete(delete_url, headers=self._headers())
+                del_resp = requests.delete(delete_url, headers=self._headers(), timeout=self.REQUEST_TIMEOUT)
+                if del_resp.status_code < 200 or del_resp.status_code >= 300:
+                    print(f"警告: 删除 block {block_id} 失败: status={del_resp.status_code}, body={del_resp.text}")
+                    return False
+                del_result = del_resp.json()
+                if del_result.get("code") != 0:
+                    print(f"警告: 删除 block {block_id} API 错误: {del_result.get('msg')}")
+                    return False
 
         return True
 
@@ -138,7 +160,7 @@ class FeishuDocWriter:
         if parent_node_token:
             data["parent_node_token"] = parent_node_token
 
-        resp = requests.post(url, headers=self._headers(), json=data)
+        resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
         resp.raise_for_status()
         result = resp.json()
 
@@ -164,7 +186,7 @@ class FeishuDocWriter:
         if parent_node_token:
             data["parent_node_token"] = parent_node_token
 
-        resp = requests.post(url, headers=self._headers(), json=data)
+        resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
         resp.raise_for_status()
         result = resp.json()
 
@@ -182,7 +204,7 @@ class FeishuDocWriter:
         url = f"{self.BASE_URL}/wiki/v2/spaces/get_node"
         params = {"token": node_token}
 
-        resp = requests.get(url, headers=self._headers(), params=params)
+        resp = requests.get(url, headers=self._headers(), params=params, timeout=self.REQUEST_TIMEOUT)
         if resp.status_code != 200:
             return None
 
@@ -214,7 +236,7 @@ class FeishuDocWriter:
         }
 
         try:
-            resp = requests.post(url, headers=self._headers(), json=data)
+            resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 
@@ -251,7 +273,7 @@ class FeishuDocWriter:
         }
 
         try:
-            resp = requests.patch(url, headers=self._headers(), json=data)
+            resp = requests.patch(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 
@@ -293,7 +315,7 @@ class FeishuDocWriter:
         }
 
         try:
-            resp = requests.post(url, headers=self._headers(), json=data)
+            resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 
@@ -323,7 +345,7 @@ class FeishuDocWriter:
         url = f"{self.BASE_URL}/docx/v1/documents/{document_id}/blocks/{table_block_id}/children"
 
         try:
-            resp = requests.get(url, headers=self._headers())
+            resp = requests.get(url, headers=self._headers(), timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 
@@ -339,7 +361,7 @@ class FeishuDocWriter:
             for row in rows:
                 row_id = row.get("block_id")
                 row_children_url = f"{self.BASE_URL}/docx/v1/documents/{document_id}/blocks/{row_id}/children"
-                row_resp = requests.get(row_children_url, headers=self._headers())
+                row_resp = requests.get(row_children_url, headers=self._headers(), timeout=self.REQUEST_TIMEOUT)
                 row_resp.raise_for_status()
                 row_result = row_resp.json()
 
@@ -383,7 +405,7 @@ class FeishuDocWriter:
         }
 
         try:
-            resp = requests.post(url, headers=self._headers(), json=data)
+            resp = requests.post(url, headers=self._headers(), json=data, timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 
@@ -415,7 +437,7 @@ class FeishuDocWriter:
 
             # 获取表格的所有单元格（飞书表格的子块直接就是单元格，按行优先顺序排列）
             url = f"{self.BASE_URL}/docx/v1/documents/{document_id}/blocks/{table_block_id}/children"
-            resp = requests.get(url, headers=self._headers())
+            resp = requests.get(url, headers=self._headers(), timeout=self.REQUEST_TIMEOUT)
             resp.raise_for_status()
             result = resp.json()
 

@@ -214,8 +214,6 @@ class MarkdownParser:
                 if plain_text:
                     elements.append({"text_run": {"content": plain_text}})
 
-            full_match = match.group(0)
-
             # 加粗
             if match.group(2) or match.group(3):
                 content = match.group(2) or match.group(3)

@@ -68,6 +68,10 @@ class FeishuWriter:
         parser = MarkdownParser(str(path))
         blocks = parser.parse(content)
 
+        # folder_token 回退到环境变量
+        if target == "folder" and not folder_token:
+            folder_token = os.getenv("FEISHU_DEFAULT_FOLDER_TOKEN")
+
         # 检查重复
         existing_doc = None
         if check_duplicate and folder_token:
@@ -105,13 +109,13 @@ class FeishuWriter:
                 return {"success": False, "document_id": None, "message": f"创建知识库文档失败: {e}"}
 
             # 写入内容（包含图片和表格处理）
-            uploaded_images = self._write_content_with_images(str(path), doc_id, blocks, parser.pending_images, parser.pending_tables)
+            uploaded_images, write_success = self._write_content_with_images(str(path), doc_id, blocks, parser.pending_images, parser.pending_tables)
 
             return {
-                "success": True,
+                "success": write_success,
                 "document_id": doc_id,
                 "node_token": node_token,
-                "message": f"成功创建文档: {title}",
+                "message": f"成功创建文档: {title}" if write_success else f"文档已创建但部分内容写入失败: {title}",
                 "uploaded_images": uploaded_images
             }
         else:
@@ -125,16 +129,16 @@ class FeishuWriter:
                 return {"success": False, "document_id": None, "message": f"创建文档失败: {e}"}
 
             # 写入内容（包含图片和表格处理）
-            uploaded_images = self._write_content_with_images(str(path), doc_id, blocks, parser.pending_images, parser.pending_tables)
+            uploaded_images, write_success = self._write_content_with_images(str(path), doc_id, blocks, parser.pending_images, parser.pending_tables)
 
             return {
-                "success": True,
+                "success": write_success,
                 "document_id": doc_id,
-                "message": f"成功创建文档: {title}",
+                "message": f"成功创建文档: {title}" if write_success else f"文档已创建但部分内容写入失败: {title}",
                 "uploaded_images": uploaded_images
             }
 
-    def _write_content_with_images(self, md_path: str, doc_id: str, blocks: List[Dict], pending_images: List, pending_tables: List) -> int:
+    def _write_content_with_images(self, md_path: str, doc_id: str, blocks: List[Dict], pending_images: List, pending_tables: List) -> tuple:
         """
         写入内容，包含图片和表格处理，保持原始顺序
 
@@ -146,9 +150,10 @@ class FeishuWriter:
             pending_tables: 待处理的表格列表 [(block_index, table_data), ...]
 
         Returns:
-            成功上传的图片数量
+            (成功上传的图片数量, 是否全部写入成功)
         """
         uploaded_count = 0
+        all_success = True
 
         # 初始化 uploader（传入 md_path 用于处理相对路径）
         if not self.uploader:
@@ -171,7 +176,8 @@ class FeishuWriter:
             if i in image_map:
                 # 遇到图片，先写入之前积累的普通块
                 if current_batch:
-                    self.doc_writer.append_blocks(doc_id, doc_id, current_batch)
+                    if not self.doc_writer.append_blocks(doc_id, doc_id, current_batch):
+                        all_success = False
                     current_batch = []
 
                 # 处理图片
@@ -199,7 +205,8 @@ class FeishuWriter:
             elif i in table_map:
                 # 遇到表格，先写入之前积累的普通块
                 if current_batch:
-                    self.doc_writer.append_blocks(doc_id, doc_id, current_batch)
+                    if not self.doc_writer.append_blocks(doc_id, doc_id, current_batch):
+                        all_success = False
                     current_batch = []
 
                 # 处理表格
@@ -221,9 +228,10 @@ class FeishuWriter:
 
         # 写入剩余的普通块
         if current_batch:
-            self.doc_writer.append_blocks(doc_id, doc_id, current_batch)
+            if not self.doc_writer.append_blocks(doc_id, doc_id, current_batch):
+                all_success = False
 
-        return uploaded_count
+        return uploaded_count, all_success
 
     def update_document(self, document_id: str, md_path: str) -> Dict[str, Any]:
         """更新已有文档"""
@@ -240,14 +248,15 @@ class FeishuWriter:
         blocks = parser.parse(content)
 
         # 清空原内容
-        self.doc_writer.delete_document_content(document_id)
+        if not self.doc_writer.delete_document_content(document_id):
+            return {"success": False, "message": "清空文档原内容失败，已中止更新操作"}
 
         # 写入新内容（包含图片和表格处理）
-        uploaded_images = self._write_content_with_images(str(path), document_id, blocks, parser.pending_images, parser.pending_tables)
+        uploaded_images, write_success = self._write_content_with_images(str(path), document_id, blocks, parser.pending_images, parser.pending_tables)
 
         return {
-            "success": True,
+            "success": write_success,
             "document_id": document_id,
-            "message": "文档更新成功",
+            "message": "文档更新成功" if write_success else "文档已更新但部分内容写入失败",
             "uploaded_images": uploaded_images
         }

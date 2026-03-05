@@ -120,7 +120,7 @@ class FeishuImageUploader:
             file_token 或 None（失败时）
         """
         if not parent_node:
-            print(f"警告: 缺少 parent_node 参数")
+            print("警告: 缺少 parent_node 参数")
             return None
 
         # 解析图片路径（支持本地和网络）
@@ -149,7 +149,7 @@ class FeishuImageUploader:
             }
 
             try:
-                resp = requests.post(self.UPLOAD_URL, headers=headers, files=files, data=data)
+                resp = requests.post(self.UPLOAD_URL, headers=headers, files=files, data=data, timeout=30)
                 resp.raise_for_status()
                 result = resp.json()
 
