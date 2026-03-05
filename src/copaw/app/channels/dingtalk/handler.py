@@ -39,6 +39,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     """Internal handler: convert DingTalk message to native dict, enqueue via
     manager (thread-safe), await reply_future, then reply."""
 
+    # pylint: disable=too-many-positional-arguments
     def __init__(
         self,
         main_loop: asyncio.AbstractEventLoop,
@@ -247,7 +248,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             logger.debug(
                 "dingtalk request: has_session_webhook=%s sender=%s",
                 bool(sw),
-                sender,
+                sender[:20],
             )
             if sw:
                 meta["session_webhook"] = sw
@@ -279,7 +280,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 logger.info(
                     "dingtalk duplicate ignored: raw_msg_id=%r from=%s",
                     raw_msg_id,
-                    sender,
+                    sender[:20],
                 )
                 self.reply_text(" ", incoming_message)
                 return dingtalk_stream.AckMessage.STATUS_OK, "ok"
