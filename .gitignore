@@ -19,6 +19,11 @@ dist/
 src/copaw/console/dist/
 src/copaw/console/assets/
 
+# console frontend
+console/dist/
+console/.vite/
+console/tsconfig.tsbuildinfo
+
 # frontend (website)
 website/node_modules/
 website/.vite/
@@ -47,6 +52,8 @@ config.json
 *.njsproj
 *.sln
 *.sw?
+*.swp
+*.swo
 
 # Logs
 logs/
@@ -75,10 +82,15 @@ venv/
 .venv/
 .venv-*/
 .build-env/
+*.egg
+build/
+dist/
 
 # PyInstaller build artifacts
 desktop/pyinstaller/build/
 desktop/pyinstaller/dist/
+desktop/pyinstaller/build-x86/
+desktop/pyinstaller/dist-x86/
 
 # Rust / Tauri
 src-tauri/target/
@@ -90,3 +102,6 @@ openspec
 /AGENTS.md
 CLAUDE.md
 *.tmp
+
+# Playwright
+.playwright-cli/

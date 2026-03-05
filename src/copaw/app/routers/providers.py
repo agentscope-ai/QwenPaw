@@ -163,9 +163,9 @@ async def configure_provider(
 
     info = _build_provider_info(provider, data)
     logger.info(
-        "Provider config updated: provider=%s configured=%s base_url_set=%s",
+        "Provider config updated: provider=%s api_key_set=%s base_url_set=%s",
         provider_id,
-        info.has_api_key,
+        bool(info.current_api_key),
         bool(info.current_base_url),
     )
     return info
@@ -369,11 +369,11 @@ async def set_active_model(
                 f"Provider '{provider.name}' has no API key configured. "
                 "Please configure the API key first."
             )
-        logger.warning(
-            "Active LLM update rejected: provider not configured: provider=%s",
-            body.provider_id,
-        )
-        raise HTTPException(status_code=400, detail=msg)
+            logger.warning(
+                "Active LLM update rejected: provider not configured: provider=%s",
+                body.provider_id,
+            )
+            raise HTTPException(status_code=400, detail=msg)
     # Local providers (llama.cpp, mlx) don't need validation
 
     if not body.model:

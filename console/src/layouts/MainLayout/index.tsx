@@ -45,6 +45,10 @@ export default function MainLayout() {
     }
   }, [currentPath, navigate]);
 
+  // Use location.pathname as key so each page remounts on navigation,
+  // triggering useEffect data fetches automatically.
+  const pageKey = location.pathname;
+
   return (
     <Layout style={{ height: "100vh" }}>
       <Sidebar selectedKey={selectedKey} />
@@ -54,18 +58,18 @@ export default function MainLayout() {
           <ConsoleCronBubble />
           <div className="page-content">
             <Routes>
-              <Route path="/chat" element={<Chat />} />
-              <Route path="/channels" element={<ChannelsPage />} />
-              <Route path="/sessions" element={<SessionsPage />} />
-              <Route path="/cron-jobs" element={<CronJobsPage />} />
-              <Route path="/heartbeat" element={<HeartbeatPage />} />
-              <Route path="/skills" element={<SkillsPage />} />
-              <Route path="/mcp" element={<MCPPage />} />
-              <Route path="/workspace" element={<WorkspacePage />} />
-              <Route path="/models" element={<ModelsPage />} />
-              <Route path="/environments" element={<EnvironmentsPage />} />
-              <Route path="/agent-config" element={<AgentConfigPage />} />
-              <Route path="/" element={<Chat />} />
+              <Route path="/chat" element={<Chat key={pageKey} />} />
+              <Route path="/channels" element={<ChannelsPage key={pageKey} />} />
+              <Route path="/sessions" element={<SessionsPage key={pageKey} />} />
+              <Route path="/cron-jobs" element={<CronJobsPage key={pageKey} />} />
+              <Route path="/heartbeat" element={<HeartbeatPage key={pageKey} />} />
+              <Route path="/skills" element={<SkillsPage key={pageKey} />} />
+              <Route path="/mcp" element={<MCPPage key={pageKey} />} />
+              <Route path="/workspace" element={<WorkspacePage key={pageKey} />} />
+              <Route path="/models" element={<ModelsPage key={pageKey} />} />
+              <Route path="/environments" element={<EnvironmentsPage key={pageKey} />} />
+              <Route path="/agent-config" element={<AgentConfigPage key={pageKey} />} />
+              <Route path="/" element={<Chat key={pageKey} />} />
             </Routes>
           </div>
         </Content>

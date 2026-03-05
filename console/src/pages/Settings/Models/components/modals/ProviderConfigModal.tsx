@@ -72,18 +72,6 @@ export function ProviderConfigModal({
       const values = await form.validateFields();
       setSaving(true);
 
-      // Validate connection before saving
-      // For local providers, we might skip this or just check if models exist (which the backend does)
-      const result = await api.testProviderConnection(provider.id, {
-        api_key: values.api_key,
-        base_url: values.base_url,
-      });
-
-      if (!result.success) {
-        message.error(result.message || t("models.testConnectionFailed"));
-        return;
-      }
-
       await api.configureProvider(provider.id, values);
       await onSaved();
       setFormDirty(false);

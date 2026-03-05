@@ -53,28 +53,25 @@ impl SidecarManager {
             return Ok(());
         }
 
-        // If another backend is already listening (e.g. stale process from a previous app
-        // run), try to shut it down first so each launch starts a fresh sidecar.
+        // If another CoPaw backend is already listening, reuse it instead of starting
+        // a new one. This allows multiple app windows to share the same backend.
         if self.is_backend_ready().await {
-            let stop_t0 = std::time::Instant::now();
-            log::warn!("Detected existing backend on port 8088, attempting to stop it");
+            log::warn!("Detected existing backend on port 8088, reusing it");
             self.update_splash(
                 app_handle,
-                12,
-                "Stopping stale backend instance...",
+                50,
+                "Connecting to existing backend...",
             );
-            if !self.stop_existing_backend().await {
-                return Err(
-                    "Backend port 8088 is occupied by another process and cannot be stopped"
-                        .to_string(),
-                );
-            }
-            log::info!(
-                "Existing backend cleanup finished in {} ms",
-                stop_t0.elapsed().as_millis()
-            );
-            log::info!("Existing backend stopped successfully");
-        } else if self.is_port_occupied() {
+            // Mark as running without spawning a new process
+            SIDECAR_RUNNING.store(true, Ordering::SeqCst);
+            self.child = None; // No child process to manage (owned by another instance)
+            log::info!("Reusing existing backend on port 8088");
+            self.update_splash(app_handle, 100, "Connected to existing backend. Opening CoPaw...");
+            return Ok(());
+        }
+
+        // Port is occupied but not by CoPaw backend - need to clear it
+        if self.is_port_occupied() {
             log::warn!("Port 8088 is occupied by a non-CoPaw process, force-killing it");
             self.update_splash(app_handle, 12, "Clearing occupied port 8088...");
             if !self.force_kill_backend_port().await {
@@ -676,8 +673,17 @@ impl SidecarManager {
     }
 
     /// Stop the Python backend sidecar gracefully
+    /// Note: If this instance is reusing an existing backend (child is None),
+    /// we don't stop it - let the owner instance manage the lifecycle.
     pub async fn stop(&mut self) -> Result<(), String> {
-        if !SIDECAR_RUNNING.load(Ordering::SeqCst) && self.child.is_none() {
+        // If we're reusing an existing backend (not the owner), don't stop it
+        if self.child.is_none() {
+            log::info!("This instance is reusing an existing backend, not stopping it");
+            SIDECAR_RUNNING.store(false, Ordering::SeqCst);
+            return Ok(());
+        }
+
+        if !SIDECAR_RUNNING.load(Ordering::SeqCst) {
             return Ok(());
         }
 

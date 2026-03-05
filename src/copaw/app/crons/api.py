@@ -21,7 +21,10 @@ def get_cron_manager(request: Request) -> CronManager:
 
 
 @router.get("/jobs", response_model=list[CronJobSpec])
-async def list_jobs(mgr: CronManager = Depends(get_cron_manager)):
+async def list_jobs(request: Request):
+    mgr = getattr(request.app.state, "cron_manager", None)
+    if mgr is None:
+        return []
     return await mgr.list_jobs()
 
 

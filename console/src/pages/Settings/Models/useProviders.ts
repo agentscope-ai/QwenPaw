@@ -86,7 +86,7 @@ export function useProviders() {
 
   useEffect(() => {
     fetchAll();
-  }, [fetchAll]);
+  }, []);  // Empty deps: run once on mount
 
   return {
     providers,
