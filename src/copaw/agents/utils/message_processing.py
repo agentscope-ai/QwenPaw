@@ -34,15 +34,15 @@ def _resolve_upload_url_to_local(url: str) -> Optional[str]:
     (``http://host/api/upload/files/name``).  Returns ``None`` when the URL
     does not match or the file does not exist on disk.
     """
-    path_part: Optional[str] = None
+    parsed = urllib.parse.urlparse(url)
+    raw_path = parsed.path if (parsed.scheme or parsed.netloc) else url
 
-    if _UPLOAD_URL_PREFIX in url:
-        idx = url.index(_UPLOAD_URL_PREFIX)
-        path_part = url[idx + len(_UPLOAD_URL_PREFIX):]
-    else:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.path.startswith(_UPLOAD_URL_PREFIX):
-            path_part = parsed.path[len(_UPLOAD_URL_PREFIX):]
+    if not raw_path.startswith(_UPLOAD_URL_PREFIX):
+        return None
+
+    path_part = urllib.parse.unquote(
+        raw_path[len(_UPLOAD_URL_PREFIX) :],
+    ).lstrip("/")
 
     if not path_part:
         return None
@@ -50,12 +50,18 @@ def _resolve_upload_url_to_local(url: str) -> Optional[str]:
     candidate = (_UPLOAD_DIR / path_part).resolve()
     upload_root = _UPLOAD_DIR.resolve()
 
-    if not str(candidate).startswith(str(upload_root)):
+    try:
+        candidate.relative_to(upload_root)
+    except ValueError:
         logger.warning("Upload path traversal attempt blocked: %s", url)
         return None
 
     if candidate.is_file():
-        logger.debug("Resolved upload URL to local path: %s -> %s", url, candidate)
+        logger.debug(
+            "Resolved upload URL to local path: %s -> %s",
+            url,
+            candidate,
+        )
         return str(candidate)
 
     logger.warning("Upload URL refers to missing file: %s", url)

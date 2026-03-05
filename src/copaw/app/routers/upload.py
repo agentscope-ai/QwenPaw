@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """File upload API for console attachments."""
 
-import hashlib
 import logging
-import time
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -19,33 +18,73 @@ UPLOAD_DIR = WORKING_DIR / "uploads"
 
 _ALLOWED_EXTENSIONS = {
     # images
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".svg",
+    ".ico",
     # video
-    ".mp4", ".webm", ".mov", ".avi", ".mkv", ".flv",
+    ".mp4",
+    ".webm",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".flv",
     # audio
-    ".mp3", ".wav", ".ogg", ".flac", ".aac", ".amr", ".opus", ".m4a",
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".aac",
+    ".amr",
+    ".opus",
+    ".m4a",
     # documents
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".yml",
-    ".html", ".htm", ".rtf",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".txt",
+    ".md",
+    ".csv",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".rtf",
     # archives
-    ".zip", ".tar", ".gz", ".rar", ".7z",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".rar",
+    ".7z",
     # code
-    ".py", ".js", ".ts", ".java", ".c", ".cpp", ".go", ".rs",
-    ".sh", ".bat", ".ps1",
+    ".py",
+    ".js",
+    ".ts",
+    ".java",
+    ".c",
+    ".cpp",
+    ".go",
+    ".rs",
+    ".sh",
+    ".bat",
+    ".ps1",
 }
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 
 def _safe_filename(original: str) -> str:
-    """Generate a unique filename preserving the original extension."""
-    stem = Path(original).stem
+    """Generate an unpredictable unique filename preserving the extension."""
     suffix = Path(original).suffix.lower()
-    ts = int(time.time() * 1000)
-    short_hash = hashlib.md5(f"{original}{ts}".encode()).hexdigest()[:8]
-    safe_stem = "".join(c if c.isalnum() or c in "-_." else "_" for c in stem)
-    return f"{safe_stem}_{short_hash}{suffix}"
+    return f"{uuid.uuid4().hex}{suffix}"
 
 
 @router.post(
@@ -54,7 +93,7 @@ def _safe_filename(original: str) -> str:
     description="Upload a file (image, video, pdf, etc.) for use in chat",
 )
 async def upload_file(file: UploadFile = File(...)):
-    """Upload a file and return its serving URL and local path."""
+    """Upload a file and return its serving URL."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -77,15 +116,22 @@ async def upload_file(file: UploadFile = File(...)):
                 dest.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=413,
-                    detail=f"File too large (max {MAX_FILE_SIZE // (1024*1024)} MB)",
+                    detail=(
+                        f"File too large "
+                        f"(max {MAX_FILE_SIZE // (1024 * 1024)} MB)"
+                    ),
                 )
             f.write(chunk)
 
-    logger.info("Uploaded file: %s -> %s (%d bytes)", file.filename, dest, size)
+    logger.info(
+        "Uploaded file: %s -> %s (%d bytes)",
+        file.filename,
+        dest,
+        size,
+    )
 
     return {
         "url": f"/api/upload/files/{safe_name}",
-        "path": str(dest.resolve()),
         "filename": file.filename,
         "size": size,
     }
@@ -99,11 +145,18 @@ async def upload_file(file: UploadFile = File(...)):
 async def serve_uploaded_file(filename: str):
     """Serve a file from the uploads directory."""
     file_path = (UPLOAD_DIR / filename).resolve()
+    upload_root = UPLOAD_DIR.resolve()
 
-    if not str(file_path).startswith(str(UPLOAD_DIR.resolve())):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        file_path.relative_to(upload_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Access denied") from exc
 
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(file_path, filename=filename)
+    return FileResponse(
+        file_path,
+        filename=filename,
+        content_disposition_type="attachment",
+    )

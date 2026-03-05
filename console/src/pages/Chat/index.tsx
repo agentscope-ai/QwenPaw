@@ -47,23 +47,23 @@ export default function ChatPage() {
     setShowModelPrompt(false);
   };
 
-  const customUploadRequest = useCallback(
-    async (options: any) => {
-      const { file, onSuccess, onError, onProgress } = options;
-      try {
-        onProgress?.({ percent: 30 });
-        const result = await uploadApi.uploadFile(file as File);
-        onProgress?.({ percent: 100 });
-        const fullUrl = result.url.startsWith("/")
-          ? `${window.location.origin}${result.url}`
-          : result.url;
-        onSuccess?.({ url: fullUrl });
-      } catch (err) {
-        onError?.(err instanceof Error ? err : new Error(String(err)));
-      }
-    },
-    [],
-  );
+  const customUploadRequest = useCallback(async (options: any) => {
+    const { file, onSuccess, onError, onProgress } = options;
+    try {
+      onProgress?.({ percent: 30 });
+      const result = await uploadApi.uploadFile(
+        file as File,
+        (pct: number) => onProgress?.({ percent: pct }),
+      );
+      onProgress?.({ percent: 100 });
+      const fullUrl = /^https?:\/\//i.test(result.url)
+        ? result.url
+        : new URL(result.url, getApiUrl("/")).toString();
+      onSuccess?.({ url: fullUrl });
+    } catch (err) {
+      onError?.(err instanceof Error ? err : new Error(String(err)));
+    }
+  }, []);
 
   const options = useMemo(() => {
     const handleModelError = () => {
@@ -148,7 +148,7 @@ export default function ChatPage() {
         ...optionsConfig?.sender,
         attachments: {
           accept:
-            "image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.xml,.yaml,.yml,.html,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.sh,.zip,.tar,.gz,.rar,.7z",
+            "image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.xml,.yaml,.yml,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.sh,.zip,.tar,.gz,.rar,.7z",
           multiple: true,
           customRequest: customUploadRequest,
         },
