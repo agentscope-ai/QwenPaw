@@ -115,12 +115,41 @@ class ChannelManager:
     consume_one(). Enqueue via enqueue(channel_id, payload) (thread-safe).
     """
 
-    def __init__(self, channels: List[BaseChannel]):
+    def __init__(
+        self,
+        channels: List[BaseChannel],
+        *,
+        process: Optional[ProcessHandler] = None,
+        on_last_dispatch: OnLastDispatch = None,
+        show_tool_details: bool = True,
+    ):
         self.channels = channels
         self._lock = asyncio.Lock()
         self._queues: Dict[str, asyncio.Queue] = {}
         self._consumer_tasks: List[asyncio.Task[None]] = []
+        self._consumer_tasks_by_channel: Dict[
+            str,
+            List[asyncio.Task[None]],
+        ] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # Factories for hot add/remove during config reload.
+        self._process = process or (
+            getattr(channels[0], "_process", None) if channels else None
+        )
+        self._on_last_dispatch = on_last_dispatch or (
+            getattr(channels[0], "_on_reply_sent", None)
+            if channels
+            else None
+        )
+        self._show_tool_details = (
+            show_tool_details
+            if process is not None
+            else (
+                getattr(channels[0], "_show_tool_details", show_tool_details)
+                if channels
+                else show_tool_details
+            )
+        )
         # Session in progress: (channel_id, debounce_key) -> True while worker
         # is processing. New payloads for that key go to _pending, merged
         # when worker finishes.
@@ -151,7 +180,11 @@ class ChannelManager:
             for key, ch_cls in registry.items()
             if key in available
         ]
-        return cls(channels)
+        return cls(
+            channels,
+            process=process,
+            on_last_dispatch=on_last_dispatch,
+        )
 
     @classmethod
     def from_config(
@@ -205,7 +238,86 @@ class ChannelManager:
                         filter_tool_messages=filter_tool_messages,
                     ),
                 )
-        return cls(channels)
+        return cls(
+            channels,
+            process=process,
+            on_last_dispatch=on_last_dispatch,
+            show_tool_details=show_tool_details,
+        )
+
+    def _spawn_consumers_for_channel(self, channel_name: str) -> None:
+        if channel_name not in self._queues:
+            return
+        if self._consumer_tasks_by_channel.get(channel_name):
+            return
+        tasks: list[asyncio.Task[None]] = []
+        for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
+            task = asyncio.create_task(
+                self._consume_channel_loop(channel_name, w),
+                name=f"channel_consumer_{channel_name}_{w}",
+            )
+            tasks.append(task)
+            self._consumer_tasks.append(task)
+        self._consumer_tasks_by_channel[channel_name] = tasks
+
+    async def _stop_consumers_for_channel(self, channel_name: str) -> None:
+        tasks = self._consumer_tasks_by_channel.pop(channel_name, [])
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._consumer_tasks = [
+                task for task in self._consumer_tasks if task not in tasks
+            ]
+        self._queues.pop(channel_name, None)
+
+        self._in_progress = {
+            pair for pair in self._in_progress if pair[0] != channel_name
+        }
+        self._pending = {
+            pair: items
+            for pair, items in self._pending.items()
+            if pair[0] != channel_name
+        }
+        self._key_locks = {
+            pair: lock
+            for pair, lock in self._key_locks.items()
+            if pair[0] != channel_name
+        }
+
+    def _build_channel_from_config(
+        self,
+        channel_name: str,
+        channel_config: Any,
+    ) -> BaseChannel:
+        if self._process is None:
+            raise RuntimeError(
+                "ChannelManager has no process handler for dynamic channel add",
+            )
+
+        registry = get_channel_registry()
+        ch_cls = registry.get(channel_name)
+        if ch_cls is None:
+            raise KeyError(f"unknown channel: {channel_name}")
+
+        cfg = channel_config
+        if isinstance(cfg, dict):
+            from types import SimpleNamespace
+
+            cfg = SimpleNamespace(**cfg)
+
+        if channel_name == "console":
+            return ch_cls.from_config(
+                self._process,
+                cfg,
+                on_reply_sent=self._on_last_dispatch,
+            )
+        return ch_cls.from_config(
+            self._process,
+            cfg,
+            on_reply_sent=self._on_last_dispatch,
+            show_tool_details=self._show_tool_details,
+        )
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
         """Return a callback that enqueues payload for the given channel."""
@@ -320,12 +432,7 @@ class ChannelManager:
                 ch.set_enqueue(self._make_enqueue_cb(ch.channel))
         for ch in snapshot:
             if ch.channel in self._queues:
-                for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
-                    task = asyncio.create_task(
-                        self._consume_channel_loop(ch.channel, w),
-                        name=f"channel_consumer_{ch.channel}_{w}",
-                    )
-                    self._consumer_tasks.append(task)
+                self._spawn_consumers_for_channel(ch.channel)
         logger.debug(
             "starting channels=%s queues=%s",
             [g.channel for g in snapshot],
@@ -354,6 +461,7 @@ class ChannelManager:
                     len(pending),
                 )
         self._consumer_tasks.clear()
+        self._consumer_tasks_by_channel.clear()
         self._queues.clear()
         async with self._lock:
             snapshot = list(self.channels)
@@ -397,12 +505,7 @@ class ChannelManager:
                 self._queues[new_channel_name] = asyncio.Queue(
                     maxsize=_CHANNEL_QUEUE_MAXSIZE,
                 )
-                for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
-                    task = asyncio.create_task(
-                        self._consume_channel_loop(new_channel_name, w),
-                        name=f"channel_consumer_{new_channel_name}_{w}",
-                    )
-                    self._consumer_tasks.append(task)
+                self._spawn_consumers_for_channel(new_channel_name)
         new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
 
         # 2) Start new channel outside lock (may be slow, e.g. DingTalk stream)
@@ -441,6 +544,40 @@ class ChannelManager:
                     logger.exception(
                         f"Failed to stop old channel: {old_channel.channel}",
                     )
+
+    async def add_channel(self, channel_name: str, channel_config: Any) -> bool:
+        """Add a channel from config if it does not exist yet."""
+        existing = await self.get_channel(channel_name)
+        if existing is not None:
+            return False
+        new_channel = self._build_channel_from_config(
+            channel_name,
+            channel_config,
+        )
+        await self.replace_channel(new_channel)
+        return True
+
+    async def remove_channel(self, channel_name: str) -> bool:
+        """Remove and stop one channel by name."""
+        async with self._lock:
+            old_channel = None
+            for i, ch in enumerate(self.channels):
+                if ch.channel == channel_name:
+                    old_channel = ch
+                    del self.channels[i]
+                    break
+            if old_channel is None:
+                return False
+            old_channel.set_enqueue(None)
+
+        await self._stop_consumers_for_channel(channel_name)
+        try:
+            await old_channel.stop()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception(f"failed to stop channels={channel_name}")
+        return True
 
     async def send_event(
         self,

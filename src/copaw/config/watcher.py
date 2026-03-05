@@ -111,6 +111,16 @@ class ConfigWatcher:
             return ch.model_dump(mode="json")
         return None
 
+    @staticmethod
+    def _channel_keys(channels: Optional[ChannelConfig]) -> set[str]:
+        """Return built-in + dynamic channel keys."""
+        if channels is None:
+            return set()
+        keys = set(ChannelConfig.model_fields.keys())
+        extra = getattr(channels, "__pydantic_extra__", None) or {}
+        keys.update(extra.keys())
+        return keys
+
     async def _reload_one_channel(
         self,
         name: str,
@@ -122,10 +132,14 @@ class ConfigWatcher:
         try:
             old_channel = await self._channel_manager.get_channel(name)
             if old_channel is None:
-                logger.warning(
-                    "ConfigWatcher: channel '%s' not found, skip",
-                    name,
-                )
+                added = await self._channel_manager.add_channel(name, new_ch)
+                if added:
+                    logger.info("ConfigWatcher: channel '%s' added", name)
+                else:
+                    logger.warning(
+                        "ConfigWatcher: channel '%s' not found, skip",
+                        name,
+                    )
                 return
             new_channel = old_channel.clone(new_ch)
             await self._channel_manager.replace_channel(new_channel)
@@ -150,14 +164,44 @@ class ConfigWatcher:
             if old_channels
             else {}
         )
-        for name in get_available_channels():
-            new_ch = getattr(new_channels, name, None) or extra_new.get(name)
-            old_ch = (
-                getattr(old_channels, name, None) or extra_old.get(name)
-                if old_channels
-                else None
-            )
+
+        candidate_names = (
+            set(get_available_channels())
+            | self._channel_keys(new_channels)
+            | self._channel_keys(old_channels)
+        )
+
+        for name in sorted(candidate_names):
+            new_ch = getattr(new_channels, name, None)
+            if new_ch is None and name in extra_new:
+                new_ch = extra_new.get(name)
+            old_ch = getattr(old_channels, name, None) if old_channels else None
+            if old_ch is None and name in extra_old:
+                old_ch = extra_old.get(name)
             if new_ch is None:
+                if old_ch is None:
+                    continue
+                logger.info(
+                    "ConfigWatcher: channel '%s' removed from config, stopping",
+                    name,
+                )
+                try:
+                    removed = await self._channel_manager.remove_channel(name)
+                    if removed:
+                        logger.info(
+                            "ConfigWatcher: channel '%s' stopped and removed",
+                            name,
+                        )
+                    else:
+                        logger.warning(
+                            "ConfigWatcher: channel '%s' missing in manager, skip remove",
+                            name,
+                        )
+                except Exception:
+                    logger.exception(
+                        "ConfigWatcher: failed to remove channel '%s'",
+                        name,
+                    )
                 continue
             new_dump = self._channel_dump(new_ch)
             old_dump = self._channel_dump(old_ch)

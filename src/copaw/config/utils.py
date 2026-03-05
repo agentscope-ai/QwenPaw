@@ -17,7 +17,13 @@ from ..constant import (
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
 )
-from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+from .config import (
+    ChannelConfig,
+    Config,
+    HeartbeatConfig,
+    LastApiConfig,
+    LastDispatchConfig,
+)
 
 
 def _discover_system_chromium_path() -> Optional[str]:
@@ -342,6 +348,16 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         return Config()
     with open(config_path, "r", encoding="utf-8") as file:
         data = json.load(file)
+    channels = data.get("channels")
+    if isinstance(channels, dict):
+        builtins = set(ChannelConfig.model_fields.keys())
+        for key, value in list(channels.items()):
+            if value is not None:
+                continue
+            if key in builtins:
+                channels[key] = {"enabled": False}
+            else:
+                channels.pop(key, None)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
