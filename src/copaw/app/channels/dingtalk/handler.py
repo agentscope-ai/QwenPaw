@@ -18,6 +18,7 @@ from ..base import ContentType
 from .constants import SENT_VIA_WEBHOOK
 from .content_utils import (
     conversation_id_from_chatbot_message,
+    conversation_type_from_chatbot_message,
     dingtalk_content_from_type,
     get_type_mapping,
     sender_from_chatbot_message,
@@ -228,12 +229,16 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             conversation_id = conversation_id_from_chatbot_message(
                 incoming_message,
             )
+            conversation_type = conversation_type_from_chatbot_message(
+                incoming_message,
+            )
             loop = asyncio.get_running_loop()
             reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
                 "incoming_message": incoming_message,
                 "reply_future": reply_future,
                 "reply_loop": loop,
+                "conversation_type": conversation_type,
             }
             if conversation_id:
                 meta["conversation_id"] = conversation_id

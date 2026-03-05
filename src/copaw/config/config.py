@@ -34,11 +34,20 @@ class DiscordConfig(BaseChannelConfig):
 
 
 class DingTalkConfig(BaseChannelConfig):
-    """DingTalk: client_id, client_secret; media_dir for received media."""
+    """DingTalk: client_id, client_secret; media_dir for received media.
+
+    Security / allowlist:
+        dm_policy    - "open" (default) or "allowlist" for direct messages
+        group_policy - "open" (default) or "allowlist" for group messages
+        allow_from   - list of sender IDs allowed when policy is "allowlist"
+    """
 
     client_id: str = ""
     client_secret: str = ""
     media_dir: str = "~/.copaw/media"
+    dm_policy: Literal["open", "allowlist"] = "open"
+    group_policy: Literal["open", "allowlist"] = "open"
+    allow_from: List[str] = Field(default_factory=list)
 
 
 class FeishuConfig(BaseChannelConfig):

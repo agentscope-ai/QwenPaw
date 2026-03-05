@@ -6,6 +6,7 @@ import {
   InputNumber,
   Switch,
   Button,
+  Select,
 } from "@agentscope-ai/design";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -98,6 +99,44 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="client_secret" label="Client Secret">
               <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="dm_policy"
+              label={t("channels.dmPolicy")}
+              tooltip={t("channels.dmPolicyTooltip")}
+              initialValue="open"
+            >
+              <Select
+                options={[
+                  { value: "open", label: t("channels.policyOpen") },
+                  { value: "allowlist", label: t("channels.policyAllowlist") },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="group_policy"
+              label={t("channels.groupPolicy")}
+              tooltip={t("channels.groupPolicyTooltip")}
+              initialValue="open"
+            >
+              <Select
+                options={[
+                  { value: "open", label: t("channels.policyOpen") },
+                  { value: "allowlist", label: t("channels.policyAllowlist") },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="allow_from"
+              label={t("channels.allowFrom")}
+              tooltip={t("channels.allowFromTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.allowFromPlaceholder")}
+                tokenSeparators={[","]}
+              />
             </Form.Item>
           </>
         );

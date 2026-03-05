@@ -89,6 +89,9 @@ class DingTalkChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[List[str]] = None,
         filter_thinking: bool = False,
     ):
         super().__init__(
@@ -103,6 +106,9 @@ class DingTalkChannel(BaseChannel):
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
         self._media_dir = Path(media_dir).expanduser()
+        self.dm_policy = dm_policy or "open"
+        self.group_policy = group_policy or "open"
+        self.allow_from = set(allow_from or [])
 
         self._client: Optional[dingtalk_stream.DingTalkStreamClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -134,6 +140,12 @@ class DingTalkChannel(BaseChannel):
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ) -> "DingTalkChannel":
+        allow_from_env = os.getenv("DINGTALK_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("DINGTALK_CHANNEL_ENABLED", "1") == "1",
@@ -142,6 +154,9 @@ class DingTalkChannel(BaseChannel):
             bot_prefix=os.getenv("DINGTALK_BOT_PREFIX", "[BOT] "),
             media_dir=os.getenv("DINGTALK_MEDIA_DIR", "~/.copaw/media"),
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("DINGTALK_DM_POLICY", "open"),
+            group_policy=os.getenv("DINGTALK_GROUP_POLICY", "open"),
+            allow_from=allow_from,
         )
 
     @classmethod
@@ -164,6 +179,9 @@ class DingTalkChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            dm_policy=config.dm_policy or "open",
+            group_policy=config.group_policy or "open",
+            allow_from=config.allow_from or [],
             filter_thinking=filter_thinking,
         )
 
@@ -1149,6 +1167,53 @@ class DingTalkChannel(BaseChannel):
         ):
             self._reply_sync(pm, SENT_VIA_WEBHOOK)
 
+    def _check_allowlist(
+        self,
+        sender_id: str,
+        conversation_type: str,
+    ) -> tuple[bool, Optional[str]]:
+        """Check if sender is allowed based on dm_policy/group_policy.
+
+        Args:
+            sender_id: The sender's ID (format: nickname#last4)
+            conversation_type: "dm" for direct message, "group" for group chat
+
+        Returns:
+            (allowed, error_message): allowed=True if message should be
+            processed, error_message contains the rejection message if not
+            allowed
+        """
+        # Determine which policy to apply
+        is_group = conversation_type == "group"
+        policy = self.group_policy if is_group else self.dm_policy
+
+        # If policy is "open", allow all
+        if policy == "open":
+            return True, None
+
+        # If policy is "allowlist", check if sender is in allow_from
+        if sender_id in self.allow_from:
+            return True, None
+
+        # Not allowed - return rejection message
+        if is_group:
+            msg = (
+                "抱歉，此机器人仅对授权用户开放。请联系管理员配置访问权限。\n"
+                f"您的 ID：{sender_id}\n"
+                "Sorry, this bot is only available to authorized users. "
+                "Please contact the administrator. Your ID: "
+                f"{sender_id}"
+            )
+        else:
+            msg = (
+                "抱歉，您没有权限使用此机器人。请联系管理员添加您的 ID 到白名单。\n"
+                f"您的 ID：{sender_id}\n"
+                "Sorry, you are not authorized to use this bot. "
+                "Please contact the administrator to add your ID to "
+                f"the allowlist. Your ID: {sender_id}"
+            )
+        return False, msg
+
     async def _run_process_loop(
         self,
         request: Any,
@@ -1157,6 +1222,37 @@ class DingTalkChannel(BaseChannel):
     ) -> None:
         """Use webhook multi-message send instead of default loop."""
         del to_handle
+
+        # Check allowlist before processing
+        sender_id = getattr(request, "user_id", "") or ""
+        conversation_type = (send_meta or {}).get("conversation_type", "dm")
+        allowed, error_msg = self._check_allowlist(
+            sender_id,
+            conversation_type,
+        )
+        if not allowed:
+            logger.info(
+                "dingtalk allowlist blocked: sender=%s conversation_type=%s",
+                sender_id,
+                conversation_type,
+            )
+            # Send rejection message
+            session_webhook = self._get_session_webhook(send_meta)
+            # error_msg is always str when allowed is False
+            rejection_msg = error_msg or ""
+            if session_webhook:
+                await self._send_via_session_webhook(
+                    session_webhook,
+                    self.bot_prefix + rejection_msg,
+                    bot_prefix="",
+                )
+            else:
+                self._reply_sync_batch(
+                    send_meta,
+                    self.bot_prefix + rejection_msg,
+                )
+            return
+
         logger.info(
             "dingtalk _run_process_loop: send_meta has_sw=%s "
             "req.channel_meta has_sw=%s",
