@@ -555,3 +555,19 @@ class CoPawAgent(ReActAgent):
 
         # Normal message processing
         return await super().reply(msg=msg, structured_model=structured_model)
+
+    async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
+        """Interrupt the current reply process and wait for cleanup."""
+        if self._reply_task and not self._reply_task.done():
+            task = self._reply_task
+            task.cancel(msg)
+            try:
+                await task
+            except asyncio.CancelledError:
+                if not task.cancelled():
+                    raise
+            except Exception:
+                logger.warning(
+                    "Exception occurred during interrupt cleanup",
+                    exc_info=True,
+                )

@@ -34,7 +34,7 @@ def _enable_windows_ansi() -> None:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         # STD_OUTPUT_HANDLE = -11, ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
         handle = kernel32.GetStdHandle(-11)
-        mode = ctypes.c_ulong()
+        mode = ctypes.c_ulong()  # pylint: disable=no-value-for-parameter
         kernel32.GetConsoleMode(handle, ctypes.byref(mode))
         kernel32.SetConsoleMode(handle, mode.value | 0x0004)
     except Exception:

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Menu, X, BookOpen, Github, Globe } from "lucide-react";
+import { Menu, X, BookOpen, Github, Globe, FileText } from "lucide-react";
 import { CopawMascot } from "./CopawMascot";
 import { t, type Lang } from "../i18n";
 
@@ -96,6 +96,17 @@ export function Nav({
             gap: "var(--space-4)",
           }}
         >
+          <Link to="/release-notes" className={linkClass}>
+            <FileText size={18} strokeWidth={1.5} aria-hidden />
+            <span>{t(lang, "nav.releaseNotes")}</span>
+          </Link>
+          <Link
+            to={docsPath.replace(/\/$/, "") || "/docs"}
+            className={linkClass}
+          >
+            <BookOpen size={18} strokeWidth={1.5} aria-hidden />
+            <span>{t(lang, "nav.docs")}</span>
+          </Link>
           <button
             type="button"
             onClick={onLangClick}
@@ -110,13 +121,6 @@ export function Nav({
             <Globe size={18} strokeWidth={1.5} aria-hidden />
             <span>{t(lang, "nav.lang")}</span>
           </button>
-          <Link
-            to={docsPath.replace(/\/$/, "") || "/docs"}
-            className={linkClass}
-          >
-            <BookOpen size={18} strokeWidth={1.5} aria-hidden />
-            <span>{t(lang, "nav.docs")}</span>
-          </Link>
           <a
             href="https://github.com/agentscope-ai/CoPaw"
             target="_blank"
@@ -179,6 +183,20 @@ export function Nav({
           gap: "var(--space-2)",
         }}
       >
+        <Link
+          to="/release-notes"
+          className={linkClass}
+          onClick={() => setOpen(false)}
+        >
+          <FileText size={18} /> {t(lang, "nav.releaseNotes")}
+        </Link>
+        <Link
+          to={docsPath.replace(/\/$/, "") || "/docs"}
+          className={linkClass}
+          onClick={() => setOpen(false)}
+        >
+          <BookOpen size={18} /> {t(lang, "nav.docs")}
+        </Link>
         <button
           type="button"
           className={linkClass}
@@ -190,13 +208,6 @@ export function Nav({
         >
           <Globe size={18} /> {t(lang, "nav.lang")}
         </button>
-        <Link
-          to={docsPath.replace(/\/$/, "") || "/docs"}
-          className={linkClass}
-          onClick={() => setOpen(false)}
-        >
-          <BookOpen size={18} /> {t(lang, "nav.docs")}
-        </Link>
         <a
           href="https://github.com/agentscope-ai/CoPaw"
           target="_blank"

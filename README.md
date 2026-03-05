@@ -223,12 +223,30 @@ Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable)
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
 
 Also available on Alibaba Cloud Container Registry (ACR) for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
 
 Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
+
+> **Connecting to Ollama or other services on the host machine**
+>
+> Inside a Docker container, `localhost` refers to the container itself, not your host machine. If you run Ollama (or other model services) on the host and want CoPaw in Docker to reach them, use one of these approaches:
+>
+> **Option A** — Explicit host binding (all platforms):
+> ```bash
+> docker run -p 127.0.0.1:8088:8088 \
+>   --add-host=host.docker.internal:host-gateway \
+>   -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434/v1` or your corresponding port.
+>
+> **Option B** — Host networking (Linux only):
+> ```bash
+> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> No port mapping (`-p`) is needed; the container shares the host network directly. Note that all container ports are exposed on the host, which may cause conflicts if the port is already in use.
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
@@ -373,10 +391,20 @@ CoPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a par
 
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i4/O1CN014mhqFq1ZlgNuYjxrz_!!6000000003235-2-tps-400-400.png" width="80" height="80" alt="DingTalk">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="DingTalk">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 
 ---
 
 ## License
 
 CoPaw is released under the [Apache License 2.0](LICENSE).
+
+---
+
+## Contributors
+
+All thanks to our contributors:
+
+<a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="Contributors" />
+</a>

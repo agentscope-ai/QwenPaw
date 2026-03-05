@@ -236,7 +236,22 @@
     "httpProxyPlaceholder": "http://127.0.0.1:18118",
     "httpProxyAuthPlaceholder": "用户名:密码",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",
-    "botPrefixPlaceholder": "@bot"
+    "botPrefixPlaceholder": "@bot",
+    "twilioAccountSid": "Twilio 账户 SID",
+    "twilioAuthToken": "Twilio 认证令牌",
+    "phoneNumber": "电话号码",
+    "phoneNumberSid": "电话号码 SID",
+    "phoneNumberSidHelp": "可在 Twilio 控制台的 Phone Numbers → Active Numbers 中找到。",
+    "ttsProvider": "TTS 提供商",
+    "ttsVoice": "TTS 语音",
+    "sttProvider": "STT 提供商",
+    "language": "语言",
+    "welcomeGreeting": "欢迎语",
+    "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",
+    "voiceSetupLink": "打开 Twilio 控制台",
+    "filterAll": "全部",
+    "builtin": "内置",
+    "custom": "自定义"
   },
   "sessions": {
     "title": "会话",
@@ -445,5 +460,20 @@
     "chatDisabledMessage": "聊天功能已禁用，因为未配置模型。请配置模型以启用聊天功能。",
     "configureNow": "配置模型",
     "modelNotConfigured": "请先在设置中配置模型后再使用聊天功能"
+  },
+  "header": {
+    "changelog": "更新日志",
+    "docs": "文档",
+    "tutorial": "教程",
+    "faq": "常见问题",
+    "github": "GitHub"
+  },
+  "sidebar": {
+    "newVersion": "发现新版本 v{{version}}，点击前往升级",
+    "updateModal": {
+      "title": "发现新版本 v{{version}}",
+      "viewReleases": "查看 Releases",
+      "close": "关闭"
+    }
   }
 }

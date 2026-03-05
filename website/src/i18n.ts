@@ -3,6 +3,7 @@ export type Lang = "zh" | "en";
 export const i18n: Record<Lang, Record<string, string>> = {
   zh: {
     "nav.docs": "文档",
+    "nav.releaseNotes": "更新日志",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
     "nav.lang": "EN",
@@ -116,9 +117,12 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "docs.searchResultsTitle": "搜索结果",
     "docs.searchResultsTitleEmpty": "搜索文档",
     "docs.searchHint": "在左侧输入关键词后按回车搜索。",
+    "releaseNotes.title": "更新日志",
+    "releaseNotes.noReleases": "暂无更新日志",
   },
   en: {
     "nav.docs": "Docs",
+    "nav.releaseNotes": "Release Notes",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
     "nav.lang": "中文",
@@ -238,6 +242,8 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "docs.searchResultsTitle": "Search results",
     "docs.searchResultsTitleEmpty": "Search docs",
     "docs.searchHint": "Enter a keyword and press Enter to search.",
+    "releaseNotes.title": "Release Notes",
+    "releaseNotes.noReleases": "No release notes available",
   },
 };
 

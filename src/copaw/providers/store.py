@@ -33,6 +33,8 @@ from .registry import (
     validate_custom_provider_id,
 )
 
+from .ollama_manager import _base_url_to_host as _base_url_to_ollama_host
+
 logger = logging.getLogger(__name__)
 
 _PROVIDERS_JSON = SECRET_DIR / "providers.json"
@@ -98,6 +100,13 @@ _SUPPORTED_CHAT_MODELS: frozenset[str] = frozenset(
 def get_providers_json_path() -> Path:
     """Return providers.json path under SECRET_DIR."""
     return _PROVIDERS_JSON
+
+
+def get_ollama_host() -> Optional[str]:
+    """Return the configured Ollama native host URL, or *None* for default."""
+    data = load_providers_json()
+    s = data.providers.get("ollama")
+    return _base_url_to_ollama_host(s.base_url) if s and s.base_url else None
 
 
 def _normalize_chat_model_name(chat_model: Optional[str]) -> str:
@@ -300,7 +309,13 @@ def _validate_active_llm(data: ProvidersData) -> None:
         try:
             from ..providers.ollama_manager import OllamaModelManager
 
-            names = {m.name for m in OllamaModelManager.list_models()}
+            s = data.providers.get("ollama")
+            host = (
+                _base_url_to_ollama_host(s.base_url)
+                if s and s.base_url
+                else None
+            )
+            names = {m.name for m in OllamaModelManager.list_models(host=host)}
             if data.active_llm.model not in names:
                 data.active_llm = ModelSlotConfig()
         except Exception:
@@ -357,7 +372,14 @@ def load_providers_json(path: Optional[Path] = None) -> ProvidersData:
 
     sync_custom_providers(custom_providers)
     sync_local_models()
-    sync_ollama_models()
+
+    _ollama_s = providers.get("ollama")
+    _ollama_host = (
+        _base_url_to_ollama_host(_ollama_s.base_url)
+        if _ollama_s and _ollama_s.base_url
+        else None
+    )
+    sync_ollama_models(host=_ollama_host)
     _ensure_all_providers(providers)
 
     data = ProvidersData(
@@ -740,14 +762,15 @@ async def discover_provider_models(
             "added_count": 0,
         }
 
-    # Ollama model list comes from local daemon.
+    # Ollama model list comes from daemon (possibly remote).
     if provider_id == "ollama":
         try:
             from .ollama_manager import OllamaModelManager
 
+            host = get_ollama_host()
             models = [
                 ModelInfo(id=m.name, name=m.name)
-                for m in OllamaModelManager.list_models()
+                for m in OllamaModelManager.list_models(host=host)
             ]
             return {
                 "success": True,
@@ -988,7 +1011,16 @@ async def test_provider_connection(
         try:
             from .ollama_manager import OllamaModelManager
 
-            models = OllamaModelManager.list_models()
+            effective_url = base_url
+            if not effective_url:
+                s = data.providers.get("ollama")
+                effective_url = s.base_url if s else None
+            host = (
+                _base_url_to_ollama_host(effective_url)
+                if effective_url
+                else None
+            )
+            models = OllamaModelManager.list_models(host=host)
             return {
                 "success": True,
                 "message": (
@@ -1213,7 +1245,13 @@ async def test_model_connection(
         try:
             from .ollama_manager import OllamaModelManager
 
-            models = OllamaModelManager.list_models()
+            s = data.providers.get("ollama")
+            host = (
+                _base_url_to_ollama_host(s.base_url)
+                if s and s.base_url
+                else None
+            )
+            models = OllamaModelManager.list_models(host=host)
             for model in models:
                 if model.name == model_id:
                     return {

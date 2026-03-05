@@ -85,9 +85,10 @@ async def list_ollama_models() -> List[OllamaModelResponse]:
     If the Ollama SDK is not installed, returns HTTP 501.
     """
     from ...providers.ollama_manager import OllamaModelManager
+    from ...providers.store import get_ollama_host
 
     try:
-        models = OllamaModelManager.list_models()
+        models = OllamaModelManager.list_models(host=get_ollama_host())
     except ImportError as exc:
         raise HTTPException(
             status_code=501,
@@ -154,13 +155,15 @@ async def _run_pull_in_background(
 ) -> None:
     """Execute the Ollama pull in a thread and update task status."""
     from ...providers.ollama_manager import OllamaModelManager, OllamaModelInfo
+    from ...providers.store import get_ollama_host
 
     await update_status(task_id, DownloadTaskStatus.DOWNLOADING)
+    host = get_ollama_host()
 
     try:
         info: OllamaModelInfo = await loop.run_in_executor(
             None,
-            lambda: OllamaModelManager.pull_model(name),
+            lambda: OllamaModelManager.pull_model(name, host=host),
         )
         result_dict = info.model_dump()
         await update_status(
@@ -220,9 +223,10 @@ async def cancel_ollama_download(task_id: str) -> dict:
 async def delete_ollama_model(name: str) -> dict:
     """Delete an Ollama model via the SDK."""
     from ...providers.ollama_manager import OllamaModelManager
+    from ...providers.store import get_ollama_host
 
     try:
-        OllamaModelManager.delete_model(name)
+        OllamaModelManager.delete_model(name, host=get_ollama_host())
     except ImportError as exc:
         raise HTTPException(
             status_code=501,

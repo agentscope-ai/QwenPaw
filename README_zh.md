@@ -223,12 +223,30 @@ copaw uninstall --purge  # 删除所有内容
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
 然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+
+> **从容器内连接宿主机上的 Ollama 或其他模型服务**
+>
+> Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 CoPaw 访问：
+>
+> **方式 A** — 显式绑定宿主机地址（全平台通用）：
+> ```bash
+> docker run -p 127.0.0.1:8088:8088 \
+>   --add-host=host.docker.internal:host-gateway \
+>   -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434/v1` 或对应端口。
+>
+> **方式 B** — 使用宿主机网络（仅限 Linux）：
+> ```bash
+> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
 
 镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
@@ -375,10 +393,20 @@ CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Ag
 
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [钉钉](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i4/O1CN014mhqFq1ZlgNuYjxrz_!!6000000003235-2-tps-400-400.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 
 ---
 
 ## 许可证
 
 CoPaw 采用 [Apache License 2.0](LICENSE) 开源协议。
+
+---
+
+## 贡献者
+
+感谢所有为 CoPaw 做出贡献的朋友们：
+
+<a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="贡献者" />
+</a>

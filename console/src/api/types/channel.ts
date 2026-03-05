@@ -42,6 +42,18 @@ export interface TelegramConfig extends BaseChannelConfig {
 
 export type ConsoleConfig = BaseChannelConfig;
 
+export interface VoiceChannelConfig extends BaseChannelConfig {
+  twilio_account_sid: string;
+  twilio_auth_token: string;
+  phone_number: string;
+  phone_number_sid: string;
+  tts_provider: string;
+  tts_voice: string;
+  stt_provider: string;
+  language: string;
+  welcome_greeting: string;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -50,6 +62,7 @@ export interface ChannelConfig {
   qq: QQConfig;
   telegram: TelegramConfig;
   console: ConsoleConfig;
+  voice: VoiceChannelConfig;
 }
 
 export type SingleChannelConfig =
@@ -58,5 +71,6 @@ export type SingleChannelConfig =
   | DingTalkConfig
   | FeishuConfig
   | QQConfig
+  | ConsoleConfig
   | TelegramConfig
-  | ConsoleConfig;
+  | VoiceChannelConfig;

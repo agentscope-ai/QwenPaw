@@ -1,0 +1,831 @@
+[
+  {
+    "slug": "channels",
+    "lang": "en",
+    "title": "Channels",
+    "headings": [
+      { "text": "DingTalk (recommended)", "id": "DingTalk-recommended" },
+      { "text": "Create a DingTalk app", "id": "Create-a-DingTalk-app" },
+      { "text": "Link the app", "id": "Link-the-app" },
+      { "text": "Find the created app", "id": "Find-the-created-app" },
+      { "text": "Feishu (Lark)", "id": "Feishu-Lark" },
+      {
+        "text": "Create a Feishu app and get credentials",
+        "id": "Create-a-Feishu-app-and-get-credentials"
+      },
+      { "text": "Fill config.json", "id": "Fill-configjson" },
+      {
+        "text": "Recommended bot permissions",
+        "id": "Recommended-bot-permissions"
+      },
+      { "text": "Add the bot to favorites", "id": "Add-the-bot-to-favorites" },
+      { "text": "iMessage (macOS only)", "id": "iMessage-macOS-only" },
+      { "text": "Prerequisites", "id": "Prerequisites" },
+      { "text": "Fill config.json", "id": "Fill-configjson" },
+      { "text": "Discord", "id": "Discord" },
+      { "text": "Get a Bot Token", "id": "Get-a-Bot-Token" },
+      { "text": "Configure the Bot", "id": "Configure-the-Bot" },
+      { "text": "QQ", "id": "QQ" },
+      { "text": "Get QQ bot credentials", "id": "Get-QQ-bot-credentials" },
+      { "text": "Fill config.json", "id": "Fill-configjson" },
+      { "text": "Telegram", "id": "Telegram" },
+      {
+        "text": "Get Telegram bot credentials",
+        "id": "Get-Telegram-bot-credentials"
+      },
+      { "text": "Configure the Bot", "id": "Configure-the-Bot" },
+      { "text": "Notes", "id": "Notes" },
+      { "text": "Appendix", "id": "Appendix" },
+      { "text": "Config overview", "id": "Config-overview" },
+      {
+        "text": "Multi-modal message support",
+        "id": "Multi-modal-message-support"
+      },
+      { "text": "Changing config via HTTP", "id": "Changing-config-via-HTTP" },
+      { "text": "Extending channels", "id": "Extending-channels" },
+      { "text": "Data flow and queue", "id": "Data-flow-and-queue" },
+      { "text": "Subclass must implement", "id": "Subclass-must-implement" },
+      {
+        "text": "What the base class provides",
+        "id": "What-the-base-class-provides"
+      },
+      {
+        "text": "Example: minimal channel (text only)",
+        "id": "Example-minimal-channel-text-only"
+      },
+      {
+        "text": "Example: multimodal (text + image / video / audio / file)",
+        "id": "Example-multimodal-text--image--video--audio--file"
+      },
+      {
+        "text": "Custom channel directory and CLI",
+        "id": "Custom-channel-directory-and-CLI"
+      },
+      { "text": "Related pages", "id": "Related-pages" }
+    ],
+    "excerpt": "A channel is where you talk to CoPaw: connect DingTalk and it replies in DingTalk; same for QQ, etc. If that term is new, see Introduction. Two ways to configure channels: - Console (recommended) — In the Console under Control → Channels, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save. - Edit config.json directly — Default ~/.copaw/config.json (created by copaw init), set enabled: true and fill in that platform's credentials. Saving triggers a reload without restarting the app. All channels share two fields: - enabled — Turn the channel on or off. - botprefix — Prefix for bot replies (e.g. [BOT]) so they're easy to spot. - filtertoolmessages — (optional, default false) Filter tool call and output messages from being sent to users. S"
+  },
+  {
+    "slug": "channels",
+    "lang": "zh",
+    "title": "频道配置",
+    "headings": [
+      { "text": "钉钉（推荐）", "id": "钉钉推荐" },
+      { "text": "创建钉钉应用", "id": "创建钉钉应用" },
+      { "text": "绑定应用", "id": "绑定应用" },
+      { "text": "找到创建的应用", "id": "找到创建的应用" },
+      { "text": "飞书", "id": "飞书" },
+      { "text": "创建飞书应用并获取凭证", "id": "创建飞书应用并获取凭证" },
+      { "text": "填写 config.json", "id": "填写-configjson" },
+      { "text": "机器人权限建议", "id": "机器人权限建议" },
+      { "text": "将机器人添加到常用", "id": "将机器人添加到常用" },
+      { "text": "iMessage（仅 macOS）", "id": "iMessage仅-macOS" },
+      { "text": "前置准备", "id": "前置准备" },
+      { "text": "填写 config.json", "id": "填写-configjson" },
+      { "text": "Discord", "id": "Discord" },
+      { "text": "获取 Bot Token", "id": "获取-Bot-Token" },
+      { "text": "绑定 Bot", "id": "绑定-Bot" },
+      { "text": "QQ", "id": "QQ" },
+      { "text": "获取 QQ 机器人凭证", "id": "获取-QQ-机器人凭证" },
+      { "text": "填写 config.json", "id": "填写-configjson" },
+      { "text": "Telegram", "id": "Telegram" },
+      { "text": "获取 Telegram 机器人凭证", "id": "获取-Telegram-机器人凭证" },
+      { "text": "绑定 Bot", "id": "绑定-Bot" },
+      { "text": "备注", "id": "备注" },
+      { "text": "附录", "id": "附录" },
+      { "text": "配置总览", "id": "配置总览" },
+      { "text": "多模态消息支持", "id": "多模态消息支持" },
+      { "text": "通过 HTTP 修改配置", "id": "通过-HTTP-修改配置" },
+      { "text": "扩展渠道", "id": "扩展渠道" },
+      { "text": "数据流与队列", "id": "数据流与队列" },
+      { "text": "子类必须实现", "id": "子类必须实现" },
+      { "text": "基类提供的通用能力", "id": "基类提供的通用能力" },
+      { "text": "示例：最简渠道（仅文本）", "id": "示例最简渠道仅文本" },
+      {
+        "text": "示例：多模态（文本 + 图片/视频/音频/文件）",
+        "id": "示例多模态文本--图片视频音频文件"
+      },
+      { "text": "自定义渠道目录与 CLI", "id": "自定义渠道目录与-CLI" },
+      { "text": "相关页面", "id": "相关页面" }
+    ],
+    "excerpt": "频道 = 你和 CoPaw 在「哪里」对话：接钉钉就在钉钉里回，接 QQ 就在 QQ 里回。不熟悉这个词的话可以先看 项目介绍。 配置频道有两种方式： - 控制台（推荐）— 在 控制台 的 Control → Channels 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。 - 手动编辑 config.json — 默认在 ~/.copaw/config.json （由 copaw init 生成），将需要的频道设 enabled: true 并填好鉴权信息；保存后自动重载，无需重启。 所有频道都有两个通用字段: - enabled — 是否启用 - botprefix — 机器人回复前缀（如 [BOT]），方便区分 - filtertoolmessages — （可选，默认 false）过滤工具调用和输出消息，不发送给用户。设为 true 可隐藏工具执行详情。 下面按频道说明如何获取凭证并填写配置。 --- 视频操作流程： !视频操作流程 图文操作流程： 1. 打开 钉钉开发者后台 2. 进入\"应用开发→企业内部应用→钉钉应用→创建 应用\" !钉钉开发者后台 3. 在\"应用能力→添加应用能力\"中添加 「机器人」 !添加机器人 4. 配置机器人基础信息，设置消息接收模式为 Stream 模式（流式接收），点击发布 !机器人基础信息 !Stream模式+发布 5. 在\"应用发布→版本管理与发布\"中创建新版本，填写基础信息后保存 !创建新版本 !保存 6. 在\"基础信息→凭证与基础信息\"中获取： - Client ID（即 AppKey） - Client Secret（即 AppSecret） !client 7. （可选） 将服务器 IP 加入白名单 — 调用钉钉开放平台 API（如下载用户发送的图片和文件）时需要此配置。在应用设置中进入 \"安全设置→服务器出"
+  },
+  {
+    "slug": "cli",
+    "lang": "en",
+    "title": "CLI",
+    "headings": [
+      { "text": "Getting started", "id": "Getting-started" },
+      { "text": "copaw init", "id": "copaw-init" },
+      { "text": "copaw app", "id": "copaw-app" },
+      { "text": "Console", "id": "Console" },
+      { "text": "copaw daemon", "id": "copaw-daemon" },
+      {
+        "text": "Models & environment variables",
+        "id": "Models--environment-variables"
+      },
+      { "text": "copaw models", "id": "copaw-models" },
+      { "text": "copaw env", "id": "copaw-env" },
+      { "text": "Channels", "id": "Channels" },
+      { "text": "copaw channels", "id": "copaw-channels" },
+      { "text": "Cron (scheduled tasks)", "id": "Cron-scheduled-tasks" },
+      { "text": "copaw cron", "id": "copaw-cron" },
+      { "text": "Creating jobs", "id": "Creating-jobs" },
+      { "text": "Additional options", "id": "Additional-options" },
+      {
+        "text": "Cron expression cheat sheet",
+        "id": "Cron-expression-cheat-sheet"
+      },
+      { "text": "Chats (sessions)", "id": "Chats-sessions" },
+      { "text": "copaw chats", "id": "copaw-chats" },
+      { "text": "Skills", "id": "Skills" },
+      { "text": "copaw skills", "id": "copaw-skills" },
+      { "text": "Maintenance", "id": "Maintenance" },
+      { "text": "copaw clean", "id": "copaw-clean" },
+      { "text": "Global options", "id": "Global-options" },
+      { "text": "Working directory", "id": "Working-directory" },
+      { "text": "Command overview", "id": "Command-overview" },
+      { "text": "Related pages", "id": "Related-pages" }
+    ],
+    "excerpt": "copaw is the command-line tool for CoPaw. This page is organized from \"get-up-and-running\" to \"advanced management\" — read from top to bottom if you're new, or jump to the section you need. > Not sure what \"channels\", \"heartbeat\", or \"cron\" mean? See > Introduction first. --- These are the commands you'll use on day one. First-time setup. Walks you through configuration interactively. bash copaw init Interactive setup (recommended for first time) copaw init --defaults Non-interactive, use all defaults (good for scripts) copaw init --force Overwrite existing config files What the interactive flow covers (in order): 1. Heartbeat — interval (e.g. 30m), target (main / last), optional active hours. 2. Show tool details — whether tool call details appear in channel messages. 3. Language — zh or "
+  },
+  {
+    "slug": "cli",
+    "lang": "zh",
+    "title": "CLI",
+    "headings": [
+      { "text": "快速上手", "id": "快速上手" },
+      { "text": "copaw init", "id": "copaw-init" },
+      { "text": "copaw app", "id": "copaw-app" },
+      { "text": "控制台", "id": "控制台" },
+      { "text": "copaw daemon", "id": "copaw-daemon" },
+      { "text": "模型与环境变量", "id": "模型与环境变量" },
+      { "text": "copaw models", "id": "copaw-models" },
+      { "text": "copaw env", "id": "copaw-env" },
+      { "text": "频道", "id": "频道" },
+      { "text": "copaw channels", "id": "copaw-channels" },
+      { "text": "定时任务", "id": "定时任务" },
+      { "text": "copaw cron", "id": "copaw-cron" },
+      { "text": "创建任务", "id": "创建任务" },
+      { "text": "额外选项", "id": "额外选项" },
+      { "text": "Cron 表达式速查", "id": "Cron-表达式速查" },
+      { "text": "会话管理", "id": "会话管理" },
+      { "text": "copaw chats", "id": "copaw-chats" },
+      { "text": "技能", "id": "技能" },
+      { "text": "copaw skills", "id": "copaw-skills" },
+      { "text": "维护", "id": "维护" },
+      { "text": "copaw clean", "id": "copaw-clean" },
+      { "text": "全局选项", "id": "全局选项" },
+      { "text": "工作目录", "id": "工作目录" },
+      { "text": "命令总览", "id": "命令总览" },
+      { "text": "相关页面", "id": "相关页面" }
+    ],
+    "excerpt": "copaw 是 CoPaw 的命令行工具。本页按「上手 → 配置 → 日常管理」的顺序组织—— 新用户从头读，老用户直接跳到需要的章节。 > 还不清楚「频道」「心跳」「定时任务」是什么？先看 项目介绍。 --- 第一次用 CoPaw，只需要这两条命令。 首次初始化，交互式引导你完成所有配置。 bash copaw init 交互式初始化（推荐新用户） copaw init --defaults 不交互，用默认值（适合脚本） copaw init --force 覆盖已有配置文件 交互流程（按顺序）： 1. 心跳 —— 间隔（如 30m）、目标（main / last）、可选活跃时间段。 2. 工具详情 —— 是否在频道消息中显示工具调用细节。 3. 语言 —— Agent 人设文件（SOUL.md 等）使用 zh 或 en。 4. 频道 —— 可选配置 iMessage / Discord / DingTalk / Feishu / QQ / Console。 5. LLM 提供商 —— 选择提供商、输入 API Key、选择模型（必选）。 6. 技能 —— 全部启用 / 不启用 / 自定义选择。 7. 环境变量 —— 可选添加工具所需的键值对。 8. HEARTBEAT.md —— 在默认编辑器中编辑心跳检查清单。 启动 CoPaw 服务。频道、定时任务、控制台等所有运行时功能都依赖此服务。 bash copaw app 默认 127.0.0.1:8088 copaw app --host 0.0.0.0 --port 9090 自定义地址 copaw app --reload 代码改动自动重载（开发用） copaw app --workers 4 多 worker 模式 copaw app --log-level debug 详细日志 | 选项 | 默认值 | 说明 |"
+  },
+  {
+    "slug": "commands",
+    "lang": "en",
+    "title": "Magic Commands",
+    "headings": [
+      { "text": "Command Comparison", "id": "Command-Comparison" },
+      {
+        "text": "/compact — Compress the Current Conversation",
+        "id": "compact--Compress-the-Current-Conversation"
+      },
+      {
+        "text": "/new — Clear Context and Save Memories",
+        "id": "new--Clear-Context-and-Save-Memories"
+      },
+      {
+        "text": "/clear — Clear Context (Without Saving Memories)",
+        "id": "clear--Clear-Context-Without-Saving-Memories"
+      },
+      {
+        "text": "/history — View Current Conversation History",
+        "id": "history--View-Current-Conversation-History"
+      },
+      {
+        "text": "/compact_str — View Compressed Summary",
+        "id": "compact_str--View-Compressed-Summary"
+      },
+      { "text": "Daemon commands (ops)", "id": "Daemon-commands-ops" },
+      { "text": "Related Pages", "id": "Related-Pages" }
+    ],
+    "excerpt": "Magic commands are special instructions prefixed with / that let you directly control conversation state without waiting for the AI to interpret your intent. Five commands are currently supported: - /compact — Compress the current conversation, generate a summary and save memories - /new — Start a new conversation, saving memories in the background - /clear — Completely clear everything, without saving anything - /history — View conversation history with detailed token usage breakdown - /compactstr — View the current compressed summary (read-only) > If you're not yet familiar with concepts like \"compaction\" or \"long-term memory\", we recommend reading the Introduction first. --- | Command | Requires Wait | Compressed Summary | Long-term Memory | Message History | Context Usage | | ---------"
+  },
+  {
+    "slug": "commands",
+    "lang": "zh",
+    "title": "魔法命令",
+    "headings": [
+      { "text": "/compact - 压缩当前对话", "id": "compact---压缩当前对话" },
+      {
+        "text": "/new - 清空上下文并保存记忆",
+        "id": "new---清空上下文并保存记忆"
+      },
+      {
+        "text": "/clear - 清空上下文（不保存记忆）",
+        "id": "clear---清空上下文不保存记忆"
+      },
+      {
+        "text": "/history - 查看当前对话历史",
+        "id": "history---查看当前对话历史"
+      },
+      {
+        "text": "/compact_str - 查看压缩摘要",
+        "id": "compact_str---查看压缩摘要"
+      },
+      { "text": "Daemon 命令（运维）", "id": "Daemon-命令运维" }
+    ],
+    "excerpt": "魔法命令是一组以 / 开头的特殊指令，让你可以直接控制对话状态，而不需要等 AI 理解你的意图。 | 命令 | 需要等待 | 压缩摘要 | 长期记忆 | 消息历史 | 上下文占用 | | -------------- | -------- | ------------- | ----------- | ------------- | ------------------- | | /compact | ⏳ 是 | 📦 生成新摘要 | ✅ 后台保存 | 🏷️ 标记已压缩 | - | | /new | ⚡ 否 | 🗑️ 清空 | ✅ 后台保存 | 🏷️ 标记已压缩 | - | | /clear | ⚡ 否 | 🗑️ 清空 | ❌ 不保存 | 🗑️ 完全清空 | - | | /history | ⚡ 否 | - | - | 📖 只读查看 | 📊 Token明细+使用率 | | /compactstr | ⚡ 否 | - | - | - | 📖 查看摘要内容 | --- 手动触发对话压缩，将当前对话消息浓缩成摘要（需要等待），同时后台保存到长期记忆。 /compact 返回示例： Compact Complete! - Messages compacted: 12 Compressed Summary: 用户请求帮助构建用户认证系统，已完成登录接口的实现... - Summary task started in background > 💡 与自动压缩不同，/compact 会压缩所有当前消息，而不是只压缩超出阈值的部分。 --- 立即清空当前上下文，开始全新对话。后台同时保存历史到长期记忆。 /new 返回示例： New Conversation Started! - Summary task started in background - Ready for"
+  },
+  {
+    "slug": "community",
+    "lang": "en",
+    "title": "Bug reports & community",
+    "headings": [{ "text": "Join the community", "id": "Join-the-community" }],
+    "excerpt": "Report bugs, issues, or get in touch with the team through either channel below. --- | Discord | DingTalk | | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | | !Discord | !DingTalk |"
+  },
+  {
+    "slug": "community",
+    "lang": "zh",
+    "title": "问题反馈与交流",
+    "headings": [{ "text": "加入社区", "id": "加入社区" }],
+    "excerpt": "遇到 Bug、故障或想与团队交流，可通过以下任一方式联系我们。 --- | Discord | 钉钉群 | | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | | !Discord | !钉钉 |"
+  },
+  {
+    "slug": "compact",
+    "lang": "en",
+    "title": "Compaction",
+    "headings": [
+      {
+        "text": "Background: Why Do We Need Compaction?",
+        "id": "Background-Why-Do-We-Need-Compaction"
+      },
+      { "text": "What Is Compaction?", "id": "What-Is-Compaction" },
+      { "text": "Configuration", "id": "Configuration" },
+      { "text": "Environment Variables", "id": "Environment-Variables" },
+      {
+        "text": "When Does Compaction Trigger?",
+        "id": "When-Does-Compaction-Trigger"
+      },
+      {
+        "text": "1. 🤖 Auto Compaction (When Approaching the Context Threshold)",
+        "id": "1--Auto-Compaction-When-Approaching-the-Context-Threshold"
+      },
+      {
+        "text": "2. 🎮 Manual Compaction (/compact Command)",
+        "id": "2--Manual-Compaction-compact-Command"
+      },
+      {
+        "text": "Compaction Content: What's in the Summary?",
+        "id": "Compaction-Content-Whats-in-the-Summary"
+      }
+    ],
+    "excerpt": "Imagine the LLM's context window as a backpack with limited capacity 🎒. Every conversation turn, every tool call result adds something to the backpack. As the conversation goes on, the backpack gets fuller and fuller... mermaid graph LR A[Conversation starts] --> B[Messages accumulate] B --> C[Backpack almost full!] C --> D{What now?} D -->|Do nothing| E[Conversation breaks] D -->|Compact| F[Keep chatting happily] What happens when the backpack is full? - 🚫 Conversation interrupted - Unable to continue the exchange - 📉 Quality degradation - The AI starts \"forgetting\" - ❌ API errors - Outright failure Compaction is the magic that helps you \"tidy up your backpack\" ✨ — packing old items into a small box (summary), freeing up space for new things! Compaction is like writing meeting minutes:"
+  },
+  {
+    "slug": "compact",
+    "lang": "zh",
+    "title": "压缩（Compaction）",
+    "headings": [
+      { "text": "背景：为什么需要压缩？", "id": "背景为什么需要压缩" },
+      { "text": "什么是压缩？", "id": "什么是压缩" },
+      { "text": "配置", "id": "配置" },
+      { "text": "环境变量", "id": "环境变量" },
+      { "text": "何时触发压缩？", "id": "何时触发压缩" },
+      {
+        "text": "1. 🤖 自动压缩（接近上下文阈值时）",
+        "id": "1--自动压缩接近上下文阈值时"
+      },
+      {
+        "text": "2. 🎮 手动压缩（/compact 命令）",
+        "id": "2--手动压缩compact-命令"
+      },
+      { "text": "压缩内容：摘要里有什么？", "id": "压缩内容摘要里有什么" }
+    ],
+    "excerpt": "想象一下，LLM 的上下文窗口就像一个有限容量的背包 🎒。每次对话、每个工具调用的结果都会往背包里放东西。随着对话的进行，背包越来越满... mermaid graph LR A[对话开始] --> B[消息积累] B --> C[背包快满了!] C --> D{怎么办?} D -->|不处理| E[无法继续对话] D -->|压缩| F[继续愉快聊天] 当背包满了会发生什么？ - 🚫 对话中断 - 无法继续交流 - 📉 质量下降 - AI 开始\"健忘\" - ❌ API 报错 - 直接罢工 压缩机制就是帮你\"整理背包\"的魔法 ✨ —— 把旧的物品打包成一个小盒子（摘要），腾出空间放新东西！ 压缩就像写会议纪要：把冗长的讨论浓缩成关键要点，同时保留最近的讨论内容不变。 mermaid graph TB subgraph 压缩前 A1[消息1: 你好] A2[消息2: 帮我写代码] A3[消息3: 工具调用结果...很长很长] A4[消息4: 修改一下] A5[消息5: 再调整] A6[消息6: 完美!] A7[消息7: 新需求] end subgraph 压缩后 B1[📦 压缩摘要: 之前帮用户写了代码并完成调整] B2[消息6: 完美!] B3[消息7: 新需求] end A1 --> B1 A2 --> B1 A3 --> B1 A4 --> B1 A5 --> B1 A6 --> B2 A7 --> B3 压缩后，后续请求使用： - 📦 压缩摘要（代替旧消息） - 💬 最近消息（保持原样） 压缩摘要会持久化保存，不用担心丢失！ > 压缩机制设计受 OpenClaw 启发，并由 ReMe 实现。 | 环境变量 | 默认值 | 说明 | | ---------------------------------- | -------- | -------------"
+  },
+  {
+    "slug": "comparison",
+    "lang": "en",
+    "title": "CoPaw vs OpenClaw: Feature Comparison",
+    "headings": [],
+    "excerpt": "| Category | Dimension | OpenClaw | CoPaw | | :------------------ | :------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | | Tech Stack | Primary Language | TypeScript / Node.js | Python | | | Agent Framework | Deeply integrated with pi-agent SDK as the core agent engine | • AgentScope multi-agent framework<br>• AgentScope-Runtime | | | Memory System | File-based memory (JSONL + MD) | File-based memory system powered by AgentScope-AI/ReMe | | User Experience | Install"
+  },
+  {
+    "slug": "comparison",
+    "lang": "zh",
+    "title": "CoPaw 与 OpenClaw 的功能对比",
+    "headings": [],
+    "excerpt": "| 分类 | 维度 | OpenClaw | CoPaw | | :------- | :-------------- | :--------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | | 技术栈 | 主要语言 | TypeScript / Node.js | Python | | | 底层智能体框架 | 深度集成 pi-agent SDK 作为核心智能体引擎 | • AgentScope 多智能体框架<br>• AgentScope-Runtime 智能体运行时 | | | 记忆系统 | 文件式记忆 (JSONL+MD) | File Based 记忆系统 Powered by AgentScope-AI/ReMe | | 使用体验 | 安装方式 | • npm install -g openclaw<br>• openclaw onboard CLI 向导 | • 一行脚本安装<br>• 备选 pip install copaw<br>• docker 安装 | | | 平台支持 | macOS / Linux / Windows (WSL2) | macOS / Linux / Windows（PowerShell/CMD） | | | 自托管/云端部署 | Docker 自托管 | • Dock"
+  },
+  {
+    "slug": "config",
+    "lang": "en",
+    "title": "Config & Working Directory",
+    "headings": [
+      {
+        "text": "What is the working directory?",
+        "id": "What-is-the-working-directory"
+      },
+      {
+        "text": "Changing paths with environment variables (optional)",
+        "id": "Changing-paths-with-environment-variables-optional"
+      },
+      { "text": "What's in config.json?", "id": "Whats-in-configjson" },
+      { "text": "Full example", "id": "Full-example" },
+      { "text": "Field-by-field reference", "id": "Field-by-field-reference" },
+      { "text": "LLM Providers", "id": "LLM-Providers" },
+      { "text": "Built-in providers", "id": "Built-in-providers" },
+      { "text": "Environment Variables", "id": "Environment-Variables" },
+      { "text": "Skills", "id": "Skills" },
+      { "text": "Memory", "id": "Memory" },
+      { "text": "Embedding Configuration", "id": "Embedding-Configuration" },
+      { "text": "Summary", "id": "Summary" },
+      { "text": "Related pages", "id": "Related-pages" },
+      {
+        "text": "Agent Prompt Files at a Glance",
+        "id": "Agent-Prompt-Files-at-a-Glance"
+      }
+    ],
+    "excerpt": "This page covers: - Working directory — Where things are stored - config.json — What every field means and its defaults - Environment variables — How to customize paths > No code required — just edit JSON and go. --- By default, all config and data live in one folder — the working directory: - ~/.copaw (the .copaw folder under your home directory) When you run copaw init, this directory is created automatically. Here's what you'll find inside: | File / Directory | Purpose | | -------------------- | ------------------------------------------------------------------ | | config.json | Channel on/off and credentials, heartbeat settings, language, etc. | | HEARTBEAT.md | Prompt content used each heartbeat run | | jobs.json | Cron job list (managed via copaw cron or API) | | chats.json | Chat/se"
+  },
+  {
+    "slug": "config",
+    "lang": "zh",
+    "title": "配置与工作目录",
+    "headings": [
+      { "text": "工作目录是啥？", "id": "工作目录是啥" },
+      { "text": "用环境变量改路径（可选）", "id": "用环境变量改路径可选" },
+      { "text": "config.json 完整结构", "id": "configjson-完整结构" },
+      { "text": "完整示例", "id": "完整示例" },
+      { "text": "逐字段说明", "id": "逐字段说明" },
+      { "text": "模型提供商", "id": "模型提供商" },
+      { "text": "内置提供商", "id": "内置提供商" },
+      { "text": "环境变量", "id": "环境变量" },
+      { "text": "技能（Skills）", "id": "技能Skills" },
+      { "text": "记忆（Memory）", "id": "记忆Memory" },
+      { "text": "Embedding（向量嵌入）配置", "id": "Embedding向量嵌入配置" },
+      { "text": "小结", "id": "小结" },
+      { "text": "相关页面", "id": "相关页面" },
+      { "text": "Agent Prompt 文件一览", "id": "Agent-Prompt-文件一览" }
+    ],
+    "excerpt": "本页涵盖以下内容： - 工作目录 — 文件都放在哪 - config.json — 每个字段的含义与默认值 - 环境变量 — 如何用环境变量自定义路径 > 不需要读代码，照着改就行。 --- CoPaw 所有配置和数据默认都在一个目录里，叫工作目录，默认是： - ~/.copaw（即你当前用户下的 .copaw 文件夹） 运行 copaw init 后会自动创建这个目录，里面大致是这样的： | 文件/目录 | 作用 | | -------------------- | --------------------------------------------- | | config.json | 频道开关与鉴权、心跳设置、语言等 | | HEARTBEAT.md | 心跳每次要问 CoPaw 的内容 | | jobs.json | 定时任务列表（通过 copaw cron 或 API 管理） | | chats.json | 会话列表（文件存储模式） | | activeskills/ | 当前激活的技能（Agent 实际使用的） | | customizedskills/ | 用户自定义的技能 | | memory/ | Agent 记忆文件（自动管理） | | SOUL.md | （必需） 核心身份与行为原则 | | AGENTS.md | （必需） 详细的工作流程、规则和指南 | > 提示： SOUL.md 和 AGENTS.md 是 Agent 系统提示词的最低要求。如果它们不存在，Agent > 会退回到通用的 \"You are a helpful assistant\" 提示。运行 copaw init 时会根据你选择的 > 语言（zh / en）自动复制这些文件。 --- 如果你不想用 ~/.copaw，可以通过环境变量改工作目录或某些文件的路径： | 变量 | "
+  },
+  {
+    "slug": "console",
+    "lang": "en",
+    "title": "Console",
+    "headings": [
+      { "text": "Chat", "id": "Chat" },
+      { "text": "Channels", "id": "Channels" },
+      { "text": "Sessions", "id": "Sessions" },
+      { "text": "Cron Jobs", "id": "Cron-Jobs" },
+      { "text": "Workspace", "id": "Workspace" },
+      { "text": "Skills", "id": "Skills" },
+      { "text": "MCP", "id": "MCP" },
+      { "text": "Runtime Config", "id": "Runtime-Config" },
+      { "text": "Models", "id": "Models" },
+      { "text": "Cloud providers", "id": "Cloud-providers" },
+      {
+        "text": "Local providers (llama.cpp / MLX)",
+        "id": "Local-providers-llamacpp--MLX"
+      },
+      { "text": "Ollama provider", "id": "Ollama-provider" },
+      { "text": "Choose the active model", "id": "Choose-the-active-model" },
+      { "text": "Environment Variables", "id": "Environment-Variables" },
+      { "text": "Quick Reference", "id": "Quick-Reference" },
+      { "text": "Related Pages", "id": "Related-Pages" }
+    ],
+    "excerpt": "The Console is CoPaw's built-in web interface. After running copaw app, open http://127.0.0.1:8088/ in your browser to enter the Console. In the Console, you can: - Chat with CoPaw in real time - Enable/disable messaging channels - View and manage all chat sessions - Manage scheduled jobs - Edit CoPaw's persona and behavior files - Enable/disable skills to extend CoPaw's capabilities - Manage MCP clients - Modify runtime configuration - Configure LLM providers and select active models - Manage environment variables needed by tools The sidebar on the left groups features into Chat, Control, Agent, and Settings. Click any item to switch pages. The sections below walk through each feature in order. > Not seeing the Console? Make sure the frontend has been built. See > CLI. --- > Sidebar: Chat"
+  },
+  {
+    "slug": "console",
+    "lang": "zh",
+    "title": "控制台",
+    "headings": [
+      { "text": "聊天", "id": "聊天" },
+      { "text": "频道", "id": "频道" },
+      { "text": "会话", "id": "会话" },
+      { "text": "定时任务", "id": "定时任务" },
+      { "text": "工作区", "id": "工作区" },
+      { "text": "技能", "id": "技能" },
+      { "text": "MCP", "id": "MCP" },
+      { "text": "运行配置", "id": "运行配置" },
+      { "text": "模型", "id": "模型" },
+      { "text": "云提供商", "id": "云提供商" },
+      {
+        "text": "本地提供商（llama.cpp / MLX）",
+        "id": "本地提供商llamacpp--MLX"
+      },
+      { "text": "Ollama 提供商", "id": "Ollama-提供商" },
+      { "text": "选择活跃模型", "id": "选择活跃模型" },
+      { "text": "环境变量", "id": "环境变量" },
+      { "text": "快速索引", "id": "快速索引" },
+      { "text": "相关页面", "id": "相关页面" }
+    ],
+    "excerpt": "控制台 是 CoPaw 内置的 Web 管理界面。运行 copaw app 后，在浏览器中打开 http://127.0.0.1:8088/ 即可进入。 在控制台中你可以： - 和 CoPaw 实时对话 - 启用/禁用消息频道 - 查看和管理所有聊天会话 - 管理定时任务 - 编辑 CoPaw 的人设和行为文件 - 开关技能以扩展 CoPaw 的能力 - 管理MCP客户端 - 修改运行配置 - 配置 LLM 提供商并选择使用的模型 - 管理工具所需的环境变量 左侧侧边栏列出所有功能，分为 聊天、控制、智能体、设置 四组，点击即可 切换页面。下面按顺序逐一介绍每个功能的操作方法。 > 看不到控制台？ 请确认前端已构建，构建方式见 CLI。 --- > 侧边栏：聊天 → 聊天 这是你和 CoPaw 对话的地方。打开控制台后默认就是这个页面。 !聊天 发送消息： 在底部输入框中输入内容，按 Enter 或点击发送按钮（↑），CoPaw 会实时回复。 新建会话： 点击聊天页面侧边栏顶部的 + New Chat 按钮，开始一段全新的对话。每个会话独立保存各自的对话记录。 切换会话： 点击聊天页面侧边栏中的任意会话名称，即可加载该会话的历史消息。 删除会话： 点击任意回话条目右侧的 ··· 按钮，再点击出现的 垃圾桶 图标即可删除。 --- > 侧边栏：控制 → 频道 在这里管理各消息频道（钉钉、飞书、Discord、QQ、iMessage、Console）的开关和凭据。 !频道 启用一个频道： 1. 点击你要配置的频道卡片。 2. 右侧滑出配置面板，打开 Enable 开关。 !频道配置 3. 填写该频道所需的凭据——每个频道要求不同： | 频道 | 需要填写的字段 | | ------------ | ----------------------------------------"
+  },
+  {
+    "slug": "contributing",
+    "lang": "en",
+    "title": "Open Source & Contribution",
+    "headings": [{ "text": "How to Contribute", "id": "How-to-Contribute" }],
+    "excerpt": "CoPaw is open source. The project repository is hosted on GitHub: https://github.com/agentscope-ai/CoPaw --- We welcome contributions including bug reports, feature ideas, documentation improvements, and code changes. You can open issues and pull requests on the repository above. Contribution guidelines, code of conduct, and participation workflow are available in the repo — we look forward to your participation! We also encourage you to contribute according to our Roadmap: items marked Seeking Contributors (e.g. new channels, model providers, skills, MCPs, or display/UX improvements) are great places to start. Check the roadmap for current focus and long-term plans, then join the conversation on GitHub Discussions."
+  },
+  {
+    "slug": "contributing",
+    "lang": "zh",
+    "title": "开源与贡献",
+    "headings": [{ "text": "如何参与贡献", "id": "如何参与贡献" }],
+    "excerpt": "CoPaw 已开源，项目仓库托管于 GitHub： https://github.com/agentscope-ai/CoPaw --- 欢迎通过问题反馈、功能建议、文档改进或代码提交等方式参与贡献。请在上述仓库中提交 Issue 或 Pull Request。贡献指南、行为准则与参与流程详见仓库说明，期待你的参与！ 也欢迎大家按 路线图 参与贡献：标记为 征集中 的项（如新频道、模型提供商、Skills、MCP，或展示/交互优化等）都是很好的切入点。可先查看路线图中的当前重点与长期规划，再在 GitHub Discussions 参与讨论或认领任务。"
+  },
+  {
+    "slug": "faq",
+    "lang": "en",
+    "title": "FAQ",
+    "headings": [
+      {
+        "text": "CoPaw vs OpenClaw: Feature Comparison",
+        "id": "CoPaw-vs-OpenClaw-Feature-Comparison"
+      },
+      { "text": "How to install CoPaw", "id": "How-to-install-CoPaw" },
+      { "text": "How to update CoPaw", "id": "How-to-update-CoPaw" },
+      {
+        "text": "How to initialize and start CoPaw service",
+        "id": "How-to-initialize-and-start-CoPaw-service"
+      },
+      { "text": "Open-source repository", "id": "Open-source-repository" },
+      {
+        "text": "Where to check latest version upgrade details",
+        "id": "Where-to-check-latest-version-upgrade-details"
+      },
+      { "text": "How to configure models", "id": "How-to-configure-models" },
+      { "text": "How to manage Skills", "id": "How-to-manage-Skills" },
+      { "text": "How to configure MCP", "id": "How-to-configure-MCP" },
+      { "text": "Common error", "id": "Common-error" },
+      {
+        "text": "How to get support when errors occur",
+        "id": "How-to-get-support-when-errors-occur"
+      }
+    ],
+    "excerpt": "This page collects the most frequently asked questions from the community. Click a question to expand the answer. --- Please check the Comparison page for detailed feature comparison. CoPaw supports multiple installation methods. See Quick Start for details: 1. One-line installer (sets up Python automatically) curl -fsSL https://copaw.agentscope.io/install.sh | bash irm https://copaw.agentscope.io/install.ps1 | iex 2. Install with pip Python version requirement: >= 3.10, < 3.14 pip install copaw 3. Install with Docker If Docker is installed, run the following commands and then open http://127.0.0.1:8088/ in your browser: docker pull agentscope/copaw:latest docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest > ⚠️ Special Notice for Windows Enterprise LTSC Us"
+  },
+  {
+    "slug": "faq",
+    "lang": "zh",
+    "title": "FAQ 常见问题",
+    "headings": [
+      {
+        "text": "CoPaw 与 OpenClaw 的功能对比",
+        "id": "CoPaw-与-OpenClaw-的功能对比"
+      },
+      { "text": "CoPaw如何安装", "id": "CoPaw如何安装" },
+      { "text": "CoPaw如何更新", "id": "CoPaw如何更新" },
+      {
+        "text": "CoPaw服务如何启动及初始化",
+        "id": "CoPaw服务如何启动及初始化"
+      },
+      { "text": "开源地址", "id": "开源地址" },
+      { "text": "最新版本升级内容如何查看", "id": "最新版本升级内容如何查看" },
+      { "text": "如何配置模型", "id": "如何配置模型" },
+      { "text": "如何管理Skill", "id": "如何管理Skill" },
+      { "text": "如何配置MCP", "id": "如何配置MCP" },
+      { "text": "常见报错", "id": "常见报错" },
+      { "text": "报错如何获取修复帮助", "id": "报错如何获取修复帮助" }
+    ],
+    "excerpt": "本页汇总了社区里的常见问题，点击问题可展开查看答案。 --- 请查看 对比 页面了解详细的功能对比。 CoPaw 支持多种安装方式，详情请见文档 快速开始： 1. 一键安装，帮你搞定 Python 环境 curl -fsSL https://copaw.agentscope.io/install.sh | bash irm https://copaw.agentscope.io/install.ps1 | iex 2. pip 安装 Python环境要求版本号 >= 3.10，<3.14 pip install copaw 3. Docker 安装 如果你已经安装好了Docker，执行以下两条命令后，即可在浏览器打开 http://127.0.0.1:8088/ 进入控制台。 docker pull agentscope/copaw:latest docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest > ⚠️ Windows 企业版 LTSC 用户特别提示 > > 如果您使用的是 Windows LTSC 或受严格安全策略管控的企业环境，PowerShell 可能运行在 受限语言模式 下，可能会遇到以下问题： > > 1. 如果你使用的是 CMD（.bat）：脚本执行成功但无法写入Path > > 脚本已完成文件安装，由于 受限语言模式 ，脚本无法自动写入环境变量，此时只需手动配置： > > - 找到安装目录： > - 检查 uv 是否可用：在 CMD 中输入 uv --version ，如果显示版本号，则只需配置 CoPaw 路径；如果提示 'uv' 不是内部或外部命令，也不是可运行的程序或批处理文件。，则需同时配置两者。 > - uv路径（任选其一，取决于"
+  },
+  {
+    "slug": "heartbeat",
+    "lang": "en",
+    "title": "Heartbeat",
+    "headings": [
+      { "text": "How heartbeat works", "id": "How-heartbeat-works" },
+      {
+        "text": "Step 1: Write HEARTBEAT.md",
+        "id": "Step-1-Write-HEARTBEATmd"
+      },
+      {
+        "text": "Step 2: Configure heartbeat in config.json",
+        "id": "Step-2-Configure-heartbeat-in-configjson"
+      },
+      { "text": "Heartbeat vs cron jobs", "id": "Heartbeat-vs-cron-jobs" },
+      { "text": "Related pages", "id": "Related-pages" }
+    ],
+    "excerpt": "In CoPaw, heartbeat means: on a fixed interval, ask CoPaw the “questions” you wrote in a file, and optionally send the CoPaw’s reply to the channel where you last chatted. Good for “regular check-ins, daily digests, scheduled reminders” — CoPaw runs without you sending a message. If you haven’t read Introduction, skim the short “terms” there (heartbeat, channels) first. --- 1. You have a file HEARTBEAT.md (by default under the working dir ~/.copaw/). Its content is what to ask CoPaw each time (one block of text; CoPaw sees it as one user message). 2. The system runs on your interval (e.g. every 30 minutes): read HEARTBEAT.md → send that as the user message → CoPaw replies. 3. Whether the reply is sent to a channel is controlled by target in config: - main — Run CoPaw only; do not send the "
+  },
+  {
+    "slug": "heartbeat",
+    "lang": "zh",
+    "title": "心跳",
+    "headings": [
+      { "text": "心跳是怎么工作的？", "id": "心跳是怎么工作的" },
+      { "text": "第一步：写 HEARTBEAT.md", "id": "第一步写-HEARTBEATmd" },
+      {
+        "text": "第二步：在 config.json 里配置心跳",
+        "id": "第二步在-configjson-里配置心跳"
+      },
+      { "text": "和「定时任务」的区别", "id": "和定时任务的区别" },
+      { "text": "相关页面", "id": "相关页面" }
+    ],
+    "excerpt": "「心跳」在 CoPAW 里指的是：按固定间隔，用你写好的一段「问题」去问 CoPAW，并可选择把 CoPAW 的回复发到你上次对话的频道。适合做「定期自检、每日摘要、定时提醒」——不用你主动发消息，CoPAW 到点就干活。 如果你还没看过 项目介绍，建议先看一眼那里对「心跳」和「频道」的说明。 --- 1. 你有一个文件 HEARTBEAT.md（默认在工作目录 ~/.copaw/ 下），里面写的是每次心跳要问 CoPaw 的内容（一段或几段话都行，CoPaw 会当成一条用户消息）。 2. 系统按你配置的间隔（例如每 30 分钟）执行一次：读取 HEARTBEAT.md → 用这段内容去问 CoPaw → CoPaw 回复。 3. 发不发到频道 由配置里的 target 决定： - main：只跑 CoPaw，不把回复发到任何频道（适合只做「自检」、结果自己看日志或别处）。 - last：把 CoPaw 的回复发到你上次和 CoPaw 对话的那个频道/会话（例如上次你在钉钉和它聊，这次心跳的回复就发到钉钉）。 还可以设置 active hours（活跃时段）：只在每天的某段时间内跑心跳（例如 08:00–22:00），其余时间不跑。 --- 文件路径默认是 ~/.copaw/HEARTBEAT.md。内容就是「每次要问 CoPaw 什么」，纯文本或 Markdown 都行，CoPaw 会整体当作一条用户消息。 示例（你可以按自己需求改）： markdown - 扫描收件箱紧急邮件 - 查看未来 2h 的日历 - 检查待办是否卡住 - 若安静超过 8h，轻量 check-in 初始化时如果执行过 copaw init（没加 --defaults），会提示你是否编辑 HEARTBEAT.md；选是会用系统默认编辑器打开。你也可以之后随时用任何编辑器改这个文件，保存即可，下次心跳"
+  },
+  {
+    "slug": "intro",
+    "lang": "en",
+    "title": "Introduction",
+    "headings": [
+      { "text": "What is CoPaw?", "id": "What-is-CoPaw" },
+      { "text": "How do you use CoPaw?", "id": "How-do-you-use-CoPaw" },
+      {
+        "text": "Terms you’ll see in the docs",
+        "id": "Terms-youll-see-in-the-docs"
+      },
+      { "text": "Suggested order", "id": "Suggested-order" }
+    ],
+    "excerpt": "This page describes what CoPaw is, what it can do, and how to get started by following the docs. --- CoPAW is a personal assistant that runs in your own environment. - Multi-channel chat — Talk to you via DingTalk, Feishu, QQ, Discord, iMessage, and more. - Scheduled execution — Run tasks automatically on your configured schedule. - Driven by Skills — the possibilities are open-ended — Built-in skills include cron (scheduled jobs), PDF and forms, Word/Excel/PPT handling, news digest, file reading, and more; add custom skills as described in Skills. - All data stays local — No third-party hosting. CoPaw is built by the AgentScope team on AgentScope, AgentScope Runtime, and ReMe. --- You use CoPaw in two main ways: 1. Chat in your messaging apps Send messages in DingTalk, Feishu, QQ, Discord"
+  },
+  {
+    "slug": "intro",
+    "lang": "zh",
+    "title": "项目介绍",
+    "headings": [
+      { "text": "CoPaw 是什么？", "id": "CoPaw-是什么" },
+      { "text": "你怎么用 CoPaw？", "id": "你怎么用-CoPaw" },
+      { "text": "文档中会出现的几个概念", "id": "文档中会出现的几个概念" },
+      { "text": "建议的阅读与操作顺序", "id": "建议的阅读与操作顺序" }
+    ],
+    "excerpt": "本页说明 CoPaw 是什么、能做什么、以及如何按文档一步步上手。 --- CoPAW 是一款个人助理型产品，部署在你自己的环境中。 - 多通道对话 — 通过钉钉、飞书、QQ、Discord、iMessage 等与你对话。 - 定时执行 — 按你的配置自动运行任务。 - 能力由 Skills 决定，有无限可能 — 内置定时任务、PDF 与表单、Word/Excel/PPT 文档处理、新闻摘要、文件阅读等，还可在 Skills 中自定义扩展。 - 数据全在本地 — 不依赖第三方托管。 CoPaw 由 AgentScope 团队 基于 AgentScope、 AgentScope Runtime 与 ReMe 构建。 --- 使用方式可以概括为两类： 1. 在聊天软件里对话 在钉钉、飞书、QQ、Discord 或 iMessage（仅 Mac）里发消息，CoPaw 在同一 app 内回复， 查资料、记待办、回答问题等都由当前启用的 Skills 完成。一个 CoPaw 可同时接入多个 app，你在哪个频道聊，它就在哪个频道回。 2. 定时自动执行 无需每次手动发消息，CoPaw 可按你设定的时间自动运行： - 定时向某频道发送固定文案（如每天 9 点发「早上好」）； - 定时向 CoPaw 提问并将回答发到指定频道（如每 2 小时问「我有什么待办」并发到钉钉）； - 定时执行「自检/摘要」：用你写好的一串问题问 CoPaw，把回答发到你上次对话的频道。 装好、接好至少一个频道并启动服务后，你就可以在钉钉、飞书、QQ 等里与 CoPaw 对话，并享受定时 消息与自检等能力；具体能做什么，取决于你启用了哪些 Skills。 --- - 频道 — 你和 CoPaw 对话的「场所」（钉钉、飞书、QQ、Discord、iMessage 等）。在 频道配置 中按步骤配置。 - 心跳 — 按"
+  },
+  {
+    "slug": "mcp",
+    "lang": "en",
+    "title": "MCP",
+    "headings": [
+      { "text": "Prerequisites", "id": "Prerequisites" },
+      {
+        "text": "Adding MCP clients in the Console",
+        "id": "Adding-MCP-clients-in-the-Console"
+      },
+      { "text": "Configuration formats", "id": "Configuration-formats" },
+      {
+        "text": "Format 1: Standard mcpServers format (Recommended)",
+        "id": "Format-1-Standard-mcpServers-format-Recommended"
+      },
+      {
+        "text": "Format 2: Direct key-value format",
+        "id": "Format-2-Direct-key-value-format"
+      },
+      {
+        "text": "Format 3: Single client format",
+        "id": "Format-3-Single-client-format"
+      },
+      {
+        "text": "Example: Filesystem MCP server",
+        "id": "Example-Filesystem-MCP-server"
+      },
+      { "text": "Managing MCP clients", "id": "Managing-MCP-clients" }
+    ],
+    "excerpt": "MCP (Model Context Protocol) allows CoPaw to connect to external MCP servers and use their tools. You can add MCP clients through the Console to extend CoPaw's capabilities. --- If using npx to run MCP servers, ensure you have: - Node.js version 18 or higher (download) Check your Node.js version: bash node --version --- 1. Open the Console and go to Agent → MCP 2. Click + Create button 3. Paste your MCP client configuration in JSON format 4. Click Create to import --- CoPaw supports three JSON formats for importing MCP clients: json { \"mcpServers\": { \"client-name\": { \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"], \"env\": { \"APIKEY\": \"your-api-key-here\" } } } } json { \"client-name\": { \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"], \""
+  },
+  {
+    "slug": "mcp",
+    "lang": "zh",
+    "title": "MCP",
+    "headings": [
+      { "text": "前置要求", "id": "前置要求" },
+      {
+        "text": "在控制台中添加 MCP 客户端",
+        "id": "在控制台中添加-MCP-客户端"
+      },
+      { "text": "配置格式", "id": "配置格式" },
+      {
+        "text": "格式 1：标准 mcpServers 格式（推荐）",
+        "id": "格式-1标准-mcpServers-格式推荐"
+      },
+      { "text": "格式 2：直接键值对格式", "id": "格式-2直接键值对格式" },
+      { "text": "格式 3：单个客户端格式", "id": "格式-3单个客户端格式" },
+      { "text": "示例：文件系统 MCP 服务器", "id": "示例文件系统-MCP-服务器" },
+      { "text": "管理 MCP 客户端", "id": "管理-MCP-客户端" }
+    ],
+    "excerpt": "MCP（模型上下文协议，Model Context Protocol） 允许 CoPaw 连接到外部 MCP 服务器并使用它们的工具。你可以通过控制台添加 MCP 客户端来扩展 CoPaw 的能力。 --- 如果使用 npx 运行 MCP 服务器，请确保已安装： - Node.js 18 或更高版本（下载地址） 检查 Node.js 版本： bash node --version --- 1. 打开控制台，进入 智能体 → MCP 2. 点击 + 创建 按钮 3. 粘贴 MCP 客户端的 JSON 配置 4. 点击 创建 完成导入 --- CoPaw 支持三种 JSON 格式导入 MCP 客户端： json { \"mcpServers\": { \"client-name\": { \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"], \"env\": { \"APIKEY\": \"your-api-key-here\" } } } } json { \"client-name\": { \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"], \"env\": { \"APIKEY\": \"your-api-key-here\" } } } json { \"key\": \"client-name\", \"name\": \"My MCP Client\", \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"], \"env\": { \"APIKEY\": \"your-api-key-here\" } } --- json { \"m"
+  },
+  {
+    "slug": "memory",
+    "lang": "en",
+    "title": "Memory",
+    "headings": [
+      { "text": "Architecture Overview", "id": "Architecture-Overview" },
+      { "text": "Memory File Structure", "id": "Memory-File-Structure" },
+      {
+        "text": "MEMORY.md (Long-term Memory, Optional)",
+        "id": "MEMORYmd-Long-term-Memory-Optional"
+      },
+      {
+        "text": "memory/YYYY-MM-DD.md (Daily Log)",
+        "id": "memoryYYYY-MM-DDmd-Daily-Log"
+      },
+      { "text": "When to Write Memory?", "id": "When-to-Write-Memory" },
+      { "text": "Memory Configuration", "id": "Memory-Configuration" },
+      { "text": "LLM Configuration", "id": "LLM-Configuration" },
+      { "text": "Embedding Configuration", "id": "Embedding-Configuration" },
+      {
+        "text": "Search Mode Configuration",
+        "id": "Search-Mode-Configuration"
+      },
+      { "text": "Underlying Database", "id": "Underlying-Database" },
+      { "text": "Searching Memory", "id": "Searching-Memory" },
+      { "text": "Hybrid Search Explained", "id": "Hybrid-Search-Explained" },
+      { "text": "Vector Semantic Search", "id": "Vector-Semantic-Search" },
+      { "text": "BM25 Full-text Search", "id": "BM25-Full-text-Search" },
+      { "text": "Hybrid Search Fusion", "id": "Hybrid-Search-Fusion" },
+      { "text": "Related Pages", "id": "Related-Pages" }
+    ],
+    "excerpt": "Memory gives CoPAW persistent memory across conversations: it automatically manages the context window and writes key information to files for long-term storage. The memory system provides two core capabilities: - Context Management — Automatically compresses conversations into concise summaries before the context window overflows - Long-term Memory Management — Writes key information to Markdown files via file tools, with semantic search for recall at any time > The memory design is inspired by the OpenClaw memory architecture and implemented by ReMe. --- mermaid graph TB User[User / Agent] --> MM[MemoryManager] MM --> ContextMgmt[Context Management] MM --> MemoryMgmt[Long-term Memory Management] ContextMgmt --> Summary[Context Compression] MemoryMgmt --> FileTools[Memory Update] MemoryMg"
+  },
+  {
+    "slug": "memory",
+    "lang": "zh",
+    "title": "记忆",
+    "headings": [
+      { "text": "架构概览", "id": "架构概览" },
+      { "text": "记忆文件结构", "id": "记忆文件结构" },
+      { "text": "MEMORY.md（长期记忆，可选）", "id": "MEMORYmd长期记忆可选" },
+      {
+        "text": "memory/YYYY-MM-DD.md（每日日志）",
+        "id": "memoryYYYY-MM-DDmd每日日志"
+      },
+      { "text": "何时写入记忆？", "id": "何时写入记忆" },
+      { "text": "记忆配置", "id": "记忆配置" },
+      { "text": "LLM 配置", "id": "LLM-配置" },
+      { "text": "Embedding（向量嵌入）配置", "id": "Embedding向量嵌入配置" },
+      { "text": "检索模式配置", "id": "检索模式配置" },
+      { "text": "底层数据库", "id": "底层数据库" },
+      { "text": "搜索记忆", "id": "搜索记忆" },
+      { "text": "混合检索原理", "id": "混合检索原理" },
+      { "text": "向量语义搜索", "id": "向量语义搜索" },
+      { "text": "BM25 全文检索", "id": "BM25-全文检索" },
+      { "text": "混合检索融合", "id": "混合检索融合" },
+      { "text": "相关页面", "id": "相关页面" }
+    ],
+    "excerpt": "记忆 让 CoPAW 拥有跨对话的持久记忆能力：自动管理上下文窗口，并将关键信息写入文件长期保存。 记忆系统提供两大核心能力： - 上下文管理 — 在上下文窗口溢出前，自动将对话压缩为精华摘要 - 长期记忆管理 — 通过文件工具将关键信息写入 Markdown 文件，配合语义检索随时召回 > 记忆设计受 OpenClaw 记忆架构启发，并由 ReMe 实现。 --- mermaid graph TB User[用户 / Agent] --> MM[MemoryManager] MM --> ContextMgmt[上下文管理] MM --> MemoryMgmt[长期记忆管理] ContextMgmt --> Summary[上下文压缩] MemoryMgmt --> FileTools[记忆更新] MemoryMgmt --> Watcher[记忆索引更新] MemoryMgmt --> SearchLayer[记忆混合检索] FileTools --> LTM[MEMORY.md] FileTools --> DailyLog[memory/YYYY-MM-DD.md] Watcher --> Index[异步更新数据库] SearchLayer --> VectorSearch[向量语义搜索] SearchLayer --> BM25[BM25 全文检索] 长期记忆管理包含以下能力： | 能力 | 说明 | | -------------- | --------------------------------------------------------------------------------------- | | 记忆持久化 | 通过文件工具（read / write / edit）将关键信息写入 Markdown 文件，文件即真实数据源 | | 文件监控"
+  },
+  {
+    "slug": "models",
+    "lang": "en",
+    "title": "Models",
+    "headings": [
+      {
+        "text": "Configure cloud providers",
+        "id": "Configure-cloud-providers"
+      },
+      {
+        "text": "Local providers (llama.cpp / MLX)",
+        "id": "Local-providers-llamacpp--MLX"
+      },
+      { "text": "Ollama provider", "id": "Ollama-provider" },
+      { "text": "Add custom provider", "id": "Add-custom-provider" }
+    ],
+    "excerpt": "You need to configure a model before chatting with CoPaw. You can do this under Console → Settings → Models. !Console models CoPaw supports multiple LLM providers: cloud providers (require API Key), local providers (llama.cpp / MLX), and Ollama provider, and you can add custom providers. This page explains how to configure each type. --- Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, and Azure OpenAI) call remote models via API and require an API Key. In the console: 1. Open the console and go to Settings → Models. 2. Find the target cloud provider card (e.g. DashScope) and click Settings. Enter your API key and click Save. !save 3. After saving, the card status in the top-right becomes Available. In the LLM Configuration section at the top, you can select th"
+  },
+  {
+    "slug": "models",
+    "lang": "zh",
+    "title": "模型",
+    "headings": [
+      { "text": "配置云提供商", "id": "配置云提供商" },
+      {
+        "text": "本地提供商（llama.cpp / MLX）",
+        "id": "本地提供商llamacpp--MLX"
+      },
+      { "text": "Ollama 提供商", "id": "Ollama-提供商" },
+      { "text": "添加自定义提供商", "id": "添加自定义提供商" }
+    ],
+    "excerpt": "在于CoPaw对话前，需要先配置模型。在 控制台 → 设置 → 模型 中可以快捷配置。 !控制台模型 CoPaw 支持多种 LLM 提供商：云提供商（需 API Key）、本地提供商（llama.cpp / MLX）和 Ollama 提供商，且支持添加自定义 提供商。本文介绍这几类提供商的配置方式。 --- 云提供商（包括 ModelScope、DashScope、Aliyun Coding Plan、OpenAI 和 Azure OpenAI）通过 API 调用远程模型，需要配置 API Key。 在控制台中配置： 1. 打开控制台，进入 设置 → 模型。 2. 找到目标云提供商卡片（以 DashScope 为例），点击 设置。输入你的 API key，点击 保存。 !save 3. 保存后可以看到目标云提供商卡片右上角状态变成 可用，此时在上方的 LLM 配置 中，提供商 对应的下拉菜单中可以选择目标云提供商，模型 对应的下拉菜单中出现一系列可选模型。 !choose 4. 选择目标模型（以 qwen3.5-plus 为例），点击 保存。 !save 5. 可以看到 LLM 配置栏右上角显示当前正在使用的模型提供商及模型。 !model > 注：如果想撤销某个云提供商授权，点击目标云提供商卡片的 设置，点击撤销授权，二次确认撤销授权后，可将目标提供商的状态调整为 不可用。 > > !cancel 本地提供商在本地运行模型，无需 API Key，数据不出本机。 前置条件： - 在CoPaw所在环境中安装对应后端： - llama.cpp：pip install 'copaw[llamacpp]' - MLX：pip install 'copaw[mlx]' 1. 在控制台的模型页面可以找到 llama.cpp 和 MLX 对应的卡片。 !card 2. 点击目标本地提供商"
+  },
+  {
+    "slug": "quickstart",
+    "lang": "en",
+    "title": "Quick start",
+    "headings": [
+      {
+        "text": "Option A: One-line install (recommended)",
+        "id": "Option-A-One-line-install-recommended"
+      },
+      { "text": "Step 1: Install", "id": "Step-1-Install" },
+      { "text": "Step 2: Init", "id": "Step-2-Init" },
+      { "text": "Step 3: Start the server", "id": "Step-3-Start-the-server" },
+      { "text": "Option B: pip install", "id": "Option-B-pip-install" },
+      {
+        "text": "Option C: ModelScope Studio one-click setup (no install)",
+        "id": "Option-C-ModelScope-Studio-one-click-setup-no-install"
+      },
+      { "text": "Option D: Docker", "id": "Option-D-Docker" },
+      {
+        "text": "Option E: Deploy on Alibaba Cloud ECS",
+        "id": "Option-E-Deploy-on-Alibaba-Cloud-ECS"
+      },
+      { "text": "Verify install (optional)", "id": "Verify-install-optional" },
+      { "text": "What to do next", "id": "What-to-do-next" }
+    ],
+    "excerpt": "This section describes five ways to run CoPAW: - Option A — One-line install (recommended): run on your machine with no Python setup required. - Option B — pip install: if you prefer managing Python yourself. - Option C — ModelScope Studio: one-click cloud deploy, no local install needed. - Option D — Docker: use official images from Docker Hub (ACR also available for users in China); tags include latest (stable) and pre (PyPI pre-release). - Option E — Alibaba Cloud ECS: one-click deploy on Alibaba Cloud, no local install. > 📖 Read Introduction first; after install see Console. > 💡 After install & start: Before configuring channels, you can open the Console (http://127.0.0.1:8088/) to chat with CoPAW and configure the agent. When you're ready to chat in DingTalk, Feishu, QQ, etc., head "
+  },
+  {
+    "slug": "quickstart",
+    "lang": "zh",
+    "title": "快速开始",
+    "headings": [
+      { "text": "方式一：一键安装（推荐）", "id": "方式一一键安装推荐" },
+      { "text": "步骤一：安装", "id": "步骤一安装" },
+      { "text": "步骤二：初始化", "id": "步骤二初始化" },
+      { "text": "步骤三：启动服务", "id": "步骤三启动服务" },
+      { "text": "方式二：pip 安装", "id": "方式二pip-安装" },
+      {
+        "text": "方式三：魔搭创空间一键配置（无需安装）",
+        "id": "方式三魔搭创空间一键配置无需安装"
+      },
+      { "text": "方式四：Docker", "id": "方式四Docker" },
+      { "text": "方式五：部署到阿里云 ECS", "id": "方式五部署到阿里云-ECS" },
+      { "text": "验证安装（可选）", "id": "验证安装可选" },
+      { "text": "接下来做什么？", "id": "接下来做什么" }
+    ],
+    "excerpt": "本节介绍五种方式运行 CoPAW： - 方式一 — 一键安装（推荐）：无需手动配置 Python，一行命令自动完成安装。 - 方式二 — pip 安装：适合自行管理 Python 环境的用户。 - 方式三 — 魔搭创空间：一键配置，部署到创空间云端运行，无需本地安装。 - 方式四 — Docker：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 latest（稳定版）与 pre（PyPI 预发布版）。 - 方式五 — 阿里云 ECS：在阿里云上一键部署 CoPaw，无需本地安装。 > 📖 阅读前请先了解 项目介绍，完成安装与启动后可查看 控制台。 > 💡 安装并启动后：在配置频道之前，可先打开 控制台（浏览器访问 http://127.0.0.1:8088/）与 CoPAW 对话、配置 Agent；要在钉钉、飞书、QQ 等 app 里对话时，再前往 频道配置 接入频道。 --- 无需预装 Python — 安装脚本通过 uv 自动管理一切。 macOS / Linux： bash curl -fsSL https://copaw.agentscope.io/install.sh | bash 然后打开新终端（或执行 source ~/.zshrc / source ~/.bashrc）。 Windows (CMD): cmd curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat Windows（PowerShell）： powershell irm https://copaw.agentscope.io/install.ps1 | iex 然后打开新终端（安装脚本会自动将 CoPaw 加入 PATH）。 > ⚠️ Windows 企业版 "
+  },
+  {
+    "slug": "roadmap",
+    "lang": "en",
+    "title": "Roadmap",
+    "headings": [
+      { "text": "Roadmap table", "id": "Roadmap-table" },
+      { "text": "Get involved", "id": "Get-involved" }
+    ],
+    "excerpt": "| Area | Item | Status | | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- | | Horizontal Expansion | More channels, models, skills, MCPs — community contributions welcome | Seeking Contributors | | Existing Feature Extension | Display optimization, download hints, Windows path compatibility, etc. — community contributions welcome | Seeking Contributors | | Compatibility & Ease of Use | App-level packaging (DMG, EXE) | In Progress | | | One-click deployment: built-in deps, dev extras, install/upgrade tutorials | In Progress | | Release & Contributing | Contributing docs and test framework | In Progress | | | Responsive handling of c"
+  },
+  {
+    "slug": "roadmap",
+    "lang": "zh",
+    "title": "路线图",
+    "headings": [
+      { "text": "路线图一览", "id": "路线图一览" },
+      { "text": "参与贡献", "id": "参与贡献" }
+    ],
+    "excerpt": "| 方向 | 事项 | 状态 | | ---------------------- | -------------------------------------------------------------------------------------------------------------- | -------- | | 横向拓展 | 更多频道、模型、Skills、MCP 等 — 欢迎社区贡献 | 征集中 | | 已有功能扩展与完善 | 展示优化、下载提示、Windows 路径兼容等 — 欢迎社区贡献 | 征集中 | | 兼容性与易用性 | 应用级打包（DMG、EXE） | 进行中 | | | 一键部署：内置依赖、dev 扩展、安装/升级教程 | 进行中 | | 版本发布与贡献规范 | 贡献文档与测试框架 | 进行中 | | | 对社区贡献的积极响应 | 进行中 | | | Vibe Coding 等 Agent 的贡献引导 | 计划中 | | Bug 修复与功能增强 | 消息折叠/隐藏 | 计划中 | | | Skills 与 MCP 运行时安装、热加载改进 | 计划中 | | | 上下文管理与压缩（长工具返回、降低 token 消耗） | 计划中 | | | 多模态支持 | 进行中 | | 安全 | Shell 执行确认 | 计划中 | | | 工具/Skills 安全性 | 计划中 | | | 可配置安全等级 | 计划中 | | 多模态 | 语音/视频通话与实时交互 | 长期规划 | | 多智能体 | 基于 AgentScope，原生支持多智能体协作 | 长期规划 | | 沙箱 | 与 AgentScope Runtime 沙箱深度集成 | 长期规划 | | 自愈 | 守护进程 Agent，实现自动恢复与健康监控 | 长期规划 | | CoPaw 优化"
+  },
+  {
+    "slug": "skills",
+    "lang": "en",
+    "title": "Skills",
+    "headings": [
+      { "text": "Built-in skills overview", "id": "Built-in-skills-overview" },
+      {
+        "text": "Managing skills in the Console",
+        "id": "Managing-skills-in-the-Console"
+      },
+      {
+        "text": "Built-in skill: Cron (scheduled tasks)",
+        "id": "Built-in-skill-Cron-scheduled-tasks"
+      },
+      { "text": "Import skills", "id": "Import-skills" },
+      { "text": "Steps", "id": "Steps" },
+      { "text": "URL acquisition examples", "id": "URL-acquisition-examples" },
+      { "text": "Notes", "id": "Notes" },
+      {
+        "text": "Custom skills (in the working directory)",
+        "id": "Custom-skills-in-the-working-directory"
+      },
+      { "text": "Steps", "id": "Steps" },
+      { "text": "Directory layout example", "id": "Directory-layout-example" },
+      { "text": "Example SKILL.md", "id": "Example-SKILLmd" },
+      { "text": "Related pages", "id": "Related-pages" }
+    ],
+    "excerpt": "Skills: Several are built-in, and you can add custom skills or import skills from the Skills Hub. Two ways to manage skills: - Console — Use the Console under Agent → Skills - Working directory — Follow the steps below to edit files directly > If you're new to channels, heartbeat, or cron, read Introduction first. The app loads skills from the working directory skills folder (default ~/.copaw/activeskills/): any subdirectory containing a SKILL.md is loaded as a skill; no extra registration. --- The following skills are built-in. They are synced to the working directory when needed; you can enable or disable them in the Console or via config. | Skill | Description | Source | | ---------------------------- | ------------------------------------------------------------------------------------"
+  },
+  {
+    "slug": "skills",
+    "lang": "zh",
+    "title": "Skills",
+    "headings": [
+      { "text": "内置 Skills 一览", "id": "内置-Skills-一览" },
+      { "text": "通过控制台管理 Skills", "id": "通过控制台管理-Skills" },
+      {
+        "text": "内置 Skill：Cron（定时任务）",
+        "id": "内置-SkillCron定时任务"
+      },
+      { "text": "导入 Skill", "id": "导入-Skill" },
+      { "text": "步骤", "id": "步骤" },
+      { "text": "URL 获取示例", "id": "URL-获取示例" },
+      { "text": "说明", "id": "说明" },
+      {
+        "text": "自定义 Skill（在工作目录中）",
+        "id": "自定义-Skill在工作目录中"
+      },
+      { "text": "步骤", "id": "步骤" },
+      { "text": "目录结构示例", "id": "目录结构示例" },
+      { "text": "SKILL.md 示例", "id": "SKILLmd-示例" },
+      { "text": "相关页面", "id": "相关页面" }
+    ],
+    "excerpt": "Skills：内置多类能力，你还可以添加自定义 Skill，或者直接从社区 Skills Hub 导入 Skills。 管理 Skill 有两种方式： - 控制台 — 在 控制台 的 Agent → Skills 页面操作 - 工作目录 — 按本文步骤直接编辑文件 > 若尚未了解「频道」「心跳」「定时任务」等概念，建议先阅读 项目介绍。 应用从工作目录下的 skills 目录（默认 ~/.copaw/activeskills/）加载能力：每个子目录中只要包含一份 SKILL.md，即会被识别为一个 Skill 并加载，无需额外注册。 --- 当前内置的 Skills 如下，安装后会在首次需要时同步到工作目录，你可在控制台或通过配置启用/禁用。 | Skill 名称 | 说明 | 来源 | | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | | cron | 定时任务管理。通过 copaw cron 或控制台 Cron Jobs 创建、查询、暂停、恢复、删除定时任务，按时间表执行并把结果发到频道。 | 自建 | | filereader | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由下方专用 Skill 处理。 | 自建 | | dingtalkchannelconnect | 辅"
+  }
+]

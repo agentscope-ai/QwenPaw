@@ -171,7 +171,7 @@ Pull and run:
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
 
 Then open **http://127.0.0.1:8088/** in your browser for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys, add `-e DASHSCOPE_API_KEY=xxx` or `--env-file .env` to `docker run`.

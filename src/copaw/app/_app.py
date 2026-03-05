@@ -30,6 +30,7 @@ from .crons.repo.json_repo import JsonJobRepository
 from .crons.manager import CronManager
 from .runner.manager import ChatManager
 from .routers import router as api_router
+from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 
 # Apply log level on load so reload child process gets same level as CLI.
@@ -69,10 +70,12 @@ async def lifespan(
     if hasattr(config, "mcp"):
         try:
             await mcp_manager.init_from_config(config.mcp)
-            runner.set_mcp_manager(mcp_manager)
             logger.debug("MCP client manager initialized")
-        except Exception:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.exception("Failed to initialize MCP manager")
+    runner.set_mcp_manager(mcp_manager)
 
     # --- channel connector init/start (from config.json) ---
     channel_manager = ChannelManager.from_config(
@@ -118,7 +121,9 @@ async def lifespan(
             )
             await mcp_watcher.start()
             logger.debug("MCP config watcher started")
-        except Exception:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.exception("Failed to start MCP watcher")
 
     # expose to endpoints
@@ -499,6 +504,10 @@ app.include_router(
     prefix="/api/agent",
     tags=["agent"],
 )
+
+# Voice channel: Twilio-facing endpoints at root level (not under /api/).
+# POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
+app.include_router(voice_router, tags=["voice"])
 
 # Mount console: root static files (logo.png etc.) then assets, then SPA
 # fallback.

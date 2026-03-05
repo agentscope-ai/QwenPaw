@@ -50,7 +50,9 @@ class MCPClientManager:
             try:
                 await self._add_client(key, client_config)
                 logger.debug(f"MCP client '{key}' initialized successfully")
-            except Exception as e:
+            except BaseException as e:
+                if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                    raise
                 logger.warning(
                     f"Failed to initialize MCP client '{key}': {e}",
                     exc_info=True,

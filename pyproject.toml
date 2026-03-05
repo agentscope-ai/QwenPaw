@@ -22,6 +22,7 @@ dependencies = [
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
     "python-telegram-bot>=20.0",
+    "twilio>=9.10.2",
 ]
 
 [tool.setuptools.dynamic]

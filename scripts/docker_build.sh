@@ -26,5 +26,5 @@ docker build -f "$DOCKERFILE" \
     -t "$TAG" "$@" .
 echo "[docker_build] Done."
 echo "[docker_build] CoPaw app port: 8088 (default). Override with -e COPAW_PORT=<port>."
-echo "[docker_build] Run: docker run -p 8088:8088 $TAG"
-echo "[docker_build] Or:  docker run -e COPAW_PORT=3000 -p 3000:3000 $TAG"
+echo "[docker_build] Run: docker run -p 127.0.0.1:8088:8088 $TAG"
+echo "[docker_build] Or:  docker run -e COPAW_PORT=3000 -p 127.0.0.1:3000:3000 $TAG"

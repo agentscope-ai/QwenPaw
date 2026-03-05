@@ -236,7 +236,22 @@
     "httpProxyPlaceholder": "http://127.0.0.1:18118",
     "httpProxyAuthPlaceholder": "user:password",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",
-    "botPrefixPlaceholder": "@bot"
+    "botPrefixPlaceholder": "@bot",
+    "twilioAccountSid": "Twilio Account SID",
+    "twilioAuthToken": "Twilio Auth Token",
+    "phoneNumber": "Phone Number",
+    "phoneNumberSid": "Phone Number SID",
+    "phoneNumberSidHelp": "Found under Phone Numbers → Active Numbers in the Twilio Console.",
+    "ttsProvider": "TTS Provider",
+    "ttsVoice": "TTS Voice",
+    "sttProvider": "STT Provider",
+    "language": "Language",
+    "welcomeGreeting": "Welcome Greeting",
+    "voiceSetupGuide": "Set up a Twilio account, purchase a phone number, then enter your credentials below. Find your Account SID and Auth Token on the Twilio Console dashboard. The Phone Number SID is listed under Phone Numbers → Active Numbers.",
+    "voiceSetupLink": "Open Twilio Console",
+    "filterAll": "All",
+    "builtin": "Built-in",
+    "custom": "Custom"
   },
   "sessions": {
     "title": "Sessions",
@@ -445,5 +460,20 @@
     "chatDisabledMessage": "Chat functionality is disabled because no model is configured. Please configure a model to enable chat.",
     "configureNow": "Configure Model",
     "modelNotConfigured": "Please configure a model in Settings before using chat"
+  },
+  "header": {
+    "changelog": "Changelog",
+    "docs": "Doc",
+    "tutorial": "Tutorial",
+    "faq": "FAQ",
+    "github": "GitHub"
+  },
+  "sidebar": {
+    "newVersion": "New version available: v{{version}}, click to upgrade",
+    "updateModal": {
+      "title": "New version available: v{{version}}",
+      "viewReleases": "View Releases",
+      "close": "Close"
+    }
   }
 }
