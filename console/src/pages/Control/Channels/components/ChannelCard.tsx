@@ -1,9 +1,5 @@
 import { Card, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import type {
-  SingleChannelConfig,
-  VoiceChannelConfig,
-} from "../../../../api/types";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 
@@ -28,6 +24,10 @@ export function ChannelCard({
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
   const label = getChannelLabel(channelKey);
+  const getConfigString = (key: string) =>
+    typeof config[key] === "string" ? config[key] : "";
+  const phoneNumber = getConfigString("phone_number");
+  const botPrefix = getConfigString("bot_prefix");
 
   const getCardClassNames = () => {
     if (isHover) return `${styles.channelCard} ${styles.hover}`;
@@ -69,14 +69,11 @@ export function ChannelCard({
       <div className={styles.cardDescription}>
         {channelKey === "voice" ? (
           <>
-            {t("channels.phoneNumber")}:{" "}
-            {(config as VoiceChannelConfig).phone_number ||
-              t("channels.notSet")}
+            {t("channels.phoneNumber")}: {phoneNumber || t("channels.notSet")}
           </>
         ) : (
           <>
-            {t("channels.botPrefix")}:{" "}
-            {(config as SingleChannelConfig).bot_prefix || t("channels.notSet")}
+            {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
           </>
         )}
       </div>
