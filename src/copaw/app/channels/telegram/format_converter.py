@@ -76,7 +76,9 @@ def convert_markdown_to_telegram_html(text: str) -> str:
                 # 支持单列表格（无制表符）
                 if "\t" in prev:
                     cells = prev.split("\t")
-                    converted_lines[-1] = "\t".join(f"<b>{cell}</b>" for cell in cells)
+                    converted_lines[-1] = "\t".join(
+                        f"<b>{cell}</b>" for cell in cells
+                    )
                 else:
                     # 单列情况
                     converted_lines[-1] = f"<b>{prev}</b>"
@@ -132,11 +134,17 @@ def convert_markdown_to_telegram_html(text: str) -> str:
                             r"<code>\1</code>",
                             processed_before,
                         )
+
                     # 链接
+                    def _replace_link_v1(match):
+                        text = escape_html(match.group(1))
+                        href = escape_html(match.group(2), quote=True)
+                        return f'<a href="{href}">{text}</a>'
+
                     if re.search(r"\[.+?\]\(.+?\)", processed_before):
                         processed_before = re.sub(
                             r"\[(.+?)\]\((.+?)\)",
-                            r'<a href="\2">\1</a>',
+                            _replace_link_v1,
                             processed_before,
                         )
                     converted_lines.append(processed_before)
@@ -237,11 +245,17 @@ def convert_markdown_to_telegram_html(text: str) -> str:
                             r"<code>\1</code>",
                             cell_line,
                         )
+
                     # 链接
+                    def _replace_link_v2(match):
+                        text = escape_html(match.group(1))
+                        href = escape_html(match.group(2), quote=True)
+                        return f'<a href="{href}">{text}</a>'
+
                     if re.search(r"\[.+?\]\(.+?\)", cell_line):
                         cell_line = re.sub(
                             r"\[(.+?)\]\((.+?)\)",
-                            r'<a href="\2">\1</a>',
+                            _replace_link_v2,
                             cell_line,
                         )
                     processed_cells.append(cell_line)
@@ -291,8 +305,13 @@ def convert_markdown_to_telegram_html(text: str) -> str:
             line = re.sub(r"`(.+?)`", r"<code>\1</code>", line)
 
         # 7.5 链接
+        def _replace_link_v3(match):
+            text = escape_html(match.group(1))
+            href = escape_html(match.group(2), quote=True)
+            return f'<a href="{href}">{text}</a>'
+
         if re.search(r"\[.+?\]\(.+?\)", line):
-            line = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', line)
+            line = re.sub(r"\[(.+?)\]\((.+?)\)", _replace_link_v3, line)
 
         converted_lines.append(line)
 
@@ -306,12 +325,13 @@ def convert_markdown_to_telegram_html(text: str) -> str:
     return result
 
 
-def escape_html(text: str) -> str:
+def escape_html(text: str, quote: bool = False) -> str:
     """
-    HTML 转义（仅用于代码块内）
+    HTML 转义
 
     Args:
         text: 原始文本
+        quote: 是否转义引号（用于属性值）
 
     Returns:
         转义后的文本
@@ -319,6 +339,9 @@ def escape_html(text: str) -> str:
     text = text.replace("&", "&amp;")
     text = text.replace("<", "&lt;")
     text = text.replace(">", "&gt;")
+    if quote:
+        text = text.replace('"', "&quot;")
+        text = text.replace("'", "&#x27;")
     return text
 
 
