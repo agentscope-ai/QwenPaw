@@ -3,6 +3,7 @@ export interface BaseChannelConfig {
   bot_prefix: string;
   filter_tool_messages?: boolean;
   filter_thinking?: boolean;
+  last_error?: string;
 }
 
 export interface IMessageChannelConfig extends BaseChannelConfig {

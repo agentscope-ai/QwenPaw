@@ -809,6 +809,37 @@ def _channel_enabled(ch) -> bool:
     return False
 
 
+def _validate_channel(key: str, ch) -> list:
+    """Run static validation checks for a channel config. Returns warnings."""
+    warnings: list = []
+
+    if key == "imessage":
+        import shutil
+        import os
+
+        if not shutil.which("imsg"):
+            warnings.append(
+                "imsg binary not found. "
+                "Install with: brew install steipete/tap/imsg",
+            )
+
+        db_path = getattr(ch, "db_path", None)
+        if isinstance(ch, dict):
+            db_path = ch.get("db_path")
+        if db_path:
+            expanded = os.path.expanduser(db_path)
+            if not os.path.exists(expanded):
+                warnings.append(f"iMessage database not found: {expanded}")
+            elif not os.access(expanded, os.R_OK):
+                warnings.append(
+                    f"Cannot read iMessage database: {expanded}. "
+                    "Grant Full Disk Access to your terminal in "
+                    "System Settings > Privacy & Security > Full Disk Access.",
+                )
+
+    return warnings
+
+
 @channels_group.command("list")
 def list_cmd() -> None:
     """Show current channel configuration."""
@@ -843,6 +874,10 @@ def list_cmd() -> None:
                 _mask(str(value)) if field_name in _SECRET_FIELDS else value
             )
             click.echo(f"  {field_name:20s}: {display}")
+
+        if _channel_enabled(ch):
+            for warning in _validate_channel(key, ch):
+                click.echo(click.style(f"  ⚠ {warning}", fg="yellow"))
 
     click.echo()
 

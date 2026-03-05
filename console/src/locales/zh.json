@@ -262,7 +262,8 @@
     "voiceSetupLink": "打开 Twilio 控制台",
     "filterAll": "全部",
     "builtin": "内置",
-    "custom": "自定义"
+    "custom": "自定义",
+    "error": "错误"
   },
   "sessions": {
     "title": "会话",

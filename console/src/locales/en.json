@@ -262,7 +262,8 @@
     "voiceSetupLink": "Open Twilio Console",
     "filterAll": "All",
     "builtin": "Built-in",
-    "custom": "Custom"
+    "custom": "Custom",
+    "error": "Error"
   },
   "sessions": {
     "title": "Sessions",

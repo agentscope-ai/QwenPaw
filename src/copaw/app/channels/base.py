@@ -89,6 +89,7 @@ class BaseChannel(ABC):
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
         self._enqueue: EnqueueCallback = None
+        self.last_error: Optional[str] = None
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,

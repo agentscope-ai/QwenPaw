@@ -329,8 +329,22 @@ class ChannelManager:
         for g in snapshot:
             try:
                 await g.start()
-            except Exception:
+            except Exception as exc:
                 logger.exception(f"failed to start channels={g.channel}")
+                g.last_error = str(exc)
+
+        # Surface startup errors via console channel
+        console_ch = next(
+            (c for c in snapshot if c.channel == "console"),
+            None,
+        )
+        if console_ch is not None and hasattr(console_ch, "_print_error"):
+            for ch in snapshot:
+                err = getattr(ch, "last_error", None)
+                if err and ch.channel != "console":
+                    console_ch._print_error(
+                        f"Channel '{ch.channel}' failed to start: {err}"
+                    )
 
     async def stop_all(self) -> None:
         self._in_progress.clear()
@@ -404,10 +418,11 @@ class ChannelManager:
         logger.info(f"Pre-starting new channel: {new_channel_name}")
         try:
             await new_channel.start()
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 f"Failed to start new channel: {new_channel_name}",
             )
+            new_channel.last_error = str(exc)
             try:
                 await new_channel.stop()
             except Exception:

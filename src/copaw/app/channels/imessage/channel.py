@@ -175,11 +175,22 @@ class IMessageChannel(BaseChannel):
             self.db_path,
         )
 
-        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        last_rowid = conn.execute(
-            "SELECT IFNULL(MAX(ROWID),0) FROM message",
-        ).fetchone()[0]
+        try:
+            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            last_rowid = conn.execute(
+                "SELECT IFNULL(MAX(ROWID),0) FROM message",
+            ).fetchone()[0]
+        except sqlite3.OperationalError as exc:
+            self.last_error = (
+                f"Cannot open iMessage database ({self.db_path}): {exc}. "
+                "Grant Full Disk Access to your terminal app in "
+                "System Settings > Privacy & Security > Full Disk Access."
+            )
+            logger.error("iMessage watcher failed to start: %s", self.last_error)
+            return
+
+        self.last_error = None
 
         try:
             while not self._stop_event.is_set():
@@ -273,8 +284,15 @@ ORDER BY m.ROWID ASC
             logger.debug("disabled by env IMESSAGE_ENABLED=0")
             return
 
-        self._imsg_path = self._ensure_imsg()
+        try:
+            self._imsg_path = self._ensure_imsg()
+        except RuntimeError as exc:
+            self.last_error = str(exc)
+            logger.error("iMessage channel start failed: %s", self.last_error)
+            return
+
         logger.info(f"IMessage channel started with binary: {self._imsg_path}")
+        self.last_error = None
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._watcher_loop, daemon=True)

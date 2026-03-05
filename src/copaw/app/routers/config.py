@@ -25,7 +25,7 @@ router = APIRouter(prefix="/config", tags=["config"])
     summary="List all channels",
     description="Retrieve configuration for all available channels",
 )
-async def list_channels() -> dict:
+async def list_channels(request: Request) -> dict:
     """List all channel configs (filtered by available channels)."""
     config = load_config()
     available = get_available_channels()
@@ -50,6 +50,16 @@ async def list_channels() -> dict:
         if isinstance(channel_data, dict):
             channel_data["isBuiltin"] = key in BUILTIN_CHANNEL_KEYS
         result[key] = channel_data
+
+    # Merge runtime error state from running channel instances
+    channel_manager = getattr(request.app.state, "channel_manager", None)
+    if channel_manager is not None:
+        for ch in channel_manager.channels:
+            ch_key = getattr(ch, "channel", None)
+            if ch_key and ch_key in result and isinstance(result[ch_key], dict):
+                err = getattr(ch, "last_error", None)
+                if err:
+                    result[ch_key]["last_error"] = err
 
     return result
 
