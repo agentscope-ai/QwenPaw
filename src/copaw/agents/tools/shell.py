@@ -67,7 +67,7 @@ def _execute_subprocess_sync(
         return -1, "", str(e)
 
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches, too-many-statements
 async def execute_shell_command(
     command: str,
     timeout: int = 60,
