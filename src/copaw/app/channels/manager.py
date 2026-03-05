@@ -580,22 +580,24 @@ class ChannelManager:
         """Remove and stop one channel by name."""
         async with self._lock:
             old_channel = None
-            for i, ch in enumerate(self.channels):
+            for ch in self.channels:
                 if ch.channel == channel_name:
                     old_channel = ch
-                    del self.channels[i]
                     break
             if old_channel is None:
                 return False
-            old_channel.set_enqueue(None)
-
-        await self._stop_consumers_for_channel(channel_name)
         try:
             await old_channel.stop()
-        except asyncio.CancelledError:
-            pass
         except Exception:
             logger.exception(f"failed to stop channels={channel_name}")
+            return False
+
+        old_channel.set_enqueue(None)
+        await self._stop_consumers_for_channel(channel_name)
+        async with self._lock:
+            self.channels = [
+                ch for ch in self.channels if ch.channel != channel_name
+            ]
         return True
 
     async def send_event(
