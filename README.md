@@ -380,3 +380,13 @@ CoPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a par
 ## License
 
 CoPaw is released under the [Apache License 2.0](LICENSE).
+
+---
+
+## Contributors
+
+All thanks to our contributors:
+
+<a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="Contributors" />
+</a>
