@@ -311,6 +311,7 @@ class CoPawAgent(ReActAgent):
                 memory_manager=self.memory_manager,
                 memory_compact_threshold=self._memory_compact_threshold,
                 keep_recent=MEMORY_COMPACT_KEEP_RECENT,
+                hard_token_limit=self._max_input_length,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
