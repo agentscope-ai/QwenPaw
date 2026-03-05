@@ -9,25 +9,38 @@ from copaw.config.utils import load_config
 from copaw.config.watcher import ConfigWatcher
 
 
+class _DummyChannel:
+    def __init__(self, channel: str):
+        self.channel = channel
+
+    def clone(self, _config):
+        return _DummyChannel(self.channel)
+
+
 class _DummyManager:
     def __init__(self):
         self.remove_calls: list[str] = []
         self.add_calls: list[str] = []
         self.replace_calls: list[str] = []
+        self._channels: dict[str, _DummyChannel] = {}
 
     async def get_channel(self, _channel_name: str):
-        return None
+        return self._channels.get(_channel_name)
 
     async def replace_channel(self, channel_obj) -> None:
         self.replace_calls.append(channel_obj.channel)
+        self._channels[channel_obj.channel] = channel_obj
 
     async def remove_channel(self, channel_name: str) -> bool:
         self.remove_calls.append(channel_name)
-        return True
+        return self._channels.pop(channel_name, None) is not None
 
     async def add_channel(self, channel_name: str, channel_config) -> bool:
         del channel_config
         self.add_calls.append(channel_name)
+        if channel_name in self._channels:
+            return False
+        self._channels[channel_name] = _DummyChannel(channel_name)
         return True
 
 
@@ -52,6 +65,7 @@ async def test_watcher_removes_channel_when_custom_key_deleted(tmp_path: Path):
     )
 
     mgr = _DummyManager()
+    mgr._channels["plugin_x"] = _DummyChannel("plugin_x")
     watcher = ConfigWatcher(
         channel_manager=mgr,
         poll_interval=0.1,
@@ -90,6 +104,7 @@ async def test_watcher_removes_channel_when_custom_key_set_to_null(
     )
 
     mgr = _DummyManager()
+    mgr._channels["plugin_x"] = _DummyChannel("plugin_x")
     watcher = ConfigWatcher(
         channel_manager=mgr,
         poll_interval=0.1,
@@ -147,6 +162,7 @@ async def test_watcher_adds_channel_when_custom_key_appears(tmp_path: Path):
 
     assert "plugin_x" in mgr.add_calls
     assert "plugin_x" not in mgr.remove_calls
+    assert await mgr.get_channel("plugin_x") is not None
 
 
 @pytest.mark.asyncio
@@ -187,6 +203,7 @@ async def test_watcher_add_success_should_not_fallthrough_to_reload(
 
     assert "plugin_x" in mgr.add_calls
     assert "plugin_x" not in mgr.replace_calls
+    assert await mgr.get_channel("plugin_x") is not None
     assert not any(
         "failed to reload channel 'plugin_x'" in rec.getMessage()
         for rec in caplog.records

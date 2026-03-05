@@ -590,7 +590,7 @@ class ChannelManager:
             await old_channel.stop()
         except Exception:
             logger.exception(f"failed to stop channels={channel_name}")
-            return False
+            raise
 
         old_channel.set_enqueue(None)
         await self._stop_consumers_for_channel(channel_name)

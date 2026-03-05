@@ -163,11 +163,12 @@ class ConfigWatcher:
                 "ConfigWatcher: failed to reload channel '%s'",
                 name,
             )
-            setattr(
-                new_channels,
-                name,
-                old_ch if old_ch is not None else new_ch,
-            )
+            if old_ch is not None:
+                setattr(new_channels, name, old_ch)
+            else:
+                extra = getattr(new_channels, "__pydantic_extra__", None)
+                if isinstance(extra, dict):
+                    extra.pop(name, None)
 
     async def _apply_channel_changes(self, loaded_config: Any) -> None:
         """Diff channels and reload changed ones; update snapshot."""
