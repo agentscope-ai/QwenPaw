@@ -175,6 +175,29 @@ class IMessageChannel(BaseChannel):
             self.db_path,
         )
 
+        db = Path(self.db_path)
+        try:
+            db.stat()
+        except PermissionError:
+            self.last_error = (
+                f"Cannot read iMessage database ({self.db_path}). "
+                "Grant Full Disk Access to your terminal app in "
+                "System Settings > Privacy & Security > Full Disk Access."
+            )
+            logger.error("iMessage watcher failed to start: %s", self.last_error)
+            return
+        except OSError:
+            if not db.exists():
+                self.last_error = (
+                    f"iMessage database not found: {self.db_path}"
+                )
+            else:
+                self.last_error = (
+                    f"Cannot access iMessage database ({self.db_path})."
+                )
+            logger.error("iMessage watcher failed to start: %s", self.last_error)
+            return
+
         try:
             conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
@@ -183,13 +206,9 @@ class IMessageChannel(BaseChannel):
             ).fetchone()[0]
         except sqlite3.OperationalError as exc:
             self.last_error = (
-                f"Cannot open iMessage database ({self.db_path}): {exc}. "
-                "Grant Full Disk Access to your terminal app in "
-                "System Settings > Privacy & Security > Full Disk Access."
+                f"Cannot open iMessage database ({self.db_path}): {exc}"
             )
-            logger.error(
-                "iMessage watcher failed to start: %s", self.last_error
-            )
+            logger.error("iMessage watcher failed to start: %s", self.last_error)
             return
 
         self.last_error = None
