@@ -150,6 +150,50 @@ async def test_watcher_adds_channel_when_custom_key_appears(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_watcher_add_success_should_not_fallthrough_to_reload(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    config_path = tmp_path / "config.json"
+    _write_json(
+        config_path,
+        {
+            "channels": {
+                "console": {"enabled": True},
+            },
+        },
+    )
+
+    mgr = _DummyManager()
+    watcher = ConfigWatcher(
+        channel_manager=mgr,
+        poll_interval=0.1,
+        config_path=config_path,
+    )
+    watcher._snapshot()
+
+    _write_json(
+        config_path,
+        {
+            "channels": {
+                "console": {"enabled": True},
+                "plugin_x": {"enabled": True},
+            },
+        },
+    )
+    watcher._last_mtime = 0.0
+    with caplog.at_level("ERROR"):
+        await watcher._check()
+
+    assert "plugin_x" in mgr.add_calls
+    assert "plugin_x" not in mgr.replace_calls
+    assert not any(
+        "failed to reload channel 'plugin_x'" in rec.getMessage()
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_watcher_skips_add_for_non_enabled_builtin_channel(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

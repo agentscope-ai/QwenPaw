@@ -143,6 +143,7 @@ class ConfigWatcher:
                 added = await self._channel_manager.add_channel(name, new_ch)
                 if added:
                     logger.info("ConfigWatcher: channel '%s' added", name)
+                    return
                 else:
                     old_channel = await self._channel_manager.get_channel(
                         name,
