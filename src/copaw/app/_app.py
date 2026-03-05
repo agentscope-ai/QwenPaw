@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+import asyncio
 import mimetypes
 import os
 from contextlib import asynccontextmanager
@@ -18,9 +19,9 @@ from ..config import (  # pylint: disable=no-name-in-module
     ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
-from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS
+from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
 from ..__version__ import __version__
-from ..utils.logging import setup_logger
+from ..utils.logging import setup_logger, add_copaw_file_handler
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
 from .channels.utils import make_process_from_runner
 from .mcp import MCPClientManager, MCPConfigWatcher  # MCP hot-reload support
@@ -56,7 +57,10 @@ agent_app = AgentApp(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
+async def lifespan(
+    app: FastAPI,
+):  # pylint: disable=too-many-statements,too-many-branches
+    add_copaw_file_handler(WORKING_DIR / "copaw.log")
     await runner.start()
 
     # --- MCP client manager init (independent module, hot-reloadable) ---
@@ -126,29 +130,297 @@ async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
     app.state.mcp_manager = mcp_manager
     app.state.mcp_watcher = mcp_watcher
 
-    try:
-        yield
-    finally:
-        # stop order: watchers -> cron -> channels -> mcp -> runner
-        try:
-            await config_watcher.stop()
-        except Exception:
-            pass
-        if mcp_watcher:
+    _restart_task: asyncio.Task | None = None
+
+    async def _restart_services() -> None:
+        """Stop all managers, then rebuild from config (no exit).
+
+        Single-flight: only one restart runs at a time. Concurrent or
+        duplicate callers wait for the in-progress restart and return
+        successfully. Uses asyncio.shield() so that when the caller
+        (e.g. channel request) is cancelled, the restart task keeps
+        running and does not propagate cancellation into deep task
+        trees (avoids RecursionError on cancel).
+        """
+        # pylint: disable=too-many-statements
+        nonlocal _restart_task
+        # Caller task (in _local_tasks) must not be cancelled so it can
+        # yield the final "Restart completed" message.
+        restart_requester_task = asyncio.current_task()
+
+        async def _run_then_clear() -> None:
+            try:
+                await _do_restart_services(
+                    restart_requester_task=restart_requester_task,
+                )
+            finally:
+                nonlocal _restart_task
+                _restart_task = None
+
+        if _restart_task is not None and not _restart_task.done():
+            logger.info(
+                "_restart_services: waiting for in-progress restart to finish",
+            )
+            await asyncio.shield(_restart_task)
+            return
+        if _restart_task is not None and _restart_task.done():
+            _restart_task = None
+        logger.info("_restart_services: starting restart")
+        _restart_task = asyncio.create_task(_run_then_clear())
+        await asyncio.shield(_restart_task)
+
+    async def _teardown_new_stack(
+        mcp_watcher=None,
+        config_watcher=None,
+        cron_mgr=None,
+        ch_mgr=None,
+        mcp_mgr=None,
+    ) -> None:
+        """Stop new stack in reverse start order (for rollback on failure)."""
+        if mcp_watcher is not None:
             try:
                 await mcp_watcher.stop()
             except Exception:
-                pass
+                logger.debug(
+                    "rollback: mcp_watcher.stop failed",
+                    exc_info=True,
+                )
+        if config_watcher is not None:
+            try:
+                await config_watcher.stop()
+            except Exception:
+                logger.debug(
+                    "rollback: config_watcher.stop failed",
+                    exc_info=True,
+                )
+        if cron_mgr is not None:
+            try:
+                await cron_mgr.stop()
+            except Exception:
+                logger.debug(
+                    "rollback: cron_manager.stop failed",
+                    exc_info=True,
+                )
+        if ch_mgr is not None:
+            try:
+                await ch_mgr.stop_all()
+            except Exception:
+                logger.debug(
+                    "rollback: channel_manager.stop_all failed",
+                    exc_info=True,
+                )
+        if mcp_mgr is not None:
+            try:
+                await mcp_mgr.close_all()
+            except Exception:
+                logger.debug(
+                    "rollback: mcp_manager.close_all failed",
+                    exc_info=True,
+                )
+
+    async def _do_restart_services(
+        restart_requester_task: asyncio.Task | None = None,
+    ) -> None:
+        """Cancel in-flight agent requests first (so they can send error to
+        channel), then stop old stack, then start new stack and swap.
+        """
+        # pylint: disable=too-many-statements
         try:
-            await cron_manager.stop()
-        finally:
-            await channel_manager.stop_all()
-            if mcp_manager:
-                try:
-                    await mcp_manager.close_all()
-                except Exception:
-                    pass
-            await runner.stop()
+            config = load_config(get_config_path())
+        except Exception:
+            logger.exception("restart_services: load_config failed")
+            return
+
+        # 1) Cancel in-flight agent requests. Do not wait for them so the
+        # console restart task never blocks (avoid deadlock when cancelled
+        # task is slow to exit).
+        local_tasks = getattr(agent_app, "_local_tasks", None)
+        if local_tasks:
+            to_cancel = [
+                t
+                for t in list(local_tasks.values())
+                if t is not restart_requester_task and not t.done()
+            ]
+            for t in to_cancel:
+                t.cancel()
+            if to_cancel:
+                logger.info(
+                    "restart: cancelled %s in-flight task(s), not waiting",
+                    len(to_cancel),
+                )
+
+        # 2) Stop old stack
+        cfg_w = app.state.config_watcher
+        mcp_w = getattr(app.state, "mcp_watcher", None)
+        cron_mgr = app.state.cron_manager
+        ch_mgr = app.state.channel_manager
+        mcp_mgr = app.state.mcp_manager
+        try:
+            await cfg_w.stop()
+        except Exception:
+            logger.exception(
+                "restart_services: old config_watcher.stop failed",
+            )
+        if mcp_w is not None:
+            try:
+                await mcp_w.stop()
+            except Exception:
+                logger.exception(
+                    "restart_services: old mcp_watcher.stop failed",
+                )
+        try:
+            await cron_mgr.stop()
+        except Exception:
+            logger.exception(
+                "restart_services: old cron_manager.stop failed",
+            )
+        try:
+            await ch_mgr.stop_all()
+        except Exception:
+            logger.exception(
+                "restart_services: old channel_manager.stop_all failed",
+            )
+        if mcp_mgr is not None:
+            try:
+                await mcp_mgr.close_all()
+            except Exception:
+                logger.exception(
+                    "restart_services: old mcp_manager.close_all failed",
+                )
+
+        # 3) Build and start new stack
+        new_mcp_manager = MCPClientManager()
+        if hasattr(config, "mcp"):
+            try:
+                await new_mcp_manager.init_from_config(config.mcp)
+            except Exception:
+                logger.exception(
+                    "restart_services: mcp init_from_config failed",
+                )
+                return
+
+        new_channel_manager = ChannelManager.from_config(
+            process=make_process_from_runner(runner),
+            config=config,
+            on_last_dispatch=update_last_dispatch,
+        )
+        try:
+            await new_channel_manager.start_all()
+        except Exception:
+            logger.exception(
+                "restart_services: channel_manager.start_all failed",
+            )
+            await _teardown_new_stack(mcp_mgr=new_mcp_manager)
+            return
+
+        job_repo = JsonJobRepository(get_jobs_path())
+        new_cron_manager = CronManager(
+            repo=job_repo,
+            runner=runner,
+            channel_manager=new_channel_manager,
+            timezone="UTC",
+        )
+        try:
+            await new_cron_manager.start()
+        except Exception:
+            logger.exception(
+                "restart_services: cron_manager.start failed",
+            )
+            await _teardown_new_stack(
+                ch_mgr=new_channel_manager,
+                mcp_mgr=new_mcp_manager,
+            )
+            return
+
+        new_config_watcher = ConfigWatcher(
+            channel_manager=new_channel_manager,
+            cron_manager=new_cron_manager,
+        )
+        try:
+            await new_config_watcher.start()
+        except Exception:
+            logger.exception(
+                "restart_services: config_watcher.start failed",
+            )
+            await _teardown_new_stack(
+                cron_mgr=new_cron_manager,
+                ch_mgr=new_channel_manager,
+                mcp_mgr=new_mcp_manager,
+            )
+            return
+
+        new_mcp_watcher = None
+        if hasattr(config, "mcp"):
+            try:
+                new_mcp_watcher = MCPConfigWatcher(
+                    mcp_manager=new_mcp_manager,
+                    config_loader=load_config,
+                    config_path=get_config_path(),
+                )
+                await new_mcp_watcher.start()
+            except Exception:
+                logger.exception(
+                    "restart_services: mcp_watcher.start failed",
+                )
+                await _teardown_new_stack(
+                    config_watcher=new_config_watcher,
+                    cron_mgr=new_cron_manager,
+                    ch_mgr=new_channel_manager,
+                    mcp_mgr=new_mcp_manager,
+                )
+                return
+
+        if hasattr(config, "mcp"):
+            runner.set_mcp_manager(new_mcp_manager)
+            app.state.mcp_manager = new_mcp_manager
+            app.state.mcp_watcher = new_mcp_watcher
+        else:
+            runner.set_mcp_manager(None)
+            app.state.mcp_manager = None
+            app.state.mcp_watcher = None
+        app.state.channel_manager = new_channel_manager
+        app.state.cron_manager = new_cron_manager
+        app.state.config_watcher = new_config_watcher
+        logger.info("Daemon restart (in-process) completed: managers rebuilt")
+
+    setattr(runner, "_restart_callback", _restart_services)
+
+    try:
+        yield
+    finally:
+        # Stop current app.state refs (post-restart instances if any)
+        cfg_w = getattr(app.state, "config_watcher", None)
+        mcp_w = getattr(app.state, "mcp_watcher", None)
+        cron_mgr = getattr(app.state, "cron_manager", None)
+        ch_mgr = getattr(app.state, "channel_manager", None)
+        mcp_mgr = getattr(app.state, "mcp_manager", None)
+        # stop order: watchers -> cron -> channels -> mcp -> runner
+        if cfg_w is not None:
+            try:
+                await cfg_w.stop()
+            except Exception:
+                pass
+        if mcp_w is not None:
+            try:
+                await mcp_w.stop()
+            except Exception:
+                pass
+        if cron_mgr is not None:
+            try:
+                await cron_mgr.stop()
+            except Exception:
+                pass
+        if ch_mgr is not None:
+            try:
+                await ch_mgr.stop_all()
+            except Exception:
+                pass
+        if mcp_mgr is not None:
+            try:
+                await mcp_mgr.close_all()
+            except Exception:
+                pass
+        await runner.stop()
 
 
 app = FastAPI(

@@ -58,6 +58,16 @@ export function RemoteProviderCard({
   };
 
   const totalCount = provider.models.length;
+  const isConfigured =
+    provider.id === "ollama"
+      ? !!provider.current_base_url
+      : provider.is_local
+      ? true
+      : provider.is_custom
+      ? !!provider.current_base_url
+      : !!provider.current_api_key;
+  const hasModels = totalCount > 0;
+  const isAvailable = isConfigured && hasModels;
 
   const providerTag = provider.is_custom ? (
     <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>
@@ -69,26 +79,26 @@ export function RemoteProviderCard({
     </Tag>
   );
 
-  // Determine status logic:
-  // - Ollama: need base_url AND models (to connect to daemon)
-  // - Local providers (llama.cpp, mlx): need models only
-  // - Custom providers: need base_url AND models
-  // - Built-in remote providers: need API key
-  let statusReady: boolean;
-  if (provider.id === "ollama") {
-    statusReady = !!provider.current_base_url && provider.models.length > 0;
-  } else if (provider.is_local) {
-    statusReady = provider.models.length > 0;
-  } else if (provider.is_custom) {
-    statusReady = !!provider.current_base_url && provider.models.length > 0;
-  } else {
-    // Built-in remote providers (modelscope, dashscope, aliyun-codingplan)
-    statusReady = !!provider.current_api_key;
-  }
-
-  const statusLabel = statusReady
-    ? t("models.available")
-    : t("models.unavailable");
+  const statusLabel = isAvailable
+    ? t("models.providerAvailable")
+    : isConfigured
+    ? t("models.providerNoModels")
+    : t("models.providerNotConfigured");
+  const statusType = isAvailable
+    ? "enabled"
+    : isConfigured
+    ? "partial"
+    : "disabled";
+  const statusDotColor = isAvailable
+    ? "#52c41a"
+    : isConfigured
+    ? "#faad14"
+    : "#d9d9d9";
+  const statusDotShadow = isAvailable
+    ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
+    : isConfigured
+    ? "0 0 0 2px rgba(250, 173, 20, 0.2)"
+    : "none";
 
   return (
     <Card
@@ -96,7 +106,7 @@ export function RemoteProviderCard({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`${styles.providerCard} ${
-        statusReady ? styles.enabledCard : ""
+        isAvailable ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
       <div style={{ marginBottom: 16 }}>
@@ -111,15 +121,17 @@ export function RemoteProviderCard({
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                backgroundColor: statusReady ? "#52c41a" : "#d9d9d9",
-                boxShadow: statusReady
-                  ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
-                  : "none",
+                backgroundColor: statusDotColor,
+                boxShadow: statusDotShadow,
               }}
             />
             <span
               className={`${styles.statusText} ${
-                statusReady ? styles.enabled : styles.disabled
+                statusType === "enabled"
+                  ? styles.enabled
+                  : statusType === "partial"
+                  ? styles.partial
+                  : styles.disabled
               }`}
             >
               {statusLabel}

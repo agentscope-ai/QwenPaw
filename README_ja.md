@@ -109,13 +109,42 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
 ```
 
+**Windows (CMD):**
+
+```CMD
+curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat
+```
+
 **Windows (PowerShell):**
 
 ```powershell
 irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
-その後、新しいターミナルを開いて以下を実行:
+> **⚠️ Windows Enterprise LTSC ユーザーへの重要なお知らせ**
+>
+> Windows LTSC または厳格なセキュリティポリシーが適用された企業環境をご利用の場合、PowerShell は **制限付き言語モード** で実行される可能性があり、以下の問題が発生する可能性があります：
+> 1. **CMD（.bat）使用時：スクリプトは正常に実行されるが`Path`への書き込みができない**
+>
+>    スクリプトはファイルインストールを完了しましたが、**制限付き言語モード**のため環境変数への自動書き込みができません。この場合、手動で設定してください：
+>    - **インストールディレクトリを確認**：
+>      - `uv` の利用可否を確認：CMD で `uv --version` と入力し、バージョン番号が表示された場合は**CoPaw パスのみ設定**。`『uv』 は内部コマンドでも外部コマンドでもなく、実行可能プログラムまたはバッチファイルでもありません。` と表示された場合は両方を設定する必要があります。
+>      - uvパス（いずれか一つ、インストール場所に応じて選択。`uv`が利用不可の場合に記入）：通常`%USERPROFILE%\.local\bin`、`%USERPROFILE%\AppData\Local\uv`、またはPythonインストールディレクトリの`Scripts`フォルダ
+>      - CoPawパス：通常 `%USERPROFILE%\.copaw\bin` にあります。
+>    - **システム環境変数Pathへの手動追加**：
+>      - `Win + R` を押し、`sysdm.cpl` と入力して Enter キーを押し、「システムのプロパティ」を開く。
+>      - 「詳細設定」→「環境変数」をクリック。
+>      - 「システム変数」で `Path` を探して選択し、「編集」をクリック。
+>      - 「新規」をクリックし、上記の2つのディレクトリパスを順に入力して「OK」をクリックし保存します。
+> 2. **PowerShell（.ps1）を使用している場合：スクリプト実行が中断する**
+>
+>   **制限付き言語モード** のため、スクリプトが自動的に`uv`をダウンロードできない可能性があります。
+>   - **uvを手動でインストール**： [GitHub Release](https://github.com/astral-sh/uv/releases) を参照し、`uv.exe` を `%USERPROFILE%\.local\bin` または `%USERPROFILE%\AppData\Local\uv` に配置。または Python がインストールされていることを確認し、`python -m pip install -U uv` を実行。
+>   - **`uv`環境変数の設定**：`uv`の配置ディレクトリと `%USERPROFILE%\.copaw\bin` をシステムの `Path` 変数に追加してください。
+>   - **再実行**：新しいターミナルを開き、インストールスクリプトを再度実行して `CoPaw` のインストールを完了させてください。
+>   - **`CoPaw`環境変数の設定**：`%USERPROFILE%\.copaw\bin` をシステムの `Path` 変数に追加します。
+
+インストール完了後、新しいターミナルを開き、以下を実行してください：
 
 ```bash
 copaw init --defaults   # または: copaw init（対話式）

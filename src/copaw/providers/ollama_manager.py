@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
+from ..constant import MODEL_PROVIDER_CHECK_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,10 @@ def _ensure_ollama():
         import ollama  # type: ignore[import]
     except ImportError as e:  # pragma: no cover - import guard
         raise ImportError(
-            "The 'ollama' Python package is required for Ollama management. "
-            "Install it with: pip install 'copaw[ollama]'",
+            "The 'ollama' Python package is required. You may have "
+            "installed Ollama via their CLI or desktop app, but you "
+            "also need the Python SDK to manage models from CoPaw. "
+            "Please install it with: pip install 'copaw[ollama]'",
         ) from e
     return ollama
 
@@ -68,7 +71,10 @@ class OllamaModelManager:
         """Return the current model list from ``ollama.list()``."""
 
         ollama = _ensure_ollama()
-        raw = ollama.list()
+        # Use a bounded timeout to avoid blocking app requests indefinitely
+        # when the Ollama daemon/host is unreachable.
+        client = ollama.Client(timeout=MODEL_PROVIDER_CHECK_TIMEOUT)
+        raw = client.list()
         models: List[OllamaModelInfo] = []
         for m in raw.get("models", []):
             models.append(

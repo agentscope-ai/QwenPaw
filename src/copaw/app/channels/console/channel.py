@@ -183,13 +183,9 @@ class ConsoleChannel(BaseChannel):
                 last_response is not None,
             )
 
-            if last_response and getattr(last_response, "error", None):
-                err = getattr(
-                    last_response.error,
-                    "message",
-                    str(last_response.error),
-                )
-                self._print_error(err)
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                self._print_error(err_msg)
 
             to_handle = request.user_id or ""
             if self._on_reply_sent:
@@ -199,11 +195,10 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
-        except Exception:
+        except Exception as e:
             logger.exception("console process/reply failed")
-            self._print_error(
-                "An error occurred while processing your request.",
-            )
+            err_msg = str(e).strip() or "An error occurred while processing."
+            self._print_error(err_msg)
 
     # ── pretty-print helpers ────────────────────────────────────────
 
