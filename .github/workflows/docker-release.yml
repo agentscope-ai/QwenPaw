@@ -1,5 +1,6 @@
 # Build CoPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
-# Tags per registry: <version> and pre (pre updated every run).
+# Beta release: update <version> and pre only.
+# Formal release: update <version>, pre and latest.
 name: Docker Build and Push on Release
 
 on:
@@ -8,9 +9,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Image tag (e.g. v1.2.3)"
+        description: "Image tag (e.g. v1.2.3 or v1.2.3-beta.1)"
         required: true
         type: string
+      is_beta:
+        description: "Beta release (do not update latest)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
@@ -42,13 +48,28 @@ jobs:
           username: ${{ secrets.ALIYUN_ACR_USERNAME }}
           password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
 
-      - name: Build and push multi-arch (version + pre)
+      - name: Set version and beta flag
+        id: vars
+        run: |
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "is_beta=${{ github.event.release.prerelease }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "is_beta=${{ github.event.inputs.is_beta }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push multi-arch (version + pre [+ latest])
         env:
-          VERSION: ${{ github.event.release.tag_name || inputs.version }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          IS_BETA: ${{ steps.vars.outputs.is_beta }}
           COPAW_ENABLED_CHANNELS: "discord,dingtalk,feishu,qq,console"
         run: |
-          TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre \
-            -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
+          TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
+          TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
+          if [ "${IS_BETA}" != "true" ]; then
+            TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
+          fi
           docker buildx build --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg COPAW_ENABLED_CHANNELS="${COPAW_ENABLED_CHANNELS}" \
