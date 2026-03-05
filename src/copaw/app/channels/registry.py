@@ -25,6 +25,8 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "console": (".console", "ConsoleChannel"),
 }
 
+_BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] | None = None
+
 
 def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
     """Load built-in channels safely.
@@ -60,6 +62,20 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
             continue
         out[key] = cls
     return out
+
+
+def _get_cached_builtin_channels() -> dict[str, type[BaseChannel]]:
+    """Return cached built-in channels (loaded once per process)."""
+    global _BUILTIN_CHANNEL_CACHE
+    if _BUILTIN_CHANNEL_CACHE is None:
+        _BUILTIN_CHANNEL_CACHE = _load_builtin_channels()
+    return dict(_BUILTIN_CHANNEL_CACHE)
+
+
+def clear_builtin_channel_cache() -> None:
+    """Reset built-in channel cache. Primarily for tests."""
+    global _BUILTIN_CHANNEL_CACHE
+    _BUILTIN_CHANNEL_CACHE = None
 
 
 def _discover_custom_channels() -> dict[str, type[BaseChannel]]:
@@ -102,6 +118,6 @@ BUILTIN_CHANNEL_KEYS = frozenset(_BUILTIN_SPECS.keys())
 
 def get_channel_registry() -> dict[str, type[BaseChannel]]:
     """Built-in channel classes + custom channels from custom_channels/."""
-    out = _load_builtin_channels()
+    out = _get_cached_builtin_channels()
     out.update(_discover_custom_channels())
     return out

@@ -72,9 +72,11 @@ _original_pkg_resources: Any = sys.modules.get(
     _PKG_RESOURCES_MISSING,
 )
 _pkg_resources_shim: Optional[types.ModuleType] = None
+_pkg_resources_module: Any = None
+_declare_namespace_patched = False
 
 try:
-    import pkg_resources  # type: ignore
+    import pkg_resources as _pkg_resources_module  # type: ignore
 except ImportError:  # pragma: no cover - pkg_resources absent (setuptools>=82)
     _pkg_resources_shim = types.ModuleType("pkg_resources")
     _pkg_resources_shim.declare_namespace = (  # type: ignore[attr-defined]
@@ -82,10 +84,11 @@ except ImportError:  # pragma: no cover - pkg_resources absent (setuptools>=82)
     )
     sys.modules["pkg_resources"] = _pkg_resources_shim
 else:
-    if not hasattr(pkg_resources, "declare_namespace"):
-        pkg_resources.declare_namespace = (  # type: ignore[attr-defined]
+    if not hasattr(_pkg_resources_module, "declare_namespace"):
+        _pkg_resources_module.declare_namespace = (  # type: ignore[attr-defined]
             _declare_namespace_shim
         )
+        _declare_namespace_patched = True
 
 try:
     import lark_oapi as lark
@@ -108,6 +111,12 @@ finally:
             del sys.modules["pkg_resources"]
         else:
             sys.modules["pkg_resources"] = _original_pkg_resources
+    if _declare_namespace_patched and _pkg_resources_module is not None:
+        if (
+            getattr(_pkg_resources_module, "declare_namespace", None)
+            is _declare_namespace_shim
+        ):
+            delattr(_pkg_resources_module, "declare_namespace")
 
 if TYPE_CHECKING:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
