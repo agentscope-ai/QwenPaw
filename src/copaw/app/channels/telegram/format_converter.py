@@ -36,7 +36,7 @@ def convert_markdown_to_telegram_html(text: str) -> str:
     if not text:
         return text
 
-    logger.info(f"[FORMAT] Original: {text[:200]}...")
+    logger.debug(f"[FORMAT] Input: {mask_text(text, 100)}")
 
     lines = text.split("\n")
     converted_lines = []
@@ -60,12 +60,13 @@ def convert_markdown_to_telegram_html(text: str) -> str:
     def flush_code_block():
         """刷新代码块"""
         nonlocal in_code_block, code_block_content
-        if in_code_block and code_block_content:
+        if code_block_content:
             code_text = "\n".join(code_block_content)
             code_text = escape_html(code_text)
             converted_lines.append(f"<pre>{code_text}</pre>")
-            code_block_content = []
-            in_code_block = False
+        # Always reset state, even for empty blocks
+        code_block_content = []
+        in_code_block = False
 
     def process_table_header():
         """处理待处理的表头（加粗）"""
@@ -93,11 +94,14 @@ def convert_markdown_to_telegram_html(text: str) -> str:
                 if code_line:
                     code_block_content.append(code_line)
                 flush_code_block()
-                # 如果同一行还有 ``` 之后的内容，作为新代码块开始
-                remaining = line.split("```", 1)[1]
-                if remaining.strip():
-                    in_code_block = True
-                continue
+                # 处理 ``` 之后的内容（如果有）
+                parts = line.split("```", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    # 同一行有结束后的内容，继续处理但不重新进入代码块
+                    line = parts[1]
+                    # Fall through to process the remaining content
+                else:
+                    continue
             else:
                 # 不在代码块内，遇到 ``` 表示开始
                 flush_blockquote()
@@ -149,14 +153,15 @@ def convert_markdown_to_telegram_html(text: str) -> str:
                         )
                     converted_lines.append(processed_before)
 
-                # 检查是否有 ``` 之后的内容（同一行）
+                # 检查是否有 ``` 之后的内容（同一行，单行代码块）
                 after_parts = line.split("```")[1:]
                 if len(after_parts) >= 2 and after_parts[0].strip():
-                    # 同一行有开始和结束（```code``` 格式）
+                    # 单行有开始和结束（```code``` 格式）
                     code_content = after_parts[0]
                     if code_content.strip():
-                        code_block_content.append(code_content)
-                        flush_code_block()
+                        # 直接处理单行代码块，不设置状态
+                        code_text = escape_html(code_content)
+                        converted_lines.append(f"<pre>{code_text}</pre>")
                     # 处理最后一个 ``` 之后的内容
                     if len(after_parts) > 2 and after_parts[2].strip():
                         line = after_parts[2]
@@ -321,7 +326,7 @@ def convert_markdown_to_telegram_html(text: str) -> str:
     process_table_header()
 
     result = "\n".join(converted_lines)
-    logger.info(f"[FORMAT] Converted: {result[:200]}...")
+    logger.debug(f"[FORMAT] Output: {mask_text(result, 100)}")
     return result
 
 
@@ -343,6 +348,26 @@ def escape_html(text: str, quote: bool = False) -> str:
         text = text.replace('"', "&quot;")
         text = text.replace("'", "&#x27;")
     return text
+
+
+def mask_text(text: str, max_length: int = 50) -> str:
+    """
+    脱敏文本，用于日志记录
+
+    Args:
+        text: 原始文本
+        max_length: 最大显示长度
+
+    Returns:
+        脱敏后的文本
+    """
+    if not text:
+        return "<empty>"
+    length = len(text)
+    snippet = text[:max_length].replace("\n", "\\n").replace("\r", "\\r")
+    if length > max_length:
+        return f"<{length} chars: {snippet}...>"
+    return f"<{length} chars: {snippet}>"
 
 
 if __name__ == "__main__":
