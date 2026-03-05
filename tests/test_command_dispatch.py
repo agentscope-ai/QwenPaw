@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for command dispatch and daemon commands (sync helpers)."""
+
 import asyncio
 
 from copaw.agents.command_handler import (
@@ -34,6 +35,7 @@ def test_conversation_commands_set() -> None:
             "history",
             "compact_str",
             "await_summary",
+            "message",
         },
     )
 
@@ -127,6 +129,6 @@ async def test_daemon_restart_with_callback_returns_completed() -> None:
 
     ctx = DaemonContext(restart_callback=noop_restart)
     out = await run_daemon_restart(ctx)
-    assert (
-        "completed" in out.lower() or "完成" in out
-    ), f"Expected completion message, got: {out[:200]}"
+    assert "completed" in out.lower() or "完成" in out, (
+        f"Expected completion message, got: {out[:200]}"
+    )
