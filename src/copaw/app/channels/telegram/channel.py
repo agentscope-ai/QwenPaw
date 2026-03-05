@@ -462,7 +462,8 @@ class TelegramChannel(BaseChannel):
         except asyncio.CancelledError:
             pass
         finally:
-            self._typing_tasks.pop(chat_id, None)
+            if self._typing_tasks.get(chat_id) is asyncio.current_task():
+                self._typing_tasks.pop(chat_id, None)
 
     async def send(
         self,
