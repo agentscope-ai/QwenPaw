@@ -16,12 +16,23 @@ jobs:
         with:
           script: |
             const author = context.payload.pull_request.user.login;
+            let isFirstTime = false;
 
-            const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
-              q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author} is:closed`,
-            });
-
-            const isFirstTime = searchResult.total_count === 0;
+            try {
+              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author} is:closed`,
+              });
+              isFirstTime = searchResult.total_count === 0;
+              if (!isFirstTime) {
+                core.info(`${author} has ${searchResult.total_count} closed PRs, skipping label`);
+              }
+            } catch (err) {
+              if (err.status === 422 && err.message && err.message.includes('cannot be searched')) {
+                core.warning(`Search API cannot look up author ${author}, skipping first-time label`);
+                return;
+              }
+              throw err;
+            }
 
             if (isFirstTime) {
               await github.rest.issues.addLabels({
@@ -31,6 +42,4 @@ jobs:
                 labels: ['first-time-contributor'],
               });
               core.info(`Labeled PR #${context.payload.pull_request.number} as first-time-contributor`);
-            } else {
-              core.info(`${author} has ${searchResult.total_count} PRs, skipping label`);
             }
