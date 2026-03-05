@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
+import threading
 from typing import TYPE_CHECKING
 
 from ...constant import CUSTOM_CHANNELS_DIR
@@ -25,7 +26,11 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "console": (".console", "ConsoleChannel"),
 }
 
+# Channels that must load successfully; failure raises instead of being skipped.
+_REQUIRED_CHANNEL_KEYS: frozenset[str] = frozenset({"console"})
+
 _BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] | None = None
+_BUILTIN_CHANNEL_CACHE_LOCK = threading.Lock()
 
 
 def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
@@ -47,7 +52,7 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
                     f"{module_name}.{class_name} is not a BaseChannel subtype",
                 )
         except Exception:
-            if key == "console":
+            if key in _REQUIRED_CHANNEL_KEYS:
                 logger.error(
                     'failed to load required built-in channel "%s"',
                     key,
@@ -68,14 +73,17 @@ def _get_cached_builtin_channels() -> dict[str, type[BaseChannel]]:
     """Return cached built-in channels (loaded once per process)."""
     global _BUILTIN_CHANNEL_CACHE
     if _BUILTIN_CHANNEL_CACHE is None:
-        _BUILTIN_CHANNEL_CACHE = _load_builtin_channels()
+        with _BUILTIN_CHANNEL_CACHE_LOCK:
+            if _BUILTIN_CHANNEL_CACHE is None:
+                _BUILTIN_CHANNEL_CACHE = _load_builtin_channels()
     return dict(_BUILTIN_CHANNEL_CACHE)
 
 
 def clear_builtin_channel_cache() -> None:
     """Reset built-in channel cache. Primarily for tests."""
     global _BUILTIN_CHANNEL_CACHE
-    _BUILTIN_CHANNEL_CACHE = None
+    with _BUILTIN_CHANNEL_CACHE_LOCK:
+        _BUILTIN_CHANNEL_CACHE = None
 
 
 def _discover_custom_channels() -> dict[str, type[BaseChannel]]:

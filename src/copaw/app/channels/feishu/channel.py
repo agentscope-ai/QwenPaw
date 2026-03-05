@@ -44,7 +44,6 @@ from ..base import (
 )
 from ..utils import file_url_to_local_path
 from .constants import (
-    FEISHU_AVAILABLE,
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
@@ -523,11 +522,7 @@ class FeishuChannel(BaseChannel):
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
         """Handle one Feishu message: dedup, parse, download media, enqueue."""
-        if (
-            not FEISHU_AVAILABLE
-            or not data
-            or not getattr(data, "event", None)
-        ):
+        if not data or not getattr(data, "event", None):
             return
         try:
             event = data.event
@@ -704,7 +699,7 @@ class FeishuChannel(BaseChannel):
         emoji_type: str = "THUMBSUP",
     ) -> None:
         """Add reaction to message (non-blocking)."""
-        if not FEISHU_AVAILABLE or not self._client or not Emoji:
+        if not self._client or not Emoji:
             return
         try:
             loop = asyncio.get_running_loop()
@@ -974,7 +969,7 @@ class FeishuChannel(BaseChannel):
 
     def _upload_image_sync(self, data: bytes, filename: str) -> Optional[str]:
         """Upload image via lark client; return image_key."""
-        if not FEISHU_AVAILABLE or not self._client:
+        if not self._client:
             return None
         logger.info(
             "feishu _upload_image_sync: size=%s filename=%s",
@@ -1111,7 +1106,7 @@ class FeishuChannel(BaseChannel):
         content: str,
     ) -> bool:
         """Send one message (post, image, or file) via lark client."""
-        if not FEISHU_AVAILABLE or not self._client:
+        if not self._client:
             return False
         logger.info(
             "feishu _send_message_sync: msg_type=%s receive_id_type=%s "
@@ -1439,7 +1434,7 @@ class FeishuChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send text as post (md), then images, then files."""
-        if not self.enabled or not FEISHU_AVAILABLE:
+        if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
         if not recv:
@@ -1521,7 +1516,7 @@ class FeishuChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Proactive send: resolve receive_id and send text as post."""
-        if not self.enabled or not FEISHU_AVAILABLE:
+        if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
         if not recv:
@@ -1596,11 +1591,6 @@ class FeishuChannel(BaseChannel):
             logger.debug("feishu channel disabled")
             return
         self._load_receive_id_store_from_disk()
-        if not FEISHU_AVAILABLE:
-            raise RuntimeError(
-                "Feishu channel enabled but lark-oapi not installed. "
-                "Run: pip install lark-oapi",
-            )
         if not self.app_id or not self.app_secret:
             raise RuntimeError(
                 "FEISHU_APP_ID and FEISHU_APP_SECRET are required when "
