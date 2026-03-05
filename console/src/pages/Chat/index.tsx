@@ -56,9 +56,17 @@ export default function ChatPage() {
         (pct: number) => onProgress?.({ percent: pct }),
       );
       onProgress?.({ percent: 100 });
-      const fullUrl = /^https?:\/\//i.test(result.url)
-        ? result.url
-        : new URL(result.url, getApiUrl("/")).toString();
+      let fullUrl: string;
+      if (/^https?:\/\//i.test(result.url)) {
+        fullUrl = result.url;
+      } else {
+        const base = getApiUrl("/");
+        if (/^https?:\/\//i.test(base)) {
+          fullUrl = new URL(result.url, base).toString();
+        } else {
+          fullUrl = `${window.location.origin}${result.url}`;
+        }
+      }
       onSuccess?.({ url: fullUrl });
     } catch (err) {
       onError?.(err instanceof Error ? err : new Error(String(err)));
