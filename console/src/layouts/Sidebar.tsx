@@ -56,6 +56,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [version, setVersion] = useState<string>("");
 
   useEffect(() => {
+    if (!collapsed) {
+      setOpenKeys([
+        "chat-group",
+        "control-group",
+        "agent-group",
+        "settings-group",
+      ]);
+    }
+  }, [collapsed]);
+
+  useEffect(() => {
     api
       .getVersion()
       .then((res) => setVersion(res?.version ?? ""))

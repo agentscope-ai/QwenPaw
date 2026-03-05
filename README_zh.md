@@ -382,3 +382,13 @@ CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Ag
 ## 许可证
 
 CoPaw 采用 [Apache License 2.0](LICENSE) 开源协议。
+
+---
+
+## 贡献者
+
+感谢所有为 CoPaw 做出贡献的朋友们：
+
+<a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="贡献者" />
+</a>

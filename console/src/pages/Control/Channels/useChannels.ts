@@ -1,43 +1,67 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import api from "../../../api";
-import type { ChannelConfig } from "../../../api/types";
 
 export function useChannels() {
-  const [channels, setChannels] = useState<ChannelConfig>({} as ChannelConfig);
+  const [channels, setChannels] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  const [channelTypes, setChannelTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchChannels = async () => {
+  const fetchChannels = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.listChannels();
-      if (data) {
-        setChannels(data);
-      }
+      const [data, types] = await Promise.all([
+        api.listChannels(),
+        api.listChannelTypes(),
+      ]);
+      if (data)
+        setChannels(data as unknown as Record<string, Record<string, unknown>>);
+      if (types) setChannelTypes(types);
     } catch (error) {
       console.error("❌ Failed to load channels:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    fetchChannels();
+  }, [fetchChannels]);
 
-    const fetchData = async () => {
-      await fetchChannels();
-    };
+  // Built-in channels come first (in a fixed order), then custom channels
+  const builtinOrder = useMemo(
+    () => [
+      "console",
+      "dingtalk",
+      "feishu",
+      "imessage",
+      "discord",
+      "telegram",
+      "qq",
+    ],
+    [],
+  );
 
-    if (mounted) {
-      fetchData();
-    }
+  const orderedKeys = useMemo(
+    () => [
+      ...builtinOrder.filter((k) => channelTypes.includes(k)),
+      ...channelTypes.filter((k) => !builtinOrder.includes(k)),
+    ],
+    [builtinOrder, channelTypes],
+  );
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  // Read isBuiltin from API response
+  const isBuiltin = useCallback(
+    (key: string) => Boolean(channels[key]?.isBuiltin),
+    [channels],
+  );
 
   return {
     channels,
+    channelTypes,
+    orderedKeys,
+    isBuiltin,
     loading,
     fetchChannels,
   };

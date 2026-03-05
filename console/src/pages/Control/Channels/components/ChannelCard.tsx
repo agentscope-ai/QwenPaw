@@ -1,15 +1,15 @@
-import { Card } from "@agentscope-ai/design";
+import { Card, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
   SingleChannelConfig,
   VoiceChannelConfig,
 } from "../../../../api/types";
-import { CHANNEL_LABELS, type ChannelKey } from "./constants";
+import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 
 interface ChannelCardProps {
   channelKey: ChannelKey;
-  config: SingleChannelConfig;
+  config: Record<string, unknown>;
   isHover: boolean;
   onClick: () => void;
   onMouseEnter: () => void;
@@ -25,7 +25,9 @@ export function ChannelCard({
   onMouseLeave,
 }: ChannelCardProps) {
   const { t } = useTranslation();
-  const enabled = Boolean((config as SingleChannelConfig).enabled);
+  const enabled = Boolean(config.enabled);
+  const isBuiltin = Boolean(config.isBuiltin);
+  const label = getChannelLabel(channelKey);
 
   const getCardClassNames = () => {
     if (isHover) return `${styles.channelCard} ${styles.hover}`;
@@ -43,18 +45,27 @@ export function ChannelCard({
       bodyStyle={{ padding: 20 }}
     >
       <div className={styles.cardHeader}>
-        <span className={styles.statusContainer}>
-          <span
+        <Tooltip title={label} placement="top">
+          <div className={styles.cardTitleRow}>
+            <div className={styles.cardTitle}>{label}</div>
+            {isBuiltin ? (
+              <span className={styles.builtinTag}>{t("channels.builtin")}</span>
+            ) : (
+              <span className={styles.customTag}>{t("channels.custom")}</span>
+            )}
+          </div>
+        </Tooltip>
+
+        <div className={styles.statusContainer}>
+          <div
             className={`${styles.statusDot} ${
               enabled ? styles.enabled : styles.disabled
             }`}
           />
-          {enabled ? t("common.enabled") : t("common.disabled")}
-        </span>
-        <span className={styles.channelTag}>{CHANNEL_LABELS[channelKey]}</span>
+          <div>{enabled ? t("common.enabled") : t("common.disabled")}</div>
+        </div>
       </div>
 
-      <div className={styles.cardTitle}>{CHANNEL_LABELS[channelKey]}</div>
       <div className={styles.cardDescription}>
         {channelKey === "voice" ? (
           <>
