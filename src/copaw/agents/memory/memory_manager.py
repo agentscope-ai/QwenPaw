@@ -119,25 +119,39 @@ class MemoryManager(ReMeCopaw):
         On case-sensitive filesystems, the lowercase path often does not
         exist and may terminate the watcher loop in some environments.
         """
-        memory_md_path = str((working_path / "MEMORY.md").absolute())
-        legacy_memory_md_path = str((working_path / "memory.md").absolute())
+        memory_md_path = str((working_path / "MEMORY.md").resolve())
+        legacy_memory_md_path = str((working_path / "memory.md").resolve())
 
         sanitized: list[str] = []
         seen: set[str] = set()
 
         for raw_path in watch_paths:
-            absolute_path = str(Path(raw_path).absolute())
-            if absolute_path == legacy_memory_md_path:
+            normalized_path = MemoryManager._normalize_watch_path(
+                raw_path=raw_path,
+                working_path=working_path,
+            )
+            if normalized_path == legacy_memory_md_path:
                 continue
-            if absolute_path in seen:
+            if normalized_path in seen:
                 continue
-            seen.add(absolute_path)
-            sanitized.append(absolute_path)
+            seen.add(normalized_path)
+            sanitized.append(normalized_path)
 
         if memory_md_path not in seen:
             sanitized.insert(0, memory_md_path)
 
         return sanitized
+
+    @staticmethod
+    def _normalize_watch_path(
+        raw_path: str,
+        working_path: Path,
+    ) -> str:
+        """Normalize watcher paths with working directory as relative base."""
+        path_obj = Path(raw_path)
+        if not path_obj.is_absolute():
+            path_obj = working_path / path_obj
+        return str(path_obj.resolve())
 
     def _patch_memory_watcher_paths(self) -> None:
         """Patch watcher config to avoid invalid legacy `memory.md` path."""
