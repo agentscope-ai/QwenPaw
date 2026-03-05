@@ -64,8 +64,7 @@ def _monkey_patch(func):
 
     return wrapper
 
-
-if agentscope.__version__ == "1.0.16dev":
+if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
     OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
