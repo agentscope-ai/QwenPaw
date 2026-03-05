@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 # pylint:disable=unused-import
 """
-macOS .app Dev entry: same as gui_launcher but tee stdout/stderr to a log file
-and install excepthooks so crashes leave a trace in ~/Library/.../logs/.
+Desktop Dev entry: same as gui_launcher but tee stdout/stderr to a log file
+and install excepthooks so crashes leave a trace in support-dir/logs/.
+Shared by scripts/pack/; entry point uses import gui_launcher (no . relative).
 """
 from __future__ import annotations
 
@@ -10,21 +11,30 @@ import os
 import sys
 import threading
 import traceback
+from pathlib import Path
 
-# Must set before any copaw import (WORKING_DIR is read at import).
-_SUPPORT = os.path.abspath(
-    os.path.expanduser("~/Library/Application Support/CoPaw"),
-)
-os.environ["COPAW_WORKING_DIR"] = _SUPPORT
 
-# Force PyInstaller to bundle reme (import is optional at runtime for dev from source).
+# Set COPAW_WORKING_DIR before any copaw import (same logic as gui_launcher).
+def _desktop_support_dir() -> Path:
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        return Path(base) / "CoPaw"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "CoPaw"
+    return Path.home() / ".copaw"
+
+
+_SUPPORT = _desktop_support_dir().resolve()
+os.environ["COPAW_WORKING_DIR"] = str(_SUPPORT)
+
+# Force PyInstaller to bundle reme (import is optional at runtime for dev).
 try:
     import reme  # noqa: F401
 except ImportError:
     pass
 
-_LOG_DIR = os.path.join(_SUPPORT, "logs")
-_LOG_FILE = os.path.join(_LOG_DIR, "copaw_dev.log")
+_LOG_DIR = _SUPPORT / "logs"
+_LOG_FILE = _LOG_DIR / "copaw_dev.log"
 _ORIG_STDOUT = sys.__stdout__
 _ORIG_STDERR = sys.__stderr__
 _LOG_HANDLE = None
@@ -64,20 +74,16 @@ class _Tee:
     def fileno(self):
         return self._stream.fileno()
 
-    # Required by uvicorn logging (ColourizedFormatter); missing -> ValueError
-    # "Unable to configure formatter 'default'".
     def isatty(self):
         return getattr(self._stream, "isatty", lambda: False)()
 
 
-def _install_log_tee():
-    """Redirect stdout/stderr to console + log file."""
+def _install_log_tee() -> None:
     global _LOG_HANDLE
     try:
-        os.makedirs(_LOG_DIR, exist_ok=True)
-        # Keep handle open for process lifetime; cannot use 'with'
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
         # pylint: disable=consider-using-with
-        _LOG_HANDLE = open(_LOG_FILE, "a", encoding="utf-8")
+        _LOG_HANDLE = _LOG_FILE.open("a", encoding="utf-8")
         sys.stdout = _Tee(_ORIG_STDOUT, _LOG_HANDLE)
         sys.stderr = _Tee(_ORIG_STDERR, _LOG_HANDLE)
     except OSError:
@@ -85,7 +91,6 @@ def _install_log_tee():
 
 
 def _log_crash(msg: str) -> None:
-    """Write crash message to log file (and try stderr)."""
     try:
         _ORIG_STDERR.write(msg)
         _ORIG_STDERR.flush()
@@ -100,7 +105,6 @@ def _log_crash(msg: str) -> None:
 
 
 def _excepthook(typ, value, tb):
-    """Log uncaught exception then re-raise."""
     _log_crash("\n--- CoPaw-Dev uncaught exception ---\n")
     _log_crash("".join(traceback.format_exception(typ, value, tb)))
     _log_crash(f"Log file: {_LOG_FILE}\n")
@@ -109,7 +113,6 @@ def _excepthook(typ, value, tb):
 
 
 def _thread_excepthook(args):
-    """Log uncaught thread exception (Python 3.8+)."""
     _log_crash("\n--- CoPaw-Dev thread exception ---\n")
     if args.exc_type is not None and args.exc_value is not None:
         _log_crash(
@@ -129,7 +132,6 @@ def main() -> None:
     sys.excepthook = _excepthook
     if hasattr(threading, "excepthook"):
         threading.excepthook = _thread_excepthook
-    # Delegate to the normal GUI launcher.
     import gui_launcher  # noqa: E402
 
     gui_launcher.main()

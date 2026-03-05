@@ -1,3 +1,4 @@
+# macOS desktop build. Windows can be added as a separate workflow (e.g. release-windows.yml).
 name: Release macOS DMG
 
 on:
@@ -49,7 +50,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[full]"
-          pip install pyinstaller
+          pip install pyinstaller pywebview
 
       - name: Build DMG (release + dev)
         env:

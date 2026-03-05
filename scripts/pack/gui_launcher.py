@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 # pylint:disable=unused-import
 """
-macOS .app GUI entry: start CoPaw server in background and show Console in a
-native window (pywebview). Close window to quit server and app.
+Desktop GUI entry (macOS .app / Windows exe): start CoPaw server in background
+and show Console in a native window (pywebview). Close window to quit.
+Shared by scripts/pack/; used as entry point from macOS/Windows specs.
 """
 from __future__ import annotations
 
@@ -13,15 +14,24 @@ import threading
 import time
 import traceback
 import urllib.request
+from pathlib import Path
 import uvicorn
 
-# Set working dir before any copaw import (constant.WORKING_DIR is read at import).
-_SUPPORT = os.path.abspath(
-    os.path.expanduser("~/Library/Application Support/CoPaw"),
-)
-os.environ["COPAW_WORKING_DIR"] = _SUPPORT
 
-# Force PyInstaller to bundle reme (import is optional at runtime for dev from source).
+def _desktop_support_dir() -> Path:
+    """Default COPAW_WORKING_DIR for packaged app (macOS/Windows/other)."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        return Path(base) / "CoPaw"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "CoPaw"
+    return Path.home() / ".copaw"
+
+
+_SUPPORT = _desktop_support_dir().resolve()
+os.environ["COPAW_WORKING_DIR"] = str(_SUPPORT)
+
+# Force PyInstaller to bundle reme (import is optional at runtime for dev).
 try:
     import reme  # noqa: F401
 except ImportError:
@@ -29,44 +39,35 @@ except ImportError:
 
 
 def _log(msg: str) -> None:
-    """Write to stderr and to support-dir log for .app runs."""
+    """Write to stderr and to support-dir log for desktop runs."""
     print(msg, file=sys.stderr, flush=True)
-    support = os.path.expanduser("~/Library/Application Support/CoPaw")
-    log_dir = os.path.join(support, "logs")
     try:
-        os.makedirs(log_dir, exist_ok=True)
-        with open(
-            os.path.join(log_dir, "gui_launcher.log"),
-            "a",
-            encoding="utf-8",
-        ) as f:
+        log_dir = _SUPPORT / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (log_dir / "gui_launcher.log").open("a", encoding="utf-8") as f:
             f.write(msg.rstrip() + "\n")
-            f.flush()
     except OSError:
         pass
 
 
-# Create support dir and init config; COPAW_WORKING_DIR already set at top.
 def _ensure_working_dir() -> None:
-    support = _SUPPORT
-    os.makedirs(support, exist_ok=True)
-    config = os.path.join(support, "config.json")
-    if not os.path.isfile(config):
+    """Create support dir and init config; COPAW_WORKING_DIR already set."""
+    _SUPPORT.mkdir(parents=True, exist_ok=True)
+    config = _SUPPORT / "config.json"
+    if not config.is_file():
         from copaw.cli.init_cmd import init_cmd
 
         init_cmd.main(
             args=["--defaults", "--accept-security"],
             standalone_mode=False,
         )
-    # Ensure data files exist so backend APIs return valid structure (not 404/500).
-    for name in ("jobs.json", "chats.json"):
-        path = os.path.join(support, name)
-        if not os.path.isfile(path):
-            with open(path, "w", encoding="utf-8") as f:
-                if name == "jobs.json":
-                    f.write('{"version":1,"jobs":[]}')
-                else:
-                    f.write('{"version":1,"chats":[]}')
+    for name, default in (
+        ("jobs.json", '{"version":1,"jobs":[]}'),
+        ("chats.json", '{"version":1,"chats":[]}'),
+    ):
+        path = _SUPPORT / name
+        if not path.is_file():
+            path.write_text(default, encoding="utf-8")
 
 
 def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
@@ -92,7 +93,6 @@ def _run_server(server: "uvicorn.Server") -> None:
 
 
 def _pick_free_port() -> int:
-    """Bind to 127.0.0.1:0 and return the chosen port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
@@ -100,8 +100,7 @@ def _pick_free_port() -> int:
 
 def main() -> None:
     _ensure_working_dir()
-    support = os.environ.get("COPAW_WORKING_DIR", "")
-    _log(f"COPAW_WORKING_DIR={support}")
+    _log(f"COPAW_WORKING_DIR={_SUPPORT}")
 
     from copaw.utils.logging import setup_logger
 
@@ -127,12 +126,7 @@ def main() -> None:
         server.should_exit = True
         sys.exit(1)
     try:
-        with open(
-            os.path.join(support, "last_base_url.txt"),
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(base_url)
+        (_SUPPORT / "last_base_url.txt").write_text(base_url, encoding="utf-8")
     except OSError:
         pass
 

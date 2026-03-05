@@ -8,14 +8,15 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 REPO_ROOT = Path.cwd().resolve()
 _SPEC_DIR = REPO_ROOT / "scripts" / "macos"
-sys.path.insert(0, str(_SPEC_DIR))
+_PACK_DIR = REPO_ROOT / "scripts" / "pack"
+sys.path.insert(0, str(_PACK_DIR))
 from pyi_project_deps import get_collect_packages_from_installed
 
 CONSOLE_STATIC = REPO_ROOT / "src" / "copaw" / "console"
 MD_FILES_SRC = REPO_ROOT / "src" / "copaw" / "agents" / "md_files"
 SKILLS_SRC = REPO_ROOT / "src" / "copaw" / "agents" / "skills"
 TOKENIZER_SRC = REPO_ROOT / "src" / "copaw" / "tokenizer"
-_LAUNCHER = _SPEC_DIR / "gui_launcher.py"
+_LAUNCHER = _PACK_DIR / "gui_launcher.py"
 
 _console_datas = (
     [(str(CONSOLE_STATIC), "copaw/console")] if CONSOLE_STATIC.is_dir() else []
@@ -62,7 +63,7 @@ _extra_hidden = [
 
 a = Analysis(
     [str(_LAUNCHER)],
-    pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
+    pathex=[str(REPO_ROOT), str(REPO_ROOT / "src"), str(_PACK_DIR)],
     binaries=_dep_binaries,
     datas=(
         _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _dep_datas
@@ -72,7 +73,7 @@ a = Analysis(
     ),
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[str(_SPEC_DIR / "pyi_rth_opentelemetry_context.py")],
+    runtime_hooks=[],
     excludes=[],
     noarchive=False,
 )

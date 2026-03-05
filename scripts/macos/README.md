@@ -12,7 +12,7 @@ Output: `dist/CoPaw.app`, `dist/CoPaw-<version>.dmg`.
 With `--dev`: also `dist/CoPaw-Dev.app`, `dist/CoPaw-Dev-<version>.dmg`.
 With `--quick`: only `dist/CoPaw-Dev.app`; uses existing `src/copaw/console` (run a full build once first if needed).
 
-**Dependencies:** The spec collects **all currently installed packages** (via `get_collect_packages_from_installed()`), so you must run `pip install -e ".[full]"` before building. That way direct and transitive deps are included and nothing is missed. Build tools (pip, setuptools, wheel, pyinstaller) and copaw itself are excluded from the bundle.
+**Dependencies:** The spec collects all currently installed packages via `scripts/pack/pyi_project_deps.get_collect_packages_from_installed()`. Run `pip install -e ".[full]"` before building. Launchers live in `scripts/pack/` (shared with future Windows). The previous runtime hook for opentelemetry/chromadb was removed; if you see chromadb or opentelemetry errors in the frozen app, it may need to be restored.
 
 **Bundle layout:** Only the launcher script lives in `Contents/MacOS`; the PyInstaller runtime (executable + `_internal`) is under `Contents/Frameworks` to avoid codesign nesting and to match macOS expectations (MacOS = main executable only).
 
