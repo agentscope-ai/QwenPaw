@@ -70,10 +70,12 @@ async def lifespan(
     if hasattr(config, "mcp"):
         try:
             await mcp_manager.init_from_config(config.mcp)
-            runner.set_mcp_manager(mcp_manager)
             logger.debug("MCP client manager initialized")
-        except Exception:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.exception("Failed to initialize MCP manager")
+    runner.set_mcp_manager(mcp_manager)
 
     # --- channel connector init/start (from config.json) ---
     channel_manager = ChannelManager.from_config(
@@ -119,7 +121,9 @@ async def lifespan(
             )
             await mcp_watcher.start()
             logger.debug("MCP config watcher started")
-        except Exception:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.exception("Failed to start MCP watcher")
 
     # expose to endpoints
