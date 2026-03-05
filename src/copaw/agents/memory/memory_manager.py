@@ -9,6 +9,7 @@ Inherits from ReMeCopaw to provide memory management capabilities including:
 - Tool result compaction
 """
 import logging
+from pathlib import Path
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
@@ -103,6 +104,74 @@ class MemoryManager(ReMeCopaw):
             tool_result_threshold=tool_result_threshold,
             retention_days=retention_days,
         )
+        self._patch_memory_watcher_paths()
+
+    @staticmethod
+    def _sanitize_memory_watch_paths(
+        watch_paths: list[str],
+        working_path: Path,
+    ) -> list[str]:
+        """Normalize watcher paths and drop legacy lowercase `memory.md`.
+
+        ReMe's default CoPaw watcher configuration includes both:
+        - {working_dir}/MEMORY.md
+        - {working_dir}/memory.md
+        On case-sensitive filesystems, the lowercase path often does not
+        exist and may terminate the watcher loop in some environments.
+        """
+        memory_md_path = str((working_path / "MEMORY.md").absolute())
+        legacy_memory_md_path = str((working_path / "memory.md").absolute())
+
+        sanitized: list[str] = []
+        seen: set[str] = set()
+
+        for raw_path in watch_paths:
+            absolute_path = str(Path(raw_path).absolute())
+            if absolute_path == legacy_memory_md_path:
+                continue
+            if absolute_path in seen:
+                continue
+            seen.add(absolute_path)
+            sanitized.append(absolute_path)
+
+        if memory_md_path not in seen:
+            sanitized.insert(0, memory_md_path)
+
+        return sanitized
+
+    def _patch_memory_watcher_paths(self) -> None:
+        """Patch watcher config to avoid invalid legacy `memory.md` path."""
+        memory_md_path = self.working_path / "MEMORY.md"
+        memory_md_path.touch(exist_ok=True)
+
+        file_watchers = getattr(
+            self.service_context.service_config,
+            "file_watchers",
+            {},
+        )
+        if not file_watchers:
+            return
+
+        for watcher_name, watcher_config in file_watchers.items():
+            watch_paths = list(
+                getattr(watcher_config, "watch_paths", []) or [],
+            )
+            if not watch_paths:
+                continue
+
+            sanitized_paths = self._sanitize_memory_watch_paths(
+                watch_paths=watch_paths,
+                working_path=self.working_path,
+            )
+            watcher_config.watch_paths = sanitized_paths
+
+            if sanitized_paths != watch_paths:
+                logger.info(
+                    "Patched memory watcher paths for %s: %s -> %s",
+                    watcher_name,
+                    watch_paths,
+                    sanitized_paths,
+                )
 
     def update_config_params(self):
         global_config = load_config()
