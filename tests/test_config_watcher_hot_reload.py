@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
 import json
 from pathlib import Path
 
@@ -14,7 +15,7 @@ class _DummyManager:
         self.add_calls: list[str] = []
         self.replace_calls: list[str] = []
 
-    async def get_channel(self, channel_name: str):
+    async def get_channel(self, _channel_name: str):
         return None
 
     async def replace_channel(self, channel_obj) -> None:

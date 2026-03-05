@@ -158,11 +158,17 @@ class ConfigWatcher:
             return
         new_channels = loaded_config.channels
         old_channels = self._last_channels
-        extra_new = getattr(new_channels, "__pydantic_extra__", None) or {}
-        extra_old = (
+        extra_new_raw = getattr(new_channels, "__pydantic_extra__", None)
+        extra_new: dict[str, Any] = (
+            extra_new_raw if isinstance(extra_new_raw, dict) else {}
+        )
+        extra_old_raw = (
             getattr(old_channels, "__pydantic_extra__", None)
             if old_channels
-            else {}
+            else None
+        )
+        extra_old: dict[str, Any] = (
+            extra_old_raw if isinstance(extra_old_raw, dict) else {}
         )
 
         candidate_names = (
@@ -175,14 +181,17 @@ class ConfigWatcher:
             new_ch = getattr(new_channels, name, None)
             if new_ch is None and name in extra_new:
                 new_ch = extra_new.get(name)
-            old_ch = getattr(old_channels, name, None) if old_channels else None
+            old_ch = (
+                getattr(old_channels, name, None) if old_channels else None
+            )
             if old_ch is None and name in extra_old:
                 old_ch = extra_old.get(name)
             if new_ch is None:
                 if old_ch is None:
                     continue
                 logger.info(
-                    "ConfigWatcher: channel '%s' removed from config, stopping",
+                    "ConfigWatcher: channel '%s' removed from config, "
+                    "stopping",
                     name,
                 )
                 try:
@@ -194,7 +203,8 @@ class ConfigWatcher:
                         )
                     else:
                         logger.warning(
-                            "ConfigWatcher: channel '%s' missing in manager, skip remove",
+                            "ConfigWatcher: channel '%s' missing in manager, "
+                            "skip remove",
                             name,
                         )
                 except Exception:

@@ -137,9 +137,7 @@ class ChannelManager:
             getattr(channels[0], "_process", None) if channels else None
         )
         self._on_last_dispatch = on_last_dispatch or (
-            getattr(channels[0], "_on_reply_sent", None)
-            if channels
-            else None
+            getattr(channels[0], "_on_reply_sent", None) if channels else None
         )
         self._show_tool_details = (
             show_tool_details
@@ -292,7 +290,8 @@ class ChannelManager:
     ) -> BaseChannel:
         if self._process is None:
             raise RuntimeError(
-                "ChannelManager has no process handler for dynamic channel add",
+                "ChannelManager has no process handler "
+                "for dynamic channel add",
             )
 
         registry = get_channel_registry()
@@ -545,7 +544,11 @@ class ChannelManager:
                         f"Failed to stop old channel: {old_channel.channel}",
                     )
 
-    async def add_channel(self, channel_name: str, channel_config: Any) -> bool:
+    async def add_channel(
+        self,
+        channel_name: str,
+        channel_config: Any,
+    ) -> bool:
         """Add a channel from config if it does not exist yet."""
         existing = await self.get_channel(channel_name)
         if existing is not None:
