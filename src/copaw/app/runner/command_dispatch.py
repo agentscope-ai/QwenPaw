@@ -135,9 +135,13 @@ async def run_command_path(
     # Conversation path: lightweight memory + CommandHandler
     _, formatter = create_model_and_formatter()
     token_counter = _get_token_counter()
+    config = load_config()
+    max_input_length = config.agents.running.max_input_length
+
     memory = CoPawInMemoryMemory(
         token_counter=token_counter,
         formatter=formatter,
+        max_input_length=max_input_length,
     )
     light = _LightweightSessionAgent(memory=memory)
     if session_id and user_id:
