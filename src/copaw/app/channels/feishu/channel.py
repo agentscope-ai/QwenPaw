@@ -103,6 +103,16 @@ try:
         Emoji,
         P2ImMessageReceiveV1,
     )
+except ImportError:  # pragma: no cover - optional dependency may be missing
+    lark = None  # type: ignore[assignment]
+    CreateImageRequest = None  # type: ignore[assignment]
+    CreateImageRequestBody = None  # type: ignore[assignment]
+    CreateMessageRequest = None  # type: ignore[assignment]
+    CreateMessageRequestBody = None  # type: ignore[assignment]
+    CreateMessageReactionRequest = None  # type: ignore[assignment]
+    CreateMessageReactionRequestBody = None  # type: ignore[assignment]
+    Emoji = None  # type: ignore[assignment]
+    P2ImMessageReceiveV1 = None  # type: ignore[assignment]
 finally:
     if (
         _pkg_resources_shim is not None
@@ -699,7 +709,7 @@ class FeishuChannel(BaseChannel):
         emoji_type: str = "THUMBSUP",
     ) -> None:
         """Add reaction to message (non-blocking)."""
-        if not self._client or not Emoji:
+        if not self._client:
             return
         try:
             loop = asyncio.get_running_loop()
@@ -1591,6 +1601,11 @@ class FeishuChannel(BaseChannel):
             logger.debug("feishu channel disabled")
             return
         self._load_receive_id_store_from_disk()
+        if lark is None:
+            raise RuntimeError(
+                "Feishu channel enabled but lark-oapi is not installed. "
+                "Run: pip install lark-oapi",
+            )
         if not self.app_id or not self.app_secret:
             raise RuntimeError(
                 "FEISHU_APP_ID and FEISHU_APP_SECRET are required when "
