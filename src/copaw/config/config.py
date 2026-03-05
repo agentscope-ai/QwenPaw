@@ -64,10 +64,15 @@ class TelegramConfig(BaseChannelConfig):
 class MQTTConfig(BaseChannelConfig):
     host: str = ""
     port: str = ""
-    username: str = ""
-    password: str = ""
+    transport: str = ""
+    username: Optional[str] = None
+    password: Optional[str] = None
     subscribe_topic: str = ""
     publish_topic: str = ""
+    tls_enabled: bool = False
+    tls_ca_certs: Optional[str] = None
+    tls_certfile: Optional[str] = None
+    tls_keyfile: Optional[str] = None
 
 
 class ConsoleConfig(BaseChannelConfig):

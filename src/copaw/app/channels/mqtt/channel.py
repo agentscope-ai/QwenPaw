@@ -38,11 +38,16 @@ class MQTTChannel(BaseChannel):
         enabled: bool,
         host: str,
         port: str,
+        transport: str,
         username: str,
         password: str,
         subscribe_topic: str,
         publish_topic: str,
         bot_prefix: str,
+        tls_enabled: bool = False,
+        tls_ca_certs: Optional[str] = None,
+        tls_certfile: Optional[str] = None,
+        tls_keyfile: Optional[str] = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
     ):
@@ -51,6 +56,9 @@ class MQTTChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
         )
+
+        self.transport = transport
+        self.tls_enabled = tls_enabled
         self.enabled = enabled
         self.host = host
         self.port = port
@@ -59,6 +67,9 @@ class MQTTChannel(BaseChannel):
         self.subscribe_topic = subscribe_topic
         self.publish_topic = publish_topic
         self.bot_prefix = bot_prefix
+        self.tls_ca_certs = tls_ca_certs
+        self.tls_certfile = tls_certfile
+        self.tls_keyfile = tls_keyfile
         self.client: Optional[mqtt.Client] = None
         self.connected = False
         self._thread: Optional[threading.Thread] = None
@@ -81,6 +92,11 @@ class MQTTChannel(BaseChannel):
             subscribe_topic=os.getenv("MQTT_SUBSCRIBE_TOPIC", ""),
             publish_topic=os.getenv("MQTT_PUBLISH_TOPIC", ""),
             bot_prefix=os.getenv("MQTT_BOT_PREFIX", ""),
+            tls_enabled=os.getenv("MQTT_TLS_ENABLED", "0") == "1",
+            tls_ca_certs=os.getenv("MQTT_TLS_CA_CERTS"),
+            tls_certfile=os.getenv("MQTT_TLS_CERTFILE"),
+            tls_keyfile=os.getenv("MQTT_TLS_KEYFILE"),
+            transport=os.getenv("MQTT_TRANSPORT", "mqtt"),
             on_reply_sent=on_reply_sent,
         )
 
@@ -103,6 +119,11 @@ class MQTTChannel(BaseChannel):
                 subscribe_topic=(config.get("subscribe_topic") or "").strip(),
                 publish_topic=(config.get("publish_topic") or "").strip(),
                 bot_prefix=(config.get("bot_prefix") or "").strip(),
+                tls_enabled=bool(config.get("tls_enabled", False)),
+                tls_ca_certs=config.get("tls_ca_certs"),
+                tls_certfile=config.get("tls_certfile"),
+                tls_keyfile=config.get("tls_keyfile"),
+                transport=config.get("transport", "tcp"),
                 on_reply_sent=on_reply_sent,
                 show_tool_details=show_tool_details,
             )
@@ -116,6 +137,11 @@ class MQTTChannel(BaseChannel):
             subscribe_topic=config.subscribe_topic or "",
             publish_topic=config.publish_topic or "",
             bot_prefix=config.bot_prefix or "",
+            transport=getattr(config, "transport", ""),
+            tls_enabled=getattr(config, "tls_enabled", False),
+            tls_ca_certs=getattr(config, "tls_ca_certs", None),
+            tls_certfile=getattr(config, "tls_certfile", None),
+            tls_keyfile=getattr(config, "tls_keyfile", None),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
         )
@@ -131,31 +157,42 @@ class MQTTChannel(BaseChannel):
         if not self.publish_topic:
             raise ValueError("MQTT publish_topic is required")
 
-    def _on_connect(self, client, _userdata, _flags, rc):
-        if rc == 0:
+    def _on_connect(
+        self,
+        client,
+        _userdata,
+        _flags,
+        reason_code,
+        _properties=None,
+    ):
+        if reason_code == 0:
             self.connected = True
             logger.info("MQTT connected")
             client.subscribe(self.subscribe_topic, qos=0)
             logger.info(f"Subscribed to {self.subscribe_topic}")
         else:
-            logger.error(f"MQTT connect failed, return code {rc}")
+            logger.error(f"MQTT connect failed, return code {reason_code}")
 
-    def _on_disconnect(self, _client, _userdata, rc):
+    def _on_disconnect(
+        self,
+        _client,
+        _userdata,
+        _flags,
+        _reason,
+        _properties=None,
+    ):
         self.connected = False
-        if rc != 0:
-            logger.warning(f"MQTT disconnected unexpectedly, code={rc}")
+        # Use reason code for logging
+        if _reason != 0:
+            logger.warning(f"MQTT disconnected unexpectedly, code={_reason}")
 
     def _on_message(self, _client, _userdata, msg):
         try:
-            # Parse device_id from topic structure: server/DEVICE_ID/up
-            parts = msg.topic.split("/")
-            if len(parts) < 3:
-                return
-
-            device_id = parts[1]
             payload = msg.payload.decode("utf-8").strip()
 
             # Auto parse JSON or plain text
+            data = {}
+            content = ""
             try:
                 data = json.loads(payload)
                 content = data.get("text", "")
@@ -164,6 +201,40 @@ class MQTTChannel(BaseChannel):
 
             if not content:
                 return
+
+            # Extract device_id from multiple sources
+            device_id = ""
+
+            # First try from topic structure
+            parts = msg.topic.split("/")
+            if len(parts) >= 2:
+                # Try different positions for device_id
+                for i in range(len(parts)):
+                    # Look for common patterns in topic structure
+                    if parts[i] not in [
+                        "server",
+                        "device",
+                        "up",
+                        "down",
+                        "message",
+                    ]:
+                        device_id = parts[i]
+                        break
+
+            # If no device_id from topic, try from payload
+            if not device_id:
+                device_id = (
+                    data.get("device_id")
+                    or data.get("deviceId")
+                    or data.get("client_id")
+                )
+
+            # If still no device_id, use a default
+            if not device_id:
+                device_id = "unknown-device"
+                logger.warning(
+                    f"MQTT: No device_id found in topic or payload: {msg.topic}",
+                )
 
             logger.info(f"MQTT [{device_id}] >> {content}")
 
@@ -178,6 +249,7 @@ class MQTTChannel(BaseChannel):
                 "meta": {
                     "topic": msg.topic,
                     "device_id": device_id,
+                    "raw_payload": payload,
                 },
             }
 
@@ -206,12 +278,28 @@ class MQTTChannel(BaseChannel):
 
         logger.info("Starting MQTT channel...")
 
-        client_id = "copaw-mqtt"
-        self.client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311)
+        import uuid
+
+        client_id = f"copaw-mqtt-{uuid.uuid4()}"
+        self.client = mqtt.Client(
+            client_id=client_id,
+            protocol=mqtt.MQTTv311,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            transport=self.transport,
+        )
 
         # Username / password auth (only if provided)
         if self.username and self.password:
             self.client.username_pw_set(self.username, self.password)
+
+        # Enable TLS if configured
+        if self.tls_enabled:
+            logger.info("MQTT: Enabling TLS")
+            self.client.tls_set(
+                ca_certs=self.tls_ca_certs,
+                certfile=self.tls_certfile,
+                keyfile=self.tls_keyfile,
+            )
 
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
@@ -220,7 +308,9 @@ class MQTTChannel(BaseChannel):
         try:
             port = int(self.port) if self.port else 1883
             self.client.connect(self.host, port, keepalive=60)
-            logger.info(f"MQTT connecting to {self.host}:{port}")
+            logger.info(
+                f"MQTT connecting to {self.host}:{port} {'(TLS enabled)' if self.tls_enabled else ''} (transport: {self.transport})",
+            )
         except MQTTException as e:
             logger.error(f"MQTT connect failed: {str(e)}")
             return
@@ -232,9 +322,10 @@ class MQTTChannel(BaseChannel):
         )
         self._thread.start()
 
-        logger.info("✅ MQTT channel started")
-        logger.info(f"📥 Subscribing to: {self.subscribe_topic}")
-        logger.info(f"📤 Publishing to: {self.publish_topic}")
+        logger.info("MQTT channel started")
+        logger.info(f"Subscribing to: {self.subscribe_topic}")
+        logger.info(f"Publishing to: {self.publish_topic}")
+        logger.info(f"Using transport: {self.transport}")
 
     async def stop(self) -> None:
         logger.info("Stopping MQTT channel...")
@@ -242,7 +333,7 @@ class MQTTChannel(BaseChannel):
             self.client.disconnect()
             self.client = None
         self.connected = False
-        logger.info("🛑 MQTT channel stopped")
+        logger.info("MQTT channel stopped")
 
     async def send(
         self,

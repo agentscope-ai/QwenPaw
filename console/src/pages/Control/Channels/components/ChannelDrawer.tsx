@@ -5,6 +5,7 @@ import {
   InputNumber,
   Switch,
   Button,
+  Select,
 } from "@agentscope-ai/design";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -156,6 +157,12 @@ export function ChannelDrawer({
             <Form.Item name="port" label="MQTT Port">
               <Input placeholder="1883" />
             </Form.Item>
+            <Form.Item name="transport" label="Transport" initialValue="mqtt">
+              <Select>
+                <Select.Option value="tcp">MQTT (tcp)</Select.Option>
+                <Select.Option value="websockets">WS (websockets)</Select.Option>
+              </Select>
+            </Form.Item>
             <Form.Item name="username" label="MQTT Username">
               <Input placeholder="Leave blank to disable / not use" />
             </Form.Item>
@@ -167,6 +174,18 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="publish_topic" label="Publish Topic">
               <Input placeholder="client/{client_id}/down" />
+            </Form.Item>
+            <Form.Item name="tls_enabled" label="TLS Enabled" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="tls_ca_certs" label="TLS CA Certs">
+              <Input placeholder="Path to CA certificates file" />
+            </Form.Item>
+            <Form.Item name="tls_certfile" label="TLS Certfile">
+              <Input placeholder="Path to client certificate file" />
+            </Form.Item>
+            <Form.Item name="tls_keyfile" label="TLS Keyfile">
+              <Input placeholder="Path to client private key file" />
             </Form.Item>
           </>
         );
