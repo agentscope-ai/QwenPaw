@@ -35,7 +35,7 @@ jobs:
           pre-commit run --all-files > pre-commit.log 2>&1 || true
           cat pre-commit.log
           if grep -q Failed pre-commit.log; then
-            echo -e "\e[41m  [**FAIL**] Please install pre-commit and format your code first. \e[0m"
+            echo -e "\e[41m  [**FAIL**] pre-commit checks failed. Run 'pre-commit run --all-files' locally, commit any auto-fixes, then push again. \e[0m"
             exit 1
           fi
           echo -e "\e[46m  ********************************Passed******************************** \e[0m"

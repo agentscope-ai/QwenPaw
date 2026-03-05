@@ -9,12 +9,23 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
+
 import logging
 import os
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type, Any
+from functools import wraps
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
+from agentscope.message import Msg
+import agentscope
+
+try:
+    from agentscope.formatter import AnthropicChatFormatter
+    from agentscope.model import AnthropicChatModel
+except ImportError:  # pragma: no cover - compatibility fallback
+    AnthropicChatFormatter = None
+    AnthropicChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..local_models import create_local_chat_model
@@ -24,6 +35,38 @@ from ..providers import (
     get_provider_chat_model,
     load_providers_json,
 )
+
+
+def _monkey_patch(func):
+    """A monkey patch wrapper for agentscope <= 1.0.16dev"""
+
+    @wraps(func)
+    async def wrapper(
+        self,
+        msgs: list[Msg],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        for msg in msgs:
+            if isinstance(msg.content, str):
+                continue
+            if isinstance(msg.content, list):
+                for block in msg.content:
+                    if (
+                        block["type"] in ["audio", "image", "video"]
+                        and block.get("source", {}).get("type") == "url"
+                    ):
+                        url = block["source"]["url"]
+                        if url.startswith("file://"):
+                            block["source"]["url"] = url.removeprefix(
+                                "file://",
+                            )
+        return await func(self, msgs, **kwargs)
+
+    return wrapper
+
+
+if agentscope.__version__ == "1.0.16dev":
+    OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
     from ..providers import ResolvedModelConfig
@@ -35,6 +78,8 @@ logger = logging.getLogger(__name__)
 _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
     OpenAIChatModel: OpenAIChatFormatter,
 }
+if AnthropicChatModel is not None and AnthropicChatFormatter is not None:
+    _CHAT_MODEL_FORMATTER_MAP[AnthropicChatModel] = AnthropicChatFormatter
 
 
 def _get_formatter_for_chat_model(
@@ -288,6 +333,19 @@ def _create_remote_model_instance(
         model_name = "qwen3-max"
         api_key = os.getenv("DASHSCOPE_API_KEY", "")
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    # The Anthropic SDK uses a base_url without the "/v1" suffix (it adds
+    # the versioned path internally), unlike OpenAI-compatible providers.
+    # Strip the trailing "/v1" to avoid a doubled path
+    # (e.g. "/v1/v1/messages").
+    if (
+        AnthropicChatModel is not None
+        and issubclass(chat_model_class, AnthropicChatModel)
+        and base_url
+    ):
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
 
     # Instantiate model
     model = chat_model_class(

@@ -67,16 +67,16 @@ docs(skills): document Skills Hub import
 
 ### 4. Code and Quality
 
-- **Pre-commit:** Install and run pre-commit for consistent style and checks:
+- **Required local gate (must pass before push/PR):**
   ```bash
   pip install -e ".[dev]"
   pre-commit install
   pre-commit run --all-files
-  ```
-- **Tests:** Run tests before submitting:
-  ```bash
   pytest
   ```
+- **If pre-commit modifies files:** Commit those changes, then rerun
+  `pre-commit run --all-files` until it passes cleanly.
+- **CI policy:** Pull requests with failing pre-commit checks are not merge-ready.
 - **Frontend formatting:** If your changes involve the `console` or `website` directories, run the formatter before committing:
   ```bash
   cd console && npm run format

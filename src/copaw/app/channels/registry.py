@@ -24,6 +24,7 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "qq": (".qq", "QQChannel"),
     "telegram": (".telegram", "TelegramChannel"),
     "console": (".console", "ConsoleChannel"),
+    "voice": (".voice", "VoiceChannel"),
 }
 
 # Channels that must load successfully; failure raises instead of being skipped.

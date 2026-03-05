@@ -76,6 +76,7 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 - [API Key](#api-key)
 - [Local Models](#local-models)
 - [Documentation](#documentation)
+- [FAQ](#faq)
 - [Roadmap](#roadmap)
 - [Contributing](#get-involved)
 - [Install from source](#install-from-source)
@@ -123,13 +124,44 @@ To install with multiple extras (e.g., Ollama + llama.cpp):
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
 ```
 
+**Windows (CMD):**
+
+```CMD
+curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat
+```
+
 **Windows (PowerShell):**
 
 ```powershell
 irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
-Then open a new terminal and run:
+> **Note**: The installer will automatically check the status of uv. If it is not installed, it will attempt to download and configure it automatically. If the automatic installation fails, please follow the on-screen prompts or execute `python -m pip install -U uv`, then rerun the installer.
+
+> **⚠️ Special Notice for Windows Enterprise LTSC Users**
+>
+> If you are using Windows LTSC or an enterprise environment governed by strict security policies, PowerShell may run in **Constrained Language Mode**, potentially causing the following issue:
+> 1. **If using CMD (.bat): Script executes successfully but fails to write to `Path`**
+>
+>    The script completes file installation. Due to **Constrained Language Mode**, it cannot automatically update environment variables. Manually configure as follows:
+>    - **Locate the installation directory**:
+>      - Check if `uv` is available: Enter `uv --version` in CMD. If a version number appears, **only configure the CoPaw path**. If you receive the prompt `'uv' is not recognized as an internal or external command, operable program or batch file,` configure both paths.
+>      - uv path (choose one based on installation location; use if `uv` fails): Typically `%USERPROFILE%\.local\bin`, `%USERPROFILE%\AppData\Local\uv`, or the `Scripts` folder within your Python installation directory
+>      - CoPaw path: Typically located at `%USERPROFILE%\.copaw\bin`.
+>    - **Manually add to the system's Path environment variable**:
+>      - Press `Win + R`, type `sysdm.cpl` and press Enter to open System Properties.
+>      - Click “Advanced” -> “Environment Variables”.
+>      - Under “System variables”, locate and select `Path`, then click “Edit”.
+>      - Click “New”, enter both directory paths sequentially, then click OK to save.
+> 2. **If using PowerShell (.ps1): Script execution interrupted**
+>
+>   Due to **Constrained Language Mode**, the script may fail to automatically download `uv`.
+>   - **Manually install uv**: Refer to the [GitHub Release](https://github.com/astral-sh/uv/releases) to download `uv.exe` and place it in `%USERPROFILE%\.local\bin` or `%USERPROFILE%\AppData\Local\uv`; or ensure Python is installed and run `python -m pip install -U uv`.
+>   - **Configure `uv` environment variables**: Add the `uv` directory and `%USERPROFILE%\.copaw\bin` to your system's `Path` variable.
+>   - **Re-run the installation**: Open a new terminal and execute the installation script again to complete the `CoPaw` installation.
+>   - **Configure the `CoPaw` environment variable**: Add `%USERPROFILE%\.copaw\bin` to your system's `Path` variable.
+
+Once installed, open a new terminal and run:
 
 ```bash
 copaw init --defaults   # or: copaw init (interactive)
@@ -191,7 +223,7 @@ Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable)
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
 
 Also available on Alibaba Cloud Container Registry (ACR) for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
@@ -266,6 +298,12 @@ Full docs in this repo: [website/public/docs/](website/public/docs/).
 
 ---
 
+## FAQ
+
+For common questions, troubleshooting tips, and known issues, please visit the **[FAQ page](https://copaw.agentscope.io/docs/faq)**.
+
+---
+
 ## Roadmap
 
 | Area | Item | Status |
@@ -335,10 +373,20 @@ CoPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a par
 
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i4/O1CN014mhqFq1ZlgNuYjxrz_!!6000000003235-2-tps-400-400.png" width="80" height="80" alt="DingTalk">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="DingTalk">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 
 ---
 
 ## License
 
 CoPaw is released under the [Apache License 2.0](LICENSE).
+
+---
+
+## Contributors
+
+All thanks to our contributors:
+
+<a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="Contributors" />
+</a>

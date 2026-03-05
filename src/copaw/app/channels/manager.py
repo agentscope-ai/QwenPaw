@@ -343,7 +343,16 @@ class ChannelManager:
         for task in self._consumer_tasks:
             task.cancel()
         if self._consumer_tasks:
-            await asyncio.gather(*self._consumer_tasks, return_exceptions=True)
+            _, pending = await asyncio.wait(
+                self._consumer_tasks,
+                timeout=5.0,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            if pending:
+                logger.warning(
+                    "stop_all: %s consumer task(s) still pending after 5s",
+                    len(pending),
+                )
         self._consumer_tasks.clear()
         self._queues.clear()
         async with self._lock:

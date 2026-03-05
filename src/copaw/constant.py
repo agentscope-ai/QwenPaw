@@ -35,6 +35,15 @@ LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"
 # Env to indicate running inside a container (e.g. Docker). Set to 1/true/yes.
 RUNNING_IN_CONTAINER = os.environ.get("COPAW_RUNNING_IN_CONTAINER", "false")
 
+# Timeout in seconds for checking if a provider is reachable.
+# TODO: add a module to parse and validate env vars
+try:
+    MODEL_PROVIDER_CHECK_TIMEOUT = float(
+        os.environ.get("COPAW_MODEL_PROVIDER_CHECK_TIMEOUT", "5.0"),
+    )
+except (TypeError, ValueError):
+    MODEL_PROVIDER_CHECK_TIMEOUT = 5.0
+
 # Playwright: use system Chromium when set (e.g. in Docker).
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
 

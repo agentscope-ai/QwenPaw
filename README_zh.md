@@ -76,6 +76,7 @@
 - [API Key](#api-key)
 - [本地模型](#本地模型)
 - [文档](#文档)
+- [常见问题](#常见问题)
 - [路线图](#路线图)
 - [参与贡献](#参与贡献)
 - [从源码安装](#从源码安装)
@@ -123,13 +124,44 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
 ```
 
+**Windows (CMD):**
+
+```CMD
+curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat
+```
+
 **Windows（PowerShell）：**
 
 ```powershell
 irm https://copaw.agentscope.io/install.ps1 | iex
 ```
 
-然后打开新终端并运行：
+> **注意**：安装程序将自动检查 uv 状态，若未安装则尝试自动下载配置。如遇自动安装失败，请遵循屏幕提示操作，或执行 `python -m pip install -U uv`，然后重新运行安装程序。
+
+> **⚠️ Windows 企业版 LTSC 用户特别提示**
+>
+> 如果您使用的是 Windows LTSC 或受严格安全策略管控的企业环境，PowerShell 可能运行在 **受限语言模式** 下，可能会遇到以下问题：
+> 1. **如果你使用的是 CMD（.bat）：脚本执行成功但无法写入`Path`**
+>
+>    脚本已完成文件安装，由于 **受限语言模式** ，脚本无法自动写入环境变量，此时只需手动配置：
+>    - **找到安装目录**：
+>      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version` ，如果显示版本号，则**只需配置 CoPaw 路径**；如果提示 `'uv' 不是内部或外部命令，也不是可运行的程序或批处理文件。`，则需同时配置两者。
+>      - uv路径（任选其一，取决于安装位置，若`uv`不可用则填）：通常在`%USERPROFILE%\.local\bin`、`%USERPROFILE%\AppData\Local\uv`或 Python 安装目录下的 `Scripts` 文件夹
+>      - CoPaw路径：通常在 `%USERPROFILE%\.copaw\bin` 。
+>    - **手动添加到系统的 Path 环境变量**：
+>      - 按 `Win + R`，输入 `sysdm.cpl` 并回车，打开“系统属性”。
+>      - 点击 “高级” -> “环境变量”。
+>      - 在 “系统变量” 中找到并选中 `Path`，点击 “编辑”。
+>      - 点击 “新建”，依次填入上述两个目录路径，点击确定保存。
+> 2. **如果你使用的是 PowerShell（.ps1）：脚本运行中断**
+>
+>   由于 **受限语言模式** ，脚本可能无法自动下载`uv`。
+>   - **手动安装uv**：参考 [GitHub Release](https://github.com/astral-sh/uv/releases)下载并将`uv.exe`放至`%USERPROFILE%\.local\bin`或`%USERPROFILE%\AppData\Local\uv`；或者确保已安装 Python ，然后运行`python -m pip install -U uv`
+>   - **配置`uv`环境变量**：将`uv`所在目录和 `%USERPROFILE%\.copaw\bin` 添加到系统的 `Path` 变量中。
+>   - **重新运行**：打开新终端，再次执行安装脚本以完成 `CoPaw` 安装。
+>   - **配置`CoPaw`环境变量**：将 `%USERPROFILE%\.copaw\bin` 添加到系统的 `Path` 变量中。
+
+安装完成后，请打开新终端并运行：
 
 ```bash
 copaw init --defaults   # 或：copaw init（交互式）
@@ -191,7 +223,7 @@ copaw uninstall --purge  # 删除所有内容
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
@@ -268,6 +300,12 @@ copaw app # 启动服务
 
 ---
 
+## 常见问题
+
+常见问题、排错指南与已知问题，请访问 **[FAQ 页面](https://copaw.agentscope.io/docs/faq)**。
+
+---
+
 ## 路线图
 
 | 方向 | 事项 | 状态 |
@@ -337,10 +375,20 @@ CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Ag
 
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [钉钉](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i4/O1CN014mhqFq1ZlgNuYjxrz_!!6000000003235-2-tps-400-400.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 
 ---
 
 ## 许可证
 
 CoPaw 采用 [Apache License 2.0](LICENSE) 开源协议。
+
+---
+
+## 贡献者
+
+感谢所有为 CoPaw 做出贡献的朋友们：
+
+<a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="贡献者" />
+</a>

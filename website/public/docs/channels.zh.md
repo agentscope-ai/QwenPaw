@@ -402,6 +402,61 @@
 
 ---
 
+## Telegram
+
+### 获取 Telegram 机器人凭证
+
+1. 打开 Telegram 并搜索 `@BotFather` 添加 Bot（注意需要是官方 @BotFather，有蓝色认证标识）。
+2. 打开与 @BotFather 的聊天，根据对话中的指引创建新机器人
+
+   ![创建机器人](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
+
+3. 在对话框中创建 bot_name，复制 bot_token
+
+   ![复制token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
+
+### 绑定 Bot
+
+可以在console前端配置，或者修改`~/.copaw/config.json`。
+
+**方法1**: 在console前端配置
+
+从"控制→频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
+
+![console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
+
+**方法2**: 修改`~/.copaw/config.json`
+
+在 `config.json` 里找到 `channels.telegram`，填入对应信息，例如：
+
+```json
+"telegram": {
+    "enabled": true,
+    "bot_prefix": "[BOT]",
+    "bot_token": "你的 Bot Token",
+    "http_proxy": "",
+    "http_proxy_auth": ""
+}
+```
+
+国内网络访问 Telegram API 可能需代理。如需代理：
+
+- **http_proxy** — 例如 `http://127.0.0.1:7890`
+- **http_proxy_auth** — 若代理需鉴权，填 `用户名:密码`，否则留空
+
+### 备注
+
+目前telegram白名单机制仍在施工中，推荐个人场景部署，不暴露username到公共环境中。
+
+建议在 `@BotFather` 设置：
+
+```
+/setprivacy -> ENABLED # 设置bot回复权限
+/setjoingroups -> DISABLED # 拦截Group邀请
+```
+
+---
+
 ## 附录
 
 ### 配置总览
@@ -413,6 +468,7 @@
 | iMessage | imessage | db_path, poll_sec（仅 macOS）                                       |
 | Discord  | discord  | bot_token；可选 http_proxy, http_proxy_auth                         |
 | QQ       | qq       | app_id, client_secret                                               |
+| Telegram | telegram | bot_token；可选 http_proxy, http_proxy_auth                         |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 
@@ -428,6 +484,7 @@
 | Discord  | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | iMessage | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| Telegram | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 
 说明：
 
@@ -436,6 +493,7 @@
 - **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
+- **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 
 ### 通过 HTTP 修改配置
 

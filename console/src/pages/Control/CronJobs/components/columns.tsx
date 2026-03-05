@@ -5,6 +5,7 @@ import type { CronJobSpecOutput } from "../../../../api/types";
 import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
 import { message } from "antd";
 import { TFunction } from "i18next";
+import { parseCron } from "./parseCron";
 
 type CronJob = CronJobSpecOutput;
 
@@ -47,20 +48,20 @@ export const createColumns = (
 
   return [
     {
-      title: "ID",
+      title: handlers.t("cronJobs.id"),
       dataIndex: "id",
       key: "id",
       width: 250,
       fixed: "left",
     },
     {
-      title: "Name",
+      title: handlers.t("cronJobs.name"),
       dataIndex: "name",
       key: "name",
       width: 250,
     },
     {
-      title: "Enabled",
+      title: handlers.t("cronJobs.enabled"),
       dataIndex: "enabled",
       key: "enabled",
       width: 100,
@@ -88,21 +89,76 @@ export const createColumns = (
       ),
     },
     {
-      title: "ScheduleType",
+      title: handlers.t("cronJobs.scheduleType"),
       dataIndex: ["schedule", "type"],
       key: "schedule_type",
       width: 140,
       render: () => "cron",
     },
     {
-      title: "ScheduleCron",
+      title: handlers.t("cronJobs.scheduleCron"),
       dataIndex: ["schedule", "cron"],
       key: "cron",
-      width: 150,
-      render: (cron: string) => <code style={{ fontSize: 12 }}>{cron}</code>,
+      width: 180,
+      render: (cron: string) => {
+        // Parse cron to friendly text
+        const cronParts = parseCron(cron || "0 9 * * *");
+        let displayText = "";
+
+        switch (cronParts.type) {
+          case "hourly":
+            displayText = handlers.t("cronJobs.cronTypeHourly");
+            break;
+          case "daily":
+            displayText = `${handlers.t("cronJobs.cronTypeDaily")} ${String(
+              cronParts.hour,
+            ).padStart(2, "0")}:${String(cronParts.minute).padStart(2, "0")}`;
+            break;
+          case "weekly": {
+            const dayNames = (cronParts.daysOfWeek || [])
+              .map((d) => {
+                const dayMap: Record<number, string> = {
+                  0: handlers.t("cronJobs.cronDaySun"),
+                  1: handlers.t("cronJobs.cronDayMon"),
+                  2: handlers.t("cronJobs.cronDayTue"),
+                  3: handlers.t("cronJobs.cronDayWed"),
+                  4: handlers.t("cronJobs.cronDayThu"),
+                  5: handlers.t("cronJobs.cronDayFri"),
+                  6: handlers.t("cronJobs.cronDaySat"),
+                };
+                return dayMap[d] || d;
+              })
+              .join(",");
+            displayText = `${handlers.t(
+              "cronJobs.cronTypeWeekly",
+            )} ${dayNames} ${String(cronParts.hour).padStart(2, "0")}:${String(
+              cronParts.minute,
+            ).padStart(2, "0")}`;
+            break;
+          }
+          case "custom":
+            displayText = cron;
+            break;
+        }
+
+        return (
+          <Tooltip
+            title={
+              <div>
+                <div>Cron 表达式: {cron}</div>
+                <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                  格式: 分钟 小时 日 月 星期
+                </div>
+              </div>
+            }
+          >
+            <span style={{ fontSize: 12, cursor: "help" }}>{displayText}</span>
+          </Tooltip>
+        );
+      },
     },
     {
-      title: "ScheduleTimezone",
+      title: handlers.t("cronJobs.scheduleTimezone"),
       dataIndex: ["schedule", "timezone"],
       key: "timezone",
       width: 170,
@@ -114,11 +170,21 @@ export const createColumns = (
       width: 140,
     },
     {
-      title: "Text",
+      title: handlers.t("cronJobs.taskText"),
       dataIndex: "text",
       key: "text",
       width: 200,
-      ellipsis: true,
+      ellipsis: {
+        showTitle: true,
+      },
+      render: (text: string) => {
+        if (!text) return "-";
+        return (
+          <Tooltip title={text}>
+            <span style={{ fontSize: 12 }}>{text}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "RequestInput",

@@ -52,6 +52,11 @@ from .chats_cmd import chats_group  # noqa: E402
 _record(".chats_cmd", time.perf_counter() - _t)
 
 _t = time.perf_counter()
+from .daemon_cmd import daemon_group  # noqa: E402
+
+_record(".daemon_cmd", time.perf_counter() - _t)
+
+_t = time.perf_counter()
 from .clean_cmd import clean_cmd  # noqa: E402
 
 _record(".clean_cmd", time.perf_counter() - _t)
@@ -126,6 +131,7 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
 
 cli.add_command(app_cmd)
 cli.add_command(channels_group)
+cli.add_command(daemon_group)
 cli.add_command(chats_group)
 cli.add_command(clean_cmd)
 cli.add_command(cron_group)

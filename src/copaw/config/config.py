@@ -20,6 +20,10 @@ class BaseChannelConfig(BaseModel):
 class IMessageChannelConfig(BaseChannelConfig):
     db_path: str = "~/Library/Messages/chat.db"
     poll_sec: float = 1.0
+    media_dir: str = "~/.copaw/media"
+    max_decoded_size: int = (
+        10 * 1024 * 1024
+    )  # 10MB default limit for Base64 data
 
 
 class DiscordConfig(BaseChannelConfig):
@@ -68,6 +72,20 @@ class ConsoleConfig(BaseChannelConfig):
     enabled: bool = True
 
 
+class VoiceChannelConfig(BaseChannelConfig):
+    """Voice channel: Twilio ConversationRelay + Cloudflare Tunnel."""
+
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    phone_number: str = ""
+    phone_number_sid: str = ""
+    tts_provider: str = "google"
+    tts_voice: str = "en-US-Journey-D"
+    stt_provider: str = "deepgram"
+    language: str = "en-US"
+    welcome_greeting: str = "Hi! This is CoPaw. How can I help you?"
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -80,6 +98,7 @@ class ChannelConfig(BaseModel):
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
     console: ConsoleConfig = ConsoleConfig()
+    voice: VoiceChannelConfig = VoiceChannelConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -269,4 +288,5 @@ ChannelConfigUnion = Union[
     QQConfig,
     TelegramConfig,
     ConsoleConfig,
+    VoiceChannelConfig,
 ]
