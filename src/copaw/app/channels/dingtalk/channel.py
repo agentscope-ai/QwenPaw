@@ -679,17 +679,18 @@ class DingTalkChannel(BaseChannel):
     ) -> Optional[str]:
         """Resolve session_webhook for sending. Prefer current request's
         webhook (meta); only use store for proactive send (e.g. cron).
-        When this is a reply to a user message (meta has reply_future or
-        conversation_id) and meta has no session_webhook, do not fall back
-        to store so we never use a stale/expired webhook.
+        When this is a reply to a user message (reply_loop, reply_future, or
+        conversation_id present in meta) and meta has no session_webhook, do
+        not fall back to store so we never use a stale/expired webhook.
         """
+        short_handle = self._sanitize_to_handle(to_handle)
         m = meta or {}
         webhook = m.get("session_webhook") or m.get("sessionWebhook")
         if webhook:
             logger.info(
                 "dingtalk _get_session_webhook_for_send: to_handle=%s "
                 "source=meta session_from_url=%s",
-                to_handle[:40] if to_handle else "",
+                short_handle,
                 session_param_from_webhook_url(webhook),
             )
             return webhook
@@ -699,17 +700,17 @@ class DingTalkChannel(BaseChannel):
             logger.info(
                 "dingtalk _get_session_webhook_for_send: to_handle=%s "
                 "source=route session_from_url=%s",
-                to_handle[:40] if to_handle else "",
+                short_handle,
                 session_param_from_webhook_url(webhook),
             )
             return webhook
         # Current-request context but no webhook in meta: do not use store
         # (could be expired after long idle).
-        if m.get("reply_future") is not None or m.get("conversation_id"):
+        if self._is_reply_context(m):
             logger.info(
                 "dingtalk _get_session_webhook_for_send: to_handle=%s "
                 "current request has no session_webhook, skip store",
-                to_handle[:40] if to_handle else "",
+                short_handle,
             )
             return None
         key = route.get("webhook_key")
@@ -719,15 +720,35 @@ class DingTalkChannel(BaseChannel):
                 logger.info(
                     "dingtalk _get_session_webhook_for_send: to_handle=%s "
                     "source=store webhook_key=%s",
-                    to_handle[:40] if to_handle else "",
+                    short_handle,
                     key,
                 )
             return webhook
         logger.info(
             "dingtalk _get_session_webhook_for_send: to_handle=%s source=none",
-            to_handle[:40] if to_handle else "",
+            short_handle,
         )
         return None
+
+    def _is_reply_context(self, meta: Optional[Dict[str, Any]]) -> bool:
+        """True when meta indicates request-reply context from user message."""
+        m = meta or {}
+        return (
+            m.get("reply_loop") is not None
+            or m.get("reply_future") is not None
+            or bool(m.get("conversation_id"))
+        )
+
+    def _sanitize_to_handle(self, to_handle: str) -> str:
+        """Mask possible secret tokens in handles before logging/errors."""
+        s = (to_handle or "").strip()
+        if not s:
+            return ""
+        if s.startswith("http://") or s.startswith("https://"):
+            parsed = urlparse(s)
+            safe = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            return safe[:40] + "..." if len(safe) > 40 else safe
+        return s[:40] + "..." if len(s) > 40 else s
 
     def _map_upload_type(self, part: OutgoingContentPart) -> Optional[str]:
         """
@@ -1016,8 +1037,9 @@ class DingTalkChannel(BaseChannel):
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Build one body from parts. If meta has reply_future (reply path),
-        deliver via _reply_sync; otherwise proactive send via send().
+        """Build one body from parts. If reply context metadata is present
+        (`reply_loop`, `reply_future`, or `conversation_id`), deliver via
+        _reply_sync; otherwise proactive send via send().
         When session_webhook is available, sends text then image/file
         messages (upload media first for image/file).
         """
@@ -1052,11 +1074,8 @@ class DingTalkChannel(BaseChannel):
         elif prefix and not body and not media_parts:
             body = prefix
         m = meta or {}
-        is_reply_context = (
-            m.get("reply_loop") is not None
-            or m.get("reply_future") is not None
-            or bool(m.get("conversation_id"))
-        )
+        safe_handle = self._sanitize_to_handle(to_handle)
+        is_reply_context = self._is_reply_context(m)
         is_proactive_send = not is_reply_context
         session_webhook = await self._get_session_webhook_for_send(
             to_handle,
@@ -1082,7 +1101,7 @@ class DingTalkChannel(BaseChannel):
                     raise RuntimeError(
                         "DingTalk proactive send failed: "
                         "text sendBySession failed "
-                        f"(to_handle={to_handle})",
+                        f"(to_handle={safe_handle})",
                     )
             for i, part in enumerate(media_parts):
                 logger.info(
@@ -1105,7 +1124,7 @@ class DingTalkChannel(BaseChannel):
                     raise RuntimeError(
                         "DingTalk proactive send failed: "
                         "media sendBySession failed "
-                        f"(to_handle={to_handle}, index={i + 1})",
+                        f"(to_handle={safe_handle}, index={i + 1})",
                     )
             if m.get("reply_loop") is not None and m.get("reply_future"):
                 self._reply_sync(m, SENT_VIA_WEBHOOK)
@@ -1113,7 +1132,7 @@ class DingTalkChannel(BaseChannel):
         if is_proactive_send and (body.strip() or media_parts):
             raise RuntimeError(
                 "DingTalk proactive send failed: no sessionWebhook found "
-                f"(to_handle={to_handle}); user must chat first and "
+                f"(to_handle={safe_handle}); user must chat first and "
                 "sessionWebhook may expire.",
             )
         if not body and media_parts:
