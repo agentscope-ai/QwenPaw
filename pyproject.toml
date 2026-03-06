@@ -69,6 +69,12 @@ mlx = [
 ollama = [
     "ollama>=0.6.1",
 ]
+desktop = [
+    "pywebview>=4.0",
+]
+full = [
+    "copaw[local,desktop,ollama,llamacpp,mlx]",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
