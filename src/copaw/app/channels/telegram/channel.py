@@ -501,7 +501,7 @@ class TelegramChannel(BaseChannel):
                 )
             except Exception:
                 logger.warning(
-                    "telegram send_message MARKDOWN_V2 failed, trying plain text",
+                    "telegram MARKDOWN_V2 failed, trying plain text",
                 )
                 try:
                     await bot.send_message(chat_id=chat_id, text=chunk)
