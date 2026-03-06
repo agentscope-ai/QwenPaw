@@ -5,10 +5,6 @@ export interface TokenUsageByModel {
   call_count: number;
 }
 
-export interface TokenUsageByDate {
-  [date: string]: TokenUsageByModel;
-}
-
 export interface TokenUsageSummary {
   total_prompt_tokens: number;
   total_completion_tokens: number;
