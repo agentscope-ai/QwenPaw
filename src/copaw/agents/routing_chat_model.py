@@ -89,7 +89,16 @@ class RoutingChatModel(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        decision = self.policy.decide()
+        text = " ".join(
+            message["content"]
+            for message in messages
+            if message.get("role") == "user"
+            and isinstance(message.get("content"), str)
+        )
+        decision = self.policy.decide(
+            text=text,
+            tools_available=tools is not None,
+        )
         endpoint = (
             self.local_endpoint
             if decision.route == "local"

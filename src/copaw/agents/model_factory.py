@@ -80,6 +80,8 @@ if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
     OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
+    from ..config.config import AgentsLLMRoutingConfig
+    from ..providers import ModelSlotConfig
     from ..providers import ResolvedModelConfig
     from .routing_chat_model import RoutingEndpoint
 
@@ -284,7 +286,7 @@ def _strip_top_level_message_name(
 
 
 def _resolve_routing_slot(
-    slot: Any,
+    slot: "ModelSlotConfig",
     *,
     providers_data,
 ) -> Optional[Tuple[str, "ResolvedModelConfig"]]:
@@ -320,9 +322,9 @@ def _create_routing_endpoint(
 
 
 def _create_routing_model_and_formatter(
-    local_slot: Any,
-    cloud_slot: Any,
-    routing_cfg,
+    local_slot: "ModelSlotConfig",
+    cloud_slot: "ModelSlotConfig",
+    routing_cfg: "AgentsLLMRoutingConfig",
     providers_data,
 ) -> Optional[Tuple[ChatModelBase, FormatterBase]]:
     from .routing_chat_model import RoutingChatModel

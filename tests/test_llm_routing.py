@@ -154,6 +154,40 @@ async def test_routing_chat_model_cloud_first_uses_cloud_slot() -> None:
     assert call["tool_choice"] == "auto"
 
 
+async def test_routing_chat_model_passes_context_to_policy() -> None:
+    cfg = _mk_cfg()
+    local_endpoint = _mk_endpoint("llamacpp", "local")
+    cloud_endpoint = _mk_endpoint("openai", "cloud")
+    router = RoutingChatModel(
+        local_endpoint=local_endpoint,
+        cloud_endpoint=cloud_endpoint,
+        routing_cfg=cfg,
+    )
+    seen: dict[str, Any] = {}
+
+    class RecordingPolicy:
+        def decide(self, *, text="", channel="", tools_available=True):
+            seen["text"] = text
+            seen["channel"] = channel
+            seen["tools_available"] = tools_available
+            return SimpleNamespace(route="local", reasons=["test"])
+
+    router.policy = RecordingPolicy()
+
+    await router(
+        messages=[
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "ignored"},
+            {"role": "user", "content": "world"},
+        ],
+        tools=[{"name": "t"}],
+    )
+
+    assert seen["text"] == "hello world"
+    assert seen["channel"] == ""
+    assert seen["tools_available"] is True
+
+
 def test_create_model_instance_for_provider_uses_slot_provider_id(
     monkeypatch,
 ) -> None:
