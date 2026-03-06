@@ -28,10 +28,11 @@
     "react": "^18",
     "react-dom": "^18",
     "react-i18next": "^16.5.4",
-    "react-router-dom": "^7.13.0"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.13.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "prettier": "3.0.0",
     "@eslint/js": "^9.25.0",
     "@types/i18next": "^12.1.0",
     "@types/node": "^25.0.3",
@@ -43,6 +44,7 @@
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
     "less": "^4.5.1",
+    "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5"

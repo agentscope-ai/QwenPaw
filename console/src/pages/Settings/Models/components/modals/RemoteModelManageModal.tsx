@@ -51,6 +51,14 @@ export function RemoteModelManageModal({
       : (provider.extra_models || []).map((m) => m.id),
   );
 
+  const doAddModel = async (id: string, name: string) => {
+    await api.addModel(provider.id, { id, name });
+    message.success(t("models.modelAdded", { name }));
+    form.resetFields();
+    setAdding(false);
+    onSaved();
+  };
+
   const handleAddModel = async () => {
     try {
       const values = await form.validateFields();
@@ -64,16 +72,35 @@ export function RemoteModelManageModal({
       });
 
       if (!testResult.success) {
-        message.error(testResult.message || t("models.modelTestFailed"));
+        // Test failed – ask user whether to proceed anyway
+        setSaving(false);
+        Modal.confirm({
+          title: t("models.testConnectionFailed"),
+          content: t("models.modelTestFailedConfirm", {
+            message: testResult.message || t("models.modelTestFailed"),
+          }),
+          okText: t("models.addModel"),
+          cancelText: t("models.cancel"),
+          onOk: async () => {
+            setSaving(true);
+            try {
+              await doAddModel(id, name);
+            } catch (error) {
+              const errMsg =
+                error instanceof Error
+                  ? error.message
+                  : t("models.modelAddFailed");
+              message.error(errMsg);
+            } finally {
+              setSaving(false);
+            }
+          },
+        });
         return;
       }
 
       // Step 2: If test passed, add the model
-      await api.addModel(provider.id, { id, name });
-      message.success(t("models.modelAdded", { name }));
-      form.resetFields();
-      setAdding(false);
-      onSaved();
+      await doAddModel(id, name);
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;
       const errMsg =

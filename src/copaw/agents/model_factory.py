@@ -10,6 +10,7 @@ Example:
 """
 
 
+import json
 import logging
 import os
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type, Any
@@ -66,7 +67,7 @@ def _monkey_patch(func):
     return wrapper
 
 
-if agentscope.__version__ == "1.0.16dev":
+if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
     OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
@@ -119,13 +120,49 @@ def _create_file_block_support_formatter(
         """Formatter with file block support for tool results."""
 
         async def _format(self, msgs):
-            """Override to sanitize tool messages before formatting.
+            """Override to sanitize tool messages and handle thinking blocks.
 
             This prevents OpenAI API errors from improperly paired
-            tool messages.
+            tool messages, and preserves reasoning_content from
+            "thinking" blocks that the base formatter skips.
             """
             msgs = _sanitize_tool_messages(msgs)
+
+            reasoning_contents = {}
+            for msg in msgs:
+                if msg.role != "assistant":
+                    continue
+                for block in msg.get_content_blocks():
+                    if block.get("type") == "thinking":
+                        thinking = block.get("thinking", "")
+                        if thinking:
+                            reasoning_contents[id(msg)] = thinking
+                        break
+
             messages = await super()._format(msgs)
+
+            if reasoning_contents:
+                in_assistant = [m for m in msgs if m.role == "assistant"]
+                out_assistant = [
+                    m for m in messages if m.get("role") == "assistant"
+                ]
+                if len(in_assistant) != len(out_assistant):
+                    logger.warning(
+                        "Assistant message count mismatch after formatting "
+                        "(%d before, %d after). "
+                        "Skipping reasoning_content injection.",
+                        len(in_assistant),
+                        len(out_assistant),
+                    )
+                else:
+                    for in_msg, out_msg in zip(
+                        in_assistant,
+                        out_assistant,
+                    ):
+                        reasoning = reasoning_contents.get(id(in_msg))
+                        if reasoning:
+                            out_msg["reasoning_content"] = reasoning
+
             return _strip_top_level_message_name(messages)
 
         @staticmethod
@@ -360,12 +397,32 @@ def _create_remote_model_instance(
         if base_url.endswith("/v1"):
             base_url = base_url[:-3]
 
+    dashscope_base_urls = [
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "https://coding.dashscope.aliyuncs.com/v1",
+    ]
+
+    client_kwargs = {"base_url": base_url}
+
+    if base_url in dashscope_base_urls:
+        client_kwargs["default_headers"] = {
+            "x-dashscope-agentapp": json.dumps(
+                {
+                    "agentType": "CoPaw",
+                    "deployType": "UnKnown",
+                    "moduleCode": "model",
+                    "agentCode": "UnKnown",
+                },
+                ensure_ascii=False,
+            ),
+        }
+
     # Instantiate model
     model = chat_model_class(
         model_name,
         api_key=api_key,
         stream=True,
-        client_kwargs={"base_url": base_url},
+        client_kwargs=client_kwargs,
     )
 
     return model

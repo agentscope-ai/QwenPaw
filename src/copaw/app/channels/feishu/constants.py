@@ -18,6 +18,3 @@ FEISHU_SESSION_ID_SUFFIX_LEN = 8
 
 # Timeout for Contact API when fetching user name by open_id (seconds)
 FEISHU_USER_NAME_FETCH_TIMEOUT = 2
-
-# For minimal installation
-FEISHU_AVAILABLE = True

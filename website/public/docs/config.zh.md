@@ -149,6 +149,7 @@ copaw app
 | `enabled`              | bool   | `false` | 是否启用该频道                  |
 | `bot_prefix`           | string | `""`    | 可选命令前缀（如 `/paw`）       |
 | `filter_tool_messages` | bool   | `false` | 过滤工具调用/输出消息（默认关） |
+| `filter_thinking`      | bool   | `false` | 过滤思考/推理内容（默认关）     |
 
 **`channels.imessage`** — macOS iMessage
 

@@ -53,7 +53,15 @@
 
 ## 新闻
 
-[2026-03-02] 我们发布了 v0.0.4！完整更新说明见 [v0.0.4 发布说明](https://github.com/agentscope-ai/CoPaw/releases/tag/v0.0.4)。
+[2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+
+- **[v0.0.5]** **新增：** 频道管理；Twilio 语音频道；DeepSeek Reasoner 支持；Daemon 模式；智能体中断 API；版本更新提醒。
+- **[v0.0.5]** **优化：** 记忆系统升级（reme-ai 0.3.0.3）；控制台界面改进（请求取消、可折叠侧边栏）；可选频道懒加载；Windows 一键安装脚本。
+- **[v0.0.5]** **修复：** Docker 配置持久化；Ollama base URL；频道修复（钉钉、飞书、Telegram）；Windows 兼容性；MCP 客户端稳定性；shell超时阻滞修复。
+- **[v0.0.5]** **文档：** 模型配置指南；Docker + Ollama 连接指南；日文 README；发布说明系统；优化频道配置指南。
+- **[v0.0.5]** **贡献者：** 感谢新贡献者：[@qoli](https://github.com/qoli)、[@qbc2016](https://github.com/qbc2016)、[@yunlzheng](https://github.com/yunlzheng)、[@BlueSkyXN](https://github.com/BlueSkyXN)、[@sidonsoft](https://github.com/sidonsoft)、[@lishengzxc](https://github.com/lishengzxc)、[@pikaxinge](https://github.com/pikaxinge)、[@linshengli](https://github.com/linshengli)、[@eltociear](https://github.com/eltociear)、[@liuxiaopai-ai](https://github.com/liuxiaopai-ai)、[@Leirunlin](https://github.com/Leirunlin)、[@pan-x-c](https://github.com/pan-x-c)、[@garyzhang99](https://github.com/garyzhang99)、[@celestialhorse51D](https://github.com/celestialhorse51D)、[@wwx814](https://github.com/wwx814)、[@nszhsl](https://github.com/nszhsl)、[@DavdGao](https://github.com/DavdGao)、[@zhangckcup](https://github.com/zhangckcup)。
+
+[2026-03-02] 我们发布了 v0.0.4！完整更新说明见 [v0.0.4 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 - **[v0.0.4]** **FEAT：** Telegram 频道；OpenAI 与 Azure OpenAI 作为内置模型提供商；Ollama SDK；coding-plan 提供商；模型连接测试；心跳监控面板；CORS 配置；钉钉与飞书支持音频文件。
 - **[v0.0.4]** **FEAT：** 基于 token 的记忆压缩；文件块处理；嵌入配置；tool_choice 行为统一。
@@ -230,6 +238,24 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 
 然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
+> **从容器内连接宿主机上的 Ollama 或其他模型服务**
+>
+> Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 CoPaw 访问：
+>
+> **方式 A** — 显式绑定宿主机地址（全平台通用）：
+> ```bash
+> docker run -p 127.0.0.1:8088:8088 \
+>   --add-host=host.docker.internal:host-gateway \
+>   -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434/v1` 或对应端口。
+>
+> **方式 B** — 使用宿主机网络（仅限 Linux）：
+> ```bash
+> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
+
 镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
 ### 使用魔搭创空间
@@ -327,7 +353,7 @@ copaw app # 启动服务
 | 多模态 | 语音/视频通话与实时交互 | 长期规划 |
 | 多智能体 | 基于 [AgentScope](https://github.com/agentscope-ai/agentscope)，原生支持多智能体协作 | 长期规划 |
 | 沙箱 | 与 AgentScope Runtime 沙箱深度集成 | 长期规划 |
-| 自愈 | 守护进程 Agent，实现自动恢复与健康监控 | 长期规划 |
+| 自愈 | Daemon Agent，实现自动恢复与健康监控 | 长期规划 |
 | CoPaw 优化本地模型 | 针对 CoPaw 原生 Skills 与常见任务调优的本地模型，提升个人助理可用性 | 长期规划 |
 | 大小模型协同 | 本地模型处理敏感数据，云端模型负责规划与编码；兼顾隐私、性能与能力 | 长期规划 |
 | 云原生 | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态 | 长期规划 |

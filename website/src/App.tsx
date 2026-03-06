@@ -4,6 +4,7 @@ import { loadSiteConfig, type SiteConfig } from "./config";
 import { type Lang, t } from "./i18n";
 import { Home } from "./pages/Home";
 import { Docs } from "./pages/Docs";
+import { ReleaseNotes } from "./pages/ReleaseNotes";
 import "./index.css";
 
 const LANG_KEY = "site-lang";
@@ -53,6 +54,12 @@ export default function App() {
       <Route
         path="/docs/:slug"
         element={<Docs config={config} lang={lang} onLangClick={toggleLang} />}
+      />
+      <Route
+        path="/release-notes"
+        element={
+          <ReleaseNotes config={config} lang={lang} onLangClick={toggleLang} />
+        }
       />
     </Routes>
   );

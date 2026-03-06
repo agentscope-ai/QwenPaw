@@ -8,11 +8,12 @@ Two ways to configure channels:
 - **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
 - **Edit `config.json` directly** — Default `~/.copaw/config.json` (created by `copaw init`), set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
 
-All channels share two fields:
+All channels have common fields below:
 
 - **enabled** — Turn the channel on or off.
 - **bot_prefix** — Prefix for bot replies (e.g. `[BOT]`) so they're easy to spot.
 - **filter_tool_messages** — (optional, default `false`) Filter tool call and output messages from being sent to users. Set to `true` to hide tool execution details.
+- **filter_thinking** — (optional, default `false`) Filter model thinking/reasoning content from being sent to users. Set to `true` to hide thinking blocks.
 
 Below is how to get credentials and fill config for each channel.
 
@@ -255,32 +256,50 @@ The JSON in step 6 grants the following permissions (app identity) for messaging
 
 The app polls the local iMessage database for new messages and sends replies on your behalf.
 
-### Prerequisites
+1. Ensure **Messages** is signed in on this Mac (open the Messages app and sign in with your Apple ID in System Settings).
 
-- Ensure **Messages** is signed in on this Mac (open the Messages app and sign in
-  with your Apple ID in System Settings).
-- Install **imsg** (used to access the iMessage database):
-  ```bash
-  brew install steipete/tap/imsg
-  ```
-- The default iMessage database path is `~/Library/Messages/chat.db`. Use this unless you've moved the database.
-- The app needs **Full Disk Access** (System Settings → Privacy & Security → Full Disk
-  Access) to read `chat.db`.
-- Everything stays on your machine; no data is sent elsewhere.
+2. Install **imsg** (used to access the iMessage database):
 
-### Fill config.json
+   ```bash
+   brew install steipete/tap/imsg
+   ```
 
-```json
-"imessage": {
-  "enabled": true,
-  "bot_prefix": "[BOT]",
-  "db_path": "~/Library/Messages/chat.db",
-  "poll_sec": 1.0
-}
-```
+   > If installation fails on Intel Mac, clone the repo and build from source:
+   >
+   > ```bash
+   > git clone https://github.com/steipete/imsg.git
+   > cd imsg
+   > make build
+   > sudo cp build/Release/imsg /usr/local/bin/
+   > cp ./bin/imsg /usr/local/bin/
+   > ```
 
-- **db_path** — Path to the iMessage database
-- **poll_sec** — Poll interval in seconds (1 is fine)
+3. For CoPaw to read iMessage data, **Terminal** (or the app you use to run `copaw app`) and **Messages** need **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access).
+
+4. Set the iMessage database path. The default is `~/Library/Messages/chat.db`; use this unless you've moved the database. You can configure it in either of these ways:
+
+   - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
+
+     ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
+
+   - Or edit `config.json` (usually at `~/.copaw/config.json`):
+
+     ```json
+     "imessage": {
+       "enabled": true,
+       "bot_prefix": "[BOT]",
+       "db_path": "~/Library/Messages/chat.db",
+       "poll_sec": 1.0
+     }
+     ```
+
+     **db_path** — Path to the iMessage database
+
+     **poll_sec** — Poll interval in seconds (1 is fine)
+
+5. After saving, send any message from your phone to the iMessage account signed in on this Mac (same Apple ID). You should see a reply.
+
+   ![reply](https://img.alicdn.com/imgextra/i2/O1CN01btWaV21CtFmbnxFYw_!!6000000000138-2-tps-1206-2622.png)
 
 ---
 

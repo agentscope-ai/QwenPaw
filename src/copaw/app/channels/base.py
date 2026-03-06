@@ -81,15 +81,18 @@ class BaseChannel(ABC):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
+        self._filter_thinking = filter_thinking
         self._enqueue: EnqueueCallback = None
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
         self._renderer = MessageRenderer(self._render_style)
         self._http: Optional[Any] = None
@@ -258,6 +261,7 @@ class BaseChannel(ABC):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "BaseChannel":
         raise NotImplementedError
 
@@ -716,8 +720,8 @@ class BaseChannel(ABC):
         Subclasses must implement from_config(process, config, on_reply_sent).
 
         show_tool_details is global config (not in channel config), so we
-        preserve from self. filter_tool_messages is per-channel config, so
-        we read from new config.
+        preserve from self. filter_tool_messages and filter_thinking are
+        per-channel config, so we read from new config.
         """
         return self.__class__.from_config(
             process=self._process,
@@ -727,6 +731,11 @@ class BaseChannel(ABC):
             filter_tool_messages=getattr(
                 config,
                 "filter_tool_messages",
+                False,
+            ),
+            filter_thinking=getattr(
+                config,
+                "filter_thinking",
                 False,
             ),
         )

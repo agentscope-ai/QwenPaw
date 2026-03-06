@@ -226,6 +226,8 @@
     "botPrefix": "机器人前缀",
     "filterToolMessages": "显示工具消息",
     "filterToolMessagesTooltip": "向用户显示工具调用和输出消息（关闭则隐藏）",
+    "filterThinking": "显示思考过程",
+    "filterThinkingTooltip": "向用户显示模型的思考/推理内容（关闭则隐藏）",
     "notSet": "未设置",
     "clickCardToEdit": "点击卡片进行编辑",
     "settings": "设置",
@@ -237,6 +239,15 @@
     "httpProxyAuthPlaceholder": "用户名:密码",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",
     "botPrefixPlaceholder": "@bot",
+    "dmPolicy": "私聊策略",
+    "dmPolicyTooltip": "控制谁可以通过私聊与机器人交互。开放：所有人；白名单：仅限授权用户",
+    "groupPolicy": "群聊策略",
+    "groupPolicyTooltip": "控制谁可以在群聊中与机器人交互。开放：所有人；白名单：仅限授权用户",
+    "policyOpen": "开放",
+    "policyAllowlist": "白名单",
+    "allowFrom": "白名单用户",
+    "allowFromTooltip": "允许与机器人交互的用户 ID 列表（格式：昵称#后4位，如 张三#1234）",
+    "allowFromPlaceholder": "输入用户ID后按回车添加",
     "twilioAccountSid": "Twilio 账户 SID",
     "twilioAuthToken": "Twilio 认证令牌",
     "phoneNumber": "电话号码",
@@ -430,6 +441,7 @@
     "discoverModels": "自动获取模型",
     "discoverModelsFailed": "自动获取模型失败",
     "modelTestFailed": "模型验证失败，请检查模型ID是否正确",
+    "modelTestFailedConfirm": "模型连接测试失败：{{message}}。是否仍要添加此模型？",
     "autoDiscoveredAndAdded": "已自动获取 {{count}} 个模型，并新增 {{added}} 个到可选列表",
     "autoDiscoveredNoNew": "已自动获取 {{count}} 个模型，当前列表已是最新",
     "autoDiscoverFailed": "自动获取模型失败，可在模型管理中手动添加"
@@ -460,5 +472,20 @@
     "chatDisabledMessage": "聊天功能已禁用，因为未配置模型。请配置模型以启用聊天功能。",
     "configureNow": "配置模型",
     "modelNotConfigured": "请先在设置中配置模型后再使用聊天功能"
+  },
+  "header": {
+    "changelog": "更新日志",
+    "docs": "文档",
+    "tutorial": "教程",
+    "faq": "常见问题",
+    "github": "GitHub"
+  },
+  "sidebar": {
+    "newVersion": "发现新版本 v{{version}}，点击前往升级",
+    "updateModal": {
+      "title": "发现新版本 v{{version}}",
+      "viewReleases": "查看 Releases",
+      "close": "关闭"
+    }
   }
 }

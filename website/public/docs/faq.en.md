@@ -128,18 +128,53 @@ You can check version changes in CoPaw GitHub
 
 ### How to configure models
 
-In Console, go to **Settings -> Models**. See
-[Console -> Models](https://copaw.agentscope.io/docs/console#models) for
-details.
+In Console, go to **Settings -> Models** to configure. See the
+[Models](https://copaw.agentscope.io/docs/models) doc for details:
 
-- Cloud models: fill provider API key (ModelScope, DashScope, or custom), then
-  choose the active model.
+- Cloud models: fill provider API key (e.g. ModelScope, DashScope, or custom),
+  then select the active model.
 - Local models: supports `llama.cpp`, `MLX`, and Ollama. After download, select
   the active model on the same page.
 
 You can also use `copaw models` CLI commands for configuration, download, and
 switching. See
-[CLI -> Models and Environment Variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
+[CLI -> Models and environment variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
+
+### Troubleshooting scheduled (cron) tasks
+
+In Console, go to **Control -> Cron Jobs** to create and manage scheduled tasks.
+
+![cron](https://img.alicdn.com/imgextra/i2/O1CN01sL8ZYj1QJtpXs9iKE_!!6000000001956-2-tps-3814-1954.png)
+
+The easiest way to create a cron job is to talk to CoPaw in the channel where you want the results. For example, say: “Create a scheduled task that reminds me to drink water every five minutes.” You can then see the enabled job in Console.
+
+If a scheduled task does not run as expected, try the following:
+
+1. Confirm that the CoPaw service is running.
+
+2. Check that the task **Status** is **Enabled**.
+
+   ![enable](https://img.alicdn.com/imgextra/i4/O1CN01oggNyG1yQwrWKCnN7_!!6000000006574-2-tps-3020-762.png)
+
+3. Check that **Dispatch Channel** is set to the channel where you want the result (e.g. console, dingtalk, feishu, discord, imessage).
+
+   ![channel](https://img.alicdn.com/imgextra/i1/O1CN01RnjX7z1MHpZvVpjJq_!!6000000001410-2-tps-3020-762.png)
+
+4. Check that **Dispatch Target User ID** and **Dispatch Target Session ID** are correct.
+
+   ![id](https://img.alicdn.com/imgextra/i4/O1CN01QgvEDv290o1p3oaTv_!!6000000008006-2-tps-3020-762.png)
+
+   In Console, go to **Control -> Sessions** and find the session you used when creating the task. To have the task reply in that session, the **User ID** and **Session ID** there must match the task’s **Dispatch Target User ID** and **Dispatch Target Session ID**.
+
+   ![id](https://img.alicdn.com/imgextra/i3/O1CN01aqsLLR1eRb6m6WaGl_!!6000000003868-2-tps-3020-928.png)
+
+5. If the task runs at the wrong time, check the **Schedule (Cron)** for the task.
+
+   ![cron](https://img.alicdn.com/imgextra/i2/O1CN01iNoLp229bRiIdvJKK_!!6000000008086-2-tps-3020-778.png)
+
+6. To verify that the task was created and can run, click **Execute Now**. If it works, you should see the reply in the target channel. You can also ask CoPaw: “Trigger the ‘drink water reminder’ task I just created.”
+
+   ![exec](https://img.alicdn.com/imgextra/i3/O1CN01nGtc3p1o5kN0d01mf_!!6000000005174-2-tps-3020-778.png)
 
 ### How to manage Skills
 
@@ -183,14 +218,13 @@ https://help.aliyun.com/zh/model-studio/coding-plan-quickstart#2531c37fd64f9
 
 ### How to get support when errors occur
 
-To speed up troubleshooting and fixes, please create an issue in the CoPaw
-GitHub repository and include complete error information:
-https://github.com/agentscope-ai/CoPaw/issues
+To speed up troubleshooting and fixes, please open an
+[issue](https://github.com/agentscope-ai/CoPaw/issues) in the CoPaw GitHub
+repository and attach the full error message and any error detail file.
 
-In many Console errors, a detailed error file path is included. For example:
+Console errors often include a path to an error detail file. For example:
 
 Error: Unknown agent error: AuthenticationError: Error code: 401 - {'error': {'message': "You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY). ", 'type': 'invalid_request_error', 'param': None, 'code': None}, 'request_id': 'xxx'}(Details: /var/folders/.../copaw_query_error_qzbx1mv1.json)
 
-Please upload that file (for example
-`/var/folders/.../copaw_query_error_qzbx1mv1.json`) together with your current
-model provider, model name, and exact CoPaw version.
+Please upload that file (e.g. `/var/folders/.../copaw_query_error_qzbx1mv1.json`)
+and also provide your current model provider, model name, and CoPaw version.

@@ -63,12 +63,12 @@ class FakeMemoryManager:
 
     async def compact_memory(
         self,
-        messages_to_summarize: list[FakeMsg],
+        messages: list[FakeMsg],
         previous_summary: str = "",
     ) -> str:
         self.compact_calls.append(
             {
-                "messages_to_summarize": list(messages_to_summarize),
+                "messages": list(messages),
                 "previous_summary": previous_summary,
             },
         )

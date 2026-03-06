@@ -58,23 +58,45 @@ def _ensure_ollama():
     return ollama
 
 
+def _base_url_to_host(base_url: str) -> Optional[str]:
+    """Convert an OpenAI-compat ``base_url`` (with ``/v1``) to an Ollama host.
+
+    The providers.json stores ``http://host:port/v1`` for OpenAI compatibility,
+    but the native Ollama SDK expects ``http://host:port``.
+    """
+    if not base_url:
+        return None
+    url = base_url.rstrip("/")
+    if url.endswith("/v1"):
+        url = url[:-3]
+    return url or None
+
+
 class OllamaModelManager:
     """High-level wrapper around the Ollama SDK for model lifecycle.
 
     All operations delegate to the Ollama daemon; this module does not manage
     files or persist a manifest. It is safe to call these methods from
     background tasks and CLIs.
+
+    Every method accepts an optional *host* parameter (e.g.
+    ``http://remote:11434``) that overrides the SDK default.
     """
 
     @staticmethod
-    def list_models() -> List[OllamaModelInfo]:
+    def _make_client(host: Optional[str] = None):
+        """Create an Ollama SDK client, optionally targeting a custom host."""
+        ollama = _ensure_ollama()
+        kwargs: dict = {"timeout": MODEL_PROVIDER_CHECK_TIMEOUT}
+        if host:
+            kwargs["host"] = host
+        return ollama.Client(**kwargs)
+
+    @staticmethod
+    def list_models(host: Optional[str] = None) -> List[OllamaModelInfo]:
         """Return the current model list from ``ollama.list()``."""
 
-        ollama = _ensure_ollama()
-        # Use a bounded timeout to avoid blocking app requests indefinitely
-        # when the Ollama daemon/host is unreachable.
-        client = ollama.Client(timeout=MODEL_PROVIDER_CHECK_TIMEOUT)
-        raw = client.list()
+        raw = OllamaModelManager._make_client(host).list()
         models: List[OllamaModelInfo] = []
         for m in raw.get("models", []):
             models.append(
@@ -88,29 +110,30 @@ class OllamaModelManager:
         return models
 
     @staticmethod
-    def pull_model(name: str) -> OllamaModelInfo:
+    def pull_model(
+        name: str,
+        host: Optional[str] = None,
+    ) -> OllamaModelInfo:
         """Pull/download a model via ``ollama.pull``.
 
         This call is blocking and intended to be run in a thread executor when
         used from async FastAPI endpoints.
         """
 
-        ollama = _ensure_ollama()
         logger.info("Pulling Ollama model: %s", name)
-        ollama.pull(name)
+        OllamaModelManager._make_client(host).pull(name)
         logger.info("Pull completed: %s", name)
 
-        for model in OllamaModelManager.list_models():
+        for model in OllamaModelManager.list_models(host=host):
             if model.name == name:
                 return model
 
         raise ValueError(f"Ollama model '{name}' not found after pull.")
 
     @staticmethod
-    def delete_model(name: str) -> None:
+    def delete_model(name: str, host: Optional[str] = None) -> None:
         """Delete a model from the local Ollama instance."""
 
-        ollama = _ensure_ollama()
         logger.info("Deleting Ollama model: %s", name)
-        ollama.delete(name)
+        OllamaModelManager._make_client(host).delete(name)
         logger.info("Ollama model deleted: %s", name)

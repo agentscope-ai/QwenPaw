@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from agentscope.message import TextBlock
@@ -31,6 +32,40 @@ from ...config import (
 from .browser_snapshot import build_role_snapshot_from_aria
 
 logger = logging.getLogger(__name__)
+
+# Hybrid mode detection: Windows + Uvicorn reload mode requires sync Playwright
+# to avoid NotImplementedError with asyncio.create_subprocess_exec.
+# On other platforms or without reload, use async Playwright for better performance.
+_USE_SYNC_PLAYWRIGHT = (
+    sys.platform == "win32" and os.environ.get("COPAW_RELOAD_MODE") == "1"
+)
+
+if _USE_SYNC_PLAYWRIGHT:
+    _executor: Optional[ThreadPoolExecutor] = None
+
+    def _get_executor() -> ThreadPoolExecutor:
+        global _executor
+        if _executor is None:
+            _executor = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="playwright",
+            )
+        return _executor
+
+    async def _run_sync(func, *args, **kwargs):
+        """Run a sync function in the thread pool and await the result."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _get_executor(),
+            lambda: func(*args, **kwargs),
+        )
+
+else:
+
+    async def _run_sync(func, *args, **kwargs):
+        """Fallback: directly call async function (should not be used in async mode)."""
+        return await func(*args, **kwargs)
+
 
 # Process-global browser state (one browser, multiple pages by page_id)
 _state: dict[str, Any] = {
@@ -50,6 +85,9 @@ _state: dict[str, Any] = {
     "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
     "_idle_task": None,  # background asyncio.Task for idle watchdog
     "_last_browser_error": None,  # message when launch failed (for user-facing error)
+    "_sync_browser": None,  # sync browser handle for hybrid mode
+    "_sync_context": None,  # sync context handle for hybrid mode
+    "_sync_playwright": None,  # sync playwright handle for hybrid mode
 }
 
 # Stop the browser after this many seconds of inactivity (default 30 minutes).
@@ -61,6 +99,36 @@ def _touch_activity() -> None:
     _state["last_activity_time"] = time.monotonic()
 
 
+def _is_browser_running() -> bool:
+    """Check if browser is currently running (sync or async mode)."""
+    if _USE_SYNC_PLAYWRIGHT:
+        return _state.get("_sync_browser") is not None
+    return _state.get("browser") is not None
+
+
+def _reset_browser_state() -> None:
+    """Reset all browser-related state variables."""
+    # Clear sync/async specific state
+    _state["playwright"] = None
+    _state["browser"] = None
+    _state["context"] = None
+    _state["_sync_playwright"] = None
+    _state["_sync_browser"] = None
+    _state["_sync_context"] = None
+    # Clear shared state
+    _state["pages"].clear()
+    _state["refs"].clear()
+    _state["refs_frame"].clear()
+    _state["console_logs"].clear()
+    _state["network_requests"].clear()
+    _state["pending_dialogs"].clear()
+    _state["pending_file_choosers"].clear()
+    _state["current_page_id"] = None
+    _state["page_counter"] = 0
+    _state["last_activity_time"] = 0.0
+    _state["headless"] = True
+
+
 async def _idle_watchdog(idle_seconds: float = _BROWSER_IDLE_TIMEOUT) -> None:
     """Background task: stop the browser after it has been idle for *idle_seconds*.
 
@@ -70,7 +138,7 @@ async def _idle_watchdog(idle_seconds: float = _BROWSER_IDLE_TIMEOUT) -> None:
     try:
         while True:
             await asyncio.sleep(60)  # check every minute
-            if _state["browser"] is None:
+            if not _is_browser_running():
                 return
             idle = time.monotonic() - _state.get("last_activity_time", 0.0)
             if idle >= idle_seconds:
@@ -92,8 +160,9 @@ def _atexit_cleanup() -> None:
     exits, but this gives Playwright a chance to flush any pending I/O and
     close Chrome gracefully before the process disappears.
     """
-    if _state.get("browser") is None:
+    if not _is_browser_running():
         return
+
     try:
         loop = asyncio.get_event_loop()
         if not loop.is_running() and not loop.is_closed():
@@ -145,6 +214,73 @@ def _ensure_playwright_async():
             f"'{sys.executable}' -m pip install playwright && "
             f"'{sys.executable}' -m playwright install",
         ) from exc
+
+
+def _ensure_playwright_sync():
+    """Import sync_playwright; raise ImportError with hint if missing."""
+    try:
+        from playwright.sync_api import sync_playwright
+
+        return sync_playwright
+    except ImportError as exc:
+        raise ImportError(
+            "Playwright not installed. Use the same Python that runs CoPaw (e.g. "
+            "activate your venv or use 'uv run'): "
+            f"'{sys.executable}' -m pip install playwright && "
+            f"'{sys.executable}' -m playwright install",
+        ) from exc
+
+
+def _sync_browser_launch(headless: bool):
+    """Launch browser using sync Playwright (for hybrid mode)."""
+    sync_playwright = _ensure_playwright_sync()
+    pw = sync_playwright().start()  # Start without context manager
+    use_default = not is_running_in_container() and os.environ.get(
+        "COPAW_BROWSER_USE_DEFAULT",
+        "1",
+    ).strip().lower() in ("1", "true", "yes")
+    default_kind, default_path = (
+        get_system_default_browser() if use_default else (None, None)
+    )
+    exe: Optional[str] = None
+    if default_kind == "chromium" and default_path:
+        exe = default_path
+    elif default_kind != "webkit":
+        exe = _chromium_executable_path()
+
+    if exe:
+        launch_kwargs = {"headless": headless}
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
+        launch_kwargs["executable_path"] = exe
+        browser = pw.chromium.launch(**launch_kwargs)
+    elif default_kind == "webkit" or sys.platform == "darwin":
+        browser = pw.webkit.launch(headless=headless)
+    else:
+        launch_kwargs = {"headless": headless}
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
+        browser = pw.chromium.launch(**launch_kwargs)
+
+    context = browser.new_context()
+    _attach_context_listeners(context)
+    return pw, browser, context
+
+
+def _sync_browser_close():
+    """Close browser using sync Playwright (for hybrid mode)."""
+    if _state["_sync_browser"] is not None:
+        try:
+            _state["_sync_browser"].close()
+        except Exception:
+            pass
+    if _state["_sync_playwright"] is not None:
+        try:
+            _state["_sync_playwright"].stop()
+        except Exception:
+            pass
 
 
 def _parse_json_param(value: str, default: Any = None):
@@ -315,9 +451,6 @@ async def browser_use(  # pylint: disable=R0911,R0912
         headed (bool):
             When True with action=start, launch a visible browser window
             (non-headless). User can see the real browser. Default False.
-        headed (bool):
-            When True with action=start, launch a visible browser window
-            (non-headless). User can see the real browser. Default False.
     """
     action = (action or "").strip().lower()
     if not action:
@@ -330,10 +463,6 @@ async def browser_use(  # pylint: disable=R0911,R0912
         )
 
     page_id = (page_id or "default").strip() or "default"
-    current = _state.get("current_page_id")
-    pages = _state.get("pages") or {}
-    if page_id == "default" and current and current in pages:
-        page_id = current
     current = _state.get("current_page_id")
     pages = _state.get("pages") or {}
     if page_id == "default" and current and current in pages:
@@ -586,50 +715,76 @@ def _attach_context_listeners(context) -> None:
     context.on("page", on_page)
 
 
-async def _ensure_browser() -> bool:
+async def _ensure_browser() -> bool:  # pylint: disable=too-many-branches
     """Start browser if not running. Return True if ready, False on failure."""
-    if _state["browser"] is not None and _state["context"] is not None:
-        _touch_activity()
-        return True
+    # Check browser state based on mode
+    if _USE_SYNC_PLAYWRIGHT:
+        if (
+            _state["_sync_browser"] is not None
+            and _state["_sync_context"] is not None
+        ):
+            _touch_activity()
+            return True
+    else:
+        if _state["browser"] is not None and _state["context"] is not None:
+            _touch_activity()
+            return True
+
     try:
-        async_playwright = _ensure_playwright_async()
-        pw = await async_playwright().start()
-        # Prefer OS default browser when available (e.g. user's default Chrome/Safari).
-        use_default = not is_running_in_container() and os.environ.get(
-            "COPAW_BROWSER_USE_DEFAULT",
-            "1",
-        ).strip().lower() in ("1", "true", "yes")
-        default_kind, default_path = (
-            get_system_default_browser() if use_default else (None, None)
-        )
-        exe: Optional[str] = None
-        if default_kind == "chromium" and default_path:
-            exe = default_path
-        elif default_kind != "webkit":
-            exe = _chromium_executable_path()
-        if exe:
-            # System Chrome/Edge/Chromium (default or discovered)
-            launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
-            extra_args = _chromium_launch_args()
-            if extra_args:
-                launch_kwargs["args"] = extra_args
-            launch_kwargs["executable_path"] = exe
-            pw_browser = await pw.chromium.launch(**launch_kwargs)
-        elif default_kind == "webkit" or sys.platform == "darwin":
-            # macOS: default Safari or no Chromium → use WebKit (Safari)
-            pw_browser = await pw.webkit.launch(headless=_state["headless"])
+        if _USE_SYNC_PLAYWRIGHT:
+            # Hybrid mode: use sync Playwright in thread pool
+            loop = asyncio.get_event_loop()
+            pw, browser, context = await loop.run_in_executor(
+                _get_executor(),
+                lambda: _sync_browser_launch(_state["headless"]),
+            )
+            _state["_sync_playwright"] = pw
+            _state["_sync_browser"] = browser
+            _state["_sync_context"] = context
         else:
-            # Windows/Linux without system Chromium → Playwright's Chromium
-            launch_kwargs = {"headless": _state["headless"]}
-            extra_args = _chromium_launch_args()
-            if extra_args:
-                launch_kwargs["args"] = extra_args
-            pw_browser = await pw.chromium.launch(**launch_kwargs)
-        context = await pw_browser.new_context()
-        _attach_context_listeners(context)
-        _state["playwright"] = pw
-        _state["browser"] = pw_browser
-        _state["context"] = context
+            # Standard mode: use async Playwright
+            async_playwright = _ensure_playwright_async()
+            pw = await async_playwright().start()
+            # Prefer OS default browser when available (e.g. user's default Chrome/Safari).
+            use_default = not is_running_in_container() and os.environ.get(
+                "COPAW_BROWSER_USE_DEFAULT",
+                "1",
+            ).strip().lower() in ("1", "true", "yes")
+            default_kind, default_path = (
+                get_system_default_browser() if use_default else (None, None)
+            )
+            exe: Optional[str] = None
+            if default_kind == "chromium" and default_path:
+                exe = default_path
+            elif default_kind != "webkit":
+                exe = _chromium_executable_path()
+            if exe:
+                # System Chrome/Edge/Chromium (default or discovered)
+                launch_kwargs: dict[str, Any] = {
+                    "headless": _state["headless"],
+                }
+                extra_args = _chromium_launch_args()
+                if extra_args:
+                    launch_kwargs["args"] = extra_args
+                launch_kwargs["executable_path"] = exe
+                pw_browser = await pw.chromium.launch(**launch_kwargs)
+            elif default_kind == "webkit" or sys.platform == "darwin":
+                # macOS: default Safari or no Chromium → use WebKit (Safari)
+                pw_browser = await pw.webkit.launch(
+                    headless=_state["headless"],
+                )
+            else:
+                # Windows/Linux without system Chromium → Playwright's Chromium
+                launch_kwargs = {"headless": _state["headless"]}
+                extra_args = _chromium_launch_args()
+                if extra_args:
+                    launch_kwargs["args"] = extra_args
+                pw_browser = await pw.chromium.launch(**launch_kwargs)
+            context = await pw_browser.new_context()
+            _attach_context_listeners(context)
+            _state["playwright"] = pw
+            _state["browser"] = pw_browser
+            _state["context"] = context
         _state["_last_browser_error"] = None
         _touch_activity()
         _start_idle_watchdog()
@@ -659,31 +814,23 @@ def _cancel_idle_watchdog() -> None:
 async def _action_start(
     headed: bool = False,
 ) -> ToolResponse:
+    # Check browser state based on mode
+    if _USE_SYNC_PLAYWRIGHT:
+        browser_exists = _state["_sync_browser"] is not None
+        current_headless = not _state.get("_sync_headless", True)
+    else:
+        browser_exists = _state["browser"] is not None
+        current_headless = _state["headless"]
+
     # If user asks for visible window (headed=True)
     # but browser is already running headless, restart with headed
-    if _state["browser"] is not None:
-        if headed and _state["headless"]:
+    if browser_exists:
+        if headed and current_headless:
             _cancel_idle_watchdog()
             try:
-                await _state["browser"].close()
-                if _state["playwright"] is not None:
-                    await _state["playwright"].stop()
+                await _action_stop()
             except Exception:
                 pass
-            finally:
-                _state["playwright"] = None
-                _state["browser"] = None
-                _state["context"] = None
-                _state["pages"].clear()
-                _state["refs"].clear()
-                _state["refs_frame"].clear()
-                _state["console_logs"].clear()
-                _state["network_requests"].clear()
-                _state["pending_dialogs"].clear()
-                _state["pending_file_choosers"].clear()
-                _state["current_page_id"] = None
-                _state["page_counter"] = 0
-                _state["last_activity_time"] = 0.0
         else:
             return _tool_response(
                 json.dumps(
@@ -694,59 +841,62 @@ async def _action_start(
             )
     # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
     _state["headless"] = not headed
+
     try:
-        async_playwright = _ensure_playwright_async()
-    except ImportError as e:
-        return _tool_response(
-            json.dumps(
-                {"ok": False, "error": str(e)},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
-    try:
-        pw = await async_playwright().start()
-        use_default = not is_running_in_container() and os.environ.get(
-            "COPAW_BROWSER_USE_DEFAULT",
-            "1",
-        ).strip().lower() in ("1", "true", "yes")
-        default_kind, default_path = (
-            get_system_default_browser() if use_default else (None, None)
-        )
-        exe: Optional[str] = None
-        if default_kind == "chromium" and default_path:
-            exe = default_path
-        elif default_kind != "webkit":
-            exe = _chromium_executable_path()
-        if exe:
-            launch_kwargs = {"headless": _state["headless"]}
-            extra_args = _chromium_launch_args()
-            if extra_args:
-                launch_kwargs["args"] = extra_args
-            launch_kwargs["executable_path"] = exe
-            pw_browser = await pw.chromium.launch(**launch_kwargs)
-        elif default_kind == "webkit" or sys.platform == "darwin":
-            pw_browser = await pw.webkit.launch(headless=_state["headless"])
+        if _USE_SYNC_PLAYWRIGHT:
+            loop = asyncio.get_event_loop()
+            pw, browser, context = await loop.run_in_executor(
+                _get_executor(),
+                lambda: _sync_browser_launch(_state["headless"]),
+            )
+            _state["_sync_playwright"] = pw
+            _state["_sync_browser"] = browser
+            _state["_sync_context"] = context
+            _state["_sync_headless"] = not headed
         else:
-            launch_kwargs = {"headless": _state["headless"]}
-            extra_args = _chromium_launch_args()
-            if extra_args:
-                launch_kwargs["args"] = extra_args
-            pw_browser = await pw.chromium.launch(**launch_kwargs)
-        context = await pw_browser.new_context()
-        _attach_context_listeners(context)
-        _state["playwright"] = pw
-        _state["browser"] = pw_browser
-        _state["context"] = context
+            async_playwright = _ensure_playwright_async()
+            pw = await async_playwright().start()
+            use_default = not is_running_in_container() and os.environ.get(
+                "COPAW_BROWSER_USE_DEFAULT",
+                "1",
+            ).strip().lower() in ("1", "true", "yes")
+            default_kind, default_path = (
+                get_system_default_browser() if use_default else (None, None)
+            )
+            exe: Optional[str] = None
+            if default_kind == "chromium" and default_path:
+                exe = default_path
+            elif default_kind != "webkit":
+                exe = _chromium_executable_path()
+            if exe:
+                launch_kwargs = {"headless": _state["headless"]}
+                extra_args = _chromium_launch_args()
+                if extra_args:
+                    launch_kwargs["args"] = extra_args
+                launch_kwargs["executable_path"] = exe
+                pw_browser = await pw.chromium.launch(**launch_kwargs)
+            elif default_kind == "webkit" or sys.platform == "darwin":
+                pw_browser = await pw.webkit.launch(
+                    headless=_state["headless"],
+                )
+            else:
+                launch_kwargs = {"headless": _state["headless"]}
+                extra_args = _chromium_launch_args()
+                if extra_args:
+                    launch_kwargs["args"] = extra_args
+                pw_browser = await pw.chromium.launch(**launch_kwargs)
+            context = await pw_browser.new_context()
+            _attach_context_listeners(context)
+            _state["playwright"] = pw
+            _state["browser"] = pw_browser
+            _state["context"] = context
         _touch_activity()
         _start_idle_watchdog()
         msg = (
             "Browser started (visible window)"
-            if _state["headless"] is False
+            if not _state["headless"]
             else "Browser started"
         )
-        if not exe and (default_kind == "webkit" or sys.platform == "darwin"):
-            msg += " (Safari/WebKit)"
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": msg},
@@ -766,7 +916,9 @@ async def _action_start(
 
 async def _action_stop() -> ToolResponse:
     _cancel_idle_watchdog()
-    if _state["browser"] is None:
+
+    # Check browser state based on mode
+    if not _is_browser_running():
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": "Browser not running"},
@@ -774,33 +926,42 @@ async def _action_stop() -> ToolResponse:
                 indent=2,
             ),
         )
-    try:
-        await _state["browser"].close()
-        if _state["playwright"] is not None:
-            await _state["playwright"].stop()
-    except Exception as e:
-        return _tool_response(
-            json.dumps(
-                {"ok": False, "error": f"Browser stop failed: {e!s}"},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
-    finally:
-        _state["playwright"] = None
-        _state["browser"] = None
-        _state["context"] = None
-        _state["pages"].clear()
-        _state["refs"].clear()
-        _state["refs_frame"].clear()
-        _state["console_logs"].clear()
-        _state["network_requests"].clear()
-        _state["pending_dialogs"].clear()
-        _state["pending_file_choosers"].clear()
-        _state["current_page_id"] = None
-        _state["page_counter"] = 0
-        _state["last_activity_time"] = 0.0
-        _state["headless"] = True  # next start defaults to background
+
+    if _USE_SYNC_PLAYWRIGHT:
+        # Close sync browser in thread pool
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                _get_executor(),
+                _sync_browser_close,
+            )
+        except Exception as e:
+            return _tool_response(
+                json.dumps(
+                    {"ok": False, "error": f"Browser stop failed: {e!s}"},
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+        finally:
+            _reset_browser_state()
+    else:
+        # Standard async mode
+        try:
+            await _state["browser"].close()
+            if _state["playwright"] is not None:
+                await _state["playwright"].stop()
+        except Exception as e:
+            return _tool_response(
+                json.dumps(
+                    {"ok": False, "error": f"Browser stop failed: {e!s}"},
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+        finally:
+            _reset_browser_state()
+
     return _tool_response(
         json.dumps(
             {"ok": True, "message": "Browser stopped"},
@@ -830,14 +991,34 @@ async def _action_open(url: str, page_id: str) -> ToolResponse:
             ),
         )
     try:
-        page = await _state["context"].new_page()
+        if _USE_SYNC_PLAYWRIGHT:
+            # Hybrid mode: create page in thread pool
+            loop = asyncio.get_event_loop()
+            # pylint: disable=unnecessary-lambda
+            page = await loop.run_in_executor(
+                _get_executor(),
+                lambda: _state["_sync_context"].new_page(),
+            )
+        else:
+            # Standard async mode
+            page = await _state["context"].new_page()
+
         _state["refs"][page_id] = {}
         _state["console_logs"][page_id] = []
         _state["network_requests"][page_id] = []
         _state["pending_dialogs"][page_id] = []
         _state["pending_file_choosers"][page_id] = []
         _attach_page_listeners(page, page_id)
-        await page.goto(url)
+
+        if _USE_SYNC_PLAYWRIGHT:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                _get_executor(),
+                lambda: page.goto(url),
+            )
+        else:
+            await page.goto(url)
+
         _state["pages"][page_id] = page
         _state["current_page_id"] = page_id
         return _tool_response(
@@ -882,7 +1063,14 @@ async def _action_navigate(url: str, page_id: str) -> ToolResponse:
             ),
         )
     try:
-        await page.goto(url)
+        if _USE_SYNC_PLAYWRIGHT:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                _get_executor(),
+                lambda: page.goto(url),
+            )
+        else:
+            await page.goto(url)
         _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
@@ -943,28 +1131,58 @@ async def _action_screenshot(
                         indent=2,
                     ),
                 )
-            await locator.screenshot(
-                path=path,
-                type=screenshot_type if screenshot_type == "jpeg" else "png",
-            )
-        else:
-            if frame_selector and frame_selector.strip():
-                root = _get_root(page, page_id, frame_selector)
-                locator = root.locator("body").first
-                await locator.screenshot(
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(
+                    locator.screenshot,
                     path=path,
                     type=screenshot_type
                     if screenshot_type == "jpeg"
                     else "png",
                 )
             else:
-                await page.screenshot(
+                await locator.screenshot(
                     path=path,
-                    full_page=full_page,
                     type=screenshot_type
                     if screenshot_type == "jpeg"
                     else "png",
                 )
+        else:
+            if frame_selector and frame_selector.strip():
+                root = _get_root(page, page_id, frame_selector)
+                locator = root.locator("body").first
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(
+                        locator.screenshot,
+                        path=path,
+                        type=screenshot_type
+                        if screenshot_type == "jpeg"
+                        else "png",
+                    )
+                else:
+                    await locator.screenshot(
+                        path=path,
+                        type=screenshot_type
+                        if screenshot_type == "jpeg"
+                        else "png",
+                    )
+            else:
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(
+                        page.screenshot,
+                        path=path,
+                        full_page=full_page,
+                        type=screenshot_type
+                        if screenshot_type == "jpeg"
+                        else "png",
+                    )
+                else:
+                    await page.screenshot(
+                        path=path,
+                        full_page=full_page,
+                        type=screenshot_type
+                        if screenshot_type == "jpeg"
+                        else "png",
+                    )
         return _tool_response(
             json.dumps(
                 {
@@ -1033,27 +1251,76 @@ async def _action_click(  # pylint: disable=too-many-branches
                 for m in mods
                 if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")
             ]
-        if ref:
-            locator = _get_locator_by_ref(page, page_id, ref, frame_selector)
-            if locator is None:
-                return _tool_response(
-                    json.dumps(
-                        {"ok": False, "error": f"Unknown ref: {ref}"},
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
+
+        if _USE_SYNC_PLAYWRIGHT:
+            loop = asyncio.get_event_loop()
+            if ref:
+                locator = _get_locator_by_ref(
+                    page,
+                    page_id,
+                    ref,
+                    frame_selector,
                 )
-            if double_click:
-                await locator.dblclick(**kwargs)
+                if locator is None:
+                    return _tool_response(
+                        json.dumps(
+                            {"ok": False, "error": f"Unknown ref: {ref}"},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                if double_click:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.dblclick(**kwargs),
+                    )
+                else:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.click(**kwargs),
+                    )
             else:
-                await locator.click(**kwargs)
+                root = _get_root(page, page_id, frame_selector)
+                locator = root.locator(selector).first
+                if double_click:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.dblclick(**kwargs),
+                    )
+                else:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.click(**kwargs),
+                    )
         else:
-            root = _get_root(page, page_id, frame_selector)
-            locator = root.locator(selector).first
-            if double_click:
-                await locator.dblclick(**kwargs)
+            # Standard async mode
+            if ref:
+                locator = _get_locator_by_ref(
+                    page,
+                    page_id,
+                    ref,
+                    frame_selector,
+                )
+                if locator is None:
+                    return _tool_response(
+                        json.dumps(
+                            {"ok": False, "error": f"Unknown ref: {ref}"},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                if double_click:
+                    await locator.dblclick(**kwargs)
+                else:
+                    await locator.click(**kwargs)
             else:
-                await locator.click(**kwargs)
+                root = _get_root(page, page_id, frame_selector)
+                locator = root.locator(selector).first
+                if double_click:
+                    await locator.dblclick(**kwargs)
+                else:
+                    await locator.click(**kwargs)
+
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Clicked {ref or selector}"},
@@ -1111,21 +1378,57 @@ async def _action_type(
                         indent=2,
                     ),
                 )
-            if slowly:
-                await locator.press_sequentially(text or "")
+            if _USE_SYNC_PLAYWRIGHT:
+                loop = asyncio.get_event_loop()
+                if slowly:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.press_sequentially(text or ""),
+                    )
+                else:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.fill(text or ""),
+                    )
+                if submit:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: locator.press("Enter"),
+                    )
             else:
-                await locator.fill(text or "")
-            if submit:
-                await locator.press("Enter")
+                if slowly:
+                    await locator.press_sequentially(text or "")
+                else:
+                    await locator.fill(text or "")
+                if submit:
+                    await locator.press("Enter")
         else:
             root = _get_root(page, page_id, frame_selector)
             loc = root.locator(selector).first
-            if slowly:
-                await loc.press_sequentially(text or "")
+            if _USE_SYNC_PLAYWRIGHT:
+                loop = asyncio.get_event_loop()
+                if slowly:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: loc.press_sequentially(text or ""),
+                    )
+                else:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: loc.fill(text or ""),
+                    )
+                if submit:
+                    await loop.run_in_executor(
+                        _get_executor(),
+                        lambda: loc.press("Enter"),
+                    )
             else:
-                await loc.fill(text or "")
-            if submit:
-                await loc.press("Enter")
+                if slowly:
+                    await loc.press_sequentially(text or "")
+                else:
+                    await loc.fill(text or "")
+                if submit:
+                    await loc.press("Enter")
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Typed into {ref or selector}"},
@@ -1164,9 +1467,18 @@ async def _action_eval(page_id: str, code: str) -> ToolResponse:
         )
     try:
         if code.strip().startswith("(") or code.strip().startswith("function"):
-            result = await page.evaluate(code)
+            if _USE_SYNC_PLAYWRIGHT:
+                result = await _run_sync(page.evaluate, code)
+            else:
+                result = await page.evaluate(code)
         else:
-            result = await page.evaluate(f"() => {{ return ({code}); }}")
+            if _USE_SYNC_PLAYWRIGHT:
+                result = await _run_sync(
+                    page.evaluate,
+                    f"() => {{ return ({code}); }}",
+                )
+            else:
+                result = await page.evaluate(f"() => {{ return ({code}); }}")
         try:
             out = json.dumps(
                 {"ok": True, "result": result},
@@ -1202,7 +1514,10 @@ async def _action_pdf(page_id: str, path: str) -> ToolResponse:
             ),
         )
     try:
-        await page.pdf(path=path)
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(page.pdf, path=path)
+        else:
+            await page.pdf(path=path)
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"PDF saved to {path}", "path": path},
@@ -1231,7 +1546,10 @@ async def _action_close(page_id: str) -> ToolResponse:
             ),
         )
     try:
-        await page.close()
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(page.close)
+        else:
+            await page.close()
         del _state["pages"][page_id]
         for key in (
             "refs",
@@ -1242,9 +1560,6 @@ async def _action_close(page_id: str) -> ToolResponse:
             "pending_file_choosers",
         ):
             _state[key].pop(page_id, None)
-        if _state.get("current_page_id") == page_id:
-            remaining = list(_state["pages"].keys())
-            _state["current_page_id"] = remaining[0] if remaining else None
         if _state.get("current_page_id") == page_id:
             remaining = list(_state["pages"].keys())
             _state["current_page_id"] = remaining[0] if remaining else None
@@ -1280,9 +1595,20 @@ async def _action_snapshot(
             ),
         )
     try:
-        root = _get_root(page, page_id, frame_selector)
-        locator = root.locator(":root")
-        raw = await locator.aria_snapshot()
+        if _USE_SYNC_PLAYWRIGHT:
+            # Hybrid mode: execute in thread pool
+            loop = asyncio.get_event_loop()
+            root = _get_root(page, page_id, frame_selector)
+            locator = root.locator(":root")
+            raw = await loop.run_in_executor(
+                _get_executor(),
+                lambda: locator.aria_snapshot(),  # pylint: disable=unnecessary-lambda
+            )
+        else:
+            root = _get_root(page, page_id, frame_selector)
+            locator = root.locator(":root")
+            raw = await locator.aria_snapshot()
+
         raw_str = str(raw) if raw is not None else ""
         snapshot, refs = build_role_snapshot_from_aria(
             raw_str,
@@ -1327,7 +1653,10 @@ async def _action_navigate_back(page_id: str) -> ToolResponse:
             ),
         )
     try:
-        await page.go_back()
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(page.go_back)
+        else:
+            await page.go_back()
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": "Navigated back", "url": page.url},
@@ -1386,14 +1715,28 @@ async def _action_evaluate(
                         indent=2,
                     ),
                 )
-            result = await locator.evaluate(code)
+            if _USE_SYNC_PLAYWRIGHT:
+                result = await _run_sync(locator.evaluate, code)
+            else:
+                result = await locator.evaluate(code)
         else:
             if code.strip().startswith("(") or code.strip().startswith(
                 "function",
             ):
-                result = await page.evaluate(code)
+                if _USE_SYNC_PLAYWRIGHT:
+                    result = await _run_sync(page.evaluate, code)
+                else:
+                    result = await page.evaluate(code)
             else:
-                result = await page.evaluate(f"() => {{ return ({code}); }}")
+                if _USE_SYNC_PLAYWRIGHT:
+                    result = await _run_sync(
+                        page.evaluate,
+                        f"() => {{ return ({code}); }}",
+                    )
+                else:
+                    result = await page.evaluate(
+                        f"() => {{ return ({code}); }}",
+                    )
         try:
             out = json.dumps(
                 {"ok": True, "result": result},
@@ -1440,7 +1783,13 @@ async def _action_resize(
             ),
         )
     try:
-        await page.set_viewport_size({"width": width, "height": height})
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(
+                page.set_viewport_size,
+                {"width": width, "height": height},
+            )
+        else:
+            await page.set_viewport_size({"width": width, "height": height})
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Resized to {width}x{height}"},
@@ -1533,11 +1882,20 @@ async def _action_handle_dialog(
         dialog = dialogs.pop(0)
         if accept:
             if prompt_text and hasattr(dialog, "accept"):
-                await dialog.accept(prompt_text)
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(dialog.accept, prompt_text)
+                else:
+                    await dialog.accept(prompt_text)
             else:
-                await dialog.accept()
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(dialog.accept)
+                else:
+                    await dialog.accept()
         else:
-            await dialog.dismiss()
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(dialog.dismiss)
+            else:
+                await dialog.dismiss()
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": "Dialog handled"},
@@ -1583,7 +1941,10 @@ async def _action_file_upload(page_id: str, paths_json: str) -> ToolResponse:
             )
         chooser = choosers.pop(0)
         if paths:
-            await chooser.set_files(paths)
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(chooser.set_files, paths)
+            else:
+                await chooser.set_files(paths)
             return _tool_response(
                 json.dumps(
                     {"ok": True, "message": f"Uploaded {len(paths)} file(s)"},
@@ -1591,7 +1952,10 @@ async def _action_file_upload(page_id: str, paths_json: str) -> ToolResponse:
                     indent=2,
                 ),
             )
-        await chooser.set_files([])
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(chooser.set_files, [])
+        else:
+            await chooser.set_files([])
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": "File chooser cancelled"},
@@ -1644,18 +2008,40 @@ async def _action_fill_form(page_id: str, fields_json: str) -> ToolResponse:
             if field_type == "checkbox":
                 if isinstance(value, str):
                     value = value.strip().lower() in ("true", "1", "yes")
-                await locator.set_checked(bool(value))
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(locator.set_checked, bool(value))
+                else:
+                    await locator.set_checked(bool(value))
             elif field_type == "radio":
-                await locator.set_checked(True)
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(locator.set_checked, True)
+                else:
+                    await locator.set_checked(True)
             elif field_type == "combobox":
-                await locator.select_option(
-                    label=value if isinstance(value, str) else None,
-                    value=value,
-                )
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(
+                        locator.select_option,
+                        label=value if isinstance(value, str) else None,
+                        value=value,
+                    )
+                else:
+                    await locator.select_option(
+                        label=value if isinstance(value, str) else None,
+                        value=value,
+                    )
             elif field_type == "slider":
-                await locator.fill(str(value))
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(locator.fill, str(value))
+                else:
+                    await locator.fill(str(value))
             else:
-                await locator.fill(str(value) if value is not None else "")
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(
+                        locator.fill,
+                        str(value) if value is not None else "",
+                    )
+                else:
+                    await locator.fill(str(value) if value is not None else "")
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Filled {len(fields)} field(s)"},
@@ -1768,7 +2154,10 @@ async def _action_press_key(page_id: str, key: str) -> ToolResponse:
             ),
         )
     try:
-        await page.keyboard.press(key)
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(page.keyboard.press, key)
+        else:
+            await page.keyboard.press(key)
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Pressed key {key}"},
@@ -1854,9 +2243,18 @@ async def _action_run_code(page_id: str, code: str) -> ToolResponse:
         )
     try:
         if code.strip().startswith("(") or code.strip().startswith("function"):
-            result = await page.evaluate(code)
+            if _USE_SYNC_PLAYWRIGHT:
+                result = await _run_sync(page.evaluate, code)
+            else:
+                result = await page.evaluate(code)
         else:
-            result = await page.evaluate(f"() => {{ return ({code}); }}")
+            if _USE_SYNC_PLAYWRIGHT:
+                result = await _run_sync(
+                    page.evaluate,
+                    f"() => {{ return ({code}); }}",
+                )
+            else:
+                result = await page.evaluate(f"() => {{ return ({code}); }}")
         try:
             out = json.dumps(
                 {"ok": True, "result": result},
@@ -1944,7 +2342,10 @@ async def _action_drag(
         else:
             start_locator = root.locator(start_selector).first
             end_locator = root.locator(end_selector).first
-        await start_locator.drag_to(end_locator)
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(start_locator.drag_to, end_locator)
+        else:
+            await start_locator.drag_to(end_locator)
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": "Drag completed"},
@@ -2002,7 +2403,10 @@ async def _action_hover(
         else:
             root = _get_root(page, page_id, frame_selector)
             locator = root.locator(selector).first
-        await locator.hover()
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(locator.hover)
+        else:
+            await locator.hover()
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Hovered {ref or selector}"},
@@ -2069,7 +2473,10 @@ async def _action_select_option(
                     indent=2,
                 ),
             )
-        await locator.select_option(value=values)
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(locator.select_option, value=values)
+        else:
+            await locator.select_option(value=values)
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": f"Selected {values}"},
@@ -2115,21 +2522,41 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             ),
         )
     if tab_action == "new":
-        if not _state["context"]:
-            ok = await _ensure_browser()
-            if not ok:
-                err = (
-                    _state.get("_last_browser_error") or "Browser not started"
-                )
-                return _tool_response(
-                    json.dumps(
-                        {"ok": False, "error": err},
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                )
+        if _USE_SYNC_PLAYWRIGHT:
+            if not _state["_sync_context"]:
+                ok = await _ensure_browser()
+                if not ok:
+                    err = (
+                        _state.get("_last_browser_error")
+                        or "Browser not started"
+                    )
+                    return _tool_response(
+                        json.dumps(
+                            {"ok": False, "error": err},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+        else:
+            if not _state["context"]:
+                ok = await _ensure_browser()
+                if not ok:
+                    err = (
+                        _state.get("_last_browser_error")
+                        or "Browser not started"
+                    )
+                    return _tool_response(
+                        json.dumps(
+                            {"ok": False, "error": err},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
         try:
-            page = await _state["context"].new_page()
+            if _USE_SYNC_PLAYWRIGHT:
+                page = await _run_sync(_state["_sync_context"].new_page)
+            else:
+                page = await _state["context"].new_page()
             new_id = _next_page_id()
             _state["refs"][new_id] = {}
             _state["console_logs"][new_id] = []
@@ -2204,15 +2631,31 @@ async def _action_wait_for(
         text = (text or "").strip()
         text_gone = (text_gone or "").strip()
         if text:
-            await page.get_by_text(text).wait_for(
-                state="visible",
-                timeout=30000,
-            )
+            locator = page.get_by_text(text)
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(
+                    locator.wait_for,
+                    state="visible",
+                    timeout=30000,
+                )
+            else:
+                await locator.wait_for(
+                    state="visible",
+                    timeout=30000,
+                )
         if text_gone:
-            await page.get_by_text(text_gone).wait_for(
-                state="hidden",
-                timeout=30000,
-            )
+            locator = page.get_by_text(text_gone)
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(
+                    locator.wait_for,
+                    state="hidden",
+                    timeout=30000,
+                )
+            else:
+                await locator.wait_for(
+                    state="hidden",
+                    timeout=30000,
+                )
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": "Wait completed"},

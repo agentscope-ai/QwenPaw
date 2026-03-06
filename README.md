@@ -53,13 +53,15 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 ## News
 
-[2026-03-02] We released v0.0.4! See the [v0.0.4 Release Notes](https://github.com/agentscope-ai/CoPaw/releases/tag/v0.0.4) for the full changelog.
+[2026-03-06] We released v0.0.5! See the [v0.0.5 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v0.0.4]** **FEAT:** Telegram channel; OpenAI & Azure OpenAI providers; Ollama SDK; coding-plan provider; model connection testing; heartbeat monitoring panel; CORS configuration; audio file support for DingTalk & Feishu.
-- **[v0.0.4]** **FEAT:** Token-based memory compaction; file block processing; embedding configuration; normalized tool_choice behavior.
-- **[v0.0.4]** **BUGFIX:** Windows file paths; empty tool calls; console workspace UI; Ollama URL & connectivity; MCP transport; browser resource leak; static asset MIME types; API headers; Playwright Docker; heartbeat parsing; media message queuing.
-- **[v0.0.4]** **RELS:** Installation scripts with PowerShell; Docker guide; channel CLI docs; Feishu SOCKS proxy; MCP & runtime docs; FAQ (EN/ZH); skill-writing guide; CONTRIBUTING; console docs; website improvements.
-- **[v0.0.4]** **COMM:** Special thanks to all new contributors: [@ekzhu](https://github.com/ekzhu), [@fancyboi999](https://github.com/fancyboi999), [@zhaozhuang521](https://github.com/zhaozhuang521), [@hobostay](https://github.com/hobostay), [@dhbxs](https://github.com/dhbxs), [@longway-code](https://github.com/longway-code), [@ydlstartx](https://github.com/ydlstartx), [@LudovicoYIN](https://github.com/LudovicoYIN), [@fenixc9](https://github.com/fenixc9), [@dittotang](https://github.com/dittotang), [@forestxieCode](https://github.com/forestxieCode), [@yongtenglei](https://github.com/yongtenglei), [@kerwin612](https://github.com/kerwin612), [@luixiao0](https://github.com/luixiao0), [@gongpx20069](https://github.com/gongpx20069).
+- **FEAT:** Channel management; Twilio voice channel; DeepSeek Reasoner support; daemon mode; agent interruption API; version update notifications.
+- **PERF:** Memory system upgrade (reme-ai 0.3.0.3); console UI improvements (request cancellation, collapsible sidebar); optional channel lazy loading;  Windows installation script.
+- **BUGFIX:** Configuration persistence for Docker; Ollama base URL; channel fixes (DingTalk, Feishu, Telegram); Windows compatibility; MCP client stability, shell timeout hang fix.
+- **DOCS:** Model configuration guide; Docker + Ollama guide; Japanese README; release notes system, improve channel guide.
+- **COMM:** Special thanks to all new contributors: [@qoli](https://github.com/qoli), [@qbc2016](https://github.com/qbc2016), [@yunlzheng](https://github.com/yunlzheng), [@BlueSkyXN](https://github.com/BlueSkyXN), [@sidonsoft](https://github.com/sidonsoft), [@lishengzxc](https://github.com/lishengzxc), [@pikaxinge](https://github.com/pikaxinge), [@linshengli](https://github.com/linshengli), [@eltociear](https://github.com/eltociear), [@liuxiaopai-ai](https://github.com/liuxiaopai-ai), [@Leirunlin](https://github.com/Leirunlin), [@pan-x-c](https://github.com/pan-x-c), [@garyzhang99](https://github.com/garyzhang99), [@celestialhorse51D](https://github.com/celestialhorse51D), [@wwx814](https://github.com/wwx814), [@nszhsl](https://github.com/nszhsl), [@DavdGao](https://github.com/DavdGao), [@zhangckcup](https://github.com/zhangckcup).
+
+[2026-03-02] We released v0.0.4! See the [v0.0.4 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
 ---
 
@@ -229,6 +231,24 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 Also available on Alibaba Cloud Container Registry (ACR) for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
 
 Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
+
+> **Connecting to Ollama or other services on the host machine**
+>
+> Inside a Docker container, `localhost` refers to the container itself, not your host machine. If you run Ollama (or other model services) on the host and want CoPaw in Docker to reach them, use one of these approaches:
+>
+> **Option A** — Explicit host binding (all platforms):
+> ```bash
+> docker run -p 127.0.0.1:8088:8088 \
+>   --add-host=host.docker.internal:host-gateway \
+>   -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434/v1` or your corresponding port.
+>
+> **Option B** — Host networking (Linux only):
+> ```bash
+> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> ```
+> No port mapping (`-p`) is needed; the container shares the host network directly. Note that all container ports are exposed on the host, which may cause conflicts if the port is already in use.
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 

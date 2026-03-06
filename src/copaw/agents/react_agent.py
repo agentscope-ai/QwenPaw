@@ -9,14 +9,9 @@ import logging
 import os
 from typing import Any, List, Literal, Optional, Type
 
-<<<<<<< copaw-router
-
-from agentscope.agent import ReActAgent
-=======
 from agentscope.agent import ReActAgent
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
->>>>>>> main
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
@@ -24,12 +19,7 @@ from pydantic import BaseModel
 
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
-<<<<<<< copaw-router
-from .memory import CoPawInMemoryMemory
-from .model_factory import ModelManager, create_model_and_formatter
-=======
 from .model_factory import create_model_and_formatter
->>>>>>> main
 from .prompt import build_system_prompt_from_working_dir
 from .skills_manager import (
     ensure_skills_initialized,
@@ -166,10 +156,6 @@ class CoPawAgent(ReActAgent):
         self.command_handler = CommandHandler(
             agent_name=self.name,
             memory=self.memory,
-<<<<<<< copaw-router
-            formatter=self.formatter,  # type: ignore[has-type]
-=======
->>>>>>> main
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
         )
@@ -288,14 +274,6 @@ class CoPawAgent(ReActAgent):
 
         # Register memory_search tool if enabled and available
         if self._enable_memory_manager and self.memory_manager is not None:
-<<<<<<< copaw-router
-            self.memory_manager.chat_model = (
-                self.model  # type: ignore[has-type]
-            )
-            self.memory_manager.formatter = (
-                self.formatter  # type: ignore[has-type]
-            )
-=======
             # update memory manager
             self.memory_manager.chat_model = self.model
             self.memory_manager.formatter = self.formatter
@@ -316,7 +294,6 @@ class CoPawAgent(ReActAgent):
             self.memory_manager.update_config_params()
 
             self.memory = self.memory_manager.get_in_memory_memory()
->>>>>>> main
 
             # Register memory_search as a tool function
             self.toolkit.register_tool_function(

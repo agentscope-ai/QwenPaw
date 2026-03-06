@@ -32,6 +32,7 @@ class ConversationCommandHandlerMixin:
             "history",
             "compact_str",
             "await_summary",
+            "message",
         },
     )
 
@@ -95,7 +96,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self._enable_memory_manager and self.memory_manager is not None
 
-    async def _process_compact(self, messages: list[Msg]) -> Msg:
+    async def _process_compact(
+        self,
+        messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
         """Process /compact command."""
         if not messages:
             return await self._make_system_msg(
@@ -128,7 +133,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"- Summary task started in background\n",
         )
 
-    async def _process_new(self, messages: list[Msg]) -> Msg:
+    async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
         if not messages:
             self.memory.clear_compressed_summary()
@@ -155,7 +160,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "- Ready for new conversation",
         )
 
-    async def _process_clear(self, _messages: list[Msg]) -> Msg:
+    async def _process_clear(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
         """Process /clear command."""
         self.memory.clear_content()
         self.memory.clear_compressed_summary()
@@ -165,7 +174,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "- Memory is now empty",
         )
 
-    async def _process_compact_str(self, _messages: list[Msg]) -> Msg:
+    async def _process_compact_str(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
         """Process /compact_str command to show compressed summary."""
         summary = self.memory.get_compressed_summary()
         if not summary:
@@ -178,12 +191,20 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"**Compressed Summary**\n\n{summary}",
         )
 
-    async def _process_history(self, _messages: list[Msg]) -> Msg:
+    async def _process_history(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
         """Process /history command."""
         history_str = await self.memory.get_history_str()
         return await self._make_system_msg(history_str)
 
-    async def _process_await_summary(self, _messages: list[Msg]) -> Msg:
+    async def _process_await_summary(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
         """Process /await_summary command to wait for all summary tasks."""
         if not self._has_memory_manager():
             return await self._make_system_msg(
@@ -207,11 +228,62 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"- All tasks have finished",
         )
 
+    async def _process_message(
+        self,
+        messages: list[Msg],
+        args: str = "",
+    ) -> Msg:
+        """Process /message x command to show the nth message.
+
+        Args:
+            messages: List of messages in memory
+            args: Command arguments (message index)
+
+        Returns:
+            System message with the requested message content
+        """
+        if not args:
+            return await self._make_system_msg(
+                "**Usage: /message <index>**\n\n"
+                "- Example: /message 1 (show first message)\n"
+                f"- Available messages: 1 to {len(messages)}",
+            )
+
+        try:
+            index = int(args.strip())
+        except ValueError:
+            return await self._make_system_msg(
+                f"**Invalid Index: '{args}'**\n\n"
+                "- Index must be a number\n"
+                "- Example: /message 1",
+            )
+
+        if not messages:
+            return await self._make_system_msg(
+                "**No Messages Available**\n\n- Current memory is empty",
+            )
+
+        if index < 1 or index > len(messages):
+            return await self._make_system_msg(
+                f"**Index Out of Range: {index}**\n\n"
+                f"- Available range: 1 to {len(messages)}\n"
+                f"- Example: /message 1",
+            )
+
+        msg = messages[index - 1]
+        return await self._make_system_msg(
+            f"**Message {index}/{len(messages)}**\n\n"
+            f"- **Timestamp:** {msg.timestamp}\n"
+            f"- **Name:** {msg.name}\n"
+            f"- **Role:** {msg.role}\n"
+            f"- **Content:**\n{msg.content}",
+        )
+
     async def handle_conversation_command(self, query: str) -> Msg:
         """Process conversation system commands.
 
         Args:
-            query: Command string (e.g., "/compact", "/new")
+            query: Command string (e.g., "/compact", "/new", "/message 5")
 
         Returns:
             System response message
@@ -223,13 +295,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
             exclude_mark=_MemoryMark.COMPRESSED,
             prepend_summary=False,
         )
-        command = query.strip().lstrip("/")
-        logger.info(f"Processing command: {command}")
+        # Parse command and arguments
+        parts = query.strip().lstrip("/").split(" ", maxsplit=1)
+        command = parts[0]
+        args = parts[1] if len(parts) > 1 else ""
+        logger.info(f"Processing command: {command}, args: {args}")
 
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
             raise RuntimeError(f"Unknown command: {query}")
-        return await handler(messages)
+        return await handler(messages, args)
 
     async def handle_command(self, query: str) -> Msg:
         """Process system commands (alias for handle_conversation_command)."""

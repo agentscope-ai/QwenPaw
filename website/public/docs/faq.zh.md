@@ -122,12 +122,48 @@ CoPaw 已开源，官方仓库地址：
 
 ### 如何配置模型
 
-在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [控制台 → 模型](https://copaw.agentscope.io/docs/console#%E6%A8%A1%E5%9E%8B)：
+在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://copaw.agentscope.io/docs/models)：
 
 - 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商），再选择活跃模型。
 - 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。下载后可在同页选择活跃模型。
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
+
+### 定时任务错误排查
+
+在控制台进入 **控制 → 定时任务** ，在这里可以创建和管理定时任务。
+
+![cron](https://img.alicdn.com/imgextra/i4/O1CN01hNk4od1uuTwGRT2sk_!!6000000006097-2-tps-3802-1968.png)
+
+最方便的定时任务创建方式是，在你想要获取定时任务返回结果的频道，与CoPaw对话，让CoPaw帮你创建一个定时任务。例如，可以直接与CoPaw对话：“帮我创建一个定时任务，每隔五分钟提醒我喝水。”之后可以在控制台中看到状态为已启用的定时任务。
+
+如果定时任务没有正常启动，可以按照以下几个步骤排查：
+
+1. 首先确认 CoPaw 服务是在正常运行中的。
+
+2. 定时任务的 **启用状态** 是否为 **已启动**。
+
+   ![enable](https://img.alicdn.com/imgextra/i1/O1CN01gVVf081o6ClZVBrhD_!!6000000005175-2-tps-3020-754.png)
+
+3. 定时任务的 **DispatchChannel** 是否被正确地设置为了想要获取返回结果的频道，如 console、dingtalk、feishu、discord、imessage 等。
+
+   ![channel](https://img.alicdn.com/imgextra/i4/O1CN01xUaLG61lVRkO7ZfY4_!!6000000004824-2-tps-3020-754.png)
+
+4. **DispatchTargetUserID** 和 **DispatchTargetSessionID** 的值是否设置正确。
+
+   ![id](https://img.alicdn.com/imgextra/i1/O1CN014e0BHN1CFPKDS7Kd7_!!6000000000051-2-tps-3020-754.png)
+
+   核查方式为，在控制台进入 **控制 → 会话**，找到刚刚创建定时任务的会话。如果想要定时任务返回到这个会话中，需要核查 **UserID** 和 **SessionID** 是否与定时任务的 **DispatchTargetUserID** 和 **DispatchTargetSessionID** 相同。
+
+   ![id](https://img.alicdn.com/imgextra/i3/O1CN01ZmgYTC1wiEZx7rOjK_!!6000000006341-2-tps-3020-928.png)
+
+5. 如果觉得定时任务的触发间隔时间不对，需要确认一下定时任务的 **执行时间（Cron）**是否正确。
+
+   ![cron](https://img.alicdn.com/imgextra/i1/O1CN01WpN8l51kKANPSlK8r_!!6000000004664-2-tps-3020-762.png)
+
+6. 排查结束后，如果想确认一下定时任务是否创建成功，且能成功触发，可以点击 **立即执行**，若成功创建，则可在对应频道收到回复。或者也可以直接与 CoPaw 对话：“帮我触发一下刚刚创建的提醒喝水定时任务”。
+
+   ![exec](https://img.alicdn.com/imgextra/i4/O1CN017tycJh1ZPhO5XMuAu_!!6000000003187-2-tps-3020-762.png)
 
 ### 如何管理Skill
 

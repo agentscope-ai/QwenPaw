@@ -2,6 +2,7 @@ export interface BaseChannelConfig {
   enabled: boolean;
   bot_prefix: string;
   filter_tool_messages?: boolean;
+  filter_thinking?: boolean;
 }
 
 export interface IMessageChannelConfig extends BaseChannelConfig {
@@ -18,6 +19,9 @@ export interface DiscordConfig extends BaseChannelConfig {
 export interface DingTalkConfig extends BaseChannelConfig {
   client_id: string;
   client_secret: string;
+  dm_policy: "open" | "allowlist";
+  group_policy: "open" | "allowlist";
+  allow_from: string[];
 }
 
 export interface FeishuConfig extends BaseChannelConfig {

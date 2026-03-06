@@ -7,11 +7,12 @@
 - **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
 - **手动编辑 `config.json`** — 默认在 `~/.copaw/config.json` （由 `copaw init` 生成），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
 
-所有频道都有两个通用字段:
+所有频道都有如下通用字段:
 
 - **enabled** — 是否启用
 - **bot_prefix** — 机器人回复前缀（如 `[BOT]`），方便区分
 - **filter_tool_messages** — （可选，默认 `false`）过滤工具调用和输出消息，不发送给用户。设为 `true` 可隐藏工具执行详情。
+- **filter_thinking** — （可选，默认 `false`）过滤模型的思考/推理内容，不发送给用户。设为 `true` 可隐藏 thinking 内容。
 
 下面按频道说明如何获取凭证并填写配置。
 
@@ -251,30 +252,52 @@
 
 通过本地 iMessage 数据库轮询新消息并代为回复。
 
-### 前置准备
+1. 确保本地 **「信息」(Messages)** 已登录 Apple ID（系统设置里打开「信息」并登录）。
 
-- 确保本地 **「信息」(Messages)** 已登录 Apple ID（系统设置里打开「信息」并登录）。
-- 安装 **imsg**（用于访问 iMessage 数据库）：
-  ```bash
-  brew install steipete/tap/imsg
-  ```
-- 系统 iMessage 数据库默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。
-- 应用需要 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限），否则无法读取 `chat.db`。
-- 仅限本地使用，数据不离开你的电脑。
+2. 安装 **imsg**（用于访问 iMessage 数据库）：
 
-### 填写 config.json
+   ```bash
+   brew install steipete/tap/imsg
+   ```
 
-```json
-"imessage": {
-  "enabled": true,
-  "bot_prefix": "[BOT]",
-  "db_path": "~/Library/Messages/chat.db",
-  "poll_sec": 1.0
-}
-```
+   > 如果 Intel 芯片 Mac 用户通过上述方式无法安装成功，需要先克隆源码再编译
+   >
+   > ```bash
+   > git clone https://github.com/steipete/imsg.git
+   > cd imsg
+   > make build
+   > sudo cp build/Release/imsg /usr/local/bin/
+   > cp ./bin/imsg /usr/local/bin/
+   > ```
 
-- **db_path** — iMessage 数据库路径
-- **poll_sec** — 轮询间隔（秒），默认 1 即可
+3. 为了使 iMessage 中的信息能被获取，需要 **终端** （或你用来运行 CoPaw 的 app） 和 **消息** 有 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。
+
+   ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
+
+4. 填写 iMessage 数据库路径。默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。有以下两种填写方案：
+
+   - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
+
+     ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
+
+   - 填写 config.json（路径通常为~/.copaw/config.json）：
+
+     ```json
+     "imessage": {
+     "enabled": true,
+     "bot_prefix": "[BOT]",
+     "db_path": "~/Library/Messages/chat.db",
+     "poll_sec": 1.0
+     }
+     ```
+
+     **db_path** — iMessage 数据库路径
+
+     **poll_sec** — 轮询间隔（秒），默认 1 即可
+
+5. 填写完成后，使用你的手机，给当前电脑登录的 iMessage 账号（与电脑Apple ID一致）发送任意一条消息，可以看到回复。
+
+   ![聊天](https://img.alicdn.com/imgextra/i4/O1CN01beScxi1rBBvSFeIbz_!!6000000005592-2-tps-1206-2622.png)
 
 ---
 
