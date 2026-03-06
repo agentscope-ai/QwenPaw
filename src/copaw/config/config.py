@@ -3,6 +3,7 @@ import os
 from typing import Optional, Union, Dict, List, Literal
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
+from ..providers.models import ModelSlotConfig
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
@@ -161,12 +162,41 @@ class AgentsRunningConfig(BaseModel):
     )
 
 
+class AgentsLLMRoutingConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(default=False)
+    mode: Literal["local_first", "cloud_first"] = Field(
+        default="local_first",
+        description=(
+            "local_first routes to the local slot by default; cloud_first "
+            "routes to the cloud slot by default. Smarter switching can be "
+            "added later without changing the dual-slot config shape."
+        ),
+    )
+    local: ModelSlotConfig = Field(
+        default_factory=ModelSlotConfig,
+        description="Local model slot (required when routing is enabled).",
+    )
+    cloud: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Optional explicit cloud model slot; when null, uses "
+            "providers.json active_llm."
+        ),
+    )
+
+
 class AgentsConfig(BaseModel):
     defaults: AgentsDefaultsConfig = Field(
         default_factory=AgentsDefaultsConfig,
     )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
+    )
+    llm_routing: AgentsLLMRoutingConfig = Field(
+        default_factory=AgentsLLMRoutingConfig,
+        description="LLM routing settings (local/cloud).",
     )
     language: str = Field(
         default="zh",

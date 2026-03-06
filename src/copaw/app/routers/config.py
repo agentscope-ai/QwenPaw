@@ -13,7 +13,7 @@ from ...config import (
     get_available_channels,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
-from ...config.config import HeartbeatConfig
+from ...config.config import AgentsLLMRoutingConfig, HeartbeatConfig
 
 from .schemas_config import HeartbeatBody
 
@@ -184,3 +184,27 @@ async def put_heartbeat(
         await cron_manager.reschedule_heartbeat()
 
     return hb.model_dump(mode="json", by_alias=True)
+
+
+@router.get(
+    "/agents/llm-routing",
+    response_model=AgentsLLMRoutingConfig,
+    summary="Get agent LLM routing settings",
+)
+async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
+    config = load_config()
+    return config.agents.llm_routing
+
+
+@router.put(
+    "/agents/llm-routing",
+    response_model=AgentsLLMRoutingConfig,
+    summary="Update agent LLM routing settings",
+)
+async def put_agents_llm_routing(
+    body: AgentsLLMRoutingConfig = Body(...),
+) -> AgentsLLMRoutingConfig:
+    config = load_config()
+    config.agents.llm_routing = body
+    save_config(config)
+    return body
