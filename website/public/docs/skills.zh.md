@@ -29,6 +29,7 @@
 | **pptx**                     | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                                                                | https://github.com/anthropics/skills/tree/main/skills/pptx     |
 | **xlsx**                     | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                                          | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
 | **browser_visible**          | 以可见模式（headed）启动真实浏览器窗口，适用于演示、调试或需要人工参与（如登录、验证码）的场景。                                            | 自建                                                           |
+| **token_usage**             | 通过主动询问获知过去一段时间的 LLM Token 消耗。在聊天中问「用了多少 token」时，Agent 会调用 `get_token_usage` 工具返回统计。控制台 **设置 → Token 消耗** 可查看详细图表。 | 自建                                                           |
 
 ---
 

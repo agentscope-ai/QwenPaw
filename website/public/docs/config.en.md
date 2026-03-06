@@ -25,7 +25,8 @@ you'll find inside:
 | `HEARTBEAT.md`       | Prompt content used each heartbeat run                             |
 | `jobs.json`          | Cron job list (managed via `copaw cron` or API)                    |
 | `chats.json`         | Chat/session list (file storage mode)                              |
-| `active_skills/`     | Skills currently active and used by the agent                      |
+| `token_usage.json`  | LLM token usage records (by date and model)                        |
+| `active_skills/`    | Skills currently active and used by the agent                      |
 | `customized_skills/` | User-created custom skills                                         |
 | `memory/`            | Agent memory files (auto-managed)                                  |
 | `SOUL.md`            | _(required)_ Core identity and behavioral principles               |
@@ -50,7 +51,8 @@ specific file names:
 | `COPAW_HEARTBEAT_FILE`             | `HEARTBEAT.md`  | Heartbeat prompt file name (relative to working dir)                                |
 | `COPAW_JOBS_FILE`                  | `jobs.json`     | Cron jobs file name (relative to working dir)                                       |
 | `COPAW_CHATS_FILE`                 | `chats.json`    | Chats file name (relative to working dir)                                           |
-| `COPAW_LOG_LEVEL`                  | `info`          | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`)             |
+| `COPAW_TOKEN_USAGE_FILE`          | `token_usage.json` | Token usage record file name (relative to working dir)                          |
+| `COPAW_LOG_LEVEL`                 | `info`          | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`)             |
 | `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                                    |
 | `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages kept after compaction                                     |
 | `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window)              |

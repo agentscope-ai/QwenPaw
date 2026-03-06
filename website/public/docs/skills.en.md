@@ -32,6 +32,7 @@ when needed; you can enable or disable them in the Console or via config.
 | **pptx**                     | Create, read, and edit PowerPoint (.pptx), including templates, layouts, notes, comments.                                                                                   | https://github.com/anthropics/skills/tree/main/skills/pptx     |
 | **xlsx**                     | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.                                                           | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
 | **browser_visible**          | Launch a real, visible (headed) browser window for demos, debugging, or scenarios requiring human interaction (e.g. login, CAPTCHA).                                        | Built-in                                                       |
+| **token_usage**             | Query LLM token consumption over time. When you ask "How many tokens have I used?", the agent calls `get_token_usage` and returns the summary. See **Settings → Token Usage** in the Console for detailed charts. | Built-in                                                       |
 
 ---
 
