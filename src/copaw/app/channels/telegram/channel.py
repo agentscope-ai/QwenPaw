@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from telegram.constants import ParseMode
+
 from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
     ImageContent,
@@ -526,10 +528,20 @@ class TelegramChannel(BaseChannel):
         chunks = self._chunk_text(text)
         for chunk in chunks:
             try:
-                await bot.send_message(chat_id=chat_id, text=chunk)
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
             except Exception:
-                logger.exception("telegram send_message failed")
-                return
+                logger.warning(
+                    "telegram send_message MARKDOWN_V2 failed, trying plain text",
+                )
+                try:
+                    await bot.send_message(chat_id=chat_id, text=chunk)
+                except Exception:
+                    logger.exception("telegram send_message fallback failed")
+                    return
 
     async def send_media(
         self,
