@@ -12,6 +12,10 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "hero.sub":
       "你的AI个人助理；安装极简、本地与云上均可部署；支持多端接入、能力轻松扩展。",
     "hero.cta": "查看文档",
+    "follow.title": "关注我们",
+    "follow.sub": "第一时间获取 CoPaw 最新动态",
+    "follow.xiaohongshu": "小红书：",
+    "follow.x": "X：",
     "brandstory.title": "Why CoPaw？",
     "brandstory.para1":
       "CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 Co Personal Agent Workstation（协同个人智能体工作台）。",
@@ -131,6 +135,10 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "hero.sub":
       "Your Personal AI Assistant; easy to install, deploy on your own machine or on the cloud; supports multiple chat apps with easily extensible capabilities.",
     "hero.cta": "Read the docs",
+    "follow.title": "Follow us",
+    "follow.sub": "Follow us for the latest CoPaw updates",
+    "follow.xiaohongshu": "Xiaohongshu:",
+    "follow.x": "X:",
     "brandstory.title": "Why CoPaw?",
     "brandstory.para1":
       'CoPaw represents both a Co Personal Agent Workstation and a "co-paw"—a partner always by your side.',
