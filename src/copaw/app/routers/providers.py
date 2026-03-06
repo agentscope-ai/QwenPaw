@@ -8,14 +8,16 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from ...providers import (
-    ActiveModelsInfo,
-)
 from ...providers.provider import ProviderInfo, ModelInfo
+from ...providers.provider_manager import ModelSlotConfig
 
 router = APIRouter(prefix="/models", tags=["models"])
 
 ChatModelName = Literal["OpenAIChatModel", "AnthropicChatModel"]
+
+
+class ActiveModelsInfo(BaseModel):
+    active_llm: ModelSlotConfig | None
 
 
 class ProviderConfigRequest(BaseModel):
@@ -328,7 +330,6 @@ async def get_active_models(
     request: Request,
 ) -> ActiveModelsInfo:
     manager = request.app.state.provider_manager
-    manager.get_active_model()  # Ensure active model is valid
     return ActiveModelsInfo(active_llm=manager.get_active_model())
 
 
@@ -342,5 +343,5 @@ async def set_active_model(
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
     manager = request.app.state.provider_manager
-    manager.activate_provider(body.provider_id, body.model)
+    await manager.activate_model(body.provider_id, body.model)
     return ActiveModelsInfo(active_llm=manager.get_active_model())

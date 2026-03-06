@@ -10,6 +10,8 @@ import json
 
 from pydantic import BaseModel, Field
 
+from agentscope.model import ChatModelBase
+
 from copaw.providers.provider import (
     ModelInfo,
     DefaultProvider,
@@ -20,6 +22,7 @@ from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
+from copaw.local_models import create_local_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -165,21 +168,11 @@ class ModelSlotConfig(BaseModel):
     )
 
 
-class ProviderStore:
-    """A disk store for provider configurations."""
-
-    def __init__(self):
-        self.root_path = SECRET_DIR / "providers"
-        self.builtin_path = self.root_path / "builtin"
-        self.custom_path = self.root_path / "custom"
-        self.root_path.mkdir(parents=True, exist_ok=True)
-        self.builtin_path.mkdir(parents=True, exist_ok=True)
-        self.custom_path.mkdir(parents=True, exist_ok=True)
-
-
 class ProviderManager:
     """A manager class to handle all providers,
     including built-in and custom ones."""
+
+    _instance = None
 
     def __init__(self) -> None:
         # Initialize provider manager, load providers from registry and store
@@ -481,3 +474,36 @@ class ProviderManager:
         except ImportError:
             # local_models dependencies not installed; leave model lists empty
             pass
+
+    @staticmethod
+    def get_instance() -> "ProviderManager":
+        """Get the singleton instance of ProviderManager."""
+        if ProviderManager._instance is None:
+            ProviderManager._instance = ProviderManager()
+        return ProviderManager._instance
+
+    @staticmethod
+    def get_active_chat_model() -> ChatModelBase:
+        """Get the currently active provider/model configuration."""
+        manager = ProviderManager.get_instance()
+        model = manager.get_active_model()
+        if model is None:
+            raise ValueError("No active model configured.")
+        provider = manager.get_provider(model.provider_id)
+        if provider is None:
+            raise ValueError(
+                f"Active provider '{model.provider_id}' not found.",
+            )
+        chat_model_cls = provider.get_chat_model_cls()
+        if provider.is_local:
+            return create_local_chat_model(
+                model_id=model.model,
+                stream=True,
+                generate_kwargs={"max_tokens": None}
+            )
+        return chat_model_cls(
+            model_name=model.model,
+            stream=True,
+            api_key=provider.api_key,
+            client_kwargs={"base_url": provider.base_url},
+        )

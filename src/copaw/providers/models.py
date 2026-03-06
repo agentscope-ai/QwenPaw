@@ -137,7 +137,7 @@ class ProviderInfo(BaseModel):
 
 
 class ActiveModelsInfo(BaseModel):
-    active_llm: ModelSlotConfig
+    active_llm: ModelSlotConfig | None
 
 
 class ResolvedModelConfig(BaseModel):

@@ -11,7 +11,6 @@ Example:
 
 
 import logging
-import os
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type, Any
 from functools import wraps
 
@@ -28,13 +27,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
     AnthropicChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
-from ..local_models import create_local_chat_model
-from ..providers import (
-    get_active_llm_config,
-    get_chat_model_class,
-    get_provider_chat_model,
-    load_providers_json,
-)
+from ..providers import ProviderManager
 
 
 def _monkey_patch(func):
@@ -276,122 +269,12 @@ def create_model_and_formatter(
         >>> model, formatter = create_model_and_formatter(custom_cfg)
     """
     # Fetch config if not provided
-    if llm_cfg is None:
-        llm_cfg = get_active_llm_config()
-
-    # Create the model instance and determine chat model class
-    model, chat_model_class = _create_model_instance(llm_cfg)
+    model = ProviderManager.get_active_chat_model()
 
     # Create the formatter based on chat_model_class
-    formatter = _create_formatter_instance(chat_model_class)
+    formatter = _create_formatter_instance(model.__class__)
 
     return model, formatter
-
-
-def _create_model_instance(
-    llm_cfg: Optional["ResolvedModelConfig"],
-) -> Tuple[ChatModelBase, Type[ChatModelBase]]:
-    """Create a chat model instance and determine its class.
-
-    Args:
-        llm_cfg: Resolved model configuration
-
-    Returns:
-        Tuple of (model_instance, chat_model_class)
-    """
-    # Handle local models
-    if llm_cfg and llm_cfg.is_local:
-        model = create_local_chat_model(
-            model_id=llm_cfg.model,
-            stream=True,
-            generate_kwargs={"max_tokens": None},
-        )
-        # Local models use OpenAIChatModel-compatible formatter
-        return model, OpenAIChatModel
-
-    # Handle remote models - determine chat_model_class from provider config
-    chat_model_class = _get_chat_model_class_from_provider()
-
-    # Create remote model instance with configuration
-    model = _create_remote_model_instance(llm_cfg, chat_model_class)
-
-    return model, chat_model_class
-
-
-def _get_chat_model_class_from_provider() -> Type[ChatModelBase]:
-    """Get the chat model class from provider configuration.
-
-    Returns:
-        Chat model class, defaults to OpenAI-compatible chat model if not found
-    """
-    chat_model_class = get_chat_model_class("OpenAIChatModel")
-    try:
-        providers_data = load_providers_json()
-        provider_id = providers_data.active_llm.provider_id
-        if provider_id:
-            chat_model_name = get_provider_chat_model(
-                provider_id,
-                providers_data,
-            )
-            chat_model_class = get_chat_model_class(chat_model_name)
-    except Exception as e:
-        logger.debug(
-            "Failed to determine chat model from provider: %s, "
-            "using OpenAI-compatible default chat model",
-            e,
-        )
-    return chat_model_class
-
-
-def _create_remote_model_instance(
-    llm_cfg: Optional["ResolvedModelConfig"],
-    chat_model_class: Type[ChatModelBase],
-) -> ChatModelBase:
-    """Create a remote model instance with configuration.
-
-    Args:
-        llm_cfg: Resolved model configuration
-        chat_model_class: Chat model class to instantiate
-
-    Returns:
-        Configured chat model instance
-    """
-    # Get configuration from llm_cfg or fall back to environment
-    if llm_cfg and (llm_cfg.api_key or llm_cfg.base_url):
-        model_name = llm_cfg.model or "qwen3-max"
-        api_key = llm_cfg.api_key
-        base_url = llm_cfg.base_url
-    else:
-        logger.warning(
-            "No active LLM configured — "
-            "falling back to DASHSCOPE_API_KEY env var",
-        )
-        model_name = "qwen3-max"
-        api_key = os.getenv("DASHSCOPE_API_KEY", "")
-        base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-
-    # The Anthropic SDK uses a base_url without the "/v1" suffix (it adds
-    # the versioned path internally), unlike OpenAI-compatible providers.
-    # Strip the trailing "/v1" to avoid a doubled path
-    # (e.g. "/v1/v1/messages").
-    if (
-        AnthropicChatModel is not None
-        and issubclass(chat_model_class, AnthropicChatModel)
-        and base_url
-    ):
-        base_url = base_url.rstrip("/")
-        if base_url.endswith("/v1"):
-            base_url = base_url[:-3]
-
-    # Instantiate model
-    model = chat_model_class(
-        model_name,
-        api_key=api_key,
-        stream=True,
-        client_kwargs={"base_url": base_url},
-    )
-
-    return model
 
 
 def _create_formatter_instance(

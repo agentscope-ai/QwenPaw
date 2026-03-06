@@ -128,7 +128,7 @@ async def lifespan(
             logger.exception("Failed to start MCP watcher")
 
     # --- Model provider manager (non-reloadable, in-memory) ---
-    provider_manager = ProviderManager()
+    provider_manager = ProviderManager.get_instance()
 
     # expose to endpoints
     app.state.runner = runner
