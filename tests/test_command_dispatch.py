@@ -34,6 +34,7 @@ def test_conversation_commands_set() -> None:
             "history",
             "compact_str",
             "await_summary",
+            "message",
         },
     )
 

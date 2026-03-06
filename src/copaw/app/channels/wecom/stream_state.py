@@ -49,7 +49,10 @@ class WeComStreamStore:
     def create(self, *, msg_id: str = "") -> WeComStreamState:
         self.prune()
         stream_id = secrets.token_hex(12)
-        state = WeComStreamState(stream_id=stream_id, msg_id=(msg_id or "").strip())
+        state = WeComStreamState(
+            stream_id=stream_id,
+            msg_id=(msg_id or "").strip(),
+        )
         self._streams[stream_id] = state
         if state.msg_id:
             self._msgid_to_stream_id[state.msg_id] = stream_id

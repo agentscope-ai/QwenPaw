@@ -4,7 +4,10 @@ import json
 from types import SimpleNamespace
 from urllib.parse import urlencode
 
-from agentscope_runtime.engine.schemas.agent_schemas import RunStatus, TextContent
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    RunStatus,
+    TextContent,
+)
 
 from copaw.app.channels.base import ContentType
 from copaw.app.channels.wecom.channel import WeComChannel
@@ -33,15 +36,12 @@ def _build_callback_request(
         nonce=nonce,
         encrypt=encrypt,
     )
-    url = (
-        "http://test/wecom?"
-        + urlencode(
-            {
-                "msg_signature": signature,
-                "timestamp": timestamp,
-                "nonce": nonce,
-            },
-        )
+    url = "http://test/wecom?" + urlencode(
+        {
+            "msg_signature": signature,
+            "timestamp": timestamp,
+            "nonce": nonce,
+        },
     )
     body = json.dumps({"encrypt": encrypt}, ensure_ascii=False)
     return url, body
@@ -90,9 +90,16 @@ def _build_channel(*, token: str, aes_key: str, process) -> WeComChannel:
         encoding_aes_key=aes_key,
         bot_prefix="[BOT] ",
     )
-    channel._message_to_content_parts = lambda _event: [  # type: ignore[attr-defined]
-        TextContent(type=ContentType.TEXT, text="处理完成"),
-    ]
+
+    def _message_to_content_parts(_event):
+        return [
+            TextContent(
+                type=ContentType.TEXT,
+                text="处理完成",
+            ),
+        ]
+
+    setattr(channel, "_message_to_content_parts", _message_to_content_parts)
     return channel
 
 
@@ -125,7 +132,10 @@ def test_wecom_stream_reply_and_poll() -> None:
 
     assert status == 200
     assert content_type == "text/plain; charset=utf-8"
-    initial_reply = _decrypt_response_body(body=response_body, encoding_aes_key=aes_key)
+    initial_reply = _decrypt_response_body(
+        body=response_body,
+        encoding_aes_key=aes_key,
+    )
     assert initial_reply["msgtype"] == "stream"
     assert initial_reply["stream"]["finish"] is True
     assert initial_reply["stream"]["content"] == "[BOT] 处理完成"
@@ -146,7 +156,10 @@ def test_wecom_stream_reply_and_poll() -> None:
             body_text=poll_body,
         ),
     )
-    poll_reply = _decrypt_response_body(body=poll_response, encoding_aes_key=aes_key)
+    poll_reply = _decrypt_response_body(
+        body=poll_response,
+        encoding_aes_key=aes_key,
+    )
     assert poll_reply == initial_reply
 
 
@@ -185,8 +198,14 @@ def test_wecom_stream_deduplicates_same_msgid() -> None:
         ),
     )
 
-    first_reply = _decrypt_response_body(body=first_response, encoding_aes_key=aes_key)
-    second_reply = _decrypt_response_body(body=second_response, encoding_aes_key=aes_key)
+    first_reply = _decrypt_response_body(
+        body=first_response,
+        encoding_aes_key=aes_key,
+    )
+    second_reply = _decrypt_response_body(
+        body=second_response,
+        encoding_aes_key=aes_key,
+    )
     assert first_reply["stream"]["id"] == second_reply["stream"]["id"]
     assert second_reply["stream"]["finish"] is True
     assert second_reply["stream"]["content"] == "[BOT] 我已收到。"

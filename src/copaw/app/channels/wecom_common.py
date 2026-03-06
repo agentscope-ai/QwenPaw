@@ -55,7 +55,8 @@ def _decode_encoding_aes_key(encoding_aes_key: str) -> bytes:
     raw = base64.b64decode(key_padded)
     if len(raw) != 32:
         raise ValueError(
-            "invalid encoding_aes_key: expected 32-byte key after base64 decode",
+            "invalid encoding_aes_key: expected 32-byte key "
+            "after base64 decode",
         )
     return raw
 
@@ -66,7 +67,10 @@ def _pkcs7_pad(raw: bytes, block_size: int = WECOM_PKCS7_BLOCK_SIZE) -> bytes:
     return raw + bytes([pad_len] * pad_len)
 
 
-def _pkcs7_unpad(raw: bytes, block_size: int = WECOM_PKCS7_BLOCK_SIZE) -> bytes:
+def _pkcs7_unpad(
+    raw: bytes,
+    block_size: int = WECOM_PKCS7_BLOCK_SIZE,
+) -> bytes:
     if not raw:
         raise ValueError("invalid pkcs7 payload")
     pad_len = raw[-1]

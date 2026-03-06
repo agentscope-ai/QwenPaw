@@ -40,7 +40,8 @@ class WeComChannel(BaseChannel):
 
     Receive path uses HTTP callback (GET/POST) via router:
     - GET: callback verification (decrypt echostr)
-    - POST: decrypt inbound xml, enqueue request, await reply, return encrypted xml
+    - POST: decrypt inbound xml, enqueue request, await reply,
+      return encrypted xml
 
     This channel supports passive reply only. Proactive send is provided by
     ``WeComAppChannel``.
@@ -62,12 +63,14 @@ class WeComChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
         self.enabled = enabled
         self.token = token or ""
@@ -115,6 +118,7 @@ class WeComChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "WeComChannel":
         return cls(
             process=process,
@@ -128,6 +132,7 @@ class WeComChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
 
     async def start(self) -> None:
@@ -181,7 +186,10 @@ class WeComChannel(BaseChannel):
     ) -> None:
         del meta
         logger.warning(
-            "wecom passive channel does not support proactive send: to=%s text_len=%s",
+            (
+                "wecom passive channel does not support proactive send: "
+                "to=%s text_len=%s"
+            ),
             to_handle,
             len(text or ""),
         )
@@ -217,7 +225,12 @@ class WeComChannel(BaseChannel):
         self,
         query: WeComCallbackQuery,
     ) -> tuple[int, str, str]:
-        if not (query.timestamp and query.nonce and query.signature and query.echostr):
+        if not (
+            query.timestamp
+            and query.nonce
+            and query.signature
+            and query.echostr
+        ):
             return 400, "text/plain; charset=utf-8", "missing query params"
 
         if not verify_msg_signature(
@@ -241,6 +254,7 @@ class WeComChannel(BaseChannel):
 
         return 200, "text/plain; charset=utf-8", plaintext
 
+    # pylint: disable=too-many-return-statements
     async def _handle_message_post(
         self,
         query: WeComCallbackQuery,
@@ -255,7 +269,9 @@ class WeComChannel(BaseChannel):
             logger.warning("wecom parse envelope failed: %s", exc)
             return 400, "text/plain; charset=utf-8", "invalid xml"
 
-        encrypt = (envelope.get("Encrypt") or envelope.get("encrypt") or "").strip()
+        encrypt = (
+            envelope.get("Encrypt") or envelope.get("encrypt") or ""
+        ).strip()
         if not encrypt:
             return 400, "text/plain; charset=utf-8", "missing Encrypt"
 
@@ -341,7 +357,9 @@ class WeComChannel(BaseChannel):
                 timeout=self.initial_stream_wait_sec,
             )
 
-            latest_state = self.stream_store.get(stream_state.stream_id) or stream_state
+            latest_state = (
+                self.stream_store.get(stream_state.stream_id) or stream_state
+            )
             return self._build_stream_http_response(
                 self._build_stream_initial_reply(latest_state),
                 nonce=nonce,
@@ -457,7 +475,10 @@ class WeComChannel(BaseChannel):
         stream_id = str(msg.get("stream_id") or "").strip()
         state = self.stream_store.get(stream_id)
         if state is None:
-            state = WeComStreamState(stream_id=stream_id or "unknown", finished=True)
+            state = WeComStreamState(
+                stream_id=stream_id or "unknown",
+                finished=True,
+            )
         return self._build_stream_http_response(
             self._build_stream_reply_from_state(state),
             nonce=nonce,
@@ -709,8 +730,7 @@ class WeComChannel(BaseChannel):
         if not isinstance(payload, dict):
             raise ValueError("body is not an object")
         return {
-            str(k): "" if v is None else str(v)
-            for k, v in payload.items()
+            str(k): "" if v is None else str(v) for k, v in payload.items()
         }
 
     @staticmethod
@@ -721,19 +741,24 @@ class WeComChannel(BaseChannel):
         if trimmed.startswith("<"):
             xml = parse_xml_to_dict(trimmed)
             content = (
-                (parse_xml_to_dict(xml.get("Text", "")) if xml.get("Text") else {})
-                .get("Content")
+                (
+                    parse_xml_to_dict(xml.get("Text", ""))
+                    if xml.get("Text")
+                    else {}
+                ).get("Content")
                 or xml.get("Content")
                 or ""
             )
-            from_block = parse_xml_to_dict(xml.get("From", "")) if xml.get("From") else {}
+            from_block = (
+                parse_xml_to_dict(xml.get("From", ""))
+                if xml.get("From")
+                else {}
+            )
             return {
                 "msgtype": (xml.get("MsgType") or "").strip().lower(),
                 "content": content,
                 "from_user": (
-                    from_block.get("UserId")
-                    or xml.get("FromUserName")
-                    or ""
+                    from_block.get("UserId") or xml.get("FromUserName") or ""
                 ).strip(),
                 "to_user": (xml.get("ToUserName") or "").strip(),
                 "msg_id": (xml.get("MsgId") or "").strip(),
@@ -772,7 +797,9 @@ class WeComChannel(BaseChannel):
                 event_part.get("eventtype")
                 if isinstance(event_part, dict)
                 else payload.get("eventtype") or "",
-            ).strip().lower(),
+            )
+            .strip()
+            .lower(),
             "stream_id": str(
                 stream_part.get("id")
                 if isinstance(stream_part, dict)

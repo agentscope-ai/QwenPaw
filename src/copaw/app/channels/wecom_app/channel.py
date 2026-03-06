@@ -44,6 +44,7 @@ class WeComAppChannel(WeComChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ):
         super().__init__(
             process=process,
@@ -57,6 +58,7 @@ class WeComAppChannel(WeComChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
         self.corp_id = corp_id or ""
         self.corp_secret = corp_secret or ""
@@ -104,6 +106,7 @@ class WeComAppChannel(WeComChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "WeComAppChannel":
         return cls(
             process=process,
@@ -121,6 +124,7 @@ class WeComAppChannel(WeComChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
 
     async def stop(self) -> None:
@@ -194,13 +198,16 @@ class WeComAppChannel(WeComChannel):
 
             if int(data.get("errcode", -1)) != 0:
                 raise RuntimeError(
-                    f"wecom_app gettoken failed: {data.get('errcode')} {data.get('errmsg')}",
+                    "wecom_app gettoken failed: "
+                    f"{data.get('errcode')} {data.get('errmsg')}",
                 )
 
             token = str(data.get("access_token") or "")
             expires_in = int(data.get("expires_in") or 7200)
             if not token:
-                raise RuntimeError("wecom_app gettoken returned empty access_token")
+                raise RuntimeError(
+                    "wecom_app gettoken returned empty access_token",
+                )
 
             self._access_token = token
             self._access_token_expire_at = time.time() + expires_in
@@ -237,7 +244,8 @@ class WeComAppChannel(WeComChannel):
 
         if int(data.get("errcode", -1)) != 0:
             raise RuntimeError(
-                f"wecom_app send failed: {data.get('errcode')} {data.get('errmsg')}",
+                "wecom_app send failed: "
+                f"{data.get('errcode')} {data.get('errmsg')}",
             )
 
     async def send(
