@@ -340,7 +340,7 @@ class DiscordChannel(BaseChannel):
                 async with session.get(url) as resp:
                     if resp.status != 200:
                         logger.warning(
-                            "discord send_media: download " "failed status=%d",
+                            "discord send_media: download failed status=%d",
                             resp.status,
                         )
                         return
@@ -348,12 +348,11 @@ class DiscordChannel(BaseChannel):
             parsed_path = urlparse(url).path
             suffix = Path(parsed_path).suffix
             fname = Path(parsed_path).name or f"file{suffix}"
-            tmp = tempfile.NamedTemporaryFile(
+            with tempfile.NamedTemporaryFile(
                 delete=False,
                 suffix=suffix,
-            )
-            tmp.write(data)
-            tmp.close()
+            ) as tmp:
+                tmp.write(data)
             temp_path = tmp.name
             file = discord.File(
                 temp_path,
