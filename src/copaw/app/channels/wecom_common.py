@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import time
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Dict
 from urllib.parse import parse_qs, urlparse
 
 from Crypto.Cipher import AES
+from defusedxml import ElementTree as ET
 
 
 WECOM_PKCS7_BLOCK_SIZE = 32
@@ -112,7 +113,7 @@ def verify_msg_signature(
         nonce=nonce,
         encrypt=encrypt,
     )
-    return expected == (signature or "")
+    return hmac.compare_digest(expected, str(signature or ""))
 
 
 def decrypt_encrypted_message(

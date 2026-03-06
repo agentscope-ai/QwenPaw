@@ -178,6 +178,16 @@ class WeComChannel(BaseChannel):
             return f"{self.channel}:conv:{conversation_id}"
         return f"{self.channel}:user:{sender_id}"
 
+    @staticmethod
+    def _conversation_id_from_message(msg: Dict[str, str]) -> str:
+        chat_id = str(msg.get("chat_id") or "").strip()
+        chat_type = str(msg.get("chat_type") or "").strip().lower()
+        if chat_id and chat_type not in {"single", "p2p", "private"}:
+            return chat_id
+        if chat_id and not chat_type:
+            return chat_id
+        return str(msg.get("from_user") or "").strip()
+
     async def send(
         self,
         to_handle: str,
@@ -346,7 +356,9 @@ class WeComChannel(BaseChannel):
                         "to_user_name": to_user,
                         "from_user_name": from_user,
                         "msg_id": msg_id,
-                        "conversation_id": msg.get("FromUserName") or "",
+                        "conversation_id": self._conversation_id_from_message(
+                            msg,
+                        ),
                         "wecom_msg_type": msg_type,
                     },
                     stream_id=stream_state.stream_id,
@@ -374,7 +386,7 @@ class WeComChannel(BaseChannel):
                 "to_user_name": to_user,
                 "from_user_name": from_user,
                 "msg_id": msg_id,
-                "conversation_id": msg.get("FromUserName") or "",
+                "conversation_id": self._conversation_id_from_message(msg),
                 "wecom_msg_type": msg_type,
             },
         )
@@ -672,7 +684,15 @@ class WeComChannel(BaseChannel):
                 len(reply_text),
             )
         else:
-            await self.send(to_handle, reply_text, send_meta)
+            try:
+                await self.send(to_handle, reply_text, send_meta)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("wecom proactive send failed: %s", exc)
+                self._mark_stream_finished(
+                    send_meta,
+                    error="Failed to deliver message to WeCom.",
+                )
+                return
 
         if self._on_reply_sent:
             self._on_reply_sent(

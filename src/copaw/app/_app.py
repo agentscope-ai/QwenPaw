@@ -31,7 +31,7 @@ from .crons.manager import CronManager
 from .runner.manager import ChatManager
 from .routers import router as api_router
 from .routers.voice import voice_router
-from .routers.wecom import wecom_router
+from .routers.wecom import sync_wecom_callback_routes, wecom_router
 from ..envs import load_envs_into_environ
 
 # Apply log level on load so reload child process gets same level as CLI.
@@ -135,6 +135,7 @@ async def lifespan(
     app.state.config_watcher = config_watcher
     app.state.mcp_manager = mcp_manager
     app.state.mcp_watcher = mcp_watcher
+    sync_wecom_callback_routes(app, channel_manager)
 
     _restart_task: asyncio.Task | None = None
 
@@ -387,6 +388,7 @@ async def lifespan(
         app.state.channel_manager = new_channel_manager
         app.state.cron_manager = new_cron_manager
         app.state.config_watcher = new_config_watcher
+        sync_wecom_callback_routes(app, new_channel_manager)
         logger.info("Daemon restart (in-process) completed: managers rebuilt")
 
     setattr(runner, "_restart_callback", _restart_services)

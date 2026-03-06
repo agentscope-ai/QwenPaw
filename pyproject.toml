@@ -24,6 +24,7 @@ dependencies = [
     "python-telegram-bot>=20.0",
     "twilio>=9.10.2",
     "pycryptodome>=3.21.0",
+    "defusedxml>=0.7.1",
 ]
 
 [tool.setuptools.dynamic]
