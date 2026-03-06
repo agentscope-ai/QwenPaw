@@ -144,7 +144,10 @@ class OllamaProvider(Provider):
         )
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
-        self.models = await self.fetch_models()
+        try:
+            self.models = await self.fetch_models(timeout=1)
+        except Exception:
+            self.models = []
         return ProviderInfo(
             id=self.id,
             name=self.name,
