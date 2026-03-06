@@ -129,7 +129,9 @@ export function ModelsSection({
             </span>
             {!activeProvider?.is_local && (
               <span className={styles.slotEndpoint}>
-                {`${t("models.baseURL")}: ${activeEndpoint || t("models.notSet")}`}
+                {`${t("models.baseURL")}: ${
+                  activeEndpoint || t("models.notSet")
+                }`}
               </span>
             )}
           </div>
