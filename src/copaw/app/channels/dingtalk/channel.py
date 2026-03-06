@@ -1029,10 +1029,12 @@ class DingTalkChannel(BaseChannel):
 
         if upload_type == "video":
             pic_media_id = (
-                part.get("pic_media_id") or part.get("picMediaId") or ""
+                getattr(part, "pic_media_id", None)
+                or getattr(part, "picMediaId", None)
+                or ""
             ).strip()
             if pic_media_id:
-                duration = part.get("duration")
+                duration = getattr(part, "duration", None)
                 if duration is None:
                     duration = 1
                 payload = {
