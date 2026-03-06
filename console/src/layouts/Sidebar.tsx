@@ -219,7 +219,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .then((data) => {
         const releases = data?.releases ?? {};
         const versions = Object.keys(releases).sort(compareVersion);
-        const latest = versions[versions.length - 1] ?? data?.info?.version ?? "";
+        const latest =
+          versions[versions.length - 1] ?? data?.info?.version ?? "";
         setAllVersions(versions);
         setLatestVersion(latest);
       })
