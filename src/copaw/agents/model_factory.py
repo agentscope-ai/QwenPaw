@@ -118,16 +118,21 @@ def _create_file_block_support_formatter(
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
+        # pylint: disable=too-many-branches
         async def _format(self, msgs):
-            """Override to sanitize tool messages and handle thinking blocks.
+            """Override to sanitize tool messages, handle thinking blocks,
+            and relay ``extra_content`` (Gemini thought_signature).
 
             This prevents OpenAI API errors from improperly paired
-            tool messages, and preserves reasoning_content from
-            "thinking" blocks that the base formatter skips.
+            tool messages, preserves reasoning_content from "thinking"
+            blocks that the base formatter skips, and ensures
+            ``extra_content`` on tool_use blocks (e.g. Gemini
+            thought_signature) is carried through to the API request.
             """
             msgs = _sanitize_tool_messages(msgs)
 
             reasoning_contents = {}
+            extra_contents: dict[str, Any] = {}
             for msg in msgs:
                 if msg.role != "assistant":
                     continue
@@ -137,8 +142,21 @@ def _create_file_block_support_formatter(
                         if thinking:
                             reasoning_contents[id(msg)] = thinking
                         break
+                for block in msg.get_content_blocks():
+                    if (
+                        block.get("type") == "tool_use"
+                        and "extra_content" in block
+                    ):
+                        extra_contents[block["id"]] = block["extra_content"]
 
             messages = await super()._format(msgs)
+
+            if extra_contents:
+                for message in messages:
+                    for tc in message.get("tool_calls", []):
+                        ec = extra_contents.get(tc.get("id"))
+                        if ec:
+                            tc["extra_content"] = ec
 
             if reasoning_contents:
                 in_assistant = [m for m in msgs if m.role == "assistant"]
