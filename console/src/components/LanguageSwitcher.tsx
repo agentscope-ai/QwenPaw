@@ -6,7 +6,7 @@ import type { MenuProps } from "antd";
 export default function LanguageSwitcher() {
   const { i18n } = useTranslation();
 
-  const currentLanguage = i18n.language;
+  const currentLanguage = i18n.resolvedLanguage || i18n.language;
 
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
@@ -20,17 +20,28 @@ export default function LanguageSwitcher() {
       onClick: () => changeLanguage("en"),
     },
     {
+      key: "ru",
+      label: "Русский",
+      onClick: () => changeLanguage("ru"),
+    },
+    {
       key: "zh",
       label: "简体中文",
       onClick: () => changeLanguage("zh"),
     },
   ];
 
-  const currentLabel = currentLanguage === "zh" ? "简体中文" : "English";
+  const languageLabels: Record<string, string> = {
+    en: "English",
+    ru: "Русский",
+    zh: "简体中文",
+  };
+
+  const currentLabel = languageLabels[currentLanguage] ?? "English";
 
   return (
     <Dropdown
-      menu={{ items, selectedKeys: [currentLanguage] }}
+      menu={{ items, selectedKeys: [currentLanguage.split("-")[0]] }}
       placement="bottomRight"
     >
       <Button icon={<GlobalOutlined />} type="text">
