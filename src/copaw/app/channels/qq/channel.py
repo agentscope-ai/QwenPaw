@@ -226,10 +226,10 @@ async def _send_c2c_message_async(
         body = {
             "markdown": {"content": content},
             "msg_type": 2,
-            "msg_seq": msg_seq,
         }
     else:
-        body = {"content": content, "msg_type": 0, "msg_seq": msg_seq}
+        body = {"content": content, "msg_type": 0}
+    body["msg_seq"] = msg_seq
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -249,10 +249,11 @@ async def _send_channel_message_async(
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
 ) -> None:
-    if use_markdown:
-        body = {"markdown": {"content": content}}
-    else:
-        body = {"content": content}
+    body = (
+        {"markdown": {"content": content}}
+        if use_markdown
+        else {"content": content}
+    )
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -277,10 +278,10 @@ async def _send_group_message_async(
         body = {
             "markdown": {"content": content},
             "msg_type": 2,
-            "msg_seq": msg_seq,
         }
     else:
-        body = {"content": content, "msg_type": 0, "msg_seq": msg_seq}
+        body = {"content": content, "msg_type": 0}
+    body["msg_seq"] = msg_seq
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -438,7 +439,7 @@ class QQChannel(BaseChannel):
             app_id=config.app_id or "",
             client_secret=config.client_secret or "",
             bot_prefix=config.bot_prefix or "",
-            markdown_enabled=getattr(config, "markdown_enabled", False),
+            markdown_enabled=getattr(config, "markdown_enabled", True),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
