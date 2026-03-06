@@ -12,6 +12,7 @@ from ..providers import (
     add_model,
     create_custom_provider,
     delete_custom_provider,
+    get_provider,
     is_builtin,
     list_providers,
     load_providers_json,
@@ -62,7 +63,22 @@ def configure_provider_api_key_interactive(
             "Select provider to configure API key:",
         )
 
-    defn = PROVIDERS[provider_id]
+    defn = get_provider(provider_id)
+    if defn is None:
+        available = ", ".join(d.id for d in list_providers())
+        click.echo(
+            click.style(
+                f"Error: unknown provider '{provider_id}'. "
+                f"Available providers: {available}",
+                fg="red",
+            ),
+        )
+        click.echo(
+            "To add a custom provider, first run:\n"
+            f"  copaw models add-provider {provider_id} "
+            f'-n "My Provider"',
+        )
+        raise SystemExit(1)
 
     # Local providers (llamacpp, mlx) don't need API key configuration
     if defn.is_local:
@@ -397,9 +413,6 @@ def config_cmd() -> None:
 @click.argument("provider_id", required=False, default=None)
 def config_key_cmd(provider_id: str | None) -> None:
     """Configure a provider's API key."""
-    if provider_id is not None and provider_id not in PROVIDERS:
-        click.echo(click.style(f"Unknown provider: {provider_id}", fg="red"))
-        raise SystemExit(1)
     configure_provider_api_key_interactive(provider_id)
 
 
@@ -692,11 +705,12 @@ def ollama_pull_cmd(model_name: str) -> None:
       copaw models ollama-pull qwen2.5:3b
     """
     from ..providers.ollama_manager import OllamaModelManager
+    from ..providers.store import get_ollama_host
 
     click.echo(f"Downloading Ollama model: {model_name}...")
     try:
-        manager = OllamaModelManager()
-        manager.pull_model(model_name)
+        host = get_ollama_host()
+        OllamaModelManager.pull_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' downloaded successfully.")
         click.echo("\nTo use this model, run:\n  copaw models set-llm")
     except ImportError as exc:
@@ -716,10 +730,11 @@ def ollama_pull_cmd(model_name: str) -> None:
 def ollama_list_cmd() -> None:
     """List all Ollama models."""
     from ..providers.ollama_manager import OllamaModelManager
+    from ..providers.store import get_ollama_host
 
     try:
-        manager = OllamaModelManager()
-        models = manager.list_models()
+        host = get_ollama_host()
+        models = OllamaModelManager.list_models(host=host)
     except ImportError as exc:
         click.echo(
             click.style(
@@ -761,14 +776,15 @@ def ollama_remove_cmd(model_name: str, yes: bool) -> None:
       copaw models ollama-remove qwen2.5:3b -y
     """
     from ..providers.ollama_manager import OllamaModelManager
+    from ..providers.store import get_ollama_host
 
     if not yes:
         if not click.confirm(f"Delete Ollama model '{model_name}'?"):
             return
 
     try:
-        manager = OllamaModelManager()
-        manager.delete_model(model_name)
+        host = get_ollama_host()
+        OllamaModelManager.delete_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' deleted.")
     except ImportError as exc:
         click.echo(

@@ -51,6 +51,11 @@ class ConsoleChannel(BaseChannel):
 
     Input is handled by AgentApp's ``/agent/process`` endpoint; this
     channel only takes care of output (printing to the terminal).
+
+    Supports filtering options via config:
+        - show_tool_details: Display tool execution details
+        - filter_tool_messages: Hide intermediate tool messages
+        - filter_thinking: Hide agent thinking/reasoning blocks
     """
 
     channel = "console"
@@ -61,8 +66,28 @@ class ConsoleChannel(BaseChannel):
         enabled: bool,
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
+        show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ):
-        super().__init__(process, on_reply_sent=on_reply_sent)
+        """Initialize ConsoleChannel.
+
+        Args:
+            process: Handler for agent requests.
+            enabled: Whether this channel is active.
+            bot_prefix: Prefix string for bot messages.
+            on_reply_sent: Callback when reply is sent.
+            show_tool_details: Whether to show tool execution details.
+            filter_tool_messages: Whether to filter out tool messages.
+            filter_thinking: Whether to filter thinking/reasoning blocks.
+        """
+        super().__init__(
+            process,
+            on_reply_sent=on_reply_sent,
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+        )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
 
@@ -87,13 +112,31 @@ class ConsoleChannel(BaseChannel):
         process: ProcessHandler,
         config: ConsoleChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,  # TODO: fix me
+        show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "ConsoleChannel":
+        """Create ConsoleChannel from config.
+
+        Args:
+            process: Handler for agent requests.
+            config: Console channel configuration.
+            on_reply_sent: Callback when reply is sent.
+            show_tool_details: Whether to show tool execution details.
+            filter_tool_messages: Whether to filter out tool messages.
+            filter_thinking: Whether to filter thinking/reasoning blocks.
+
+        Returns:
+            Configured ConsoleChannel instance.
+        """
         return cls(
             process=process,
             enabled=config.enabled,
             bot_prefix=config.bot_prefix or "[BOT] ",
             on_reply_sent=on_reply_sent,
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
 
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
@@ -182,13 +225,9 @@ class ConsoleChannel(BaseChannel):
                 last_response is not None,
             )
 
-            if last_response and getattr(last_response, "error", None):
-                err = getattr(
-                    last_response.error,
-                    "message",
-                    str(last_response.error),
-                )
-                self._print_error(err)
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                self._print_error(err_msg)
 
             to_handle = request.user_id or ""
             if self._on_reply_sent:
@@ -198,11 +237,10 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
-        except Exception:
+        except Exception as e:
             logger.exception("console process/reply failed")
-            self._print_error(
-                "An error occurred while processing your request.",
-            )
+            err_msg = str(e).strip() or "An error occurred while processing."
+            self._print_error(err_msg)
 
     # ── pretty-print helpers ────────────────────────────────────────
 

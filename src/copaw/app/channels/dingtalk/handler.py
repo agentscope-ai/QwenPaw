@@ -18,6 +18,7 @@ from ..base import ContentType
 from .constants import SENT_VIA_WEBHOOK
 from .content_utils import (
     conversation_id_from_chatbot_message,
+    conversation_type_from_chatbot_message,
     dingtalk_content_from_type,
     get_type_mapping,
     sender_from_chatbot_message,
@@ -45,12 +46,14 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         enqueue_callback: Optional[Callable[[Any], None]],
         bot_prefix: str,
         download_url_fetcher,
+        try_accept_message: Optional[Callable[[str], bool]] = None,
     ):
         super().__init__()
         self._main_loop = main_loop
         self._enqueue_callback = enqueue_callback
         self._bot_prefix = bot_prefix
         self._download_url_fetcher = download_url_fetcher
+        self._try_accept_message = try_accept_message
 
     def _emit_native_threadsafe(self, native: dict) -> None:
         if self._enqueue_callback:
@@ -102,14 +105,22 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             for item in rich_list:
                 if not isinstance(item, dict):
                     continue
-                if item.get("text") is not None:
+                # Text may be under "text" or "content" (API variation).
+                item_text = item.get("text") or item.get("content")
+                if item_text is not None:
                     content.append(
                         TextContent(
                             type=ContentType.TEXT,
-                            text=item.get("text") or "",
+                            text=(item_text or "").strip(),
                         ),
                     )
-                dl_code = item.get("downloadCode")
+                # Picture items may use pictureDownloadCode or downloadCode.
+                dl_code = (
+                    item.get("downloadCode")
+                    or item.get("download_code")
+                    or item.get("pictureDownloadCode")
+                    or item.get("picture_download_code")
+                )
                 if not dl_code or not robot_code:
                     continue
                 mapped = type_mapping.get(
@@ -157,7 +168,18 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         return content
 
     async def process(self, callback: CallbackMessage) -> tuple[int, str]:
+        # pylint: disable=too-many-branches,too-many-statements
         try:
+            # Raw msgId from channel callback for dedup (not assigned id).
+            raw_data = getattr(callback, "data", None) or {}
+            raw_msg_id = str(
+                raw_data.get("msgId") or raw_data.get("msg_id") or "",
+            ).strip()
+            logger.info(
+                "dingtalk raw callback: msgId=%r keys=%s",
+                raw_msg_id or "(empty)",
+                list(raw_data.keys()) if isinstance(raw_data, dict) else "?",
+            )
             incoming_message = ChatbotMessage.from_dict(callback.data)
 
             logger.debug(
@@ -177,13 +199,21 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             content = self._parse_rich_content(incoming_message)
             # If text was extracted separately and rich content has no
             # text items, prepend the text so both text and media are
-            # preserved in the content list.
+            # preserved. Do not prepend when top-level text is only a
+            # placeholder (e.g. "\\n", "//n") so image+text from richText
+            # is not overwritten.
+            rich_has_text = any(
+                item.type == "text" and (item.text or "").strip()
+                for item in content
+            )
+            text_is_placeholder = not (text or "").strip() or (
+                (text or "").strip() in ("\\n", "//n")
+            )
             if (
                 text
                 and content
-                and not any(
-                    item.type == "text" and item.text for item in content
-                )
+                and not rich_has_text
+                and not text_is_placeholder
             ):
                 content.insert(
                     0,
@@ -199,19 +229,30 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             conversation_id = conversation_id_from_chatbot_message(
                 incoming_message,
             )
+            conversation_type = conversation_type_from_chatbot_message(
+                incoming_message,
+            )
             loop = asyncio.get_running_loop()
             reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
                 "incoming_message": incoming_message,
                 "reply_future": reply_future,
                 "reply_loop": loop,
+                "conversation_type": conversation_type,
             }
             if conversation_id:
                 meta["conversation_id"] = conversation_id
+            if raw_msg_id:
+                meta["message_id"] = raw_msg_id
             sw = getattr(incoming_message, "sessionWebhook", None) or getattr(
                 incoming_message,
                 "session_webhook",
                 None,
+            )
+            logger.debug(
+                "dingtalk request: has_session_webhook=%s sender=%s",
+                bool(sw),
+                sender,
             )
             if sw:
                 meta["session_webhook"] = sw
@@ -236,12 +277,30 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "dingtalk recv: no sessionWebhook on incoming_message",
                 )
 
+            # Dedup by message_id only.
+            if self._try_accept_message and not self._try_accept_message(
+                raw_msg_id,
+            ):
+                logger.info(
+                    "dingtalk duplicate ignored: raw_msg_id=%r from=%s",
+                    raw_msg_id,
+                    sender,
+                )
+                self.reply_text(" ", incoming_message)
+                return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+
+            logger.info(
+                "dingtalk accept: raw_msg_id=%r",
+                raw_msg_id or "(empty)",
+            )
             native = {
                 "channel_id": "dingtalk",
                 "sender_id": sender,
                 "content_parts": parts_to_send,
                 "meta": meta,
             }
+            if raw_msg_id:
+                native["message_id"] = raw_msg_id
             if sw:
                 native["session_webhook"] = sw
             logger.info(
@@ -258,6 +317,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "sent to=%s via sessionWebhook (multi-message)",
                     sender,
                 )
+                # Stream connection still expects a reply frame;
+                # send minimal ack so the connection completes and next
+                # messages work.
+                self.reply_text(" ", incoming_message)
             else:
                 out = self._bot_prefix + response_text
                 self.reply_text(out, incoming_message)

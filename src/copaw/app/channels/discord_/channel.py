@@ -38,11 +38,15 @@ class DiscordChannel(BaseChannel):
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
         self.enabled = enabled
         self.token = token
@@ -192,6 +196,8 @@ class DiscordChannel(BaseChannel):
         config: DiscordChannelConfig,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "DiscordChannel":
         return cls(
             process=process,
@@ -202,6 +208,8 @@ class DiscordChannel(BaseChannel):
             bot_prefix=config.bot_prefix or "[BOT] ",
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
 
     async def send(

@@ -6,7 +6,9 @@ import {
   Select,
   Switch,
   Button,
+  Checkbox,
 } from "@agentscope-ai/design";
+import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
@@ -33,7 +35,7 @@ export function JobDrawer({
 
   return (
     <Drawer
-      width={520}
+      width={600}
       placement="right"
       title={editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
       open={open}
@@ -48,18 +50,28 @@ export function JobDrawer({
       >
         <Form.Item
           name="id"
-          label="ID"
+          label={t("cronJobs.id")}
           rules={[{ required: true, message: t("cronJobs.pleaseInputId") }]}
+          tooltip={t("cronJobs.idTooltip")}
         >
           <Input placeholder={t("cronJobs.jobIdPlaceholder")} />
         </Form.Item>
 
         <Form.Item
           name="name"
-          label="Name"
+          label={t("cronJobs.name")}
           rules={[{ required: true, message: t("cronJobs.pleaseInputName") }]}
+          tooltip={t("cronJobs.nameTooltip")}
         >
           <Input placeholder={t("cronJobs.jobNamePlaceholder")} />
+        </Form.Item>
+
+        <Form.Item
+          name="enabled"
+          label={t("cronJobs.enabled")}
+          valuePropName="checked"
+        >
+          <Switch />
         </Form.Item>
 
         <Form.Item name={["schedule", "type"]} label="ScheduleType" hidden>
@@ -67,14 +79,138 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
-          name={["schedule", "cron"]}
-          label="ScheduleCron"
-          rules={[{ required: true, message: t("cronJobs.pleaseInputCron") }]}
+          label={t("cronJobs.scheduleCronLabel")}
+          required
+          tooltip={t("cronJobs.cronTooltip")}
         >
-          <Input placeholder="0 2 * * *" />
+          <Form.Item name="cronType" noStyle>
+            <Select>
+              <Select.Option value="hourly">
+                {t("cronJobs.cronTypeHourly")}
+              </Select.Option>
+              <Select.Option value="daily">
+                {t("cronJobs.cronTypeDaily")}
+              </Select.Option>
+              <Select.Option value="weekly">
+                {t("cronJobs.cronTypeWeekly")}
+              </Select.Option>
+              <Select.Option value="custom">
+                {t("cronJobs.cronTypeCustom")}
+              </Select.Option>
+            </Select>
+          </Form.Item>
         </Form.Item>
 
-        <Form.Item name={["schedule", "timezone"]} label="ScheduleTimezone">
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+        >
+          {({ getFieldValue }) => {
+            const cronType = getFieldValue("cronType");
+
+            if (cronType === "daily" || cronType === "weekly") {
+              return (
+                <Form.Item
+                  name="cronTime"
+                  label={t("cronJobs.cronTime")}
+                  rules={[{ required: true }]}
+                >
+                  <TimePicker
+                    format="HH:mm"
+                    minuteStep={15}
+                    needConfirm={false}
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+              );
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+        >
+          {({ getFieldValue }) => {
+            const cronType = getFieldValue("cronType");
+
+            if (cronType === "weekly") {
+              return (
+                <Form.Item
+                  name="cronDaysOfWeek"
+                  label={t("cronJobs.cronDaysOfWeek")}
+                  rules={[{ required: true, message: "请选择至少一天" }]}
+                >
+                  <Checkbox.Group
+                    options={[
+                      { label: t("cronJobs.cronDayMon"), value: 1 },
+                      { label: t("cronJobs.cronDayTue"), value: 2 },
+                      { label: t("cronJobs.cronDayWed"), value: 3 },
+                      { label: t("cronJobs.cronDayThu"), value: 4 },
+                      { label: t("cronJobs.cronDayFri"), value: 5 },
+                      { label: t("cronJobs.cronDaySat"), value: 6 },
+                      { label: t("cronJobs.cronDaySun"), value: 0 },
+                    ]}
+                  />
+                </Form.Item>
+              );
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.cronType !== cur.cronType}
+        >
+          {({ getFieldValue }) => {
+            const cronType = getFieldValue("cronType");
+
+            if (cronType === "custom") {
+              return (
+                <Form.Item
+                  name="cronCustom"
+                  label={t("cronJobs.cronCustomExpression")}
+                  rules={[
+                    { required: true, message: t("cronJobs.pleaseInputCron") },
+                  ]}
+                  extra={
+                    <div style={{ fontSize: 12, color: "#8c8c8c" }}>
+                      <div style={{ marginBottom: 4 }}>
+                        {t("cronJobs.cronExample")}
+                      </div>
+                      <div>
+                        {t("cronJobs.cronHelper")}{" "}
+                        <a
+                          href="https://crontab.guru/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "#1890ff" }}
+                        >
+                          {t("cronJobs.cronHelperLink")} →
+                        </a>
+                      </div>
+                    </div>
+                  }
+                >
+                  <Input placeholder="0 9 * * *" />
+                </Form.Item>
+              );
+            }
+            return null;
+          }}
+        </Form.Item>
+
+        <Form.Item name={["schedule", "cron"]} hidden>
+          <Input />
+        </Form.Item>
+
+        <Form.Item
+          name={["schedule", "timezone"]}
+          label={t("cronJobs.scheduleTimezone")}
+          tooltip={t("cronJobs.timezoneTooltip")}
+        >
           <Select
             showSearch
             placeholder={t("cronJobs.selectTimezone")}
@@ -89,10 +225,11 @@ export function JobDrawer({
 
         <Form.Item
           name="task_type"
-          label="TaskType"
+          label={t("cronJobs.taskType")}
           rules={[
             { required: true, message: t("cronJobs.pleaseSelectTaskType") },
           ]}
+          tooltip={t("cronJobs.taskTypeTooltip")}
         >
           <Select>
             <Select.Option value="text">text</Select.Option>
@@ -100,11 +237,11 @@ export function JobDrawer({
           </Select>
         </Form.Item>
 
-        <Form.Item name="enabled" label="Enabled" valuePropName="checked">
-          <Switch />
-        </Form.Item>
-
-        <Form.Item name="text" label="Text">
+        <Form.Item
+          name="text"
+          label={t("cronJobs.text")}
+          tooltip={t("cronJobs.textTooltip")}
+        >
           <Input.TextArea
             rows={3}
             placeholder={t("cronJobs.taskDescriptionPlaceholder")}
@@ -113,7 +250,7 @@ export function JobDrawer({
 
         <Form.Item
           name={["request", "input"]}
-          label="RequestInput"
+          label={t("cronJobs.requestInput")}
           rules={[
             { required: true, message: t("cronJobs.pleaseInputRequest") },
             {
@@ -130,7 +267,12 @@ export function JobDrawer({
               },
             },
           ]}
-          tooltip={t("cronJobs.jsonFormatRequired")}
+          tooltip={t("cronJobs.requestInputTooltip")}
+          extra={
+            <span style={{ fontSize: 12, color: "#8c8c8c" }}>
+              {t("cronJobs.requestInputExample")}
+            </span>
+          }
         >
           <Input.TextArea
             rows={6}
@@ -139,11 +281,19 @@ export function JobDrawer({
           />
         </Form.Item>
 
-        <Form.Item name={["request", "session_id"]} label="RequestSessionId">
+        <Form.Item
+          name={["request", "session_id"]}
+          label={t("cronJobs.requestSessionId")}
+          tooltip={t("cronJobs.requestSessionIdTooltip")}
+        >
           <Input placeholder="default" />
         </Form.Item>
 
-        <Form.Item name={["request", "user_id"]} label="RequestUserId">
+        <Form.Item
+          name={["request", "user_id"]}
+          label={t("cronJobs.requestUserId")}
+          tooltip={t("cronJobs.requestUserIdTooltip")}
+        >
           <Input placeholder="system" />
         </Form.Item>
 
@@ -153,33 +303,40 @@ export function JobDrawer({
 
         <Form.Item
           name={["dispatch", "channel"]}
-          label="DispatchChannel"
+          label={t("cronJobs.dispatchChannel")}
           rules={[
             { required: true, message: t("cronJobs.pleaseInputChannel") },
           ]}
+          tooltip={t("cronJobs.dispatchChannelTooltip")}
         >
           <Input placeholder="console" />
         </Form.Item>
 
         <Form.Item
           name={["dispatch", "target", "user_id"]}
-          label="DispatchTargetUserId"
+          label={t("cronJobs.dispatchTargetUserId")}
           rules={[{ required: true, message: t("cronJobs.pleaseInputUserId") }]}
+          tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
         >
           <Input placeholder="admin" />
         </Form.Item>
 
         <Form.Item
           name={["dispatch", "target", "session_id"]}
-          label="DispatchTargetSessionId"
+          label={t("cronJobs.dispatchTargetSessionId")}
           rules={[
             { required: true, message: t("cronJobs.pleaseInputSessionId") },
           ]}
+          tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
         >
           <Input placeholder="default" />
         </Form.Item>
 
-        <Form.Item name={["dispatch", "mode"]} label="DispatchMode">
+        <Form.Item
+          name={["dispatch", "mode"]}
+          label={t("cronJobs.dispatchMode")}
+          tooltip={t("cronJobs.dispatchModeTooltip")}
+        >
           <Select>
             <Select.Option value="stream">stream</Select.Option>
             <Select.Option value="final">final</Select.Option>
@@ -188,23 +345,26 @@ export function JobDrawer({
 
         <Form.Item
           name={["runtime", "max_concurrency"]}
-          label="RuntimeMaxConcurrency"
+          label={t("cronJobs.runtimeMaxConcurrency")}
+          tooltip={t("cronJobs.maxConcurrencyTooltip")}
         >
-          <InputNumber min={1} style={{ width: "100%" }} />
+          <InputNumber min={1} style={{ width: "100%" }} placeholder="1" />
         </Form.Item>
 
         <Form.Item
           name={["runtime", "timeout_seconds"]}
-          label="RuntimeTimeoutSeconds"
+          label={t("cronJobs.runtimeTimeoutSeconds")}
+          tooltip={t("cronJobs.timeoutSecondsTooltip")}
         >
-          <InputNumber min={1} style={{ width: "100%" }} />
+          <InputNumber min={1} style={{ width: "100%" }} placeholder="300" />
         </Form.Item>
 
         <Form.Item
           name={["runtime", "misfire_grace_seconds"]}
-          label="RuntimeMisfireGraceSeconds"
+          label={t("cronJobs.runtimeMisfireGraceSeconds")}
+          tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
         >
-          <InputNumber min={0} style={{ width: "100%" }} />
+          <InputNumber min={0} style={{ width: "100%" }} placeholder="60" />
         </Form.Item>
 
         <Form.Item>
@@ -213,7 +373,9 @@ export function JobDrawer({
               display: "flex",
               justifyContent: "flex-end",
               gap: 8,
-              marginTop: 16,
+              marginTop: 24,
+              paddingTop: 16,
+              borderTop: "1px solid #f0f0f0",
             }}
           >
             <Button onClick={onClose}>{t("common.cancel")}</Button>

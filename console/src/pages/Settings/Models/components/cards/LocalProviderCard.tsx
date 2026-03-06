@@ -27,8 +27,8 @@ export function LocalProviderCard({
   const totalCount = provider.models.length;
   const statusReady = totalCount > 0;
   const statusLabel = statusReady
-    ? t("models.localReady")
-    : t("models.localNotReady");
+    ? t("models.available")
+    : t("models.unavailable");
 
   return (
     <Card

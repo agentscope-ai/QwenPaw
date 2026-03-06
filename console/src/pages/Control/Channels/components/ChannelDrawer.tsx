@@ -1,31 +1,43 @@
 import {
+  Alert,
   Drawer,
   Form,
   Input,
   InputNumber,
   Switch,
   Button,
+  Select,
 } from "@agentscope-ai/design";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import type { SingleChannelConfig } from "../../../../api/types";
-import type { ChannelKey } from "./constants";
+import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 
 interface ChannelDrawerProps {
   open: boolean;
   activeKey: ChannelKey | null;
   activeLabel: string;
-  form: FormInstance<SingleChannelConfig>;
+  form: FormInstance<Record<string, unknown>>;
   saving: boolean;
-  initialValues: SingleChannelConfig | undefined;
+  initialValues: Record<string, unknown> | undefined;
+  isBuiltin: boolean;
   onClose: () => void;
-  onSubmit: (values: SingleChannelConfig) => void;
+  onSubmit: (values: Record<string, unknown>) => void;
 }
 
-// DingTalk doc URL
-const dingtalkDocUrl = "https://copaw.agentscope.io/docs/channels";
+// Doc URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
+  dingtalk:
+    "https://copaw.agentscope.io/docs/channels/#%E9%92%89%E9%92%89%E6%8E%A8%E8%8D%90",
+  feishu: "https://copaw.agentscope.io/docs/channels/#%E9%A3%9E%E4%B9%A6",
+  imessage:
+    "https://copaw.agentscope.io/docs/channels/#iMessage%E4%BB%85-macOS",
+  discord: "https://copaw.agentscope.io/docs/channels/#Discord",
+  qq: "https://copaw.agentscope.io/docs/channels/#QQ",
+  telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
+};
+const twilioConsoleUrl = "https://console.twilio.com";
 
 export function ChannelDrawer({
   open,
@@ -34,12 +46,15 @@ export function ChannelDrawer({
   form,
   saving,
   initialValues,
+  isBuiltin,
   onClose,
   onSubmit,
 }: ChannelDrawerProps) {
   const { t } = useTranslation();
+  const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
 
-  const renderExtraFields = (key: ChannelKey) => {
+  // Renders builtin channel-specific fields
+  const renderBuiltinExtraFields = (key: ChannelKey) => {
     switch (key) {
       case "imessage":
         return (
@@ -84,6 +99,44 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="client_secret" label="Client Secret">
               <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="dm_policy"
+              label={t("channels.dmPolicy")}
+              tooltip={t("channels.dmPolicyTooltip")}
+              initialValue="open"
+            >
+              <Select
+                options={[
+                  { value: "open", label: t("channels.policyOpen") },
+                  { value: "allowlist", label: t("channels.policyAllowlist") },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="group_policy"
+              label={t("channels.groupPolicy")}
+              tooltip={t("channels.groupPolicyTooltip")}
+              initialValue="open"
+            >
+              <Select
+                options={[
+                  { value: "open", label: t("channels.policyOpen") },
+                  { value: "allowlist", label: t("channels.policyAllowlist") },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="allow_from"
+              label={t("channels.allowFrom")}
+              tooltip={t("channels.allowFromTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.allowFromPlaceholder")}
+                tokenSeparators={[","]}
+              />
             </Form.Item>
           </>
         );
@@ -147,9 +200,104 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+      case "voice":
+        return (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              message={t("channels.voiceSetupGuide")}
+              style={{ marginBottom: 16 }}
+            />
+            <Form.Item
+              name="twilio_account_sid"
+              label={t("channels.twilioAccountSid")}
+            >
+              <Input placeholder="ACxxxxxxxx" />
+            </Form.Item>
+            <Form.Item
+              name="twilio_auth_token"
+              label={t("channels.twilioAuthToken")}
+            >
+              <Input.Password />
+            </Form.Item>
+            <Form.Item name="phone_number" label={t("channels.phoneNumber")}>
+              <Input placeholder="+15551234567" />
+            </Form.Item>
+            <Form.Item
+              name="phone_number_sid"
+              label={t("channels.phoneNumberSid")}
+              tooltip={t("channels.phoneNumberSidHelp")}
+            >
+              <Input placeholder="PNxxxxxxxx" />
+            </Form.Item>
+            <Form.Item name="tts_provider" label={t("channels.ttsProvider")}>
+              <Input placeholder="google" />
+            </Form.Item>
+            <Form.Item name="tts_voice" label={t("channels.ttsVoice")}>
+              <Input placeholder="en-US-Journey-D" />
+            </Form.Item>
+            <Form.Item name="stt_provider" label={t("channels.sttProvider")}>
+              <Input placeholder="deepgram" />
+            </Form.Item>
+            <Form.Item name="language" label={t("channels.language")}>
+              <Input placeholder="en-US" />
+            </Form.Item>
+            <Form.Item
+              name="welcome_greeting"
+              label={t("channels.welcomeGreeting")}
+            >
+              <Input.TextArea rows={2} />
+            </Form.Item>
+          </>
+        );
       default:
         return null;
     }
+  };
+
+  // Renders custom channel fields as key-value editor
+  const renderCustomExtraFields = (
+    initialValues: Record<string, unknown> | undefined,
+  ) => {
+    if (!initialValues) return null;
+
+    // Get extra fields (exclude base fields)
+    const baseFields = [
+      "enabled",
+      "bot_prefix",
+      "filter_tool_messages",
+      "filter_thinking",
+      "isBuiltin",
+    ];
+    const extraKeys = Object.keys(initialValues).filter(
+      (k) => !baseFields.includes(k),
+    );
+
+    if (extraKeys.length === 0) return null;
+
+    return (
+      <>
+        <div style={{ marginBottom: 8, fontWeight: 500 }}>Custom Fields</div>
+        {extraKeys.map((fieldKey) => {
+          const value = initialValues[fieldKey];
+          const isBoolean = typeof value === "boolean";
+          const isNumber = typeof value === "number";
+
+          return (
+            <Form.Item key={fieldKey} name={fieldKey} label={fieldKey}>
+              {isBoolean ? (
+                <Switch />
+              ) : isNumber ? (
+                <InputNumber style={{ width: "100%" }} />
+              ) : (
+                <Input />
+              )}
+            </Form.Item>
+          );
+        })}
+      </>
+    );
   };
 
   return (
@@ -159,19 +307,32 @@ export function ChannelDrawer({
       title={
         <div className={styles.drawerTitle}>
           <span>
-            {activeLabel
-              ? `${activeLabel} ${t("channels.settings")}`
+            {label
+              ? `${label} ${t("channels.settings")}`
               : t("channels.channelSettings")}
           </span>
-          {activeKey === "dingtalk" && (
+          {activeKey && CHANNEL_DOC_URLS[activeKey] && (
             <Button
               type="text"
               size="small"
               icon={<LinkOutlined />}
-              onClick={() => window.open(dingtalkDocUrl, "_blank")}
+              onClick={() => window.open(CHANNEL_DOC_URLS[activeKey], "_blank")}
               className={styles.dingtalkDocBtn}
             >
-              DingTalk Doc
+              {label} Doc
+            </Button>
+          )}
+          {activeKey === "voice" && (
+            <Button
+              type="text"
+              size="small"
+              icon={<LinkOutlined />}
+              onClick={() =>
+                window.open(twilioConsoleUrl, "_blank", "noopener,noreferrer")
+              }
+              className={styles.dingtalkDocBtn}
+            >
+              {t("channels.voiceSetupLink")}
             </Button>
           )}
         </div>
@@ -191,11 +352,36 @@ export function ChannelDrawer({
             <Switch />
           </Form.Item>
 
-          <Form.Item name="bot_prefix" label="Bot Prefix">
-            <Input placeholder="@bot" />
-          </Form.Item>
+          {activeKey !== "voice" && (
+            <Form.Item name="bot_prefix" label="Bot Prefix">
+              <Input placeholder="@bot" />
+            </Form.Item>
+          )}
 
-          {renderExtraFields(activeKey)}
+          {activeKey !== "console" && (
+            <>
+              <Form.Item
+                name="filter_tool_messages"
+                label={t("channels.filterToolMessages")}
+                valuePropName="checked"
+                tooltip={t("channels.filterToolMessagesTooltip")}
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                name="filter_thinking"
+                label={t("channels.filterThinking")}
+                valuePropName="checked"
+                tooltip={t("channels.filterThinkingTooltip")}
+              >
+                <Switch />
+              </Form.Item>
+            </>
+          )}
+
+          {isBuiltin
+            ? renderBuiltinExtraFields(activeKey)
+            : renderCustomExtraFields(initialValues)}
 
           <Form.Item>
             <div className={styles.formActions}>

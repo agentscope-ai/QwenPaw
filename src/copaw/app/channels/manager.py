@@ -180,23 +180,26 @@ class ChannelManager:
                 )
             if ch_cfg is None:
                 continue
-            if key == "console":
-                channels.append(
-                    ch_cls.from_config(
-                        process,
-                        ch_cfg,
-                        on_reply_sent=on_last_dispatch,
-                    ),
-                )
-            else:
-                channels.append(
-                    ch_cls.from_config(
-                        process,
-                        ch_cfg,
-                        on_reply_sent=on_last_dispatch,
-                        show_tool_details=show_tool_details,
-                    ),
-                )
+            filter_tool_messages = getattr(
+                ch_cfg,
+                "filter_tool_messages",
+                False,
+            )
+            filter_thinking = getattr(
+                ch_cfg,
+                "filter_thinking",
+                False,
+            )
+            channels.append(
+                ch_cls.from_config(
+                    process,
+                    ch_cfg,
+                    on_reply_sent=on_last_dispatch,
+                    show_tool_details=show_tool_details,
+                    filter_tool_messages=filter_tool_messages,
+                    filter_thinking=filter_thinking,
+                ),
+            )
         return cls(channels)
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
@@ -335,7 +338,16 @@ class ChannelManager:
         for task in self._consumer_tasks:
             task.cancel()
         if self._consumer_tasks:
-            await asyncio.gather(*self._consumer_tasks, return_exceptions=True)
+            _, pending = await asyncio.wait(
+                self._consumer_tasks,
+                timeout=5.0,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            if pending:
+                logger.warning(
+                    "stop_all: %s consumer task(s) still pending after 5s",
+                    len(pending),
+                )
         self._consumer_tasks.clear()
         self._queues.clear()
         async with self._lock:

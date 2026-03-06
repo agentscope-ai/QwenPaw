@@ -95,6 +95,24 @@ def conversation_id_from_chatbot_message(incoming_message: Any) -> str:
     return str(cid).strip() if cid else ""
 
 
+def conversation_type_from_chatbot_message(incoming_message: Any) -> str:
+    """Extract conversation_type from DingTalk ChatbotMessage.
+
+    Returns:
+        "dm" for direct message (conversationType=1)
+        "group" for group chat (conversationType=2)
+        "dm" as default if not specified
+    """
+    conv_type = getattr(incoming_message, "conversationType", None) or getattr(
+        incoming_message,
+        "conversation_type",
+        None,
+    )
+    if conv_type:
+        return "group" if str(conv_type) == "2" else "dm"
+    return "dm"
+
+
 def short_session_id_from_conversation_id(conversation_id: str) -> str:
     """Use last N chars of conversation_id as session_id."""
     n = DINGTALK_SESSION_ID_SUFFIX_LEN

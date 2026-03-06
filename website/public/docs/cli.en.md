@@ -63,12 +63,31 @@ Once `copaw app` is running, open `http://127.0.0.1:8088/` in your browser to
 access the **Console** — a web UI for chat, channels, cron, skills, models,
 and more. See [Console](./console) for a full walkthrough.
 
-If the frontend was not built, the root URL returns `{"message": "Hello World"}`
-but the API still works.
+If the frontend was not built, the root URL returns a JSON message like `{"message": "CoPaw Web Console is not available."}` but the API still works.
 
 **To build the frontend:** in the project's `console/` directory run
-`npm ci && npm run build` (output in `console/dist/`). Docker images and pip
+`npm ci && npm run build` (output in `src/copaw/console/`). Docker images and pip
 packages already include the Console.
+
+### copaw daemon
+
+Inspect status, version, and recent logs without starting a conversation. Same
+behavior as sending `/daemon status` etc. in chat (CLI can show local info when
+the app is not running).
+
+| Command                      | Description                                                                               |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `copaw daemon status`        | Status (config, working dir, memory manager)                                              |
+| `copaw daemon restart`       | Print instructions (in-chat /daemon restart does in-process reload)                       |
+| `copaw daemon reload-config` | Re-read and validate config (channel/MCP changes need /daemon restart or process restart) |
+| `copaw daemon version`       | Version and paths                                                                         |
+| `copaw daemon logs [-n N]`   | Last N lines of log (default 100; from `copaw.log` in working dir)                        |
+
+```bash
+copaw daemon status
+copaw daemon version
+copaw daemon logs -n 50
+```
 
 ---
 

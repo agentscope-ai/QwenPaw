@@ -7,7 +7,7 @@ following the docs.
 
 ## What is CoPaw?
 
-CoPAW is a **personal assistant** that runs in your own environment.
+CoPaw is a **personal assistant** that runs in your own environment.
 
 - **Multi-channel chat** — Talk to you via DingTalk, Feishu, QQ, Discord, iMessage, and more.
 - **Scheduled execution** — Run tasks automatically on your configured schedule.

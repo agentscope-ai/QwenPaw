@@ -7,6 +7,7 @@ export interface ProviderInfo {
   id: string;
   name: string;
   api_key_prefix: string;
+  chat_model: string;
   /** Built-in models (for built-in providers) or all models (for custom). */
   models: ModelInfo[];
   /** User-added models (deletable). Only populated for built-in providers. */
@@ -15,7 +16,6 @@ export interface ProviderInfo {
   is_local: boolean;
   /** True when the user must supply a base URL (custom or no default URL). */
   needs_base_url: boolean;
-  has_api_key: boolean;
   current_api_key: string;
   current_base_url: string;
 }
@@ -23,6 +23,7 @@ export interface ProviderInfo {
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
+  chat_model?: string;
 }
 
 export interface ModelSlotConfig {
@@ -46,6 +47,7 @@ export interface CreateCustomProviderRequest {
   name: string;
   default_base_url?: string;
   api_key_prefix?: string;
+  chat_model?: string;
   models?: ModelInfo[];
 }
 
@@ -116,8 +118,16 @@ export interface TestConnectionResponse {
 export interface TestProviderRequest {
   api_key?: string;
   base_url?: string;
+  chat_model?: string;
 }
 
 export interface TestModelRequest {
   model_id: string;
+}
+
+export interface DiscoverModelsResponse {
+  success: boolean;
+  message: string;
+  models: ModelInfo[];
+  added_count: number;
 }

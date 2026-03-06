@@ -190,6 +190,62 @@ class LocalModelManager:
         filename: Optional[str],
         backend: BackendType,
     ) -> LocalModelInfo:
+        _ensure_models_dir()
+        local_dir = MODELS_DIR / _sanitize_repo_id(repo_id)
+
+        # MLX models require config/tokenizer files in addition to weights.
+        # ModelScope file download pulls only one file, so use full snapshot.
+        if backend == BackendType.MLX:
+            snapshot_download_fn = None
+            try:
+                from modelscope.hub.snapshot_download import (
+                    snapshot_download as _hub_snapshot_download,
+                )
+
+                snapshot_download_fn = _hub_snapshot_download
+            except ImportError:
+                try:
+                    # Compatibility fallback for old ModelScope versions.
+                    from modelscope import (
+                        snapshot_download as _legacy_snapshot_download,
+                    )
+
+                    snapshot_download_fn = _legacy_snapshot_download
+                except ImportError:
+                    snapshot_download_fn = None
+
+            if snapshot_download_fn is None:
+                raise ImportError(
+                    "ModelScope snapshot download is required for MLX models. "
+                    "Install it with: pip install modelscope, "
+                    "or upgrade modelscope "
+                    "to a newer version if it is already installed.",
+                )
+
+            logger.info(
+                "Downloading full repo %s from ModelScope (MLX)...",
+                repo_id,
+            )
+            local_dir_existed = local_dir.exists()
+            local_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                snapshot_dir = snapshot_download_fn(
+                    model_id=repo_id,
+                    local_dir=str(local_dir),
+                )
+                LocalModelManager._validate_mlx_directory(Path(snapshot_dir))
+            except Exception:
+                if not local_dir_existed:
+                    shutil.rmtree(local_dir, ignore_errors=True)
+                raise
+            return LocalModelManager._register_model(
+                repo_id,
+                filename or "(full repo)",
+                backend,
+                DownloadSource.MODELSCOPE,
+                snapshot_dir,
+            )
+
         try:
             from modelscope.hub.file_download import model_file_download
         except ImportError as e:
@@ -197,8 +253,6 @@ class LocalModelManager:
                 "modelscope is required for ModelScope downloads. "
                 "Install it with: pip install modelscope",
             ) from e
-
-        _ensure_models_dir()
 
         if filename is None:
             try:
@@ -217,9 +271,7 @@ class LocalModelManager:
                 ) from e
             filename = LocalModelManager._auto_select_file(files, backend)
 
-        local_dir = MODELS_DIR / _sanitize_repo_id(repo_id)
         local_dir.mkdir(parents=True, exist_ok=True)
-
         logger.info(
             "Downloading %s/%s from ModelScope...",
             repo_id,
@@ -289,7 +341,17 @@ class LocalModelManager:
                 f"Delete the directory and try again.",
             )
         # Check for at least one safetensors file (not inside temp dirs)
-        st_files = [f for f in model_dir.glob("*.safetensors") if f.is_file()]
+        st_files = [
+            f
+            for f in model_dir.rglob("*.safetensors")
+            if f.is_file()
+            and not f.name.startswith(".")
+            and not any(
+                p.name.startswith(".")
+                for p in f.relative_to(model_dir).parents
+                if p != Path(".")
+            )
+        ]
         if not st_files:
             raise RuntimeError(
                 f"MLX model download appears incomplete — no .safetensors "

@@ -9,12 +9,24 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
+
+import json
 import logging
 import os
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Type, Any
+from functools import wraps
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
+from agentscope.message import Msg
+import agentscope
+
+try:
+    from agentscope.formatter import AnthropicChatFormatter
+    from agentscope.model import AnthropicChatModel
+except ImportError:  # pragma: no cover - compatibility fallback
+    AnthropicChatFormatter = None
+    AnthropicChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..local_models import create_local_chat_model
@@ -24,6 +36,38 @@ from ..providers import (
     get_provider_chat_model,
     load_providers_json,
 )
+
+
+def _monkey_patch(func):
+    """A monkey patch wrapper for agentscope <= 1.0.16dev"""
+
+    @wraps(func)
+    async def wrapper(
+        self,
+        msgs: list[Msg],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        for msg in msgs:
+            if isinstance(msg.content, str):
+                continue
+            if isinstance(msg.content, list):
+                for block in msg.content:
+                    if (
+                        block["type"] in ["audio", "image", "video"]
+                        and block.get("source", {}).get("type") == "url"
+                    ):
+                        url = block["source"]["url"]
+                        if url.startswith("file://"):
+                            block["source"]["url"] = url.removeprefix(
+                                "file://",
+                            )
+        return await func(self, msgs, **kwargs)
+
+    return wrapper
+
+
+if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
+    OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
     from ..providers import ResolvedModelConfig
@@ -35,6 +79,8 @@ logger = logging.getLogger(__name__)
 _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
     OpenAIChatModel: OpenAIChatFormatter,
 }
+if AnthropicChatModel is not None and AnthropicChatFormatter is not None:
+    _CHAT_MODEL_FORMATTER_MAP[AnthropicChatModel] = AnthropicChatFormatter
 
 
 def _get_formatter_for_chat_model(
@@ -72,14 +118,69 @@ def _create_file_block_support_formatter(
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
+        # pylint: disable=too-many-branches
         async def _format(self, msgs):
-            """Override to sanitize tool messages before formatting.
+            """Override to sanitize tool messages, handle thinking blocks,
+            and relay ``extra_content`` (Gemini thought_signature).
 
             This prevents OpenAI API errors from improperly paired
-            tool messages.
+            tool messages, preserves reasoning_content from "thinking"
+            blocks that the base formatter skips, and ensures
+            ``extra_content`` on tool_use blocks (e.g. Gemini
+            thought_signature) is carried through to the API request.
             """
             msgs = _sanitize_tool_messages(msgs)
-            return await super()._format(msgs)
+
+            reasoning_contents = {}
+            extra_contents: dict[str, Any] = {}
+            for msg in msgs:
+                if msg.role != "assistant":
+                    continue
+                for block in msg.get_content_blocks():
+                    if block.get("type") == "thinking":
+                        thinking = block.get("thinking", "")
+                        if thinking:
+                            reasoning_contents[id(msg)] = thinking
+                        break
+                for block in msg.get_content_blocks():
+                    if (
+                        block.get("type") == "tool_use"
+                        and "extra_content" in block
+                    ):
+                        extra_contents[block["id"]] = block["extra_content"]
+
+            messages = await super()._format(msgs)
+
+            if extra_contents:
+                for message in messages:
+                    for tc in message.get("tool_calls", []):
+                        ec = extra_contents.get(tc.get("id"))
+                        if ec:
+                            tc["extra_content"] = ec
+
+            if reasoning_contents:
+                in_assistant = [m for m in msgs if m.role == "assistant"]
+                out_assistant = [
+                    m for m in messages if m.get("role") == "assistant"
+                ]
+                if len(in_assistant) != len(out_assistant):
+                    logger.warning(
+                        "Assistant message count mismatch after formatting "
+                        "(%d before, %d after). "
+                        "Skipping reasoning_content injection.",
+                        len(in_assistant),
+                        len(out_assistant),
+                    )
+                else:
+                    for in_msg, out_msg in zip(
+                        in_assistant,
+                        out_assistant,
+                    ):
+                        reasoning = reasoning_contents.get(id(in_msg))
+                        if reasoning:
+                            out_msg["reasoning_content"] = reasoning
+
+            return _strip_top_level_message_name(messages)
 
         @staticmethod
         def convert_tool_result_to_string(
@@ -157,6 +258,20 @@ def _create_file_block_support_formatter(
     return FileBlockSupportFormatter
 
 
+def _strip_top_level_message_name(
+    messages: list[dict],
+) -> list[dict]:
+    """Strip top-level `name` from OpenAI chat messages.
+
+    Some strict OpenAI-compatible backends reject `messages[*].name`
+    (especially for assistant/tool roles) and may return 500/400 on
+    follow-up turns. Keep function/tool names unchanged.
+    """
+    for message in messages:
+        message.pop("name", None)
+    return messages
+
+
 def create_model_and_formatter(
     llm_cfg: Optional["ResolvedModelConfig"] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -226,9 +341,9 @@ def _get_chat_model_class_from_provider() -> Type[ChatModelBase]:
     """Get the chat model class from provider configuration.
 
     Returns:
-        Chat model class, defaults to OpenAIChatModel if not found
+        Chat model class, defaults to OpenAI-compatible chat model if not found
     """
-    chat_model_class = OpenAIChatModel  # default
+    chat_model_class = get_chat_model_class("OpenAIChatModel")
     try:
         providers_data = load_providers_json()
         provider_id = providers_data.active_llm.provider_id
@@ -241,7 +356,7 @@ def _get_chat_model_class_from_provider() -> Type[ChatModelBase]:
     except Exception as e:
         logger.debug(
             "Failed to determine chat model from provider: %s, "
-            "using OpenAIChatModel",
+            "using OpenAI-compatible default chat model",
             e,
         )
     return chat_model_class
@@ -274,12 +389,45 @@ def _create_remote_model_instance(
         api_key = os.getenv("DASHSCOPE_API_KEY", "")
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+    # The Anthropic SDK uses a base_url without the "/v1" suffix (it adds
+    # the versioned path internally), unlike OpenAI-compatible providers.
+    # Strip the trailing "/v1" to avoid a doubled path
+    # (e.g. "/v1/v1/messages").
+    if (
+        AnthropicChatModel is not None
+        and issubclass(chat_model_class, AnthropicChatModel)
+        and base_url
+    ):
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
+
+    dashscope_base_urls = [
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "https://coding.dashscope.aliyuncs.com/v1",
+    ]
+
+    client_kwargs = {"base_url": base_url}
+
+    if base_url in dashscope_base_urls:
+        client_kwargs["default_headers"] = {
+            "x-dashscope-agentapp": json.dumps(
+                {
+                    "agentType": "CoPaw",
+                    "deployType": "UnKnown",
+                    "moduleCode": "model",
+                    "agentCode": "UnKnown",
+                },
+                ensure_ascii=False,
+            ),
+        }
+
     # Instantiate model
     model = chat_model_class(
         model_name,
         api_key=api_key,
         stream=True,
-        client_kwargs={"base_url": base_url},
+        client_kwargs=client_kwargs,
     )
 
     return model

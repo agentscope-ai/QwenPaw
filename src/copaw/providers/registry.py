@@ -3,12 +3,19 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import TYPE_CHECKING, List, Optional, Type
 
-from agentscope.model import ChatModelBase, OpenAIChatModel
+from agentscope.model import ChatModelBase
+
+try:
+    from agentscope.model import AnthropicChatModel
+except ImportError:  # pragma: no cover - compatibility fallback
+    AnthropicChatModel = None
 
 from .models import CustomProviderData, ModelInfo, ProviderDefinition
+from .openai_chat_model_compat import OpenAIChatModelCompat
 
 if TYPE_CHECKING:
     from .models import ProvidersData
@@ -42,7 +49,8 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
 ]
 
 OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gpt-5-chat", name="GPT-5 Chat"),
+    ModelInfo(id="gpt-5.2", name="GPT-5.2"),
+    ModelInfo(id="gpt-5", name="GPT-5"),
     ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
     ModelInfo(id="gpt-5-nano", name="GPT-5 Nano"),
     ModelInfo(id="gpt-4.1", name="GPT-4.1"),
@@ -64,6 +72,8 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o", name="GPT-4o"),
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
+
+ANTHROPIC_MODELS: List[ModelInfo] = []
 
 PROVIDER_MODELSCOPE = ProviderDefinition(
     id="modelscope",
@@ -123,10 +133,35 @@ PROVIDER_AZURE_OPENAI = ProviderDefinition(
     models=AZURE_OPENAI_MODELS,
 )
 
+PROVIDER_ANTHROPIC = ProviderDefinition(
+    id="anthropic",
+    name="Anthropic",
+    default_base_url="https://api.anthropic.com/v1",
+    api_key_prefix="sk-ant-",
+    models=ANTHROPIC_MODELS,
+    chat_model="AnthropicChatModel",
+)
+
+
+def _default_ollama_base_url() -> str:
+    """Derive the default Ollama base URL from ``OLLAMA_HOST`` env var.
+
+    Falls back to ``http://localhost:11434/v1`` when the variable is unset.
+    The ``/v1`` suffix is appended later by the normalization step in
+    ``store._normalize_ollama_base_url`` if missing.
+    """
+    host = os.environ.get("OLLAMA_HOST", "").strip()
+    if not host:
+        return "http://localhost:11434/v1"
+    if not host.startswith(("http://", "https://")):
+        host = f"http://{host}"
+    return host
+
+
 PROVIDER_OLLAMA = ProviderDefinition(
     id="ollama",
     name="Ollama",
-    default_base_url="http://localhost:11434/v1",
+    default_base_url=_default_ollama_base_url(),
     api_key_prefix="",
     models=[],
 )
@@ -138,6 +173,7 @@ _BUILTIN_IDS: frozenset[str] = frozenset(
         "aliyun-codingplan",
         "openai",
         "azure-openai",
+        "anthropic",
         "ollama",
         "llamacpp",
         "mlx",
@@ -150,6 +186,7 @@ PROVIDERS: dict[str, ProviderDefinition] = {
     PROVIDER_ALIYUN_CODINGPLAN.id: PROVIDER_ALIYUN_CODINGPLAN,
     PROVIDER_OPENAI.id: PROVIDER_OPENAI,
     PROVIDER_AZURE_OPENAI.id: PROVIDER_AZURE_OPENAI,
+    PROVIDER_ANTHROPIC.id: PROVIDER_ANTHROPIC,
     PROVIDER_OLLAMA.id: PROVIDER_OLLAMA,
     PROVIDER_LLAMACPP.id: PROVIDER_LLAMACPP,
     PROVIDER_MLX.id: PROVIDER_MLX,
@@ -282,18 +319,22 @@ def sync_local_models() -> None:
         pass
 
 
-def sync_ollama_models() -> None:
+def sync_ollama_models(host: Optional[str] = None) -> None:
     """Refresh Ollama provider model list from the Ollama daemon.
 
     Models are derived from ``ollama.list()`` via :class:`OllamaModelManager`.
     If the SDK is not installed or the daemon is unavailable, the list is
     left unchanged.
+
+    Args:
+        host: Optional Ollama native host URL (e.g. ``http://remote:11434``).
+            When *None*, the SDK default (localhost) is used.
     """
     try:
         from ..providers.ollama_manager import OllamaModelManager
 
         models: list[ModelInfo] = []
-        for model in OllamaModelManager.list_models():
+        for model in OllamaModelManager.list_models(host=host):
             models.append(ModelInfo(id=model.name, name=model.name))
         PROVIDER_OLLAMA.models = models
     except ImportError:
@@ -305,8 +346,10 @@ def sync_ollama_models() -> None:
 
 
 _CHAT_MODEL_MAP: dict[str, Type[ChatModelBase]] = {
-    "OpenAIChatModel": OpenAIChatModel,
+    "OpenAIChatModel": OpenAIChatModelCompat,
 }
+if AnthropicChatModel is not None:
+    _CHAT_MODEL_MAP["AnthropicChatModel"] = AnthropicChatModel
 
 
 def get_chat_model_class(chat_model_name: str) -> Type[ChatModelBase]:
@@ -316,6 +359,10 @@ def get_chat_model_class(chat_model_name: str) -> Type[ChatModelBase]:
         chat_model_name: Name of the chat model class (e.g., "OpenAIChatModel")
 
     Returns:
-        Chat model class, defaults to OpenAIChatModel if not found.
+        Chat model class, defaults to OpenAIChatModel-compatible parser.
     """
-    return _CHAT_MODEL_MAP.get(chat_model_name, OpenAIChatModel)
+    if chat_model_name == "AnthropicChatModel" and AnthropicChatModel is None:
+        raise ValueError(
+            "AnthropicChatModel is unavailable in current agentscope version.",
+        )
+    return _CHAT_MODEL_MAP.get(chat_model_name, OpenAIChatModelCompat)
