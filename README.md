@@ -55,10 +55,10 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 [2026-03-06] We released v0.0.5! See the [v0.0.5 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **FEAT:** Channel management system; Twilio voice channel; DeepSeek Reasoner support; daemon mode; agent interruption API; version update notifications; Windows installation script.
-- **PERF:** Memory system upgrade (reme-ai 0.3.0.3); console UI improvements (request cancellation, collapsible sidebar); optional channel lazy loading.
-- **BUGFIX:** Configuration persistence for Docker; Ollama base URL; channel fixes (DingTalk, Feishu, Telegram); Windows compatibility; MCP client stability.
-- **DOCS:** Model configuration guide; Docker + Ollama guide; Japanese README; release notes system.
+- **FEAT:** Channel management; Twilio voice channel; DeepSeek Reasoner support; daemon mode; agent interruption API; version update notifications.
+- **PERF:** Memory system upgrade (reme-ai 0.3.0.3); console UI improvements (request cancellation, collapsible sidebar); optional channel lazy loading;  Windows installation script.
+- **BUGFIX:** Configuration persistence for Docker; Ollama base URL; channel fixes (DingTalk, Feishu, Telegram); Windows compatibility; MCP client stability, shell timeout hang fix.
+- **DOCS:** Model configuration guide; Docker + Ollama guide; Japanese README; release notes system, improve channel guide.
 - **COMM:** Special thanks to all new contributors: [@qoli](https://github.com/qoli), [@qbc2016](https://github.com/qbc2016), [@yunlzheng](https://github.com/yunlzheng), [@BlueSkyXN](https://github.com/BlueSkyXN), [@sidonsoft](https://github.com/sidonsoft), [@lishengzxc](https://github.com/lishengzxc), [@pikaxinge](https://github.com/pikaxinge), [@linshengli](https://github.com/linshengli), [@eltociear](https://github.com/eltociear), [@liuxiaopai-ai](https://github.com/liuxiaopai-ai), [@Leirunlin](https://github.com/Leirunlin), [@pan-x-c](https://github.com/pan-x-c), [@garyzhang99](https://github.com/garyzhang99), [@celestialhorse51D](https://github.com/celestialhorse51D), [@wwx814](https://github.com/wwx814), [@nszhsl](https://github.com/nszhsl), [@DavdGao](https://github.com/DavdGao), [@zhangckcup](https://github.com/zhangckcup).
 
 [2026-03-02] We released v0.0.4! See the [v0.0.4 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
