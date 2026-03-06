@@ -220,7 +220,7 @@ async def discover_models(
         try:
             result = await manager.fetch_provider_models(
                 provider_id,
-                update_target="models",
+                update_target="extra_models",
             )
             success = True
         except Exception:

@@ -41,11 +41,7 @@ export function RemoteModelManageModal({
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
-  const extraModelIds = new Set(
-    provider.is_custom
-      ? provider.models.map((m) => m.id)
-      : (provider.extra_models || []).map((m) => m.id),
-  );
+  const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
 
   const doAddModel = async (id: string, name: string) => {
     await api.addModel(provider.id, { id, name });
@@ -202,6 +198,8 @@ export function RemoteModelManageModal({
     // Instead, users can click the "Discover Models" button to trigger discovery when needed.
   }, [open, canDiscover, provider.id, provider.models.length]);
 
+  const all_models = [...provider.models, ...provider.extra_models];
+
   return (
     <Modal
       title={t("models.manageModelsTitle", { provider: provider.name })}
@@ -219,10 +217,10 @@ export function RemoteModelManageModal({
     >
       {/* Model list */}
       <div className={styles.modelList}>
-        {provider.models.length === 0 ? (
+        {all_models.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          provider.models.map((m) => {
+          all_models.map((m) => {
             const isDeletable = extraModelIds.has(m.id);
             return (
               <div key={m.id} className={styles.modelListItem}>

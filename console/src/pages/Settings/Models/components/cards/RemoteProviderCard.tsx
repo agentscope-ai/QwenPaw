@@ -57,7 +57,7 @@ export function RemoteProviderCard({
     });
   };
 
-  const totalCount = provider.models.length;
+  const totalCount = provider.models.length + provider.extra_models.length;
 
   const isConfigured =
     provider.is_local ||

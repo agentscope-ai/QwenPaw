@@ -74,6 +74,7 @@ class Provider(ProviderInfo, ABC):
     async def add_model(
         self,
         model_info: ModelInfo,
+        target: str = "extra_models",
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> bool:
         """Add a model to the provider's model list."""
@@ -81,7 +82,12 @@ class Provider(ProviderInfo, ABC):
             model.id for model in self.models + self.extra_models
         }:
             raise ValueError(f"Model with id '{model_info.id}' already exists")
-        self.extra_models.append(model_info)
+        if target == "extra_models":
+            self.extra_models.append(model_info)
+        elif target == "models":
+            self.models.append(model_info)
+        else:
+            raise ValueError(f"Invalid target '{target}' for adding model")
         return True
 
     async def delete_model(
