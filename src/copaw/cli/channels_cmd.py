@@ -21,6 +21,8 @@ from ..config.config import (
     IMessageChannelConfig,
     QQConfig,
     VoiceChannelConfig,
+    WeComConfig,
+    WeComAppConfig,
 )
 from .utils import prompt_confirm, prompt_path, prompt_select
 from ..config import get_available_channels
@@ -37,6 +39,9 @@ _SECRET_FIELDS = {
     "app_secret",
     "http_proxy_auth",
     "twilio_auth_token",
+    "token",
+    "encoding_aes_key",
+    "corp_secret",
 }
 
 _ALL_CHANNEL_NAMES = {
@@ -48,6 +53,8 @@ _ALL_CHANNEL_NAMES = {
     "qq": "QQ",
     "console": "Console",
     "voice": "Twilio",
+    "wecom": "WeCom",
+    "wecom_app": "WeCom App",
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
@@ -570,6 +577,123 @@ def configure_voice(
     return current_config
 
 
+def configure_wecom(current_config: WeComConfig) -> WeComConfig:
+    """Configure WeCom intelligent bot channel interactively."""
+    click.echo("\n=== Configure WeCom Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable WeCom channel?",
+        default=current_config.enabled,
+    )
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+    current_config.bot_prefix = click.prompt(
+        "Bot prefix (e.g., [BOT])",
+        default=current_config.bot_prefix or "[BOT]",
+        type=str,
+    )
+    current_config.token = click.prompt(
+        "Callback Token",
+        default=current_config.token or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.encoding_aes_key = click.prompt(
+        "Encoding AES Key (43 chars)",
+        default=current_config.encoding_aes_key or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.receive_id = click.prompt(
+        "Receive ID (optional)",
+        default=current_config.receive_id or "",
+        type=str,
+    )
+    current_config.webhook_path = click.prompt(
+        "Webhook path",
+        default=current_config.webhook_path or "/wecom",
+        type=str,
+    )
+    current_config.reply_timeout_sec = click.prompt(
+        "Reply timeout (seconds)",
+        default=float(current_config.reply_timeout_sec or 4.5),
+        type=float,
+    )
+    return current_config
+
+
+def configure_wecom_app(current_config: WeComAppConfig) -> WeComAppConfig:
+    """Configure WeCom self-built app channel interactively."""
+    click.echo("\n=== Configure WeCom App Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable WeCom App channel?",
+        default=current_config.enabled,
+    )
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+    current_config.bot_prefix = click.prompt(
+        "Bot prefix (e.g., [BOT])",
+        default=current_config.bot_prefix or "[BOT]",
+        type=str,
+    )
+    current_config.token = click.prompt(
+        "Callback Token",
+        default=current_config.token or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.encoding_aes_key = click.prompt(
+        "Encoding AES Key (43 chars)",
+        default=current_config.encoding_aes_key or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.receive_id = click.prompt(
+        "Receive ID (optional, default corp_id)",
+        default=current_config.receive_id or "",
+        type=str,
+    )
+    current_config.webhook_path = click.prompt(
+        "Webhook path",
+        default=current_config.webhook_path or "/wecom-app",
+        type=str,
+    )
+    current_config.corp_id = click.prompt(
+        "Corp ID",
+        default=current_config.corp_id or "",
+        type=str,
+    )
+    current_config.corp_secret = click.prompt(
+        "Corp Secret",
+        default=current_config.corp_secret or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.agent_id = click.prompt(
+        "Agent ID",
+        default=int(current_config.agent_id or 0),
+        type=int,
+    )
+    current_config.api_base_url = click.prompt(
+        "API base URL",
+        default=current_config.api_base_url or "https://qyapi.weixin.qq.com",
+        type=str,
+    )
+    current_config.reply_timeout_sec = click.prompt(
+        "Reply timeout (seconds)",
+        default=float(current_config.reply_timeout_sec or 4.5),
+        type=float,
+    )
+    return current_config
+
+
 def configure_console(current_config: ConsoleConfig) -> ConsoleConfig:
     """Configure Console channel interactively."""
     click.echo("\n=== Configure Console Channel ===")
@@ -607,6 +731,8 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
     "voice": ("Twilio", configure_voice),
+    "wecom": ("WeCom", configure_wecom),
+    "wecom_app": ("WeCom App", configure_wecom_app),
 }
 
 

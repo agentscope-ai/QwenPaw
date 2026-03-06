@@ -250,6 +250,173 @@ The JSON in step 6 grants the following permissions (app identity) for messaging
 
 ---
 
+## WeCom (Intelligent Bot)
+
+WeCom Intelligent Bot uses webhook callbacks. The current MVP supports text
+receive and reply.
+
+### 1. Register and sign in
+
+Visit <https://work.weixin.qq.com/> and follow the setup flow in the WeCom admin console.
+
+### 2. Create the intelligent bot and set the callback
+
+When creating the bot, use this callback URL:
+
+`http://<your-public-ip-or-domain>:8088/wecom`
+
+Notes:
+
+1. Port `8088` must be reachable from the public internet.
+2. Record the generated `Token` and `EncodingAESKey`.
+3. `8088` is the default port used by `copaw app`; replace it if you run CoPaw on a custom port.
+4. If verification fails during creation, the usual causes are: CoPaw is not running, the port is blocked, or the callback URL is incorrect.
+5. If CoPaw is running on a local development machine, a private LAN IP is usually not enough. Expose the local service to the public internet first, for example through a cloud host, reverse proxy, or a tunnel such as `cloudflared`, `frp`, or `ngrok`.
+
+### 3. Configure `config.json`
+
+Default callback route:
+
+- `GET/POST /wecom`
+
+Set the following in `~/.copaw/config.json`:
+
+```json
+"wecom": {
+  "enabled": true,
+  "bot_prefix": "[BOT] ",
+  "token": "your callback token",
+  "encoding_aes_key": "43-char EncodingAESKey",
+  "receive_id": "optional receive id check",
+  "webhook_path": "/wecom",
+  "reply_timeout_sec": 4.5
+}
+```
+
+Notes:
+
+- `token` and `encoding_aes_key` are required and must match the values in WeCom.
+- `receive_id` is optional. If provided, CoPaw performs strict receive-id validation.
+- `webhook_path` defaults to `/wecom`.
+- The intelligent bot currently uses a stream-first reply flow: CoPaw can return a placeholder first and continue with the final content afterward.
+
+### 4. Start CoPaw
+
+```bash
+copaw app
+```
+
+By default, CoPaw listens on `127.0.0.1:8088`. If you deploy it elsewhere, update the callback URL accordingly.
+
+### 5. Finish creation and test
+
+Go back to the WeCom admin console and click **Create** or **Save** to complete verification. Once the bot is created, add it and start chatting.
+
+---
+
+## WeCom App (Self-built, WeChat reachable)
+
+### Self-built App vs Intelligent Bot
+
+| Capability             | Intelligent Bot (`wecom`) | Self-built App (`wecom_app`) |
+| :--------------------- | :-----------------------: | :--------------------------: |
+| Passive reply          |            ✅             |              ✅              |
+| Proactive send         |            ❌             |              ✅              |
+| Group chat             |            ✅             |              ❌              |
+| Requires `corp_secret` |            ❌             |              ✅              |
+| Requires trusted IP    |            ❌             |              ✅              |
+| Setup complexity       |            Low            |            Medium            |
+
+Use the self-built app mode when you need proactive delivery, tighter OpenAPI integration, or a private-chat-oriented workflow.
+
+> Current MVP validation status: `wecom_app` has been verified for callback receive, model processing, and proactive text delivery through the WeCom OpenAPI. Proactive send depends on the trusted IP allowlist.
+
+### 1. Create the app
+
+Open the [WeCom admin console](https://work.weixin.qq.com/wework_admin/frame), go to **Apps**, and create a self-built app.
+
+Record these values from the app details page:
+
+- `AgentId`
+- `Secret` (this is `corp_secret`)
+- `corpId` from the **My Company** page
+
+### 2. Configure the receive-message server
+
+In the app settings, open **API Receive** and set the callback URL to:
+
+`http://<your-public-ip-or-domain>:8088/wecom-app`
+
+Guidelines:
+
+1. The path must match `webhook_path` and defaults to `/wecom-app`.
+2. Use `https://` if you have a public domain and TLS; otherwise `http://` is fine for initial testing.
+3. If you run CoPaw on a custom port, replace `8088` with the actual port.
+4. Generate or enter the `Token` and `EncodingAESKey` from the WeCom side, then copy the same values into CoPaw.
+
+If you are debugging from a local machine, the usual workflow is to expose CoPaw through a public tunnel first and then paste that public URL into the WeCom console.
+
+### 3. Configure trusted IP
+
+Add your server's public egress IP to **Trusted IP** in the app settings.
+
+Without this, WeCom rejects OpenAPI calls such as:
+
+- `gettoken`
+- `message/send`
+
+If you're unsure which IP WeCom sees, check the error details for `60020 not allow to access from your ip`.
+
+### 4. Configure `config.json`
+
+Default callback route:
+
+- `GET/POST /wecom-app`
+
+Set the following in `~/.copaw/config.json`:
+
+```json
+"wecom_app": {
+  "enabled": true,
+  "bot_prefix": "[BOT] ",
+  "token": "your callback token",
+  "encoding_aes_key": "43-char EncodingAESKey",
+  "receive_id": "optional (defaults to corp_id)",
+  "webhook_path": "/wecom-app",
+  "corp_id": "your corp id",
+  "corp_secret": "your app secret",
+  "agent_id": 1000002,
+  "api_base_url": "https://qyapi.weixin.qq.com",
+  "reply_timeout_sec": 4.5
+}
+```
+
+Notes:
+
+- `token`, `encoding_aes_key`, `corp_id`, `corp_secret`, and `agent_id` are required.
+- `receive_id` usually matches the enterprise ID. If omitted, the code falls back to `corp_id`.
+- `webhook_path` defaults to `/wecom-app`.
+- `api_base_url` defaults to `https://qyapi.weixin.qq.com`; point it to your proxy if needed.
+- `wecom_app` currently uses a stream placeholder callback and then proactively sends the final text reply through the WeCom API.
+
+### 5. Verify the setup
+
+1. Start CoPaw:
+
+```bash
+copaw app
+```
+
+2. Save the callback configuration in the WeCom admin console.
+3. Open the app in the WeCom client and send a test message.
+4. If the message reaches CoPaw but no reply arrives, check:
+
+- whether Trusted IP has taken effect
+- whether `corp_id / corp_secret / agent_id` are correct
+- whether the callback URL points to `/wecom-app`
+
+---
+
 ## iMessage (macOS only)
 
 > ⚠️ The iMessage channel is **macOS only**. It relies on the local Messages app and the iMessage database, so it cannot run on Linux or Windows.

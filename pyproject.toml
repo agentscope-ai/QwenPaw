@@ -23,6 +23,7 @@ dependencies = [
     "lark-oapi>=1.5.3",
     "python-telegram-bot>=20.0",
     "twilio>=9.10.2",
+    "pycryptodome>=3.21.0",
 ]
 
 [tool.setuptools.dynamic]

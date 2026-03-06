@@ -31,6 +31,7 @@ from .crons.manager import CronManager
 from .runner.manager import ChatManager
 from .routers import router as api_router
 from .routers.voice import voice_router
+from .routers.wecom import wecom_router
 from ..envs import load_envs_into_environ
 
 # Apply log level on load so reload child process gets same level as CLI.
@@ -508,6 +509,10 @@ app.include_router(
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
+
+# WeCom callbacks at root level.
+# GET/POST /wecom, GET/POST /wecom-app
+app.include_router(wecom_router, tags=["wecom"])
 
 # Mount console: root static files (logo.png etc.) then assets, then SPA
 # fallback.

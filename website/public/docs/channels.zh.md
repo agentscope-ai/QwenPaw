@@ -246,6 +246,237 @@
 
 ---
 
+## 企业微信（智能机器人）
+
+### 1. 注册并登录企业微信
+
+访问 <https://work.weixin.qq.com/>，按页面提示注册并进入管理后台。
+
+企业微信智能机器人通过回调模式接入。当前 MVP 已支持文本消息收发。
+
+![企业注册-1](../images/wecom_register_company_step1.png)
+![企业注册-2](../images/wecom_register_company_step2.png)
+![企业注册-3](../images/wecom_register_company_step3.png)
+![企业注册-4](../images/wecom_register_company_step4.png)
+
+### 2. 创建智能机器人并填写回调
+
+![创建机器人-1](../images/wecom_create_bot_step1.png)
+![创建机器人-2](../images/wecom_create_bot_step2.png)
+![创建机器人-3](../images/wecom_create_bot_step3.png)
+
+创建时需要填写回调地址：
+
+`http://<你的IP或域名>:8088/wecom`
+
+注意：
+
+1. 服务器 `8088` 端口需要可访问。
+2. 先记录平台生成的 `Token` 和 `EncodingAESKey`。
+3. `8088` 是 `copaw app` 的默认端口；如果你使用了自定义端口，请替换为实际端口。
+4. 如果创建时校验失败，通常是服务未启动、端口不可达，或回调地址填写错误。
+5. 如果 CoPaw 跑在本地开发机上，局域网 IP 通常无法直接通过企业微信校验。此时需要把本地服务暴露到公网，例如使用云服务器、反向代理，或 `cloudflared`、`frp`、`ngrok` 这类内网穿透工具。
+
+![回调参数位置](../images/wecom_create_bot_step4.png)
+
+### 3. 配置 `config.json`
+
+当前默认回调路由：
+
+- `GET/POST /wecom`
+
+在 `~/.copaw/config.json` 中配置：
+
+```json
+"wecom": {
+  "enabled": true,
+  "bot_prefix": "[BOT] ",
+  "token": "企业微信回调 Token",
+  "encoding_aes_key": "43位 EncodingAESKey",
+  "receive_id": "可选，校验接收方ID",
+  "webhook_path": "/wecom",
+  "reply_timeout_sec": 4.5
+}
+```
+
+说明：
+
+- `token` 和 `encoding_aes_key` 为必填项，必须与企业微信后台保持一致。
+- `receive_id` 为可选项；如果填写，会严格校验解密后的接收方 ID。
+- `webhook_path` 默认为 `/wecom`。
+- 智能机器人当前采用流式占位回复；当处理时间较长时，会先返回占位内容，再继续补全。
+
+### 4. 启动 CoPaw 服务
+
+```bash
+copaw app
+```
+
+默认监听地址为 `127.0.0.1:8088`。如果你部署在其他主机或端口，请将回调地址改为实际可访问地址。
+
+### 5. 完成创建并开始测试
+
+回到企业微信后台，点击「创建」或「保存」完成校验。
+
+![创建机器人确认](../images/wecom_bot_create_confirm.png)
+
+创建完成后，扫码添加机器人，即可开始对话。
+
+![扫码添加机器人](../images/wecom_bot_qr_add.png)
+
+---
+
+## 企业微信（自建应用，可接入微信）
+
+### 自建应用 vs 智能机器人
+
+| 功能            | 智能机器人 (`wecom`) | 自建应用 (`wecom_app`) |
+| :-------------- | :------------------: | :--------------------: |
+| 被动回复消息    |          ✅          |           ✅           |
+| 主动发送消息    |          ❌          |           ✅           |
+| 支持群聊        |          ✅          |           ❌           |
+| 需要 corpSecret |          ❌          |           ✅           |
+| 需要 IP 白名单  |          ❌          |           ✅           |
+| 配置复杂度      |         简单         |          中等          |
+
+更适合使用自建应用的场景：
+
+- 需要主动推送消息给用户
+- 需要更灵活的消息发送能力
+- 需要调用企业微信 API
+- 主要面向单聊场景
+
+> 当前 MVP 已验证：`wecom_app` 支持回调接收、模型处理，以及通过企业微信 OpenAPI 主动发送文本回复。主动发送依赖企业可信 IP 配置。
+
+### 1. 创建自建应用
+
+访问 [企业微信管理后台](https://work.weixin.qq.com/wework_admin/frame) 并登录。
+
+1. 点击左侧菜单「应用管理」
+2. 在「自建」区域点击「创建应用」
+
+   ![创建应用](../images/wecom_app_create.png)
+
+3. 填写应用信息：
+
+   - **应用名称**：例如 "AI 助手"
+   - **应用 logo**：上传一个图标
+   - **可见范围**：选择可以使用该应用的部门/成员
+
+![填写应用信息](../images/wecom_app_info.png)
+
+4. 点击「创建应用」
+
+### 2. 获取应用凭证
+
+创建成功后，进入应用详情页，记录以下信息：
+
+- **AgentId**：应用的唯一标识（如 `1000002`）
+- **Secret**：点击查看获取（这就是 `corpSecret`）
+
+![获取应用凭证](../images/wecom_app_credentials.png)
+
+### 3. 获取企业 ID
+
+1. 点击左侧菜单「我的企业」
+2. 在「企业信息」页面底部找到「企业 ID」
+3. 记录这个 ID（这就是 `corpId`）
+
+![获取企业ID](../images/wecom_corp_id.png)
+
+### 4. 配置接收消息服务器
+
+1. 在应用详情页，找到「接收消息」设置
+2. 点击「设置 API 接收」
+
+- **URL**：填写 CoPaw 的公网访问地址，企业微信会向该地址回调消息。
+
+  **格式**：`<协议>://<域名或IP>:<端口>/<路径>`
+
+  **示例**：
+
+  - 使用域名（推荐）：`https://your.domain.com/wecom-app`
+  - 使用 IP 地址：`http://123.45.67.89:8088/wecom-app`
+
+  **说明**：
+
+  - **协议**：如果有域名和 SSL 证书，使用 `https://`；否则使用 `http://`
+  - **域名/IP**：填写你服务器的公网域名或公网 IP 地址
+  - **端口**：填写 CoPaw 服务监听的端口（默认 `8088`）
+  - **路径**：必须与配置文件中的 `webhook_path` 一致（默认 `/wecom-app`）
+
+  > 💡 可在服务器上运行 `curl ifconfig.me` 查询当前公网出口 IP。
+
+- **Token**：自定义一个字符串，例如 `your-random-token`
+- **EncodingAESKey**：点击「随机获取」生成 43 位字符
+
+![配置接收消息服务器](../images/wecom_callback_config.png)
+
+> ⚠️ 建议先完成 CoPaw 配置并启动服务，再点击「保存」，否则回调校验通常会失败。
+
+> 💡 如果你是在本地机器上联调，常见做法是先通过内网穿透拿到一个公网可访问地址，再把该地址填到企业微信后台。
+
+![保存验证](../images/wecom_callback_save.png)
+
+### 5. 配置企业可信 IP
+
+在应用详情页的「企业可信 IP」中，添加当前服务器的公网出口 IP。
+如果未配置，企业微信会拒绝 `gettoken`、`message/send` 等 OpenAPI 请求。
+
+![配置IP白名单](../images/wecom_ip_whitelist.png)
+
+> 💡 如果不确定出口 IP，可以先尝试调用一次接口，再根据企业微信返回的 `60020 not allow to access from your ip` 日志定位实际 IP。
+
+### 6. 配置 `config.json`
+
+当前默认回调路由：
+
+- `GET/POST /wecom-app`
+
+在 `~/.copaw/config.json` 中配置：
+
+```json
+"wecom_app": {
+  "enabled": true,
+  "bot_prefix": "[BOT] ",
+  "token": "企业微信回调 Token",
+  "encoding_aes_key": "43位 EncodingAESKey",
+  "receive_id": "可选，默认使用 corp_id",
+  "webhook_path": "/wecom-app",
+  "corp_id": "企业ID",
+  "corp_secret": "应用Secret",
+  "agent_id": 1000002,
+  "api_base_url": "https://qyapi.weixin.qq.com",
+  "reply_timeout_sec": 4.5
+}
+```
+
+说明：
+
+- `token`、`encoding_aes_key`、`corp_id`、`corp_secret`、`agent_id` 为必填项。
+- `receive_id` 一般可直接填写企业 ID；若留空，代码会默认使用 `corp_id`。
+- `webhook_path` 默认为 `/wecom-app`。
+- `api_base_url` 默认为 `https://qyapi.weixin.qq.com`；如果你有代理网关，可以改成代理地址。
+- `wecom_app` 当前使用流式占位回调，并在处理完成后通过企业微信 API 主动发送文本回复。
+
+### 7. 验证配置
+
+1. 启动 CoPaw：
+
+```bash
+copaw app
+```
+
+2. 回到企业微信后台保存回调配置。
+3. 在企业微信客户端打开该应用并发送一条消息。
+4. 如果消息能进入 CoPaw 但没有收到回复，优先检查：
+
+- 企业可信 IP 是否已生效
+- `corp_id / corp_secret / agent_id` 是否正确
+- 回调地址是否填写为 `/wecom-app`
+
+---
+
 ## iMessage（仅 macOS）
 
 > ⚠️ iMessage 频道仅支持 **macOS**，依赖本地「信息」应用与 iMessage 数据库，无法在 Linux / Windows 上使用。

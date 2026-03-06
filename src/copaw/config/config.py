@@ -96,6 +96,58 @@ class VoiceChannelConfig(BaseChannelConfig):
     welcome_greeting: str = "Hi! This is CoPaw. How can I help you?"
 
 
+class WeComConfig(BaseChannelConfig):
+    """WeCom intelligent bot callback channel."""
+
+    token: str = ""
+    encoding_aes_key: str = ""
+    receive_id: str = ""
+    webhook_path: str = "/wecom"
+    reply_timeout_sec: float = 4.5
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        if "encodingAESKey" in payload and "encoding_aes_key" not in payload:
+            payload["encoding_aes_key"] = payload["encodingAESKey"]
+        if "receiveId" in payload and "receive_id" not in payload:
+            payload["receive_id"] = payload["receiveId"]
+        if "webhookPath" in payload and "webhook_path" not in payload:
+            payload["webhook_path"] = payload["webhookPath"]
+        if "replyTimeoutSec" in payload and "reply_timeout_sec" not in payload:
+            payload["reply_timeout_sec"] = payload["replyTimeoutSec"]
+        return payload
+
+
+class WeComAppConfig(WeComConfig):
+    """WeCom self-built app channel (supports active send)."""
+
+    webhook_path: str = "/wecom-app"
+    corp_id: str = ""
+    corp_secret: str = ""
+    agent_id: int = 0
+    api_base_url: str = "https://qyapi.weixin.qq.com"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_app_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        if "corpId" in payload and "corp_id" not in payload:
+            payload["corp_id"] = payload["corpId"]
+        if "corpSecret" in payload and "corp_secret" not in payload:
+            payload["corp_secret"] = payload["corpSecret"]
+        if "agentId" in payload and "agent_id" not in payload:
+            payload["agent_id"] = payload["agentId"]
+        if "apiBaseUrl" in payload and "api_base_url" not in payload:
+            payload["api_base_url"] = payload["apiBaseUrl"]
+        return payload
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -109,6 +161,8 @@ class ChannelConfig(BaseModel):
     telegram: TelegramConfig = TelegramConfig()
     console: ConsoleConfig = ConsoleConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
+    wecom: WeComConfig = WeComConfig()
+    wecom_app: WeComAppConfig = WeComAppConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -299,4 +353,6 @@ ChannelConfigUnion = Union[
     TelegramConfig,
     ConsoleConfig,
     VoiceChannelConfig,
+    WeComConfig,
+    WeComAppConfig,
 ]

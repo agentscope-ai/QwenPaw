@@ -36,6 +36,9 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
   discord: "https://copaw.agentscope.io/docs/channels/#Discord",
   qq: "https://copaw.agentscope.io/docs/channels/#QQ",
   telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
+  wecom: "https://copaw.agentscope.io/docs/channels/#企业微信智能机器人",
+  wecom_app:
+    "https://copaw.agentscope.io/docs/channels/#企业微信自建应用可接入微信",
 };
 const twilioConsoleUrl = "https://console.twilio.com";
 
@@ -248,6 +251,78 @@ export function ChannelDrawer({
               label={t("channels.welcomeGreeting")}
             >
               <Input.TextArea rows={2} />
+            </Form.Item>
+          </>
+        );
+      case "wecom":
+        return (
+          <>
+            <Form.Item name="token" label="Token" rules={[{ required: true }]}>
+              <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="encoding_aes_key"
+              label="Encoding AES Key"
+              rules={[{ required: true }]}
+            >
+              <Input.Password />
+            </Form.Item>
+            <Form.Item name="receive_id" label="Receive ID">
+              <Input placeholder="Optional" />
+            </Form.Item>
+            <Form.Item name="webhook_path" label="Webhook Path">
+              <Input placeholder="/wecom" />
+            </Form.Item>
+            <Form.Item name="reply_timeout_sec" label="Reply Timeout (sec)">
+              <InputNumber min={1} max={30} style={{ width: "100%" }} />
+            </Form.Item>
+          </>
+        );
+      case "wecom_app":
+        return (
+          <>
+            <Form.Item name="token" label="Token" rules={[{ required: true }]}>
+              <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="encoding_aes_key"
+              label="Encoding AES Key"
+              rules={[{ required: true }]}
+            >
+              <Input.Password />
+            </Form.Item>
+            <Form.Item name="receive_id" label="Receive ID">
+              <Input placeholder="Optional, default corp_id" />
+            </Form.Item>
+            <Form.Item name="webhook_path" label="Webhook Path">
+              <Input placeholder="/wecom-app" />
+            </Form.Item>
+            <Form.Item
+              name="corp_id"
+              label="Corp ID"
+              rules={[{ required: true }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name="corp_secret"
+              label="Corp Secret"
+              rules={[{ required: true }]}
+            >
+              <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="agent_id"
+              label="Agent ID"
+              rules={[{ required: true }]}
+            >
+              <InputNumber min={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="api_base_url" label="API Base URL">
+              <Input placeholder="https://qyapi.weixin.qq.com" />
+            </Form.Item>
+            <Form.Item name="reply_timeout_sec" label="Reply Timeout (sec)">
+              <InputNumber min={1} max={30} style={{ width: "100%" }} />
             </Form.Item>
           </>
         );

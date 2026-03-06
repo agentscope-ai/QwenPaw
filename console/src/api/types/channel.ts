@@ -58,6 +58,21 @@ export interface VoiceChannelConfig extends BaseChannelConfig {
   welcome_greeting: string;
 }
 
+export interface WeComConfig extends BaseChannelConfig {
+  token: string;
+  encoding_aes_key: string;
+  receive_id: string;
+  webhook_path: string;
+  reply_timeout_sec: number;
+}
+
+export interface WeComAppConfig extends WeComConfig {
+  corp_id: string;
+  corp_secret: string;
+  agent_id: number;
+  api_base_url: string;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -67,6 +82,8 @@ export interface ChannelConfig {
   telegram: TelegramConfig;
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
+  wecom: WeComConfig;
+  wecom_app: WeComAppConfig;
 }
 
 export type SingleChannelConfig =
@@ -77,4 +94,6 @@ export type SingleChannelConfig =
   | QQConfig
   | ConsoleConfig
   | TelegramConfig
-  | VoiceChannelConfig;
+  | VoiceChannelConfig
+  | WeComConfig
+  | WeComAppConfig;

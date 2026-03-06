@@ -37,6 +37,8 @@ BUILTIN_CHANNEL_TYPES = (
     "telegram",
     "console",
     "voice",
+    "wecom",
+    "wecom_app",
 )
 
 # ChannelType is str to allow plugin channels; built-in set above.

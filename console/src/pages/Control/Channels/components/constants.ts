@@ -11,6 +11,8 @@ export const CHANNEL_LABELS: Record<string, string> = {
   telegram: "Telegram",
   console: "Console",
   voice: "Twilio",
+  wecom: "WeCom",
+  wecom_app: "WeCom App",
 };
 
 // Get channel label - returns built-in label or formatted custom name
