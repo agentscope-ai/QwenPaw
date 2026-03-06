@@ -13,31 +13,27 @@ class ModelInfo(BaseModel):
     name: str = Field(..., description="Human-readable model name")
 
 
-class Provider(BaseModel, ABC):
-    """Represents a provider instance with its configuration."""
 
+class ProviderInfo(BaseModel):
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
     api_key: str = Field(default="", description="API key for authentication")
     chat_model: str = Field(
         default="OpenAIChatModel",
-        description="Chat model class name (e.g., 'OpenAIChatModel')",
+        description="AgentScope ChatModel class name (e.g., 'OpenAIChatModel')",
     )
     models: List[ModelInfo] = Field(
         default_factory=list,
-        description="List of available models",
+        description="List of pre-defined models",
+    )
+    extra_models: List[ModelInfo] = Field(
+        default_factory=list,
+        description="List of user-added models (not fetched from provider)",
     )
     api_key_prefix: str = Field(
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",
-    )
-    base_url_env_var: str = Field(
-        default="",
-        description=(
-            "Environment variable name to override base URL "
-            "(e.g., 'OLLAMA_HOST')"
-        ),
     )
     is_local: bool = Field(
         default=False,
@@ -47,6 +43,10 @@ class Provider(BaseModel, ABC):
         default=False,
         description=("Whether this provider is user-created (not built-in)."),
     )
+
+
+class Provider(ProviderInfo, ABC):
+    """Represents a provider instance with its configuration."""
 
     @abstractmethod
     async def check_connection(self, timeout: float = 5) -> bool:
@@ -64,25 +64,34 @@ class Provider(BaseModel, ABC):
     ) -> bool:
         """Check if a specific model is reachable/usable."""
 
-    @abstractmethod
-    def update_config(self, config: Dict) -> None:
-        """Update provider configuration with the given dictionary."""
-
     async def add_model(
         self,
         model_info: ModelInfo,
         timeout: float = 10,
     ) -> None:
         """Add a model to the provider's model list."""
-        raise NotImplementedError(
-            "This provider does not support adding models.",
-        )
+        if model_info.id in {model.id for model in self.models + self.extra_models}:
+            raise ValueError(f"Model with id '{model_info.id}' already exists")
+        self.extra_models.append(model_info)
 
     async def delete_model(self, model_id: str, timeout: float = 10) -> None:
         """Delete a model from the provider's model list."""
-        raise NotImplementedError(
-            "This provider does not support deleting models.",
-        )
+        self.extra_models = [
+            model for model in self.extra_models if model.id != model_id
+        ]
+
+    def update_config(self, config: Dict) -> None:
+        """Update provider configuration with the given dictionary."""
+        if "name" in config and config["name"] is not None:
+            self.name = str(config["name"])
+        if "base_url" in config and config["base_url"] is not None:
+            self.base_url = str(config["base_url"])
+        if "api_key" in config and config["api_key"] is not None:
+            self.api_key = str(config["api_key"])
+        if "chat_model" in config and config["chat_model"] is not None:
+            self.chat_model = str(config["chat_model"])
+        if "api_key_prefix" in config and config["api_key_prefix"] is not None:
+            self.api_key_prefix = str(config["api_key_prefix"])
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -99,6 +108,21 @@ class Provider(BaseModel, ABC):
                 f" for provider '{self.name}'.",
             )
         return chat_model_cls
+
+    def get_info(self) -> ProviderInfo:
+        """Return a ProviderInfo instance with the provider's details."""
+        return ProviderInfo(
+            id=self.id,
+            name=self.name,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            chat_model=self.chat_model,
+            models=self.models,
+            extra_models=self.extra_models,
+            api_key_prefix=self.api_key_prefix,
+            is_local=self.is_local,
+            is_custom=self.is_custom,
+        )
 
 
 class DefaultProvider(Provider):

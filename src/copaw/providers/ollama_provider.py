@@ -17,7 +17,7 @@ from copaw.providers.provider import ModelInfo, Provider
 class OllamaProvider(Provider):
     """Provider implementation for Ollama local LLM hosting platform."""
 
-    def __post_init__(self) -> None:
+    def model_post_init(self, __context: Any) -> None:
         if not self.base_url:  # type: ignore
             self.base_url = (
                 os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
@@ -96,24 +96,6 @@ class OllamaProvider(Provider):
         except (ImportError, ConnectionError, OSError, RuntimeError):
             return False
 
-    def update_config(self, config: Dict) -> None:
-        """Update provider configuration fields from dict."""
-        if "name" in config and config["name"] is not None:
-            self.name = str(config["name"])
-        if "base_url" in config and config["base_url"] is not None:
-            self.base_url = str(config["base_url"])
-        if "api_key" in config and config["api_key"] is not None:
-            self.api_key = str(config["api_key"])
-        if "chat_model" in config and config["chat_model"] is not None:
-            self.chat_model = str(config["chat_model"])
-        if "api_key_prefix" in config and config["api_key_prefix"] is not None:
-            self.api_key_prefix = str(config["api_key_prefix"])
-        if (
-            "base_url_env_var" in config
-            and config["base_url_env_var"] is not None
-        ):
-            self.base_url_env_var = str(config["base_url_env_var"])
-
     async def add_model(
         self,
         model_info: ModelInfo,
@@ -121,10 +103,12 @@ class OllamaProvider(Provider):
     ) -> None:
         client = self._client(timeout=timeout)
         await client.pull(model=model_info.id)
+        self.models = await self.fetch_models()
 
     async def delete_model(self, model_id: str, timeout: float = 60) -> None:
         client = self._client(timeout=timeout)
         await client.delete(model=model_id)
+        self.models = await self.fetch_models()
 
 
 if __name__ == "__main__":

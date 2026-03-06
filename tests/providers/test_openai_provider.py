@@ -17,6 +17,20 @@ def _make_provider() -> OpenAIProvider:
     )
 
 
+async def test_auto_load_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://env-openai.local/v1")
+
+    provider = OpenAIProvider(
+        id="openai",
+        name="OpenAI",
+        chat_model="OpenAIChatModel",
+    )
+
+    assert provider.api_key == "sk-env"
+    assert provider.base_url == "https://env-openai.local/v1"
+
+
 async def test_check_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     calls: list[float | None] = []
@@ -72,7 +86,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
 
     assert [m.id for m in models] == ["gpt-4o-mini", "gpt-4.1"]
     assert [m.name for m in models] == ["GPT-4o Mini", "gpt-4.1"]
-    assert provider.models == models
+    assert provider.models == [] # should not update provider state
 
 
 async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
@@ -145,7 +159,6 @@ async def test_update_config_updates_only_non_none_values() -> None:
             "api_key": "sk-new",
             "chat_model": "OpenAIChatModel",
             "api_key_prefix": "sk-",
-            "base_url_env_var": "OPENAI_BASE_URL",
         },
     )
 
@@ -154,4 +167,3 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider.api_key == "sk-new"
     assert provider.chat_model == "OpenAIChatModel"
     assert provider.api_key_prefix == "sk-"
-    assert provider.base_url_env_var == "OPENAI_BASE_URL"

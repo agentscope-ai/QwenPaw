@@ -17,6 +17,20 @@ def _make_provider() -> AnthropicProvider:
     )
 
 
+async def test_auto_load_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-env")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env-anthropic.local")
+
+    provider = AnthropicProvider(
+        id="anthropic",
+        name="Anthropic",
+        chat_model="AnthropicChatModel",
+    )
+
+    assert provider.api_key == "ant-env"
+    assert provider.base_url == "https://env-anthropic.local"
+
+
 async def test_check_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     called = {"count": 0}
@@ -58,10 +72,10 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     provider = _make_provider()
     rows = [
-        {"id": "claude-3-5-haiku", "display_name": "Claude Haiku"},
-        {"id": "claude-3-5-haiku", "display_name": "duplicate"},
-        SimpleNamespace(name="claude-3-5-sonnet", display_name=""),
-        {"id": "   ", "name": "invalid"},
+        SimpleNamespace(id="claude-3-5-haiku", display_name="Claude Haiku"),
+        SimpleNamespace(id="claude-3-5-haiku", display_name=""),
+        SimpleNamespace(id="claude-3-5-sonnet", display_name=""),
+        SimpleNamespace(id="    ", display_name="invalid"),
     ]
 
     class FakeModels:
@@ -81,7 +95,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
         "Claude Haiku",
         "claude-3-5-sonnet",
     ]
-    assert provider.models == models
+    assert provider.models == []
 
 
 async def test_check_model_connection_success(monkeypatch) -> None:
@@ -146,7 +160,6 @@ async def test_update_config_updates_only_non_none_values() -> None:
             "api_key": "ant-new",
             "chat_model": "AnthropicChatModel",
             "api_key_prefix": "sk-ant-",
-            "base_url_env_var": "ANTHROPIC_BASE_URL",
         },
     )
 
@@ -155,4 +168,3 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider.api_key == "ant-new"
     assert provider.chat_model == "AnthropicChatModel"
     assert provider.api_key_prefix == "sk-ant-"
-    assert provider.base_url_env_var == "ANTHROPIC_BASE_URL"

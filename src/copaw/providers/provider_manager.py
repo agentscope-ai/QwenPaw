@@ -10,7 +10,12 @@ import json
 
 from pydantic import BaseModel, Field
 
-from copaw.providers.provider import ModelInfo, DefaultProvider, Provider
+from copaw.providers.provider import (
+    ModelInfo,
+    DefaultProvider,
+    Provider,
+    ProviderInfo,
+)
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.ollama_provider import OllamaProvider
@@ -181,7 +186,7 @@ class ProviderManager:
         self._prepare_disk_storage()
         self._init_builtins()
         self._migrate_legacy_providers()
-        self._load_from_storage()
+        self._init_from_storage()
         self._update_local_models()
 
     def _prepare_disk_storage(self):
@@ -206,6 +211,14 @@ class ProviderManager:
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
+
+    def list_providers(self) -> List[ProviderInfo]:
+        provider_infos = []
+        for provider in self.builtin_providers.values():
+            provider_infos.append(provider.get_info())
+        for provider in self.custom_providers.values():
+            provider_infos.append(provider.get_info())
+        return provider_infos
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
@@ -358,12 +371,18 @@ class ProviderManager:
                 provider = self.get_provider(provider_id)
                 if not provider:
                     logger.warning(
-                        f"Legacy provider '{provider_id}' not found in"
+                        "Legacy provider '%s' not found in"
                         " registry, skipping migration for this provider.",
+                        provider_id,
                     )
                     continue
                 if "api_key" in config:
                     provider.api_key = config["api_key"]
+                if "extra_models" in config:
+                    provider.extra_models = [
+                        ModelInfo.model_validate(model)
+                        for model in config["extra_models"]
+                    ]
                 self.save_provider(provider, is_builtin=True)
             # Migrate custom providers
             for provider_id, data in custom_providers.items():
@@ -373,6 +392,11 @@ class ProviderManager:
                     base_url=data.get("base_url", ""),
                     api_key=data.get("api_key", ""),
                 )
+                if "extra_models" in data:
+                    custom_provider.extra_models = [
+                        ModelInfo.model_validate(model)
+                        for model in data["extra_models"]
+                    ]
                 self.save_provider(custom_provider, is_builtin=False)
             # Migrate active model
             if active_model:
@@ -393,14 +417,15 @@ class ProviderManager:
                     "Failed to remove legacy providers.json after migration.",
                 )
 
-    def _load_from_storage(self):
-        """Load all providers and active model from disk storage."""
+    def _init_from_storage(self):
+        """Initialize all providers and active model from disk storage."""
         # Load built-in providers
         for builtin in self.builtin_providers.values():
             provider = self.load_provider(builtin.id, is_builtin=True)
             if provider:
                 builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
+                builtin.extra_models = provider.extra_models
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

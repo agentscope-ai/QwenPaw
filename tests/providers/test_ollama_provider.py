@@ -17,6 +17,17 @@ def _make_provider() -> OllamaProvider:
         chat_model="OllamaChatModel",
     )
 
+async def test_auto_load_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_HOST", "http://env-ollama.local:11434")
+
+    provider = OllamaProvider(
+        id="ollama",
+        name="Ollama",
+        chat_model="OllamaChatModel",
+    )
+
+    assert provider.base_url == "http://env-ollama.local:11434"
+
 
 async def test_check_connection_success(monkeypatch) -> None:
     provider = _make_provider()
@@ -154,7 +165,6 @@ async def test_update_config_updates_only_non_none_values() -> None:
             "api_key": "EMPTY-NEW",
             "chat_model": "OllamaChatModel",
             "api_key_prefix": "",
-            "base_url_env_var": "OLLAMA_HOST",
         },
     )
 
@@ -163,19 +173,22 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider.api_key == "EMPTY-NEW"
     assert provider.chat_model == "OllamaChatModel"
     assert provider.api_key_prefix == ""
-    assert provider.base_url_env_var == "OLLAMA_HOST"
 
 
 async def test_add_model_calls_pull(monkeypatch) -> None:
     provider = _make_provider()
-    called = {"timeout": None, "model": None}
+    called = {"timeout": [], "model": None, "list_count": 0}
 
     class FakeClient:
         async def pull(self, model: str):
             called["model"] = model
 
+        async def list(self):
+            called["list_count"] += 1
+            return {"models": []}
+
     def _fake_client(timeout=5):
-        called["timeout"] = timeout
+        called["timeout"].append(timeout)
         return FakeClient()
 
     monkeypatch.setattr(provider, "_client", _fake_client)
@@ -185,23 +198,27 @@ async def test_add_model_calls_pull(monkeypatch) -> None:
         timeout=8.0,
     )
 
-    assert called == {"timeout": 8.0, "model": "qwen2:7b"}
+    assert called == {"timeout": [8.0, 5], "model": "qwen2:7b", "list_count": 1}
 
 
 async def test_delete_model_calls_delete(monkeypatch) -> None:
     provider = _make_provider()
-    called = {"timeout": None, "model": None}
+    called = {"timeout": [], "model": None, "list_count": 0}
 
     class FakeClient:
         async def delete(self, model: str):
             called["model"] = model
 
+        async def list(self):
+            called["list_count"] += 1
+            return {"models": []}
+
     def _fake_client(timeout=5):
-        called["timeout"] = timeout
+        called["timeout"].append(timeout)
         return FakeClient()
 
     monkeypatch.setattr(provider, "_client", _fake_client)
 
     await provider.delete_model("qwen2:7b", timeout=6.0)
 
-    assert called == {"timeout": 6.0, "model": "qwen2:7b"}
+    assert called == {"timeout": [6.0, 5], "model": "qwen2:7b", "list_count": 1}
