@@ -177,6 +177,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   useEffect(() => {
     api
       .getVersion()
+      // .then((res) => setVersion("0.0.5"))
       .then((res) => setVersion(res?.version ?? ""))
       .catch(() => {});
   }, []);
@@ -329,21 +330,23 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         }}
       >
         {!collapsed && (
-          <>
+          <div style={{ display: "flex", alignItems: "center" }}>
             <img
               src="/logo.png"
               alt="CoPaw"
               style={{ height: 32, width: "auto" }}
             />
             {version && (
-              <Badge dot={!!hasUpdate} color="red" offset={[2, 4]}>
+              <Badge dot={!!hasUpdate} color="red" offset={[4, 18]}>
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: 10,
                     color: "#615ced",
                     fontWeight: 600,
                     lineHeight: 1,
                     cursor: hasUpdate ? "pointer" : "default",
+                    position: "relative",
+                    top: 10,
                   }}
                   onClick={() => hasUpdate && handleOpenUpdateModal()}
                 >
@@ -351,7 +354,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 </span>
               </Badge>
             )}
-          </>
+          </div>
         )}
         <Button
           type="text"
