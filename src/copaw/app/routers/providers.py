@@ -53,6 +53,7 @@ class CreateCustomProviderRequest(BaseModel):
     name: str = Field(...)
     default_base_url: str = Field(default="")
     api_key_prefix: str = Field(default="")
+    api_key: str = Field(default="")
     chat_model: ChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
 
@@ -92,7 +93,8 @@ def _build_provider_info(
     return ProviderInfo(
         id=provider.id,
         name=provider.name,
-        api_key_prefix=provider.api_key_prefix,
+        # Custom providers don't have a required prefix - always return empty
+        api_key_prefix="" if provider.is_custom else provider.api_key_prefix,
         models=list(provider.models) + extra,
         extra_models=extra,
         is_custom=provider.is_custom,
@@ -164,6 +166,7 @@ async def create_custom_provider_endpoint(
             name=body.name,
             default_base_url=body.default_base_url,
             api_key_prefix=body.api_key_prefix,
+            api_key=body.api_key,
             chat_model=body.chat_model,
             models=body.models,
         )

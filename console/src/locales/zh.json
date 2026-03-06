@@ -380,6 +380,8 @@
     "defaultBaseUrlPlaceholder": "例如 https://api.example.com",
     "apiKeyPrefixLabel": "API Key 前缀（可选）",
     "apiKeyPrefixPlaceholder": "例如 sk-",
+    "apiKeyLabel": "API 密钥（可选）",
+    "apiKeyPlaceholder": "输入您的 API 密钥",
     "providerCreated": "提供商 \"{{name}}\" 已创建",
     "providerCreateFailed": "创建提供商失败",
     "deleteProvider": "删除提供商",

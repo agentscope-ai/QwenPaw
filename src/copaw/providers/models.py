@@ -89,7 +89,8 @@ class ProvidersData(BaseModel):
         """Return ``(base_url, api_key)`` for *provider_id*."""
         cpd = self.custom_providers.get(provider_id)
         if cpd is not None:
-            return cpd.base_url or cpd.default_base_url, cpd.api_key
+            base_url = cpd.base_url or cpd.default_base_url
+            return base_url, cpd.api_key
         s = self.providers.get(provider_id)
         return (s.base_url, s.api_key) if s else ("", "")
 

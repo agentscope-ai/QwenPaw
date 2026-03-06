@@ -380,6 +380,8 @@
     "defaultBaseUrlPlaceholder": "например: https://api.example.com",
     "apiKeyPrefixLabel": "Префикс API-ключа (необязательно)",
     "apiKeyPrefixPlaceholder": "например: sk-",
+    "apiKeyLabel": "API-ключ (необязательно)",
+    "apiKeyPlaceholder": "Введите ваш API-ключ",
     "providerCreated": "Провайдер «{{name}}» создан",
     "providerCreateFailed": "Не удалось создать провайдера",
     "deleteProvider": "Удалить провайдера",

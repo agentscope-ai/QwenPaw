@@ -32,7 +32,7 @@ export function CustomProviderModal({
         id: values.id.trim(),
         name: values.name.trim(),
         default_base_url: values.default_base_url?.trim() || "",
-        api_key_prefix: values.api_key_prefix?.trim() || "",
+        api_key: values.api_key?.trim() || "",
         chat_model: values.chat_model || "OpenAIChatModel",
       });
       message.success(
@@ -99,8 +99,8 @@ export function CustomProviderModal({
           <Input placeholder={t("models.defaultBaseUrlPlaceholder")} />
         </Form.Item>
 
-        <Form.Item name="api_key_prefix" label={t("models.apiKeyPrefixLabel")}>
-          <Input placeholder={t("models.apiKeyPrefixPlaceholder")} />
+        <Form.Item name="api_key" label={t("models.apiKeyLabel")}>
+          <Input.Password placeholder={t("models.apiKeyPlaceholder")} />
         </Form.Item>
 
         <Form.Item

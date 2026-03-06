@@ -380,6 +380,8 @@
     "defaultBaseUrlPlaceholder": "e.g. https://api.example.com",
     "apiKeyPrefixLabel": "API Key Prefix (optional)",
     "apiKeyPrefixPlaceholder": "e.g. sk-",
+    "apiKeyLabel": "API Key (optional)",
+    "apiKeyPlaceholder": "Enter your API key",
     "providerCreated": "Provider \"{{name}}\" created",
     "providerCreateFailed": "Failed to create provider",
     "deleteProvider": "Delete Provider",

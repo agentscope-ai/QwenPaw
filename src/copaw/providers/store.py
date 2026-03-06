@@ -194,11 +194,17 @@ def _build_remote_provider_headers(
     *,
     chat_model_name: Optional[str] = None,
     json_body: bool = False,
+    base_url: Optional[str] = None,
 ) -> dict[str, str]:
     """Build request headers for remote provider APIs."""
     headers: dict[str, str] = {}
     if json_body:
         headers["Content-Type"] = "application/json"
+
+    # OpenRouter requires special headers for identification
+    if base_url and "openrouter.ai" in base_url.lower():
+        headers["HTTP-Referer"] = "https://github.com/copaw-ai/CoPaw"
+        headers["X-Title"] = "CoPaw"
 
     if provider_id == "anthropic" or chat_model_name == "AnthropicChatModel":
         headers["anthropic-version"] = "2023-06-01"
@@ -528,6 +534,7 @@ def create_custom_provider(
     *,
     default_base_url: str = "",
     api_key_prefix: str = "",
+    api_key: str = "",
     models: Optional[list[ModelInfo]] = None,
     chat_model: str = "OpenAIChatModel",
 ) -> ProvidersData:
@@ -544,6 +551,7 @@ def create_custom_provider(
         name=name,
         default_base_url=default_base_url,
         api_key_prefix=api_key_prefix,
+        api_key=api_key,
         models=models or [],
         base_url=default_base_url,
         chat_model=_normalize_chat_model_name(chat_model),
@@ -831,6 +839,7 @@ async def discover_provider_models(
             provider_id,
             resolved_api_key,
             chat_model_name=chat_model_name,
+            base_url=resolved_base_url,
         ),
     )
 
@@ -1089,6 +1098,7 @@ async def test_provider_connection(
             provider_id,
             api_key,
             chat_model_name=chat_model_class_name,
+            base_url=base_url,
         )
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -1156,11 +1166,20 @@ async def test_provider_connection(
         # Try to instantiate the model with the configured credentials
         # Note: This part might still be sync if the SDK init is sync,
         # but usually init is fast.
+        client_kwargs = {"base_url": base_url} if base_url else {}
+
+        # OpenRouter requires special headers for identification
+        if base_url and "openrouter.ai" in base_url.lower():
+            client_kwargs["default_headers"] = {
+                "HTTP-Referer": "https://github.com/copaw-ai/CoPaw",
+                "X-Title": "CoPaw",
+            }
+
         chat_model_class(
             model_name=test_model,
             api_key=api_key,
             stream=True,
-            client_kwargs={"base_url": base_url} if base_url else {},
+            client_kwargs=client_kwargs,
         )
 
         return {
@@ -1280,6 +1299,10 @@ async def test_model_connection(
         }
 
     base_url, api_key = data.get_credentials(provider_id)
+    logger.info(
+        f"[DEBUG] test_model_connection: provider={provider_id}, model={model_id}, "
+        f"base_url={base_url}, api_key present={bool(api_key)}"
+    )
     try:
         uses_anthropic_protocol = _uses_anthropic_protocol(provider_id, data)
         chat_model_name = _resolve_chat_model_name(provider_id, data)
@@ -1297,6 +1320,7 @@ async def test_model_connection(
             api_key,
             chat_model_name=chat_model_name,
             json_body=True,
+            base_url=base_url,
         )
         test_payload = {
             "model": model_id,
@@ -1311,6 +1335,10 @@ async def test_model_connection(
             api_key,
             chat_model_name=chat_model_name,
             json_body=True,
+            base_url=base_url,
+        )
+        logger.info(
+            f"[DEBUG] test_model_connection: chat_url={chat_url}, headers={headers}"
         )
         test_payload = {
             "model": model_id,
