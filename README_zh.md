@@ -353,7 +353,7 @@ copaw app # 启动服务
 | 多模态 | 语音/视频通话与实时交互 | 长期规划 |
 | 多智能体 | 基于 [AgentScope](https://github.com/agentscope-ai/agentscope)，原生支持多智能体协作 | 长期规划 |
 | 沙箱 | 与 AgentScope Runtime 沙箱深度集成 | 长期规划 |
-| 自愈 | 守护进程 Agent，实现自动恢复与健康监控 | 长期规划 |
+| 自愈 | Daemon Agent，实现自动恢复与健康监控 | 长期规划 |
 | CoPaw 优化本地模型 | 针对 CoPaw 原生 Skills 与常见任务调优的本地模型，提升个人助理可用性 | 长期规划 |
 | 大小模型协同 | 本地模型处理敏感数据，云端模型负责规划与编码；兼顾隐私、性能与能力 | 长期规划 |
 | 云原生 | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态 | 长期规划 |

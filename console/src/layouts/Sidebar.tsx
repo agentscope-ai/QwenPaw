@@ -186,9 +186,25 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .then((res) => res.json())
       .then((data) => {
         const releases = data?.releases ?? {};
-        const versions = Object.keys(releases);
-        const latest =
-          versions[versions.length - 1] ?? data?.info?.version ?? "";
+        // Sort versions by upload_time (newest first)
+        const versionsWithTime = Object.entries(releases).map(
+          ([version, files]) => {
+            const fileList = files as Array<{ upload_time_iso_8601?: string }>;
+            // Get the latest upload time among all files for this version
+            const latestUpload = fileList
+              .map((f) => f.upload_time_iso_8601)
+              .filter(Boolean)
+              .sort()
+              .pop();
+            return { version, uploadTime: latestUpload || "" };
+          },
+        );
+        versionsWithTime.sort(
+          (a, b) =>
+            new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime(),
+        );
+        const versions = versionsWithTime.map((v) => v.version);
+        const latest = versions[0] ?? data?.info?.version ?? "";
         setAllVersions(versions);
         setLatestVersion(latest);
       })
