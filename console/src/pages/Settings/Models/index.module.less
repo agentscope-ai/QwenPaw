@@ -255,7 +255,8 @@
 .slotHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 16px;
   margin-bottom: 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid #f0f0f0;
@@ -275,6 +276,25 @@
   padding: 4px 12px;
   border-radius: 20px;
   border: 1px solid #b7eb8f;
+}
+
+.slotCurrentBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.slotEndpoint {
+  max-width: 460px;
+  color: #999;
+  font-size: 12px;
+  font-family: "SF Mono", "Menlo", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
 }
 
 .slotForm {
