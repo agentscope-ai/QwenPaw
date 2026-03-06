@@ -306,7 +306,7 @@ class QQChannel(BaseChannel):
         app_id: str,
         client_secret: str,
         bot_prefix: str = "",
-        markdown_enabled: bool = False,
+        markdown_enabled: bool = True,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -418,7 +418,7 @@ class QQChannel(BaseChannel):
             app_id=os.getenv("QQ_APP_ID", ""),
             client_secret=os.getenv("QQ_CLIENT_SECRET", ""),
             bot_prefix=os.getenv("QQ_BOT_PREFIX", ""),
-            markdown_enabled=_as_bool(os.getenv("QQ_MARKDOWN_ENABLED", "0")),
+            markdown_enabled=_as_bool(os.getenv("QQ_MARKDOWN_ENABLED", "1")),
             on_reply_sent=on_reply_sent,
         )
 
