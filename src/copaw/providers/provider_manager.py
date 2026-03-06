@@ -488,6 +488,7 @@ class ProviderManager:
                     name=data.get("name", provider_id),
                     base_url=data.get("base_url", ""),
                     api_key=data.get("api_key", ""),
+                    is_custom=True,
                 )
                 if "extra_models" in data:
                     custom_provider.extra_models = [
