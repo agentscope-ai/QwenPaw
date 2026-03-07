@@ -137,7 +137,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "hero.cta": "Read the docs",
     "follow.title": "Follow us",
     "follow.sub": "Follow us for the latest CoPaw updates",
-    "follow.xiaohongshu": "Xiaohongshu:",
+    "follow.xiaohongshu": "Rednote:",
     "follow.x": "X:",
     "brandstory.title": "Why CoPaw?",
     "brandstory.para1":
