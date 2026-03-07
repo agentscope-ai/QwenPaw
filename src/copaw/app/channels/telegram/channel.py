@@ -397,11 +397,11 @@ class TelegramChannel(BaseChannel):
                 try:
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text=error_msg or "You are not authorized to use this bot.",
+                        text=error_msg or "Unauthorized access.",
                     )
                 except Exception:
                     logger.debug(
-                        "telegram allowlist rejection send failed for chat_id=%s",
+                        "telegram reject failed chat_id=%s",
                         chat_id,
                     )
                 return
@@ -460,63 +460,34 @@ class TelegramChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
     ) -> "TelegramChannel":
-        channel_show_typing = None
-        channel_dm_policy = None
-        channel_group_policy = None
-        channel_allow_from = None
-        channel_deny_message = None
         if isinstance(config, dict):
-            channel_show_typing = config.get("show_typing")
-            channel_dm_policy = config.get("dm_policy")
-            channel_group_policy = config.get("group_policy")
-            channel_allow_from = config.get("allow_from")
-            channel_deny_message = config.get("deny_message")
+            c = config
         else:
-            channel_show_typing = getattr(config, "show_typing", None)
-            channel_dm_policy = getattr(config, "dm_policy", None)
-            channel_group_policy = getattr(config, "group_policy", None)
-            channel_allow_from = getattr(config, "allow_from", None)
-            channel_deny_message = getattr(config, "deny_message", None)
+            c = config.model_dump()
 
-        if isinstance(config, dict):
-            bot_prefix_raw = config.get("bot_prefix")
-            return cls(
-                process=process,
-                enabled=bool(config.get("enabled", False)),
-                bot_token=(config.get("bot_token") or "").strip(),
-                http_proxy=(config.get("http_proxy") or "").strip(),
-                http_proxy_auth=(config.get("http_proxy_auth") or "").strip(),
-                bot_prefix=bot_prefix_raw.strip() if bot_prefix_raw else "",
-                on_reply_sent=on_reply_sent,
-                show_tool_details=show_tool_details,
-                filter_tool_messages=filter_tool_messages,
-                filter_thinking=filter_thinking,
-                show_typing=channel_show_typing
-                if channel_show_typing is not None
-                else True,
-                dm_policy=channel_dm_policy or "open",
-                group_policy=channel_group_policy or "open",
-                allow_from=channel_allow_from or [],
-                deny_message=channel_deny_message or "",
-            )
+        def _get_str(key: str) -> str:
+            return (c.get(key) or "").strip()
+
+        show_typing = c.get("show_typing")
+        if show_typing is None:
+            show_typing = True
+
         return cls(
             process=process,
-            enabled=config.enabled,
-            bot_token=config.bot_token or "",
-            http_proxy=config.http_proxy or "",
-            http_proxy_auth=config.http_proxy_auth or "",
-            bot_prefix=config.bot_prefix or "",
+            enabled=bool(c.get("enabled", False)),
+            bot_token=_get_str("bot_token"),
+            http_proxy=_get_str("http_proxy"),
+            http_proxy_auth=_get_str("http_proxy_auth"),
+            bot_prefix=_get_str("bot_prefix"),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
-            show_typing=channel_show_typing
-            if channel_show_typing is not None
-            else True,
-            dm_policy=channel_dm_policy or "open",
-            group_policy=channel_group_policy or "open",
-            allow_from=channel_allow_from or [],
-            deny_message=channel_deny_message or "",
+            show_typing=show_typing,
+            dm_policy=c.get("dm_policy") or "open",
+            group_policy=c.get("group_policy") or "open",
+            allow_from=c.get("allow_from") or [],
+            deny_message=c.get("deny_message") or "",
         )
 
     def _chunk_text(self, text: str) -> list[str]:
