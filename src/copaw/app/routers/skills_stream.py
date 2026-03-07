@@ -183,8 +183,8 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
                         "error": (
                             "No AI model configured. "
                             "Please configure in Settings."
-                        )
-                    }
+                        ),
+                    },
                 )
                 yield f"data: {error_msg}\n\n"
                 return
