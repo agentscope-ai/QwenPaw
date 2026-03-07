@@ -6,6 +6,7 @@ DEFAULT_MAX_LINES = 1000
 DEFAULT_MAX_BYTES = 30 * 1024  # 30KB
 
 
+# pylint: disable=too-many-branches
 def truncate_output(
     text: str,
     max_lines: int = DEFAULT_MAX_LINES,
@@ -46,14 +47,26 @@ def truncate_output(
     # Apply byte limit
     if len("\n".join(lines).encode("utf-8")) > max_bytes:
         if keep == "tail":
-            while lines and len("\n".join(lines).encode("utf-8")) > max_bytes:
+            while (
+                len(lines) > 1
+                and len("\n".join(lines).encode("utf-8")) > max_bytes
+            ):
                 lines.pop(0)
+            # Handle single line exceeding byte limit
+            if lines and len(lines[0].encode("utf-8")) > max_bytes:
+                lines[0] = _truncate_line_by_bytes_tail(lines[0], max_bytes)
         else:
             truncated = []
             current_bytes = 0
             for line in lines:
                 line_bytes = len(line.encode("utf-8")) + 1
                 if current_bytes + line_bytes > max_bytes:
+                    # Truncate single line at byte level if it's the first line
+                    if not truncated:
+                        remaining = max_bytes - current_bytes
+                        truncated.append(
+                            _truncate_line_by_bytes(line, remaining),
+                        )
                     break
                 truncated.append(line)
                 current_bytes += line_bytes
@@ -61,6 +74,111 @@ def truncate_output(
         reason = "bytes"
 
     return "\n".join(lines), True, len(lines), reason
+
+
+def _truncate_line_by_bytes(line: str, max_bytes: int) -> str:
+    """Truncate a single line to fit within byte limit (keep head).
+
+    Handles UTF-8 multi-byte characters safely.
+
+    Args:
+        line: The line to truncate.
+        max_bytes: Maximum bytes allowed.
+
+    Returns:
+        Truncated line that fits within byte limit.
+    """
+    if len(line.encode("utf-8")) <= max_bytes:
+        return line
+
+    # Binary search for the right character position
+    low, high = 0, len(line)
+    while low < high:
+        mid = (low + high + 1) // 2
+        if len(line[:mid].encode("utf-8")) <= max_bytes:
+            low = mid
+        else:
+            high = mid - 1
+
+    return line[:low]
+
+
+def _truncate_line_by_bytes_tail(line: str, max_bytes: int) -> str:
+    """Truncate a single line to fit within byte limit (keep tail).
+
+    Handles UTF-8 multi-byte characters safely.
+
+    Args:
+        line: The line to truncate.
+        max_bytes: Maximum bytes allowed.
+
+    Returns:
+        Truncated line that fits within byte limit, keeping the tail.
+    """
+    if len(line.encode("utf-8")) <= max_bytes:
+        return line
+
+    # Binary search for the right character position from the end
+    low, high = 0, len(line)
+    while low < high:
+        mid = (low + high) // 2
+        if len(line[mid:].encode("utf-8")) <= max_bytes:
+            high = mid
+        else:
+            low = mid + 1
+
+    return line[low:]
+
+
+def truncate_file_output(
+    text: str,
+    start_line: int = 1,
+    total_lines: int = 0,
+) -> str:
+    """Truncate file output to first N lines or M bytes.
+
+    Includes a truncation notice with continuation hint when applied.
+
+    Args:
+        text: The output text to truncate.
+        start_line: The starting line number (1-based).
+        total_lines: Total lines in the original file.
+
+    Returns:
+        Truncated text with notice if truncated.
+    """
+    if not text:
+        return text
+
+    try:
+        truncated, was_truncated, output_lines, reason = truncate_output(
+            text,
+            keep="head",
+        )
+
+        if not was_truncated:
+            return text
+
+        end_line = start_line + output_lines - 1
+        next_line = end_line + 1
+
+        if reason == "lines":
+            notice = (
+                f"\n\n[Output truncated: showing lines "
+                f"{start_line}-{end_line} of {total_lines} total. "
+                f"Use start_line={next_line} to continue.]"
+            )
+        else:
+            notice = (
+                f"\n\n[Output truncated: showing lines "
+                f"{start_line}-{end_line} of {total_lines} "
+                f"({DEFAULT_MAX_BYTES // 1024}KB limit). "
+                f"Use start_line={next_line} to continue.]"
+            )
+
+        return truncated + notice
+    except Exception:
+        return text
 
 
 def truncate_shell_output(text: str) -> str:

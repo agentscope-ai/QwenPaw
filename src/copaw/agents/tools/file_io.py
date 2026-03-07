@@ -9,7 +9,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
-from .utils import DEFAULT_MAX_BYTES, read_file_safe, truncate_output
+from .utils import truncate_file_output, read_file_safe
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -47,6 +47,33 @@ async def read_file(  # pylint: disable=too-many-return-statements
         end_line (`int`, optional):
             Last line to read (1-based, inclusive).
     """
+
+    # Convert start_line/end_line to int if they are strings
+    if start_line is not None:
+        try:
+            start_line = int(start_line)
+        except (ValueError, TypeError):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: start_line must be an integer, got {start_line!r}.",
+                    ),
+                ],
+            )
+
+    if end_line is not None:
+        try:
+            end_line = int(end_line)
+        except (ValueError, TypeError):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: end_line must be an integer, got {end_line!r}.",
+                    ),
+                ],
+            )
 
     file_path = _resolve_file_path(file_path)
 
@@ -102,32 +129,20 @@ async def read_file(  # pylint: disable=too-many-return-statements
         # Extract selected lines
         selected_content = "\n".join(all_lines[s - 1 : e])
 
-        # Apply smart truncation (keep head for file reading)
-        truncated, was_truncated, output_lines, reason = truncate_output(
+        # Apply smart truncation (consistent with shell output format)
+        text = truncate_file_output(
             selected_content,
-            keep="head",
+            start_line=s,
+            total_lines=total,
         )
 
-        # Build response with truncation hints
-        if was_truncated:
-            end_display = s + output_lines - 1
-            next_line = end_display + 1
-            if reason == "lines":
-                hint = f"\n\n[Lines {s}-{end_display} of {total}. Use start_line={next_line} to continue.]"
-            else:
-                hint = (
-                    f"\n\n[Lines {s}-{end_display} of {total} ({DEFAULT_MAX_BYTES // 1024}KB limit). "
-                    f"Use start_line={next_line} to continue.]"
-                )
-            text = truncated + hint
-        elif e < total:
+        # Add continuation hint if partial read without truncation
+        if text == selected_content and e < total:
             remaining = total - e
             text = (
-                f"{file_path}  (lines {s}-{e} of {total})\n{truncated}\n\n[{remaining} more lines. "
-                f"Use start_line={e + 1} to continue.]"
+                f"{file_path}  (lines {s}-{e} of {total})\n{text}\n\n"
+                f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
             )
-        else:
-            text = truncated
 
         return ToolResponse(
             content=[TextBlock(type="text", text=text)],
@@ -191,6 +206,7 @@ async def write_file(
         )
 
 
+# pylint: disable=too-many-return-statements
 async def edit_file(
     file_path: str,
     old_text: str,
@@ -208,22 +224,50 @@ async def edit_file(
             Replacement text.
     """
 
-    response = await read_file(file_path=file_path)
-    if response.content and len(response.content) > 0:
-        error_text = response.content[0].get("text", "")
-        if error_text.startswith("Error:"):
-            return response
-    if not response.content or len(response.content) == 0:
+    if not file_path:
         return ToolResponse(
             content=[
                 TextBlock(
                     type="text",
-                    text=f"Error: Failed to read file {file_path}.",
+                    text="Error: No `file_path` provided.",
                 ),
             ],
         )
 
-    content = response.content[0].get("text", "")
+    resolved_path = _resolve_file_path(file_path)
+
+    if not os.path.exists(resolved_path):
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The file {resolved_path} does not exist.",
+                ),
+            ],
+        )
+
+    if not os.path.isfile(resolved_path):
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The path {resolved_path} is not a file.",
+                ),
+            ],
+        )
+
+    try:
+        content = read_file_safe(resolved_path)
+    except Exception as e:
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: Read file failed due to \n{e}",
+                ),
+            ],
+        )
+
     if old_text not in content:
         return ToolResponse(
             content=[
@@ -235,7 +279,10 @@ async def edit_file(
         )
 
     new_content = content.replace(old_text, new_text)
-    write_response = await write_file(file_path=file_path, content=new_content)
+    write_response = await write_file(
+        file_path=resolved_path,
+        content=new_content,
+    )
 
     if write_response.content and len(write_response.content) > 0:
         write_text = write_response.content[0].get("text", "")
