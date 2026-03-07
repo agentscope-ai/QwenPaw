@@ -27,9 +27,10 @@ from .content_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Download filename hint by type (e.g. voice -> .amr).
+# Download filename hint by mapped type.
+# Keep audio as .bin so downloader can infer real suffix from headers/content.
 FILENAME_HINT_BY_MAPPED = {
-    "audio": "audio.amr",
+    "audio": "audio.bin",
     "image": "image.png",
     "video": "video.mp4",
 }
