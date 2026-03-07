@@ -65,6 +65,16 @@ TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 
 
+class QQApiError(RuntimeError):
+    """HTTP error returned by QQ API."""
+
+    def __init__(self, path: str, status: int, data: Any):
+        self.path = path
+        self.status = status
+        self.data = data
+        super().__init__(f"API {path} {status}: {data}")
+
+
 def _sanitize_qq_text(text: str) -> tuple[str, bool]:
     """QQ API disallows URL links in plain messages.
 
@@ -74,6 +84,32 @@ def _sanitize_qq_text(text: str) -> tuple[str, bool]:
         return "", False
     sanitized, count = _URL_PATTERN.subn("[链接已省略]", text)
     return sanitized, count > 0
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
+    """Only fallback for explicit markdown payload validation failures."""
+    if not isinstance(exc, QQApiError):
+        return False
+    if exc.status < 400 or exc.status >= 500:
+        return False
+    try:
+        payload_text = json.dumps(exc.data, ensure_ascii=False).lower()
+    except Exception:
+        payload_text = str(exc.data).lower()
+    return (
+        "markdown" in payload_text
+        or "msg_type" in payload_text
+        or "msg type" in payload_text
+        or "message type" in payload_text
+    )
 
 
 def _get_api_base() -> str:
@@ -173,7 +209,7 @@ async def _api_request_async(
     async with session.request(method, url, **kwargs) as resp:
         data = await resp.json()
         if resp.status >= 400:
-            raise RuntimeError(f"API {path} {resp.status}: {data}")
+            raise QQApiError(path=path, status=resp.status, data=data)
         return data
 
 
@@ -183,9 +219,17 @@ async def _send_c2c_message_async(
     openid: str,
     content: str,
     msg_id: Optional[str] = None,
+    use_markdown: bool = False,
 ) -> None:
     msg_seq = _get_next_msg_seq(msg_id or "c2c")
-    body = {"content": content, "msg_type": 0, "msg_seq": msg_seq}
+    if use_markdown:
+        body = {
+            "markdown": {"content": content},
+            "msg_type": 2,
+        }
+    else:
+        body = {"content": content, "msg_type": 0}
+    body["msg_seq"] = msg_seq
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -203,8 +247,13 @@ async def _send_channel_message_async(
     channel_id: str,
     content: str,
     msg_id: Optional[str] = None,
+    use_markdown: bool = False,
 ) -> None:
-    body = {"content": content}
+    body: Dict[str, Any] = (
+        {"markdown": {"content": content}}
+        if use_markdown
+        else {"content": content}
+    )
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -222,9 +271,17 @@ async def _send_group_message_async(
     group_openid: str,
     content: str,
     msg_id: Optional[str] = None,
+    use_markdown: bool = False,
 ) -> None:
     msg_seq = _get_next_msg_seq(msg_id or "group")
-    body = {"content": content, "msg_type": 0, "msg_seq": msg_seq}
+    if use_markdown:
+        body = {
+            "markdown": {"content": content},
+            "msg_type": 2,
+        }
+    else:
+        body = {"content": content, "msg_type": 0}
+    body["msg_seq"] = msg_seq
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -250,6 +307,7 @@ class QQChannel(BaseChannel):
         app_id: str,
         client_secret: str,
         bot_prefix: str = "",
+        markdown_enabled: bool = True,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -266,6 +324,7 @@ class QQChannel(BaseChannel):
         self.app_id = app_id
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
+        self._markdown_enabled = markdown_enabled
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
@@ -360,6 +419,7 @@ class QQChannel(BaseChannel):
             app_id=os.getenv("QQ_APP_ID", ""),
             client_secret=os.getenv("QQ_CLIENT_SECRET", ""),
             bot_prefix=os.getenv("QQ_BOT_PREFIX", ""),
+            markdown_enabled=_as_bool(os.getenv("QQ_MARKDOWN_ENABLED", "1")),
             on_reply_sent=on_reply_sent,
         )
 
@@ -379,6 +439,7 @@ class QQChannel(BaseChannel):
             app_id=config.app_id or "",
             client_secret=config.client_secret or "",
             bot_prefix=config.bot_prefix or "",
+            markdown_enabled=getattr(config, "markdown_enabled", True),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -397,10 +458,16 @@ class QQChannel(BaseChannel):
         if not self.enabled or not text.strip():
             return
         text = text.strip()
-        text, had_url = _sanitize_qq_text(text)
-        if had_url:
-            logger.info("qq send: stripped URL content for API compatibility")
         meta = meta or {}
+        use_markdown = _as_bool(
+            meta.get("markdown_enabled", self._markdown_enabled),
+        )
+        if not use_markdown:
+            text, had_url = _sanitize_qq_text(text)
+            if had_url:
+                logger.info(
+                    "qq send: stripped URL content for API compatibility",
+                )
         message_type = meta.get("message_type")
         msg_id = meta.get("message_id")
         sender_id = meta.get("sender_id") or to_handle
@@ -420,41 +487,71 @@ class QQChannel(BaseChannel):
         except Exception:
             logger.exception("get access_token failed")
             return
-        try:
+
+        async def _dispatch(send_text: str, markdown: bool) -> None:
             if message_type == "c2c":
                 await _send_c2c_message_async(
                     self._http,
                     token,
                     sender_id,
-                    text,
+                    send_text,
                     msg_id,
+                    use_markdown=markdown,
                 )
             elif message_type == "group" and group_openid:
                 await _send_group_message_async(
                     self._http,
                     token,
                     group_openid,
-                    text,
+                    send_text,
                     msg_id,
+                    use_markdown=markdown,
                 )
             elif channel_id:
                 await _send_channel_message_async(
                     self._http,
                     token,
                     channel_id,
-                    text,
+                    send_text,
                     msg_id,
+                    use_markdown=markdown,
                 )
             else:
                 await _send_c2c_message_async(
                     self._http,
                     token,
                     sender_id,
-                    text,
+                    send_text,
                     msg_id,
+                    use_markdown=markdown,
                 )
-        except Exception:
-            logger.exception("send failed")
+
+        try:
+            await _dispatch(text, use_markdown)
+        except Exception as exc:
+            if not use_markdown:
+                logger.exception("send failed")
+                return
+            if not _should_plaintext_fallback_from_markdown(exc):
+                logger.exception(
+                    "send failed with markdown; "
+                    "skip fallback to avoid duplicates",
+                )
+                return
+            logger.exception(
+                "send failed with markdown payload validation; "
+                "fallback to plain text",
+            )
+            fallback_text, had_url = _sanitize_qq_text(text)
+            if had_url:
+                logger.info(
+                    "qq send fallback: stripped URL content "
+                    "for API compatibility",
+                )
+            try:
+                await _dispatch(fallback_text, False)
+            except Exception:
+                logger.exception("send failed")
 
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
         """Build AgentRequest from QQ native dict (runtime content_parts)."""

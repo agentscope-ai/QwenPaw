@@ -65,6 +65,7 @@ class FeishuConfig(BaseChannelConfig):
 class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
+    markdown_enabled: bool = True
 
 
 class TelegramConfig(BaseChannelConfig):

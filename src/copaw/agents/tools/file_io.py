@@ -157,7 +157,7 @@ async def write_file(
             content=[
                 TextBlock(
                     type="text",
-                    text="Error: No `file_path` provide.",
+                    text="Error: No `file_path` provided.",
                 ),
             ],
         )
@@ -266,7 +266,7 @@ async def append_file(
             content=[
                 TextBlock(
                     type="text",
-                    text="Error: No `file_path` provide.",
+                    text="Error: No `file_path` provided.",
                 ),
             ],
         )

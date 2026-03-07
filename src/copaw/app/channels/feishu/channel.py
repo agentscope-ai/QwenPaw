@@ -1278,6 +1278,7 @@ class FeishuChannel(BaseChannel):
         url = (
             getattr(part, "file_url", None)
             or getattr(part, "image_url", None)
+            or getattr(part, "video_url", None)
             or getattr(part, "data", None)
             or ""
         )

@@ -254,7 +254,32 @@ class MessageRenderer:
             MessageType.MCP_TOOL_CALL_OUTPUT,
         ):
             if s.filter_tool_messages:
-                return []
+                media_types = (
+                    ContentType.IMAGE,
+                    ContentType.AUDIO,
+                    ContentType.VIDEO,
+                    ContentType.FILE,
+                )
+                media_parts = []
+                for c in content:
+                    if getattr(c, "type", None) != ContentType.DATA:
+                        continue
+                    data = getattr(c, "data", None) or {}
+                    output = data.get("output", "")
+                    try:
+                        output = json.loads(output)
+                    except json.JSONDecodeError:
+                        pass
+                    if isinstance(output, list):
+                        block_parts = _blocks_to_parts(output)
+                        media_parts.extend(
+                            [
+                                p
+                                for p in block_parts
+                                if getattr(p, "type", None) in media_types
+                            ],
+                        )
+                return media_parts
             parts = _parts_for_tool_output(content)
             if not parts:
                 parts = [TextContent(text=f"[{msg_type}]")]

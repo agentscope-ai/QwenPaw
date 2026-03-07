@@ -391,6 +391,12 @@ def configure_qq(current_config: QQConfig) -> QQConfig:
     )
     current_config.client_secret = client_secret
 
+    markdown_enabled = prompt_confirm(
+        "Enable QQ markdown replies?",
+        default=current_config.markdown_enabled,
+    )
+    current_config.markdown_enabled = markdown_enabled
+
     return current_config
 
 

@@ -131,11 +131,14 @@ def _sanitize_stream_item(item: Any) -> Any:
 
 
 class _SanitizedStream:
-    """Proxy OpenAI async stream that sanitizes each emitted item."""
+    """Proxy OpenAI async stream that sanitizes each emitted item and
+    captures ``extra_content`` from tool-call chunks (used by Gemini
+    thinking models to carry ``thought_signature``)."""
 
     def __init__(self, stream: Any):
         self._stream = stream
         self._ctx_stream: Any | None = None
+        self.extra_contents: dict[str, Any] = {}
 
     async def __aenter__(self) -> "_SanitizedStream":
         self._ctx_stream = await self._stream.__aenter__()
@@ -156,11 +159,32 @@ class _SanitizedStream:
         if self._ctx_stream is None:
             raise StopAsyncIteration
         item = await self._ctx_stream.__anext__()
+        self._capture_extra_content(item)
         return _sanitize_stream_item(item)
+
+    def _capture_extra_content(self, item: Any) -> None:
+        """Store ``extra_content`` keyed by tool-call id."""
+        chunk = getattr(item, "chunk", item)
+        for choice in getattr(chunk, "choices", []):
+            delta = getattr(choice, "delta", None)
+            if not delta:
+                continue
+            for tc in getattr(delta, "tool_calls", None) or []:
+                tc_id = getattr(tc, "id", None)
+                if not tc_id:
+                    continue
+                extra = getattr(tc, "extra_content", None)
+                if extra is None:
+                    model_extra = getattr(tc, "model_extra", None)
+                    if isinstance(model_extra, dict):
+                        extra = model_extra.get("extra_content")
+                if extra:
+                    self.extra_contents[tc_id] = extra
 
 
 class OpenAIChatModelCompat(OpenAIChatModel):
-    """OpenAIChatModel with robust parsing for malformed tool-call chunks."""
+    """OpenAIChatModel with robust parsing for malformed tool-call chunks
+    and transparent ``extra_content`` (Gemini thought_signature) relay."""
 
     async def _parse_openai_stream_response(
         self,
@@ -174,4 +198,14 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             response=sanitized_response,
             structured_model=structured_model,
         ):
+            if sanitized_response.extra_contents:
+                for block in parsed.content:
+                    if block.get("type") != "tool_use":
+                        continue
+                    tool_id = block.get("id")
+                    if not isinstance(tool_id, str):
+                        continue
+                    ec = sanitized_response.extra_contents.get(tool_id)
+                    if ec:
+                        block["extra_content"] = ec
             yield parsed

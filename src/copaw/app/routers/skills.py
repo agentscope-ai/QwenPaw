@@ -137,7 +137,13 @@ async def install_from_hub(request: HubInstallRequest):
             overwrite=request.overwrite,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        detail = str(e)
+        logger.warning(
+            "Skill hub install 400: bundle_url=%s detail=%s",
+            (request.bundle_url or "")[:80],
+            detail,
+        )
+        raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
         # Upstream hub is flaky/rate-limited sometimes; surface as bad gateway.
         detail = str(e) + _github_token_hint(request.bundle_url)
