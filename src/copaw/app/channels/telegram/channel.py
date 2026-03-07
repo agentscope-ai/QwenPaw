@@ -211,22 +211,47 @@ def _message_meta(update: Any) -> dict:
 def _escape_markdown_v2(text: str) -> str:
     """Escape text for Telegram MarkdownV2 while preserving basic formatting.
 
-    We use a regex-based approach to escape characters that are problematic
-    for Telegram's strict MarkdownV2 parser, but we avoid escaping characters
-    that are likely intended as formatting (bold, italic, code, links).
+    This implementation escapes all special characters by default and then
+    selectively restores formatting entities like bold, italic, code, and links
+    to ensure the message is compliant with Telegram's strict parser.
     """
     if not text:
         return text
 
-    # Escape the strict characters that nearly always cause crashes if unescaped:
-    # . ! - + = | { } # > ~
-    special_chars = r"([\.!\-\+\=\|\{\}\#\>\~])"
-    text = re.sub(special_chars, r"\\\1", text)
+    # 1. Convert headers to bold (Telegram doesn't support headers)
+    text = re.sub(r"^#{1,6}\s+(.*)$", r"**\1**", text, flags=re.MULTILINE)
 
-    # Escape brackets and parentheses that don't look like an escaped character
-    # This helps avoid breaking [text](url) while escaping ( ) that aren't part of it.
-    # Note: We already escaped those if they were preceded by \ but LLMs don't usually do that.
-    text = re.sub(r"(?<!\\)([\(\)\[\]])", r"\\\1", text)
+    # 2. Escape EVERYTHING that is special in MarkdownV2
+    # Characters: _ * [ ] ( ) ~ ` > # + - = | { } . !
+    # We use a helper to escape them all.
+    def full_escape(s):
+        return re.sub(r"([\\\_\[\]\(\)\~\>\#\+\-\=\|\{\}\.\!\*\`])", r"\\\1", s)
+
+    text = full_escape(text)
+
+    # 3. Selectively un-escape for formatting
+
+    # Standard Bold: **text** -> Telegram: *text*
+    # After full_escape, **text** becomes \\\*\\\*text\\\*\\\*
+    text = re.sub(r"\\\*\\\*(.*?)\\\*\\\*", r"*\1*", text)
+
+    # Standard Italic: _text_ -> Telegram: _text_
+    # After full_escape, _text_ becomes \\\_text\\\_
+    text = re.sub(r"\\\_(.*?)\\\_", r"_\1_", text)
+
+    # Inline Code: `text` -> `text`
+    text = re.sub(r"\\\`(.*?)\\\`", r"`\1`", text)
+
+    # Code block: ```text```
+    text = re.sub(
+        r"\\\`\\\`\\\`(.*?)\\\`\\\`\\\`",
+        r"```\1```",
+        text,
+        flags=re.DOTALL,
+    )
+
+    # Links: [text](url)
+    text = re.sub(r"\\\[(.*?)\\\]\\\((.*?)\\\)", r"[\1](\2)", text)
 
     return text
 
@@ -526,7 +551,8 @@ class TelegramChannel(BaseChannel):
                 )
             except Exception:
                 logger.warning(
-                    "telegram MARKDOWN_V2 failed, trying plain text",
+                    "telegram MARKDOWN_V2 failed for chunk: %r, trying plain text",
+                    chunk_escaped,
                 )
                 try:
                     await bot.send_message(chat_id=chat_id, text=chunk)
