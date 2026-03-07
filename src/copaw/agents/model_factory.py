@@ -467,9 +467,7 @@ def _create_remote_model_instance(
 
     if llm_cfg and llm_cfg.is_custom:
         default_headers.update(dict(llm_cfg.extra_headers))
-        should_inject_affinity = (
-            llm_cfg.is_custom and llm_cfg.enable_session_affinity
-        )
+        should_inject_affinity = llm_cfg.enable_session_affinity
         affinity_header = _normalize_header_name(
             llm_cfg.session_affinity_header,
         )

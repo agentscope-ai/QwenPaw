@@ -63,6 +63,12 @@ class CreateCustomProviderRequest(BaseModel):
     models: List[ModelInfo] = Field(default_factory=list)
 
 
+class CustomProviderAdvancedConfigResponse(BaseModel):
+    extra_headers: Dict[str, str] = Field(default_factory=dict)
+    enable_session_affinity: bool = Field(default=False)
+    session_affinity_header: str = Field(default="x-session-affinity")
+
+
 class AddModelRequest(BaseModel):
     id: str = Field(...)
     name: str = Field(...)
@@ -148,14 +154,10 @@ async def configure_provider(
             base_url=base_url,
             extra_headers=body.extra_headers if provider.is_custom else None,
             enable_session_affinity=(
-                body.enable_session_affinity
-                if provider.is_custom
-                else None
+                body.enable_session_affinity if provider.is_custom else None
             ),
             session_affinity_header=(
-                body.session_affinity_header
-                if provider.is_custom
-                else None
+                body.session_affinity_header if provider.is_custom else None
             ),
             chat_model=body.chat_model if provider.is_custom else None,
         )
@@ -193,6 +195,39 @@ async def create_custom_provider_endpoint(
     provider = get_provider(body.id)
     assert provider is not None
     return _build_provider_info(provider, data)
+
+
+@router.get(
+    "/custom-providers/{provider_id}/advanced-config",
+    response_model=CustomProviderAdvancedConfigResponse,
+    summary="Get custom provider advanced config",
+)
+async def get_custom_provider_advanced_config(
+    provider_id: str = Path(...),
+) -> CustomProviderAdvancedConfigResponse:
+    provider = get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(404, detail=f"Provider '{provider_id}' not found")
+    if not provider.is_custom:
+        raise HTTPException(
+            400,
+            detail="This endpoint is only available for custom providers.",
+        )
+
+    data = load_providers_json()
+    cpd = data.custom_providers.get(provider_id)
+    if cpd is None:
+        raise HTTPException(
+            404,
+            detail=f"Custom provider '{provider_id}' not found.",
+        )
+
+    return CustomProviderAdvancedConfigResponse(
+        extra_headers=dict(cpd.extra_headers),
+        enable_session_affinity=bool(cpd.enable_session_affinity),
+        session_affinity_header=cpd.session_affinity_header
+        or "x-session-affinity",
+    )
 
 
 class TestConnectionResponse(BaseModel):

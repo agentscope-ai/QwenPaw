@@ -82,8 +82,7 @@ def test_non_custom_provider_does_not_inject_affinity_header() -> None:
     )
     headers = model.client_kwargs.get("default_headers", {})
     assert all(
-        header_name.lower() != "x-session-affinity"
-        for header_name in headers
+        header_name.lower() != "x-session-affinity" for header_name in headers
     )
 
 
@@ -124,6 +123,5 @@ def test_custom_provider_skips_affinity_when_session_is_empty() -> None:
     )
     headers = model.client_kwargs.get("default_headers", {})
     assert all(
-        header_name.lower() != "x-session-affinity"
-        for header_name in headers
+        header_name.lower() != "x-session-affinity" for header_name in headers
     )

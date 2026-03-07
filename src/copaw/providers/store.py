@@ -131,12 +131,19 @@ def _sanitize_extra_headers(
     if headers is None:
         return {}
     sanitized: dict[str, str] = {}
+    seen_lower: set[str] = set()
     for raw_key, raw_value in headers.items():
         key = str(raw_key).strip()
         if not key:
             raise ValueError("Header name cannot be empty.")
         if _HEADER_NAME_RE.fullmatch(key) is None:
             raise ValueError(f"Invalid header name '{raw_key}'.")
+        normalized_key = key.lower()
+        if normalized_key in seen_lower:
+            raise ValueError(
+                f"Duplicate header name '{raw_key}' (case-insensitive).",
+            )
+        seen_lower.add(normalized_key)
         value = "" if raw_value is None else str(raw_value).strip()
         if any(
             (ch in "\r\n") or (ord(ch) < 32 and ch != "\t") or ord(ch) == 127
@@ -155,6 +162,78 @@ def _normalize_session_affinity_header(name: Optional[str]) -> str:
     if _HEADER_NAME_RE.fullmatch(value) is None:
         raise ValueError(f"Invalid session affinity header '{value}'.")
     return value
+
+
+def _resolve_affinity_settings(
+    provider_id: str,
+    cpd: Optional[CustomProviderData],
+    settings: Optional[ProviderSettings],
+) -> tuple[dict[str, str], bool, str]:
+    """Resolve and sanitize affinity-related settings from persisted data."""
+    if cpd is not None:
+        raw_headers = cpd.extra_headers
+        enabled = bool(cpd.enable_session_affinity)
+        raw_affinity_header = cpd.session_affinity_header
+    elif settings is not None:
+        raw_headers = settings.extra_headers
+        enabled = bool(settings.enable_session_affinity)
+        raw_affinity_header = settings.session_affinity_header
+    else:
+        raw_headers = {}
+        enabled = False
+        raw_affinity_header = "x-session-affinity"
+
+    try:
+        headers = _sanitize_extra_headers(raw_headers)
+    except ValueError as exc:
+        logger.warning(
+            "Invalid extra_headers in provider '%s': %s; fallback to empty.",
+            provider_id,
+            exc,
+        )
+        headers = {}
+
+    try:
+        affinity_header = _normalize_session_affinity_header(
+            raw_affinity_header,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "Invalid session_affinity_header in provider '%s': %s; "
+            "fallback to x-session-affinity.",
+            provider_id,
+            exc,
+        )
+        affinity_header = "x-session-affinity"
+
+    return headers, enabled, affinity_header
+
+
+def _apply_provider_updates(
+    target: ProviderSettings | CustomProviderData,
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    extra_headers: Optional[dict[str, str]] = None,
+    enable_session_affinity: Optional[bool] = None,
+    session_affinity_header: Optional[str] = None,
+    chat_model: Optional[str] = None,
+    allow_chat_model: bool = False,
+) -> None:
+    if api_key is not None:
+        target.api_key = api_key
+    if base_url is not None:
+        target.base_url = base_url
+    if extra_headers is not None:
+        target.extra_headers = _sanitize_extra_headers(extra_headers)
+    if enable_session_affinity is not None:
+        target.enable_session_affinity = bool(enable_session_affinity)
+    if session_affinity_header is not None:
+        target.session_affinity_header = _normalize_session_affinity_header(
+            session_affinity_header,
+        )
+    if allow_chat_model and chat_model is not None:
+        target.chat_model = _normalize_chat_model_name(chat_model)
 
 
 def _resolve_chat_model_name(
@@ -473,41 +552,29 @@ def update_provider_settings(
     cpd = data.custom_providers.get(provider_id)
 
     if cpd is not None:
-        if api_key is not None:
-            cpd.api_key = api_key
-        if base_url is not None:
-            cpd.base_url = base_url
-        if extra_headers is not None:
-            cpd.extra_headers = _sanitize_extra_headers(extra_headers)
-        if enable_session_affinity is not None:
-            cpd.enable_session_affinity = bool(enable_session_affinity)
-        if session_affinity_header is not None:
-            cpd.session_affinity_header = _normalize_session_affinity_header(
-                session_affinity_header,
-            )
-        if chat_model is not None:
-            cpd.chat_model = _normalize_chat_model_name(chat_model)
+        _apply_provider_updates(
+            cpd,
+            api_key=api_key,
+            base_url=base_url,
+            extra_headers=extra_headers,
+            enable_session_affinity=enable_session_affinity,
+            session_affinity_header=session_affinity_header,
+            chat_model=chat_model,
+            allow_chat_model=True,
+        )
         if not cpd.base_url:
             cpd.base_url = cpd.default_base_url
         register_custom_provider(cpd)
     else:
         settings = data.providers.setdefault(provider_id, ProviderSettings())
-        if api_key is not None:
-            settings.api_key = api_key
-        if base_url is not None:
-            settings.base_url = base_url
-        if extra_headers is not None:
-            settings.extra_headers = _sanitize_extra_headers(extra_headers)
-        if enable_session_affinity is not None:
-            settings.enable_session_affinity = bool(
-                enable_session_affinity,
-            )
-        if session_affinity_header is not None:
-            settings.session_affinity_header = (
-                _normalize_session_affinity_header(
-                    session_affinity_header,
-                )
-            )
+        _apply_provider_updates(
+            settings,
+            api_key=api_key,
+            base_url=base_url,
+            extra_headers=extra_headers,
+            enable_session_affinity=enable_session_affinity,
+            session_affinity_header=session_affinity_header,
+        )
         if not settings.base_url:
             defn = PROVIDERS.get(provider_id)
             if defn:
@@ -553,33 +620,20 @@ def _resolve_slot(
     cpd = data.custom_providers.get(pid)
     settings = data.providers.get(pid)
     base_url, api_key = data.get_credentials(pid)
+    (
+        extra_headers,
+        enable_session_affinity,
+        session_affinity_header,
+    ) = _resolve_affinity_settings(pid, cpd, settings)
     return ResolvedModelConfig(
         provider_id=pid,
         model=slot.model,
         base_url=base_url,
         api_key=api_key,
         is_custom=cpd is not None,
-        extra_headers=(
-            dict(cpd.extra_headers)
-            if cpd is not None
-            else dict(settings.extra_headers if settings else {})
-        ),
-        enable_session_affinity=(
-            bool(cpd.enable_session_affinity)
-            if cpd is not None
-            else bool(settings.enable_session_affinity)
-            if settings is not None
-            else False
-        ),
-        session_affinity_header=(
-            (cpd.session_affinity_header or "x-session-affinity")
-            if cpd is not None
-            else (
-                settings.session_affinity_header or "x-session-affinity"
-                if settings is not None
-                else "x-session-affinity"
-            )
-        ),
+        extra_headers=extra_headers,
+        enable_session_affinity=enable_session_affinity,
+        session_affinity_header=session_affinity_header,
     )
 
 

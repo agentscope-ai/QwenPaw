@@ -151,6 +151,7 @@ The Ollama provider uses the **Ollama daemon** installed on your machine. Models
    ![save](https://img.alicdn.com/imgextra/i2/O1CN01WPMjKq1bCzdC8RJvP_!!6000000003430-2-tps-3802-1968.png)
 
 > **For self-hosted vLLM/OpenAI-compatible clusters (recommended):**
+>
 > 1. Enable vLLM prefix caching on the server (see vLLM docs: <https://docs.vllm.ai/en/stable/design/v1/prefix_caching.html>).
 > 2. In `providers.json` (or model config API), enable custom-provider `enable_session_affinity`, and use `session_affinity_header` (default: `x-session-affinity`) so the load balancer can route the same session to the same worker.
 > 3. If your gateway already injects affinity headers, keep it there and leave CoPaw affinity injection disabled.
