@@ -69,6 +69,7 @@ export const skillApi = {
     content: string,
     onChunk: (text: string) => void,
     signal: AbortSignal,
+    language: string = "en",
   ): Promise<void> {
     const apiUrl = getStreamApiUrl();
 
@@ -77,7 +78,7 @@ export const skillApi = {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, language }),
       signal,
     });
 

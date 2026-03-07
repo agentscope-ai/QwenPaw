@@ -50,7 +50,7 @@ export function SkillDrawer({
   onSubmit,
   onContentChange,
 }: SkillDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [showMarkdown, setShowMarkdown] = useState(true);
   const [contentValue, setContentValue] = useState("");
   const [optimizing, setOptimizing] = useState(false);
@@ -137,6 +137,7 @@ export function SkillDrawer({
           });
         },
         abortControllerRef.current.signal,
+        i18n.language, // Pass current language to API
       );
       message.success(t("skills.optimizeSuccess"));
     } catch (error: any) {
