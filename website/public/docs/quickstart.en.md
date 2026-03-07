@@ -1,12 +1,13 @@
 # Quick start
 
-This section describes five ways to run CoPAW:
+This section describes six ways to run CoPAW:
 
 - **Option A — One-line install (recommended)**: run on your machine with no Python setup required.
 - **Option B — pip install**: if you prefer managing Python yourself.
-- **Option C — ModelScope Studio**: one-click cloud deploy, no local install needed.
-- **Option D — Docker**: use official images from Docker Hub (ACR also available for users in China); tags include `latest` (stable) and `pre` (PyPI pre-release).
-- **Option E — Alibaba Cloud ECS**: one-click deploy on Alibaba Cloud, no local install.
+- **Option C — uv tool install**: if you already have uv, run CoPaw directly without a virtual environment.
+- **Option D — ModelScope Studio**: one-click cloud deploy, no local install needed.
+- **Option E — Docker**: use official images from Docker Hub (ACR also available for users in China); tags include `latest` (stable) and `pre` (PyPI pre-release).
+- **Option F — Alibaba Cloud ECS**: one-click deploy on Alibaba Cloud, no local install.
 
 > 📖 Read [Introduction](./intro) first; after install see [Console](./console).
 
@@ -151,7 +152,25 @@ Then follow [Step 2: Init](#step-2-init) and [Step 3: Start the server](#step-3-
 
 ---
 
-## Option C: ModelScope Studio one-click setup (no install)
+## Option C: uv tool install
+
+If you already have [uv](https://docs.astral.sh/uv/) installed, you can use `uv tool` to run CoPaw directly without creating a virtual environment:
+
+```bash
+uv tool install copaw
+```
+
+This installs CoPaw as a global tool. To run it:
+
+```bash
+uv tool run copaw --help
+```
+
+Init and start are the same as above — follow [Step 2: Init](#step-2-init) and [Step 3: Start the server](#step-3-start-the-server).
+
+---
+
+## Option D: ModelScope Studio one-click setup (no install)
 
 If you prefer not to install Python locally, you can deploy CoPaw to ModelScope Studio's cloud:
 
@@ -163,7 +182,7 @@ CoPaw.
 
 ---
 
-## Option D: Docker
+## Option E: Docker
 
 Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable); `pre` (PyPI pre-release). Also available on Alibaba Cloud ACR for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
 
@@ -178,7 +197,7 @@ Then open **http://127.0.0.1:8088/** in your browser for the Console. Config, me
 
 ---
 
-## Option E: Deploy on Alibaba Cloud ECS
+## Option F: Deploy on Alibaba Cloud ECS
 
 To run CoPaw on Alibaba Cloud, use the ECS one-click deployment:
 

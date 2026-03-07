@@ -1,12 +1,13 @@
 # 快速开始
 
-本节介绍五种方式运行 CoPAW：
+本节介绍六种方式运行 CoPAW：
 
 - **方式一 — 一键安装（推荐）**：无需手动配置 Python，一行命令自动完成安装。
 - **方式二 — pip 安装**：适合自行管理 Python 环境的用户。
-- **方式三 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
-- **方式四 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（PyPI 预发布版）。
-- **方式五 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
+- **方式三 — uv tool 安装**：如果你已安装 uv，可直接运行 CoPaw，无需虚拟环境。
+- **方式四 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
+- **方式五 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（PyPI 预发布版）。
+- **方式六 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
 
 > 📖 阅读前请先了解 [项目介绍](./intro)，完成安装与启动后可查看 [控制台](./console)。
 
@@ -145,7 +146,25 @@ pip install copaw
 
 ---
 
-## 方式三：魔搭创空间一键配置（无需安装）
+## 方式三：uv tool 安装
+
+如果你已安装 [uv](https://docs.astral.sh/uv/)，可以使用 `uv tool` 直接运行 CoPaw，无需创建虚拟环境：
+
+```bash
+uv tool install copaw
+```
+
+这会将 CoPaw 安装为全局工具。运行：
+
+```bash
+uv tool run copaw --help
+```
+
+初始化和启动方式同上，按 [步骤二：初始化](#步骤二初始化) 和 [步骤三：启动服务](#步骤三启动服务) 操作。
+
+---
+
+## 方式四：魔搭创空间一键配置（无需安装）
 
 若不想在本地安装 Python，可通过魔搭创空间将 CoPaw 部署到云端运行：
 
@@ -156,7 +175,7 @@ pip install copaw
 
 ---
 
-## 方式四：Docker
+## 方式五：Docker
 
 镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。国内用户也可选用阿里云 ACR：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
@@ -171,7 +190,7 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 
 ---
 
-## 方式五：部署到阿里云 ECS
+## 方式六：部署到阿里云 ECS
 
 若希望将 CoPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：
 
