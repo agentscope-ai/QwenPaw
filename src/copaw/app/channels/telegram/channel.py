@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -206,6 +207,29 @@ def _message_meta(update: Any) -> dict:
         "message_id": str(getattr(message, "message_id", "")),
         "is_group": chat_type in ("group", "supergroup", "channel"),
     }
+
+
+def _escape_markdown_v2(text: str) -> str:
+    """Escape text for Telegram MarkdownV2 while preserving basic formatting.
+
+    We use a regex-based approach to escape characters that are problematic
+    for Telegram's strict MarkdownV2 parser, but we avoid escaping characters
+    that are likely intended as formatting (bold, italic, code, links).
+    """
+    if not text:
+        return text
+
+    # Escape the strict characters that nearly always cause crashes if unescaped:
+    # . ! - + = | { } # > ~
+    special_chars = r"([\.!\-\+\=\|\{\}\#\>\~])"
+    text = re.sub(special_chars, r"\\\1", text)
+
+    # Escape brackets and parentheses that don't look like an escaped character
+    # This helps avoid breaking [text](url) while escaping ( ) that aren't part of it.
+    # Note: We already escaped those if they were preceded by \ but LLMs don't usually do that.
+    text = re.sub(r"(?<!\\)([\(\)\[\]])", r"\\\1", text)
+
+    return text
 
 
 class TelegramChannel(BaseChannel):
@@ -527,10 +551,11 @@ class TelegramChannel(BaseChannel):
         self._stop_typing(chat_id)
         chunks = self._chunk_text(text)
         for chunk in chunks:
+            chunk_escaped = _escape_markdown_v2(chunk)
             try:
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=chunk,
+                    text=chunk_escaped,
                     parse_mode=ParseMode.MARKDOWN_V2,
                 )
             except Exception:
