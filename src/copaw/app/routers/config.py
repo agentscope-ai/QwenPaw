@@ -145,27 +145,35 @@ async def put_channel(
     # Create the appropriate config object based on channel_name
     if channel_name == "telegram":
         from ...config.config import TelegramConfig
+
         channel_config = TelegramConfig(**single_channel_config)
     elif channel_name == "dingtalk":
         from ...config.config import DingTalkConfig
+
         channel_config = DingTalkConfig(**single_channel_config)
     elif channel_name == "discord":
         from ...config.config import DiscordConfig
+
         channel_config = DiscordConfig(**single_channel_config)
     elif channel_name == "feishu":
         from ...config.config import FeishuConfig
+
         channel_config = FeishuConfig(**single_channel_config)
     elif channel_name == "qq":
         from ...config.config import QQConfig
+
         channel_config = QQConfig(**single_channel_config)
     elif channel_name == "imessage":
         from ...config.config import IMessageChannelConfig
+
         channel_config = IMessageChannelConfig(**single_channel_config)
     elif channel_name == "console":
         from ...config.config import ConsoleConfig
+
         channel_config = ConsoleConfig(**single_channel_config)
     elif channel_name == "voice":
         from ...config.config import VoiceChannelConfig
+
         channel_config = VoiceChannelConfig(**single_channel_config)
     else:
         # For custom channels, just use the dict
