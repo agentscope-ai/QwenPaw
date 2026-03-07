@@ -210,49 +210,49 @@ def _message_meta(update: Any) -> dict:
 
 
 def _escape_markdown_v2(text: str) -> str:
-    """Escape text for Telegram MarkdownV2 while preserving basic formatting.
+    """Convert standard Markdown to Telegram's strict MarkdownV2.
 
-    This implementation escapes all special characters by default and then
-    selectively restores formatting entities like bold, italic, code, and links
-    to ensure the message is compliant with Telegram's strict parser.
+    Includes user-provided SPECIAL_CHARS for escaping while preserving
+    formatting entities.
     """
     if not text:
         return text
 
-    # 1. Convert headers to bold (Telegram doesn't support headers)
+    # 1. Convert headers (# Title) to Bold
     text = re.sub(r"^#{1,6}\s+(.*)$", r"**\1**", text, flags=re.MULTILINE)
+    # Handle thematic breaks
+    text = re.sub(r"^[*-]{3,}$", r"---", text, flags=re.MULTILINE)
 
     # 2. Escape EVERYTHING that is special in MarkdownV2
-    # Characters: _ * [ ] ( ) ~ ` > # + - = | { } . !
-    # We use a helper to escape them all.
+    # User's specified set: _ * [ ] ( ) ~ ` > # + - = | { } . !
+    special_chars_pattern = r"([\_\[\]\(\)\~\>\#\+\-\=\|\{\}\.\!\*\`\\])"
+
     def full_escape(s):
-        return re.sub(r"([\\\_\[\]\(\)\~\>\#\+\-\=\|\{\}\.\!\*\`])", r"\\\1", s)
+        return re.sub(special_chars_pattern, r"\\\1", s)
 
-    text = full_escape(text)
+    # Split to avoid escaping inside code blocks
+    parts = re.split(r"(```.*?```|`.*?`)", text, flags=re.DOTALL)
+    for i in range(len(parts)):
+        if not (parts[i].startswith("```") or parts[i].startswith("`")):
+            parts[i] = full_escape(parts[i])
+        else:
+            # Inside code: only escape ` and \
+            parts[i] = re.sub(r"([\\`])", r"\\\1", parts[i])
 
-    # 3. Selectively un-escape for formatting
+    text = "".join(parts)
 
-    # Standard Bold: **text** -> Telegram: *text*
-    # After full_escape, **text** becomes \\\*\\\*text\\\*\\\*
+    # 3. Restore formatting tokens (selective un-escaping)
+    # Bold: ** -> *
     text = re.sub(r"\\\*\\\*(.*?)\\\*\\\*", r"*\1*", text)
-
-    # Standard Italic: _text_ -> Telegram: _text_
-    # After full_escape, _text_ becomes \\\_text\\\_
+    text = re.sub(r"\\\_\\\_(.*?)\\\_\\\_", r"*\1*", text)
+    # Italic: * -> _
+    text = re.sub(r"\\\*(.*?)\\\*", r"_\1_", text)
     text = re.sub(r"\\\_(.*?)\\\_", r"_\1_", text)
-
-    # Inline Code: `text` -> `text`
-    text = re.sub(r"\\\`(.*?)\\\`", r"`\1`", text)
-
-    # Code block: ```text```
-    text = re.sub(
-        r"\\\`\\\`\\\`(.*?)\\\`\\\`\\\`",
-        r"```\1```",
-        text,
-        flags=re.DOTALL,
-    )
-
     # Links: [text](url)
     text = re.sub(r"\\\[(.*?)\\\]\\\((.*?)\\\)", r"[\1](\2)", text)
+    # Code
+    text = re.sub(r"\\\`\\\`\\\`(.*?)\\\`\\\`\\\`", r"```\1```", text, flags=re.DOTALL)
+    text = re.sub(r"\\\`(.*?)\\\`", r"`\1`", text)
 
     return text
 
