@@ -34,7 +34,6 @@ class ProcessStatus(str, Enum):
     RUNNING = "running"
     STOPPED = "stopped"
     FAILED = "failed"
-    TIMEOUT = "timeout"
 
 
 @dataclass
@@ -104,6 +103,10 @@ class BackgroundProcessManager:
             ValueError: If process_id is already in use by a running process
         """
         process_id = process_id or f"bg_{uuid.uuid4().hex[:8]}"
+
+        # Auto-cleanup stopped processes to prevent file accumulation
+        # This runs silently without affecting the new process startup
+        self.cleanup_stopped()
 
         # Check for duplicate process_id
         if self._check_duplicate(process_id):
@@ -213,10 +216,10 @@ class BackgroundProcessManager:
         # Refresh process status from the underlying Popen instance
         # to avoid acting on a potentially stale PID
         if bg_process.process.poll() is not None:
-            # Process has already exited
+            # Process has already exited - treat as successfully stopped
             with self._lock:
                 bg_process.status = ProcessStatus.STOPPED
-            return False
+            return True
 
         try:
             if sys.platform == "win32":
@@ -267,22 +270,9 @@ class BackgroundProcessManager:
             with self._lock:
                 bg_process.status = ProcessStatus.STOPPED
 
-            # Clean up temp files after stopping
-            if bg_process.stdout_file and os.path.exists(
-                bg_process.stdout_file,
-            ):
-                try:
-                    os.unlink(bg_process.stdout_file)
-                except OSError:
-                    pass
-            if bg_process.stderr_file and os.path.exists(
-                bg_process.stderr_file,
-            ):
-                try:
-                    os.unlink(bg_process.stderr_file)
-                except OSError:
-                    pass
-
+            # Note: Temp files are NOT deleted here so users can still
+            # retrieve output via get_process_output() after stopping.
+            # Files will be cleaned up by cleanup_stopped() later.
             logger.info("Stopped background process %s", process_id)
             return True
 
@@ -522,6 +512,9 @@ async def stop_background_process(
     """
     manager = get_process_manager()
 
+    # Refresh status first to avoid stale state
+    manager.update_status(process_id)
+
     bg_process = manager.get(process_id)
     if bg_process is None:
         return ToolResponse(
@@ -689,14 +682,18 @@ async def get_process_output(
         """
         try:
             size = os.path.getsize(path)
-            with open(path, "r", encoding=encoding, errors="replace") as f:
+            with open(path, "rb") as f:
                 if size > max_bytes:
                     # Seek to start of last `max_bytes` and skip
-                    # partial first line
+                    # partial first line deterministically
                     f.seek(size - max_bytes)
-                    f.readline()
-                    return f.read(), True
-                return f.read(), False
+                    chunk = f.read()
+                    newline_idx = chunk.find(b"\n")
+                    if newline_idx != -1:
+                        chunk = chunk[newline_idx + 1 :]
+                    return chunk.decode(encoding, errors="replace"), True
+                data = f.read()
+                return data.decode(encoding, errors="replace"), False
         except Exception as e:
             return f"[Error reading file: {e}]", False
 
