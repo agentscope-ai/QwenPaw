@@ -73,7 +73,7 @@
     "pleaseInputName": "请输入技能名称",
     "pleaseInputContent": "请输入技能内容",
     "skillNamePlaceholder": "例如：weather_query",
-    "contentPlaceholder": "---\nname: <技能名称>（必填）\ndescription: <技能功能描述>（必填）\nmetadata: { \"copaw\": { \"emoji\": \"🔧\" } }\n---\n\n技能实现内容...\n\n# 示例：\n# ---\n# name: cron\n# description: 通过 copaw 命令管理定时任务 - 创建、查询、暂停、恢复、删除任务\n# metadata: { \"copaw\": { \"emoji\": \"⏰\" } }\n# ---",
+    "contentPlaceholder": "【格式要求】\n---\nname: 技能名称（必填，英文小写下划线）\ndescription: 功能描述（必填，简洁清晰）\n---\n\n技能实现内容（Markdown格式）\n\n【示例】\n---\nname: weather_query\ndescription: 查询指定城市的天气信息\n---\n\n## 功能\n查询实时天气数据。\n\n## 使用\n用户输入城市名，返回天气信息。",
     "createSuccess": "技能创建成功",
     "createFailed": "技能创建失败",
     "deleteConfirm": "确定要删除此技能吗？",
@@ -86,7 +86,12 @@
     "frontmatterDescriptionRequired": "Skills 中缺少必填字段：description",
     "editNotSupported": "后端API不支持编辑操作",
     "editNote": "注意：后端API不支持编辑技能。您只能查看或切换启用/禁用状态。",
-    "create": "创建"
+    "create": "创建",
+    "optimizeWithAI": "AI优化",
+    "stopOptimize": "停止",
+    "optimizeSuccess": "技能优化成功",
+    "optimizeFailed": "技能优化失败",
+    "noContentToOptimize": "没有可优化的内容"
   },
   "mcp": {
     "title": "MCP 客户端",

@@ -73,7 +73,7 @@
     "pleaseInputName": "Please input skill name",
     "pleaseInputContent": "Please input skill content",
     "skillNamePlaceholder": "e.g., weather_query",
-    "contentPlaceholder": "---\nname: <skill_name> (required)\ndescription: <skill description> (required)\nmetadata: { \"copaw\": { \"emoji\": \"🔧\" } }\n---\n\nSkill implementation content...\n\n# Example:\n# ---\n# name: cron\n# description: Manage cron jobs via copaw commands - create, query, pause, resume, delete tasks\n# metadata: { \"copaw\": { \"emoji\": \"⏰\" } }\n# ---",
+    "contentPlaceholder": "[Format]\n---\nname: skill_name (required, lowercase with underscores)\ndescription: Brief description (required)\n---\n\nSkill implementation (Markdown format)\n\n[Example]\n---\nname: weather_query\ndescription: Query weather info for a city\n---\n\n## Features\nQuery real-time weather data.\n\n## Usage\nUser inputs city name, returns weather info.",
     "createSuccess": "Skill created successfully",
     "createFailed": "Failed to create skill",
     "deleteConfirm": "Are you sure you want to delete this skill?",
@@ -86,7 +86,12 @@
     "frontmatterDescriptionRequired": "Skills missing required field : description",
     "editNotSupported": "Edit operation is not supported by backend API",
     "editNote": "Note: Backend API does not support editing skills. You can only view or toggle enable/disable status.",
-    "create": "Create"
+    "create": "Create",
+    "optimizeWithAI": "AI Optimize",
+    "stopOptimize": "Stop",
+    "optimizeSuccess": "Skill optimized successfully",
+    "optimizeFailed": "Failed to optimize skill",
+    "noContentToOptimize": "No content to optimize"
   },
   "mcp": {
     "title": "MCP Clients",
