@@ -1,0 +1,49 @@
+[Unit]
+Description=CoPaw AI Assistant Service
+Documentation=https://copaw.agentscope.io/
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 以下值在安装时由 manage-copawd.sh 动态替换
+User=__USER__
+Group=__GROUP__
+
+# 环境变量
+Environment="HOME=__HOME__"
+Environment="PATH=__HOME__/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="COPAW_HOME=__COPAW_HOME__"
+Environment="PYTHONIOENCODING=utf-8"
+
+# 工作目录
+WorkingDirectory=__COPAW_HOME__
+
+# 启动脚本
+ExecStart=__COPAW_HOME__/scripts/copawd.sh
+
+# 重启策略
+Restart=always
+RestartSec=10
+
+# 资源限制
+LimitNOFILE=65535
+
+# 日志（使用 journalctl）
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=copaw
+
+# 安全加固（可选）
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=read-only
+# PrivateTmp=true
+
+# 优雅关闭
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
