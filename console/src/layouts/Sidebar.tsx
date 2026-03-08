@@ -33,6 +33,7 @@ import {
   PanelLeftOpen,
   Copy,
   Check,
+  Monitor,
 } from "lucide-react";
 import api from "../api";
 import styles from "./index.module.less";
@@ -51,6 +52,7 @@ const DEFAULT_OPEN_KEYS = [
 const KEY_TO_PATH: Record<string, string> = {
   chat: "/chat",
   channels: "/channels",
+  monitor: "/monitor",
   sessions: "/sessions",
   "cron-jobs": "/cron-jobs",
   heartbeat: "/heartbeat",
@@ -289,6 +291,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       icon: <Radio size={16} />,
       children: [
         { key: "channels", label: t("nav.channels"), icon: <Wifi size={16} /> },
+        {
+          key: "monitor",
+          label: t("nav.monitor"),
+          icon: <Monitor size={16} />,
+        },
         {
           key: "sessions",
           label: t("nav.sessions"),

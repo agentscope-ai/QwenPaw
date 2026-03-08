@@ -25,6 +25,7 @@
     "chat": "Chat",
     "control": "Control",
     "channels": "Channels",
+    "monitor": "Monitor",
     "sessions": "Sessions",
     "cronJobs": "Cron Jobs",
     "heartbeat": "Heartbeat",

@@ -25,6 +25,7 @@
     "chat": "Чат",
     "control": "Управление",
     "channels": "Каналы",
+    "monitor": "Монитор",
     "sessions": "Сессии",
     "cronJobs": "Cron-задачи",
     "heartbeat": "Пульс",
