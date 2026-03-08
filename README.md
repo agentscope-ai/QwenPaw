@@ -265,7 +265,7 @@ To run CoPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [CoP
 
 ## API Key
 
-If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
+If you use a **cloud LLM** (e.g. DashScope, ModelScope, OpenRouter, or Nebius), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
 
 **How to configure:**
 
@@ -274,6 +274,10 @@ If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must configure an A
 3. **Environment variable** — For DashScope you can set `DASHSCOPE_API_KEY` in your shell or in a `.env` file in the working directory.
 
 Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, or see [Config](https://copaw.agentscope.io/docs/config) for details.
+
+> **OpenRouter**: CoPaw includes a built-in `openrouter` provider with base URL `https://openrouter.ai/api/v1`. Optional attribution headers can be set via `OPENROUTER_HTTP_REFERER` and `OPENROUTER_TITLE`.
+>
+> **Nebius**: CoPaw includes a built-in `nebius` provider with base URL `https://api.tokenfactory.nebius.com/v1`. Common model IDs include `deepseek-ai/DeepSeek-R1-0528`, `moonshotai/Kimi-K2.5`, and `MiniMaxAI/MiniMax-M2.1`.
 
 > **Using local models only?** If you use [Local Models](#local-models) (llama.cpp or MLX), you do **not** need any API key.
 

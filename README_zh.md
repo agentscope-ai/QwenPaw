@@ -265,7 +265,7 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 
 ## API Key
 
-若使用**云端大模型**（如 DashScope、ModelScope），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models#%E9%85%8D%E7%BD%AE%E4%BA%91%E6%8F%90%E4%BE%9B%E5%95%86)。
+若使用**云端大模型**（如 DashScope、ModelScope、OpenRouter 或 Nebius），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models#%E9%85%8D%E7%BD%AE%E4%BA%91%E6%8F%90%E4%BE%9B%E5%95%86)。
 
 **配置方式：**
 
@@ -274,6 +274,10 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 3. **环境变量** — 使用 DashScope 时，可在终端或工作目录下的 `.env` 文件中设置 `DASHSCOPE_API_KEY`。
 
 其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](https://copaw.agentscope.io/docs/config)。
+
+> **OpenRouter**：CoPaw 内置了 `openrouter` 提供商，Base URL 为 `https://openrouter.ai/api/v1`。可选归因请求头可通过 `OPENROUTER_HTTP_REFERER` 和 `OPENROUTER_TITLE` 配置。
+>
+> **Nebius**：CoPaw 内置了 `nebius` 提供商，Base URL 为 `https://api.tokenfactory.nebius.com/v1`。常见模型 ID 包括 `deepseek-ai/DeepSeek-R1-0528`、`moonshotai/Kimi-K2.5` 和 `MiniMaxAI/MiniMax-M2.1`。
 
 > **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp 或 MLX），则**无需**任何 API Key。
 

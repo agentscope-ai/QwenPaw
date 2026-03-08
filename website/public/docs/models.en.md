@@ -10,7 +10,7 @@ CoPaw supports multiple LLM providers: **cloud providers** (require API Key), **
 
 ## Configure cloud providers
 
-Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, and Azure OpenAI) call remote models via API and require an **API Key**.
+Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, OpenRouter, Nebius, and Azure OpenAI) call remote models via API and require an **API Key**.
 
 **In the console:**
 
@@ -34,6 +34,17 @@ Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, an
 > To revoke a cloud provider, click **Settings** on its card, then **Revoke Authorization** and confirm. The provider status will change to **Unavailable**.
 >
 > ![cancel](https://img.alicdn.com/imgextra/i2/O1CN01A8j1IR1n8fHGnio0q_!!6000000005045-2-tps-3802-1968.png)
+
+> **OpenRouter note:** CoPaw includes a built-in **OpenRouter** provider with
+> the default base URL `https://openrouter.ai/api/v1`. If you want OpenRouter
+> app attribution headers, set `OPENROUTER_HTTP_REFERER` and
+> `OPENROUTER_TITLE` in CoPaw's environment variables. CoPaw will send them as
+> `HTTP-Referer` and `X-OpenRouter-Title`.
+>
+> **Nebius note:** CoPaw includes a built-in **Nebius** provider with the
+> default base URL `https://api.tokenfactory.nebius.com/v1`. Common model IDs
+> include `deepseek-ai/DeepSeek-R1-0528`, `moonshotai/Kimi-K2.5`, and
+> `MiniMaxAI/MiniMax-M2.1`.
 
 ## Local providers (llama.cpp / MLX)
 

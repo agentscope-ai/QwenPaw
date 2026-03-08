@@ -53,6 +53,17 @@ export function ProviderConfigModal({
   }, [provider.chat_model, provider.is_custom, selectedChatModel]);
 
   const apiKeyExtra = useMemo(() => {
+    const keyHint = provider.current_api_key
+      ? t("models.currentKey", { key: provider.current_api_key })
+      : provider.api_key_prefix
+        ? t("models.startsWith", { prefix: provider.api_key_prefix })
+        : t("models.optionalSelfHosted");
+    if (provider.id === "openrouter") {
+      return `${keyHint} ${t("models.openRouterAttributionHint")}`;
+    }
+    if (provider.id === "nebius") {
+      return `${keyHint} ${t("models.nebiusModelHint")}`;
+    }
     if (provider.current_api_key) {
       return t("models.currentKey", { key: provider.current_api_key });
     }
@@ -85,6 +96,9 @@ export function ProviderConfigModal({
     if (provider.id === "openai") {
       return t("models.openAIEndpoint");
     }
+    if (provider.id === "openrouter") {
+      return t("models.openRouterEndpointHint");
+    }
     if (provider.id === "ollama") {
       return t("models.ollamaEndpointHint");
     }
@@ -108,6 +122,12 @@ export function ProviderConfigModal({
     }
     if (provider.id === "openai") {
       return "https://api.openai.com/v1";
+    }
+    if (provider.id === "openrouter") {
+      return "https://openrouter.ai/api/v1";
+    }
+    if (provider.id === "nebius") {
+      return "https://api.tokenfactory.nebius.com/v1";
     }
     if (provider.id === "ollama") {
       return "http://localhost:11434/v1";

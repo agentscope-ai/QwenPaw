@@ -287,11 +287,13 @@ CoPaw needs an LLM provider to work. You can set it up in three ways:
 
 ### Built-in providers
 
-| Provider   | ID           | Default Base URL                                    | API Key Prefix |
-| ---------- | ------------ | --------------------------------------------------- | -------------- |
-| ModelScope | `modelscope` | `https://api-inference.modelscope.cn/v1`            | `ms`           |
-| DashScope  | `dashscope`  | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
-| Custom     | `custom`     | _(you set it)_                                      | _(any)_        |
+| Provider          | ID              | Default Base URL                                    | API Key Prefix |
+| ----------------- | --------------- | --------------------------------------------------- | -------------- |
+| ModelScope        | `modelscope`    | `https://api-inference.modelscope.cn/v1`            | `ms`           |
+| DashScope         | `dashscope`     | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
+| OpenRouter        | `openrouter`    | `https://openrouter.ai/api/v1`                      | `sk-or-`       |
+| Nebius            | `nebius`        | `https://api.tokenfactory.nebius.com/v1`            | _(any)_        |
+| Custom            | `custom`        | _(you set it)_                                      | _(any)_        |
 
 For each provider you need to set:
 
@@ -313,6 +315,13 @@ Then choose which provider + model to activate:
 > **Note:** You are responsible for ensuring the API key and base URL are valid.
 > CoPaw does not verify whether the key is correct or has sufficient quota —
 > make sure the chosen provider and model are accessible.
+>
+> **OpenRouter:** To send optional attribution headers, set
+> `OPENROUTER_HTTP_REFERER` and `OPENROUTER_TITLE` in CoPaw's environment
+> variables. They are forwarded as `HTTP-Referer` and `X-OpenRouter-Title`.
+>
+> **Nebius:** Common model IDs include `deepseek-ai/DeepSeek-R1-0528`,
+> `moonshotai/Kimi-K2.5`, and `MiniMaxAI/MiniMax-M2.1`.
 
 ---
 

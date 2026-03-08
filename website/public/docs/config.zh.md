@@ -277,11 +277,13 @@ CoPaw 需要 LLM 提供商才能运行。有三种设置方式：
 
 ### 内置提供商
 
-| 提供商             | ID           | 默认 Base URL                                       | API Key 前缀 |
-| ------------------ | ------------ | --------------------------------------------------- | ------------ |
-| ModelScope（魔搭） | `modelscope` | `https://api-inference.modelscope.cn/v1`            | `ms`         |
-| DashScope（灵积）  | `dashscope`  | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`         |
-| 自定义             | `custom`     | _（你自己填）_                                      | _（任意）_   |
+| 提供商             | ID              | 默认 Base URL                                       | API Key 前缀 |
+| ------------------ | --------------- | --------------------------------------------------- | ------------ |
+| ModelScope（魔搭） | `modelscope`    | `https://api-inference.modelscope.cn/v1`            | `ms`         |
+| DashScope（灵积）  | `dashscope`     | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`         |
+| OpenRouter         | `openrouter`    | `https://openrouter.ai/api/v1`                      | `sk-or-`     |
+| Nebius             | `nebius`        | `https://api.tokenfactory.nebius.com/v1`            | _（任意）_   |
+| 自定义             | `custom`        | _（你自己填）_                                      | _（任意）_   |
 
 每个提供商需要设置：
 
@@ -300,6 +302,13 @@ CoPaw 需要 LLM 提供商才能运行。有三种设置方式：
 > **提示：** 运行 `copaw init` 跟着提示走就行——它会列出每个提供商的可用模型让你直接选。
 >
 > **注意：** API Key 和 Base URL 的有效性需要用户自行保证。CoPaw 不会验证你填入的密钥是否正确或是否有余额，请确保所选提供商和模型可正常访问。
+>
+> **OpenRouter：** 如果你希望发送可选的应用归因请求头，可在 CoPaw 的环境变量中设置
+> `OPENROUTER_HTTP_REFERER` 和 `OPENROUTER_TITLE`。CoPaw 会把它们转发为
+> `HTTP-Referer` 和 `X-OpenRouter-Title`。
+>
+> **Nebius：** 常见模型 ID 包括 `deepseek-ai/DeepSeek-R1-0528`、
+> `moonshotai/Kimi-K2.5` 和 `MiniMaxAI/MiniMax-M2.1`。
 
 ---
 

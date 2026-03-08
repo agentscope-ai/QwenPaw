@@ -138,6 +138,18 @@ def configure_provider_api_key_interactive(
         f"✓ {defn.name} — API Key: {mask_api_key(api_key) or '(not set)'}"
         + (f", Base URL: {base_url}" if base_url else ""),
     )
+    if provider_id == "openrouter":
+        click.echo(
+            "Optional OpenRouter attribution headers: set "
+            "OPENROUTER_HTTP_REFERER and OPENROUTER_TITLE in CoPaw's "
+            "environment variables.",
+        )
+    if provider_id == "nebius":
+        click.echo(
+            "Common Nebius model IDs include "
+            "deepseek-ai/DeepSeek-R1-0528, moonshotai/Kimi-K2.5, and "
+            "MiniMaxAI/MiniMax-M2.1.",
+        )
     return provider_id
 
 

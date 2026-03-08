@@ -10,7 +10,11 @@ from copaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
     _sanitize_tool_call,
 )
-from copaw.providers.registry import get_chat_model_class
+from copaw.providers.registry import (
+    get_chat_model_class,
+    get_provider,
+    is_builtin,
+)
 
 
 class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
@@ -63,6 +67,28 @@ def _make_chunk(tool_calls: list[Any]) -> Any:
 
 async def test_registry_maps_openai_model_to_compat() -> None:
     assert get_chat_model_class("OpenAIChatModel") is OpenAIChatModelCompat
+
+
+def test_registry_exposes_openrouter_provider() -> None:
+    provider = get_provider("openrouter")
+    assert provider is not None
+    assert provider.name == "OpenRouter"
+    assert provider.default_base_url == "https://openrouter.ai/api/v1"
+    assert provider.api_key_prefix == "sk-or-"
+    assert provider.models
+    assert is_builtin("openrouter") is True
+
+
+def test_registry_exposes_nebius_provider() -> None:
+    provider = get_provider("nebius")
+    assert provider is not None
+    assert provider.name == "Nebius"
+    assert (
+        provider.default_base_url == "https://api.tokenfactory.nebius.com/v1"
+    )
+    assert provider.api_key_prefix == ""
+    assert provider.models
+    assert is_builtin("nebius") is True
 
 
 async def test_stream_parser_skips_tool_call_without_function() -> None:

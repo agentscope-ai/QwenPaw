@@ -62,6 +62,67 @@ OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
 
+OPENROUTER_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="anthropic/claude-opus-4.6",
+        name="Anthropic Claude Opus 4.6",
+    ),
+    ModelInfo(
+        id="anthropic/claude-sonnet-4.6",
+        name="Anthropic Claude Sonnet 4.6",
+    ),
+    ModelInfo(
+        id="anthropic/claude-sonnet-4.5",
+        name="Anthropic Claude Sonnet 4.5",
+    ),
+    ModelInfo(id="openai/gpt-5.3-chat", name="OpenAI GPT-5.3 Chat"),
+    ModelInfo(id="openai/gpt-5.3-codex", name="OpenAI GPT-5.3 Codex"),
+    ModelInfo(id="openai/gpt-5.2", name="OpenAI GPT-5.2"),
+    ModelInfo(id="minimax/minimax-m2.5", name="MiniMax M2.5"),
+    ModelInfo(id="moonshotai/kimi-k2.5", name="MoonshotAI Kimi K2.5"),
+    ModelInfo(id="qwen/qwen3.5-plus-02-15", name="Qwen3.5 Plus"),
+    ModelInfo(
+        id="qwen/qwen3-235b-a22b-2507",
+        name="Qwen3 235B A22B 2507",
+    ),
+    ModelInfo(id="qwen/qwen3.5-397b-a17b", name="Qwen3.5 397B A17B"),
+    ModelInfo(id="qwen/qwen3-coder-next", name="Qwen3 Coder Next"),
+    ModelInfo(id="z-ai/glm-5", name="z-ai GLM-5"),
+    ModelInfo(id="deepseek/deepseek-v3.2", name="DeepSeek V3.2"),
+    ModelInfo(
+        id="google/gemini-3.1-flash-lite-preview",
+        name="Google Gemini 3.1 Flash Lite Preview",
+    ),
+    ModelInfo(
+        id="google/gemini-3.1-pro-preview",
+        name="Google Gemini 3.1 Pro Preview",
+    ),
+    ModelInfo(id="x-ai/grok-4.1-fast", name="xAI Grok 4.1 Fast"),
+    ModelInfo(
+        id="arcee-ai/trinity-large-preview:free",
+        name="Arcee AI Trinity Large Preview (free)",
+    ),
+    ModelInfo(
+        id="stepfun/step-3.5-flash:free",
+        name="StepFun Step 3.5 Flash (free)",
+    ),
+]
+
+NEBIUS_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="deepseek-ai/DeepSeek-R1-0528",
+        name="DeepSeek R1 0528",
+    ),
+    ModelInfo(
+        id="moonshotai/Kimi-K2.5",
+        name="Kimi K2.5",
+    ),
+    ModelInfo(
+        id="MiniMaxAI/MiniMax-M2.1",
+        name="MiniMax M2.1",
+    ),
+]
+
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-5-chat", name="GPT-5 Chat"),
     ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
@@ -125,6 +186,22 @@ PROVIDER_OPENAI = ProviderDefinition(
     models=OPENAI_MODELS,
 )
 
+PROVIDER_OPENROUTER = ProviderDefinition(
+    id="openrouter",
+    name="OpenRouter",
+    default_base_url="https://openrouter.ai/api/v1",
+    api_key_prefix="sk-or-",
+    models=OPENROUTER_MODELS,
+)
+
+PROVIDER_NEBIUS = ProviderDefinition(
+    id="nebius",
+    name="Nebius",
+    default_base_url="https://api.tokenfactory.nebius.com/v1",
+    api_key_prefix="",
+    models=NEBIUS_MODELS,
+)
+
 PROVIDER_AZURE_OPENAI = ProviderDefinition(
     id="azure-openai",
     name="Azure OpenAI",
@@ -172,6 +249,8 @@ _BUILTIN_IDS: frozenset[str] = frozenset(
         "dashscope",
         "aliyun-codingplan",
         "openai",
+        "openrouter",
+        "nebius",
         "azure-openai",
         "anthropic",
         "ollama",
@@ -185,6 +264,8 @@ PROVIDERS: dict[str, ProviderDefinition] = {
     PROVIDER_DASHSCOPE.id: PROVIDER_DASHSCOPE,
     PROVIDER_ALIYUN_CODINGPLAN.id: PROVIDER_ALIYUN_CODINGPLAN,
     PROVIDER_OPENAI.id: PROVIDER_OPENAI,
+    PROVIDER_OPENROUTER.id: PROVIDER_OPENROUTER,
+    PROVIDER_NEBIUS.id: PROVIDER_NEBIUS,
     PROVIDER_AZURE_OPENAI.id: PROVIDER_AZURE_OPENAI,
     PROVIDER_ANTHROPIC.id: PROVIDER_ANTHROPIC,
     PROVIDER_OLLAMA.id: PROVIDER_OLLAMA,

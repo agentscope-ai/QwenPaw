@@ -281,6 +281,21 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _get_openrouter_default_headers() -> dict[str, str]:
+    """Return optional OpenRouter attribution headers from environment."""
+    headers: dict[str, str] = {}
+
+    referer = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+    if referer:
+        headers["HTTP-Referer"] = referer
+
+    title = os.getenv("OPENROUTER_TITLE", "").strip()
+    if title:
+        headers["X-OpenRouter-Title"] = title
+
+    return headers
+
+
 def create_model_and_formatter(
     llm_cfg: Optional["ResolvedModelConfig"] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -417,19 +432,24 @@ def _create_remote_model_instance(
     ]
 
     client_kwargs = {"base_url": base_url}
+    default_headers: dict[str, str] = {}
 
     if base_url in dashscope_base_urls:
-        client_kwargs["default_headers"] = {
-            "x-dashscope-agentapp": json.dumps(
-                {
-                    "agentType": "CoPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            ),
-        }
+        default_headers["x-dashscope-agentapp"] = json.dumps(
+            {
+                "agentType": "CoPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
+
+    if base_url and "openrouter.ai" in base_url:
+        default_headers.update(_get_openrouter_default_headers())
+
+    if default_headers:
+        client_kwargs["default_headers"] = default_headers
 
     # Instantiate model
     model = chat_model_class(
