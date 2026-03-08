@@ -135,26 +135,13 @@ if [ -n "$EXTRAS" ]; then
 fi
 
 ## Ensure console frontend assets are in src/copaw/console/ for source installs.
-## Sets _CONSOLE_COPIED=1 if we populated the directory (so we can clean up).
-_CONSOLE_COPIED=0
 _CONSOLE_AVAILABLE=0
 prepare_console() {
     local repo_dir="$1"
-    local console_src="$repo_dir/console/dist"
     local console_dest="$repo_dir/src/copaw/console"
 
     # Already populated
     if [ -f "$console_dest/index.html" ]; then
-        _CONSOLE_AVAILABLE=1
-        return
-    fi
-
-    # Copy pre-built assets if available (e.g. developer already ran npm build)
-    if [ -d "$console_src" ] && [ -f "$console_src/index.html" ]; then
-        info "Copying console frontend assets..."
-        mkdir -p "$console_dest"
-        cp -R "$console_src/"* "$console_dest/"
-        _CONSOLE_COPIED=1
         _CONSOLE_AVAILABLE=1
         return
     fi
@@ -174,10 +161,7 @@ prepare_console() {
 
     info "Building console frontend (npm ci && npm run build)..."
     (cd "$repo_dir/console" && npm ci && npm run build)
-    if [ -f "$console_src/index.html" ]; then
-        mkdir -p "$console_dest"
-        cp -R "$console_src/"* "$console_dest/"
-        _CONSOLE_COPIED=1
+    if [ -f "$console_dest/index.html" ]; then
         _CONSOLE_AVAILABLE=1
         info "Console frontend built successfully"
         return
@@ -186,12 +170,9 @@ prepare_console() {
     warn "Console build completed but index.html not found — the web UI won't be available."
 }
 
-## Remove console assets we copied into the source tree.
+## No cleanup needed as console build is integrated into source tree.
 cleanup_console() {
-    local repo_dir="$1"
-    if [ "$_CONSOLE_COPIED" = 1 ]; then
-        rm -rf "$repo_dir/src/copaw/console/"*
-    fi
+    : # no-op
 }
 
 if [ "$FROM_SOURCE" = true ]; then

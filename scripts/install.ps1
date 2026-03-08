@@ -212,27 +212,15 @@ Write-Info "Python environment ready ($pyVersion)"
 $ExtrasSuffix = ""
 if ($Extras) { $ExtrasSuffix = "[$Extras]" }
 
-$script:ConsoleCopied   = $false
 $script:ConsoleAvailable = $false
 
 function Prepare-Console {
     param([string]$RepoDir)
 
-    $consoleSrc  = Join-Path $RepoDir "console\dist"
     $consoleDest = Join-Path $RepoDir "src\copaw\console"
 
     # Already populated
     if (Test-Path (Join-Path $consoleDest "index.html")) { $script:ConsoleAvailable = $true; return }
-
-    # Copy pre-built assets if available
-    if ((Test-Path $consoleSrc) -and (Test-Path (Join-Path $consoleSrc "index.html"))) {
-        Write-Info "Copying console frontend assets..."
-        New-Item -ItemType Directory -Path $consoleDest -Force | Out-Null
-        Copy-Item -Path "$consoleSrc\*" -Destination $consoleDest -Recurse -Force
-        $script:ConsoleCopied   = $true
-        $script:ConsoleAvailable = $true
-        return
-    }
 
     # Try to build if npm is available
     $packageJson = Join-Path $RepoDir "console\package.json"
@@ -258,10 +246,7 @@ function Prepare-Console {
     } finally {
         Pop-Location
     }
-    if (Test-Path (Join-Path $consoleSrc "index.html")) {
-        New-Item -ItemType Directory -Path $consoleDest -Force | Out-Null
-        Copy-Item -Path "$consoleSrc\*" -Destination $consoleDest -Recurse -Force
-        $script:ConsoleCopied   = $true
+    if (Test-Path (Join-Path $consoleDest "index.html")) {
         $script:ConsoleAvailable = $true
         Write-Info "Console frontend built successfully"
         return
@@ -272,12 +257,7 @@ function Prepare-Console {
 
 function Cleanup-Console {
     param([string]$RepoDir)
-    if ($script:ConsoleCopied) {
-        $consoleDest = Join-Path $RepoDir "src\copaw\console"
-        if (Test-Path $consoleDest) {
-            Remove-Item -Path "$consoleDest\*" -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
+    # No cleanup needed as console build is integrated into source tree
 }
 
 $VenvCopaw = Join-Path $CopawVenv "Scripts\copaw.exe"

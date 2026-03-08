@@ -228,21 +228,10 @@ REM ──── Prepare console frontend ────────────�
 :prepare_console
 REM %~1 = RepoDir
 set "_REPO_DIR=%~1"
-set "_CONSOLE_SRC=%_REPO_DIR%\console\dist"
 set "_CONSOLE_DEST=%_REPO_DIR%\src\copaw\console"
 
 REM Already populated
 if exist "%_CONSOLE_DEST%\index.html" (
-    set "CONSOLE_AVAILABLE=1"
-    exit /b 0
-)
-
-REM Copy pre-built assets if available
-if exist "%_CONSOLE_SRC%\index.html" (
-    echo [copaw] Copying console frontend assets...
-    if not exist "%_CONSOLE_DEST%" mkdir "%_CONSOLE_DEST%"
-    xcopy /s /e /y /q "%_CONSOLE_SRC%\*" "%_CONSOLE_DEST%\" >nul
-    set "CONSOLE_COPIED=1"
     set "CONSOLE_AVAILABLE=1"
     exit /b 0
 )
@@ -277,10 +266,7 @@ if errorlevel 1 (
 )
 popd
 
-if exist "%_CONSOLE_SRC%\index.html" (
-    if not exist "%_CONSOLE_DEST%" mkdir "%_CONSOLE_DEST%"
-    xcopy /s /e /y /q "%_CONSOLE_SRC%\*" "%_CONSOLE_DEST%\" >nul
-    set "CONSOLE_COPIED=1"
+if exist "%_CONSOLE_DEST%\index.html" (
     set "CONSOLE_AVAILABLE=1"
     echo [copaw] Console frontend built successfully
     exit /b 0
@@ -292,10 +278,7 @@ exit /b 0
 REM ──── Cleanup console frontend ────────────────────────────────────────────────────────────────────────────────────────────────────
 :cleanup_console
 REM %~1 = RepoDir
-if "%CONSOLE_COPIED%"=="1" (
-    set "_CLEANUP_DEST=%~1\src\copaw\console"
-    if exist "!_CLEANUP_DEST!" rd /s /q "!_CLEANUP_DEST!" 2>nul
-)
+REM No cleanup needed as console build is integrated into source tree
 exit /b 0
 
 REM ══════════════════════════════ MAIN ═════════════════════════════════════════

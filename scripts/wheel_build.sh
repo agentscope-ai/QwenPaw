@@ -13,15 +13,14 @@ echo "[wheel_build] Building console frontend..."
 (cd "$CONSOLE_DIR" && npm ci)
 (cd "$CONSOLE_DIR" && npm run build)
 
-echo "[wheel_build] Copying console/dist/* -> src/copaw/console/..."
-rm -rf "$CONSOLE_DEST"/*
-
-mkdir -p "$CONSOLE_DEST"
-cp -R "$CONSOLE_DIR/dist/"* "$CONSOLE_DEST/"
-
 echo "[wheel_build] Building wheel + sdist..."
-python3 -m pip install --quiet build
 rm -rf dist/*
-python3 -m build --outdir dist .
+if command -v uv &>/dev/null; then
+    uv pip install --quiet build
+    uv build --out-dir dist .
+else
+    python3 -m pip install --quiet build
+    python3 -m build --outdir dist .
+fi
 
 echo "[wheel_build] Done. Wheel(s) in: $REPO_ROOT/dist/"
