@@ -253,6 +253,8 @@ class BackgroundProcessManager:
                         return False
             else:
                 # On Unix, kill the process group with SIGTERM
+                # pid is guaranteed to be set after Popen creation
+                assert bg_process.pid is not None
                 os.killpg(os.getpgid(bg_process.pid), signal.SIGTERM)
 
                 # Wait for process to terminate
