@@ -18,6 +18,30 @@ from copaw.constant import WORKING_DIR
 
 logger = logging.getLogger(__name__)
 
+# Server-like command patterns that should use background_process instead
+_SERVER_PATTERNS = [
+    "http.server",
+    "simplehttpserver",
+    "flask run",
+    "django runserver",
+    "uvicorn",
+    "gunicorn",
+    "npm run dev",
+    "npm start",
+    "yarn dev",
+    "yarn start",
+    "webpack --watch",
+    "nodemon",
+    "tsc --watch",
+    "nginx",
+    "apache",
+    "mongod",
+    "redis-server",
+    "postgres",
+    "live-server",
+    "http-server",
+]
+
 
 def _execute_subprocess_sync(
     cmd: str,
@@ -119,33 +143,11 @@ async def execute_shell_command(
     cmd = (command or "").strip()
 
     # Detect server-like commands that should use background_process instead
-    server_patterns = [
-        "http.server",
-        "simplehttpserver",
-        "flask run",
-        "django runserver",
-        "uvicorn",
-        "gunicorn",
-        "npm run dev",
-        "npm start",
-        "yarn dev",
-        "yarn start",
-        "webpack --watch",
-        "nodemon",
-        "tsc --watch",
-        "nginx",
-        "apache",
-        "mongod",
-        "redis-server",
-        "postgres",
-        "live-server",
-        "http-server",
-    ]
     cmd_lower = cmd.lower()
     # Tokenize command to detect generic 'serve' as a standalone word only
     cmd_tokens = cmd_lower.split()
     is_server_like = (
-        any(pattern in cmd_lower for pattern in server_patterns)
+        any(pattern in cmd_lower for pattern in _SERVER_PATTERNS)
         or "serve" in cmd_tokens
     )
 
@@ -176,7 +178,7 @@ async def execute_shell_command(
                         f"long-running process that exceeded the {timeout} second timeout.\n\n"
                         f"💡 This command seems to run indefinitely. "
                         f"Use start_background_process() instead:\n"
-                        f'   start_background_process(command="{cmd}")\n\n'
+                        f'   start_background_process(command="<your_command_here>")\n\n'
                         f"This will start it in the background without blocking."
                     )
         else:
@@ -212,7 +214,7 @@ async def execute_shell_command(
                         f"long-running process that exceeded the {timeout} second timeout.\n\n"
                         f"💡 This command seems to run indefinitely. "
                         f"Use start_background_process() instead:\n"
-                        f'   start_background_process(command="{cmd}")\n\n'
+                        f'   start_background_process(command="<your_command_here>")\n\n'
                         f"This will start it in the background without blocking."
                     )
                 else:

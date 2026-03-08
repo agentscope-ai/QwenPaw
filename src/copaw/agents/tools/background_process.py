@@ -73,12 +73,29 @@ class BackgroundProcessManager:
         return cls._instance
 
     def _check_duplicate(self, process_id: str) -> bool:
-        """Check if process_id already exists and is running."""
+        """Check if process_id already exists and is running.
+
+        This method polls the underlying process to detect if it has exited
+        naturally, ensuring stale status entries don't block ID reuse.
+        """
         with self._lock:
             existing = self._processes.get(process_id)
-            if existing and existing.status == ProcessStatus.RUNNING:
-                return True
-            return False
+            if not existing:
+                return False
+
+            # Refresh status by polling the process in case it has exited
+            # naturally and the cached status is stale
+            if existing.process is not None:
+                return_code = existing.process.poll()
+                if return_code is not None:
+                    # Process has finished; update status based on exit code
+                    if return_code == 0:
+                        existing.status = ProcessStatus.STOPPED
+                    else:
+                        existing.status = ProcessStatus.FAILED
+                    return False
+
+            return existing.status == ProcessStatus.RUNNING
 
     def start(
         self,
@@ -348,22 +365,36 @@ class BackgroundProcessManager:
                 if p.status in (ProcessStatus.STOPPED, ProcessStatus.FAILED)
             ]
             for process_id in to_remove:
-                # Clean up temp files
+                # Clean up temp files (best-effort)
                 proc = self._processes[process_id]
                 if proc.stdout_file and os.path.exists(proc.stdout_file):
-                    os.unlink(proc.stdout_file)
+                    try:
+                        os.unlink(proc.stdout_file)
+                    except OSError as e:
+                        logger.warning(
+                            "Failed to delete stdout file %s: %s",
+                            proc.stdout_file,
+                            e,
+                        )
                 if proc.stderr_file and os.path.exists(proc.stderr_file):
-                    os.unlink(proc.stderr_file)
+                    try:
+                        os.unlink(proc.stderr_file)
+                    except OSError as e:
+                        logger.warning(
+                            "Failed to delete stderr file %s: %s",
+                            proc.stderr_file,
+                            e,
+                        )
                 del self._processes[process_id]
             return len(to_remove)
 
     def cleanup_all(self) -> None:
-        """Stop all running processes.
+        """Stop all running processes and clean up temp files.
 
-        This is called on application exit to prevent orphaned processes.
-        Note: This method does not clear process tracking; entries remain
-        in the internal registry with their final status.
+        This is called on application exit via atexit to prevent orphaned
+        processes and accumulated temp log files.
         """
+        # Stop all running processes first
         running = self.list_running()
         for process_id in list(running.keys()):
             try:
@@ -378,6 +409,29 @@ class BackgroundProcessManager:
                     process_id,
                     e,
                 )
+
+        # Delete all temp log files and clear registry
+        with self._lock:
+            for process_id, proc in list(self._processes.items()):
+                if proc.stdout_file and os.path.exists(proc.stdout_file):
+                    try:
+                        os.unlink(proc.stdout_file)
+                    except OSError as e:
+                        logger.warning(
+                            "Failed to delete stdout file %s: %s",
+                            proc.stdout_file,
+                            e,
+                        )
+                if proc.stderr_file and os.path.exists(proc.stderr_file):
+                    try:
+                        os.unlink(proc.stderr_file)
+                    except OSError as e:
+                        logger.warning(
+                            "Failed to delete stderr file %s: %s",
+                            proc.stderr_file,
+                            e,
+                        )
+            self._processes.clear()
 
 
 # Global manager instance
