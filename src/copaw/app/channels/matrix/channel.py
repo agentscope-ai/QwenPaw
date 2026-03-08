@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from nio import AsyncClient, MatrixRoom, RoomMessageText
+from nio import AsyncClient, MatrixRoom, RoomMessageText, RoomSendError
 
 from ....config.config import MatrixConfig
 from ..base import BaseChannel, OnReplySent, ProcessHandler
@@ -188,7 +188,5 @@ class MatrixChannel(BaseChannel):
                 "body": text,
             }
         )
-        if hasattr(resp, "status_code") and resp.status_code != 200:
+        if isinstance(resp, RoomSendError):
             logger.error(f"Matrix room_send failed: {resp}")
-        elif hasattr(resp, "__class__") and "Error" in resp.__class__.__name__:
-            logger.error(f"Matrix room_send error: {resp}")
