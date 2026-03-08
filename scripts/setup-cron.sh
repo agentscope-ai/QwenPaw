@@ -52,7 +52,7 @@ fi
 echo ""
 echo -e "${YELLOW}即将添加以下定时任务:${NC}"
 echo ""
-echo "📅 自动更新检查：每周日凌晨 3 点"
+echo "📅 自动更新检查：每天凌晨 3 点"
 echo "   $auto_update_cron"
 echo ""
 

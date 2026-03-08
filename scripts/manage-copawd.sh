@@ -29,7 +29,7 @@ usage() {
     echo "  uninstall   - 卸载服务（需要 sudo）"
     echo "  update      - 更新 CoPaw 到最新版本（需要 sudo）"
     echo "  update-check- 检查是否有新版本"
-    echo "  setup-cron  - 配置定时自动更新（每周日凌晨 3 点）"
+    echo "  setup-cron  - 配置定时自动更新（每天凌晨 3 点）"
     exit 1
 }
 
@@ -45,9 +45,9 @@ install_service() {
     check_sudo "install"
     echo -e "${YELLOW}正在安装 CoPaw 服务...${NC}"
     
-    # 获取当前用户信息
-    CURRENT_USER=$(whoami)
-    CURRENT_HOME=$HOME
+    # 获取当前用户信息（使用 SUDO_USER 获取实际调用者）
+    CURRENT_USER=${SUDO_USER:-$(whoami)}
+    CURRENT_HOME=$(getent passwd "${CURRENT_USER}" | cut -d: -f6)
     
     # 复制并替换服务文件中的占位符
     sed -e "s/__USER__/${CURRENT_USER}/g" \

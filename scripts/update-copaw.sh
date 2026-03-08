@@ -45,10 +45,10 @@ check_sudo() {
 
 # 检查版本不需要 sudo
 check_version_no_sudo() {
-    # 设置 PYTHONPATH 以访问用户安装的包
-    export PYTHONPATH="$HOME/.local/lib/python3.12/site-packages:${PYTHONPATH:-}"
+    # 设置 PYTHONPATH 以访问用户安装的包（动态检测 Python 版本）
+    export PYTHONPATH="$HOME/.local/lib/$(python3 -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}")')/site-packages:${PYTHONPATH:-}"
     
-    local current=$(python3 -c "import pkg_resources; print(pkg_resources.get_distribution('copaw').version)" 2>/dev/null || echo "not_installed")
+    local current=$(python3 -c "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null || echo "not_installed")
     local latest=$(pip index versions copaw 2>/dev/null | head -1 | awk '{print $2}' | tr -d '()' || \
                    curl -s https://pypi.org/pypi/copaw/json 2>/dev/null | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4 || \
                    echo "unknown")
@@ -68,11 +68,11 @@ check_version_no_sudo() {
 
 # 获取当前版本
 get_current_version() {
-    # 设置 PYTHONPATH 以访问用户安装的包
-    export PYTHONPATH="$HOME/.local/lib/python3.12/site-packages:${PYTHONPATH:-}"
+    # 设置 PYTHONPATH 以访问用户安装的包（动态检测 Python 版本）
+    export PYTHONPATH="$HOME/.local/lib/$(python3 -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}")')/site-packages:${PYTHONPATH:-}"
     
     # 使用 Python 直接查询（更可靠）
-    local version=$(python3 -c "import pkg_resources; print(pkg_resources.get_distribution('copaw').version)" 2>/dev/null)
+    local version=$(python3 -c "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null)
     if [ -n "$version" ]; then
         echo "$version"
     else

@@ -7,8 +7,6 @@ set -e
 # 配置（使用环境变量或默认值）
 COPAW_HOME="${COPAW_HOME:-$HOME/.copaw}"
 LOG_DIR="${COPAW_HOME}/logs"
-LOG_FILE="${LOG_DIR}/copaw.log"
-PID_FILE="${COPAW_HOME}/copaw.pid"
 
 # 确保日志目录存在
 mkdir -p "$LOG_DIR"
@@ -23,9 +21,10 @@ else
     exit 1
 fi
 
-# 记录启动信息
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting CoPaw daemon..." >> "$LOG_FILE"
+# 记录启动信息（输出到 stdout，由 systemd/journald 统一管理）
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting CoPaw daemon..."
 
 # 启动 CoPaw app（FastAPI 服务）
 # 使用 exec 替换 shell 进程，确保信号正确传递
-exec "$COPAW_CMD" app >> "$LOG_FILE" 2>&1
+# 日志由 systemd/journald 统一管理
+exec "$COPAW_CMD" app
