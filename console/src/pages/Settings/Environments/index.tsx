@@ -185,13 +185,18 @@ function EnvironmentsPage() {
       cancelText: t("common.cancel"),
       onOk: async () => {
         try {
-          // Compute the remaining rows after deletion
-          const remaining = ensureLocal().filter((_, i) => !selected.has(i));
-          const dict: Record<string, string> = {};
-          for (const r of remaining) {
-            if (r.key.trim()) dict[r.key.trim()] = r.value;
+          const persistedKeysToDelete = indices
+            .map((i) => workingRows[i])
+            .filter((row) => row && !row.isNew)
+            .map((row) => row.key.trim())
+            .filter(Boolean);
+
+          if (persistedKeysToDelete.length > 0) {
+            await Promise.all(
+              persistedKeysToDelete.map((key) => api.deleteEnv(key)),
+            );
           }
-          await api.saveEnvs(dict);
+
           message.success(t("environments.deleteSuccess", { name: label }));
           setRows(null);
           setSelected(new Set());
