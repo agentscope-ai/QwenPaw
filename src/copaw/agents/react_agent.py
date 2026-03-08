@@ -552,9 +552,79 @@ class CoPawAgent(ReActAgent):
             msg = await self.command_handler.handle_command(query)
             await self.print(msg)
             return msg
+        
+        # Check for interrupt keywords (会话打断)
+        if query and self._is_interrupt_keyword(query):
+            logger.info(f"收到打断指令：{query}")
+            return await self._handle_interrupt()
 
         # Normal message processing
         return await super().reply(msg=msg, structured_model=structured_model)
+    
+    def _is_interrupt_keyword(self, query: str) -> bool:
+        """检查是否是打断关键词
+        
+        Args:
+            query: 用户输入
+            
+        Returns:
+            是否为打断指令
+        """
+        if not query:
+            return False
+        
+        # 打断关键词列表 (支持中英文)
+        interrupt_keywords = [
+            "stop",
+            "停下来",
+            "停下",
+            "停止",
+            "别做了",
+            "别继续",
+            "取消",
+            "中断",
+        ]
+        
+        query_lower = query.lower().strip()
+        
+        # 精确匹配
+        if query_lower in interrupt_keywords:
+            return True
+        
+        # 包含匹配 (针对短句)
+        if len(query_lower) < 20:
+            for keyword in interrupt_keywords:
+                if keyword in query_lower:
+                    return True
+        
+        return False
+    
+    async def _handle_interrupt(self) -> Msg:
+        """处理打断指令
+        
+        Returns:
+            打断响应消息
+        """
+        from agentscope.message import Msg
+        
+        # 创建打断响应消息
+        interrupt_msg = Msg(
+            name="assistant",
+            content="🫡 已停下！\n\n超哥，有什么需要调整的？",
+            role="assistant"
+        )
+        
+        # 如果有正在执行的任务，取消它
+        if hasattr(self, '_reply_task') and self._reply_task and not self._reply_task.done():
+            logger.info("取消当前执行的任务...")
+            try:
+                self._reply_task.cancel()
+                await asyncio.sleep(0.1)  # 给一点时间清理
+            except Exception as e:
+                logger.warning(f"取消任务时出错：{e}")
+        
+        await self.print(interrupt_msg)
+        return interrupt_msg
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
