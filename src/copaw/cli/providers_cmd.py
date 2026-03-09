@@ -36,6 +36,7 @@ def _is_configured(provider: Provider) -> bool:
         return False
     return True
 
+
 def _save_provider(manager: ProviderManager, provider_id: str) -> None:
     provider = manager.get_provider(provider_id)
     if provider is None:
