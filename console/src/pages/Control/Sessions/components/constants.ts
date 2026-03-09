@@ -11,6 +11,7 @@ export const CHANNEL_COLORS: Record<string, string> = {
   feishu: "magenta",
   qq: "orange",
   telegram: "geekblue",
+  mqtt: "gold",
   console: "green",
 } as const;
 

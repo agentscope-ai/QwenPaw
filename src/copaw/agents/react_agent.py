@@ -41,7 +41,6 @@ from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
 from ..config import load_config
 from ..constant import (
-    MEMORY_COMPACT_KEEP_RECENT,
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
@@ -263,25 +262,9 @@ class CoPawAgent(ReActAgent):
         # Register memory_search tool if enabled and available
         if self._enable_memory_manager and self.memory_manager is not None:
             # update memory manager
+            self.memory = self.memory_manager.get_in_memory_memory()
             self.memory_manager.chat_model = self.model
             self.memory_manager.formatter = self.formatter
-            memory_toolkit = Toolkit()
-            memory_toolkit.register_tool_function(
-                read_file,
-                namesake_strategy=self._namesake_strategy,
-            )
-            memory_toolkit.register_tool_function(
-                write_file,
-                namesake_strategy=self._namesake_strategy,
-            )
-            memory_toolkit.register_tool_function(
-                edit_file,
-                namesake_strategy=self._namesake_strategy,
-            )
-            self.memory_manager.toolkit = memory_toolkit
-            self.memory_manager.update_config_params()
-
-            self.memory = self.memory_manager.get_in_memory_memory()
 
             # Register memory_search as a tool function
             self.toolkit.register_tool_function(
@@ -309,8 +292,6 @@ class CoPawAgent(ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
-                memory_compact_threshold=self._memory_compact_threshold,
-                keep_recent=MEMORY_COMPACT_KEEP_RECENT,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
