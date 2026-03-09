@@ -187,7 +187,7 @@ async def safe_count_message_tokens(
     except Exception as e:
         # Fallback to character-based estimation
         text = _extract_text_from_messages_v2(messages)
-        estimated_tokens = len(text) // 4
+        estimated_tokens = len(text.encode("utf-8")) // 4
         logger.warning(
             "Failed to count tokens: %s, using estimated_tokens=%d",
             e,
@@ -220,7 +220,7 @@ def safe_count_str_tokens(text: str) -> int:
         return token_count
     except Exception as e:
         # Fallback to character-based estimation
-        estimated_tokens = len(text) // 4
+        estimated_tokens = len(text.encode("utf-8")) // 4
         logger.warning(
             "Failed to count string tokens: %s, using estimated_tokens=%d",
             e,

@@ -65,11 +65,11 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     @staticmethod
     def _get_filename_from_payload(payload: dict) -> Optional[str]:
         """Extract original filename from DingTalk payload variants."""
-        return (
-            payload.get("fileName")
-            or payload.get("file_name")
-            or payload.get("name")
-        )
+        for key in ("fileName", "file_name", "filename", "name", "title"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        return None
 
     def _fetch_download_url_and_content(
         self,
@@ -77,9 +77,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         robot_code: str,
         mapped: str,
         filename: Optional[str] = None,
+        filename_hint: Optional[str] = None,
     ) -> Optional[Any]:
         """Fetch media by download_code; return Content to append or None."""
-        hint = FILENAME_HINT_BY_MAPPED.get(mapped, DEFAULT_FILENAME_HINT)
+        hint = (filename_hint or "").strip() or FILENAME_HINT_BY_MAPPED.get(
+            mapped,
+            DEFAULT_FILENAME_HINT,
+        )
         try:
             fut = asyncio.run_coroutine_threadsafe(
                 self._download_url_fetcher(
@@ -148,6 +152,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     robot_code,
                     mapped,
                     item_filename,
+                    item_filename,
                 )
                 if part_content is not None:
                     content.append(part_content)
@@ -177,6 +182,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                         dl_code,
                         robot_code,
                         mapped,
+                        item_filename,
                         item_filename,
                     )
                     if part_content is not None:

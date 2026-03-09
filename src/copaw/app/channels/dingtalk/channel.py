@@ -1824,7 +1824,11 @@ class DingTalkChannel(BaseChannel):
                 data=data,
             )
             self._media_dir.mkdir(parents=True, exist_ok=True)
-            path = self._media_dir / f"{safe_key}_{local_filename}"
+            path = self._build_download_path(
+                local_filename=local_filename,
+                safe_key=safe_key,
+                data=data,
+            )
             path.write_bytes(data)
             return str(path)
         except Exception:
@@ -1864,6 +1868,34 @@ class DingTalkChannel(BaseChannel):
             f"{stem}{suffix}",
             fallback="file.bin",
         )
+
+    def _build_download_path(
+        self,
+        *,
+        local_filename: str,
+        safe_key: str,
+        data: bytes,
+    ) -> Path:
+        """Prefer readable filenames and add a short suffix only on clashes."""
+        candidate = self._media_dir / local_filename
+        if not candidate.exists():
+            return candidate
+        try:
+            if candidate.is_file() and candidate.read_bytes() == data:
+                return candidate
+        except Exception:
+            logger.debug(
+                "dingtalk failed to compare existing file %s",
+                candidate,
+                exc_info=True,
+            )
+        stem = Path(local_filename).stem or "file"
+        suffix = Path(local_filename).suffix
+        dedup_name = sanitize_download_filename(
+            f"{stem}_{safe_key[:8]}{suffix}",
+            fallback=f"file_{safe_key[:8]}.bin",
+        )
+        return self._media_dir / dedup_name
 
     async def _fetch_and_download_media(
         self,

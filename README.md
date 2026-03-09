@@ -72,11 +72,10 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 >
 > - **I want to run CoPaw in 3 commands**: [Quick Start](#quick-start) → open Console in browser.
 > - **I want to chat in DingTalk / Feishu / QQ**: Configure [channels](https://copaw.agentscope.io/docs/channels) in the Console.
-> - **I don’t want to install Python**: [One-line install](#one-line-install-beta-continuously-improving) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud deployment.
+> - **I don’t want to install Python**: [Script install](#script-install) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud deployment.
 
 - [News](#news)
 - [Quick Start](#quick-start)
-- [macOS Desktop app: if macOS blocks opening](#macos-desktop-app-if-macos-blocks-opening)
 - [API Key](#api-key)
 - [Local Models](#local-models)
 - [Documentation](#documentation)
@@ -92,7 +91,7 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 ## Quick Start
 
-### pip install (recommended)
+### pip install
 
 If you prefer managing Python yourself:
 
@@ -106,9 +105,9 @@ Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with 
 
 ![Console](https://img.alicdn.com/imgextra/i4/O1CN01z9VY6z1uMad7pgrCj_!!6000000006023-2-tps-3822-2064.png)
 
-### One-line install (beta, continuously improving)
+### Script install
 
-No Python required — the installer handles everything for you:
+No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
 
 **macOS / Linux:**
 
@@ -221,9 +220,35 @@ copaw uninstall --purge  # removes everything
 
 </details>
 
-### macOS Desktop app: if macOS blocks opening
+### Desktop Application (Beta)
 
-When you download the CoPaw macOS app (e.g. from [Releases](https://github.com/agentscope-ai/CoPaw/releases)) as a `.app` (inside a zip) or DMG, macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. This happens because the app is not notarized. You can still open it as follows:
+> **Beta Notice**: The desktop application is currently in Beta testing phase with the following known limitations:
+> - **Incomplete compatibility testing**: Not fully tested across all system versions and hardware configurations
+> - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
+> - **Features under development**: Some features may be unstable or missing
+
+If you're not comfortable with command-line tools, you can download and use CoPaw's desktop application without manually configuring Python environments or running commands.
+
+#### Download
+
+Download the desktop app from [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases):
+- **Windows**: `CoPaw-Setup-<version>.exe`
+- **macOS**: `CoPaw-<version>-macOS.zip` (Apple Silicon recommended)
+
+#### Features
+
+- ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
+- ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
+- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
+
+#### First Launch
+
+**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the browser window to open automatically.
+
+#### macOS: Bypass System Security Restrictions
+
+When you download the CoPaw macOS app from Releases, macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. This happens because the app is not notarized. You can still open it as follows:
 
 - **Right-click to open (recommended)**
   Right-click (or Control+click) the CoPaw app → **Open** → in the dialog click **Open** again. This tells Gatekeeper you trust the app; after that you can double-click to launch as usual.
@@ -235,6 +260,8 @@ When you download the CoPaw macOS app (e.g. from [Releases](https://github.com/a
   In Terminal run:
   `xattr -cr /Applications/CoPaw.app`
   (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
+
+For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://copaw.agentscope.io/docs/desktop).
 
 ### Using Docker
 

@@ -69,6 +69,22 @@ class TelegramConfig(BaseChannelConfig):
     show_typing: Optional[bool] = None
 
 
+class MQTTConfig(BaseChannelConfig):
+    host: str = ""
+    port: Optional[int] = None
+    transport: str = ""
+    clean_session: bool = True
+    qos: int = 2
+    username: Optional[str] = None
+    password: Optional[str] = None
+    subscribe_topic: str = ""
+    publish_topic: str = ""
+    tls_enabled: bool = False
+    tls_ca_certs: Optional[str] = None
+    tls_certfile: Optional[str] = None
+    tls_keyfile: Optional[str] = None
+
+
 class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
@@ -100,6 +116,7 @@ class ChannelConfig(BaseModel):
     feishu: FeishuConfig = FeishuConfig()
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
+    mqtt: MQTTConfig = MQTTConfig()
     console: ConsoleConfig = ConsoleConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
 
@@ -151,6 +168,32 @@ class AgentsRunningConfig(BaseModel):
             "Maximum input length (tokens) for the model context window"
         ),
     )
+    memory_compact_ratio: float = Field(
+        default=0.7,
+        ge=0.01,
+        le=0.99,
+        description=("Ratio of memory to compact when memory is full"),
+    )
+    enable_tool_result_compact: bool = Field(
+        default=False,
+        description=("Whether to compact tool result messages in memory"),
+    )
+    tool_result_compact_keep_n: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "Number of tool result messages to keep in memory when compacting"
+        ),
+    )
+    memory_compact_reserve: int = Field(
+        default=10000,
+        ge=1000,
+        description=("Number of tokens to reserve in memory for tool results"),
+    )
+
+    @property
+    def memory_compact_threshold(self) -> int:
+        return int(self.max_input_length * self.memory_compact_ratio)
 
 
 class AgentsLLMRoutingConfig(BaseModel):
@@ -319,6 +362,7 @@ ChannelConfigUnion = Union[
     FeishuConfig,
     QQConfig,
     TelegramConfig,
+    MQTTConfig,
     ConsoleConfig,
     VoiceChannelConfig,
 ]

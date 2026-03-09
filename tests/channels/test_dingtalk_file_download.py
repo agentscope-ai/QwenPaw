@@ -102,7 +102,7 @@ def test_parse_rich_content_preserves_item_filename(
             "download_code": "dl-1",
             "robot_code": "robot-1",
             "filename": "报告.pdf",
-            "filename_hint": "file.bin",
+            "filename_hint": "报告.pdf",
         },
     ]
     assert len(content) == 1
@@ -142,7 +142,7 @@ def test_parse_single_download_code_preserves_top_level_filename(
             "download_code": "dl-2",
             "robot_code": "robot-1",
             "filename": "合同.pdf",
-            "filename_hint": "file.bin",
+            "filename_hint": "合同.pdf",
         },
     ]
     assert len(content) == 1
@@ -175,9 +175,9 @@ async def test_download_media_to_local_preserves_filename_and_sanitizes_path(
 
     assert local_path is not None
     saved = Path(local_path)
-    assert saved.name == "abc123_报表_.pdf"
+    assert saved.name == "报表_.pdf"
     assert saved.read_bytes() == b"%PDF-1.4\npayload"
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["abc123_报表_.pdf"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["报表_.pdf"]
 
 
 @pytest.mark.asyncio
@@ -204,6 +204,36 @@ async def test_download_media_to_local_uses_magic_suffix_without_temp_file(
 
     assert local_path is not None
     saved = Path(local_path)
-    assert saved.name == "safe456_file.pdf"
+    assert saved.name == "file.pdf"
     assert saved.read_bytes() == b"%PDF-1.4\npayload"
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".pdf"]
+
+
+@pytest.mark.asyncio
+async def test_download_media_to_local_appends_short_hash_only_on_collision(
+    tmp_path: Path,
+) -> None:
+    channel = DingTalkChannel(
+        lambda *args, **kwargs: None,
+        True,
+        "client-id",
+        "client-secret",
+        "[BOT]",
+        media_dir=str(tmp_path),
+    )
+    channel._http = _FakeHTTPClient(
+        _FakeDownloadResponse(b"%PDF-1.4\nnew"),
+    )
+    (tmp_path / "报告.pdf").write_bytes(b"%PDF-1.4\nold")
+
+    local_path = await channel._download_media_to_local(
+        "https://example.com/file",
+        "deadbeef1234",
+        filename="报告.pdf",
+        filename_hint="file.bin",
+    )
+
+    assert local_path is not None
+    saved = Path(local_path)
+    assert saved.name == "报告_deadbeef.pdf"
+    assert saved.read_bytes() == b"%PDF-1.4\nnew"

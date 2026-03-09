@@ -312,7 +312,9 @@
     "of": "共",
     "selected": "已选",
     "variable": "变量",
-    "variables": "变量"
+    "variables": "变量",
+    "showValue": "显示值",
+    "hideValue": "隐藏值"
   },
   "models": {
     "llmConfiguration": "LLM 配置",

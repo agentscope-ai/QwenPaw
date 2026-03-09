@@ -6,6 +6,7 @@ QQ uses WebSocket for incoming events and HTTP API for replies.
 No request-reply coupling: handler enqueues Incoming, consumer processes
 and sends reply via send_c2c_message / send_channel_message /
 send_group_message.
+Rich media read (images, videos, files)
 """
 
 from __future__ import annotations
@@ -17,13 +18,19 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import aiofiles
 import aiohttp
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
     RunStatus,
     TextContent,
+    ImageContent,
+    VideoContent,
+    AudioContent,
+    FileContent,
     ContentType,
 )
 
@@ -63,6 +70,9 @@ MAX_QUICK_DISCONNECT_COUNT = 3
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+
+# Rich media paths
+_DEFAULT_MEDIA_DIR = Path("~/.copaw/media/qq").expanduser()
 
 
 class QQApiError(RuntimeError):
@@ -293,6 +303,41 @@ async def _send_group_message_async(
     )
 
 
+async def _download_qq_file(
+    *,
+    http_session: aiohttp.ClientSession,
+    file_url: str,
+    media_dir: Path,
+    filename_hint: str = "",
+) -> Optional[str]:
+    """Download a QQ file to local media_dir; return local path."""
+    try:
+        if not filename_hint:
+            logger.warning("filename is empty")
+            return None
+
+        # Sanitize filename to prevent path traversal
+        safe_filename = Path(filename_hint).name
+
+        media_dir.mkdir(parents=True, exist_ok=True)
+        local_path = media_dir / safe_filename
+        async with http_session.get(file_url) as resp:
+            if resp.status != 200:
+                logger.warning(
+                    "qq download failed: status=%s url=%s",
+                    resp.status,
+                    file_url,
+                )
+                return None
+            content = await resp.read()
+            async with aiofiles.open(str(local_path), "wb") as f:
+                await f.write(content)
+        return str(local_path)
+    except Exception:
+        logger.exception("qq download failed for url=%s", file_url)
+        return None
+
+
 class QQChannel(BaseChannel):
     """QQ Channel:
     WebSocket events -> Incoming -> process -> HTTP API reply.
@@ -312,6 +357,7 @@ class QQChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        media_dir: str = "",
     ):
         super().__init__(
             process,
@@ -325,6 +371,9 @@ class QQChannel(BaseChannel):
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
         self._markdown_enabled = markdown_enabled
+        self._media_dir = (
+            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+        )
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
@@ -444,6 +493,7 @@ class QQChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            media_dir=getattr(config, "media_dir", ""),
         )
 
     async def send(
@@ -553,13 +603,149 @@ class QQChannel(BaseChannel):
             except Exception:
                 logger.exception("send failed")
 
+    def _resolve_attachment_type(self, att_type: str, file_name: str) -> str:
+        # pylint: disable=too-many-return-statements
+        """Resolve attachment type from content_type or file extension.
+
+        Args:
+            att_type: MIME type or content type string
+            file_name: Optional filename for extension-based fallback
+
+        Returns:
+            Normalized type: "image", "video", "audio", or "file"
+        """
+        if not att_type:
+            ext = Path(file_name).suffix.lower()
+            ext_map = {
+                ".jpg": "image",
+                ".jpeg": "image",
+                ".png": "image",
+                ".gif": "image",
+                ".webp": "image",
+                ".bmp": "image",
+                ".mp4": "video",
+                ".avi": "video",
+                ".mov": "video",
+                ".mkv": "video",
+                ".webm": "video",
+                ".mpeg": "video",
+                ".mp3": "audio",
+                ".wav": "audio",
+                ".ogg": "audio",
+                ".m4a": "audio",
+                ".aac": "audio",
+                ".wma": "audio",
+            }
+            return ext_map.get(ext, "file")
+
+        if att_type in ("image", "video", "voice", "audio", "file"):
+            if att_type == "voice":
+                return "audio"
+            return att_type
+
+        mime_base = att_type.split(";")[0].strip().lower()
+        if mime_base.startswith("image/"):
+            return "image"
+        elif mime_base.startswith("video/"):
+            return "video"
+        elif mime_base.startswith("audio/"):
+            return "audio"
+        else:
+            return "file"
+
+    def _parse_qq_attachments(
+        self,
+        attachments: List[Dict[str, Any]],
+    ) -> List[OutgoingContentPart]:
+        """Parse QQ message attachments to content parts.
+
+        QQ attachment format:
+        {'content': '', 'content_type': 'image/jpeg', 'filename': 'abc.jpg',
+        'height': 128, 'size': 13588,
+          'url': '','width': 198}
+
+        Supports MIME type matching for flexible content type detection.
+        """
+        parts: List[OutgoingContentPart] = []
+        if not attachments or not self._http:
+            return parts
+
+        for att in attachments:
+            att_type = att.get("content_type", att.get("type", ""))
+            url = att.get("url", "")
+            file_name = att.get("filename", "")
+            if not url:
+                continue
+            resolved_type = self._resolve_attachment_type(att_type, file_name)
+
+            if resolved_type in ["image", "video", "audio", "file"]:
+                try:
+                    loop = self._loop
+                    if loop and loop.is_running():
+                        future = asyncio.run_coroutine_threadsafe(
+                            _download_qq_file(
+                                http_session=self._http,
+                                file_url=url,
+                                media_dir=self._media_dir,
+                                filename_hint=file_name,
+                            ),
+                            loop,
+                        )
+                        local_path = future.result(timeout=30)
+                    else:
+                        local_path = url
+                except Exception:
+                    logger.exception("failed to download attachment")
+                    local_path = None
+                if local_path:
+                    # Map resolved_type to appropriate content type
+                    if resolved_type == "image":
+                        parts.append(
+                            ImageContent(
+                                type=ContentType.IMAGE,
+                                image_url=local_path,
+                            ),
+                        )
+                    elif resolved_type == "video":
+                        parts.append(
+                            VideoContent(
+                                type=ContentType.VIDEO,
+                                video_url=local_path,
+                            ),
+                        )
+                    elif resolved_type == "audio":
+                        parts.append(
+                            AudioContent(
+                                type=ContentType.AUDIO,
+                                data=local_path,
+                            ),
+                        )
+                    elif resolved_type == "file":
+                        parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                filename=file_name,
+                                file_url=local_path,
+                            ),
+                        )
+
+        return parts
+
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
-        """Build AgentRequest from QQ native dict (runtime content_parts)."""
+        """Build AgentRequest from QQ native dict (runtime content_parts).
+
+        Parses attachments from QQ messages and converts them to
+        ImageContent, VideoContent, AudioContent, FileContent.
+        """
         payload = native_payload if isinstance(native_payload, dict) else {}
         channel_id = payload.get("channel_id") or self.channel
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
+        attachments = meta.get("attachments") or []
+        if attachments:
+            media_parts = self._parse_qq_attachments(attachments)
+            content_parts = list(content_parts) + media_parts
         session_id = self.resolve_session_id(sender_id, meta)
         return self.build_agent_request_from_user_content(
             channel_id=channel_id,
@@ -626,7 +812,7 @@ class QQChannel(BaseChannel):
                 err_text = self.bot_prefix + f"Error: {err_msg}"
                 await self.send_content_parts(
                     to_handle,
-                    [{"type": "text", "text": err_text}],
+                    [TextContent(type=ContentType.TEXT, text=err_text)],
                     send_meta,
                 )
             elif accumulated_parts:
@@ -639,12 +825,12 @@ class QQChannel(BaseChannel):
                 await self.send_content_parts(
                     to_handle,
                     [
-                        {
-                            "type": "text",
-                            "text": self.bot_prefix
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=self.bot_prefix
                             + "An error occurred while processing your "
                             "request.",
-                        },
+                        ),
                     ],
                     send_meta,
                 )
@@ -661,7 +847,12 @@ class QQChannel(BaseChannel):
                 fallback_handle = getattr(request, "user_id", "")
                 await self.send_content_parts(
                     fallback_handle,
-                    [{"type": "text", "text": f"Error: {err_msg}"}],
+                    [
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=f"Error: {err_msg}",
+                        ),
+                    ],
                     getattr(request, "channel_meta", None) or {},
                 )
             except Exception:
