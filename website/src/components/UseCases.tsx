@@ -31,43 +31,69 @@ const CATEGORIES: Array<{
 
 interface UseCasesProps {
   lang: Lang;
-  delay?: number;
 }
 
-export function UseCases({ lang, delay = 0 }: UseCasesProps) {
+export function UseCases({ lang }: UseCasesProps) {
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay }}
+      initial={{ opacity: 0, y: 40 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="usecases-section"
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
-        padding: "var(--space-6) var(--space-4)",
+        padding: "var(--space-8) var(--space-4)",
       }}
     >
-      <h2
+      <motion.h2
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5, delay: 0.1 }}
         style={{
-          margin: "0 0 var(--space-5)",
-          fontSize: "1.375rem",
+          margin: "0 0 var(--space-6)",
+          fontSize: "2rem",
           fontWeight: 600,
           color: "var(--text)",
           textAlign: "center",
         }}
       >
         {t(lang, "usecases.title")}
-      </h2>
+      </motion.h2>
       <div className="usecases-grid">
-        {CATEGORIES.map(({ key, icon: Icon, items }) => (
-          <div key={key} className="usecases-card">
+        {CATEGORIES.map(({ key, icon: Icon, items }, index) => (
+          <motion.div
+            key={key}
+            className="usecases-card"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.1 + index * 0.08 }}
+            whileHover={{ y: -4, transition: { duration: 0.2 } }}
+          >
             <div className="usecases-card-header">
-              <Icon
-                size={22}
-                strokeWidth={1.5}
-                style={{ flexShrink: 0, color: "var(--text)" }}
-                aria-hidden
-              />
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "2.5rem",
+                  height: "2.5rem",
+                  background:
+                    "linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)",
+                  borderRadius: "0.625rem",
+                  flexShrink: 0,
+                }}
+              >
+                <Icon
+                  size={20}
+                  strokeWidth={1.5}
+                  style={{ color: "#667eea" }}
+                  aria-hidden
+                />
+              </div>
               <span className="usecases-card-title">
                 {t(lang, `usecases.category.${key}`)}
               </span>
@@ -77,7 +103,7 @@ export function UseCases({ lang, delay = 0 }: UseCasesProps) {
                 <li key={i}>{t(lang, `usecases.${key}.${i}`)}</li>
               ))}
             </ul>
-          </div>
+          </motion.div>
         ))}
       </div>
       {t(lang, "usecases.sub") ? (

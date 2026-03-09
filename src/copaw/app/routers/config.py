@@ -13,7 +13,7 @@ from ...config import (
     get_available_channels,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
-from ...config.config import HeartbeatConfig
+from ...config.config import AgentsLLMRoutingConfig, HeartbeatConfig
 
 from .schemas_config import HeartbeatBody
 
@@ -128,7 +128,7 @@ async def put_channel(
         description="Name of the channel to update",
         min_length=1,
     ),
-    single_channel_config: ChannelConfigUnion = Body(
+    single_channel_config: dict = Body(
         ...,
         description="Updated channel configuration",
     ),
@@ -142,10 +142,47 @@ async def put_channel(
         )
     config = load_config()
 
+    # Create the appropriate config object based on channel_name
+    if channel_name == "telegram":
+        from ...config.config import TelegramConfig
+
+        channel_config = TelegramConfig(**single_channel_config)
+    elif channel_name == "dingtalk":
+        from ...config.config import DingTalkConfig
+
+        channel_config = DingTalkConfig(**single_channel_config)
+    elif channel_name == "discord":
+        from ...config.config import DiscordConfig
+
+        channel_config = DiscordConfig(**single_channel_config)
+    elif channel_name == "feishu":
+        from ...config.config import FeishuConfig
+
+        channel_config = FeishuConfig(**single_channel_config)
+    elif channel_name == "qq":
+        from ...config.config import QQConfig
+
+        channel_config = QQConfig(**single_channel_config)
+    elif channel_name == "imessage":
+        from ...config.config import IMessageChannelConfig
+
+        channel_config = IMessageChannelConfig(**single_channel_config)
+    elif channel_name == "console":
+        from ...config.config import ConsoleConfig
+
+        channel_config = ConsoleConfig(**single_channel_config)
+    elif channel_name == "voice":
+        from ...config.config import VoiceChannelConfig
+
+        channel_config = VoiceChannelConfig(**single_channel_config)
+    else:
+        # For custom channels, just use the dict
+        channel_config = single_channel_config
+
     # Allow setting extra (plugin) channel config
-    setattr(config.channels, channel_name, single_channel_config)
+    setattr(config.channels, channel_name, channel_config)
     save_config(config)
-    return single_channel_config
+    return channel_config
 
 
 @router.get(
@@ -184,3 +221,27 @@ async def put_heartbeat(
         await cron_manager.reschedule_heartbeat()
 
     return hb.model_dump(mode="json", by_alias=True)
+
+
+@router.get(
+    "/agents/llm-routing",
+    response_model=AgentsLLMRoutingConfig,
+    summary="Get agent LLM routing settings",
+)
+async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
+    config = load_config()
+    return config.agents.llm_routing
+
+
+@router.put(
+    "/agents/llm-routing",
+    response_model=AgentsLLMRoutingConfig,
+    summary="Update agent LLM routing settings",
+)
+async def put_agents_llm_routing(
+    body: AgentsLLMRoutingConfig = Body(...),
+) -> AgentsLLMRoutingConfig:
+    config = load_config()
+    config.agents.llm_routing = body
+    save_config(config)
+    return body

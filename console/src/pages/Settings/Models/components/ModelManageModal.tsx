@@ -768,6 +768,10 @@ export function ModelManageModal({
   }
 
   // --- Remote provider ---
+  const all_models = [
+    ...(provider.models || []),
+    ...(provider.extra_models || []),
+  ];
   return (
     <Modal
       title={t("models.manageModelsTitle", { provider: provider.name })}
@@ -779,10 +783,10 @@ export function ModelManageModal({
     >
       {/* Model list */}
       <div className={styles.modelList}>
-        {provider.models.length === 0 ? (
+        {all_models.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          provider.models.map((m) => {
+          all_models.map((m) => {
             const isDeletable = extraModelIds.has(m.id);
             return (
               <div key={m.id} className={styles.modelListItem}>

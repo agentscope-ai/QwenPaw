@@ -59,8 +59,10 @@ copaw app --log-level debug           # 详细日志
 
 若未构建前端，根路径会返回类似 `{"message": "CoPaw Web Console is not available."}` 的提示信息（实际文案可能调整），API 仍可正常使用。
 
-**构建方式：** 在项目 `console/` 目录下执行 `npm ci && npm run build`，产物在
-`src/copaw/console/`。Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
+**构建方式：** 在项目 `console/` 目录下执行 `npm ci && npm run build`，
+然后将构建产物复制到包目录：
+`mkdir -p src/copaw/console && cp -R console/dist/. src/copaw/console/`。
+Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 
 ### copaw daemon
 

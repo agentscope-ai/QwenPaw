@@ -17,11 +17,11 @@ interface ProviderConfigModalProps {
   provider: {
     id: string;
     name: string;
-    current_api_key?: string;
+    api_key?: string;
     api_key_prefix?: string;
-    current_base_url?: string;
+    base_url?: string;
     is_custom: boolean;
-    needs_base_url: boolean;
+    freeze_url: boolean;
     chat_model: string;
   };
   activeModels: any;
@@ -43,7 +43,7 @@ export function ProviderConfigModal({
   const [formDirty, setFormDirty] = useState(false);
   const [form] = Form.useForm<ProviderConfigRequest>();
   const selectedChatModel = Form.useWatch("chat_model", form);
-  const canEditBaseUrl = provider.needs_base_url || provider.id === "ollama";
+  const canEditBaseUrl = !provider.freeze_url;
 
   const effectiveChatModel = useMemo(() => {
     if (!provider.is_custom) {
@@ -52,25 +52,15 @@ export function ProviderConfigModal({
     return selectedChatModel || provider.chat_model || "OpenAIChatModel";
   }, [provider.chat_model, provider.is_custom, selectedChatModel]);
 
-  const apiKeyExtra = useMemo(() => {
-    if (provider.current_api_key) {
-      return t("models.currentKey", { key: provider.current_api_key });
-    }
-    if (provider.api_key_prefix) {
-      return t("models.startsWith", { prefix: provider.api_key_prefix });
-    }
-    return t("models.optionalSelfHosted");
-  }, [provider.current_api_key, provider.api_key_prefix, t]);
-
   const apiKeyPlaceholder = useMemo(() => {
-    if (provider.current_api_key) {
+    if (provider.api_key) {
       return t("models.leaveBlankKeep");
     }
     if (provider.api_key_prefix) {
       return t("models.enterApiKey", { prefix: provider.api_key_prefix });
     }
     return t("models.enterApiKeyOptional");
-  }, [provider.current_api_key, provider.api_key_prefix, t]);
+  }, [provider.api_key, provider.api_key_prefix, t]);
 
   const baseUrlExtra = useMemo(() => {
     if (!canEditBaseUrl) {
@@ -123,7 +113,7 @@ export function ProviderConfigModal({
     if (open) {
       form.setFieldsValue({
         api_key: undefined,
-        base_url: provider.current_base_url || undefined,
+        base_url: provider.base_url || undefined,
         chat_model: provider.chat_model || "OpenAIChatModel",
       });
       setFormDirty(false);
@@ -145,7 +135,10 @@ export function ProviderConfigModal({
 
       if (!result.success) {
         message.error(result.message || t("models.testConnectionFailed"));
-        return;
+        if (!provider.is_custom) {
+          // For built-in providers, we want to enforce valid config before saving
+          return;
+        }
       }
 
       await api.configureProvider(provider.id, values);
@@ -265,7 +258,7 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.current_api_key && provider.id !== "ollama" && (
+            {provider.api_key && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
@@ -298,7 +291,7 @@ export function ProviderConfigModal({
         form={form}
         layout="vertical"
         initialValues={{
-          base_url: provider.current_base_url || undefined,
+          base_url: provider.base_url || undefined,
           chat_model: provider.chat_model || "OpenAIChatModel",
         }}
         onValuesChange={() => setFormDirty(true)}
@@ -337,7 +330,7 @@ export function ProviderConfigModal({
           rules={
             canEditBaseUrl
               ? [
-                  ...(provider.needs_base_url
+                  ...(!provider.freeze_url
                     ? [
                         {
                           required: true,
@@ -378,7 +371,6 @@ export function ProviderConfigModal({
               },
             },
           ]}
-          extra={apiKeyExtra}
         >
           <Input.Password placeholder={apiKeyPlaceholder} />
         </Form.Item>

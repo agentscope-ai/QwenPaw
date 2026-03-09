@@ -248,6 +248,8 @@
     "allowFrom": "Allowlist Users",
     "allowFromTooltip": "List of user IDs allowed to interact with the bot (format: nickname#last4, e.g. John#1234)",
     "allowFromPlaceholder": "Enter user ID and press Enter to add",
+    "denyMessage": "Access Denied Message",
+    "denyMessageTooltip": "Custom message shown to users when access is denied",
     "twilioAccountSid": "Twilio Account SID",
     "twilioAuthToken": "Twilio Auth Token",
     "phoneNumber": "Phone Number",
@@ -301,6 +303,8 @@
     "duplicateKey": "Duplicate key",
     "saveSuccess": "Environment variables saved",
     "saveFailed": "Failed to save",
+    "deleteSuccess": "\"{{name}}\" deleted",
+    "deleteFailed": "Failed to delete",
     "noVariables": "No environment variables configured yet.",
     "addVariable": "Add Variable",
     "loading": "Loading…",
@@ -308,7 +312,9 @@
     "of": "of",
     "selected": "selected",
     "variable": "variable",
-    "variables": "variables"
+    "variables": "variables",
+    "showValue": "Show value",
+    "hideValue": "Hide value"
   },
   "models": {
     "llmConfiguration": "LLM Configuration",

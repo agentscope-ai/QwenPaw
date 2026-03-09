@@ -138,6 +138,8 @@ function SessionsPage() {
   });
 
   const rowSelection = {
+    fixed: true,
+    columnWidth: 50,
     selectedRowKeys,
     onChange: (newSelectedRowKeys: React.Key[]) => {
       setSelectedRowKeys(newSelectedRowKeys);

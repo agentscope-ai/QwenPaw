@@ -12,8 +12,8 @@ interface ModelsSectionProps {
     name: string;
     models?: Array<{ id: string; name: string }>;
     extra_models?: Array<{ id: string; name: string }>;
-    current_base_url?: string;
-    current_api_key?: string;
+    base_url?: string;
+    api_key?: string;
     is_custom: boolean;
     is_local?: boolean;
   }>;
@@ -46,12 +46,13 @@ export function ModelsSection({
   const eligible = useMemo(
     () =>
       providers.filter((p) => {
-        const hasModels = (p.models?.length ?? 0) > 0;
+        const hasModels =
+          (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
         if (!hasModels) return false;
-        if (p.id === "ollama") return !!p.current_base_url;
         if (p.is_local) return true;
-        if (p.is_custom) return !!p.current_base_url;
-        return !!p.current_api_key;
+        if (p.id === "ollama") return !!p.base_url;
+        if (p.is_custom) return !!p.base_url;
+        return !!p.api_key;
       }),
     [providers],
   );
@@ -65,7 +66,10 @@ export function ModelsSection({
   }, [currentSlot?.provider_id, currentSlot?.model]);
 
   const chosenProvider = providers.find((p) => p.id === selectedProviderId);
-  const modelOptions = chosenProvider?.models ?? [];
+  const modelOptions = [
+    ...(chosenProvider?.models ?? []),
+    ...(chosenProvider?.extra_models ?? []),
+  ];
   const hasModels = modelOptions.length > 0;
 
   const handleProviderChange = (pid: string) => {

@@ -92,6 +92,35 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 
 升级后重启服务 copaw app。`,
 
+  ru: `### Как обновить CoPaw
+
+Чтобы обновить CoPaw, выберите способ в зависимости от типа установки:
+
+1. Если вы устанавливали через однострочный скрипт, повторно запустите установщик для обновления.
+
+2. Если устанавливали через pip, выполните:
+
+\`\`\`
+pip install --upgrade copaw
+\`\`\`
+
+3. Если устанавливали из исходников, получите последние изменения и переустановите:
+
+\`\`\`
+cd CoPaw
+git pull origin main
+pip install -e .
+\`\`\`
+
+4. Если используете Docker, загрузите новый образ и перезапустите контейнер:
+
+\`\`\`
+docker pull agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+\`\`\`
+
+После обновления перезапустите сервис с помощью \`copaw app\`.`,
+
   en: `### How to update CoPaw
 
 To update CoPaw, use the method matching your installation type:
@@ -217,16 +246,23 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const handleOpenUpdateModal = () => {
     setUpdateMarkdown("");
     setUpdateModalOpen(true);
-    const lang = i18n.language?.startsWith("zh") ? "zh" : "en";
-    const url = `https://copaw.agentscope.io/docs/faq.${lang}.md`;
+    const lang = i18n.language?.startsWith("zh")
+      ? "zh"
+      : i18n.language?.startsWith("ru")
+      ? "ru"
+      : "en";
+    const faqLang = lang === "zh" ? "zh" : "en";
+    const url = `https://copaw.agentscope.io/docs/faq.${faqLang}.md`;
     fetch(url, { cache: "no-cache" })
       .then((res) => (res.ok ? res.text() : Promise.reject()))
       .then((text) => {
         const zhPattern = /###\s*CoPaw如何更新[\s\S]*?(?=\n###|$)/;
         const enPattern = /###\s*How to update CoPaw[\s\S]*?(?=\n###|$)/;
-        const match = text.match(lang === "zh" ? zhPattern : enPattern);
+        const match = text.match(faqLang === "zh" ? zhPattern : enPattern);
         setUpdateMarkdown(
-          match ? match[0].trim() : UPDATE_MD[lang] ?? UPDATE_MD.en,
+          match && lang !== "ru"
+            ? match[0].trim()
+            : UPDATE_MD[lang] ?? UPDATE_MD.en,
         );
       })
       .catch(() => {

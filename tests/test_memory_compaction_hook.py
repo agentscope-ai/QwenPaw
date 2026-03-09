@@ -124,12 +124,22 @@ async def test_compaction_triggers_on_total_context_budget(
         "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
         _fake_safe_count_str_tokens,
     )
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(
+                running=SimpleNamespace(memory_compact_threshold=950),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.MEMORY_COMPACT_KEEP_RECENT",
+        1,
+    )
 
     memory_manager = FakeMemoryManager()
     hook = MemoryCompactionHook(
         memory_manager=memory_manager,
-        memory_compact_threshold=950,
-        keep_recent=1,
     )
 
     # message_tokens = 950 (at threshold),
@@ -164,12 +174,22 @@ async def test_compaction_not_triggered_when_total_under_threshold(
         "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
         _fake_safe_count_str_tokens,
     )
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(
+                running=SimpleNamespace(memory_compact_threshold=950),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.MEMORY_COMPACT_KEEP_RECENT",
+        1,
+    )
 
     memory_manager = FakeMemoryManager()
     hook = MemoryCompactionHook(
         memory_manager=memory_manager,
-        memory_compact_threshold=1000,
-        keep_recent=1,
     )
 
     # message_tokens = 800
