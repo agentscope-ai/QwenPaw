@@ -312,7 +312,9 @@
     "of": "из",
     "selected": "выбрано",
     "variable": "переменная",
-    "variables": "переменных"
+    "variables": "переменных",
+    "showValue": "Показать значение",
+    "hideValue": "Скрыть значение"
   },
   "models": {
     "llmConfiguration": "Конфигурация LLM",

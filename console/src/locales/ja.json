@@ -310,7 +310,9 @@
     "of": "/",
     "selected": "選択中",
     "variable": "変数",
-    "variables": "変数"
+    "variables": "変数",
+    "showValue": "値を表示",
+    "hideValue": "値を非表示"
   },
   "models": {
     "llmConfiguration": "LLM設定",
