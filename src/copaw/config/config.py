@@ -151,6 +151,16 @@ class AgentsRunningConfig(BaseModel):
             "Maximum input length (tokens) for the model context window"
         ),
     )
+    llm_retries: int = Field(
+        default=3,
+        ge=0,
+        description="Number of retry attempts for LLM reasoning calls.",
+    )
+    llm_retry_delay: float = Field(
+        default=1.0,
+        ge=0,
+        description="Delay in seconds between LLM retry attempts.",
+    )
 
 
 class AgentsLLMRoutingConfig(BaseModel):
@@ -222,6 +232,8 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    timeout: float = 10.0
+    retries: int = 3
 
     @model_validator(mode="before")
     @classmethod

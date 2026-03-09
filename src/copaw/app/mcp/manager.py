@@ -48,7 +48,11 @@ class MCPClientManager:
                 continue
 
             try:
-                await self._add_client(key, client_config)
+                await self._add_client(
+                    key,
+                    client_config,
+                    timeout=client_config.timeout,
+                )
                 logger.debug(f"MCP client '{key}' initialized successfully")
             except BaseException as e:
                 if isinstance(e, (KeyboardInterrupt, SystemExit)):
@@ -93,6 +97,7 @@ class MCPClientManager:
         # 1. Create and connect new client outside lock (may be slow)
         logger.debug(f"Connecting new MCP client: {key}")
         new_client = self._build_client(client_config)
+        timeout = client_config.timeout
 
         try:
             # Add timeout to prevent indefinite blocking
@@ -196,6 +201,8 @@ class MCPClientManager:
             "args": list(client_config.args),
             "env": dict(client_config.env),
             "cwd": client_config.cwd or None,
+            "timeout": client_config.timeout,
+            "retries": client_config.retries,
         }
 
         if client_config.transport == "stdio":

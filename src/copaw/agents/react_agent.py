@@ -7,6 +7,7 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
+import ssl
 from typing import Any, List, Literal, Optional, Type
 
 from agentscope.agent import ReActAgent
@@ -339,7 +340,7 @@ class CoPawAgent(ReActAgent):
         self,
         namesake_strategy: NamesakeStrategy = "skip",
     ) -> None:
-        """Register MCP clients on this agent's toolkit after construction.
+        """Register MCP clients on this agent's toolkit with retries.
 
         Args:
             namesake_strategy: Strategy to handle namesake tool functions.
@@ -347,58 +348,89 @@ class CoPawAgent(ReActAgent):
                 (default: "skip")
         """
         for i, client in enumerate(self._mcp_clients):
-            client_name = getattr(client, "name", repr(client))
-            try:
-                await self.toolkit.register_mcp_client(
-                    client,
-                    namesake_strategy=namesake_strategy,
-                )
-            except (ClosedResourceError, asyncio.CancelledError) as error:
-                if self._should_propagate_cancelled_error(error):
-                    raise
-                logger.warning(
-                    "MCP client '%s' session interrupted while listing tools; "
-                    "trying recovery",
-                    client_name,
-                )
-                recovered_client = await self._recover_mcp_client(client)
-                if recovered_client is not None:
-                    self._mcp_clients[i] = recovered_client
-                    try:
-                        await self.toolkit.register_mcp_client(
-                            recovered_client,
-                            namesake_strategy=namesake_strategy,
-                        )
-                        continue
-                    except asyncio.CancelledError as recover_error:
-                        if self._should_propagate_cancelled_error(
-                            recover_error,
-                        ):
-                            raise
-                        logger.warning(
-                            "MCP client '%s' registration cancelled after "
-                            "recovery, skipping",
+            client_name = getattr(client, "name", f"Client#{i}")
+            rebuild_info = getattr(client, "_copaw_rebuild_info", {})
+            max_retries = rebuild_info.get("retries", 3)
+            base_delay = 1.0
+
+            registered = False
+            for attempt in range(max_retries + 1):
+                try:
+                    await self.toolkit.register_mcp_client(
+                        client,
+                        namesake_strategy=namesake_strategy,
+                    )
+                    registered = True
+                    if attempt > 0:
+                        logger.info(
+                            "MCP client '%s' registered successfully on "
+                            "attempt %d",
                             client_name,
+                            attempt + 1,
                         )
-                    except Exception as e:  # pylint: disable=broad-except
+                    break
+                except (ClosedResourceError, asyncio.CancelledError) as error:
+                    if self._should_propagate_cancelled_error(error):
+                        raise
+                    logger.warning(
+                        "MCP client '%s' session interrupted; trying recovery "
+                        "(attempt %d/%d)",
+                        client_name,
+                        attempt + 1,
+                        max_retries + 1,
+                    )
+                    client = await self._recover_mcp_client(client)
+                    if client is not None:
+                        self._mcp_clients[i] = client
+                    else:
+                        break  # Recovery failed
+                except Exception as e:  # pylint: disable=broad-except
+                    err_msg = str(e).lower()
+                    is_transient = any(
+                        term in err_msg
+                        for term in [
+                            "timeout",
+                            "fetch failed",
+                            "connection",
+                            "reset",
+                            "refused",
+                        ]
+                    )
+
+                    if is_transient and attempt < max_retries:
+                        delay = base_delay * (2**attempt)
                         logger.warning(
-                            "MCP client '%s' still unavailable after "
-                            "recovery, skipping: %s",
+                            "Transient error registering MCP client '%s': %s. "
+                            "Retrying in %.1fs... (attempt %d/%d)",
                             client_name,
                             e,
+                            delay,
+                            attempt + 1,
+                            max_retries + 1,
                         )
-                else:
+                        await asyncio.sleep(delay)
+                        # Try to recover/reconnect before next attempt
+                        recovered = await self._recover_mcp_client(client)
+                        if recovered:
+                            client = recovered
+                            self._mcp_clients[i] = client
+                        continue
+
                     logger.warning(
-                        "MCP client '%s' recovery failed, skipping",
+                        "Registration of MCP client '%s' failed after %d "
+                        "attempts: %s",
                         client_name,
+                        attempt + 1,
+                        e,
                     )
-            except Exception as e:  # pylint: disable=broad-except
-                logger.exception(
-                    "Unexpected error registering MCP client '%s': %s",
+                    break
+
+            if not registered:
+                logger.warning(
+                    "MCP client '%s' is unavailable and will be skipped for "
+                    "this query.",
                     client_name,
-                    e,
                 )
-                raise
 
     async def _recover_mcp_client(self, client: Any) -> Any | None:
         """Recover MCP client from broken session and return healthy client."""
@@ -515,13 +547,56 @@ class CoPawAgent(ReActAgent):
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Ensure a stable default tool-choice behavior across providers."""
+        """Stable default tool-choice behavior with retries."""
         tool_choice = normalize_reasoning_tool_choice(
             tool_choice=tool_choice,
             has_tools=bool(self.toolkit.get_json_schemas()),
         )
 
-        return await super()._reasoning(tool_choice=tool_choice)
+        config = load_config()
+        retries = config.agents.running.llm_retries
+        delay = config.agents.running.llm_retry_delay
+
+        for attempt in range(retries + 1):
+            try:
+                return await super()._reasoning(tool_choice=tool_choice)
+            except (ssl.SSLError, asyncio.TimeoutError) as e:
+                if attempt < retries:
+                    logger.warning(
+                        "LLM reasoning failed (attempt %d/%d): %s. "
+                        "Retrying in %.1fs...",
+                        attempt + 1,
+                        retries + 1,
+                        e,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(
+                    "LLM reasoning failed after %d retries: %s",
+                    retries,
+                    e,
+                )
+                raise
+            except Exception as e:
+                # Catch broad connection errors from OpenAI or other providers
+                err_str = str(e).lower()
+                is_transient = any(
+                    x in err_str
+                    for x in ["timeout", "connection", "fetch failed", "ssl"]
+                )
+                if is_transient and attempt < retries:
+                    logger.warning(
+                        "LLM reasoning transient error (attempt %d/%d): %s. "
+                        "Retrying in %.1fs...",
+                        attempt + 1,
+                        retries + 1,
+                        e,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     async def reply(
         self,
