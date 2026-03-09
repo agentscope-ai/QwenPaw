@@ -323,7 +323,7 @@ copaw app # start the server
 | [Models](https://copaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
 | [Channels](https://copaw.agentscope.io/docs/channels)                  | DingTalk, Feishu, QQ, Discord, iMessage, and more |
 | [Skills](https://copaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
-| [MCP](https://copaw.agentscope.io/docs/skills)                        | Manage MCP clients                               |
+| [MCP](https://copaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Memory](https://copaw.agentscope.io/docs/memory)                     | Context and long-term memory                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |

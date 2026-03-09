@@ -307,7 +307,7 @@ copaw app    # サーバーを起動
 | [モデル](https://copaw.agentscope.io/docs/models)                         | クラウド・ローカル・カスタムプロバイダーの設定       |
 | [チャネル](https://copaw.agentscope.io/docs/channels)                      | DingTalk、Feishu、QQ、Discord、iMessageなど         |
 | [スキル](https://copaw.agentscope.io/docs/skills)                          | 機能の拡張とカスタマイズ                             |
-| [MCP](https://copaw.agentscope.io/docs/skills)                             | MCPクライアントの管理                               |
+| [MCP](https://copaw.agentscope.io/docs/mcp)                                | MCPクライアントの管理                               |
 | [メモリ](https://copaw.agentscope.io/docs/memory)                          | コンテキストと長期記憶                              |
 | [魔法コマンド](https://copaw.agentscope.io/docs/commands)                 | AIの応答を待たずに会話状態を制御                     |
 | [ハートビート](https://copaw.agentscope.io/docs/heartbeat)                 | スケジュールされたチェックインとダイジェスト        |
