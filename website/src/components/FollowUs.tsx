@@ -3,7 +3,6 @@ import { t, type Lang } from "../i18n";
 
 interface FollowUsProps {
   lang: Lang;
-  delay?: number;
 }
 
 const links = [
@@ -21,12 +20,13 @@ const links = [
   },
 ] as const;
 
-export function FollowUs({ lang, delay = 0 }: FollowUsProps) {
+export function FollowUs({ lang }: FollowUsProps) {
   return (
     <motion.section
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay }}
+      initial={{ opacity: 0, y: 40 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
@@ -34,7 +34,11 @@ export function FollowUs({ lang, delay = 0 }: FollowUsProps) {
         textAlign: "center",
       }}
     >
-      <h2
+      <motion.h2
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5, delay: 0.1 }}
         style={{
           margin: "0 0 var(--space-3)",
           fontSize: "2rem",
@@ -43,15 +47,20 @@ export function FollowUs({ lang, delay = 0 }: FollowUsProps) {
         }}
       >
         {t(lang, "follow.title")}
-      </h2>
-      <div
+      </motion.h2>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        whileInView={{ opacity: 1, scale: 1 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5, delay: 0.2 }}
         style={{
           maxWidth: "32rem",
           margin: "0 auto",
-          padding: "var(--space-4)",
+          padding: "var(--space-5)",
           background: "var(--surface)",
           border: "1px solid var(--border)",
           borderRadius: "0.75rem",
+          boxShadow: "0 4px 16px rgba(0, 0, 0, 0.06)",
         }}
       >
         <p
@@ -102,7 +111,7 @@ export function FollowUs({ lang, delay = 0 }: FollowUsProps) {
             </div>
           ))}
         </div>
-      </div>
+      </motion.div>
     </motion.section>
   );
 }

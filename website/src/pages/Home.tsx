@@ -36,13 +36,11 @@ export function Home({ config, lang, onLangClick }: HomeProps) {
           docsPath={config.docsPath}
         />
         <QuickStart config={config} lang={lang} />
-        <Features lang={lang} delay={0.35} />
-        <UseCases lang={lang} delay={0.4} />
-        {config.showTestimonials !== false && (
-          <Testimonials lang={lang} delay={0.5} />
-        )}
-        <FollowUs lang={lang} delay={0.8} />
-        <BrandStory lang={lang} delay={0.9} />
+        <Features lang={lang} />
+        <UseCases lang={lang} />
+        {config.showTestimonials !== false && <Testimonials lang={lang} />}
+        <FollowUs lang={lang} />
+        <BrandStory lang={lang} />
       </main>
       <Footer lang={lang} />
     </>

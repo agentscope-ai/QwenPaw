@@ -118,11 +118,17 @@ button {
 .usecases-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: var(--space-4);
+  border-radius: 0.75rem;
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease;
+}
+
+.usecases-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 }
 
 .usecases-card-header {
@@ -132,7 +138,7 @@ button {
 }
 
 .usecases-card-title {
-  font-size: 1rem;
+  font-size: 1.0625rem;
   font-weight: 600;
   color: var(--text);
 }
@@ -147,22 +153,22 @@ button {
 }
 
 .usecases-list li {
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.9375rem;
+  line-height: 1.6;
   color: var(--text-muted);
-  padding-left: var(--space-3);
+  padding-left: var(--space-4);
   position: relative;
 }
 
 .usecases-list li::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 0.5em;
-  width: 3px;
-  height: 3px;
+  left: var(--space-1);
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--logo-paw);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .usecases-sub {
