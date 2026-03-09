@@ -884,27 +884,18 @@ class FeishuChannel(BaseChannel):
                 return
 
             # Build a compatible data structure for _on_message
-            # Create a simple namespace-like object
-            class SimpleNamespace:
-                def __init__(self, **kwargs):
-                    for key, value in kwargs.items():
-                        if isinstance(value, dict):
-                            setattr(self, key, SimpleNamespace(**value))
-                        else:
-                            setattr(self, key, value)
-
             # Convert webhook format to internal format
-            event_obj = SimpleNamespace(
-                message=SimpleNamespace(
+            event_obj = types.SimpleNamespace(
+                message=types.SimpleNamespace(
                     message_id=message.get("message_id", ""),
                     chat_id=message.get("chat_id", ""),
                     chat_type=message.get("chat_type", "p2p"),
                     message_type=message.get("message_type", "text"),
                     content=message.get("content", ""),
                 ),
-                sender=SimpleNamespace(
+                sender=types.SimpleNamespace(
                     sender_type=sender.get("sender_type", ""),
-                    sender_id=SimpleNamespace(
+                    sender_id=types.SimpleNamespace(
                         open_id=sender.get("sender_id", {}).get("open_id", ""),
                     ),
                     name=sender.get("name", ""),

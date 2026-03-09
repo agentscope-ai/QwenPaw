@@ -23,16 +23,20 @@ Security:
 # flake8: noqa: E501
 # pylint: disable=line-too-long,too-many-return-statements,too-many-branches
 import base64
+import logging
 import os
 import tempfile
 import asyncio
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 import httpx
 
 from agentscope.message import TextBlock, ImageBlock, AudioBlock, VideoBlock
 from agentscope.tool import ToolResponse
+
+logger = logging.getLogger(__name__)
 
 
 # Supported media formats and their MIME types
@@ -134,9 +138,9 @@ def _check_special_format(ext: str, header: bytes) -> bool:
     if ext in (".mp4", ".mov", ".m4a"):
         return b"ftyp" in header[4:12]
     if ext == ".wav":
-        return header[0:4] == b"RIFF" and b"WAVE" in header
+        return header[0:4] == b"RIFF" and header[8:12] == b"WAVE"
     if ext == ".avi":
-        return header[0:4] == b"RIFF" and b"AVI " in header
+        return header[0:4] == b"RIFF" and header[8:12] == b"AVI "
     return False
 
 
@@ -215,8 +219,6 @@ def _parse_source(source: str) -> tuple[str, Optional[str], str]:
         # Remove file:// prefix and decode URL encoding
         path = source[7:]
         # Handle URL-encoded characters
-        from urllib.parse import unquote
-
         path = unquote(path)
         return ("file_url", path, "")
 
@@ -472,32 +474,11 @@ async def _handle_http_media(url: str) -> ToolResponse:
     base64_data = base64.b64encode(media_data).decode("utf-8")
 
     if media_type.startswith("image/"):
-        block = ImageBlock(
-            type="image",
-            source={
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64_data,
-            },
-        )
+        block = _create_media_block("image", media_type, base64_data)
     elif media_type.startswith("video/"):
-        block = VideoBlock(
-            type="video",
-            source={
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64_data,
-            },
-        )
+        block = _create_media_block("video", media_type, base64_data)
     elif media_type.startswith("audio/"):
-        block = AudioBlock(
-            type="audio",
-            source={
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64_data,
-            },
-        )
+        block = _create_media_block("audio", media_type, base64_data)
     else:
         return ToolResponse(
             content=[
@@ -810,4 +791,8 @@ async def read_media(
             try:
                 os.unlink(temp_file)
             except Exception:
-                pass
+                logger.warning(
+                    "Failed to remove temporary file: %s",
+                    temp_file,
+                    exc_info=True,
+                )

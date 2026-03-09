@@ -351,21 +351,6 @@ async def handle_feishu_webhook(request: Request) -> JSONResponse:
         signature,
     )
 
-    # Decrypt body if encrypted (for event callbacks)
-    encrypt_key = (
-        feishu_config.webhook_encrypt_key or feishu_config.encrypt_key
-    )
-    if encrypt_key and "encrypt" in payload:
-        try:
-            decrypted = decrypt_body(encrypt_key, payload["encrypt"])
-            payload = json.loads(decrypted)
-        except Exception as e:
-            logger.error(f"Failed to decrypt webhook payload: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Decryption failed",
-            ) from e
-
     # Log event info
     header = payload.get("header", {})
     event_id = header.get("event_id", "")
