@@ -43,18 +43,19 @@ you'll find inside:
 If you don't want to use `~/.copaw`, you can override the working directory or
 specific file names:
 
-| Variable                           | Default         | Meaning                                                                             |
-| ---------------------------------- | --------------- | ----------------------------------------------------------------------------------- |
-| `COPAW_WORKING_DIR`                | `~/.copaw`      | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here |
-| `COPAW_CONFIG_FILE`                | `config.json`   | Config file name (relative to working dir)                                          |
-| `COPAW_HEARTBEAT_FILE`             | `HEARTBEAT.md`  | Heartbeat prompt file name (relative to working dir)                                |
-| `COPAW_JOBS_FILE`                  | `jobs.json`     | Cron jobs file name (relative to working dir)                                       |
-| `COPAW_CHATS_FILE`                 | `chats.json`    | Chats file name (relative to working dir)                                           |
-| `COPAW_LOG_LEVEL`                  | `info`          | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`)             |
-| `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                                    |
-| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages kept after compaction                                     |
-| `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window)              |
-| `COPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Path to the console front-end static files                                          |
+| Variable                           | Default           | Meaning                                                                                                                                                                                 |
+| ---------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COPAW_WORKING_DIR`                | `~/.copaw`        | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here                                                                                                     |
+| `COPAW_SECRET_DIR`                 | `~/.copaw.secret` | Secret directory (sibling of working dir); stores `providers.json` (model provider settings, API keys) and `envs.json` (environment variables). In Docker, set to `/app/working.secret` |
+| `COPAW_CONFIG_FILE`                | `config.json`     | Config file name (relative to working dir)                                                                                                                                              |
+| `COPAW_HEARTBEAT_FILE`             | `HEARTBEAT.md`    | Heartbeat prompt file name (relative to working dir)                                                                                                                                    |
+| `COPAW_JOBS_FILE`                  | `jobs.json`       | Cron jobs file name (relative to working dir)                                                                                                                                           |
+| `COPAW_CHATS_FILE`                 | `chats.json`      | Chats file name (relative to working dir)                                                                                                                                               |
+| `COPAW_LOG_LEVEL`                  | `info`            | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`)                                                                                                                 |
+| `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`          | Character threshold to trigger memory compaction                                                                                                                                        |
+| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`               | Number of recent messages kept after compaction                                                                                                                                         |
+| `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`             | Threshold ratio for triggering compaction (relative to context window)                                                                                                                  |
+| `COPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_   | Path to the console front-end static files                                                                                                                                              |
 
 Example — use a different working dir for this shell:
 
