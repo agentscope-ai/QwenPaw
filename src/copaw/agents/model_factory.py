@@ -30,6 +30,17 @@ from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
 
 
+def _file_url_to_path(url: str) -> str:
+    """
+    Strip file:// to path. On Windows file:///C:/path -> C:/path not /C:/path.
+    """
+    s = url.removeprefix("file://")
+    # Windows: file:///C:/path yields "/C:/path"; remove leading slash.
+    if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
+        s = s[1:]
+    return s
+
+
 def _monkey_patch(func):
     """A monkey patch wrapper for agentscope <= 1.0.16dev"""
 
@@ -50,9 +61,7 @@ def _monkey_patch(func):
                     ):
                         url = block["source"]["url"]
                         if url.startswith("file://"):
-                            block["source"]["url"] = url.removeprefix(
-                                "file://",
-                            )
+                            block["source"]["url"] = _file_url_to_path(url)
         return await func(self, msgs, **kwargs)
 
     return wrapper
