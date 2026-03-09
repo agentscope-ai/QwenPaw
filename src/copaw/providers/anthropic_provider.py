@@ -113,5 +113,5 @@ class AnthropicProvider(Provider):
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
-            client_kwargs={"base_url": self.base_url},
+            client_kwargs=client_kwargs,
         )
