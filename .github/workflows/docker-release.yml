@@ -63,7 +63,7 @@ jobs:
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           IS_BETA: ${{ steps.vars.outputs.is_beta }}
-          COPAW_ENABLED_CHANNELS: "discord,dingtalk,feishu,qq,console"
+          COPAW_ENABLED_CHANNELS: "discord,telegram,dingtalk,feishu,qq,console"
         run: |
           TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
           TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"

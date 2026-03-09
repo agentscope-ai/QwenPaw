@@ -1,5 +1,7 @@
 import { Checkbox, Input } from "@agentscope-ai/design";
 import { SparkDeleteLine, SparkPlusLine } from "@agentscope-ai/icons";
+import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -31,6 +33,7 @@ export function EnvRow({
   onRemove,
 }: EnvRowProps) {
   const { t } = useTranslation();
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   return (
     <div className={`${styles.envRow} ${checked ? styles.envRowSelected : ""}`}>
@@ -62,8 +65,23 @@ export function EnvRow({
           <Input
             value={row.value}
             placeholder="Value"
+            type={isPasswordVisible ? "text" : "password"}
             onChange={(e) => onChange(idx, "value", e.target.value)}
             className={styles.inputField}
+            suffix={
+              <button
+                className={styles.passwordToggle}
+                onClick={() => setIsPasswordVisible(!isPasswordVisible)}
+                type="button"
+                title={
+                  isPasswordVisible
+                    ? t("environments.hideValue")
+                    : t("environments.showValue")
+                }
+              >
+                {isPasswordVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+              </button>
+            }
           />
         </div>
       </div>

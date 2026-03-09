@@ -29,6 +29,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
     AnthropicChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
+from ..config.utils import load_config
 from ..local_models import create_local_chat_model
 from ..providers import (
     get_active_llm_config,
@@ -79,7 +80,10 @@ if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
     OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 if TYPE_CHECKING:
+    from ..config.config import AgentsLLMRoutingConfig
+    from ..providers import ModelSlotConfig
     from ..providers import ResolvedModelConfig
+    from .routing_chat_model import RoutingEndpoint
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +285,81 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _resolve_routing_slot(
+    slot: "ModelSlotConfig",
+    *,
+    providers_data,
+) -> Optional[Tuple[str, "ResolvedModelConfig"]]:
+    from ..providers.store import _resolve_slot
+
+    llm_cfg = _resolve_slot(slot, providers_data)
+    if llm_cfg is None:
+        return None
+    return slot.provider_id, llm_cfg
+
+
+def _create_routing_endpoint(
+    provider_id: str,
+    llm_cfg: "ResolvedModelConfig",
+    *,
+    providers_data,
+) -> "RoutingEndpoint":
+    from .routing_chat_model import RoutingEndpoint
+
+    model, chat_model_class = _create_model_instance_for_provider(
+        llm_cfg,
+        provider_id,
+        providers_data=providers_data,
+    )
+    formatter = _create_formatter_instance(chat_model_class)
+    return RoutingEndpoint(
+        provider_id=provider_id,
+        model_name=llm_cfg.model,
+        model=model,
+        formatter=formatter,
+        formatter_family=_get_formatter_for_chat_model(chat_model_class),
+    )
+
+
+def _create_routing_model_and_formatter(
+    local_slot: "ModelSlotConfig",
+    cloud_slot: "ModelSlotConfig",
+    routing_cfg: "AgentsLLMRoutingConfig",
+    providers_data,
+) -> Optional[Tuple[ChatModelBase, FormatterBase]]:
+    from .routing_chat_model import RoutingChatModel
+
+    local_resolved = _resolve_routing_slot(
+        local_slot,
+        providers_data=providers_data,
+    )
+    cloud_resolved = _resolve_routing_slot(
+        cloud_slot,
+        providers_data=providers_data,
+    )
+    if local_resolved is None or cloud_resolved is None:
+        return None
+
+    local_endpoint = _create_routing_endpoint(
+        *local_resolved,
+        providers_data=providers_data,
+    )
+    cloud_endpoint = _create_routing_endpoint(
+        *cloud_resolved,
+        providers_data=providers_data,
+    )
+
+    if local_endpoint.formatter_family is not cloud_endpoint.formatter_family:
+        return None
+
+    model: ChatModelBase = RoutingChatModel(
+        local_endpoint=local_endpoint,
+        cloud_endpoint=cloud_endpoint,
+        routing_cfg=routing_cfg,
+    )
+    return model, local_endpoint.formatter
+
+
 def create_model_and_formatter(
     llm_cfg: Optional["ResolvedModelConfig"] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -303,8 +382,30 @@ def create_model_and_formatter(
         >>> custom_cfg = get_active_llm_config()
         >>> model, formatter = create_model_and_formatter(custom_cfg)
     """
-    # Fetch config if not provided
     if llm_cfg is None:
+        routing_cfg = load_config().agents.llm_routing
+        providers_data = load_providers_json()
+        cloud_slot = (
+            routing_cfg.cloud
+            if routing_cfg.cloud is not None
+            else providers_data.active_llm
+        )
+        if (
+            routing_cfg.enabled
+            and routing_cfg.local.provider_id
+            and routing_cfg.local.model
+            and cloud_slot.provider_id
+            and cloud_slot.model
+        ):
+            routed_model = _create_routing_model_and_formatter(
+                routing_cfg.local,
+                cloud_slot,
+                routing_cfg,
+                providers_data,
+            )
+            if routed_model is not None:
+                return routed_model
+
         llm_cfg = get_active_llm_config()
 
     # Create the model instance and determine chat model class
@@ -344,6 +445,41 @@ def _create_model_instance(
     model = _create_remote_model_instance(llm_cfg, chat_model_class)
 
     return model, chat_model_class
+
+
+def _create_model_instance_for_provider(
+    llm_cfg: Optional["ResolvedModelConfig"],
+    provider_id: str,
+    *,
+    providers_data,
+) -> Tuple[ChatModelBase, Type[ChatModelBase]]:
+    """Create a model instance using an explicit provider identifier."""
+    if llm_cfg and llm_cfg.is_local:
+        return _create_model_instance(llm_cfg)
+
+    chat_model_class = _get_chat_model_class_for_provider(
+        provider_id,
+        providers_data=providers_data,
+    )
+    model = _create_remote_model_instance(llm_cfg, chat_model_class)
+    return model, chat_model_class
+
+
+def _get_chat_model_class_for_provider(
+    provider_id: str,
+    *,
+    providers_data,
+) -> Type[ChatModelBase]:
+    """Get the chat model class for a specific provider identifier."""
+    chat_model_class = get_chat_model_class("OpenAIChatModel")
+    if not provider_id:
+        return chat_model_class
+
+    chat_model_name = get_provider_chat_model(
+        provider_id,
+        providers_data,
+    )
+    return get_chat_model_class(chat_model_name)
 
 
 def _get_chat_model_class_from_provider() -> Type[ChatModelBase]:

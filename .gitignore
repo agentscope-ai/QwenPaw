@@ -15,6 +15,7 @@ cookbook/_build
 # production
 /build
 dist/
+.wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 src/copaw/console/dist/
 
@@ -84,3 +85,6 @@ openspec
 /AGENTS.md
 CLAUDE.md
 *.tmp
+
+# Build cache
+.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround

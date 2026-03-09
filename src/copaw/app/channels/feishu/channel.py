@@ -160,6 +160,10 @@ class FeishuChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[List[str]] = None,
+        deny_message: str = "",
     ):
         super().__init__(
             process,
@@ -167,6 +171,10 @@ class FeishuChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -204,6 +212,12 @@ class FeishuChannel(BaseChannel):
     ) -> "FeishuChannel":
         import os
 
+        allow_from_env = os.getenv("FEISHU_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("FEISHU_CHANNEL_ENABLED", "0") == "1",
@@ -214,6 +228,10 @@ class FeishuChannel(BaseChannel):
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
             media_dir=os.getenv("FEISHU_MEDIA_DIR", "~/.copaw/media"),
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("FEISHU_DM_POLICY", "open"),
+            group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
         )
 
     @classmethod
@@ -239,6 +257,10 @@ class FeishuChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=config.dm_policy or "open",
+            group_policy=config.group_policy or "open",
+            allow_from=config.allow_from or [],
+            deny_message=config.deny_message or "",
         )
 
     def resolve_session_id(
@@ -674,16 +696,35 @@ class FeishuChannel(BaseChannel):
             if not content_parts:
                 return
 
+            is_group = chat_type == "group"
             meta: Dict[str, Any] = {
                 "feishu_message_id": message_id,
                 "feishu_chat_id": chat_id,
                 "feishu_chat_type": chat_type,
                 "feishu_sender_id": sender_id,
+                "is_group": is_group,
             }
-            receive_id = chat_id if chat_type == "group" else sender_id
-            receive_id_type = "chat_id" if chat_type == "group" else "open_id"
+            receive_id = chat_id if is_group else sender_id
+            receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
             meta["feishu_receive_id_type"] = receive_id_type
+
+            allowed, error_msg = self._check_allowlist(
+                sender_id,
+                is_group,
+            )
+            if not allowed:
+                logger.info(
+                    "feishu allowlist blocked: sender=%s is_group=%s",
+                    sender_id,
+                    is_group,
+                )
+                await self._send_text(
+                    receive_id_type,
+                    receive_id,
+                    error_msg or "",
+                )
+                return
 
             session_id = self.resolve_session_id(sender_id, meta)
             native = {

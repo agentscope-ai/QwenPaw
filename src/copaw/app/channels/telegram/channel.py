@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-branches
 """Telegram channel: Bot API with polling; receive/send via chat_id."""
+
 from __future__ import annotations
 
 import asyncio
@@ -225,6 +226,10 @@ class TelegramChannel(BaseChannel):
         show_typing: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
     ):
         super().__init__(
             process,
@@ -232,6 +237,10 @@ class TelegramChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -316,6 +325,30 @@ class TelegramChannel(BaseChannel):
                 None,
             )
             sender_id = str(getattr(user, "id", "")) if user else chat_id
+            is_group = meta.get("is_group", False)
+
+            allowed, error_msg = self._check_allowlist(
+                sender_id,
+                is_group,
+            )
+            if not allowed:
+                logger.info(
+                    "telegram allowlist blocked: sender=%s is_group=%s",
+                    sender_id,
+                    is_group,
+                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=error_msg,
+                    )
+                except Exception:
+                    logger.debug(
+                        "telegram reject failed chat_id=%s",
+                        chat_id,
+                    )
+                return
+
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_id,
@@ -339,6 +372,12 @@ class TelegramChannel(BaseChannel):
     ) -> "TelegramChannel":
         import os
 
+        allow_from_env = os.getenv("TELEGRAM_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("TELEGRAM_CHANNEL_ENABLED", "0") == "1",
@@ -348,6 +387,10 @@ class TelegramChannel(BaseChannel):
             bot_prefix=os.getenv("TELEGRAM_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
             show_typing=os.getenv("TELEGRAM_SHOW_TYPING", "1") == "1",
+            dm_policy=os.getenv("TELEGRAM_DM_POLICY", "open"),
+            group_policy=os.getenv("TELEGRAM_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("TELEGRAM_DENY_MESSAGE", ""),
         )
 
     @classmethod
@@ -360,43 +403,34 @@ class TelegramChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
     ) -> "TelegramChannel":
-        channel_show_typing = None
         if isinstance(config, dict):
-            channel_show_typing = config.get("show_typing")
+            c = config
         else:
-            channel_show_typing = getattr(config, "show_typing", None)
+            c = config.model_dump()
 
-        if isinstance(config, dict):
-            bot_prefix_raw = config.get("bot_prefix")
-            return cls(
-                process=process,
-                enabled=bool(config.get("enabled", False)),
-                bot_token=(config.get("bot_token") or "").strip(),
-                http_proxy=(config.get("http_proxy") or "").strip(),
-                http_proxy_auth=(config.get("http_proxy_auth") or "").strip(),
-                bot_prefix=bot_prefix_raw.strip() if bot_prefix_raw else "",
-                on_reply_sent=on_reply_sent,
-                show_tool_details=show_tool_details,
-                filter_tool_messages=filter_tool_messages,
-                filter_thinking=filter_thinking,
-                show_typing=channel_show_typing
-                if channel_show_typing is not None
-                else True,
-            )
+        def _get_str(key: str) -> str:
+            return (c.get(key) or "").strip()
+
+        show_typing = c.get("show_typing")
+        if show_typing is None:
+            show_typing = True
+
         return cls(
             process=process,
-            enabled=config.enabled,
-            bot_token=config.bot_token or "",
-            http_proxy=config.http_proxy or "",
-            http_proxy_auth=config.http_proxy_auth or "",
-            bot_prefix=config.bot_prefix or "",
+            enabled=bool(c.get("enabled", False)),
+            bot_token=_get_str("bot_token"),
+            http_proxy=_get_str("http_proxy"),
+            http_proxy_auth=_get_str("http_proxy_auth"),
+            bot_prefix=_get_str("bot_prefix"),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
-            show_typing=channel_show_typing
-            if channel_show_typing is not None
-            else True,
+            show_typing=show_typing,
+            dm_policy=c.get("dm_policy") or "open",
+            group_policy=c.get("group_policy") or "open",
+            allow_from=c.get("allow_from") or [],
+            deny_message=c.get("deny_message") or "",
         )
 
     def _chunk_text(self, text: str) -> list[str]:

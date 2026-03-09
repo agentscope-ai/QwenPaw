@@ -248,6 +248,8 @@
     "allowFrom": "Пользователи allowlist",
     "allowFromTooltip": "Список ID пользователей, которым разрешено взаимодействовать с ботом (формат: nickname#last4, например John#1234)",
     "allowFromPlaceholder": "Введите ID пользователя и нажмите Enter, чтобы добавить",
+    "denyMessage": "Сообщение об отказе",
+    "denyMessageTooltip": "Пользовательское сообщение для пользователей, которым отказан доступ",
     "twilioAccountSid": "Twilio Account SID",
     "twilioAuthToken": "Twilio Auth Token",
     "phoneNumber": "Номер телефона",
@@ -301,6 +303,8 @@
     "duplicateKey": "Дубликат ключа",
     "saveSuccess": "Переменные окружения сохранены",
     "saveFailed": "Не удалось сохранить",
+    "deleteSuccess": "«{{name}}» удалено",
+    "deleteFailed": "Не удалось удалить",
     "noVariables": "Переменные окружения пока не настроены.",
     "addVariable": "Добавить переменную",
     "loading": "Загрузка…",
@@ -308,7 +312,9 @@
     "of": "из",
     "selected": "выбрано",
     "variable": "переменная",
-    "variables": "переменных"
+    "variables": "переменных",
+    "showValue": "Показать значение",
+    "hideValue": "Скрыть значение"
   },
   "models": {
     "llmConfiguration": "Конфигурация LLM",

@@ -8,19 +8,17 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator
 
-from reme.memory.file_based_copaw import CoPawInMemoryMemory
 from agentscope.message import Msg, TextBlock
-
-from ...agents.command_handler import CommandHandler
-from ...agents.model_factory import create_model_and_formatter
-from ...agents.utils.token_counting import _get_token_counter
-from ...config import load_config
+from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
 
 from .daemon_commands import (
     DaemonContext,
     DaemonCommandHandlerMixin,
     parse_daemon_query,
 )
+from ...agents.command_handler import CommandHandler
+from ...agents.utils.token_counting import _get_token_counter
+from ...config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +61,7 @@ def _is_command(query: str | None) -> bool:
 class _LightweightSessionAgent:
     """Minimal agent-like object for session load/save (memory only)."""
 
-    def __init__(self, memory: CoPawInMemoryMemory) -> None:
+    def __init__(self, memory: ReMeInMemoryMemory) -> None:
         self.memory = memory
 
     def state_dict(self) -> dict:
@@ -121,28 +119,19 @@ async def run_command_path(
                     ),
                 ],
             )
-            yield (hint, True)
+            yield hint, True
         context = DaemonContext(
             load_config_fn=load_config,
             memory_manager=runner.memory_manager,
             restart_callback=restart_cb,
         )
         msg = await handler.handle_daemon_command(query, context)
-        yield (msg, True)
+        yield msg, True
         logger.info("handle_daemon_command %s completed", query)
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    _, formatter = create_model_and_formatter()
-    token_counter = _get_token_counter()
-    config = load_config()
-    max_input_length = config.agents.running.max_input_length
-
-    memory = CoPawInMemoryMemory(
-        token_counter=token_counter,
-        formatter=formatter,
-        max_input_length=max_input_length,
-    )
+    memory = ReMeInMemoryMemory(token_counter=_get_token_counter())
     light = _LightweightSessionAgent(memory=memory)
     if session_id and user_id:
         try:
@@ -168,7 +157,7 @@ async def run_command_path(
             role="assistant",
             content=[TextBlock(type="text", text=str(e))],
         )
-    yield (response_msg, True)
+    yield response_msg, True
 
     if session_id and user_id:
         await runner.session.save_session_state(
