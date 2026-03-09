@@ -5,17 +5,18 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    AgentRequest,
+    ContentType,
+    TextContent,
+)
 from nio import AsyncClient, MatrixRoom, RoomMessageText, RoomSendError
 
 from ....config.config import MatrixConfig
 from ..base import BaseChannel, OnReplySent, ProcessHandler
-from agentscope_runtime.engine.schemas.agent_schemas import (
-    ContentType,
-    TextContent,
-    AgentRequest,
-)
 
 logger = logging.getLogger(__name__)
+
 
 class MatrixChannel(BaseChannel):
     channel = "matrix"
@@ -37,7 +38,7 @@ class MatrixChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> None:
         super().__init__(
             process=process,
@@ -56,17 +57,27 @@ class MatrixChannel(BaseChannel):
         self.client: Optional[AsyncClient] = None
         self._sync_task: Optional[asyncio.Task] = None
 
-    def _check_allowlist(self, sender: str, is_group: bool = False) -> tuple:
+    def _check_allowlist(
+        self,
+        sender_id: str,
+        is_group: bool = False,
+    ) -> tuple:
         policy = self.group_policy if is_group else self.dm_policy
         if policy == "open":
             return True, ""
-        if self.allow_from and sender in self.allow_from:
+        if self.allow_from and sender_id in self.allow_from:
             return True, ""
         return False, self.deny_message
 
     @classmethod
-    def from_env(cls, process: ProcessHandler, on_reply_sent: OnReplySent = None) -> "MatrixChannel":
-        raise NotImplementedError("Matrix channel must be configured via config file.")
+    def from_env(
+        cls,
+        process: ProcessHandler,
+        on_reply_sent: OnReplySent = None,
+    ) -> "MatrixChannel":
+        raise NotImplementedError(
+            "Matrix channel must be configured via config file.",
+        )
 
     @classmethod
     def from_config(
@@ -95,14 +106,17 @@ class MatrixChannel(BaseChannel):
             deny_message=config.deny_message,
         )
 
-    def build_agent_request_from_native(self, native_payload: Any) -> AgentRequest:
+    def build_agent_request_from_native(
+        self,
+        native_payload: Any,
+    ) -> AgentRequest:
         room_id = native_payload["room_id"]
         sender = native_payload["sender"]
         body = native_payload["body"]
 
         content_parts = [TextContent(type=ContentType.TEXT, text=body)]
         session_id = self.resolve_session_id(room_id)
-        
+
         request = self.build_agent_request_from_user_content(
             channel_id=self.channel,
             sender_id=sender,
@@ -115,18 +129,28 @@ class MatrixChannel(BaseChannel):
     def get_to_handle_from_request(self, request: AgentRequest) -> str:
         session_id = getattr(request, "session_id", "") or ""
         if session_id.startswith("matrix:"):
-            return session_id[len("matrix:"):]
+            return session_id[len("matrix:") :]
         meta = getattr(request, "channel_meta", {}) or {}
         return meta.get("room_id", getattr(request, "user_id", ""))
 
-    async def _message_callback(self, room: MatrixRoom, event: RoomMessageText) -> None:
+    async def _message_callback(
+        self,
+        room: MatrixRoom,
+        event: RoomMessageText,
+    ) -> None:
         if event.sender == self.user_id:
             return  # Ignore our own messages
 
-        logger.info(f"Matrix received message from {event.sender} in {room.room_id}: {event.body}")
+        logger.info(
+            f"Matrix received message from {event.sender}"
+            f" in {room.room_id}: {event.body}",
+        )
 
         is_group = len(room.users) > 2
-        allowed, deny_msg = self._check_allowlist(event.sender, is_group=is_group)
+        allowed, deny_msg = self._check_allowlist(
+            event.sender,
+            is_group=is_group,
+        )
         if not allowed:
             if deny_msg:
                 await self.send(room.room_id, deny_msg)
@@ -143,8 +167,15 @@ class MatrixChannel(BaseChannel):
             self._enqueue(payload)
 
     async def start(self) -> None:
-        if not self.enabled or not self.homeserver or not self.user_id or not self.access_token:
-            logger.info("Matrix channel not configured or disabled. Skipping start.")
+        if (
+            not self.enabled
+            or not self.homeserver
+            or not self.user_id
+            or not self.access_token
+        ):
+            logger.info(
+                "Matrix channel not configured or disabled. Skipping start.",
+            )
             return
 
         self.client = AsyncClient(self.homeserver, self.user_id)
@@ -152,8 +183,11 @@ class MatrixChannel(BaseChannel):
 
         self.client.add_event_callback(self._message_callback, RoomMessageText)
 
-        logger.info(f"Starting Matrix client for {self.user_id} on {self.homeserver}")
-        
+        logger.info(
+            f"Starting Matrix client for {self.user_id}"
+            f" on {self.homeserver}",
+        )
+
         async def sync_loop() -> None:
             try:
                 await self.client.sync_forever(timeout=30000, full_state=True)
@@ -171,7 +205,12 @@ class MatrixChannel(BaseChannel):
             await self.client.close()
         logger.info("Matrix channel stopped.")
 
-    async def send(self, to_handle: str, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
+    async def send(
+        self,
+        to_handle: str,
+        text: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if not self.client:
             logger.error("Matrix client not initialized, cannot send message")
             return
@@ -186,7 +225,7 @@ class MatrixChannel(BaseChannel):
             content={
                 "msgtype": "m.text",
                 "body": text,
-            }
+            },
         )
         if isinstance(resp, RoomSendError):
             logger.error(f"Matrix room_send failed: {resp}")
