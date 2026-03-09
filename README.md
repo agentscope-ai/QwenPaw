@@ -107,7 +107,7 @@ Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with 
 
 ### Script install
 
-No Python required — the installer handles everything for you:
+No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
 
 **macOS / Linux:**
 
