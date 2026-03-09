@@ -312,7 +312,9 @@
     "of": "of",
     "selected": "selected",
     "variable": "variable",
-    "variables": "variables"
+    "variables": "variables",
+    "showValue": "Show value",
+    "hideValue": "Hide value"
   },
   "models": {
     "llmConfiguration": "LLM Configuration",

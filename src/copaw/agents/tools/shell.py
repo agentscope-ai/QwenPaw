@@ -10,10 +10,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
+from agentscope.tool import ToolResponse
 
 from copaw.constant import WORKING_DIR
+from .utils import truncate_shell_output
 
 
 def _execute_subprocess_sync(
@@ -180,6 +181,10 @@ async def execute_shell_command(
                 except ProcessLookupError:
                     stdout_str = ""
                     stderr_str = stderr_suffix
+
+        # Apply output truncation
+        stdout_str = truncate_shell_output(stdout_str)
+        stderr_str = truncate_shell_output(stderr_str)
 
         # Format the response in a human-friendly way
         if returncode == 0:

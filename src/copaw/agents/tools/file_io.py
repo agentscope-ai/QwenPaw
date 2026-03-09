@@ -9,6 +9,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
+from .utils import truncate_file_output, read_file_safe
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -47,6 +48,33 @@ async def read_file(  # pylint: disable=too-many-return-statements
             Last line to read (1-based, inclusive).
     """
 
+    # Convert start_line/end_line to int if they are strings
+    if start_line is not None:
+        try:
+            start_line = int(start_line)
+        except (ValueError, TypeError):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: start_line must be an integer, got {start_line!r}.",
+                    ),
+                ],
+            )
+
+    if end_line is not None:
+        try:
+            end_line = int(end_line)
+        except (ValueError, TypeError):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: end_line must be an integer, got {end_line!r}.",
+                    ),
+                ],
+            )
+
     file_path = _resolve_file_path(file_path)
 
     if not os.path.exists(file_path):
@@ -70,63 +98,55 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            all_lines = f.readlines()
+        content = read_file_safe(file_path)
+        all_lines = content.split("\n")
+        total = len(all_lines)
 
-        range_requested = start_line is not None or end_line is not None
+        # Determine read range
+        s = max(1, start_line if start_line is not None else 1)
+        e = min(total, end_line if end_line is not None else total)
 
-        if range_requested:
-            total = len(all_lines)
-            s = max(1, start_line if start_line is not None else 1)
-            e = min(total, end_line if end_line is not None else total)
-
-            if s > total:
-                return ToolResponse(
-                    content=[
-                        TextBlock(
-                            type="text",
-                            text=(
-                                f"Error: start_line {s} exceeds file length "
-                                f"({total} lines) in {file_path}."
-                            ),
-                        ),
-                    ],
-                )
-
-            if s > e:
-                return ToolResponse(
-                    content=[
-                        TextBlock(
-                            type="text",
-                            text=(
-                                f"Error: start_line ({s}) is greater than "
-                                f"end_line ({e}) in {file_path}."
-                            ),
-                        ),
-                    ],
-                )
-
-            selected = all_lines[s - 1 : e]
-            content = "".join(selected)
-            header = f"{file_path}  (lines {s}-{e} of {total})\n"
+        if s > total:
             return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
-                        text=header + content,
+                        text=f"Error: start_line {s} exceeds file length ({total} lines).",
                     ),
                 ],
             )
-        else:
-            content = "".join(all_lines)
+
+        if s > e:
             return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
-                        text=content,
+                        text=f"Error: start_line ({s}) > end_line ({e}).",
                     ),
                 ],
             )
+
+        # Extract selected lines
+        selected_content = "\n".join(all_lines[s - 1 : e])
+
+        # Apply smart truncation (consistent with shell output format)
+        text = truncate_file_output(
+            selected_content,
+            start_line=s,
+            total_lines=total,
+        )
+
+        # Add continuation hint if partial read without truncation
+        if text == selected_content and e < total:
+            remaining = total - e
+            text = (
+                f"{file_path}  (lines {s}-{e} of {total})\n{text}\n\n"
+                f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
+            )
+
+        return ToolResponse(
+            content=[TextBlock(type="text", text=text)],
+        )
 
     except Exception as e:
         return ToolResponse(
@@ -186,6 +206,7 @@ async def write_file(
         )
 
 
+# pylint: disable=too-many-return-statements
 async def edit_file(
     file_path: str,
     old_text: str,
@@ -203,22 +224,50 @@ async def edit_file(
             Replacement text.
     """
 
-    response = await read_file(file_path=file_path)
-    if response.content and len(response.content) > 0:
-        error_text = response.content[0].get("text", "")
-        if error_text.startswith("Error:"):
-            return response
-    if not response.content or len(response.content) == 0:
+    if not file_path:
         return ToolResponse(
             content=[
                 TextBlock(
                     type="text",
-                    text=f"Error: Failed to read file {file_path}.",
+                    text="Error: No `file_path` provided.",
                 ),
             ],
         )
 
-    content = response.content[0].get("text", "")
+    resolved_path = _resolve_file_path(file_path)
+
+    if not os.path.exists(resolved_path):
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The file {resolved_path} does not exist.",
+                ),
+            ],
+        )
+
+    if not os.path.isfile(resolved_path):
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The path {resolved_path} is not a file.",
+                ),
+            ],
+        )
+
+    try:
+        content = read_file_safe(resolved_path)
+    except Exception as e:
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: Read file failed due to \n{e}",
+                ),
+            ],
+        )
+
     if old_text not in content:
         return ToolResponse(
             content=[
@@ -230,7 +279,10 @@ async def edit_file(
         )
 
     new_content = content.replace(old_text, new_text)
-    write_response = await write_file(file_path=file_path, content=new_content)
+    write_response = await write_file(
+        file_path=resolved_path,
+        content=new_content,
+    )
 
     if write_response.content and len(write_response.content) > 0:
         write_text = write_response.content[0].get("text", "")

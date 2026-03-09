@@ -110,10 +110,17 @@ def setup_logger(level: int | str = logging.INFO):
 
     formatter = ColorFormatter(log_format, datefmt)
 
-    # Suppress third-party: root has no handler and high level.
+    # Suppress third-party: set root logger level and configure handlers.
     root = logging.getLogger()
     root.setLevel(logging.WARNING)
-    root.handlers.clear()
+    for handler in root.handlers:
+        if isinstance(
+            handler,
+            (logging.FileHandler, logging.handlers.RotatingFileHandler),
+        ):
+            handler.setLevel(logging.INFO)
+        else:
+            handler.setLevel(logging.WARNING)
 
     # Only attach handler to our namespace so only copaw.* logs are printed.
     logger = logging.getLogger(LOG_NAMESPACE)
