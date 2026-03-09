@@ -95,10 +95,17 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     captured: list[dict] = []
 
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
     class FakeCompletions:
         async def create(self, **kwargs):
             captured.append(kwargs)
-            return SimpleNamespace(id="ok")
+            return FakeStream()
 
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(completions=FakeCompletions()),
@@ -112,6 +119,7 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert captured[0]["model"] == "gpt-4o-mini"
     assert captured[0]["timeout"] == 4
     assert captured[0]["max_tokens"] == 1
+    assert captured[0]["stream"] is True
 
 
 async def test_check_model_connection_api_error_returns_false(

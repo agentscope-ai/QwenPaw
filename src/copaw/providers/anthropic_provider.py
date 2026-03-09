@@ -79,10 +79,14 @@ class AnthropicProvider(Provider):
             "model": target,
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "ping"}],
+            "stream": True,
         }
         try:
             client = self._client(timeout=timeout)
-            await client.messages.create(**body)
+            resp = await client.messages.create(**body)
+            # consume the stream to ensure the model is actually responsive
+            async for _ in resp:
+                break
             return True
         except anthropic.APIError:
             return False

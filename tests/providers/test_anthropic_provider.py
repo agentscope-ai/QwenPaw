@@ -88,10 +88,17 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     captured: list[dict] = []
 
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
     class FakeMessages:
         async def create(self, **kwargs):
             captured.append(kwargs)
-            return SimpleNamespace(id="ok")
+            return FakeStream()
 
     fake_client = SimpleNamespace(messages=FakeMessages())
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
@@ -103,6 +110,7 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert captured[0]["model"] == "claude-3-5-haiku"
     assert captured[0]["max_tokens"] == 1
     assert captured[0]["messages"] == [{"role": "user", "content": "ping"}]
+    assert captured[0]["stream"] is True
 
 
 async def test_check_model_connection_empty_model_id_returns_false() -> None:

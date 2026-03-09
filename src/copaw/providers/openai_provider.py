@@ -69,12 +69,16 @@ class OpenAIProvider(Provider):
         """Check if a specific model is reachable/usable"""
         try:
             client = self._client(timeout=timeout)
-            await client.chat.completions.create(
+            res = await client.chat.completions.create(
                 model=model_id,
                 messages=[{"role": "user", "content": "ping"}],
                 timeout=timeout,
                 max_tokens=1,
+                stream=True,
             )
+            # consume the stream to ensure the model is actually responsive
+            async for _ in res:
+                break
             return True
         except APIError:
             return False
