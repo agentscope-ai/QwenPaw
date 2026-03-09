@@ -185,8 +185,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
       label: lang === "zh" ? "桌面应用" : "Desktop",
       desc:
         lang === "zh"
-          ? "下载即用的桌面应用，无需命令行操作"
-          : "Download and run, no command line required",
+          ? "独立打包的桌面应用，内置完整 Python 环境、所有依赖和前端资源。双击即用，无需命令行，无需预装任何工具。"
+          : "Standalone desktop app with bundled Python environment, all dependencies, and frontend assets. Double-click to run, no command line, no prerequisites required.",
       badge: "Beta",
     },
   };
