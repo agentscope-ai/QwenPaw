@@ -1,0 +1,150 @@
+# Build CoPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
+# Runs automatically on release publish; also manually via Actions tab.
+
+name: CoPaw Desktop Build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        shell: pwsh
+        run: |
+          $content = Get-Content src/copaw/__version__.py -Raw
+          if ($content -match '__version__\s*=\s*"([^"]+)"') {
+            $v = $Matches[1]
+          } else {
+            throw "Failed to extract version from __version__.py"
+          }
+          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "copaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Install NSIS
+        uses: negrutiu/nsis-install@v2
+
+      - name: Clean dist directory
+        shell: pwsh
+        run: |
+          if (Test-Path dist) {
+            Remove-Item -Recurse -Force dist
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: conda run -n copaw-build pwsh -File ./scripts/pack/build_win.ps1
+
+      - name: List dist (on failure)
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "=== dist contents ==="
+          Get-ChildItem -Path dist -Recurse -Depth 2 -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          if (Test-Path dist\win-unpacked) {
+            Write-Host "=== dist\win-unpacked (first 30) ==="
+            Get-ChildItem -Path dist\win-unpacked -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { $_.Name }
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoPaw-Desktop-Windows-${{ steps.version.outputs.version }}
+          path: dist/CoPaw-Setup-*.exe
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "copaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build macOS .app
+        run: |
+          chmod +x scripts/pack/build_macos.sh
+          conda run -n copaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoPaw-Desktop-macOS-${{ steps.version.outputs.version }}
+          path: dist/CoPaw-*.zip
+
+  upload-release:
+    needs: [build-windows, build-macos]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Move artifacts to root for upload
+        run: |
+          mv CoPaw-Desktop-Windows-*/CoPaw-Setup-*.exe . 2>/dev/null || true
+          mv CoPaw-Desktop-macOS-*/CoPaw-*.zip . 2>/dev/null || true
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            CoPaw-Setup-*.exe
+            CoPaw-*-macOS.zip
+          fail-on-unmatched-files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

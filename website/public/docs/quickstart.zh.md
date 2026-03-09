@@ -1,12 +1,13 @@
 # 快速开始
 
-本节介绍五种方式运行 CoPAW：
+本节介绍六种方式运行 CoPAW：
 
-- **方式一 — 一键安装（推荐）**：无需手动配置 Python，一行命令自动完成安装。
+- **方式一 — 脚本安装**：无需手动配置 Python，一行命令自动完成安装。
 - **方式二 — pip 安装**：适合自行管理 Python 环境的用户。
-- **方式三 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
-- **方式四 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（PyPI 预发布版）。
-- **方式五 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
+- **方式三 — 桌面应用（Beta）**：下载即用的桌面应用，无需命令行操作，适合不熟悉终端的用户。详见 [桌面应用指南](./desktop)。
+- **方式四 — 魔搭创空间**：一键配置，部署到创空间云端运行，无需本地安装。
+- **方式五 — Docker**：使用官方镜像（Docker Hub；国内可选 ACR），镜像 tag 含 `latest`（稳定版）与 `pre`（PyPI 预发布版）。
+- **方式六 — 阿里云 ECS**：在阿里云上一键部署 CoPaw，无需本地安装。
 
 > 📖 阅读前请先了解 [项目介绍](./intro)，完成安装与启动后可查看 [控制台](./console)。
 
@@ -14,7 +15,7 @@
 
 ---
 
-## 方式一：一键安装（推荐）
+## 方式一：脚本安装
 
 无需预装 Python — 安装脚本通过 [uv](https://docs.astral.sh/uv/) 自动管理一切。
 
@@ -145,7 +146,45 @@ pip install copaw
 
 ---
 
-## 方式三：魔搭创空间一键配置（无需安装）
+## 方式三：桌面应用（Beta）
+
+如果你不习惯使用命令行，可以下载并使用 CoPaw 的桌面应用版本，无需手动配置 Python 环境或执行命令。
+
+### 特点
+
+- ✅ **零配置**：下载后双击即可运行，无需安装 Python 或配置环境变量
+- ✅ **跨平台**：支持 Windows 10+ 和 macOS 14+ (推荐 Apple Silicon)
+- ✅ **可视化**：自动打开浏览器界面，无需手动输入地址
+- ⚠️ **Beta 阶段**：功能持续完善中，欢迎反馈问题
+
+### 下载与使用
+
+1. **下载安装包**
+   前往 [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases) 下载对应系统的版本：
+
+   - Windows: `CoPaw-Setup-<version>.exe`
+   - macOS: `CoPaw-<version>-macOS.zip`
+
+2. **安装并启动**
+
+   - **Windows**: 双击 `.exe` 文件按向导安装，完成后双击桌面快捷方式启动
+   - **macOS**: 解压 `.zip` 得到 `CoPaw.app`，首次需右键选择"打开"以绕过系统安全限制
+
+3. **首次启动提示**
+   首次启动可能需要 10-60 秒（取决于系统配置），应用需要初始化 Python 环境和加载依赖，请耐心等待浏览器窗口自动打开。
+
+### 完整使用指南
+
+桌面应用涉及系统权限、安全提示、调试模式等细节，请查看 **[桌面应用完整指南](./desktop)** 了解：
+
+- Windows 两种启动模式（普通版 vs Debug 版）
+- macOS 如何解除系统安全限制（3种方法）
+- 常见问题与解决方案
+- 日志查看与问题报告
+
+---
+
+## 方式四：魔搭创空间一键配置（无需安装）
 
 若不想在本地安装 Python，可通过魔搭创空间将 CoPaw 部署到云端运行：
 
@@ -156,7 +195,7 @@ pip install copaw
 
 ---
 
-## 方式四：Docker
+## 方式五：Docker
 
 镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。国内用户也可选用阿里云 ACR：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
@@ -171,7 +210,7 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 
 ---
 
-## 方式五：部署到阿里云 ECS
+## 方式六：部署到阿里云 ECS
 
 若希望将 CoPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：
 

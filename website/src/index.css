@@ -67,106 +67,6 @@ button {
   cursor: pointer;
 }
 
-/* Quick Start card: symmetric padding, 2x2 grid; narrow = single column */
-.quickstart-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: var(--space-4);
-  overflow: hidden;
-  min-width: 0;
-}
-
-.quickstart-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
-
-.quickstart-tab {
-  min-height: 2.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: var(--space-2) var(--space-3);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.quickstart-tab:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-
-.quickstart-tab[aria-pressed="true"] {
-  color: var(--text);
-  background: var(--border);
-  border-color: var(--border);
-}
-
-.quickstart-tab-label {
-  white-space: nowrap;
-}
-
-.quickstart-tab-icon {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  opacity: 0.9;
-}
-
-.quickstart-tab[aria-pressed="true"] .quickstart-tab-icon {
-  color: var(--text);
-}
-
-.quickstart-tab--cloud {
-  border-color: var(--border);
-}
-
-.quickstart-tab--cloud[aria-pressed="true"] {
-  background: var(--surface);
-  border-color: var(--text-muted);
-}
-
-/* Option description: wrap up to 2 lines so full text visible, no ellipsis */
-.quickstart-option-desc {
-  min-width: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-clamp: 2;
-}
-
-@media (max-width: 480px) {
-  .quickstart-card {
-    padding: var(--space-3);
-  }
-
-  .quickstart-tabs {
-    grid-template-columns: 1fr;
-    gap: var(--space-1);
-    margin-bottom: var(--space-3);
-  }
-
-  .quickstart-tab {
-    min-height: 2.5rem;
-    padding: var(--space-2);
-    font-size: 0.875rem;
-    justify-content: center;
-  }
-}
-
 .hero-section {
   position: relative;
 }
@@ -202,26 +102,6 @@ button {
   display: none;
 }
 
-.quickstart-cta {
-  transition:
-    opacity 0.2s ease,
-    transform 0.15s ease;
-}
-
-.quickstart-cta:hover {
-  opacity: 0.92;
-  transform: translateY(-1px);
-  color: var(--surface);
-}
-
-.quickstart-ecs-btn {
-  transition: opacity 0.15s ease;
-}
-
-.quickstart-ecs-btn:hover {
-  opacity: 0.85;
-}
-
 /* Use cases: grid of category cards, aligned with Features */
 .usecases-section {
   text-align: center;
@@ -238,11 +118,17 @@ button {
 .usecases-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: var(--space-4);
+  border-radius: 0.75rem;
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease;
+}
+
+.usecases-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 }
 
 .usecases-card-header {
@@ -252,7 +138,7 @@ button {
 }
 
 .usecases-card-title {
-  font-size: 1rem;
+  font-size: 1.0625rem;
   font-weight: 600;
   color: var(--text);
 }
@@ -267,22 +153,22 @@ button {
 }
 
 .usecases-list li {
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.9375rem;
+  line-height: 1.6;
   color: var(--text-muted);
-  padding-left: var(--space-3);
+  padding-left: var(--space-4);
   position: relative;
 }
 
 .usecases-list li::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 0.5em;
-  width: 3px;
-  height: 3px;
+  left: var(--space-1);
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--logo-paw);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .usecases-sub {

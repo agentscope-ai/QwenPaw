@@ -248,6 +248,8 @@
     "allowFrom": "白名单用户",
     "allowFromTooltip": "允许与机器人交互的用户 ID 列表（格式：昵称#后4位，如 张三#1234）",
     "allowFromPlaceholder": "输入用户ID后按回车添加",
+    "denyMessage": "拒绝访问消息",
+    "denyMessageTooltip": "自定义消息，当用户被拒绝访问时显示",
     "twilioAccountSid": "Twilio 账户 SID",
     "twilioAuthToken": "Twilio 认证令牌",
     "phoneNumber": "电话号码",
@@ -301,6 +303,8 @@
     "duplicateKey": "键重复",
     "saveSuccess": "环境变量已保存",
     "saveFailed": "保存失败",
+    "deleteSuccess": "\"{{name}}\" 已删除",
+    "deleteFailed": "删除失败",
     "noVariables": "尚未配置环境变量。",
     "addVariable": "添加变量",
     "loading": "加载中…",
@@ -308,7 +312,9 @@
     "of": "共",
     "selected": "已选",
     "variable": "变量",
-    "variables": "变量"
+    "variables": "变量",
+    "showValue": "显示值",
+    "hideValue": "隐藏值"
   },
   "models": {
     "llmConfiguration": "LLM 配置",

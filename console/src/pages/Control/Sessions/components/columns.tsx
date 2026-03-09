@@ -29,7 +29,6 @@ export const createColumns = (
       dataIndex: "id",
       key: "id",
       width: 250,
-      fixed: "left",
     },
     {
       title: "Name",

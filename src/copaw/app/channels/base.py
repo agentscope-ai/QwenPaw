@@ -82,12 +82,20 @@ class BaseChannel(ABC):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
+        self.dm_policy = dm_policy or "open"
+        self.group_policy = group_policy or "open"
+        self.allow_from = set(allow_from or [])
+        self.deny_message = deny_message or ""
         self._enqueue: EnqueueCallback = None
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
@@ -240,6 +248,30 @@ class BaseChannel(ABC):
         pending = self._pending_content_by_session.pop(session_id, [])
         merged = pending + list(content_parts)
         return (True, merged)
+
+    def _check_allowlist(
+        self,
+        sender_id: str,
+        is_group: bool,
+    ) -> tuple[bool, Optional[str]]:
+        """Check sender against allowlist policy."""
+        policy = self.group_policy if is_group else self.dm_policy
+        if policy == "open":
+            return True, None
+        if sender_id in self.allow_from:
+            return True, None
+        if self.deny_message:
+            return False, self.deny_message
+        if is_group:
+            return (
+                False,
+                "Sorry, this bot is only available to authorized users.",
+            )
+        return False, (
+            "Sorry, you are not authorized to use this bot. "
+            "Please contact the administrator to add your ID "
+            f"to the allowlist. Your ID: {sender_id}"
+        )
 
     def set_enqueue(self, cb: EnqueueCallback) -> None:
         """Set enqueue callback (called by ChannelManager)."""

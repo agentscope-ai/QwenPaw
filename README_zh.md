@@ -72,7 +72,7 @@
 >
 > - **我想三条命令跑起来**： [快速开始](#快速开始) → 浏览器打开控制台。
 > - **我想在钉钉 / 飞书 / QQ 里聊**：在控制台中进行 [频道配置](https://copaw.agentscope.io/docs/channels)。
-> - **我不想装 Python**：[一键安装](#一键安装beta持续完善中) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
+> - **我不想装 Python**：[脚本安装](#脚本安装) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
 
 - [新闻](#新闻)
 - [快速开始](#快速开始)
@@ -91,7 +91,7 @@
 
 ## 快速开始
 
-### pip 安装 (推荐)
+### pip 安装
 
 如果你习惯自行管理 Python 环境：
 
@@ -105,9 +105,9 @@ copaw app
 
 ![Console](https://img.alicdn.com/imgextra/i4/O1CN01kUEGsC1XolpzIWdsu_!!6000000002971-2-tps-3822-2064.png)
 
-### 一键安装（beta，持续完善中）
+### 脚本安装
 
-无需预装 Python — 安装脚本自动处理一切：
+无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 CoPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。
 
 **macOS / Linux：**
 
@@ -219,6 +219,51 @@ copaw uninstall --purge  # 删除所有内容
 ```
 
 </details>
+
+### 桌面应用（Beta）
+
+> **Beta 版本说明**：桌面应用目前处于 Beta 测试阶段，存在以下已知限制：
+> - **兼容性测试不完整**：未在所有系统版本和硬件配置上进行充分测试
+> - **性能可能存在缺陷**：启动速度、内存占用等方面可能需要进一步优化
+> - **功能持续完善中**：部分功能可能不稳定或缺失
+
+如果你不习惯使用命令行，可以下载并使用 CoPaw 的桌面应用版本，无需手动配置 Python 环境或执行命令。
+
+#### 下载
+
+从 [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases) 下载桌面应用：
+- **Windows**: `CoPaw-Setup-<version>.exe`
+- **macOS**: `CoPaw-<version>-macOS.zip` (推荐 Apple Silicon)
+
+#### 特点
+
+- ✅ **零配置**：下载后双击即可运行，无需安装 Python 或配置环境变量
+- ✅ **跨平台**：支持 Windows 10+ 和 macOS 14+
+- ✅ **可视化**：自动打开浏览器界面，无需手动输入地址
+- ⚠️ **Beta 阶段**：功能持续完善中，欢迎反馈问题
+
+#### 首次启动
+
+**重要提示**：首次启动可能需要 10-60 秒（取决于您的系统配置）。应用需要初始化 Python 环境和加载依赖，请耐心等待浏览器窗口自动打开。
+
+#### macOS：绕过系统安全限制
+
+当你从 Releases 下载 CoPaw macOS 应用时，macOS 可能显示：*"Apple 无法验证 'CoPaw' 不包含恶意软件"*。这是因为应用未经过公证。你仍然可以通过以下方式打开：
+
+- **右键打开（推荐）**
+  右键点击（或 Control + 点击）CoPaw 应用 → **"打开"** → 在对话框中再次点击 **"打开"**。这会告诉 Gatekeeper 你信任该应用；之后可以像往常一样双击启动。
+
+- **在系统设置中允许**
+  如果仍被阻止，进入 **系统设置 → 隐私与安全性**，向下滚动找到类似 *"已阻止 'CoPaw'，因为无法验证开发者"* 的提示，点击 **"仍要打开"** 或 **"允许"**。
+
+- **移除隔离属性（不推荐大多数用户）**
+  在终端运行：
+  `xattr -cr /Applications/CoPaw.app`
+  （或使用解压后的 `.app` 路径）。这会清除"从互联网下载"的隔离标志，使警告通常不会出现，但不如使用 **右键 → 打开** 安全和可控。
+
+详细使用说明、故障排除和常见问题，请参见 [桌面应用指南](https://copaw.agentscope.io/docs/desktop)。
+
+---
 
 ### 使用 Docker
 
