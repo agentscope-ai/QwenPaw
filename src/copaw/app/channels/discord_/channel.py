@@ -31,7 +31,7 @@ from ..base import (
 
 logger = logging.getLogger(__name__)
 
-DISCORD_SEND_CHUNK_SIZE = 4000
+DISCORD_SEND_CHUNK_SIZE = 2000
 
 
 class DiscordChannel(BaseChannel):
