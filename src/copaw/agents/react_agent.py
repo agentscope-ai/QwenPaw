@@ -542,7 +542,7 @@ class CoPawAgent(ReActAgent):
             await process_file_and_media_blocks_in_message(msg)
 
         # Check if message is a system command
-        last_msg = msg[-1] if isinstance(msg, list) else msg
+        last_msg = msg[-1] if isinstance(msg, list) and len(msg) > 0 else (None if isinstance(msg, list) else msg)
         query = (
             last_msg.get_text_content() if isinstance(last_msg, Msg) else None
         )
