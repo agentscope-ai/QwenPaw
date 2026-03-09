@@ -1,6 +1,20 @@
 # -*- coding: utf-8 -*-
 """Approval service exports."""
 
-from .service import ConsoleApprovalService, get_console_approval_service
+from .base import ApprovalHandler
+from .service import (
+    ApprovalService,
+    ConsoleApprovalService,
+    PendingApproval,
+    get_approval_service,
+    get_console_approval_service,
+)
 
-__all__ = ["ConsoleApprovalService", "get_console_approval_service"]
+__all__ = [
+    "ApprovalHandler",
+    "ApprovalService",
+    "ConsoleApprovalService",
+    "PendingApproval",
+    "get_approval_service",
+    "get_console_approval_service",
+]

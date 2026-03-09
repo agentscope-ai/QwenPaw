@@ -127,6 +127,12 @@ async def lifespan(
                 raise
             logger.exception("Failed to start MCP watcher")
 
+    # Inject channel_manager into approval service so it can
+    # proactively push approval messages to channels like DingTalk.
+    from .approvals import get_approval_service
+
+    get_approval_service().set_channel_manager(channel_manager)
+
     # --- Model provider manager (non-reloadable, in-memory) ---
     provider_manager = ProviderManager.get_instance()
 

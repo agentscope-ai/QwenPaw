@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Console APIs for push messages and approval callbacks."""
+"""Console APIs for push messages and approval callbacks.
+
+Note: the approval endpoints below are kept for backward compatibility.
+New code should use the channel-agnostic ``/api/approvals/...`` endpoints
+defined in ``routers/approvals.py``.
+"""
 
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 
-from ..approvals import get_console_approval_service
+from ..approvals import get_approval_service
 from ...security.tool_guard.approval import ApprovalDecision
 
 
@@ -30,54 +35,54 @@ async def get_push_messages(
 
 @router.get("/approvals/{approval_id}/approve", response_class=HTMLResponse)
 async def approve_tool_call(approval_id: str):
-        """Approve one pending console tool-guard request."""
-        service = get_console_approval_service()
-        pending = await service.resolve_request(
-                approval_id,
-                ApprovalDecision.APPROVED,
-        )
-        if pending is None:
-                return _render_approval_result(
-                        title="Approval request not found",
-                        message="This approval link is invalid or has already expired.",
-                        success=False,
-                )
+    """Approve one pending console tool-guard request (legacy path)."""
+    service = get_approval_service()
+    pending = await service.resolve_request(
+        approval_id,
+        ApprovalDecision.APPROVED,
+    )
+    if pending is None:
         return _render_approval_result(
-                title="Tool approved",
-                message=f"`{pending.tool_name}` can now continue execution.",
-                success=True,
+            title="Approval request not found",
+            message="This approval link is invalid or has already expired.",
+            success=False,
         )
+    return _render_approval_result(
+        title="Tool approved",
+        message=f"`{pending.tool_name}` can now continue execution.",
+        success=True,
+    )
 
 
 @router.get("/approvals/{approval_id}/deny", response_class=HTMLResponse)
 async def deny_tool_call(approval_id: str):
-        """Deny one pending console tool-guard request."""
-        service = get_console_approval_service()
-        pending = await service.resolve_request(
-                approval_id,
-                ApprovalDecision.DENIED,
-        )
-        if pending is None:
-                return _render_approval_result(
-                        title="Approval request not found",
-                        message="This approval link is invalid or has already expired.",
-                        success=False,
-                )
+    """Deny one pending console tool-guard request (legacy path)."""
+    service = get_approval_service()
+    pending = await service.resolve_request(
+        approval_id,
+        ApprovalDecision.DENIED,
+    )
+    if pending is None:
         return _render_approval_result(
-                title="Tool denied",
-                message=f"`{pending.tool_name}` will not be executed.",
-                success=False,
+            title="Approval request not found",
+            message="This approval link is invalid or has already expired.",
+            success=False,
         )
+    return _render_approval_result(
+        title="Tool denied",
+        message=f"`{pending.tool_name}` will not be executed.",
+        success=False,
+    )
 
 
 def _render_approval_result(
-        *,
-        title: str,
-        message: str,
-        success: bool,
+    *,
+    title: str,
+    message: str,
+    success: bool,
 ) -> HTMLResponse:
-        color = "#1677ff" if success else "#ff4d4f"
-        html = f"""
+    color = "#1677ff" if success else "#ff4d4f"
+    html = f"""
         <!doctype html>
         <html lang=\"en\">
             <head>
@@ -114,4 +119,4 @@ def _render_approval_result(
             </body>
         </html>
         """
-        return HTMLResponse(content=html)
+    return HTMLResponse(content=html)

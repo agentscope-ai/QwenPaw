@@ -301,8 +301,6 @@ class CoPawAgent(ReActAgent):
             )
             logger.debug("Registered memory compaction hook")
 
-
-
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
 
@@ -503,11 +501,11 @@ class CoPawAgent(ReActAgent):
         """Lazy-init tool-guard components (called once on first _acting)."""
         from copaw.security.tool_guard.engine import get_guard_engine
         from copaw.security.tool_guard.hook import _resolve_guarded_tools
-        from copaw.app.approvals import get_console_approval_service
+        from copaw.app.approvals import get_approval_service
 
         self._tool_guard_engine = get_guard_engine()
         self._tool_guard_guarded_tools = _resolve_guarded_tools()
-        self._tool_guard_approval_service = get_console_approval_service()
+        self._tool_guard_approval_service = get_approval_service()
 
     def _should_guard_tool(self, tool_name: str) -> bool:
         """Check if *tool_name* is in the guarded scope."""
@@ -515,27 +513,29 @@ class CoPawAgent(ReActAgent):
             return True  # None means guard ALL tools
         return tool_name in self._tool_guard_guarded_tools
 
-    def _should_require_console_approval(self) -> bool:
-        """True when the request comes from the console channel with a session."""
-        return (
-            self._request_context.get("channel") == "console"
-            and bool(self._request_context.get("session_id"))
-        )
+    def _should_require_approval(self) -> bool:
+        """True when the current channel supports approval and has a session.
+
+        This replaces the old console-only check.  Any channel that has
+        a registered ``ApprovalHandler`` in the ``ApprovalService`` will
+        trigger the interactive approval flow.
+        """
+        channel = self._request_context.get("channel") or ""
+        if not channel or not self._request_context.get("session_id"):
+            return False
+        return self._tool_guard_approval_service.supports_channel(channel)
 
     async def _acting(self, tool_call) -> dict | None:  # noqa: C901
         """Override to intercept sensitive tool calls before execution.
 
         1. Run ToolGuardEngine on the tool parameters.
-        2. If findings exist and channel is console, ask user approval
+        2. If findings exist and channel supports approval, ask user
            by sending the approval links as a ToolResultBlock (so the
-           frontend renders it inline as a tool result).
+           UI renders it inline as a tool result).
         3. If approved, execute the real tool and update the same message.
         4. If denied/timeout, mark the tool result as denied.
         5. If no guard needed, delegate to super()._acting.
         """
-        from agentscope.message import ToolResultBlock
-        from copaw.security.tool_guard.approval import ApprovalDecision
-
         # Lazy initialise guard components
         if not hasattr(self, "_tool_guard_engine"):
             self._init_tool_guard()
@@ -548,9 +548,10 @@ class CoPawAgent(ReActAgent):
                 result = self._tool_guard_engine.guard(tool_name, tool_input)
                 if result is not None and result.findings:
                     from copaw.security.tool_guard.hook import _log_findings
+
                     _log_findings(tool_name, result)
 
-                    if self._should_require_console_approval():
+                    if self._should_require_approval():
                         return await self._acting_with_approval(
                             tool_call,
                             tool_name,
@@ -579,10 +580,9 @@ class CoPawAgent(ReActAgent):
         user to click Allow/Deny and either executes or rejects.
         """
         from agentscope.message import ToolResultBlock
-        from copaw.security.tool_guard.approval import (
-            ApprovalDecision,
-            format_findings_summary,
-        )
+        from copaw.security.tool_guard.approval import ApprovalDecision
+
+        channel = str(self._request_context.get("channel") or "")
 
         # Create the tool result message (same structure as parent _acting)
         tool_res_msg = Msg(
@@ -602,21 +602,19 @@ class CoPawAgent(ReActAgent):
         pending = await self._tool_guard_approval_service.create_pending(
             session_id=str(self._request_context.get("session_id") or ""),
             user_id=str(self._request_context.get("user_id") or ""),
-            channel=str(self._request_context.get("channel") or ""),
+            channel=channel,
             tool_name=tool_name,
             result=guard_result,
         )
 
-        # Show approval request as an in-progress tool result
-        findings_text = format_findings_summary(guard_result)
+        # Format approval message via the channel-specific handler
         approval_text = (
-            f"⚠️ Sensitive tool requires approval\n\n"
-            f"- Tool: `{tool_name}`\n"
-            f"- Max severity: `{guard_result.max_severity.value}`\n"
-            f"- Findings: `{guard_result.findings_count}`\n\n"
-            f"{findings_text}\n\n"
-            f"[✅ Allow]({pending.approve_url})　"
-            f"[❌ Deny]({pending.deny_url})"
+            self._tool_guard_approval_service.format_approval_message(
+                channel=channel,
+                tool_name=tool_name,
+                guard_result=guard_result,
+                pending=pending,
+            )
         )
         tool_res_msg.content[0]["output"] = [  # type: ignore[index]
             {"type": "text", "text": approval_text},
@@ -625,8 +623,9 @@ class CoPawAgent(ReActAgent):
         await self.print(tool_res_msg, False)
 
         # Wait for user decision
-        decision = (
-            await self._tool_guard_approval_service.await_decision(pending)
+        decision = await self._tool_guard_approval_service.await_decision(
+            pending,
+            notification_text=approval_text,
         )
 
         if decision == ApprovalDecision.APPROVED:
@@ -660,8 +659,6 @@ class CoPawAgent(ReActAgent):
             await self.print(tool_res_msg, True)
             await self.memory.add(tool_res_msg)
             return None
-
-        return await super()._acting(tool_call)
 
     async def _reasoning(
         self,
