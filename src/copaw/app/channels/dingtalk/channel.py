@@ -1881,7 +1881,7 @@ class DingTalkChannel(BaseChannel):
         if not candidate.exists():
             return candidate
         try:
-            if candidate.is_file() and candidate.read_bytes() == data:
+            if self._existing_file_matches_data(candidate, data):
                 return candidate
         except Exception:
             logger.debug(
@@ -1896,6 +1896,27 @@ class DingTalkChannel(BaseChannel):
             fallback=f"file_{safe_key[:8]}.bin",
         )
         return self._media_dir / dedup_name
+
+    def _existing_file_matches_data(
+        self,
+        path: Path,
+        data: bytes,
+    ) -> bool:
+        """Compare an existing file with downloaded bytes in chunks."""
+        if not path.is_file():
+            return False
+        if path.stat().st_size != len(data):
+            return False
+        chunk_size = 64 * 1024
+        offset = 0
+        with open(path, "rb") as existing:
+            while True:
+                chunk = existing.read(chunk_size)
+                if not chunk:
+                    return offset == len(data)
+                if chunk != data[offset : offset + len(chunk)]:
+                    return False
+                offset += len(chunk)
 
     async def _fetch_and_download_media(
         self,

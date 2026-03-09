@@ -244,3 +244,34 @@ def test_sanitize_download_filename_avoids_windows_reserved_names() -> None:
     assert sanitize_download_filename("CON") == "CON_"
     assert sanitize_download_filename("nul.txt") == "nul_.txt"
     assert sanitize_download_filename("Lpt1...") == "Lpt1_"
+
+
+@pytest.mark.asyncio
+async def test_download_media_to_local_reuses_existing_matching_file(
+    tmp_path: Path,
+) -> None:
+    channel = DingTalkChannel(
+        lambda *args, **kwargs: None,
+        True,
+        "client-id",
+        "client-secret",
+        "[BOT]",
+        media_dir=str(tmp_path),
+    )
+    payload = b"%PDF-1.4\nsame"
+    channel._http = _FakeHTTPClient(
+        _FakeDownloadResponse(payload),
+    )
+    (tmp_path / "复用.pdf").write_bytes(payload)
+
+    local_path = await channel._download_media_to_local(
+        "https://example.com/file",
+        "beaded1234",
+        filename="复用.pdf",
+        filename_hint="file.bin",
+    )
+
+    assert local_path is not None
+    saved = Path(local_path)
+    assert saved.name == "复用.pdf"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["复用.pdf"]
