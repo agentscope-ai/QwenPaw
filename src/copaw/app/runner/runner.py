@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 
 from agentscope.pipeline import stream_printing_messages
-from agentscope.tool import Toolkit
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from dotenv import load_dotenv
@@ -21,13 +20,9 @@ from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.memory import MemoryManager
-from ...agents.model_factory import create_model_and_formatter
 from ...agents.react_agent import CoPawAgent
-from ...agents.tools import read_file, write_file, edit_file
-from ...agents.utils.token_counting import _get_token_counter
 from ...config import load_config
 from ...constant import (
-    MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
 
@@ -226,31 +221,8 @@ class AgentRunner(Runner):
 
         try:
             if self.memory_manager is None:
-                # Get config for memory manager
-                config = load_config()
-                max_input_length = config.agents.running.max_input_length
-
-                # Create model and formatter
-                chat_model, formatter = create_model_and_formatter()
-
-                # Get token counter
-                token_counter = _get_token_counter()
-
-                # Create toolkit for memory manager
-                toolkit = Toolkit()
-                toolkit.register_tool_function(read_file)
-                toolkit.register_tool_function(write_file)
-                toolkit.register_tool_function(edit_file)
-
-                # Initialize MemoryManager with new parameters
                 self.memory_manager = MemoryManager(
                     working_dir=str(WORKING_DIR),
-                    chat_model=chat_model,
-                    formatter=formatter,
-                    token_counter=token_counter,
-                    toolkit=toolkit,
-                    max_input_length=max_input_length,
-                    memory_compact_ratio=MEMORY_COMPACT_RATIO,
                 )
             await self.memory_manager.start()
         except Exception as e:
@@ -261,6 +233,7 @@ class AgentRunner(Runner):
         Shutdown handler.
         """
         try:
-            await self.memory_manager.close()
+            if self.memory_manager is not None:
+                await self.memory_manager.close()
         except Exception as e:
             logger.warning(f"MemoryManager stop failed: {e}")
