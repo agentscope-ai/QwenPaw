@@ -234,6 +234,7 @@ class MCPClientConfig(BaseModel):
     cwd: str = ""
     timeout: float = Field(default=10.0, ge=0.0)
     retries: int = Field(default=3, ge=0)
+    retry_delay: float = Field(default=1.0, ge=0.0)
 
     @model_validator(mode="before")
     @classmethod

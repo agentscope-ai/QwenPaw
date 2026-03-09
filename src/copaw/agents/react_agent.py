@@ -116,6 +116,11 @@ class CoPawAgent(ReActAgent):
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
 
+        # Load configuration once and cache resilience settings
+        config = load_config()
+        self._llm_retries = config.llm.retries
+        self._llm_retry_delay = config.llm.retry_delay
+
         # Memory compaction threshold: configurable ratio of max_input_length
         self._memory_compact_threshold = int(
             max_input_length * MEMORY_COMPACT_RATIO,
@@ -361,7 +366,7 @@ class CoPawAgent(ReActAgent):
             client_name = getattr(client, "name", f"Client#{i}")
             rebuild_info = getattr(client, "_copaw_rebuild_info", {})
             max_retries = rebuild_info.get("retries", 3)
-            base_delay = 1.0
+            base_delay = rebuild_info.get("retry_delay", 1.0)
 
             registered = False
             for attempt in range(max_retries + 1):
@@ -567,20 +572,20 @@ class CoPawAgent(ReActAgent):
             has_tools=bool(self.toolkit.get_json_schemas()),
         )
 
-        config = load_config()
-        retries = config.agents.running.llm_retries
-        delay = config.agents.running.llm_retry_delay
+        max_retries = self._llm_retries
+        base_delay = self._llm_retry_delay
 
-        for attempt in range(retries + 1):
+        for attempt in range(max_retries + 1):
             try:
                 return await super()._reasoning(tool_choice=tool_choice)
             except Exception as e:
-                if self._is_transient_error(e) and attempt < retries:
+                if self._is_transient_error(e) and attempt < max_retries:
+                    delay = base_delay * (2**attempt)
                     logger.warning(
                         "LLM reasoning transient error (attempt %d/%d): %s. "
                         "Retrying in %.1fs...",
                         attempt + 1,
-                        retries + 1,
+                        max_retries + 1,
                         self._get_safe_error_msg(e),
                         delay,
                     )

@@ -203,6 +203,7 @@ class MCPClientManager:
             "cwd": client_config.cwd or None,
             "timeout": client_config.timeout,
             "retries": client_config.retries,
+            "retry_delay": client_config.retry_delay,
         }
 
         if client_config.transport == "stdio":
