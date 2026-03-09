@@ -255,7 +255,7 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.api_key && provider.id !== "ollama" && (
+            {provider.api_key && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
