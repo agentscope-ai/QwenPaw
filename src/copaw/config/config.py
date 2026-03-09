@@ -232,8 +232,8 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
-    timeout: float = 10.0
-    retries: int = 3
+    timeout: float = Field(default=10.0, ge=0.0)
+    retries: int = Field(default=3, ge=0)
 
     @model_validator(mode="before")
     @classmethod

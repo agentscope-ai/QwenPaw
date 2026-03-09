@@ -52,6 +52,16 @@ logger = logging.getLogger(__name__)
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
+# Transient error keywords for retry logic
+TRANSIENT_ERROR_SUBSTRINGS = (
+    "timeout",
+    "connection",
+    "fetch failed",
+    "ssl",
+    "reset",
+    "refused",
+)
+
 
 def normalize_reasoning_tool_choice(
     tool_choice: Literal["auto", "none", "required"] | None,
@@ -385,25 +395,13 @@ class CoPawAgent(ReActAgent):
                     else:
                         break  # Recovery failed
                 except Exception as e:  # pylint: disable=broad-except
-                    err_msg = str(e).lower()
-                    is_transient = any(
-                        term in err_msg
-                        for term in [
-                            "timeout",
-                            "fetch failed",
-                            "connection",
-                            "reset",
-                            "refused",
-                        ]
-                    )
-
-                    if is_transient and attempt < max_retries:
+                    if self._is_transient_error(e) and attempt < max_retries:
                         delay = base_delay * (2**attempt)
                         logger.warning(
                             "Transient error registering MCP client '%s': %s. "
                             "Retrying in %.1fs... (attempt %d/%d)",
                             client_name,
-                            e,
+                            self._get_safe_error_msg(e),
                             delay,
                             attempt + 1,
                             max_retries + 1,
@@ -421,7 +419,7 @@ class CoPawAgent(ReActAgent):
                         "attempts: %s",
                         client_name,
                         attempt + 1,
-                        e,
+                        self._get_safe_error_msg(e),
                     )
                     break
 
@@ -543,6 +541,22 @@ class CoPawAgent(ReActAgent):
         except Exception:  # pylint: disable=broad-except
             return None
 
+    def _is_transient_error(self, error: Exception) -> bool:
+        """Check if exception is transient based on type or message."""
+        if isinstance(error, (ssl.SSLError, asyncio.TimeoutError)):
+            return True
+        err_msg = str(error).lower()
+        return any(term in err_msg for term in TRANSIENT_ERROR_SUBSTRINGS)
+
+    @staticmethod
+    def _get_safe_error_msg(error: Exception) -> str:
+        """Strip potentially sensitive data from error messages."""
+        err_msg = str(error)
+        # Avoid logging excessively long strings that might contain keys/tokens
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        return f"[{type(error).__name__}] {err_msg}"
+
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
@@ -560,42 +574,24 @@ class CoPawAgent(ReActAgent):
         for attempt in range(retries + 1):
             try:
                 return await super()._reasoning(tool_choice=tool_choice)
-            except (ssl.SSLError, asyncio.TimeoutError) as e:
-                if attempt < retries:
-                    logger.warning(
-                        "LLM reasoning failed (attempt %d/%d): %s. "
-                        "Retrying in %.1fs...",
-                        attempt + 1,
-                        retries + 1,
-                        e,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                logger.error(
-                    "LLM reasoning failed after %d retries: %s",
-                    retries,
-                    e,
-                )
-                raise
             except Exception as e:
-                # Catch broad connection errors from OpenAI or other providers
-                err_str = str(e).lower()
-                is_transient = any(
-                    x in err_str
-                    for x in ["timeout", "connection", "fetch failed", "ssl"]
-                )
-                if is_transient and attempt < retries:
+                if self._is_transient_error(e) and attempt < retries:
                     logger.warning(
                         "LLM reasoning transient error (attempt %d/%d): %s. "
                         "Retrying in %.1fs...",
                         attempt + 1,
                         retries + 1,
-                        e,
+                        self._get_safe_error_msg(e),
                         delay,
                     )
                     await asyncio.sleep(delay)
                     continue
+
+                logger.error(
+                    "LLM reasoning failed after %d attempts: %s",
+                    attempt + 1,
+                    self._get_safe_error_msg(e),
+                )
                 raise
 
     async def reply(
