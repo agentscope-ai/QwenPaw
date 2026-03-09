@@ -20,7 +20,7 @@ This guide explains how to install and use the CoPaw Desktop application on Wind
 
 **The first launch may take a considerable amount of time (10-60 seconds or more, depending on your system configuration).** The application needs to initialize the Python environment, load dependencies, and start the web service. Please be patient while waiting for the window to appear. Subsequent launches will be faster.
 
-## 📚 Table of Contents
+## Table of Contents
 
 - [Windows Guide](#windows-guide)
 - [macOS Guide](#macos-guide)
@@ -87,7 +87,7 @@ A:
 
 ---
 
-## 🍎 macOS Guide
+## macOS Guide
 
 ### System Requirements
 
@@ -235,7 +235,7 @@ Currently using:
 
 ---
 
-## 🎉 Usage Recommendations
+## Usage Recommendations
 
 ### Windows Users
 
