@@ -451,9 +451,6 @@ class ProviderManager:
         except Exception:
             return None
 
-    def _add_buitin_provider(self, provider: Provider):
-        self.builtin_providers[provider.id] = provider
-
     def _migrate_legacy_providers(self):
         """Migrate from legacy providers.json format to the new structure."""
         legacy_path = SECRET_DIR / "providers.json"
@@ -490,10 +487,11 @@ class ProviderManager:
                     api_key=data.get("api_key", ""),
                     is_custom=True,
                 )
-                if "extra_models" in data:
+                if "models" in data:
+                    # migrate models to extra_models field
                     custom_provider.extra_models = [
                         ModelInfo.model_validate(model)
-                        for model in data["extra_models"]
+                        for model in data["models"]
                     ]
                 self._save_provider(custom_provider, is_builtin=False)
             # Migrate active model

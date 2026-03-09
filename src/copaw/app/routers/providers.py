@@ -288,13 +288,13 @@ async def add_model_endpoint(
 ) -> ProviderInfo:
     manager = request.app.state.provider_manager
     try:
-        provider = manager.add_model_to_provider(
+        provider = await manager.add_model_to_provider(
             provider_id=provider_id,
             model_info=ModelInfo(id=body.id, name=body.name),
         )  # Validate provider exists and add model
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return await provider
+    return provider
 
 
 @router.delete(
@@ -309,13 +309,13 @@ async def remove_model_endpoint(
 ) -> ProviderInfo:
     manager = request.app.state.provider_manager
     try:
-        provider = manager.delete_model_from_provider(
+        provider = await manager.delete_model_from_provider(
             provider_id=provider_id,
             model_id=model_id,
         )  # Validate provider and model exist and delete
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await provider
+    return provider
 
 
 @router.get(
@@ -340,5 +340,14 @@ async def set_active_model(
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
     manager = request.app.state.provider_manager
-    await manager.activate_model(body.provider_id, body.model)
+    try:
+        await manager.activate_model(body.provider_id, body.model)
+    except ValueError as exc:
+        message = str(exc)
+        lower_msg = message.lower()
+        if "provider" in lower_msg and "not found" in lower_msg:
+            # Missing provider
+            raise HTTPException(status_code=404, detail=message) from exc
+        # Invalid model, unreachable provider, or other configuration error
+        raise HTTPException(status_code=400, detail=message) from exc
     return ActiveModelsInfo(active_llm=manager.get_active_model())

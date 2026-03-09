@@ -130,13 +130,13 @@ class OllamaProvider(Provider):
         return True
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
-        from agentscope.model import OpenAIChatModel
+        from .openai_chat_model_compat import OpenAIChatModelCompat
 
         if self.base_url.endswith("/"):
             openai_compatible_url = self.base_url[:-1] + "/v1"
         else:
             openai_compatible_url = self.base_url + "/v1"
-        return OpenAIChatModel(
+        return OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,

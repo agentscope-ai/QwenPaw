@@ -15,6 +15,67 @@ from copaw.providers.provider import DefaultProvider, ModelInfo
 from copaw.providers.provider_manager import ProviderManager
 
 
+LEGACY_PROVIDER = {
+    "providers": {
+        "modelscope": {
+            "base_url": "https://api-inference.modelscope.cn/v1",
+            "api_key": "",
+            "extra_models": [],
+            "chat_model": "",
+        },
+        "dashscope": {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "sk-test-legacy-secret",
+            "extra_models": [{"id": "qwen-plus", "name": "Qwen Plus"}],
+            "chat_model": "",
+        },
+        "aliyun-codingplan": {
+            "base_url": "https://coding.dashscope.aliyuncs.com/v1",
+            "api_key": "",
+            "extra_models": [],
+            "chat_model": "",
+        },
+        "openai": {
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "",
+            "extra_models": [],
+            "chat_model": "",
+        },
+        "azure-openai": {
+            "base_url": "",
+            "api_key": "",
+            "extra_models": [],
+            "chat_model": "",
+        },
+        "anthropic": {
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key": "",
+            "extra_models": [],
+            "chat_model": "",
+        },
+        "ollama": {
+            "base_url": "http://localhost:11434/v1",
+            "api_key": "",
+            "extra_models": [],
+            "chat_model": "",
+        },
+    },
+    "custom_providers": {
+        "mydash": {
+            "id": "mydash",
+            "name": "MyDash",
+            "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",  # noqa: E501
+            "api_key_prefix": "sk-",
+            "models": [{"id": "qwen3-max", "name": "qwen3-max"}],
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "sk-test-legacy-custom-secret",
+            "chat_model": "OpenAIChatModel",
+        },
+    },
+    "active_llm": {"provider_id": "dashscope", "model": "qwen3-max"},
+}
+
+
 @pytest.fixture
 def isolated_secret_dir(monkeypatch, tmp_path):
     secret_dir = tmp_path / ".copaw.secret"
@@ -114,24 +175,7 @@ def test_migrate_legacy_file_and_persist_active_model(
     legacy_file = isolated_secret_dir / "providers.json"
     legacy_file.write_text(
         json.dumps(
-            {
-                "providers": {
-                    "openai": {
-                        "api_key": "sk-legacy-openai",
-                    },
-                },
-                "custom_providers": {
-                    "legacy-custom": {
-                        "name": "Legacy Custom",
-                        "base_url": "https://legacy.example/v1",
-                        "api_key": "sk-legacy-custom",
-                    },
-                },
-                "active_llm": {
-                    "provider_id": "openai",
-                    "model": "gpt-5",
-                },
-            },
+            LEGACY_PROVIDER,
             ensure_ascii=False,
             indent=2,
         ),
@@ -142,17 +186,19 @@ def test_migrate_legacy_file_and_persist_active_model(
 
     assert legacy_file.exists() is False
     assert manager.active_model is not None
-    assert manager.active_model.provider_id == "openai"
-    assert manager.active_model.model == "gpt-5"
+    assert manager.active_model.provider_id == "dashscope"
+    assert manager.active_model.model == "qwen3-max"
 
-    openai_provider = manager.get_provider("openai")
-    assert openai_provider is not None
-    assert openai_provider.api_key == "sk-legacy-openai"
+    dashscope_provider = manager.get_provider("dashscope")
+    assert dashscope_provider is not None
+    assert dashscope_provider.api_key == "sk-test-legacy-secret"
 
-    legacy_custom = manager.get_provider("legacy-custom")
+    legacy_custom = manager.get_provider("mydash")
     assert legacy_custom is not None
     assert isinstance(legacy_custom, OpenAIProvider)
-    assert legacy_custom.api_key == "sk-legacy-custom"
+    assert len(legacy_custom.extra_models) == 1
+    assert legacy_custom.extra_models[0].id == "qwen3-max"
+    assert legacy_custom.api_key == "sk-test-legacy-custom-secret"
 
     active_model_file = isolated_secret_dir / "providers" / "active_model.json"
     assert active_model_file.exists()

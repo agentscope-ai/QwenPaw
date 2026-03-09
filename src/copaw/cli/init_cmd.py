@@ -226,7 +226,11 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
     provider_manager = ProviderManager.get_instance()
     activate_llm = provider_manager.get_active_model()
 
-    if activate_llm is not None:
+    if (
+        activate_llm is not None
+        and activate_llm.provider_id
+        and activate_llm.model
+    ):
         click.echo(
             f"\n✓ LLM already configured: "
             f"{activate_llm.provider_id} / {activate_llm.model}",
