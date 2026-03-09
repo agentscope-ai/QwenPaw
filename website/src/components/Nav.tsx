@@ -58,6 +58,7 @@ export function Nav({
   const moreRef = useRef<HTMLDivElement>(null);
   const linkClass =
     "nav-item text-[var(--text-muted)] hover:text-[var(--text)] transition-colors";
+  const docsBase = docsPath.replace(/\/$/, "") || "/docs";
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -166,7 +167,7 @@ export function Nav({
                   <span>{t(lang, "nav.releaseNotes")}</span>
                 </Link>
                 <Link
-                  to="/docs/quickstart"
+                  to={`${docsBase}/quickstart`}
                   className="nav-dropdown-item"
                   onClick={() => setMoreOpen(false)}
                   style={{
@@ -185,10 +186,7 @@ export function Nav({
               </div>
             )}
           </div>
-          <Link
-            to={docsPath.replace(/\/$/, "") || "/docs"}
-            className={linkClass}
-          >
+          <Link to={docsBase} className={linkClass}>
             <BookOpen size={18} strokeWidth={1.5} aria-hidden />
             <span>{t(lang, "nav.docs")}</span>
           </Link>
@@ -276,14 +274,14 @@ export function Nav({
           <FileText size={18} /> {t(lang, "nav.releaseNotes")}
         </Link>
         <Link
-          to="/docs/quickstart"
+          to={`${docsBase}/quickstart`}
           className={linkClass}
           onClick={() => setOpen(false)}
         >
           <Download size={18} /> {t(lang, "nav.download")}
         </Link>
         <Link
-          to={docsPath.replace(/\/$/, "") || "/docs"}
+          to={docsBase}
           className={linkClass}
           onClick={() => setOpen(false)}
         >

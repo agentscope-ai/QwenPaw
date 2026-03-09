@@ -265,6 +265,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 key={method}
                 type="button"
                 onClick={() => setSelectedMethod(method)}
+                aria-pressed={isActive}
                 style={{
                   position: "relative",
                   display: "flex",
@@ -354,6 +355,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                     key={platform}
                     type="button"
                     onClick={() => setScriptPlatform(platform)}
+                    aria-pressed={scriptPlatform === platform}
                     style={{
                       flex: 1,
                       padding: "var(--space-2)",
@@ -397,6 +399,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                       key={variant}
                       type="button"
                       onClick={() => setScriptWinVariant(variant)}
+                      aria-pressed={scriptWinVariant === variant}
                       style={{
                         flex: 1,
                         padding: "var(--space-2)",
@@ -477,6 +480,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                       key={variant}
                       type="button"
                       onClick={() => setDockerVariant(variant)}
+                      aria-pressed={dockerVariant === variant}
                       style={{
                         flex: 1,
                         padding: "var(--space-2)",
@@ -740,7 +744,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 <ExternalLink size={14} strokeWidth={1.5} />
               </a>
               <Link
-                to="/docs/desktop"
+                to={`${docsBase}/desktop`}
                 style={{
                   display: "flex",
                   alignItems: "center",
