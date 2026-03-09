@@ -593,8 +593,12 @@ class DingTalkChannel(BaseChannel):
             "https://oapi.dingtalk.com/media/upload"
             f"?access_token={token}&type={media_type}"
         )
-        ext = "jpg" if media_type == "image" else "bin"
-        ext = "mp4" if media_type == "video" else "bin"
+        if media_type == "image":
+            ext = "jpg"
+        elif media_type == "video":
+            ext = "mp4"
+        else:
+            ext = "bin"
         name = filename or f"upload.{ext}"
         logger.info(f"dingtalk upload_media: name={name}")
         form = aiohttp.FormData()
@@ -1416,8 +1420,8 @@ class DingTalkChannel(BaseChannel):
                                 getattr(part, "type", None),
                                 ok,
                             )
-                        else:
-                            accumulated_parts.extend(parts)
+                else:
+                    accumulated_parts.extend(parts)
             elif obj == "response":
                 last_response = event
 
