@@ -52,17 +52,7 @@ def normalize_feishu_md(text: str) -> str:
 
 
 def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
-    """Parse GFM table lines into a Feishu native table component dict.
-
-    Returns None if the lines don't form a valid table.
-    The Feishu table component schema:
-    {
-      "tag": "table",
-      "page_size": N,
-      "columns": [{"name": "col_key", "display_name": "Header", ...}, ...],
-      "rows": [{"col_key": "cell_value", ...}, ...]
-    }
-    """
+    """Parse GFM table lines into a Feishu native table component dict."""
     # Filter out empty lines kept in block
     lines = [ln for ln in table_lines if ln.strip()]
     if len(lines) < 2:
@@ -92,28 +82,12 @@ def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
     # Build column keys (safe ASCII slugs)
     col_keys = [f"col{i}" for i in range(len(headers))]
 
-    # Calculate max content length per column.
-    # Chinese chars count as 2.2 units, ASCII chars as 1 unit.
-    def char_width(text: str) -> float:  # Allow fractional units
-        return sum(2.2 if ord(c) > 127 else 1 for c in text)
-
-    max_widths = [char_width(h) for h in headers]
-    for line in lines[sep_idx + 1 :]:
-        cells = split_row(line)
-        for i, cell in enumerate(cells):
-            if i < len(max_widths):
-                max_widths[i] = max(max_widths[i], char_width(cell))
-
-    # Use "auto" width to let Feishu calculate optimal column widths.
-    # Avoids invalid width errors from manual calculation.
-    def calc_width(units: float) -> str:
-        return "auto"
-
+    # Build column definitions with auto width.
     columns = [
         {
             "name": col_keys[i],
             "display_name": headers[i],
-            "width": calc_width(max_widths[i]),
+            "width": "auto",
             "horizontal_align": "left",
         }
         for i in range(len(headers))
@@ -139,21 +113,12 @@ def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
 
 
 def _convert_md_headings_to_bold(text: str) -> str:
-    """Convert Markdown headings (##, ###, etc.) to bold text.
-
-    Feishu's interactive card markdown element does not support # headings.
-    """
+    """Convert Markdown headings (##, ###, etc.) to bold text."""
     return re.sub(r"^#{1,6}\s+(.+)$", r"**\1**", text, flags=re.MULTILINE)
 
 
 def build_interactive_content(text: str) -> str:
-    """Build an interactive card JSON with mixed markdown + native table.
-
-    Splits the text into non-table segments (rendered as markdown elements)
-    and GFM table blocks (rendered as Feishu native table components).
-    Falls back to a plain markdown element if table parsing fails.
-    Returns a JSON string suitable for msg_type='interactive'.
-    """
+    """Build an interactive card JSON with mixed markdown + native table."""
     lines = text.split("\n")
     elements: List[Dict[str, Any]] = []
     i = 0
