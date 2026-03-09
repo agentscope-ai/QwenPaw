@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import re
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -52,6 +53,7 @@ class DiscordChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -63,6 +65,7 @@ class DiscordChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.token = token
@@ -99,7 +102,18 @@ class DiscordChannel(BaseChannel):
                 text = (message.content or "").strip()
                 attachments = message.attachments
 
-                # Build runtime content parts
+                is_bot_mentioned = False
+                bot_user = self._client.user
+                if getattr(message, "mention_everyone", False):
+                    is_bot_mentioned = True
+                if bot_user and bot_user in message.mentions:
+                    is_bot_mentioned = True
+                    text = re.sub(
+                        rf"<@!?{bot_user.id}>",
+                        "",
+                        text,
+                    ).strip()
+
                 content_parts = []
                 if text:
                     content_parts.append(
@@ -175,6 +189,8 @@ class DiscordChannel(BaseChannel):
                     "is_dm": not is_group,
                     "is_group": is_group,
                 }
+                if is_bot_mentioned:
+                    meta["bot_mentioned"] = True
 
                 allowed, error_msg = self._check_allowlist(
                     str(message.author.id),
@@ -187,6 +203,9 @@ class DiscordChannel(BaseChannel):
                         is_group,
                     )
                     await message.channel.send(error_msg or "")
+                    return
+
+                if not self._check_group_mention(is_group, meta):
                     return
 
                 native = {
@@ -229,6 +248,7 @@ class DiscordChannel(BaseChannel):
             group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("DISCORD_DENY_MESSAGE", ""),
+            require_mention=os.getenv("DISCORD_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -256,6 +276,7 @@ class DiscordChannel(BaseChannel):
             group_policy=config.group_policy or "open",
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
+            require_mention=config.require_mention,
         )
 
     async def _resolve_target(self, to_handle, meta):

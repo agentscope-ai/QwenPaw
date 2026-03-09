@@ -248,6 +248,8 @@
     "dmPolicyTooltip": "Кто может взаимодействовать с ботом в личных сообщениях. Open: все; Allowlist: только авторизованные пользователи",
     "groupPolicy": "Политика групп",
     "groupPolicyTooltip": "Кто может взаимодействовать с ботом в групповых чатах. Open: все; Allowlist: только авторизованные пользователи",
+    "requireMention": "Требовать @упоминание",
+    "requireMentionTooltip": "Бот отвечает в групповых чатах только при явном @упоминании",
     "policyOpen": "Open",
     "policyAllowlist": "Allowlist",
     "allowFrom": "Пользователи allowlist",

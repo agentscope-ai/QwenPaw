@@ -247,6 +247,8 @@
     "dmPolicyTooltip": "ダイレクトメッセージでBotと対話できるユーザーを制御します。オープン: 全員、許可リスト: 認証済みユーザーのみ",
     "groupPolicy": "グループポリシー",
     "groupPolicyTooltip": "グループチャットでBotと対話できるユーザーを制御します。オープン: 全員、許可リスト: 認証済みユーザーのみ",
+    "requireMention": "@メンション必須",
+    "requireMentionTooltip": "有効にすると、グループチャットでは明示的に@メンションされた場合のみ応答します",
     "policyOpen": "オープン",
     "policyAllowlist": "許可リスト",
     "allowFrom": "許可ユーザー",

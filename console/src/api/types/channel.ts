@@ -6,6 +6,7 @@ export interface BaseChannelConfig {
   dm_policy?: "open" | "allowlist";
   group_policy?: "open" | "allowlist";
   allow_from?: string[];
+  require_mention?: boolean;
 }
 
 export interface IMessageChannelConfig extends BaseChannelConfig {

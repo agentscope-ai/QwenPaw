@@ -168,6 +168,7 @@ class FeishuChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -179,6 +180,7 @@ class FeishuChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -198,6 +200,7 @@ class FeishuChannel(BaseChannel):
         self._tenant_access_token_expire_at: float = 0.0
         self._token_lock = asyncio.Lock()
         self._http: Optional[aiohttp.ClientSession] = None
+        self._bot_open_id: Optional[str] = None
 
         # message_id dedup (ordered, trim when over limit)
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
@@ -236,6 +239,7 @@ class FeishuChannel(BaseChannel):
             group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
+            require_mention=os.getenv("FEISHU_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -265,6 +269,7 @@ class FeishuChannel(BaseChannel):
             group_policy=config.group_policy or "open",
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
+            require_mention=config.require_mention,
         )
 
     def resolve_session_id(
@@ -420,6 +425,23 @@ class FeishuChannel(BaseChannel):
             self._tenant_access_token = token
             self._tenant_access_token_expire_at = now + expire
             return token
+
+    async def _fetch_bot_open_id(self) -> Optional[str]:
+        """GET /open-apis/bot/v3/info to get this bot's open_id."""
+        token = await self._get_tenant_access_token()
+        url = "https://open.feishu.cn/open-apis/bot/v3/info"
+        headers = {"Authorization": f"Bearer {token}"}
+        async with self._http.get(url, headers=headers) as resp:
+            data = await resp.json(content_type=None)
+        data = data or {}
+        if data.get("code", -1) != 0:
+            logger.warning(
+                "feishu bot/v3/info error: code=%s msg=%s",
+                data.get("code"),
+                data.get("msg"),
+            )
+            return None
+        return (data.get("bot") or {}).get("open_id")
 
     async def _get_user_name_by_open_id(self, open_id: str) -> Optional[str]:
         """Fetch user name (nickname) from Feishu Contact API by open_id.
@@ -609,6 +631,23 @@ class FeishuChannel(BaseChannel):
             ).strip()
             content_raw = getattr(message, "content", None) or ""
 
+            mentions_raw = getattr(message, "mentions", None) or []
+            is_bot_mentioned = False
+            bot_mention_keys: List[str] = []
+            if "@_all" in content_raw:
+                is_bot_mentioned = True
+            if self._bot_open_id and mentions_raw:
+                for m in mentions_raw:
+                    m_id = getattr(m, "id", None)
+                    if not m_id:
+                        continue
+                    m_open_id = getattr(m_id, "open_id", None) or ""
+                    if m_open_id == self._bot_open_id:
+                        is_bot_mentioned = True
+                        key = getattr(m, "key", None) or ""
+                        if key:
+                            bot_mention_keys.append(key)
+
             await self._add_reaction(message_id, "Typing")
 
             content_parts: List[Any] = []
@@ -616,6 +655,10 @@ class FeishuChannel(BaseChannel):
 
             if msg_type == "text":
                 text = extract_json_key(content_raw, "text")
+                if text:
+                    for key in bot_mention_keys:
+                        text = text.replace(key, "")
+                    text = text.strip()
                 if text:
                     text_parts.append(text)
             elif msg_type == "post":
@@ -731,6 +774,8 @@ class FeishuChannel(BaseChannel):
             receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
             meta["feishu_receive_id_type"] = receive_id_type
+            if is_bot_mentioned:
+                meta["bot_mentioned"] = True
 
             allowed, error_msg = self._check_allowlist(
                 sender_id,
@@ -747,6 +792,9 @@ class FeishuChannel(BaseChannel):
                     receive_id,
                     error_msg or "",
                 )
+                return
+
+            if not self._check_group_mention(is_group, meta):
                 return
 
             session_id = self.resolve_session_id(sender_id, meta)
@@ -1733,6 +1781,16 @@ class FeishuChannel(BaseChannel):
         self._ws_thread.start()
         if self._http is None:
             self._http = aiohttp.ClientSession()
+        try:
+            self._bot_open_id = await self._fetch_bot_open_id()
+            logger.info(
+                "feishu: bot open_id=%s",
+                self._bot_open_id[:12] if self._bot_open_id else "?",
+            )
+        except Exception:
+            logger.warning(
+                "feishu: failed to fetch bot open_id (non-fatal)",
+            )
         logger.info("feishu channel started (app_id=%s)", self.app_id[:12])
 
     async def stop(self) -> None:

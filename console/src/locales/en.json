@@ -248,6 +248,8 @@
     "dmPolicyTooltip": "Control who can interact with the bot via direct message. Open: everyone; Allowlist: authorized users only",
     "groupPolicy": "Group Policy",
     "groupPolicyTooltip": "Control who can interact with the bot in group chats. Open: everyone; Allowlist: authorized users only",
+    "requireMention": "Require @Mention",
+    "requireMentionTooltip": "When enabled, bot only responds in group chats when explicitly @mentioned",
     "policyOpen": "Open",
     "policyAllowlist": "Allowlist",
     "allowFrom": "Allowlist Users",

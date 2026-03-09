@@ -21,6 +21,7 @@ class BaseChannelConfig(BaseModel):
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
+    require_mention: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):

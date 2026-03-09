@@ -90,6 +90,14 @@ export function ChannelDrawer({
         />
       </Form.Item>
       <Form.Item
+        name="require_mention"
+        label={t("channels.requireMention")}
+        valuePropName="checked"
+        tooltip={t("channels.requireMentionTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+      <Form.Item
         name="allow_from"
         label={t("channels.allowFrom")}
         tooltip={t("channels.allowFromTooltip")}

@@ -248,6 +248,8 @@
     "dmPolicyTooltip": "控制谁可以通过私聊与机器人交互。开放：所有人；白名单：仅限授权用户",
     "groupPolicy": "群聊策略",
     "groupPolicyTooltip": "控制谁可以在群聊中与机器人交互。开放：所有人；白名单：仅限授权用户",
+    "requireMention": "需要 @提及",
+    "requireMentionTooltip": "开启后，群聊中仅在被 @提及 时才会回复",
     "policyOpen": "开放",
     "policyAllowlist": "白名单",
     "allowFrom": "白名单用户",
