@@ -302,6 +302,7 @@ async def _send_group_message_async(
         body,
     )
 
+
 async def _download_qq_file(
     *,
     http_session: aiohttp.ClientSession,
@@ -311,8 +312,15 @@ async def _download_qq_file(
 ) -> Optional[str]:
     """Download a QQ file to local media_dir; return local path."""
     try:
+        if not filename_hint:
+            logger.warning("filename is empty")
+            return None
+
+        # Sanitize filename to prevent path traversal
+        safe_filename = Path(filename_hint).name
+
         media_dir.mkdir(parents=True, exist_ok=True)
-        local_path = os.path.join(media_dir, filename_hint)
+        local_path = media_dir / safe_filename
         async with http_session.get(file_url) as resp:
             if resp.status != 200:
                 logger.warning(
@@ -328,6 +336,7 @@ async def _download_qq_file(
     except Exception:
         logger.exception("qq download failed for url=%s", file_url)
         return None
+
 
 class QQChannel(BaseChannel):
     """QQ Channel:
@@ -595,6 +604,7 @@ class QQChannel(BaseChannel):
                 logger.exception("send failed")
 
     def _resolve_attachment_type(self, att_type: str, file_name: str) -> str:
+        # pylint: disable=too-many-return-statements
         """Resolve attachment type from content_type or file extension.
 
         Args:
@@ -607,12 +617,24 @@ class QQChannel(BaseChannel):
         if not att_type:
             ext = Path(file_name).suffix.lower()
             ext_map = {
-                ".jpg": "image", ".jpeg": "image", ".png": "image",
-                ".gif": "image", ".webp": "image", ".bmp": "image",
-                ".mp4": "video", ".avi": "video", ".mov": "video",
-                ".mkv": "video", ".webm": "video", ".mpeg": "video",
-                ".mp3": "audio", ".wav": "audio", ".ogg": "audio",
-                ".m4a": "audio", ".aac": "audio", ".wma": "audio",
+                ".jpg": "image",
+                ".jpeg": "image",
+                ".png": "image",
+                ".gif": "image",
+                ".webp": "image",
+                ".bmp": "image",
+                ".mp4": "video",
+                ".avi": "video",
+                ".mov": "video",
+                ".mkv": "video",
+                ".webm": "video",
+                ".mpeg": "video",
+                ".mp3": "audio",
+                ".wav": "audio",
+                ".ogg": "audio",
+                ".m4a": "audio",
+                ".aac": "audio",
+                ".wma": "audio",
             }
             return ext_map.get(ext, "file")
 
@@ -627,10 +649,9 @@ class QQChannel(BaseChannel):
         elif mime_base.startswith("video/"):
             return "video"
         elif mime_base.startswith("audio/"):
-            result = "audio"
+            return "audio"
         else:
-            result = 'file'
-        return result
+            return "file"
 
     def _parse_qq_attachments(
         self,
@@ -639,9 +660,9 @@ class QQChannel(BaseChannel):
         """Parse QQ message attachments to content parts.
 
         QQ attachment format:
-        {'content': '', 'content_type': 'image/jpeg', 'filename': '22BB8E9448277C4E132D75F47F281096.jpg', 'height': 128, 'size': 13588,
-          'url': '', 
-          'width': 198}
+        {'content': '', 'content_type': 'image/jpeg', 'filename': 'abc.jpg',
+        'height': 128, 'size': 13588,
+          'url': '','width': 198}
 
         Supports MIME type matching for flexible content type detection.
         """
@@ -656,7 +677,7 @@ class QQChannel(BaseChannel):
             if not url:
                 continue
             resolved_type = self._resolve_attachment_type(att_type, file_name)
-            
+
             if resolved_type in ["image", "video", "audio", "file"]:
                 try:
                     loop = self._loop
@@ -675,7 +696,7 @@ class QQChannel(BaseChannel):
                         local_path = url
                 except Exception:
                     logger.exception("failed to download attachment")
-                    local_path = url.replace("file://", "") if url.startswith("file://") else url
+                    local_path = None
                 if local_path:
                     # Map resolved_type to appropriate content type
                     if resolved_type == "image":
@@ -826,7 +847,12 @@ class QQChannel(BaseChannel):
                 fallback_handle = getattr(request, "user_id", "")
                 await self.send_content_parts(
                     fallback_handle,
-                    [TextContent(type=ContentType.TEXT, text=f"Error: {err_msg}")],
+                    [
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=f"Error: {err_msg}",
+                        ),
+                    ],
                     getattr(request, "channel_meta", None) or {},
                 )
             except Exception:
