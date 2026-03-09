@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
@@ -91,9 +92,29 @@ class OpenAIProvider(Provider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
+        dashscope_base_urls = [
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://coding.dashscope.aliyuncs.com/v1",
+        ]
+
+        client_kwargs = {"base_url": self.base_url}
+
+        if self.base_url in dashscope_base_urls:
+            client_kwargs["default_headers"] = {
+                "x-dashscope-agentapp": json.dumps(
+                    {
+                        "agentType": "CoPaw",
+                        "deployType": "UnKnown",
+                        "moduleCode": "model",
+                        "agentCode": "UnKnown",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+
         return OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
-            client_kwargs={"base_url": self.base_url},
+            client_kwargs=client_kwargs,
         )

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, List
 
@@ -98,6 +99,25 @@ class AnthropicProvider(Provider):
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.model import AnthropicChatModel
+
+        dashscope_base_urls = [
+            "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+            "https://dashscope.aliyuncs.com/apps/anthropic",
+        ]
+
+        client_kwargs = {"base_url": self.base_url}
+        if self.base_url in dashscope_base_urls:
+            client_kwargs["default_headers"] = {
+                "x-dashscope-agentapp": json.dumps(
+                    {
+                        "agentType": "CoPaw",
+                        "deployType": "UnKnown",
+                        "moduleCode": "model",
+                        "agentCode": "UnKnown",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
 
         return AnthropicChatModel(
             model_name=model_id,
