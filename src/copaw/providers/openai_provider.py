@@ -12,6 +12,10 @@ from openai import APIError, AsyncOpenAI
 from copaw.providers.provider import ModelInfo, Provider
 
 
+DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
+
+
 class OpenAIProvider(Provider):
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
         return AsyncOpenAI(
@@ -44,6 +48,8 @@ class OpenAIProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> bool:
         """Check if OpenAI provider is reachable with current configuration."""
+        if self.base_url == CODING_DASHSCOPE_BASE_URL:
+            return True
         client = self._client()
         try:
             await client.models.list(timeout=timeout)
@@ -87,8 +93,8 @@ class OpenAIProvider(Provider):
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
         dashscope_base_urls = [
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "https://coding.dashscope.aliyuncs.com/v1",
+            DASHSCOPE_BASE_URL,
+            CODING_DASHSCOPE_BASE_URL,
         ]
 
         client_kwargs = {"base_url": self.base_url}
