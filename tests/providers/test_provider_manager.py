@@ -269,6 +269,26 @@ def test_update_provider_for_builtin_persists_to_builtin_path(
     assert persisted_azure.base_url == "https://azure-updated.example/v1"
     assert persisted_azure.api_key == "sk-azure-updated"
 
+    ok = manager.update_provider(
+        "aliyun-codingplan",
+        {
+            "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+            "api_key": "sk-sp-updated",
+        },
+    )
+    assert ok is True
+    persisted_aliyun = manager.load_provider(
+        "aliyun-codingplan",
+        is_builtin=True,
+    )
+    assert persisted_aliyun is not None
+    assert isinstance(persisted_aliyun, OpenAIProvider)
+    assert (
+        persisted_aliyun.base_url
+        == "https://coding-intl.dashscope.aliyuncs.com/v1"
+    )
+    assert persisted_aliyun.api_key == "sk-sp-updated"
+
 
 def test_update_provider_for_unknown_returns_false(
     isolated_secret_dir,

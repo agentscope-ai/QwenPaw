@@ -110,7 +110,7 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    freeze_url=True,
+    freeze_url=False,
 )
 
 PROVIDER_LLAMACPP = DefaultProvider(
