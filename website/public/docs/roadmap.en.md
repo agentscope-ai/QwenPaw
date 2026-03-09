@@ -23,11 +23,11 @@
 |                                       | Tool/skills security                                                                                                                             | Planned              |
 |                                       | Configurable security levels (user-configurable)                                                                                                 | Planned              |
 | **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term planned    |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term planned    |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term planned    |
+| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term Planned    |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term Planned    |
+| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planned    |
 
-_Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or under design, also **welcome contributions**; _Seeking Contributors_ — we **strongly encourage community contributions**; _Long-term planned_ — longer-horizon roadmap.
+_Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or under design, also **welcome contributions**; _Seeking Contributors_ — we **strongly encourage community contributions**; _Long-term Planned_ — longer-horizon roadmap.
 
 ---
 
