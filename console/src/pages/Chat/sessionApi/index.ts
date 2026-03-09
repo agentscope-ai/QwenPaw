@@ -191,6 +191,7 @@ function chatSpecToSession(chat: ChatSpec): ExtendedSession {
 
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private lsKey: string;
+  private currentSessionKey: string;
   private sessionList: IAgentScopeRuntimeWebUISession[];
   private fetchPromise: Promise<IAgentScopeRuntimeWebUISession[]> | null = null;
   private lastFetchTime: number = 0;
@@ -208,7 +209,29 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   constructor() {
     this.lsKey = "agent-scope-runtime-webui-sessions";
+    this.currentSessionKey = "agent-scope-current-session-id";
     this.sessionList = [];
+  }
+
+  // Persist current session ID to LocalStorage with error handling
+  private saveCurrentSessionId(sessionId: string): void {
+    try {
+      localStorage.setItem(this.currentSessionKey, sessionId);
+    } catch (e) {
+      // Silent fail in private mode or quota exceeded
+      console.warn("Failed to save session ID to localStorage:", e);
+    }
+  }
+
+  // Retrieve persisted session ID with error handling
+  private getCurrentSessionId(): string | null {
+    try {
+      return localStorage.getItem(this.currentSessionKey);
+    } catch (e) {
+      // Silent fail in private mode
+      console.warn("Failed to read session ID from localStorage:", e);
+      return null;
+    }
   }
 
   private createEmptySession(sessionId: string): ExtendedSession {
@@ -237,6 +260,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const localSession = this.sessionList.find((s) => s.id === sessionId);
     if (localSession) {
       this.updateWindowVariables(localSession as ExtendedSession);
+      // Update persisted session ID when switching sessions
+      this.saveCurrentSessionId(sessionId);
       return localSession;
     }
     return this.createEmptySession(sessionId);
@@ -285,8 +310,27 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   async getSession(sessionId: string) {
     try {
+      // If no valid sessionId provided, try to restore from LocalStorage
       if (!sessionId || sessionId === "undefined" || sessionId === "null") {
-        return this.createEmptySession(`temp-${Date.now()}`);
+        const persistedId = this.getCurrentSessionId();
+        if (persistedId) {
+          // Try to find session in local list
+          const persistedSession = this.sessionList.find(
+            (s) => s.id === persistedId,
+          );
+          if (persistedSession) {
+            this.updateWindowVariables(persistedSession as ExtendedSession);
+            return persistedSession;
+          }
+          // Session not in local list - check if it's a local timestamp ID
+          if (/^\d+$/.test(persistedId)) {
+            return this.getLocalSession(persistedId);
+          }
+          // Otherwise try to fetch from backend
+          sessionId = persistedId;
+        } else {
+          return this.createEmptySession(`temp-${Date.now()}`);
+        }
       }
 
       const isLocalTimestampId = /^\d+$/.test(sessionId);
@@ -368,6 +412,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       localStorage.setItem(this.lsKey, JSON.stringify(this.sessionList));
     }
 
+    // Persist current session ID
+    if (session.id) {
+      this.saveCurrentSessionId(session.id);
+    }
+
     return [...this.sessionList];
   }
 
@@ -382,6 +431,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     } as ExtendedSession;
 
     this.updateWindowVariables(extendedSession);
+
+    // Persist current session ID
+    this.saveCurrentSessionId(session.id!);
 
     this.sessionList.unshift(extendedSession as IAgentScopeRuntimeWebUISession);
     localStorage.setItem(this.lsKey, JSON.stringify(this.sessionList));
