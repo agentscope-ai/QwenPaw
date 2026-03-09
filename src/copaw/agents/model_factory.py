@@ -41,6 +41,9 @@ def _file_url_to_path(url: str) -> str:
     return s
 
 
+import urllib.parse
+import os
+
 def _monkey_patch(func):
     """A monkey patch wrapper for agentscope <= 1.0.16dev"""
 
@@ -61,7 +64,23 @@ def _monkey_patch(func):
                     ):
                         url = block["source"]["url"]
                         if url.startswith("file://"):
-                            block["source"]["url"] = _file_url_to_path(url)
+                            url = _file_url_to_path(url)
+                            block["source"]["url"] = url
+
+                        # Prevent crash when the local file is deleted
+                        parsed_url = urllib.parse.urlparse(url)
+                        if parsed_url.scheme == "" and not os.path.exists(url):
+                            logger.warning(
+                                "Local %s file not found during formatting, replacing with placeholder: %s",
+                                block["type"],
+                                url,
+                            )
+                            # Overwrite block type to avoid sending missing media to LLM API
+                            typ = block.get("type", "media")
+                            block.clear()
+                            block["type"] = "text"
+                            block["text"] = f"[Missing {typ} file: {url}]"
+
         return await func(self, msgs, **kwargs)
 
     return wrapper
