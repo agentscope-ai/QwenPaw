@@ -52,6 +52,10 @@
     "downloadFailed": "Workspace download failed",
     "zipOnly": "Only .zip files are supported for upload",
     "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB",
+    "systemPromptToggleTooltip": "Enable/disable this file in system prompt",
+    "memoryFileWarning": "MEMORY.md is typically queried on-demand by the agent using tools. Loading it into the system prompt may cause the context to become too long.",
+    "configUpdated": "System prompt configuration updated",
+    "configUpdateFailed": "Failed to update system prompt configuration",
     "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾"
   },
   "skills": {

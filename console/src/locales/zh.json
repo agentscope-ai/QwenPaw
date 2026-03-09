@@ -52,6 +52,10 @@
     "downloadFailed": "工作区下载失败",
     "zipOnly": "仅支持上传 .zip 文件",
     "fileSizeExceeded": "文件大小超过 100MB 限制。当前文件：{{size}}MB",
+    "systemPromptToggleTooltip": "启用/禁用此文件加载到系统提示词",
+    "memoryFileWarning": "MEMORY.md 一般是由 agent 主动调用工具按需查询和加载，放到 system prompt 里面可能会导致上下文过长",
+    "configUpdated": "系统提示词配置已更新",
+    "configUpdateFailed": "更新系统提示词配置失败",
     "attribution": "工作区设计部分灵感源自 OpenClaw 项目，在此表示感谢 🐾"
   },
   "skills": {

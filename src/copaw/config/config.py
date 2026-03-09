@@ -240,6 +240,10 @@ class AgentsConfig(BaseModel):
         default=None,
         description="Language of currently installed md files",
     )
+    system_prompt_files: List[str] = Field(
+        default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
+        description="List of markdown files to load into system prompt",
+    )
 
 
 class LastDispatchConfig(BaseModel):

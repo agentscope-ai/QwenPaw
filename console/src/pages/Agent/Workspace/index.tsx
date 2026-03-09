@@ -17,12 +17,15 @@ export default function WorkspacePage() {
     loading,
     workspacePath,
     hasChanges,
+    enabledFiles,
     setFileContent,
     fetchFiles,
     handleFileClick,
     handleDailyMemoryClick,
     handleSave,
     handleReset,
+    handleToggleFileEnabled,
+    handleReorderFiles,
   } = useAgentsData();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -143,9 +146,12 @@ export default function WorkspacePage() {
           dailyMemories={dailyMemories}
           expandedMemory={expandedMemory}
           workspacePath={workspacePath}
+          enabledFiles={enabledFiles}
           onRefresh={fetchFiles}
           onFileClick={handleFileClick}
           onDailyMemoryClick={handleDailyMemoryClick}
+          onToggleEnabled={handleToggleFileEnabled}
+          onReorder={handleReorderFiles}
         />
 
         <FileEditor

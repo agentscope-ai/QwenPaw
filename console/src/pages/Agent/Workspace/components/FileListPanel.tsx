@@ -12,9 +12,12 @@ interface FileListPanelProps {
   dailyMemories: DailyMemoryFile[];
   expandedMemory: boolean;
   workspacePath: string;
+  enabledFiles: string[];
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
+  onToggleEnabled: (filename: string) => void;
+  onReorder: (filename: string, direction: "up" | "down") => void;
 }
 
 export const FileListPanel: React.FC<FileListPanelProps> = ({
@@ -22,11 +25,24 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   selectedFile,
   dailyMemories,
   expandedMemory,
+  enabledFiles,
   onRefresh,
   onFileClick,
   onDailyMemoryClick,
+  onToggleEnabled,
+  onReorder,
 }) => {
   const { t } = useTranslation();
+
+  // Calculate positions for enabled files
+  const getEnabledFilePosition = (filename: string) => {
+    const index = enabledFiles.indexOf(filename);
+    return {
+      isFirst: index === 0,
+      isLast: index === enabledFiles.length - 1,
+      isEnabled: index !== -1,
+    };
+  };
 
   return (
     <div className={styles.fileListPanel}>
@@ -52,17 +68,27 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
 
         <div className={styles.scrollContainer}>
           {files.length > 0 ? (
-            files.map((file) => (
-              <FileItem
-                key={file.filename}
-                file={file}
-                selectedFile={selectedFile}
-                expandedMemory={expandedMemory}
-                dailyMemories={dailyMemories}
-                onFileClick={onFileClick}
-                onDailyMemoryClick={onDailyMemoryClick}
-              />
-            ))
+            files.map((file) => {
+              const { isFirst, isLast, isEnabled } = getEnabledFilePosition(
+                file.filename,
+              );
+              return (
+                <FileItem
+                  key={file.filename}
+                  file={file}
+                  selectedFile={selectedFile}
+                  expandedMemory={expandedMemory}
+                  dailyMemories={dailyMemories}
+                  enabled={isEnabled}
+                  isFirst={isFirst}
+                  isLast={isLast}
+                  onFileClick={onFileClick}
+                  onDailyMemoryClick={onDailyMemoryClick}
+                  onToggleEnabled={onToggleEnabled}
+                  onReorder={onReorder}
+                />
+              );
+            })
           ) : (
             <div className={styles.emptyState}>{t("workspace.noFiles")}</div>
           )}
