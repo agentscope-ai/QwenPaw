@@ -1532,6 +1532,32 @@ class FeishuChannel(BaseChannel):
                 ContentType.AUDIO,
             ):
                 media_parts.append(p)
+            # Handle table content - treat as text since it's likely in markdown format
+            elif t == "table" or (isinstance(p, dict) and p.get("type") == "table"):
+                # Extract table content and convert to markdown
+                table_content = getattr(p, "content", None) or (
+                    p.get("content") if isinstance(p, dict) else None
+                )
+                if table_content:
+                    # If table_content is a string, assume it's already in markdown format
+                    if isinstance(table_content, str):
+                        text_parts.append(table_content)
+                    # If table_content is a dict, convert it to markdown table
+                    elif isinstance(table_content, dict):
+                        headers = table_content.get("headers", [])
+                        rows = table_content.get("rows", [])
+                        if headers and rows:
+                            # Build markdown table
+                            table_md = []
+                            # Add headers
+                            table_md.append("| " + " | ".join(headers) + " |")
+                            # Add separator
+                            table_md.append("| " + " | ".join(["---"] * len(headers)) + " |")
+                            # Add rows
+                            for row in rows:
+                                table_md.append("| " + " | ".join(row) + " |")
+                            # Add table to text parts
+                            text_parts.append("\n" + "\n".join(table_md) + "\n")
         body = "\n".join(text_parts).strip()
         logger.info(
             "feishu send_content_parts: to_handle=%s text_parts=%s "

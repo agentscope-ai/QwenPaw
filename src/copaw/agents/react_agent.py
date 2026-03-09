@@ -515,14 +515,29 @@ class CoPawAgent(ReActAgent):
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Ensure a stable default tool-choice behavior across providers."""
+        """Ensure a stable default tool-choice behavior across providers and send progress updates."""
         tool_choice = normalize_reasoning_tool_choice(
             tool_choice=tool_choice,
             has_tools=bool(self.toolkit.get_json_schemas()),
         )
-
+        
+        # Send progress update before reasoning
+        if hasattr(self, "_process"):
+            # Create a progress event and send it
+            class ProgressEvent:
+                def __init__(self, progress):
+                    self.object = "message"
+                    self.status = "in_progress"
+                    self.progress = progress
+            
+            # Send initial progress
+            progress_event = ProgressEvent("Starting to process your request...")
+            if hasattr(self, "_event_handlers"):
+                for handler in self._event_handlers.get("message", []):
+                    await handler(progress_event)
+        
         return await super()._reasoning(tool_choice=tool_choice)
-
+    
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,

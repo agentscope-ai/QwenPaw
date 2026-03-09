@@ -33,6 +33,8 @@ class ConversationCommandHandlerMixin:
             "compact_str",
             "await_summary",
             "message",
+            "status",
+            "cancel",
         },
     )
 
@@ -277,6 +279,56 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"- **Name:** {msg.name}\n"
             f"- **Role:** {msg.role}\n"
             f"- **Content:**\n{msg.content}",
+        )
+    
+    async def _process_status(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /status command to show current task status."""
+        # Check if memory manager has any pending tasks
+        if self._has_memory_manager():
+            task_count = len(self.memory_manager.summary_tasks)
+            if task_count > 0:
+                return await self._make_system_msg(
+                    f"**Current Task Status**\n\n"
+                    f"- Pending summary tasks: {task_count}\n"
+                    f"- Use /await_summary to wait for completion",
+                )
+        
+        # Check if there are any recent messages indicating task progress
+        return await self._make_system_msg(
+            "**Current Task Status**\n\n"
+            "- No active tasks detected\n"
+            "- Ready for new requests",
+        )
+    
+    async def _process_cancel(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /cancel command to cancel current task."""
+        # Check if memory manager has any pending tasks
+        if self._has_memory_manager():
+            task_count = len(self.memory_manager.summary_tasks)
+            if task_count > 0:
+                # Cancel all summary tasks
+                for task in self.memory_manager.summary_tasks:
+                    if not task.done():
+                        task.cancel()
+                self.memory_manager.summary_tasks.clear()
+                return await self._make_system_msg(
+                    "**Task Cancelled**\n\n"
+                    f"- Cancelled {task_count} pending task(s)\n"
+                    "- Ready for new requests",
+                )
+        
+        return await self._make_system_msg(
+            "**No Tasks to Cancel**\n\n"
+            "- No active tasks detected\n"
+            "- Ready for new requests",
         )
 
     async def handle_conversation_command(self, query: str) -> Msg:

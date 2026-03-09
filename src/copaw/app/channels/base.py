@@ -508,11 +508,24 @@ class BaseChannel(ABC):
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
         last_response = None
+        task_completed = False
         try:
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
+                
+                # Check for task progress events
+                if obj == "message" and hasattr(event, "progress"):
+                    progress = getattr(event, "progress", None)
+                    if progress:
+                        await self._send_task_status(
+                            to_handle, 
+                            f"Working on it... {progress}", 
+                            send_meta
+                        )
+                
                 if obj == "message" and status == RunStatus.Completed:
+                    task_completed = True
                     await self.on_event_message_completed(
                         request,
                         to_handle,
@@ -522,23 +535,73 @@ class BaseChannel(ABC):
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
+            
+            # Check for errors
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                await self._send_task_status(
+                    to_handle, 
+                    f"Task failed: {err_msg}", 
+                    send_meta
+                )
                 await self._on_consume_error(
                     request,
                     to_handle,
                     f"Error: {err_msg}",
                 )
+            elif not task_completed and not last_response:
+                # No response and no completed message - task failed silently
+                await self._send_task_status(
+                    to_handle, 
+                    "Task failed: No response received. Please try again.", 
+                    send_meta
+                )
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    "No response received from the agent.",
+                )
+            elif task_completed:
+                # Task completed successfully
+                await self._send_task_status(
+                    to_handle, 
+                    "Task completed successfully!", 
+                    send_meta
+                )
+            
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
-        except Exception:
+        except Exception as e:
             logger.exception("channel consume_one failed")
+            error_message = f"Task failed: {str(e)}"
+            await self._send_task_status(
+                to_handle, 
+                error_message, 
+                send_meta
+            )
             await self._on_consume_error(
                 request,
                 to_handle,
-                "An error occurred while processing your request.",
+                error_message,
             )
+    
+    async def _send_task_status(
+        self,
+        to_handle: str,
+        status_text: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Send task status notification to the user.
+        """
+        from agentscope_runtime.engine.schemas.agent_schemas import TextContent, ContentType
+        
+        await self.send_content_parts(
+            to_handle,
+            [TextContent(type=ContentType.TEXT, text=status_text)],
+            meta or {}
+        )
 
     def _get_response_error_message(self, last_response: Any) -> Optional[str]:
         """

@@ -61,7 +61,7 @@ def app_cmd(
 ) -> None:
     """Run CoPaw FastAPI app."""
     # Persist last used host/port for other terminals
-    write_last_api(host, port)
+    # write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
 
     # Signal reload mode to browser_control.py for Windows

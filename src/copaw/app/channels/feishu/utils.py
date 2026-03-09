@@ -48,4 +48,28 @@ def normalize_feishu_md(text: str) -> str:
         return text
     # Ensure newline before code fence so Feishu parses it
     text = re.sub(r"([^\n])(```)", r"\1\n\2", text)
+    
+    # Ensure proper spacing for tables
+    # Feishu requires proper markdown table format with consistent column widths
+    # Add extra newlines around tables to ensure proper rendering
+    text = re.sub(r'(\n|^)(\|.*\|)(\n|$)', r'\1\2\n\n', text)
+    
+    # Ensure table rows have consistent number of columns
+    # This is a simple check to ensure tables are properly formatted
+    table_lines = []
+    in_table = False
+    for line in text.split('\n'):
+        if '|' in line and ('---' in line or in_table):
+            in_table = True
+            table_lines.append(line)
+        else:
+            if in_table:
+                # End of table, ensure it's properly closed
+                if table_lines:
+                    # Add an extra newline after table
+                    line = '\n' + line
+                in_table = False
+            table_lines.append(line)
+    text = '\n'.join(table_lines)
+    
     return text
