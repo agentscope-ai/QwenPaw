@@ -358,7 +358,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
 
     // --- Regular backend UUID ---
-    await this.getSessionList();
     const fromList = this.sessionList.find((s) => s.id === sessionId) as
       | ExtendedSession
       | undefined;
