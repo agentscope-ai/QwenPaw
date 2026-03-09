@@ -56,11 +56,9 @@ export default function MainLayout() {
           <ConsoleCronBubble />
           <div className="page-content">
             <div
-              style={{
-                display: isChatRoute ? "block" : "none",
-                height: "100%",
-                width: "100%",
-              }}
+              className={`${styles.chatContainer} ${
+                !isChatRoute ? styles.hidden : ""
+              }`}
             >
               <Chat />
             </div>
