@@ -67,9 +67,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         download_code: str,
         robot_code: str,
         mapped: str,
+        filename_hint: Optional[str] = None,
     ) -> Optional[Any]:
         """Fetch media by download_code; return Content to append or None."""
-        hint = FILENAME_HINT_BY_MAPPED.get(mapped, DEFAULT_FILENAME_HINT)
+        hint = (filename_hint or "").strip() or FILENAME_HINT_BY_MAPPED.get(
+            mapped,
+            DEFAULT_FILENAME_HINT,
+        )
         try:
             fut = asyncio.run_coroutine_threadsafe(
                 self._download_url_fetcher(
@@ -83,6 +87,15 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             return dingtalk_content_from_type(mapped, download_url)
         except Exception:
             return None
+
+    @staticmethod
+    def _extract_filename_hint(payload: Dict[str, Any]) -> Optional[str]:
+        """Extract filename hint from DingTalk payload variants."""
+        for key in ("fileName", "file_name", "filename", "name", "title"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        return None
 
     def _parse_rich_content(
         self,
@@ -127,10 +140,12 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     item.get("type", "file"),
                     item.get("type", "file"),
                 )
+                filename_hint = self._extract_filename_hint(item)
                 part_content = self._fetch_download_url_and_content(
                     dl_code,
                     robot_code,
                     mapped,
+                    filename_hint=filename_hint,
                 )
                 if part_content is not None:
                     content.append(part_content)
@@ -155,10 +170,12 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     )
                     if mapped not in ("image", "file", "video", "audio"):
                         mapped = "file"
+                    filename_hint = self._extract_filename_hint(c)
                     part_content = self._fetch_download_url_and_content(
                         dl_code,
                         robot_code,
                         mapped,
+                        filename_hint=filename_hint,
                     )
                     if part_content is not None:
                         content.append(part_content)
