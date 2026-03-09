@@ -160,7 +160,7 @@ def build_system_prompt_from_working_dir() -> str:
     config = load_config()
     enabled_files = (
         config.agents.system_prompt_files
-        if config.agents.system_prompt_files
+        if config.agents.system_prompt_files is not None
         else None
     )
 
