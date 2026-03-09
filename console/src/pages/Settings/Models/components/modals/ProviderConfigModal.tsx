@@ -350,9 +350,7 @@ export function ProviderConfigModal({
                       if (!value || !value.trim()) return Promise.resolve();
                       try {
                         const url = new URL(value.trim());
-                        if (
-                          !["http:", "https:"].includes(url.protocol)
-                        ) {
+                        if (!["http:", "https:"].includes(url.protocol)) {
                           return Promise.reject(
                             new Error(t("models.pleaseEnterValidURL")),
                           );
