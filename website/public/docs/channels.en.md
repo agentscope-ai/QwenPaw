@@ -533,7 +533,6 @@ JSON message format
    | --------------- | ----------------------- |
    | server/+/up     | client/{client_id}/down |
 
-
 3. Redirected topic push
 
    The message sent is in JSON format. The subscription topic is `server/client_a/up`, and the push topic is `client/client_a/down`.

@@ -523,25 +523,24 @@ JSON消息格式
 
 2. 模糊匹配订阅和自动推送
 
-    模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送，OpenClaw处理完后，将会向`/client/client_b/down`推送消息。
+   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送，OpenClaw处理完后，将会向`/client/client_b/down`推送消息。
 
-    | subscribe_topic | publish_topic           |
-    | --------------- | ----------------------- |
-    | server/+/up     | client/{client_id}/down |
-
+   | subscribe_topic | publish_topic           |
+   | --------------- | ----------------------- |
+   | server/+/up     | client/{client_id}/down |
 
 3. 重定向主题推送
 
-    发送消息为JSON格式，订阅主题为`server/client_a/up`，推送主题为`client/client_a/down`
+   发送消息为JSON格式，订阅主题为`server/client_a/up`，推送主题为`client/client_a/down`
 
-    ```json
-    {
-      "text": "讲个笑话，直接回复文本即可。",
-      "redirect_client_id": "client_b"
-    }
-    ```
+   ```json
+   {
+     "text": "讲个笑话，直接回复文本即可。",
+     "redirect_client_id": "client_b"
+   }
+   ```
 
-    消息会根据redirect_client_id属性，推送至  `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以OpenClaw为核心，根据个人需求，多设备间自主推送消息。
+   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以OpenClaw为核心，根据个人需求，多设备间自主推送消息。
 
 ---
 
