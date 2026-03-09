@@ -21,6 +21,7 @@ from .browser_control import browser_use
 from .desktop_screenshot import desktop_screenshot
 from .memory_search import create_memory_search_tool
 from .get_current_time import get_current_time
+from .read_media import read_media
 
 __all__ = [
     "execute_python_code",
@@ -38,4 +39,5 @@ __all__ = [
     "browser_use",
     "create_memory_search_tool",
     "get_current_time",
+    "read_media",
 ]

@@ -17,12 +17,12 @@ import asyncio
 import json
 import logging
 import mimetypes
-import re
 import sys
 import threading
 import time
 import types
 from collections import OrderedDict
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -52,10 +52,7 @@ from .constants import (
     FEISHU_USER_NAME_FETCH_TIMEOUT,
 )
 from .utils import (
-    build_interactive_content,
     extract_json_key,
-    extract_post_image_keys,
-    extract_post_text,
     normalize_feishu_md,
     sender_display_string,
     short_session_id_from_full_id,
@@ -168,6 +165,7 @@ class FeishuChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
+        domain: str = "https://open.feishu.cn",
     ):
         super().__init__(
             process,
@@ -186,6 +184,7 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
+        self.domain = domain or "https://open.feishu.cn"
         self._media_dir = Path(media_dir).expanduser()
 
         self._client: Any = None
@@ -236,6 +235,7 @@ class FeishuChannel(BaseChannel):
             group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
+            domain=os.getenv("FEISHU_DOMAIN", "https://open.feishu.cn"),
         )
 
     @classmethod
@@ -265,6 +265,7 @@ class FeishuChannel(BaseChannel):
             group_policy=config.group_policy or "open",
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
+            domain=config.domain or "https://open.feishu.cn",
         )
 
     def resolve_session_id(
@@ -394,7 +395,7 @@ class FeishuChannel(BaseChannel):
                 return self._tenant_access_token
 
             url = (
-                "https://open.feishu.cn/open-apis/auth/v3/"
+                f"{self.domain}/open-apis/auth/v3/"
                 "tenant_access_token/internal"
             )
             payload = {
@@ -436,7 +437,7 @@ class FeishuChannel(BaseChannel):
             if open_id in self._nickname_cache:
                 return self._nickname_cache[open_id]
         url = (
-            "https://open.feishu.cn/open-apis/contact/v3/users/"
+            f"{self.domain}/open-apis/contact/v3/users/"
             f"{open_id}?user_id_type=open_id"
         )
         try:
@@ -473,7 +474,8 @@ class FeishuChannel(BaseChannel):
             # Response per Feishu doc: GET contact/v3/users/{user_id}
             # https://open.feishu.cn/document/server-docs/contact-v3/user/get
             # Body: { "code": 0, "data": { "user": { "name": ... } } }
-            # "name" can be string or i18n object { "zh_cn": "中文", "en": "en" }
+            # "name" can be string or i18n object
+            # { "zh_cn": "中文", "en": "en" }
             user = data.get("data") or {}
             inner = user.get("user") or {}
             name = None
@@ -541,6 +543,96 @@ class FeishuChannel(BaseChannel):
                 exc_info=True,
             )
         return None
+
+    async def _parse_post_content(
+        self,
+        message_id: str,
+        content_raw: str,
+    ) -> Dict[str, Any]:
+        """Parse Feishu post (rich text) content.
+
+        Post content format:
+        {
+            "title": "...",
+            "content": [
+                [
+                    {"tag": "text", "text": "..."},
+                    {"tag": "img", "image_key": "..."}
+                ],
+                [{"tag": "md", "text": "..."}]
+            ]
+        }
+
+        Returns dict with "text" and "image_urls" keys.
+        """
+        result: Dict[str, Any] = {"text": "", "image_urls": []}
+        try:
+            data = json.loads(content_raw) if content_raw else {}
+        except json.JSONDecodeError:
+            return result
+
+        # Extract title if present
+        title = data.get("title", "")
+        text_parts: List[str] = []
+        if title:
+            text_parts.append(title)
+
+        # Parse content rows
+        content_rows = data.get("content", [])
+        if isinstance(content_rows, list):
+            for row in content_rows:
+                row_text = await self._parse_content_row(
+                    row,
+                    message_id,
+                    result["image_urls"],
+                )
+                if row_text:
+                    text_parts.append(row_text)
+
+        result["text"] = "\n".join(text_parts)
+        return result
+
+    async def _parse_content_row(
+        self,
+        row: Any,
+        message_id: str,
+        image_urls: List[str],
+    ) -> str:
+        """Parse a single content row, extracting text and image URLs.
+
+        Args:
+            row: Content row (list of items).
+            message_id: Message ID for image download.
+            image_urls: List to append found image URLs to.
+
+        Returns:
+            Concatenated text from the row, or empty string.
+        """
+        if not isinstance(row, list):
+            return ""
+        row_texts: List[str] = []
+        for item in row:
+            if not isinstance(item, dict):
+                continue
+            tag = item.get("tag", "")
+            if tag == "text":
+                text = item.get("text", "")
+                if text:
+                    row_texts.append(text)
+            elif tag == "md":
+                text = item.get("text", "")
+                if text:
+                    row_texts.append(text)
+            elif tag == "img":
+                image_key = item.get("image_key", "")
+                if image_key:
+                    url_or_path = await self._download_image_resource(
+                        message_id,
+                        image_key,
+                    )
+                    if url_or_path:
+                        image_urls.append(url_or_path)
+        return "".join(row_texts)
 
     def _emit_request_threadsafe(self, request: Any) -> None:
         """Enqueue request via manager (thread-safe)."""
@@ -618,25 +710,6 @@ class FeishuChannel(BaseChannel):
                 text = extract_json_key(content_raw, "text")
                 if text:
                     text_parts.append(text)
-            elif msg_type == "post":
-                text = extract_post_text(content_raw)
-                if text:
-                    text_parts.append(text)
-                # Download images in post message
-                for img_key in extract_post_image_keys(content_raw):
-                    url_or_path = await self._download_image_resource(
-                        message_id,
-                        img_key,
-                    )
-                    if url_or_path:
-                        content_parts.append(
-                            ImageContent(
-                                type=ContentType.IMAGE,
-                                image_url=url_or_path,
-                            ),
-                        )
-                    else:
-                        text_parts.append("[image: download failed]")
             elif msg_type == "image":
                 image_key = extract_json_key(
                     content_raw,
@@ -707,6 +780,21 @@ class FeishuChannel(BaseChannel):
                         text_parts.append("[audio: download failed]")
                 else:
                     text_parts.append("[audio: missing key]")
+            elif msg_type == "post":
+                # Parse rich post content (text + images mixed)
+                post_content = await self._parse_post_content(
+                    message_id,
+                    content_raw,
+                )
+                if post_content.get("text"):
+                    text_parts.append(post_content["text"])
+                for img_url in post_content.get("image_urls", []):
+                    content_parts.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=img_url,
+                        ),
+                    )
             else:
                 text_parts.append(f"[{msg_type}]")
 
@@ -771,6 +859,72 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("feishu _on_message failed")
 
+    async def handle_webhook_event(self, payload: Dict[str, Any]) -> None:
+        """Handle webhook event from Feishu HTTP callback.
+
+        Converts webhook event format (2.0 schema) to internal format
+        and processes it like WebSocket events.
+
+        Args:
+            payload: The webhook event payload from Feishu
+        """
+        try:
+            # Extract event data from the 2.0 schema
+            event = payload.get("event", payload)
+            if not event:
+                logger.warning("Feishu webhook: no event data in payload")
+                return
+
+            # Get message and sender from event
+            message = event.get("message", {})
+            sender = event.get("sender", {})
+
+            if not message or not sender:
+                logger.debug("Feishu webhook: missing message or sender")
+                return
+
+            # Build a compatible data structure for _on_message
+            # Create a simple namespace-like object
+            class SimpleNamespace:
+                def __init__(self, **kwargs):
+                    for key, value in kwargs.items():
+                        if isinstance(value, dict):
+                            setattr(self, key, SimpleNamespace(**value))
+                        else:
+                            setattr(self, key, value)
+
+            # Convert webhook format to internal format
+            event_obj = SimpleNamespace(
+                message=SimpleNamespace(
+                    message_id=message.get("message_id", ""),
+                    chat_id=message.get("chat_id", ""),
+                    chat_type=message.get("chat_type", "p2p"),
+                    message_type=message.get("message_type", "text"),
+                    content=message.get("content", ""),
+                ),
+                sender=SimpleNamespace(
+                    sender_type=sender.get("sender_type", ""),
+                    sender_id=SimpleNamespace(
+                        open_id=sender.get("sender_id", {}).get("open_id", ""),
+                    ),
+                    name=sender.get("name", ""),
+                    nickname=sender.get("nickname", ""),
+                ),
+            )
+
+            # Create wrapper like WebSocket event structure
+            class WebhookData:
+                def __init__(self, event):
+                    self.event = event
+
+            data = WebhookData(event_obj)
+
+            # Process using existing _on_message logic
+            await self._on_message(data)
+
+        except Exception:
+            logger.exception("Feishu webhook: handle_webhook_event failed")
+
     async def _add_reaction(
         self,
         message_id: str,
@@ -827,7 +981,7 @@ class FeishuChannel(BaseChannel):
         """Download image to media_dir; return local path or None."""
         token = await self._get_tenant_access_token()
         url = (
-            f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
+            f"{self.domain}/open-apis/im/v1/messages/{message_id}"
             f"/resources/{image_key}"
         )
         headers = {"Authorization": f"Bearer {token}"}
@@ -874,7 +1028,7 @@ class FeishuChannel(BaseChannel):
         """
         token = await self._get_tenant_access_token()
         url = (
-            f"https://open.feishu.cn/open-apis/im/v1/messages/"
+            f"{self.domain}/open-apis/im/v1/messages/"
             f"{message_id}/resources/{file_key}?type=file"
         )
         headers = {"Authorization": f"Bearer {token}"}
@@ -1045,6 +1199,73 @@ class FeishuChannel(BaseChannel):
             },
         }
 
+    def _build_card_v2_content(
+        self,
+        text: str,
+        image_keys: List[str],
+        header_title: Optional[str] = None,
+        template: str = "blue",
+    ) -> Dict[str, Any]:
+        """Build Feishu Card V2 message content (Schema 2.0).
+
+        Args:
+            text: Markdown text content
+            image_keys: List of image keys
+                (obtained via _upload_image_sync)
+            header_title: Card header title (optional)
+            template: Header color template, options:
+                green, red, blue, orange, indigo, grey
+        """
+        # Build body elements
+        elements: List[Dict[str, Any]] = []
+
+        # Add text content
+        if text:
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": normalize_feishu_md(text),
+                    },
+                },
+            )
+
+        # Add image elements
+        for image_key in image_keys:
+            elements.append(
+                {
+                    "tag": "img",
+                    "img_key": image_key,
+                    "alt": {"tag": "plain_text", "content": "Image"},
+                },
+            )
+
+        # If no content, show placeholder
+        if not elements:
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": "[empty]"},
+                },
+            )
+
+        # Build base card structure
+        card: Dict[str, Any] = {
+            "schema": "2.0",
+            "config": {"update_multi": True},
+            "body": {"elements": elements},
+        }
+
+        # Add header (if title provided)
+        if header_title:
+            card["header"] = {
+                "template": template,
+                "title": {"tag": "plain_text", "content": header_title},
+            }
+
+        return card
+
     def _upload_image_sync(self, data: bytes, filename: str) -> Optional[str]:
         """Upload image via lark client; return image_key."""
         if not self._client:
@@ -1119,7 +1340,7 @@ class FeishuChannel(BaseChannel):
             file_type = "xls" if ext == "xlsx" else file_type
             file_type = "ppt" if ext == "pptx" else file_type
         mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        url = "https://open.feishu.cn/open-apis/im/v1/files"
+        url = f"{self.domain}/open-apis/im/v1/files"
         form = aiohttp.FormData()
         form.add_field("file_type", file_type)
         form.add_field("file_name", path.name)
@@ -1225,35 +1446,50 @@ class FeishuChannel(BaseChannel):
             logger.exception("feishu _send_message_sync failed")
             return False
 
-    async def _send_text(
+    async def send_text(
         self,
         receive_id_type: str,
         receive_id: str,
         body: str,
     ) -> bool:
-        """Send text as post (md) or interactive card (when body has tables).
-        Body already has bot_prefix if needed."""
-        has_table = bool(re.search(r"^\s*\|", body, re.MULTILINE))
+        """Send text message (using Card V2 format)."""
+        card = self._build_card_v2_content(body, [], header_title=None)
+        content = json.dumps(card, ensure_ascii=False)
         loop = asyncio.get_running_loop()
-        if has_table:
-            content = build_interactive_content(body)
-            return await loop.run_in_executor(
-                None,
-                lambda: self._send_message_sync(
-                    receive_id_type,
-                    receive_id,
-                    "interactive",
-                    content,
-                ),
-            )
-        post = self._build_post_content(body, [])
-        content = json.dumps(post, ensure_ascii=False)
         return await loop.run_in_executor(
             None,
             lambda: self._send_message_sync(
                 receive_id_type,
                 receive_id,
-                "post",
+                "interactive",
+                content,
+            ),
+        )
+
+    async def _send_card_v2(
+        self,
+        receive_id_type: str,
+        receive_id: str,
+        text: str,
+        image_keys: List[str],
+        header_title: Optional[str] = None,
+        template: str = "blue",
+    ) -> bool:
+        """Send Card V2 message."""
+        card = self._build_card_v2_content(
+            text,
+            image_keys,
+            header_title,
+            template,
+        )
+        content = json.dumps(card, ensure_ascii=False)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._send_message_sync(
+                receive_id_type,
+                receive_id,
+                "interactive",
                 content,
             ),
         )
@@ -1525,7 +1761,10 @@ class FeishuChannel(BaseChannel):
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send text as post (md), then images, then files."""
+        """Send content parts (using Card V2 format,
+
+        text and images combined in one card).
+        """
         if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
@@ -1537,6 +1776,7 @@ class FeishuChannel(BaseChannel):
                 to_handle[:50] if to_handle else "",
             )
             return
+
         receive_id_type, receive_id = recv
         logger.info(
             "feishu send_content_parts: resolved receive_id_type=%s "
@@ -1545,8 +1785,12 @@ class FeishuChannel(BaseChannel):
             (receive_id or "")[:20],
         )
         prefix = (meta or {}).get("bot_prefix", "") or self.bot_prefix or ""
+
+        # Collect text and images
         text_parts: List[str] = []
-        media_parts: List[OutgoingContentPart] = []
+        image_parts: List[OutgoingContentPart] = []
+        file_parts: List[OutgoingContentPart] = []
+
         for p in parts:
             t = getattr(p, "type", None) or (
                 p.get("type") if isinstance(p, dict) else None
@@ -1557,57 +1801,67 @@ class FeishuChannel(BaseChannel):
             refusal_val = getattr(p, "refusal", None) or (
                 p.get("refusal") if isinstance(p, dict) else None
             )
+
             if t == ContentType.TEXT and text_val:
                 text_parts.append(text_val or "")
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val or "")
+            elif t == ContentType.IMAGE:
+                image_parts.append(p)
             elif t in (
-                ContentType.IMAGE,
                 ContentType.FILE,
                 ContentType.VIDEO,
                 ContentType.AUDIO,
             ):
-                media_parts.append(p)
-        body = "\n".join(text_parts).strip()
+                file_parts.append(p)
+
         logger.info(
             "feishu send_content_parts: to_handle=%s text_parts=%s "
-            "media_count=%s media_types=%s",
+            "image_count=%s file_count=%s",
             to_handle[:40] if to_handle else "",
             len(text_parts),
-            len(media_parts),
-            [getattr(m, "type", None) for m in media_parts],
+            len(image_parts),
+            len(file_parts),
         )
+
+        # Upload all images to get image_keys
+        image_keys: List[str] = []
+        for part in image_parts:
+            data, filename = await self._part_to_image_bytes(part)
+            if data:
+                loop = asyncio.get_running_loop()
+                image_key = await loop.run_in_executor(
+                    None,
+                    partial(self._upload_image_sync, data, filename),
+                )
+                if image_key:
+                    image_keys.append(image_key)
+
+        # Send Card V2 message (including text and images)
+        body = "\n".join(text_parts).strip()
         if prefix and body:
             body = prefix + body
-        if body:
-            await self._send_text(receive_id_type, receive_id, body)
-        for part in media_parts:
-            pt = getattr(part, "type", None)
-            if pt == ContentType.IMAGE:
-                ok = await self._send_image(
-                    receive_id_type,
-                    receive_id,
-                    part,
-                )
-                logger.info(
-                    "feishu send_content_parts: image sent ok=%s",
-                    ok,
-                )
-            elif pt in (
-                ContentType.FILE,
-                ContentType.VIDEO,
-                ContentType.AUDIO,
-            ):
-                ok = await self._send_file(
-                    receive_id_type,
-                    receive_id,
-                    part,
-                )
-                logger.info(
-                    "feishu send_content_parts: file sent ok=%s type=%s",
-                    ok,
-                    pt,
-                )
+
+        if body or image_keys:
+            await self._send_card_v2(
+                receive_id_type,
+                receive_id,
+                body,
+                image_keys,
+            )
+
+        # Files are still sent separately
+        for part in file_parts:
+            ok = await self._send_file(
+                receive_id_type,
+                receive_id,
+                part,
+            )
+            logger.info(
+                "feishu send_content_parts: file sent ok=%s type=%s",
+                ok,
+                getattr(part, "type", None),
+            )
 
     async def send(
         self,
@@ -1615,7 +1869,7 @@ class FeishuChannel(BaseChannel):
         text: str,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Proactive send: resolve receive_id and send text as post."""
+        """Proactively send text message (using Card V2 format)."""
         if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
@@ -1629,7 +1883,7 @@ class FeishuChannel(BaseChannel):
         prefix = (meta or {}).get("bot_prefix", "") or self.bot_prefix or ""
         body = (prefix + text) if text else prefix
         if body:
-            await self._send_text(receive_id_type, receive_id, body)
+            await self._send_card_v2(receive_id_type, receive_id, body, [])
 
     def get_to_handle_from_request(self, request: Any) -> str:
         """Feishu sends by session_id; return feishu:sw: or feishu:open_id:
@@ -1724,6 +1978,7 @@ class FeishuChannel(BaseChannel):
             self.app_secret,
             event_handler=event_handler,
             log_level=lark.LogLevel.INFO,
+            domain=self.domain,
         )
         self._stop_event.clear()
         self._ws_thread = threading.Thread(
