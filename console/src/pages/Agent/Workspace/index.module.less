@@ -302,21 +302,31 @@
   margin-left: 12px;
 }
 
-.reorderButtons {
+.dragHandle {
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  color: #bbb;
+  cursor: grab;
+  font-size: 14px;
+  transition: color 0.2s;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &:hover {
+    color: #615ced;
+  }
 }
 
-.reorderButton {
-  padding: 0 4px !important;
-  min-width: 20px !important;
-  height: 20px !important;
-  font-size: 10px;
-
-  &:disabled {
-    opacity: 0.3;
-  }
+.dragging {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border-color: #615ced !important;
+  background-color: #f6f5ff !important;
 }
 
 .enabledBadge {
