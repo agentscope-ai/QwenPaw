@@ -582,6 +582,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 1. 在任意 Matrix 服务器上注册机器人账号（例如 [matrix.org](https://matrix.org)，可在 [app.element.io](https://app.element.io/#/register) 注册）。
 
 2. 获取机器人的 **Access Token**，最简便的方式是通过 Element：
+
    - 以机器人账号登录 [app.element.io](https://app.element.io)
    - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
    - 复制 Token（以 `syt_...` 开头）

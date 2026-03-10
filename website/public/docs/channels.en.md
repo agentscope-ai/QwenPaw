@@ -586,6 +586,7 @@ The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio
 1. Create a bot account on any Matrix homeserver (e.g. [matrix.org](https://matrix.org) — register at [app.element.io](https://app.element.io/#/register)).
 
 2. Get the bot's **access token**. The easiest way is via Element:
+
    - Log in as the bot account at [app.element.io](https://app.element.io)
    - Go to **Settings → Help & About → Advanced → Access Token**
    - Copy the token (it starts with `syt_...`)
