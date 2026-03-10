@@ -148,9 +148,7 @@ def _validate_model_slot(
     if not provider.has_model(model_id):
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Model '{model_id}' not found in provider '{provider_id}'."
-            ),
+            detail=(f"Model '{model_id}' not found in provider '{provider_id}'."),
         )
 
 
@@ -273,6 +271,10 @@ class DiscoverModelsRequest(BaseModel):
         default=None,
         description="Optional chat model class to use for discovery",
     )
+    include_extended: bool = Field(
+        default=False,
+        description="Include extended metadata for OpenRouter",
+    )
 
 
 class DiscoverModelsResponse(BaseModel):
@@ -315,9 +317,7 @@ async def test_provider(
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
-            message=(
-                "Connection successful" if ok else f"Connection failed: {msg}"
-            ),
+            message=("Connection successful" if ok else f"Connection failed: {msg}"),
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -877,9 +877,7 @@ async def filter_openrouter_models(
         filtered_models = provider.filter_models(
             models=models,
             providers=body.providers if body.providers else None,
-            input_modalities=(
-                body.input_modalities if body.input_modalities else None
-            ),
+            input_modalities=(body.input_modalities if body.input_modalities else None),
             output_modalities=(
                 body.output_modalities if body.output_modalities else None
             ),
