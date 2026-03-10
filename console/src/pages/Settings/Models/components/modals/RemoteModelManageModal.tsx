@@ -56,7 +56,9 @@ export function RemoteModelManageModal({
   const [availableSeries, setAvailableSeries] = useState<string[]>([]);
   const [discoveredModels, setDiscoveredModels] = useState<any[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
-  const [selectedInputModality, setSelectedInputModality] = useState<string | null>(null);
+  const [selectedInputModality, setSelectedInputModality] = useState<
+    string | null
+  >(null);
   const [loadingFilters, setLoadingFilters] = useState(false);
 
   // Enable discover for providers that support it
@@ -255,7 +257,9 @@ export function RemoteModelManageModal({
           for (const model of extraModels) {
             await api.removeModel(provider.id, model.id);
           }
-          message.success(t("models.allModelsCleared", { count: extraModels.length }));
+          message.success(
+            t("models.allModelsCleared", { count: extraModels.length }),
+          );
           await onSaved();
         } catch (error) {
           const errMsg =
@@ -349,25 +353,28 @@ export function RemoteModelManageModal({
                 {t("models.modelList")} ({all_models.length})
               </span>
             ),
-            extra: (provider.extra_models?.length ?? 0) > 0 ? (
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<ClearOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClearAllModels();
-                }}
-                loading={saving}
-              >
-                {t("models.clearAll")}
-              </Button>
-            ) : null,
+            extra:
+              (provider.extra_models?.length ?? 0) > 0 ? (
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<ClearOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClearAllModels();
+                  }}
+                  loading={saving}
+                >
+                  {t("models.clearAll")}
+                </Button>
+              ) : null,
             children: (
               <>
                 {all_models.length === 0 ? (
-                  <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
+                  <div className={styles.modelListEmpty}>
+                    {t("models.noModels")}
+                  </div>
                 ) : (
                   all_models.map((m) => {
                     const isDeletable = extraModelIds.has(m.id);
@@ -376,23 +383,78 @@ export function RemoteModelManageModal({
                     return (
                       <div key={m.id} className={styles.modelListItem}>
                         <div className={styles.modelListItemInfo}>
-                          <span className={styles.modelListItemName}>{m.name}</span>
+                          <span className={styles.modelListItemName}>
+                            {m.name}
+                          </span>
                           <span className={styles.modelListItemId}>
                             {m.id}
                             {/* Show modalities and price for extended models */}
                             {hasExtendedInfo && (
-                              <span style={{ marginLeft: 8, fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 2 }}>
-                                {(m as any).input_modalities?.includes("text") && <SparkTextLine style={{ fontSize: 12 }} />}
-                                {(m as any).input_modalities?.includes("image") && <SparkImageuploadLine style={{ fontSize: 12 }} />}
-                                {(m as any).input_modalities?.includes("audio") && <SparkAudiouploadLine style={{ fontSize: 12 }} />}
-                                {(m as any).input_modalities?.includes("video") && <SparkVideouploadLine style={{ fontSize: 12 }} />}
-                                {(m as any).input_modalities?.includes("file") && <SparkFilePdfLine style={{ fontSize: 12 }} />}
-                                {(m as any).output_modalities?.includes("image") && <SparkTextImageLine style={{ fontSize: 12, color: "purple" }} />}
-                                {((m as any).pricing?.prompt) && (
-                                  <span style={{ color: "green", marginLeft: 4 }}>
-                                    ${((m as any).pricing.prompt * 1_000_000).toFixed(2)}/1M in
-                                    {((m as any).pricing.completion) && (
-                                      <span> · ${((m as any).pricing.completion * 1_000_000).toFixed(2)}/1M out</span>
+                              <span
+                                style={{
+                                  marginLeft: 8,
+                                  fontSize: 11,
+                                  color: "#666",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 2,
+                                }}
+                              >
+                                {(m as any).input_modalities?.includes(
+                                  "text",
+                                ) && <SparkTextLine style={{ fontSize: 12 }} />}
+                                {(m as any).input_modalities?.includes(
+                                  "image",
+                                ) && (
+                                  <SparkImageuploadLine
+                                    style={{ fontSize: 12 }}
+                                  />
+                                )}
+                                {(m as any).input_modalities?.includes(
+                                  "audio",
+                                ) && (
+                                  <SparkAudiouploadLine
+                                    style={{ fontSize: 12 }}
+                                  />
+                                )}
+                                {(m as any).input_modalities?.includes(
+                                  "video",
+                                ) && (
+                                  <SparkVideouploadLine
+                                    style={{ fontSize: 12 }}
+                                  />
+                                )}
+                                {(m as any).input_modalities?.includes(
+                                  "file",
+                                ) && (
+                                  <SparkFilePdfLine style={{ fontSize: 12 }} />
+                                )}
+                                {(m as any).output_modalities?.includes(
+                                  "image",
+                                ) && (
+                                  <SparkTextImageLine
+                                    style={{ fontSize: 12, color: "purple" }}
+                                  />
+                                )}
+                                {(m as any).pricing?.prompt && (
+                                  <span
+                                    style={{ color: "green", marginLeft: 4 }}
+                                  >
+                                    $
+                                    {(
+                                      (m as any).pricing.prompt * 1_000_000
+                                    ).toFixed(2)}
+                                    /1M in
+                                    {(m as any).pricing.completion && (
+                                      <span>
+                                        {" "}
+                                        · $
+                                        {(
+                                          (m as any).pricing.completion *
+                                          1_000_000
+                                        ).toFixed(2)}
+                                        /1M out
+                                      </span>
                                     )}
                                   </span>
                                 )}
@@ -497,11 +559,46 @@ export function RemoteModelManageModal({
                 </div>
                 <Checkbox.Group
                   options={[
-                    { label: <><SparkImageuploadLine /> Vision (image)</>, value: "image" },
-                    { label: <><SparkAudiouploadLine /> Audio</>, value: "audio" },
-                    { label: <><SparkVideouploadLine /> Video</>, value: "video" },
-                    { label: <><SparkFilePdfLine /> File</>, value: "file" },
-                    { label: <><SparkTextLine /> Text only</>, value: "text" },
+                    {
+                      label: (
+                        <>
+                          <SparkImageuploadLine /> Vision (image)
+                        </>
+                      ),
+                      value: "image",
+                    },
+                    {
+                      label: (
+                        <>
+                          <SparkAudiouploadLine /> Audio
+                        </>
+                      ),
+                      value: "audio",
+                    },
+                    {
+                      label: (
+                        <>
+                          <SparkVideouploadLine /> Video
+                        </>
+                      ),
+                      value: "video",
+                    },
+                    {
+                      label: (
+                        <>
+                          <SparkFilePdfLine /> File
+                        </>
+                      ),
+                      value: "file",
+                    },
+                    {
+                      label: (
+                        <>
+                          <SparkTextLine /> Text only
+                        </>
+                      ),
+                      value: "text",
+                    },
                   ]}
                   value={selectedInputModality ? [selectedInputModality] : []}
                   onChange={(vals) =>
@@ -526,7 +623,9 @@ export function RemoteModelManageModal({
 
               {/* Discovered Models List */}
               {discoveredModels.length > 0 && (
-                <div style={{ marginTop: 12, maxHeight: 200, overflowY: "auto" }}>
+                <div
+                  style={{ marginTop: 12, maxHeight: 200, overflowY: "auto" }}
+                >
                   <div style={{ fontWeight: 500, marginBottom: 4 }}>
                     {t("models.discovered") || "Available Models:"}
                   </div>
@@ -545,7 +644,15 @@ export function RemoteModelManageModal({
                     >
                       <div>
                         <div style={{ fontWeight: 500 }}>{model.name}</div>
-                        <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#666",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
                           <span>{model.provider}</span>
                           {/* Input modalities icons */}
                           {model.input_modalities?.includes("text") && (
@@ -564,14 +671,28 @@ export function RemoteModelManageModal({
                             <SparkFilePdfLine style={{ fontSize: 12 }} />
                           )}
                           {model.output_modalities?.includes("image") && (
-                            <SparkTextImageLine style={{ fontSize: 12, color: "purple" }} />
+                            <SparkTextImageLine
+                              style={{ fontSize: 12, color: "purple" }}
+                            />
                           )}
                           {/* Price */}
                           {model.pricing?.prompt && (
                             <span style={{ color: "green", marginLeft: 4 }}>
-                              ${(parseFloat(model.pricing.prompt) * 1_000_000).toFixed(2)}/1M in
+                              $
+                              {(
+                                parseFloat(model.pricing.prompt) * 1_000_000
+                              ).toFixed(2)}
+                              /1M in
                               {model.pricing?.completion && (
-                                <span> · ${(parseFloat(model.pricing.completion) * 1_000_000).toFixed(2)}/1M out</span>
+                                <span>
+                                  {" "}
+                                  · $
+                                  {(
+                                    parseFloat(model.pricing.completion) *
+                                    1_000_000
+                                  ).toFixed(2)}
+                                  /1M out
+                                </span>
                               )}
                             </span>
                           )}

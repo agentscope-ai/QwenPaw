@@ -94,7 +94,8 @@ export const providerApi = {
 
   /* ---- OpenRouter specific endpoints ---- */
 
-  getOpenRouterSeries: () => request<SeriesResponse>("/models/openrouter/series"),
+  getOpenRouterSeries: () =>
+    request<SeriesResponse>("/models/openrouter/series"),
 
   discoverOpenRouterExtended: (body?: TestProviderRequest) =>
     request<DiscoverExtendedResponse>("/models/openrouter/discover-extended", {
