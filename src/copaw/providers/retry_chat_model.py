@@ -153,6 +153,7 @@ class RetryChatModel(ChatModelBase):
             async for chunk in stream:
                 yield chunk
         except Exception as exc:
+            await stream.aclose()
             if not _is_retryable(exc) or current_attempt >= max_attempts:
                 raise
             delay = _compute_backoff(current_attempt)
@@ -166,16 +167,22 @@ class RetryChatModel(ChatModelBase):
             )
             await asyncio.sleep(delay)
 
+            new_stream: AsyncGenerator | None = None
             for attempt in range(current_attempt + 1, max_attempts + 1):
                 try:
                     result = await self._inner(*call_args, **call_kwargs)
                     if isinstance(result, AsyncGenerator):
-                        async for chunk in result:
+                        new_stream = result
+                        async for chunk in new_stream:
                             yield chunk
+                        new_stream = None
                     else:
                         yield result
                     return
                 except Exception as retry_exc:
+                    if new_stream is not None:
+                        await new_stream.aclose()
+                        new_stream = None
                     if not _is_retryable(retry_exc) or attempt >= max_attempts:
                         raise
                     retry_delay = _compute_backoff(attempt)
