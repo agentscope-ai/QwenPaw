@@ -3,72 +3,71 @@ repos:
     rev: v4.3.0
     hooks:
       - id: check-ast
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
       - id: sort-simple-yaml
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
       - id: check-yaml
         exclude: |
           (?x)^(
               meta.yaml
           )$
       - id: check-xml
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
       - id: check-toml
       - id: check-docstring-first
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
       - id: check-json
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
       - id: fix-encoding-pragma
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
       - id: detect-private-key
       - id: trailing-whitespace
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v3.1.0
     hooks:
       - id: add-trailing-comma
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.7.0
     hooks:
       - id: mypy
-        exclude:
-          (?x)(
+        exclude: (?x)(
           pb2\.py$
           | grpc\.py$
           | ^docs
           | \.html$
           | .*/skills/.*
           )
-        args: [
-          --ignore-missing-imports,
-          --disable-error-code=var-annotated,
-          --disable-error-code=union-attr,
-          --disable-error-code=assignment,
-          --disable-error-code=attr-defined,
-          --disable-error-code=import-untyped,
-          --disable-error-code=truthy-function,
-          --follow-imports=skip,
-          --explicit-package-bases,
-        ]
+        args:
+          [
+            --ignore-missing-imports,
+            --disable-error-code=var-annotated,
+            --disable-error-code=union-attr,
+            --disable-error-code=assignment,
+            --disable-error-code=attr-defined,
+            --disable-error-code=import-untyped,
+            --disable-error-code=truthy-function,
+            --follow-imports=skip,
+            --explicit-package-bases,
+          ]
   - repo: https://github.com/psf/black
     rev: 23.3.0
     hooks:
       - id: black
-        args: [ --line-length=79 ]
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        args: [--line-length=79]
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
   - repo: https://github.com/PyCQA/flake8
     rev: 6.1.0
     hooks:
       - id: flake8
-        args: [ "--extend-ignore=E203"]
-        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
+        args: ["--extend-ignore=E203"]
+        exclude: "(?x)(.*/skills/.*|^scripts/pack/)"
   - repo: https://github.com/pylint-dev/pylint
     rev: v3.0.2
     hooks:
       - id: pylint
-        exclude:
-          (?x)(
+        exclude: (?x)(
           ^docs
           | pb2\.py$
           | grpc\.py$
@@ -78,43 +77,44 @@ repos:
           | .*/skills/.*
           )
         args: [
-          --disable=W0511,
-          --disable=W0718,
-          --disable=W0122,
-          --disable=C0103,
-          --disable=R0913,
-          --disable=E0401,
-          --disable=E1101,
-          --disable=C0415,
-          --disable=W0603,
-          --disable=R1705,
-          --disable=R0914,
-          --disable=E0601,
-          --disable=W0602,
-          --disable=W0604,
-          --disable=R0801,
-          --disable=R0902,
-          --disable=R0903,
-          --disable=C0123,
-          --disable=W0231,
-          --disable=W1113,
-          --disable=W0221,
-          --disable=R0401,
-          --disable=W0632,
-          --disable=W0123,
-          --disable=C3001,
-          --disable=W0201,
-          --disable=C0302,
-          --disable=W1203,
-          --disable=C2801,
-          --disable=C0114,  # Disable missing module docstring for quick dev
-          --disable=C0115,  # Disable missing class docstring for quick dev
-          --disable=C0116,  # Disable missing function or method docstring for quick dev
-        ]
+            --disable=W0511,
+            --disable=W0718,
+            --disable=W0122,
+            --disable=C0103,
+            --disable=R0913,
+            --disable=E0401,
+            --disable=E1101,
+            --disable=C0415,
+            --disable=W0603,
+            --disable=R1705,
+            --disable=R0914,
+            --disable=E0601,
+            --disable=W0602,
+            --disable=W0604,
+            --disable=R0801,
+            --disable=R0902,
+            --disable=R0903,
+            --disable=C0123,
+            --disable=W0231,
+            --disable=W1113,
+            --disable=W0221,
+            --disable=R0401,
+            --disable=W0632,
+            --disable=W0123,
+            --disable=C3001,
+            --disable=W0201,
+            --disable=C0302,
+            --disable=W1203,
+            --disable=C2801,
+            --disable=C0114, # Disable missing module docstring for quick dev
+            --disable=C0115, # Disable missing class docstring for quick dev
+            --disable=C0116, # Disable missing function or method docstring for quick dev
+            --disable=E0611, # Disable no-name-in-module (pylint false positive for concurrent.futures)
+          ]
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: 'v3.0.0'
+    rev: "v3.0.0"
     hooks:
       - id: prettier
-        additional_dependencies: [ 'prettier@3.0.0' ]
+        additional_dependencies: ["prettier@3.0.0"]
         files: \.(tsx?)$
-        exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/)'
+        exclude: "(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/)"

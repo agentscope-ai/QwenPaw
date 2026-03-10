@@ -5,7 +5,7 @@ description = "CoPaw is a **personal assistant** that runs in your own environme
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "agentscope==1.0.16.dev0",
+    "agentscope==1.0.16",
     "agentscope-runtime==1.1.0",
     "httpx>=0.27.0",
     "discord-py>=2.3",
@@ -15,7 +15,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.3.0.6b2",
+    "reme-ai==0.3.0.5",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "copaw.__version__.__version__"}
+version = { attr = "copaw.__version__.__version__" }
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
@@ -58,20 +58,10 @@ dev = [
     "pre-commit>=4.2.0",
     "pytest-cov>=6.2.1",
 ]
-local = [
-    "huggingface_hub>=0.20.0",
-]
-llamacpp = [
-    "copaw[local]",
-    "llama-cpp-python>=0.3.0",
-]
-mlx = [
-    "copaw[local]",
-    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
-]
-ollama = [
-    "ollama>=0.6.1",
-]
+local = ["huggingface_hub>=0.20.0"]
+llamacpp = ["copaw[local]", "llama-cpp-python>=0.3.0"]
+mlx = ["copaw[local]", "mlx-lm>=0.10.0; sys_platform == 'darwin'"]
+ollama = ["ollama>=0.6.1"]
 full = [
     "copaw[local,ollama,llamacpp]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",
@@ -80,6 +70,4 @@ full = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
