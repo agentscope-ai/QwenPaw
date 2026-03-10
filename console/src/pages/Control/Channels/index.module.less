@@ -2,16 +2,55 @@
   padding: 24px;
 }
 
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
 .title {
-  margin-bottom: 16px;
+  margin-bottom: 4px;
   font-size: 24px;
   font-weight: 600;
 }
 
 .description {
-  margin-bottom: 24px;
   color: #999;
   font-size: 14px;
+  margin: 0;
+}
+
+.filterTabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 10px;
+  align-self: center;
+}
+
+.filterTab {
+  padding: 5px 14px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: #333;
+    background: rgba(0, 0, 0, 0.04);
+  }
+}
+
+.filterTabActive {
+  background: #fff;
+  color: #615ced;
+  font-weight: 500;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .loading {
@@ -25,7 +64,7 @@
 
 .channelsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 24px;
 }
 
@@ -61,9 +100,44 @@
   margin-bottom: 12px;
 }
 
-.statusContainer {
-  display: inline-flex;
+.cardHeaderRight {
+  display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.builtinTag {
+  font-size: 10px;
+  color: #615ced;
+  background: rgba(97, 92, 237, 0.1);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.customTag {
+  font-size: 10px;
+  color: #fa8c16;
+  background: rgba(250, 140, 22, 0.1);
+  border: none;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.statusContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
   font-size: 12px;
   color: #999;
@@ -94,9 +168,14 @@
 }
 
 .cardTitle {
+  max-width: 150px;
   font-size: 16px;
   font-weight: 600;
-  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .cardDescription {

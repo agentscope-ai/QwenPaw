@@ -15,10 +15,12 @@ from ..config.config import (
     Config,
     ConsoleConfig,
     DiscordConfig,
+    TelegramConfig,
     DingTalkConfig,
     FeishuConfig,
     IMessageChannelConfig,
     QQConfig,
+    VoiceChannelConfig,
 )
 from .utils import prompt_confirm, prompt_path, prompt_select
 from ..config import get_available_channels
@@ -34,15 +36,18 @@ _SECRET_FIELDS = {
     "client_secret",
     "app_secret",
     "http_proxy_auth",
+    "twilio_auth_token",
 }
 
 _ALL_CHANNEL_NAMES = {
     "imessage": "iMessage",
     "discord": "Discord",
+    "telegram": "Telegram",
     "dingtalk": "DingTalk",
     "feishu": "Feishu",
     "qq": "QQ",
     "console": "Console",
+    "voice": "Twilio",
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
@@ -386,6 +391,188 @@ def configure_qq(current_config: QQConfig) -> QQConfig:
     )
     current_config.client_secret = client_secret
 
+    markdown_enabled = prompt_confirm(
+        "Enable QQ markdown replies?",
+        default=current_config.markdown_enabled,
+    )
+    current_config.markdown_enabled = markdown_enabled
+
+    return current_config
+
+
+def configure_telegram(current_config: TelegramConfig) -> TelegramConfig:
+    """Configure Telegram channel interactively."""
+    click.echo("\n=== Configure Telegram Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable Telegram channel?",
+        default=current_config.enabled,
+    )
+
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+
+    bot_prefix = click.prompt(
+        "Bot prefix (e.g., @bot)",
+        default=current_config.bot_prefix or "[BOT]",
+        type=str,
+    )
+    current_config.bot_prefix = bot_prefix
+
+    bot_token = click.prompt(
+        "Telegram Bot Token",
+        default=current_config.bot_token or "",
+        hide_input=True,
+        type=str,
+    )
+    token = bot_token.strip()
+    current_config.bot_token = token
+    if not token:
+        click.echo("Warning: Empty bot token provided.")
+        click.echo("Disabling Telegram channel.")
+        current_config.enabled = False
+        return current_config
+
+    show_typing = prompt_confirm(
+        "Show typing indicator?",
+        default=current_config.show_typing is not False,
+    )
+    current_config.show_typing = show_typing
+
+    use_proxy = prompt_confirm(
+        "Use HTTP proxy?",
+        default=bool(current_config.http_proxy),
+    )
+
+    if use_proxy:
+        http_proxy = click.prompt(
+            "HTTP proxy address (e.g., http://127.0.0.1:7890)",
+            default=current_config.http_proxy or "",
+            type=str,
+        )
+        current_config.http_proxy = http_proxy
+
+        use_proxy_auth = prompt_confirm(
+            "Does proxy require authentication?",
+            default=bool(current_config.http_proxy_auth),
+        )
+
+        if use_proxy_auth:
+            http_proxy_auth = click.prompt(
+                "Proxy authentication (format: username:password)",
+                default=current_config.http_proxy_auth or "",
+                hide_input=True,
+                type=str,
+            )
+            current_config.http_proxy_auth = http_proxy_auth
+        else:
+            current_config.http_proxy_auth = ""
+    else:
+        current_config.http_proxy = ""
+        current_config.http_proxy_auth = ""
+
+    return current_config
+
+
+def configure_voice(
+    current_config: VoiceChannelConfig,
+) -> VoiceChannelConfig:
+    """Configure Twilio voice channel interactively."""
+    click.echo("\n=== Configure Twilio Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable Twilio channel?",
+        default=current_config.enabled,
+    )
+
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+
+    # — Twilio credentials —
+
+    twilio_account_sid = click.prompt(
+        "Twilio Account SID",
+        default=current_config.twilio_account_sid or "",
+        type=str,
+    )
+    current_config.twilio_account_sid = twilio_account_sid
+
+    twilio_auth_token = click.prompt(
+        "Twilio Auth Token",
+        default=current_config.twilio_auth_token or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.twilio_auth_token = twilio_auth_token
+
+    # — Phone number (may be blank if provisioning later via API) —
+
+    phone_number = click.prompt(
+        "Phone number (e.g., +15551234567, blank to provision later)",
+        default=current_config.phone_number or "",
+        type=str,
+    )
+    current_config.phone_number = phone_number
+
+    phone_number_sid = click.prompt(
+        "Phone Number SID (e.g., PN..., blank to provision later)",
+        default=current_config.phone_number_sid or "",
+        type=str,
+    )
+    current_config.phone_number_sid = phone_number_sid
+
+    # — TTS / STT settings —
+
+    configure_tts = prompt_confirm(
+        "Configure TTS/STT settings? (default: Google TTS + Deepgram STT)",
+        default=False,
+    )
+
+    if configure_tts:
+        tts_provider = click.prompt(
+            "TTS provider",
+            default=current_config.tts_provider or "google",
+            type=str,
+        )
+        current_config.tts_provider = tts_provider
+
+        tts_voice = click.prompt(
+            "TTS voice",
+            default=current_config.tts_voice or "en-US-Journey-D",
+            type=str,
+        )
+        current_config.tts_voice = tts_voice
+
+        stt_provider = click.prompt(
+            "STT provider",
+            default=current_config.stt_provider or "deepgram",
+            type=str,
+        )
+        current_config.stt_provider = stt_provider
+
+        language = click.prompt(
+            "Language",
+            default=current_config.language or "en-US",
+            type=str,
+        )
+        current_config.language = language
+
+    # — Welcome greeting —
+
+    welcome_greeting = click.prompt(
+        "Welcome greeting",
+        default=current_config.welcome_greeting
+        or "Hi! This is CoPaw. How can I help you?",
+        type=str,
+    )
+    current_config.welcome_greeting = welcome_greeting
+
     return current_config
 
 
@@ -420,10 +607,12 @@ def configure_console(current_config: ConsoleConfig) -> ConsoleConfig:
 _ALL_CHANNEL_CONFIGURATORS = {
     "imessage": ("iMessage", configure_imessage),
     "discord": ("Discord", configure_discord),
+    "telegram": ("Telegram", configure_telegram),
     "dingtalk": ("DingTalk", configure_dingtalk),
     "feishu": ("Feishu", configure_feishu),
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
+    "voice": ("Twilio", configure_voice),
 }
 
 

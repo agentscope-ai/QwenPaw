@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-branches
 """Telegram channel: Bot API with polling; receive/send via chat_id."""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,6 +33,7 @@ TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
 
 _DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
+_TYPING_TIMEOUT_S = 180
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -222,11 +224,23 @@ class TelegramChannel(BaseChannel):
         show_tool_details: bool = True,
         media_dir: str = "",
         show_typing: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -237,6 +251,7 @@ class TelegramChannel(BaseChannel):
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         )
         self._show_typing = show_typing
+        self._typing_tasks: dict[str, asyncio.Task] = {}
         self._task: Optional[asyncio.Task] = None
         self._application = None
         if self.enabled and self._bot_token:
@@ -310,6 +325,30 @@ class TelegramChannel(BaseChannel):
                 None,
             )
             sender_id = str(getattr(user, "id", "")) if user else chat_id
+            is_group = meta.get("is_group", False)
+
+            allowed, error_msg = self._check_allowlist(
+                sender_id,
+                is_group,
+            )
+            if not allowed:
+                logger.info(
+                    "telegram allowlist blocked: sender=%s is_group=%s",
+                    sender_id,
+                    is_group,
+                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=error_msg,
+                    )
+                except Exception:
+                    logger.debug(
+                        "telegram reject failed chat_id=%s",
+                        chat_id,
+                    )
+                return
+
             native = {
                 "channel_id": self.channel,
                 "sender_id": sender_id,
@@ -317,6 +356,7 @@ class TelegramChannel(BaseChannel):
                 "meta": meta,
             }
             if self._enqueue is not None:
+                self._start_typing(chat_id)
                 self._enqueue(native)
             else:
                 logger.warning("telegram: _enqueue not set, message dropped")
@@ -332,6 +372,12 @@ class TelegramChannel(BaseChannel):
     ) -> "TelegramChannel":
         import os
 
+        allow_from_env = os.getenv("TELEGRAM_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("TELEGRAM_CHANNEL_ENABLED", "0") == "1",
@@ -341,6 +387,10 @@ class TelegramChannel(BaseChannel):
             bot_prefix=os.getenv("TELEGRAM_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
             show_typing=os.getenv("TELEGRAM_SHOW_TYPING", "1") == "1",
+            dm_policy=os.getenv("TELEGRAM_DM_POLICY", "open"),
+            group_policy=os.getenv("TELEGRAM_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("TELEGRAM_DENY_MESSAGE", ""),
         )
 
     @classmethod
@@ -350,40 +400,37 @@ class TelegramChannel(BaseChannel):
         config: Union[TelegramChannelConfig, dict],
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "TelegramChannel":
-        channel_show_typing = None
         if isinstance(config, dict):
-            channel_show_typing = config.get("show_typing")
+            c = config
         else:
-            channel_show_typing = getattr(config, "show_typing", None)
+            c = config.model_dump()
 
-        if isinstance(config, dict):
-            bot_prefix_raw = config.get("bot_prefix")
-            return cls(
-                process=process,
-                enabled=bool(config.get("enabled", False)),
-                bot_token=(config.get("bot_token") or "").strip(),
-                http_proxy=(config.get("http_proxy") or "").strip(),
-                http_proxy_auth=(config.get("http_proxy_auth") or "").strip(),
-                bot_prefix=bot_prefix_raw.strip() if bot_prefix_raw else "",
-                on_reply_sent=on_reply_sent,
-                show_tool_details=show_tool_details,
-                show_typing=channel_show_typing
-                if channel_show_typing is not None
-                else True,
-            )
+        def _get_str(key: str) -> str:
+            return (c.get(key) or "").strip()
+
+        show_typing = c.get("show_typing")
+        if show_typing is None:
+            show_typing = True
+
         return cls(
             process=process,
-            enabled=config.enabled,
-            bot_token=config.bot_token or "",
-            http_proxy=config.http_proxy or "",
-            http_proxy_auth=config.http_proxy_auth or "",
-            bot_prefix=config.bot_prefix or "",
+            enabled=bool(c.get("enabled", False)),
+            bot_token=_get_str("bot_token"),
+            http_proxy=_get_str("http_proxy"),
+            http_proxy_auth=_get_str("http_proxy_auth"),
+            bot_prefix=_get_str("bot_prefix"),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
-            show_typing=channel_show_typing
-            if channel_show_typing is not None
-            else True,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+            show_typing=show_typing,
+            dm_policy=c.get("dm_policy") or "open",
+            group_policy=c.get("group_policy") or "open",
+            allow_from=c.get("allow_from") or [],
+            deny_message=c.get("deny_message") or "",
         )
 
     def _chunk_text(self, text: str) -> list[str]:
@@ -427,6 +474,36 @@ class TelegramChannel(BaseChannel):
                 chat_id,
             )
 
+    def _start_typing(self, chat_id: str) -> None:
+        """Start the typing indicator loop for a chat."""
+        if not self._show_typing:
+            return
+        self._stop_typing(chat_id)
+        self._typing_tasks[chat_id] = asyncio.create_task(
+            self._typing_loop(chat_id),
+        )
+
+    def _stop_typing(self, chat_id: str) -> None:
+        """Stop the typing indicator for a chat."""
+        task = self._typing_tasks.pop(chat_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _typing_loop(self, chat_id: str) -> None:
+        """Repeatedly send 'typing' action every 4s until cancelled."""
+        try:
+            deadline = asyncio.get_event_loop().time() + _TYPING_TIMEOUT_S
+            while self._application:
+                await self._send_chat_action(chat_id, "typing")
+                await asyncio.sleep(4)
+                if asyncio.get_event_loop().time() >= deadline:
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if self._typing_tasks.get(chat_id) is asyncio.current_task():
+                self._typing_tasks.pop(chat_id, None)
+
     async def send(
         self,
         to_handle: str,
@@ -445,8 +522,7 @@ class TelegramChannel(BaseChannel):
         bot = self._application.bot
         if not bot:
             return
-        if self._show_typing:
-            asyncio.create_task(self._send_chat_action(chat_id, "typing"))
+        self._stop_typing(chat_id)
         chunks = self._chunk_text(text)
         for chunk in chunks:
             try:
@@ -474,6 +550,7 @@ class TelegramChannel(BaseChannel):
         bot = self._application.bot
         if not bot:
             return
+        self._stop_typing(chat_id)
 
         part_type = getattr(part, "type", None)
         try:
@@ -600,6 +677,8 @@ class TelegramChannel(BaseChannel):
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                 pass
             self._task = None
+        for cid in list(self._typing_tasks):
+            self._stop_typing(cid)
         if self._application:
             try:
                 updater = getattr(self._application, "updater", None)

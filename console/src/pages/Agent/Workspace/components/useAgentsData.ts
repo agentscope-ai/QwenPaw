@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import { message } from "@agentscope-ai/design";
+import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
+import { workspaceApi } from "../../../../api/modules/workspace";
 
 export const useAgentsData = () => {
+  const { t } = useTranslation();
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<MarkdownFile | null>(null);
   const [dailyMemories, setDailyMemories] = useState<DailyMemoryFile[]>([]);
@@ -12,15 +15,63 @@ export const useAgentsData = () => {
   const [originalContent, setOriginalContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [workspacePath, setWorkspacePath] = useState("");
+  const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
 
   useEffect(() => {
-    fetchFiles();
+    const initializeData = async () => {
+      await fetchEnabledFiles();
+      await fetchFiles();
+    };
+    initializeData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-sort when enabledFiles changes (for toggle/reorder operations)
+  useEffect(() => {
+    if (files.length > 0 && enabledFiles.length >= 0) {
+      const sortedFiles = sortFilesByEnabled(files);
+
+      // Only update if order actually changed to avoid infinite loop
+      const orderChanged = sortedFiles.some(
+        (file, index) => file.filename !== files[index]?.filename,
+      );
+      if (orderChanged) {
+        setFiles(sortedFiles);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledFiles]);
+
+  const fetchEnabledFiles = async () => {
+    try {
+      const enabled = await workspaceApi.getSystemPromptFiles();
+      setEnabledFiles(enabled);
+    } catch (error) {
+      console.error("Failed to fetch enabled files", error);
+    }
+  };
+
+  const sortFilesByEnabled = (fileList: MarkdownFile[]) => {
+    return [...fileList].sort((a, b) => {
+      const aIndex = enabledFiles.indexOf(a.filename);
+      const bIndex = enabledFiles.indexOf(b.filename);
+      const aEnabled = aIndex !== -1;
+      const bEnabled = bIndex !== -1;
+
+      if (aEnabled && bEnabled) {
+        return aIndex - bIndex;
+      }
+      if (aEnabled) return -1;
+      if (bEnabled) return 1;
+      return a.filename.localeCompare(b.filename);
+    });
+  };
 
   const fetchFiles = async () => {
     try {
       const fileList = await api.listFiles();
-      setFiles(fileList as MarkdownFile[]);
+      const sortedFiles = sortFilesByEnabled(fileList as MarkdownFile[]);
+      setFiles(sortedFiles);
       if (fileList.length > 0) {
         const path = fileList[0].path;
         const workspace = path.substring(
@@ -121,6 +172,65 @@ export const useAgentsData = () => {
     setFileContent(originalContent);
   };
 
+  const handleToggleFileEnabled = async (filename: string) => {
+    const isEnabling = !enabledFiles.includes(filename);
+
+    // Show warning for MEMORY.md
+    if (isEnabling && filename === "MEMORY.md") {
+      message.warning({
+        content: t("workspace.memoryFileWarning"),
+        duration: 5,
+      });
+    }
+
+    const newEnabledFiles = enabledFiles.includes(filename)
+      ? enabledFiles.filter((f) => f !== filename)
+      : [...enabledFiles, filename];
+
+    try {
+      await workspaceApi.setSystemPromptFiles(newEnabledFiles);
+      setEnabledFiles(newEnabledFiles);
+      message.success(
+        t("workspace.configUpdated") || "System prompt configuration updated",
+      );
+    } catch (error) {
+      console.error("Failed to update system prompt files", error);
+      message.error(
+        t("workspace.configUpdateFailed") ||
+          "Failed to update system prompt configuration",
+      );
+    }
+  };
+
+  const handleReorderFiles = async (
+    filename: string,
+    direction: "up" | "down",
+  ) => {
+    const currentIndex = enabledFiles.indexOf(filename);
+    if (currentIndex === -1) return;
+
+    const newEnabledFiles = [...enabledFiles];
+    const targetIndex =
+      direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+    if (targetIndex < 0 || targetIndex >= newEnabledFiles.length) return;
+
+    // Swap positions
+    [newEnabledFiles[currentIndex], newEnabledFiles[targetIndex]] = [
+      newEnabledFiles[targetIndex],
+      newEnabledFiles[currentIndex],
+    ];
+
+    try {
+      await workspaceApi.setSystemPromptFiles(newEnabledFiles);
+      setEnabledFiles(newEnabledFiles);
+      message.success("File order updated");
+    } catch (error) {
+      console.error("Failed to reorder files", error);
+      message.error("Failed to update file order");
+    }
+  };
+
   const hasChanges = fileContent !== originalContent;
 
   return {
@@ -132,6 +242,7 @@ export const useAgentsData = () => {
     loading,
     workspacePath,
     hasChanges,
+    enabledFiles,
     setFileContent,
     fetchFiles,
     fetchDailyMemories,
@@ -139,5 +250,7 @@ export const useAgentsData = () => {
     handleDailyMemoryClick,
     handleSave,
     handleReset,
+    handleToggleFileEnabled,
+    handleReorderFiles,
   };
 };

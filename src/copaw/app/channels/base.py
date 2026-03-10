@@ -80,17 +80,29 @@ class BaseChannel(ABC):
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
         self._show_tool_details = show_tool_details
-        # Set by ChannelManager.start_all(); channel calls this to enqueue.
+        self._filter_tool_messages = filter_tool_messages
+        self._filter_thinking = filter_thinking
+        self.dm_policy = dm_policy or "open"
+        self.group_policy = group_policy or "open"
+        self.allow_from = set(allow_from or [])
+        self.deny_message = deny_message or ""
         self._enqueue: EnqueueCallback = None
-        # Pluggable renderer; subclasses may replace or inject style.
-        self._render_style = RenderStyle(show_tool_details=show_tool_details)
+        self._render_style = RenderStyle(
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+        )
         self._renderer = MessageRenderer(self._render_style)
-        # Optional shared aiohttp.ClientSession; subclasses create in start(),
-        # close in stop().
         self._http: Optional[Any] = None
         # Debounce: content from messages that had no text; merged when text
         # arrives. Key = session_id.
@@ -237,6 +249,30 @@ class BaseChannel(ABC):
         merged = pending + list(content_parts)
         return (True, merged)
 
+    def _check_allowlist(
+        self,
+        sender_id: str,
+        is_group: bool,
+    ) -> tuple[bool, Optional[str]]:
+        """Check sender against allowlist policy."""
+        policy = self.group_policy if is_group else self.dm_policy
+        if policy == "open":
+            return True, None
+        if sender_id in self.allow_from:
+            return True, None
+        if self.deny_message:
+            return False, self.deny_message
+        if is_group:
+            return (
+                False,
+                "Sorry, this bot is only available to authorized users.",
+            )
+        return False, (
+            "Sorry, you are not authorized to use this bot. "
+            "Please contact the administrator to add your ID "
+            f"to the allowlist. Your ID: {sender_id}"
+        )
+
     def set_enqueue(self, cb: EnqueueCallback) -> None:
         """Set enqueue callback (called by ChannelManager)."""
         self._enqueue = cb
@@ -256,6 +292,8 @@ class BaseChannel(ABC):
         config: Any,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "BaseChannel":
         raise NotImplementedError
 
@@ -414,8 +452,9 @@ class BaseChannel(ABC):
                 meta_from_payload["session_webhook"] = payload[
                     "session_webhook"
                 ]
-            if hasattr(request, "channel_meta"):
-                request.channel_meta = meta_from_payload
+            # Always attach so channel _before_consume_process can use it
+            # (e.g. Feishu save receive_id for cron send).
+            setattr(request, "channel_meta", meta_from_payload)
         session_id = getattr(request, "session_id", "") or ""
         if request.input:
             contents = list(getattr(request.input[0], "content", None) or [])
@@ -468,11 +507,6 @@ class BaseChannel(ABC):
         Run _process and send events. Override to use channel-specific
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
-        bot_prefix = send_meta.get("bot_prefix", "") or getattr(
-            self,
-            "bot_prefix",
-            "",
-        )
         last_response = None
         try:
             async for event in self._process(request):
@@ -488,14 +522,13 @@ class BaseChannel(ABC):
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
-            if last_response and getattr(last_response, "error", None):
-                err = getattr(
-                    last_response.error,
-                    "message",
-                    str(last_response.error),
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    f"Error: {err_msg}",
                 )
-                err_text = (bot_prefix or "") + f"Error: {err}"
-                await self._on_consume_error(request, to_handle, err_text)
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
@@ -506,6 +539,27 @@ class BaseChannel(ABC):
                 to_handle,
                 "An error occurred while processing your request.",
             )
+
+    def _get_response_error_message(self, last_response: Any) -> Optional[str]:
+        """
+        Extract error message from runtime response event.
+        Handles AgentResponse.error or Event wrapper (e.g. .data / .response).
+        """
+        if not last_response:
+            return None
+        resp = last_response
+        if getattr(last_response, "data", None) is not None:
+            resp = last_response.data
+        elif getattr(last_response, "response", None) is not None:
+            resp = last_response.response
+        err = getattr(resp, "error", None)
+        if not err:
+            return None
+        if hasattr(err, "message"):
+            return getattr(err, "message", None) or str(err)
+        if isinstance(err, dict):
+            return err.get("message") or str(err)
+        return str(err)
 
     async def _before_consume_process(self, request: "AgentRequest") -> None:
         """
@@ -546,7 +600,7 @@ class BaseChannel(ABC):
         """
         await self.send_content_parts(
             to_handle,
-            [{"type": "text", "text": err_text}],
+            [TextContent(type=ContentType.TEXT, text=err_text)],
             getattr(request, "channel_meta", None) or {},
         )
 
@@ -696,12 +750,26 @@ class BaseChannel(ABC):
         process and on_reply_sent from self.
 
         Subclasses must implement from_config(process, config, on_reply_sent).
+
+        show_tool_details is global config (not in channel config), so we
+        preserve from self. filter_tool_messages and filter_thinking are
+        per-channel config, so we read from new config.
         """
         return self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
             show_tool_details=getattr(self, "_show_tool_details", True),
+            filter_tool_messages=getattr(
+                config,
+                "filter_tool_messages",
+                False,
+            ),
+            filter_thinking=getattr(
+                config,
+                "filter_thinking",
+                False,
+            ),
         )
 
     async def start(self) -> None:

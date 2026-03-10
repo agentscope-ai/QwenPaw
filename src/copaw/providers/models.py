@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import List
 
 from pydantic import BaseModel, Field
 
@@ -76,75 +76,5 @@ class ModelSlotConfig(BaseModel):
     model: str = Field(default="")
 
 
-class ProvidersData(BaseModel):
-    """Top-level structure of providers.json."""
-
-    providers: Dict[str, ProviderSettings] = Field(default_factory=dict)
-    custom_providers: Dict[str, CustomProviderData] = Field(
-        default_factory=dict,
-    )
-    active_llm: ModelSlotConfig = Field(default_factory=ModelSlotConfig)
-
-    def get_credentials(self, provider_id: str) -> tuple[str, str]:
-        """Return ``(base_url, api_key)`` for *provider_id*."""
-        cpd = self.custom_providers.get(provider_id)
-        if cpd is not None:
-            return cpd.base_url or cpd.default_base_url, cpd.api_key
-        s = self.providers.get(provider_id)
-        return (s.base_url, s.api_key) if s else ("", "")
-
-    def is_configured(self, defn: "ProviderDefinition") -> bool:
-        """Custom providers need base_url; built-in providers need api_key.
-
-        Local providers are always considered configured (no credentials).
-
-        The special built-in provider ``ollama`` is also considered configured
-        without an API key, since it typically runs on localhost and uses an
-        unauthenticated OpenAI-compatible endpoint.
-        """
-        if defn.is_local or defn.id == "ollama":
-            return True
-        cpd = self.custom_providers.get(defn.id)
-        if cpd is not None:
-            return bool(cpd.base_url or cpd.default_base_url)
-        s = self.providers.get(defn.id)
-        if not s:
-            return False
-        if defn.is_custom:
-            return bool(s.base_url)
-        # Providers without a default base URL (e.g. Azure OpenAI)
-        # require both base_url and api_key to be considered configured.
-        if not defn.default_base_url:
-            return bool(s.base_url) and bool(s.api_key)
-        return bool(s.api_key)
-
-
-class ProviderInfo(BaseModel):
-    """Provider info returned by API."""
-
-    id: str
-    name: str
-    api_key_prefix: str
-    models: List[ModelInfo] = Field(default_factory=list)
-    extra_models: List[ModelInfo] = Field(default_factory=list)
-    is_custom: bool = Field(default=False)
-    is_local: bool = Field(default=False)
-    needs_base_url: bool = Field(
-        default=False,
-        description="True when the user must supply a base URL "
-        "(custom providers or providers without a default URL).",
-    )
-    has_api_key: bool = Field(default=False)
-    current_api_key: str = Field(default="")
-    current_base_url: str = Field(default="")
-
-
 class ActiveModelsInfo(BaseModel):
-    active_llm: ModelSlotConfig
-
-
-class ResolvedModelConfig(BaseModel):
-    model: str = Field(default="")
-    base_url: str = Field(default="")
-    api_key: str = Field(default="")
-    is_local: bool = Field(default=False)
+    active_llm: ModelSlotConfig | None

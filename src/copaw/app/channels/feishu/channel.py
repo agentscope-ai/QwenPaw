@@ -17,25 +17,16 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
+import sys
 import threading
 import time
+import types
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
-
-import lark_oapi as lark
-from lark_oapi.api.im.v1 import (
-    CreateImageRequest,
-    CreateImageRequestBody,
-    CreateMessageRequest,
-    CreateMessageRequestBody,
-    CreateMessageReactionRequest,
-    CreateMessageReactionRequestBody,
-    Emoji,
-    P2ImMessageReceiveV1,
-)
 from agentscope_runtime.engine.schemas.agent_schemas import (
     # AudioContent,
     FileContent,
@@ -43,7 +34,6 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
 )
 
-from ..utils import file_url_to_local_path
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
 from ..base import (
@@ -53,9 +43,8 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-
+from ..utils import file_url_to_local_path
 from .constants import (
-    FEISHU_AVAILABLE,
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
@@ -63,11 +52,86 @@ from .constants import (
     FEISHU_USER_NAME_FETCH_TIMEOUT,
 )
 from .utils import (
+    build_interactive_content,
     extract_json_key,
+    extract_post_image_keys,
+    extract_post_text,
     normalize_feishu_md,
     sender_display_string,
     short_session_id_from_full_id,
 )
+
+
+# Compatibility for setuptools>=82 where pkg_resources may be absent.
+# lark-oapi imports pkg_resources.declare_namespace from its vendored protobuf
+# package init; install a minimal shim only while importing lark-oapi.
+def _declare_namespace_shim(_name: str) -> None:
+    return None
+
+
+_PKG_RESOURCES_MISSING = object()
+_original_pkg_resources: Any = sys.modules.get(
+    "pkg_resources",
+    _PKG_RESOURCES_MISSING,
+)
+_pkg_resources_shim: Optional[types.ModuleType] = None
+_pkg_resources_module: Any = None
+_declare_namespace_patched = False
+
+try:
+    import pkg_resources as _pkg_resources_module  # type: ignore
+except ImportError:  # pragma: no cover - pkg_resources absent (setuptools>=82)
+    _pkg_resources_shim = types.ModuleType("pkg_resources")
+    _pkg_resources_shim.declare_namespace = (  # type: ignore[attr-defined]
+        _declare_namespace_shim
+    )
+    sys.modules["pkg_resources"] = _pkg_resources_shim
+else:
+    if not hasattr(_pkg_resources_module, "declare_namespace"):
+        setattr(
+            _pkg_resources_module,
+            "declare_namespace",
+            _declare_namespace_shim,
+        )
+        _declare_namespace_patched = True
+
+try:
+    import lark_oapi as lark
+    from lark_oapi.api.im.v1 import (
+        CreateImageRequest,
+        CreateImageRequestBody,
+        CreateMessageRequest,
+        CreateMessageRequestBody,
+        CreateMessageReactionRequest,
+        CreateMessageReactionRequestBody,
+        Emoji,
+        P2ImMessageReceiveV1,
+    )
+except ImportError:  # pragma: no cover - optional dependency may be missing
+    lark = None  # type: ignore[assignment]
+    CreateImageRequest = None  # type: ignore[assignment]
+    CreateImageRequestBody = None  # type: ignore[assignment]
+    CreateMessageRequest = None  # type: ignore[assignment]
+    CreateMessageRequestBody = None  # type: ignore[assignment]
+    CreateMessageReactionRequest = None  # type: ignore[assignment]
+    CreateMessageReactionRequestBody = None  # type: ignore[assignment]
+    Emoji = None  # type: ignore[assignment]
+    P2ImMessageReceiveV1 = None  # type: ignore[assignment]
+finally:
+    if (
+        _pkg_resources_shim is not None
+        and sys.modules.get("pkg_resources") is _pkg_resources_shim
+    ):
+        if _original_pkg_resources is _PKG_RESOURCES_MISSING:
+            del sys.modules["pkg_resources"]
+        else:
+            sys.modules["pkg_resources"] = _original_pkg_resources
+    if _declare_namespace_patched and _pkg_resources_module is not None:
+        if (
+            getattr(_pkg_resources_module, "declare_namespace", None)
+            is _declare_namespace_shim
+        ):
+            delattr(_pkg_resources_module, "declare_namespace")
 
 if TYPE_CHECKING:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
@@ -98,11 +162,23 @@ class FeishuChannel(BaseChannel):
         media_dir: str = "~/.copaw/media",
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[List[str]] = None,
+        deny_message: str = "",
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -140,6 +216,12 @@ class FeishuChannel(BaseChannel):
     ) -> "FeishuChannel":
         import os
 
+        allow_from_env = os.getenv("FEISHU_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("FEISHU_CHANNEL_ENABLED", "0") == "1",
@@ -150,6 +232,10 @@ class FeishuChannel(BaseChannel):
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
             media_dir=os.getenv("FEISHU_MEDIA_DIR", "~/.copaw/media"),
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("FEISHU_DM_POLICY", "open"),
+            group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
         )
 
     @classmethod
@@ -159,6 +245,8 @@ class FeishuChannel(BaseChannel):
         config: FeishuChannelConfig,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
     ) -> "FeishuChannel":
         return cls(
             process=process,
@@ -171,6 +259,12 @@ class FeishuChannel(BaseChannel):
             media_dir=config.media_dir or "~/.copaw/media",
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+            dm_policy=config.dm_policy or "open",
+            group_policy=config.group_policy or "open",
+            allow_from=config.allow_from or [],
+            deny_message=config.deny_message or "",
         )
 
     def resolve_session_id(
@@ -223,6 +317,9 @@ class FeishuChannel(BaseChannel):
             content_parts=content_parts,
             channel_meta=meta,
         )
+        # Ensure channel_meta is on request for _before_consume_process
+        # (AgentRequest may not have the field; base also sets from payload).
+        setattr(request, "channel_meta", meta)
         return request
 
     def merge_native_items(self, items: List[Any]) -> Any:
@@ -465,11 +562,7 @@ class FeishuChannel(BaseChannel):
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
         """Handle one Feishu message: dedup, parse, download media, enqueue."""
-        if (
-            not FEISHU_AVAILABLE
-            or not data
-            or not getattr(data, "event", None)
-        ):
+        if not data or not getattr(data, "event", None):
             return
         try:
             event = data.event
@@ -525,6 +618,25 @@ class FeishuChannel(BaseChannel):
                 text = extract_json_key(content_raw, "text")
                 if text:
                     text_parts.append(text)
+            elif msg_type == "post":
+                text = extract_post_text(content_raw)
+                if text:
+                    text_parts.append(text)
+                # Download images in post message
+                for img_key in extract_post_image_keys(content_raw):
+                    url_or_path = await self._download_image_resource(
+                        message_id,
+                        img_key,
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            ImageContent(
+                                type=ContentType.IMAGE,
+                                image_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[image: download failed]")
             elif msg_type == "image":
                 image_key = extract_json_key(
                     content_raw,
@@ -607,16 +719,35 @@ class FeishuChannel(BaseChannel):
             if not content_parts:
                 return
 
+            is_group = chat_type == "group"
             meta: Dict[str, Any] = {
                 "feishu_message_id": message_id,
                 "feishu_chat_id": chat_id,
                 "feishu_chat_type": chat_type,
                 "feishu_sender_id": sender_id,
+                "is_group": is_group,
             }
-            receive_id = chat_id if chat_type == "group" else sender_id
-            receive_id_type = "chat_id" if chat_type == "group" else "open_id"
+            receive_id = chat_id if is_group else sender_id
+            receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
             meta["feishu_receive_id_type"] = receive_id_type
+
+            allowed, error_msg = self._check_allowlist(
+                sender_id,
+                is_group,
+            )
+            if not allowed:
+                logger.info(
+                    "feishu allowlist blocked: sender=%s is_group=%s",
+                    sender_id,
+                    is_group,
+                )
+                await self._send_text(
+                    receive_id_type,
+                    receive_id,
+                    error_msg or "",
+                )
+                return
 
             session_id = self.resolve_session_id(sender_id, meta)
             native = {
@@ -646,7 +777,7 @@ class FeishuChannel(BaseChannel):
         emoji_type: str = "THUMBSUP",
     ) -> None:
         """Add reaction to message (non-blocking)."""
-        if not FEISHU_AVAILABLE or not self._client or not Emoji:
+        if not self._client:
             return
         try:
             loop = asyncio.get_running_loop()
@@ -916,7 +1047,7 @@ class FeishuChannel(BaseChannel):
 
     def _upload_image_sync(self, data: bytes, filename: str) -> Optional[str]:
         """Upload image via lark client; return image_key."""
-        if not FEISHU_AVAILABLE or not self._client:
+        if not self._client:
             return None
         logger.info(
             "feishu _upload_image_sync: size=%s filename=%s",
@@ -1053,7 +1184,7 @@ class FeishuChannel(BaseChannel):
         content: str,
     ) -> bool:
         """Send one message (post, image, or file) via lark client."""
-        if not FEISHU_AVAILABLE or not self._client:
+        if not self._client:
             return False
         logger.info(
             "feishu _send_message_sync: msg_type=%s receive_id_type=%s "
@@ -1100,10 +1231,23 @@ class FeishuChannel(BaseChannel):
         receive_id: str,
         body: str,
     ) -> bool:
-        """Send text as post (md). Body already has bot_prefix if needed."""
+        """Send text as post (md) or interactive card (when body has tables).
+        Body already has bot_prefix if needed."""
+        has_table = bool(re.search(r"^\s*\|", body, re.MULTILINE))
+        loop = asyncio.get_running_loop()
+        if has_table:
+            content = build_interactive_content(body)
+            return await loop.run_in_executor(
+                None,
+                lambda: self._send_message_sync(
+                    receive_id_type,
+                    receive_id,
+                    "interactive",
+                    content,
+                ),
+            )
         post = self._build_post_content(body, [])
         content = json.dumps(post, ensure_ascii=False)
-        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             lambda: self._send_message_sync(
@@ -1211,6 +1355,7 @@ class FeishuChannel(BaseChannel):
         url = (
             getattr(part, "file_url", None)
             or getattr(part, "image_url", None)
+            or getattr(part, "video_url", None)
             or getattr(part, "data", None)
             or ""
         )
@@ -1347,7 +1492,8 @@ class FeishuChannel(BaseChannel):
                 if len(suffix) >= 4:
                     async with self._receive_id_lock:
                         for _, v in self._receive_id_store.items():
-                            if v[0] and str(v[0]).endswith(suffix):
+                            # v is (receive_id_type, receive_id)
+                            if v[1] and str(v[1]).endswith(suffix):
                                 logger.info(
                                     "feishu _get_receive_for_send: "
                                     "fallback match by suffix %s",
@@ -1380,7 +1526,7 @@ class FeishuChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send text as post (md), then images, then files."""
-        if not self.enabled or not FEISHU_AVAILABLE:
+        if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
         if not recv:
@@ -1402,11 +1548,19 @@ class FeishuChannel(BaseChannel):
         text_parts: List[str] = []
         media_parts: List[OutgoingContentPart] = []
         for p in parts:
-            t = getattr(p, "type", None)
-            if t == ContentType.TEXT and getattr(p, "text", None):
-                text_parts.append(p.text or "")
-            elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
-                text_parts.append(p.refusal or "")
+            t = getattr(p, "type", None) or (
+                p.get("type") if isinstance(p, dict) else None
+            )
+            text_val = getattr(p, "text", None) or (
+                p.get("text") if isinstance(p, dict) else None
+            )
+            refusal_val = getattr(p, "refusal", None) or (
+                p.get("refusal") if isinstance(p, dict) else None
+            )
+            if t == ContentType.TEXT and text_val:
+                text_parts.append(text_val or "")
+            elif t == ContentType.REFUSAL and refusal_val:
+                text_parts.append(refusal_val or "")
             elif t in (
                 ContentType.IMAGE,
                 ContentType.FILE,
@@ -1462,7 +1616,7 @@ class FeishuChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Proactive send: resolve receive_id and send text as post."""
-        if not self.enabled or not FEISHU_AVAILABLE:
+        if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
         if not recv:
@@ -1537,9 +1691,9 @@ class FeishuChannel(BaseChannel):
             logger.debug("feishu channel disabled")
             return
         self._load_receive_id_store_from_disk()
-        if not FEISHU_AVAILABLE:
+        if lark is None:
             raise RuntimeError(
-                "Feishu channel enabled but lark-oapi not installed. "
+                "Feishu channel enabled but lark-oapi is not installed. "
                 "Run: pip install lark-oapi",
             )
         if not self.app_id or not self.app_secret:

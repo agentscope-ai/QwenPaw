@@ -2,6 +2,7 @@ import type { SiteConfig } from "../config";
 import { type Lang } from "../i18n";
 import { Nav } from "../components/Nav";
 import { Hero } from "../components/Hero";
+import { FollowUs } from "../components/FollowUs";
 import { Features } from "../components/Features";
 import { UseCases } from "../components/UseCases";
 import { Testimonials } from "../components/Testimonials";
@@ -34,13 +35,12 @@ export function Home({ config, lang, onLangClick }: HomeProps) {
           lang={lang}
           docsPath={config.docsPath}
         />
-        <Features lang={lang} delay={0.35} />
-        <UseCases lang={lang} delay={0.4} />
-        {config.showTestimonials !== false && (
-          <Testimonials lang={lang} delay={0.5} />
-        )}
-        <QuickStart config={config} lang={lang} delay={0.8} />
-        <BrandStory lang={lang} delay={0.9} />
+        <QuickStart config={config} lang={lang} />
+        <Features lang={lang} />
+        <UseCases lang={lang} />
+        {config.showTestimonials !== false && <Testimonials lang={lang} />}
+        <FollowUs lang={lang} />
+        <BrandStory lang={lang} />
       </main>
       <Footer lang={lang} />
     </>

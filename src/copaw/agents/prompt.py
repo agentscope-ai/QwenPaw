@@ -22,50 +22,48 @@ SYS_PROMPT = DEFAULT_SYS_PROMPT
 class PromptConfig:
     """Configuration for system prompt building."""
 
-    # Define file loading order: (filename, required)
-    FILE_ORDER = [
-        ("AGENTS.md", True),
-        ("SOUL.md", True),
-        ("PROFILE.md", False),
+    # Default files to load when no config is provided
+    # All files are optional - if they don't exist, they'll be skipped
+    DEFAULT_FILES = [
+        "AGENTS.md",
+        "SOUL.md",
+        "PROFILE.md",
     ]
 
 
 class PromptBuilder:
     """Builder for constructing system prompts from markdown files."""
 
-    def __init__(self, working_dir: Path):
+    def __init__(
+        self,
+        working_dir: Path,
+        enabled_files: list[str] | None = None,
+    ):
         """Initialize prompt builder.
 
         Args:
             working_dir: Directory containing markdown configuration files
+            enabled_files: List of filenames to load (if None, uses default order)
         """
         self.working_dir = working_dir
+        self.enabled_files = enabled_files
         self.prompt_parts = []
         self.loaded_count = 0
 
-    def _load_file(self, filename: str, required: bool) -> bool:
+    def _load_file(self, filename: str) -> None:
         """Load a single markdown file.
+
+        All files are optional - if they don't exist or can't be read,
+        they will be silently skipped.
 
         Args:
             filename: Name of the file to load
-            required: Whether the file is required
-
-        Returns:
-            True if file was loaded successfully, False otherwise
         """
         file_path = self.working_dir / filename
 
         if not file_path.exists():
-            if required:
-                logger.warning(
-                    "%s not found in working directory (%s), using default prompt",
-                    filename,
-                    self.working_dir,
-                )
-                return False
-            else:
-                logger.debug("Optional file %s not found, skipping", filename)
-                return True  # Not an error for optional files
+            logger.debug("File %s not found, skipping", filename)
+            return
 
         try:
             content = file_path.read_text(encoding="utf-8").strip()
@@ -88,35 +86,31 @@ class PromptBuilder:
             else:
                 logger.debug("Skipped empty file: %s", filename)
 
-            return True
-
         except Exception as e:
-            if required:
-                logger.error(
-                    "Failed to read required file %s: %s",
-                    filename,
-                    e,
-                    exc_info=True,
-                )
-                return False
-            else:
-                logger.warning(
-                    "Failed to read optional file %s: %s",
-                    filename,
-                    e,
-                )
-                return True  # Not fatal for optional files
+            logger.warning(
+                "Failed to read file %s: %s, skipping",
+                filename,
+                e,
+            )
 
     def build(self) -> str:
         """Build the system prompt from markdown files.
 
+        All files are optional. If no files can be loaded, returns the default prompt.
+
         Returns:
             Constructed system prompt string
         """
-        for filename, required in PromptConfig.FILE_ORDER:
-            if not self._load_file(filename, required):
-                # Required file failed to load
-                return DEFAULT_SYS_PROMPT
+        # Determine which files to load
+        files_to_load = (
+            PromptConfig.DEFAULT_FILES
+            if self.enabled_files is None
+            else self.enabled_files
+        )
+
+        # Load all files (all are optional)
+        for filename in files_to_load:
+            self._load_file(filename)
 
         if not self.prompt_parts:
             logger.warning("No content loaded from working directory")
@@ -142,22 +136,38 @@ def build_system_prompt_from_working_dir() -> str:
     WORKING_DIR (~/.copaw by default). These files define the agent's behavior,
     personality, and operational guidelines.
 
-    Loading order and priority:
-    1. AGENTS.md (required) - Detailed workflows, rules, and guidelines
-    2. SOUL.md (required) - Core identity and behavioral principles
-    3. PROFILE.md (optional) - Agent identity and user profile
+    The files to load are determined by the agents.system_prompt_files configuration.
+    If not configured, falls back to default files:
+    - AGENTS.md - Detailed workflows, rules, and guidelines
+    - SOUL.md - Core identity and behavioral principles
+    - PROFILE.md - Agent identity and user profile
+
+    All files are optional. If a file doesn't exist or can't be read, it will be
+    skipped. If no files can be loaded, returns the default prompt.
 
     Returns:
         str: Constructed system prompt from markdown files.
-             If required files don't exist, returns the default prompt.
+             If no files exist, returns the default prompt.
 
     Example:
         If working_dir contains AGENTS.md, SOUL.md and PROFILE.md, they will be combined:
         "# AGENTS.md\\n\\n...\\n\\n# SOUL.md\\n\\n...\\n\\n# PROFILE.md\\n\\n..."
     """
     from ..constant import WORKING_DIR
+    from ..config import load_config
 
-    builder = PromptBuilder(working_dir=Path(WORKING_DIR))
+    # Load enabled files from config
+    config = load_config()
+    enabled_files = (
+        config.agents.system_prompt_files
+        if config.agents.system_prompt_files is not None
+        else None
+    )
+
+    builder = PromptBuilder(
+        working_dir=Path(WORKING_DIR),
+        enabled_files=enabled_files,
+    )
     return builder.build()
 
 

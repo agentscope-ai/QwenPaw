@@ -3,57 +3,62 @@ import { Form, message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 
 import api from "../../../api";
-import type { SingleChannelConfig } from "../../../api/types";
 import {
   ChannelCard,
   ChannelDrawer,
   useChannels,
-  CHANNEL_LABELS,
+  getChannelLabel,
   type ChannelKey,
 } from "./components";
 import styles from "./index.module.less";
 
+type FilterType = "all" | "builtin" | "custom";
+
 function ChannelsPage() {
   const { t } = useTranslation();
-  const { channels, loading, fetchChannels } = useChannels();
+  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
+    useChannels();
+  const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [hoverKey, setHoverKey] = useState<ChannelKey | null>(null);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [form] = Form.useForm<SingleChannelConfig>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [form] = Form.useForm<any>();
 
+  // Sort cards: enabled first, then disabled (preserve orderedKeys order within each group)
   const cards = useMemo(() => {
-    const entries: { key: ChannelKey; config: SingleChannelConfig }[] = [];
+    const enabledCards: { key: ChannelKey; config: Record<string, unknown> }[] =
+      [];
+    const disabledCards: {
+      key: ChannelKey;
+      config: Record<string, unknown>;
+    }[] = [];
 
-    const channelOrder: ChannelKey[] = [
-      "console",
-      "dingtalk",
-      "feishu",
-      "imessage",
-      "discord",
-      "telegram",
-      "qq",
-    ];
-
-    channelOrder.forEach((key) => {
-      if (channels[key] && channels[key].enabled) {
-        entries.push({ key, config: channels[key] });
+    orderedKeys.forEach((key) => {
+      const config = channels[key] || { enabled: false, bot_prefix: "" };
+      const builtin = isBuiltin(key);
+      if (filter === "builtin" && !builtin) return;
+      if (filter === "custom" && builtin) return;
+      if (config.enabled) {
+        enabledCards.push({ key, config });
+      } else {
+        disabledCards.push({ key, config });
       }
     });
 
-    channelOrder.forEach((key) => {
-      if (channels[key] && !channels[key].enabled) {
-        entries.push({ key, config: channels[key] });
-      }
-    });
-
-    return entries;
-  }, [channels]);
+    return [...enabledCards, ...disabledCards];
+  }, [channels, orderedKeys, filter, isBuiltin]);
 
   const handleCardClick = (key: ChannelKey) => {
     setActiveKey(key);
     setDrawerOpen(true);
-    form.setFieldsValue(channels[key]);
+    const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
+    form.setFieldsValue({
+      ...channelConfig,
+      filter_tool_messages: !channelConfig.filter_tool_messages,
+      filter_thinking: !channelConfig.filter_thinking,
+    });
   };
 
   const handleDrawerClose = () => {
@@ -61,17 +66,26 @@ function ChannelsPage() {
     setActiveKey(null);
   };
 
-  const handleSubmit = async (values: SingleChannelConfig) => {
+  const handleSubmit = async (values: Record<string, unknown>) => {
     if (!activeKey) return;
 
-    const updatedChannel: SingleChannelConfig = {
-      ...channels[activeKey],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
+    const updatedChannel: Record<string, unknown> = {
+      ...savedConfig,
       ...values,
+      filter_tool_messages: !values.filter_tool_messages,
+      filter_thinking: !values.filter_thinking,
     };
 
     setSaving(true);
     try {
-      await api.updateChannelConfig(activeKey, updatedChannel);
+      await api.updateChannelConfig(
+        activeKey,
+        updatedChannel as unknown as Parameters<
+          typeof api.updateChannelConfig
+        >[1],
+      );
       await fetchChannels();
 
       setDrawerOpen(false);
@@ -84,12 +98,35 @@ function ChannelsPage() {
     }
   };
 
-  const activeLabel = activeKey ? CHANNEL_LABELS[activeKey] : "";
+  const activeLabel = activeKey ? getChannelLabel(activeKey) : "";
+
+  const FILTER_TABS: { key: FilterType; label: string }[] = [
+    { key: "all", label: t("channels.filterAll") },
+    { key: "builtin", label: t("channels.builtin") },
+    { key: "custom", label: t("channels.custom") },
+  ];
 
   return (
     <div className={styles.channelsPage}>
-      <h1 className={styles.title}>{t("channels.title")}</h1>
-      <p className={styles.description}>{t("channels.description")}</p>
+      <div className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.title}>{t("channels.title")}</h1>
+          <p className={styles.description}>{t("channels.description")}</p>
+        </div>
+        <div className={styles.filterTabs}>
+          {FILTER_TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              className={`${styles.filterTab} ${
+                filter === key ? styles.filterTabActive : ""
+              }`}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {loading ? (
         <div className={styles.loading}>
@@ -118,6 +155,7 @@ function ChannelsPage() {
         form={form}
         saving={saving}
         initialValues={activeKey ? channels[activeKey] : undefined}
+        isBuiltin={activeKey ? isBuiltin(activeKey) : true}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />

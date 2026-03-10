@@ -8,10 +8,12 @@ Two ways to configure channels:
 - **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
 - **Edit `config.json` directly** — Default `~/.copaw/config.json` (created by `copaw init`), set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
 
-All channels share two fields:
+All channels have common fields below:
 
 - **enabled** — Turn the channel on or off.
 - **bot_prefix** — Prefix for bot replies (e.g. `[BOT]`) so they're easy to spot.
+- **filter_tool_messages** — (optional, default `false`) Filter tool call and output messages from being sent to users. Set to `true` to hide tool execution details.
+- **filter_thinking** — (optional, default `false`) Filter model thinking/reasoning content from being sent to users. Set to `true` to hide thinking blocks.
 
 Below is how to get credentials and fill config for each channel.
 
@@ -78,8 +80,11 @@ In `config.json`, find `channels.dingtalk` and fill in the corresponding informa
   "bot_prefix": "[BOT]",
   "client_id": "your Client ID",
   "client_secret": "your Client Secret"
+  "filter_tool_messages": false
 }
 ```
+
+- Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run
 `copaw app`.
@@ -251,32 +256,50 @@ The JSON in step 6 grants the following permissions (app identity) for messaging
 
 The app polls the local iMessage database for new messages and sends replies on your behalf.
 
-### Prerequisites
+1. Ensure **Messages** is signed in on this Mac (open the Messages app and sign in with your Apple ID in System Settings).
 
-- Ensure **Messages** is signed in on this Mac (open the Messages app and sign in
-  with your Apple ID in System Settings).
-- Install **imsg** (used to access the iMessage database):
-  ```bash
-  brew install steipete/tap/imsg
-  ```
-- The default iMessage database path is `~/Library/Messages/chat.db`. Use this unless you've moved the database.
-- The app needs **Full Disk Access** (System Settings → Privacy & Security → Full Disk
-  Access) to read `chat.db`.
-- Everything stays on your machine; no data is sent elsewhere.
+2. Install **imsg** (used to access the iMessage database):
 
-### Fill config.json
+   ```bash
+   brew install steipete/tap/imsg
+   ```
 
-```json
-"imessage": {
-  "enabled": true,
-  "bot_prefix": "[BOT]",
-  "db_path": "~/Library/Messages/chat.db",
-  "poll_sec": 1.0
-}
-```
+   > If installation fails on Intel Mac, clone the repo and build from source:
+   >
+   > ```bash
+   > git clone https://github.com/steipete/imsg.git
+   > cd imsg
+   > make build
+   > sudo cp build/Release/imsg /usr/local/bin/
+   > cp ./bin/imsg /usr/local/bin/
+   > ```
 
-- **db_path** — Path to the iMessage database
-- **poll_sec** — Poll interval in seconds (1 is fine)
+3. For CoPaw to read iMessage data, **Terminal** (or the app you use to run `copaw app`) and **Messages** need **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access).
+
+4. Set the iMessage database path. The default is `~/Library/Messages/chat.db`; use this unless you've moved the database. You can configure it in either of these ways:
+
+   - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
+
+     ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
+
+   - Or edit `config.json` (usually at `~/.copaw/config.json`):
+
+     ```json
+     "imessage": {
+       "enabled": true,
+       "bot_prefix": "[BOT]",
+       "db_path": "~/Library/Messages/chat.db",
+       "poll_sec": 1.0
+     }
+     ```
+
+     **db_path** — Path to the iMessage database
+
+     **poll_sec** — Poll interval in seconds (1 is fine)
+
+5. After saving, send any message from your phone to the iMessage account signed in on this Mac (same Apple ID). You should see a reply.
+
+   ![reply](https://img.alicdn.com/imgextra/i2/O1CN01btWaV21CtFmbnxFYw_!!6000000000138-2-tps-1206-2622.png)
 
 ---
 
@@ -377,6 +400,8 @@ If you need a proxy (e.g. for network restrictions):
 
 5. In **Developer settings**, get **AppID** and **AppSecret** (ClientSecret) and fill them into config (see below). Add your server’s **IP to the whitelist** — only whitelisted IPs can call the Open API outside sandbox.
 
+   > **Tip:** If you are using ModelScope Creative Space to deploy CoPaw, the IP whitelist for QQ channel should be: `47.92.200.108`
+
 ![1](https://img.alicdn.com/imgextra/i4/O1CN012UQWI21cnvBAUcz54_!!6000000003646-2-tps-4082-2126.png)
 
 6. In sandbox config, scan the QR code with QQ to add the bot to your message list
@@ -406,6 +431,125 @@ You can also fill them in the Console UI.
 
 ---
 
+## Telegram
+
+### Get Telegram bot credentials
+
+1. Open Telegram and search for `@BotFather` to add a Bot (make sure it is the official @BotFather with a blue verified badge).
+2. Open the chat with @BotFather and follow the instructions to create a new bot
+
+   ![Create bot](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
+
+3. Create the bot name in the dialog and copy the bot_token
+
+   ![Copy token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
+
+### Configure the Bot
+
+You can configure via the Console UI or by editing `~/.copaw/config.json`.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
+
+![Console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
+
+**Method 2:** Edit `~/.copaw/config.json`
+
+Find `channels.telegram` in `config.json` and fill in the fields, for example:
+
+```json
+"telegram": {
+    "enabled": true,
+    "bot_prefix": "[BOT]",
+    "bot_token": "your Bot Token",
+    "http_proxy": "",
+    "http_proxy_auth": ""
+}
+```
+
+If you need a proxy to access the Telegram API (e.g. for network restrictions):
+
+- **http_proxy** — e.g. `http://127.0.0.1:7890`
+- **http_proxy_auth** — `username:password` if the proxy requires auth, otherwise leave empty
+
+### Notes
+
+The Telegram whitelist mechanism is still under construction. It is recommended to deploy for personal use only and avoid exposing your bot username publicly.
+
+It is recommended to configure the following in `@BotFather`:
+
+```
+/setprivacy -> ENABLED    # Restrict bot reply permissions
+/setjoingroups -> DISABLED # Block group invitations
+```
+
+---
+
+## MQTT
+
+### About
+
+Currently, only text and JSON format messages are supported.
+
+JSON message format
+
+```
+{
+  "text": "...",
+  "redirect_client_id": "..."
+}
+```
+
+### Basic Configuration
+
+| Description     | Field           | Required field | Example                 |
+| --------------- | --------------- | -------------- | ----------------------- |
+| MQTT Host       | host            | Y              | 127.0.0.1               |
+| MQTT Port       | port            | Y              | 1883                    |
+| Transport       | transport       | Y              | tcp                     |
+| Clean Session   | clean_session   | Y              | true                    |
+| QoS             | qos             | Y              | 2                       |
+| MQTT Username   | username        | N              |                         |
+| MQTT Password   | password        | N              |                         |
+| Subscribe Topic | subscribe_topic | Y              | server/+/up             |
+| Publish Topic   | publish_topic   | Y              | client/{client_id}/down |
+| TLS Enabled     | tls_enabled     | N              | false                   |
+| TLS CA Certs    | tls_ca_certs    | N              | /tsl/ca.pem             |
+| TLS Certfile    | tls_certfile    | N              | /tsl/client.pem         |
+| TLS Keyfile     | tls_keyfile     | N              | /tsl/client.key         |
+
+### Topic
+
+1. Simple subscription and push
+
+   | subscribe_topic | publish_topic |
+   | --------------- | ------------- |
+   | server          | client        |
+
+2. Fuzzy match subscription and automatic push
+
+   Subscribe to the wildcard topic `/server/+/up`. Messages will be automatically pushed to the corresponding topic based on the client's `client_id`. For example, after a client pushes a message to `/server/client_a/up`, OpenClaw will push the message to `/client/client_b/down` after processing.
+
+   | subscribe_topic | publish_topic           |
+   | --------------- | ----------------------- |
+   | server/+/up     | client/{client_id}/down |
+
+3. Redirected topic push
+
+   The message sent is in JSON format. The subscription topic is `server/client_a/up`, and the push topic is `client/client_a/down`.
+
+   ```json
+   {
+     "text": "Tell me a joke, return the result in plain text",
+     "redirect_client_id": "client_b"
+   }
+   ```
+
+   Messages will be pushed to `client/client_b/down` based on the `redirect_client_id` attribute, enabling cross-topic push. In IoT scenarios, with OpenClaw as the core, autonomous message pushing between multiple devices can be achieved according to individual requirements.
+
+---
+
 ## Appendix
 
 ### Config overview
@@ -417,6 +561,7 @@ You can also fill them in the Console UI.
 | iMessage | imessage   | db_path, poll_sec (macOS only)                                          |
 | Discord  | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
 | QQ       | qq         | app_id, client_secret                                                   |
+| Telegram | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -434,6 +579,7 @@ done). **✗** = not supported (not possible on this channel).
 | Discord  | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | iMessage | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ       | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Telegram | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 
 Notes:
 
@@ -448,6 +594,7 @@ Notes:
   possible on this channel).
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
+- **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 
 ### Changing config via HTTP
 

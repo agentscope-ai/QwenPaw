@@ -1,0 +1,3 @@
+# Explicit channels so conda does not warn about implicit 'defaults'
+channels:
+  - defaults

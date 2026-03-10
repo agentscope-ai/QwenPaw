@@ -151,7 +151,7 @@ def _http_get(
     for attempt in range(1, attempts + 1):
         try:
             with urlopen(req, timeout=timeout) as resp:
-                return resp.read().decode("utf-8")
+                return resp.read().decode("utf-8", errors="replace")
         except HTTPError as e:
             last_error = e
             status = getattr(e, "code", 0) or 0
@@ -646,7 +646,12 @@ def _github_list_skill_md_roots(
     ref: str,
 ) -> list[str]:
     tree_url = _github_api_url(owner, repo, f"git/trees/{ref}")
-    data = _http_json_get(tree_url, {"recursive": "1"})
+    try:
+        data = _http_json_get(tree_url, {"recursive": "1"})
+    except HTTPError as e:
+        if getattr(e, "code", 0) == 404:
+            return []
+        raise
     if not isinstance(data, dict):
         return []
     tree = data.get("tree")
@@ -710,7 +715,10 @@ def _github_read_file(entry: dict[str, Any]) -> str:
     if isinstance(content, str) and content:
         try:
             normalized = content.replace("\n", "")
-            return base64.b64decode(normalized).decode("utf-8")
+            return base64.b64decode(normalized).decode(
+                "utf-8",
+                errors="replace",
+            )
         except Exception:
             pass
 
@@ -784,8 +792,12 @@ def _fetch_bundle_from_skills_sh_url(
     if requested_version.strip():
         branch_candidates = [requested_version.strip()]
     else:
-        # Avoid extra API call for default branch on every import.
-        branch_candidates = ["main", "master"]
+        # Prefer repo default branch (e.g. master).
+        default_branch = _github_get_default_branch(owner, repo)
+        branch_candidates = [default_branch] if default_branch else []
+        for b in ("main", "master"):
+            if b and b not in branch_candidates:
+                branch_candidates.append(b)
 
     selected_root = ""
     skill_md_entry: dict[str, Any] | None = None
@@ -883,12 +895,15 @@ def _fetch_bundle_from_repo_and_skill_hint(
     repo: str,
     skill_hint: str,
     requested_version: str,
+    default_branch: str = "main",
 ) -> tuple[Any, str]:
     branch_candidates = (
         [requested_version.strip()]
         if requested_version.strip()
         else ["main", "master"]
     )
+    if default_branch and default_branch not in branch_candidates:
+        branch_candidates.append(default_branch)
     skill = skill_hint.strip()
 
     selected_root = ""
@@ -955,7 +970,13 @@ def _fetch_bundle_from_repo_and_skill_hint(
                 break
 
     if skill_md_entry is None:
-        raise ValueError("Could not find SKILL.md in source repository")
+        raise ValueError(
+            f"Could not find SKILL.md in source repository "
+            f"https://github.com/{owner}/{repo}. "
+            f"Path hint: {skill_hint!r}; tried branches: {branch_candidates}. "
+            "Ensure the URL points to a folder containing SKILL.md, e.g. "
+            "https://github.com/owner/repo/tree/master/skills/skill-name",
+        )
 
     files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
     for subdir in ("references", "scripts"):
@@ -983,7 +1004,11 @@ def _fetch_bundle_from_github_url(
 ) -> tuple[Any, str]:
     spec = _extract_github_spec(bundle_url)
     if spec is None:
-        raise ValueError("Invalid GitHub URL format")
+        raise ValueError(
+            "Invalid GitHub URL format. Use a repo or path URL, e.g. "
+            "https://github.com/owner/repo or "
+            "https://github.com/owner/repo/tree/branch/path/to/skill",
+        )
     owner, repo, branch_in_url, path_hint = spec
     path_hint = path_hint.strip("/")
     # If path points directly to SKILL.md, normalize to its parent directory.
@@ -992,11 +1017,17 @@ def _fetch_bundle_from_github_url(
     elif path_hint == "SKILL.md":
         path_hint = ""
     branch = requested_version.strip() or branch_in_url.strip()
+    default_branch = ""
+    try:
+        default_branch = _github_get_default_branch(owner, repo)
+    except Exception:
+        pass
     return _fetch_bundle_from_repo_and_skill_hint(
         owner=owner,
         repo=repo,
         skill_hint=path_hint,
         requested_version=branch,
+        default_branch=default_branch or "main",
     )
 
 
