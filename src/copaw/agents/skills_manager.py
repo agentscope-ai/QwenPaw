@@ -458,26 +458,51 @@ def _create_files_from_tree(
             )
 
 
+_MAX_ZIP_BYTES = 200 * 1024 * 1024  # 200 MB uncompressed guard
+
+
+def _is_hidden(name: str) -> bool:
+    return name.startswith("__MACOSX") or name.startswith(".")
+
+
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
-    """Extract zip to *tmp_dir* after path-traversal validation."""
+    """Extract zip to *tmp_dir* after security validation."""
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        for name in zf.namelist():
-            if not str((tmp_dir / name).resolve()).startswith(str(tmp_dir.resolve())):
-                raise ValueError(f"Zip contains unsafe path: {name}")
+        total = sum(i.file_size for i in zf.infolist())
+        if total > _MAX_ZIP_BYTES:
+            mb = _MAX_ZIP_BYTES // 1024 // 1024
+            raise ValueError(f"Uncompressed size exceeds {mb}MB limit")
+        root_s = str(tmp_dir.resolve())
+        for info in zf.infolist():
+            if not str((tmp_dir / info.filename).resolve()).startswith(root_s):
+                raise ValueError(f"Unsafe path: {info.filename}")
+            if info.external_attr >> 16 & 0o120000 == 0o120000:
+                raise ValueError(f"Symlink not allowed: {info.filename}")
         zf.extractall(tmp_dir)
 
 
-def _find_skill_dirs(extract_root: Path) -> list[tuple[Path, str]]:
-    """Return list of (skill_dir, skill_name) found under *extract_root*."""
-    if (extract_root / "SKILL.md").exists():
-        return [(extract_root, extract_root.name)]
-    results: list[tuple[Path, str]] = []
-    for child in sorted(extract_root.iterdir()):
-        if child.name.startswith("__MACOSX"):
-            continue
-        if child.is_dir() and (child / "SKILL.md").exists():
-            results.append((child, child.name))
-    return results
+def _resolve_skill_name(skill_dir: Path) -> str:
+    """Read name from SKILL.md frontmatter, fallback to dir name."""
+    try:
+        name = frontmatter.loads(
+            (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
+        ).get("name", "")
+        if name and isinstance(name, str):
+            return name.strip()
+    except Exception:
+        pass
+    return skill_dir.name
+
+
+def _find_skill_dirs(root: Path) -> list[tuple[Path, str]]:
+    """Return (skill_dir, skill_name) pairs found under *root*."""
+    if (root / "SKILL.md").exists():
+        return [(root, _resolve_skill_name(root))]
+    return [
+        (c, c.name)
+        for c in sorted(root.iterdir())
+        if not _is_hidden(c.name) and c.is_dir() and (c / "SKILL.md").exists()
+    ]
 
 
 def _import_skill_dir(
@@ -834,7 +859,7 @@ class SkillService:
             _extract_and_validate_zip(data, tmp_dir)
 
             # Unwrap single wrapper directory
-            real = [e for e in tmp_dir.iterdir() if not e.name.startswith("__MACOSX")]
+            real = [e for e in tmp_dir.iterdir() if not _is_hidden(e.name)]
             extract_root = real[0] if len(real) == 1 and real[0].is_dir() else tmp_dir
 
             imported = [

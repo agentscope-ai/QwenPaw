@@ -221,6 +221,12 @@ async def upload_skill(
         )
 
     data = await file.read()
+    max_upload = 100 * 1024 * 1024  # 100 MB
+    if len(data) > max_upload:
+        raise HTTPException(
+            status_code=400,
+            detail="File size exceeds 100MB limit",
+        )
 
     try:
         imported = await asyncio.to_thread(
@@ -235,7 +241,7 @@ async def upload_skill(
         logger.exception("Skill zip upload failed: %s", e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to import skills from zip: {e}",
+            detail="Failed to import skills from zip",
         ) from e
 
     return {

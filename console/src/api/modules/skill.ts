@@ -1,5 +1,5 @@
 import { request } from "../request";
-import { getApiUrl } from "../config";
+import { getApiUrl, getApiToken } from "../config";
 import type { HubSkillSpec, SkillSpec } from "../types";
 
 export const skillApi = {
@@ -73,8 +73,15 @@ export const skillApi = {
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
 
+    const headers: Record<string, string> = {};
+    const token = getApiToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const response = await fetch(url, {
       method: "POST",
+      headers,
       body: formData,
     });
 

@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { message, Modal } from "@agentscope-ai/design";
+import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { SkillSpec } from "../../../api/types";
 
 export function useSkills() {
+  const { t } = useTranslation();
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -121,16 +123,17 @@ export function useSkills() {
       });
       if (result?.count > 0) {
         message.success(
-          `Imported ${result.count} skill(s): ${result.imported.join(", ")}`,
+          t("skills.uploadSuccess") +
+            `: ${result.imported.join(", ")}`,
         );
         await fetchSkills();
         return true;
       }
-      message.error("No valid skills found in zip");
+      message.error(t("skills.uploadFailed"));
       return false;
     } catch (error) {
       console.error("Failed to upload skill", error);
-      message.error("Upload failed");
+      message.error(t("skills.uploadFailed"));
       return false;
     } finally {
       setUploading(false);
