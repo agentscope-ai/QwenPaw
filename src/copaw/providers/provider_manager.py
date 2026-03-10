@@ -21,6 +21,7 @@ from copaw.providers.provider import (
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.ollama_provider import OllamaProvider
+from copaw.providers.openrouter_provider import OpenRouterProvider
 from copaw.constant import SECRET_DIR
 from copaw.local_models import create_local_chat_model
 
@@ -85,6 +86,9 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
 ]
 
 ANTHROPIC_MODELS: List[ModelInfo] = []
+
+# OpenRouter models are fetched dynamically - no hardcoded list
+OPENROUTER_MODELS: List[ModelInfo] = []
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
     id="modelscope",
@@ -153,6 +157,15 @@ PROVIDER_ANTHROPIC = AnthropicProvider(
     freeze_url=True,
 )
 
+PROVIDER_OPENROUTER = OpenRouterProvider(
+    id="openrouter",
+    name="OpenRouter",
+    base_url="https://openrouter.ai/api/v1",
+    api_key_prefix="sk-or-v1-",
+    models=OPENROUTER_MODELS,
+    freeze_url=True,
+)
+
 PROVIDER_OLLAMA = OllamaProvider(
     id="ollama",
     name="Ollama",
@@ -215,6 +228,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
+        self._add_builtin(PROVIDER_OPENROUTER)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LLAMACPP)
         self._add_builtin(PROVIDER_MLX)
@@ -416,6 +430,8 @@ class ProviderManager:
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
 
+        if provider_id == "openrouter":
+            return OpenRouterProvider.model_validate(data)
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
         if provider_id == "ollama" or chat_model == "OllamaChatModel":

@@ -37,7 +37,13 @@ export function RemoteModelManageModal({
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
-  const canDiscover = false;
+
+  // Enable discover for providers that support it
+  // For local providers (ollama, llama.cpp, mlx) - check base_url
+  // For built-in providers with frozen URL - check api_key
+  const canDiscover = provider.is_local
+    ? !!provider.base_url
+    : !!provider.api_key;
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
