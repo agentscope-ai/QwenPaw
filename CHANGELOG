@@ -1,0 +1,1 @@
+- [2026-03-10 11:28] FIX: 修复 PR #1024 中 MainLayout 的前端格式校验失败 (Files: console/src/layouts/MainLayout/index.tsx, CHANGELOG)

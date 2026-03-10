@@ -72,10 +72,7 @@ export default function MainLayout() {
                 <Route path="/mcp" element={<MCPPage />} />
                 <Route path="/workspace" element={<WorkspacePage />} />
                 <Route path="/models" element={<ModelsPage />} />
-                <Route
-                  path="/environments"
-                  element={<EnvironmentsPage />}
-                />
+                <Route path="/environments" element={<EnvironmentsPage />} />
                 <Route path="/agent-config" element={<AgentConfigPage />} />
               </Routes>
             )}
