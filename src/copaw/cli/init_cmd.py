@@ -24,7 +24,7 @@ from ..config.config import (
     HeartbeatConfig,
 )
 from ..constant import HEARTBEAT_DEFAULT_EVERY
-from ..providers import load_providers_json
+from ..providers import ProviderManager
 
 SECURITY_WARNING = """
 Security warning — please read.
@@ -223,13 +223,17 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
         click.echo(f"\n✓ Configuration saved to {config_path}")
 
     # --- LLM provider and model configuration ---
-    data = load_providers_json()
-    has_llm = bool(data.active_llm.provider_id and data.active_llm.model)
+    provider_manager = ProviderManager.get_instance()
+    activate_llm = provider_manager.get_active_model()
 
-    if has_llm:
+    if (
+        activate_llm is not None
+        and activate_llm.provider_id
+        and activate_llm.model
+    ):
         click.echo(
             f"\n✓ LLM already configured: "
-            f"{data.active_llm.provider_id} / {data.active_llm.model}",
+            f"{activate_llm.provider_id} / {activate_llm.model}",
         )
         if not use_defaults and prompt_confirm(
             "Reconfigure LLM provider?",

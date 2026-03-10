@@ -14,10 +14,10 @@ export interface ProviderInfo {
   extra_models: ModelInfo[];
   is_custom: boolean;
   is_local: boolean;
-  /** True when the user must supply a base URL (custom or no default URL). */
-  needs_base_url: boolean;
-  current_api_key: string;
-  current_base_url: string;
+  /** True when the base_url should be frozen (not editable). */
+  freeze_url: boolean;
+  api_key: string;
+  base_url: string;
 }
 
 export interface ProviderConfigRequest {
@@ -32,7 +32,7 @@ export interface ModelSlotConfig {
 }
 
 export interface ActiveModelsInfo {
-  active_llm: ModelSlotConfig;
+  active_llm?: ModelSlotConfig;
 }
 
 export interface ModelSlotRequest {

@@ -10,7 +10,6 @@ from copaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
     _sanitize_tool_call,
 )
-from copaw.providers.registry import get_chat_model_class
 
 
 class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
@@ -59,10 +58,6 @@ def _make_chunk(tool_calls: list[Any]) -> Any:
     )
     choice = SimpleNamespace(delta=delta)
     return SimpleNamespace(usage=None, choices=[choice])
-
-
-async def test_registry_maps_openai_model_to_compat() -> None:
-    assert get_chat_model_class("OpenAIChatModel") is OpenAIChatModelCompat
 
 
 async def test_stream_parser_skips_tool_call_without_function() -> None:

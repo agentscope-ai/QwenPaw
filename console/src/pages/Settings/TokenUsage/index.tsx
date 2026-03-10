@@ -1,15 +1,25 @@
-import { useEffect, useState } from "react";
-import { Button, Card, message } from "@agentscope-ai/design";
+import { useEffect, useMemo, useState } from "react";
+import { Button, Card, message, Table } from "@agentscope-ai/design";
+import type { ColumnsType } from "antd/es/table";
 import { DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs, { Dayjs } from "dayjs";
 import api from "../../../api";
-import type { TokenUsageSummary } from "../../../api/types/tokenUsage";
+import type {
+  TokenUsageSummary,
+  TokenUsageStats,
+} from "../../../api/types/tokenUsage";
+import { formatCompact } from "../../../utils/formatNumber";
+import { PageHeader, LoadingState, EmptyState } from "./components";
 import styles from "./index.module.less";
+
+type ByModelRow = TokenUsageStats & { key: string };
+type ByDateRow = TokenUsageStats & { key: string; date: string };
 
 function TokenUsagePage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TokenUsageSummary | null>(null);
   const [startDate, setStartDate] = useState<Dayjs>(
     dayjs().subtract(30, "day"),
@@ -18,6 +28,7 @@ function TokenUsagePage() {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const summary = await api.getTokenUsage({
         start_date: startDate.format("YYYY-MM-DD"),
@@ -26,7 +37,9 @@ function TokenUsagePage() {
       setData(summary);
     } catch (e) {
       console.error("Failed to load token usage:", e);
-      message.error(t("tokenUsage.loadFailed"));
+      const msg = t("tokenUsage.loadFailed");
+      message.error(msg);
+      setError(msg);
       setData(null);
     } finally {
       setLoading(false);
@@ -42,138 +55,165 @@ function TokenUsagePage() {
     if (dates?.[1]) setEndDate(dates[1]);
   };
 
-  const handleQuery = () => {
-    fetchData();
-  };
+  const byModelDataSource: ByModelRow[] = useMemo(() => {
+    if (!data?.by_model) return [];
+    return Object.entries(data.by_model).map(([key, stats]) => ({
+      ...stats,
+      key,
+    }));
+  }, [data?.by_model]);
 
-  const formatNumber = (n: number) =>
-    n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const byDateDataSource: ByDateRow[] = useMemo(() => {
+    if (!data?.by_date) return [];
+    return Object.entries(data.by_date).map(([dt, stats]) => ({
+      ...stats,
+      key: dt,
+      date: dt,
+    }));
+  }, [data?.by_date]);
 
-  if (loading && !data) {
-    return (
-      <div className={styles.page}>
-        <h1 className={styles.title}>{t("tokenUsage.title")}</h1>
-        <p className={styles.description}>{t("tokenUsage.description")}</p>
-        <span className={styles.loading}>{t("common.loading")}</span>
-      </div>
-    );
-  }
+  const byModelColumns: ColumnsType<ByModelRow> = useMemo(
+    () => [
+      {
+        title: t("tokenUsage.provider"),
+        dataIndex: "provider_id",
+        key: "provider_id",
+        render: (v: string) => v ?? "",
+      },
+      {
+        title: t("tokenUsage.model"),
+        dataIndex: "model",
+        key: "model",
+        render: (v: string, r) => v ?? r.key,
+      },
+      {
+        title: t("tokenUsage.promptTokens"),
+        dataIndex: "prompt_tokens",
+        key: "prompt_tokens",
+        render: (n: number) => formatCompact(n),
+      },
+      {
+        title: t("tokenUsage.completionTokens"),
+        dataIndex: "completion_tokens",
+        key: "completion_tokens",
+        render: (n: number) => formatCompact(n),
+      },
+      {
+        title: t("tokenUsage.totalCalls"),
+        dataIndex: "call_count",
+        key: "call_count",
+        render: (n: number) => formatCompact(n),
+      },
+    ],
+    [t],
+  );
+
+  const byDateColumns: ColumnsType<ByDateRow> = useMemo(
+    () => [
+      { title: t("tokenUsage.date"), dataIndex: "date", key: "date" },
+      {
+        title: t("tokenUsage.promptTokens"),
+        dataIndex: "prompt_tokens",
+        key: "prompt_tokens",
+        render: (n: number) => formatCompact(n),
+      },
+      {
+        title: t("tokenUsage.completionTokens"),
+        dataIndex: "completion_tokens",
+        key: "completion_tokens",
+        render: (n: number) => formatCompact(n),
+      },
+      {
+        title: t("tokenUsage.totalCalls"),
+        dataIndex: "call_count",
+        key: "call_count",
+        render: (n: number) => formatCompact(n),
+      },
+    ],
+    [t],
+  );
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.title}>{t("tokenUsage.title")}</h1>
-      <p className={styles.description}>{t("tokenUsage.description")}</p>
+      <PageHeader
+        title={t("tokenUsage.title")}
+        description={t("tokenUsage.description")}
+      />
 
-      <div className={styles.filters}>
-        <DatePicker.RangePicker
-          value={[startDate, endDate]}
-          onChange={handleDateChange}
-          className={styles.datePicker}
+      {loading && !data ? (
+        <LoadingState
+          message={error ?? t("common.loading")}
+          error={!!error}
+          onRetry={error ? fetchData : undefined}
         />
-        <Button type="primary" onClick={handleQuery} loading={loading}>
-          {t("tokenUsage.refresh")}
-        </Button>
-      </div>
-
-      {data && data.total_calls > 0 ? (
+      ) : (
         <>
-          <div className={styles.summaryCards}>
-            <Card className={styles.card}>
-              <div className={styles.cardValue}>
-                {formatNumber(data.total_tokens)}
-              </div>
-              <div className={styles.cardLabel}>
-                {t("tokenUsage.totalTokens")}
-              </div>
-            </Card>
-            <Card className={styles.card}>
-              <div className={styles.cardValue}>
-                {formatNumber(data.total_calls)}
-              </div>
-              <div className={styles.cardLabel}>
-                {t("tokenUsage.totalCalls")}
-              </div>
-            </Card>
-            <Card className={styles.card}>
-              <div className={styles.cardValue}>
-                {formatNumber(data.total_prompt_tokens)}
-              </div>
-              <div className={styles.cardLabel}>
-                {t("tokenUsage.promptTokens")}
-              </div>
-            </Card>
-            <Card className={styles.card}>
-              <div className={styles.cardValue}>
-                {formatNumber(data.total_completion_tokens)}
-              </div>
-              <div className={styles.cardLabel}>
-                {t("tokenUsage.completionTokens")}
-              </div>
-            </Card>
+          <div className={styles.filters}>
+            <DatePicker.RangePicker
+              value={[startDate, endDate]}
+              onChange={handleDateChange}
+              className={styles.datePicker}
+            />
+            <Button type="primary" onClick={fetchData} loading={loading}>
+              {t("tokenUsage.refresh")}
+            </Button>
           </div>
 
-          {Object.keys(data.by_model).length > 0 && (
-            <Card className={styles.tableCard} title={t("tokenUsage.byModel")}>
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>{t("tokenUsage.model")}</th>
-                      <th>{t("tokenUsage.promptTokens")}</th>
-                      <th>{t("tokenUsage.completionTokens")}</th>
-                      <th>{t("tokenUsage.totalTokens")}</th>
-                      <th>{t("tokenUsage.totalCalls")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(data.by_model).map(([model, stats]) => (
-                      <tr key={model}>
-                        <td className={styles.modelCell}>{model}</td>
-                        <td>{formatNumber(stats.prompt_tokens)}</td>
-                        <td>{formatNumber(stats.completion_tokens)}</td>
-                        <td>{formatNumber(stats.total_tokens)}</td>
-                        <td>{formatNumber(stats.call_count)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {data && data.total_calls > 0 ? (
+            <>
+              <div className={styles.summaryCards}>
+                <Card className={styles.card}>
+                  <div className={styles.cardValue}>
+                    {formatCompact(data.total_prompt_tokens)}
+                  </div>
+                  <div className={styles.cardLabel}>
+                    {t("tokenUsage.promptTokens")}
+                  </div>
+                </Card>
+                <Card className={styles.card}>
+                  <div className={styles.cardValue}>
+                    {formatCompact(data.total_completion_tokens)}
+                  </div>
+                  <div className={styles.cardLabel}>
+                    {t("tokenUsage.completionTokens")}
+                  </div>
+                </Card>
               </div>
-            </Card>
-          )}
 
-          {Object.keys(data.by_date).length > 0 && (
-            <Card className={styles.tableCard} title={t("tokenUsage.byDate")}>
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>{t("tokenUsage.date")}</th>
-                      <th>{t("tokenUsage.promptTokens")}</th>
-                      <th>{t("tokenUsage.completionTokens")}</th>
-                      <th>{t("tokenUsage.totalTokens")}</th>
-                      <th>{t("tokenUsage.totalCalls")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(data.by_date).map(([dt, stats]) => (
-                      <tr key={dt}>
-                        <td className={styles.modelCell}>{dt}</td>
-                        <td>{formatNumber(stats.prompt_tokens)}</td>
-                        <td>{formatNumber(stats.completion_tokens)}</td>
-                        <td>{formatNumber(stats.total_tokens)}</td>
-                        <td>{formatNumber(stats.call_count)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+              {byModelDataSource.length > 0 && (
+                <Card
+                  className={styles.tableCard}
+                  title={t("tokenUsage.byModel")}
+                  bodyStyle={{ padding: 0 }}
+                >
+                  <Table<ByModelRow>
+                    columns={byModelColumns}
+                    dataSource={byModelDataSource}
+                    rowKey="key"
+                    pagination={false}
+                  />
+                </Card>
+              )}
+
+              {byDateDataSource.length > 0 && (
+                <Card
+                  className={styles.tableCard}
+                  title={t("tokenUsage.byDate")}
+                  bodyStyle={{ padding: 0 }}
+                >
+                  <Table<ByDateRow>
+                    columns={byDateColumns}
+                    dataSource={byDateDataSource}
+                    rowKey="key"
+                    pagination={false}
+                  />
+                </Card>
+              )}
+            </>
+          ) : (
+            <EmptyState message={t("tokenUsage.noData")} />
           )}
         </>
-      ) : (
-        <Card className={styles.emptyCard}>
-          <p className={styles.emptyText}>{t("tokenUsage.noData")}</p>
-        </Card>
       )}
     </div>
   );

@@ -17,7 +17,6 @@ const SCROLL_SPEED = 0.6;
 
 interface TestimonialsProps {
   lang: Lang;
-  delay?: number;
 }
 
 function TestimonialCard({
@@ -42,14 +41,24 @@ function TestimonialCard({
         maxWidth: 360,
         display: "flex",
         gap: "var(--space-3)",
-        padding: "var(--space-4)",
+        padding: "var(--space-5)",
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: "0.5rem",
+        borderRadius: "0.75rem",
         textAlign: "left",
         color: "inherit",
         textDecoration: "none",
+        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
+        transition: "all 0.2s ease",
         ...style,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.1)";
+        e.currentTarget.style.transform = "translateY(-4px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.04)";
+        e.currentTarget.style.transform = "translateY(0)";
       }}
     >
       <img
@@ -90,7 +99,7 @@ function TestimonialCard({
   );
 }
 
-export function Testimonials({ lang, delay = 0 }: TestimonialsProps) {
+export function Testimonials({ lang }: TestimonialsProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(0);
   const [paused, setPaused] = useState(false);
@@ -123,13 +132,14 @@ export function Testimonials({ lang, delay = 0 }: TestimonialsProps) {
 
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay }}
+      initial={{ opacity: 0, y: 40 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       style={{
         margin: "0 auto",
         maxWidth: "100%",
-        padding: "var(--space-6) var(--space-4)",
+        padding: "var(--space-8) var(--space-4)",
       }}
     >
       <div
@@ -139,19 +149,23 @@ export function Testimonials({ lang, delay = 0 }: TestimonialsProps) {
           padding: "0 var(--space-4)",
         }}
       >
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.1 }}
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            marginBottom: "var(--space-5)",
+            marginBottom: "var(--space-6)",
             textAlign: "center",
           }}
         >
           <h2
             style={{
               margin: "0 0 var(--space-1)",
-              fontSize: "1.375rem",
+              fontSize: "2rem",
               fontWeight: 600,
               color: "var(--text)",
             }}
@@ -167,7 +181,7 @@ export function Testimonials({ lang, delay = 0 }: TestimonialsProps) {
             {t(lang, "testimonials.viewAll")}
             <ChevronRight size={16} style={{ verticalAlign: "middle" }} />
           </span>
-        </div>
+        </motion.div>
 
         <div
           onMouseEnter={() => setPaused(true)}

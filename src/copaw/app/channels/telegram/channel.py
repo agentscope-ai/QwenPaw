@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from telegram.constants import ParseMode
+
 from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
     ImageContent,
@@ -20,6 +22,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import TelegramConfig as TelegramChannelConfig
+from .format_html import markdown_to_telegram_html, strip_markdown
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -207,6 +210,7 @@ def _message_meta(update: Any) -> dict:
 
 
 class TelegramChannel(BaseChannel):
+
     """Telegram channel: Bot API polling; session_id = telegram:{chat_id}."""
 
     channel = "telegram"
@@ -525,11 +529,23 @@ class TelegramChannel(BaseChannel):
         self._stop_typing(chat_id)
         chunks = self._chunk_text(text)
         for chunk in chunks:
+            html_chunk = markdown_to_telegram_html(chunk)
             try:
-                await bot.send_message(chat_id=chat_id, text=chunk)
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=html_chunk,
+                    parse_mode=ParseMode.HTML,
+                )
             except Exception:
-                logger.exception("telegram send_message failed")
-                return
+                logger.warning(
+                    "telegram HTML send failed, trying plain text",
+                )
+                try:
+                    plain = strip_markdown(chunk)
+                    await bot.send_message(chat_id=chat_id, text=plain)
+                except Exception:
+                    logger.exception("telegram send_message fallback failed")
+                    return
 
     async def send_media(
         self,

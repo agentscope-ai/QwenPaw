@@ -46,17 +46,15 @@ def _execute_subprocess_sync(
             cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            text=False,
             cwd=cwd,
             timeout=timeout,
-            encoding=locale.getpreferredencoding(False) or "utf-8",
-            errors="replace",
             check=True,
         )
         return (
             result.returncode,
-            result.stdout.strip("\n"),
-            result.stderr.strip("\n"),
+            smart_decode(result.stdout),
+            smart_decode(result.stderr),
         )
     except subprocess.TimeoutExpired:
         return (
@@ -125,13 +123,8 @@ async def execute_shell_command(
                     proc.communicate(),
                     timeout=timeout,
                 )
-                encoding = locale.getpreferredencoding(False) or "utf-8"
-                stdout_str = stdout.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
-                stderr_str = stderr.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
+                stdout_str = smart_decode(stdout)
+                stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
             except asyncio.TimeoutError:
@@ -161,19 +154,8 @@ async def execute_shell_command(
                         )
                     except asyncio.TimeoutError:
                         stdout, stderr = b"", b""
-                    encoding = locale.getpreferredencoding(False) or "utf-8"
-                    stdout_str = stdout.decode(
-                        encoding,
-                        errors="replace",
-                    ).strip(
-                        "\n",
-                    )
-                    stderr_str = stderr.decode(
-                        encoding,
-                        errors="replace",
-                    ).strip(
-                        "\n",
-                    )
+                    stdout_str = smart_decode(stdout)
+                    stderr_str = smart_decode(stderr)
                     if stderr_str:
                         stderr_str += f"\n{stderr_suffix}"
                     else:
@@ -220,3 +202,13 @@ async def execute_shell_command(
                 ),
             ],
         )
+
+
+def smart_decode(data: bytes) -> str:
+    try:
+        decoded_str = data.decode("utf-8")
+    except UnicodeDecodeError:
+        encoding = locale.getpreferredencoding(False) or "utf-8"
+        decoded_str = data.decode(encoding, errors="replace")
+
+    return decoded_str.strip("\n")

@@ -119,20 +119,23 @@ class MemoryCompactionHook:
                 return None
 
             if not is_valid:
-                logger.error(
+                logger.warning(
                     "Please include the output of the /history command when "
                     "reporting the bug to the community. Invalid "
                     "messages=%s",
                     messages,
                 )
-                keep_length = MEMORY_COMPACT_KEEP_RECENT
+                keep_length: int = MEMORY_COMPACT_KEEP_RECENT
+                messages_length = len(messages)
                 while keep_length > 0 and not check_valid_messages(
-                    messages[-keep_length:],
+                    messages[max(messages_length - keep_length, 0) :],
                 ):
                     keep_length -= 1
 
                 if keep_length > 0:
-                    messages_to_compact = messages[:-keep_length]
+                    messages_to_compact = messages[
+                        : max(messages_length - keep_length, 0)
+                    ]
                 else:
                     messages_to_compact = messages
 

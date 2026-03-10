@@ -2,26 +2,66 @@
 """CLI commands for managing LLM providers."""
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 import click
 
-from ..providers import (
-    ModelInfo,
-    PROVIDERS,
-    add_model,
-    create_custom_provider,
-    delete_custom_provider,
-    get_provider,
-    is_builtin,
-    list_providers,
-    load_providers_json,
-    mask_api_key,
-    remove_model,
-    set_active_llm,
-    update_provider_settings,
-)
+from ..providers.ollama_manager import OllamaModelManager
+from ..providers.provider import ModelInfo, Provider, ProviderInfo
+from ..providers.provider_manager import ProviderManager
 from .utils import prompt_choice
+
+
+def _manager() -> ProviderManager:
+    return ProviderManager.get_instance()
+
+
+def _mask_api_key(api_key: str) -> str:
+    if not api_key:
+        return ""
+    if len(api_key) <= 8:
+        return "*" * len(api_key)
+    return f"{api_key[:4]}...{api_key[-2:]}"
+
+
+def _is_configured(provider: Provider) -> bool:
+    if provider.is_local or provider.id == "ollama":
+        return True
+    # for API-based providers, we consider them
+    # configured if they have a base URL and (if required) an API key
+    if not provider.base_url:
+        return False
+    if provider.require_api_key and not provider.api_key:
+        return False
+    return True
+
+
+def _save_provider(manager: ProviderManager, provider_id: str) -> None:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        return
+    manager._save_provider(  # pylint: disable=protected-access
+        provider,
+        is_builtin=provider_id in manager.builtin_providers,
+    )
+
+
+def _all_provider_objects(manager: ProviderManager) -> list[Provider]:
+    objs: list[Provider] = []
+    for info in asyncio.run(manager.list_provider_info()):
+        provider = manager.get_provider(info.id)
+        if provider is not None:
+            objs.append(provider)
+    return objs
+
+
+def _get_ollama_host() -> str:
+    manager = _manager()
+    provider = manager.get_provider("ollama")
+    if provider is None or not provider.base_url:
+        return "http://localhost:11434"
+    return provider.base_url
 
 
 def _select_provider_interactive(
@@ -30,15 +70,15 @@ def _select_provider_interactive(
     default_pid: str = "",
 ) -> str:
     """Prompt user to pick a provider. Returns provider_id."""
-    data = load_providers_json()
-    all_providers = list_providers()
+    manager = _manager()
+    all_providers = _all_provider_objects(manager)
 
     labels: list[str] = []
     ids: list[str] = []
-    for d in all_providers:
-        mark = "✓" if data.is_configured(d) else "✗"
-        labels.append(f"{d.name} ({d.id}) [{mark}]")
-        ids.append(d.id)
+    for provider in all_providers:
+        mark = "✓" if _is_configured(provider) else "✗"
+        labels.append(f"{provider.name} ({provider.id}) [{mark}]")
+        ids.append(provider.id)
 
     default_label: Optional[str] = None
     if default_pid in ids:
@@ -56,49 +96,34 @@ def configure_provider_api_key_interactive(
     provider_id: str | None = None,
 ) -> str:
     """Interactively configure a provider's API key. Returns provider_id."""
-    data = load_providers_json()
+    manager = _manager()
 
     if provider_id is None:
         provider_id = _select_provider_interactive(
             "Select provider to configure API key:",
         )
 
-    defn = get_provider(provider_id)
+    defn = manager.get_provider(provider_id)
     if defn is None:
-        available = ", ".join(d.id for d in list_providers())
         click.echo(
             click.style(
-                f"Error: unknown provider '{provider_id}'. "
-                f"Available providers: {available}",
+                f"Error: provider '{provider_id}' not found.",
                 fg="red",
             ),
         )
-        click.echo(
-            "To add a custom provider, first run:\n"
-            f"  copaw models add-provider {provider_id} "
-            f'-n "My Provider"',
-        )
         raise SystemExit(1)
-
-    # Local providers (llamacpp, mlx) don't need API key configuration
-    if defn.is_local:
-        click.echo(f"{defn.name} does not require API key configuration.")
+    if not defn.require_api_key:
         click.echo(
-            "Use 'copaw models download' to add models, "
-            "then 'copaw models set-llm' to activate.",
+            f"{defn.name} does not require API key configuration. Skipping.",
         )
         return provider_id
 
-    # Ollama provider is local-like (no API key needed)
-    if provider_id == "ollama":
-        return provider_id
-
-    current_base, current_key = data.get_credentials(provider_id)
+    current_base, current_key = defn.base_url, defn.api_key
 
     base_url: Optional[str] = None
     # Prompt for base_url if the provider is custom or has no default URL
     # (e.g. Azure OpenAI requires user to provide their endpoint).
-    if defn.is_custom or not defn.default_base_url:
+    if defn.is_custom or provider_id == "azure-openai" or not current_base:
         azure_hint = (
             "Azure endpoint "
             "(e.g. https://<resource>.openai.azure.com/openai/v1)"
@@ -128,14 +153,24 @@ def configure_provider_api_key_interactive(
         prompt_suffix=f" [{'set' if current_key else 'not set'}]: ",
     )
 
-    update_provider_settings(
+    ok = manager.update_provider(
         provider_id,
-        api_key=api_key if api_key else None,
-        base_url=base_url,
+        {
+            "api_key": api_key if api_key else None,
+            "base_url": base_url,
+        },
     )
+    if not ok:
+        click.echo(
+            click.style(
+                f"Error: provider '{provider_id}' not found.",
+                fg="red",
+            ),
+        )
+        raise SystemExit(1)
 
     click.echo(
-        f"✓ {defn.name} — API Key: {mask_api_key(api_key) or '(not set)'}"
+        f"✓ {defn.name} — API Key: {_mask_api_key(api_key) or '(not set)'}"
         + (f", Base URL: {base_url}" if base_url else ""),
     )
     return provider_id
@@ -143,17 +178,22 @@ def configure_provider_api_key_interactive(
 
 def _add_models_interactive(provider_id: str) -> None:
     """Interactively add models to a provider after configuration."""
-    defn = PROVIDERS[provider_id]
-    data = load_providers_json()
+    manager = _manager()
+    defn = manager.get_provider(provider_id)
+    if defn is None:
+        click.echo(
+            click.style(
+                f"Error: provider '{provider_id}' not found.",
+                fg="red",
+            ),
+        )
+        raise SystemExit(1)
 
     # Ollama models cannot be added manually - they come from Ollama daemon
     if provider_id == "ollama":
         return
 
-    settings = data.providers.get(provider_id)
-    extra = (
-        list(settings.extra_models) if settings and not defn.is_custom else []
-    )
+    extra = list(defn.extra_models)
     all_models = list(defn.models) + extra
 
     if all_models:
@@ -174,15 +214,21 @@ def _add_models_interactive(provider_id: str) -> None:
             default=model_id,
         ).strip()
         try:
-            add_model(provider_id, ModelInfo(id=model_id, name=model_name))
-            click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
-            all_models.append(ModelInfo(id=model_id, name=model_name))
+            ok, msg = asyncio.run(
+                defn.add_model(ModelInfo(id=model_id, name=model_name)),
+            )
+            if ok:
+                _save_provider(manager, provider_id)
+                click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
+                all_models.append(ModelInfo(id=model_id, name=model_name))
+            else:
+                click.echo(click.style(f"Error: {msg}", fg="red"))
         except ValueError as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
 
 
 def _pick_model_from_list(
-    models: list,
+    models: list[ModelInfo],
     prompt_text: str,
     current_model: str = "",
 ) -> str:
@@ -205,18 +251,19 @@ def _pick_model_free_text(prompt_text: str, current_model: str = "") -> str:
     return model
 
 
-def _filter_eligible(data, all_providers):
-    return [d for d in all_providers if data.is_configured(d)]
+def _filter_eligible(all_providers: list[Provider]) -> list[Provider]:
+    return [d for d in all_providers if _is_configured(d)]
 
 
-def _select_llm_model(defn, pid, current_slot, data, *, use_defaults):
+def _select_llm_model(defn, pid, current_slot, *, use_defaults):
     """Pick a model for the given provider. Returns model id."""
-    cur = current_slot.model if current_slot.provider_id == pid else ""
-
-    settings = data.providers.get(pid)
-    extra = (
-        list(settings.extra_models) if settings and not defn.is_custom else []
+    cur = (
+        current_slot.model
+        if current_slot and current_slot.provider_id == pid
+        else ""
     )
+
+    extra = list(defn.extra_models)
     all_models = list(defn.models) + extra
 
     if use_defaults:
@@ -236,11 +283,11 @@ def _select_llm_model(defn, pid, current_slot, data, *, use_defaults):
 
 def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
     """Interactively configure the active LLM model slot."""
-    data = load_providers_json()
-    all_providers = list_providers()
-    current_slot = data.active_llm
+    manager = _manager()
+    all_providers = _all_provider_objects(manager)
+    current_slot = manager.get_active_model()
 
-    eligible = _filter_eligible(data, all_providers)
+    eligible = _filter_eligible(all_providers)
 
     if not eligible:
         if use_defaults:
@@ -257,9 +304,9 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
         )
         pid = configure_provider_api_key_interactive()
         _add_models_interactive(pid)
-        data = load_providers_json()
-        current_slot = data.active_llm
-        eligible = _filter_eligible(data, all_providers)
+        manager = _manager()
+        current_slot = manager.get_active_model()
+        eligible = _filter_eligible(_all_provider_objects(manager))
         if not eligible:
             click.echo(
                 click.style("Error: provider configuration failed.", fg="red"),
@@ -268,16 +315,19 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
 
     ids = [d.id for d in eligible]
     if use_defaults:
+        if not ids:
+            click.echo("No eligible provider found.")
+            return
         pid = (
             current_slot.provider_id
-            if current_slot.provider_id in ids
+            if current_slot and current_slot.provider_id in ids
             else ids[0]
         )
     else:
         labels = [f"{d.name} ({d.id})" for d in eligible]
         default_label = (
             labels[ids.index(current_slot.provider_id)]
-            if current_slot.provider_id in ids
+            if current_slot and current_slot.provider_id in ids
             else None
         )
         chosen_label = prompt_choice(
@@ -287,12 +337,16 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
         )
         pid = ids[labels.index(chosen_label)]
 
-    defn = PROVIDERS[pid]
+    defn = manager.get_provider(pid)
+    if defn is None:
+        click.echo(
+            click.style(f"Error: provider '{pid}' not found.", fg="red"),
+        )
+        raise SystemExit(1)
     model = _select_llm_model(
         defn,
         pid,
         current_slot,
-        data,
         use_defaults=use_defaults,
     )
     if not model and use_defaults:
@@ -301,7 +355,16 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
             "Run 'copaw models config' to set one.",
         )
         return
-    set_active_llm(pid, model)
+    try:
+        asyncio.run(manager.activate_model(pid, model))
+    except ValueError as exc:
+        if use_defaults:
+            click.echo(
+                f"Skip default activation for {defn.name}: {exc}",
+            )
+            return
+        click.echo(click.style(f"Error: {exc}", fg="red"))
+        raise SystemExit(1) from exc
     click.echo(f"✓ LLM: {defn.name} / {model}")
 
 
@@ -318,7 +381,16 @@ def configure_providers_interactive(*, use_defaults: bool = False) -> None:
 
         # For local providers (llamacpp, mlx, ollama),
         # skip to model activation directly
-        defn = PROVIDERS[pid]
+        manager = _manager()
+        defn = manager.get_provider(pid)
+        if defn is None:
+            click.echo(
+                click.style(
+                    f"Error: provider '{pid}' not found.",
+                    fg="red",
+                ),
+            )
+            raise SystemExit(1)
         if defn.is_local or pid == "ollama":
             click.echo(f"\n--- Activate {defn.name} Model ---")
             configure_llm_slot_interactive()
@@ -340,12 +412,11 @@ def models_group() -> None:
 @models_group.command("list")
 def list_cmd() -> None:
     """Show all providers and their current configuration."""
-    data = load_providers_json()
+    manager = _manager()
 
     click.echo("\n=== Providers ===")
-    for defn in list_providers():
-        cur_url, cur_key = data.get_credentials(defn.id)
-        settings = data.providers.get(defn.id)
+    for defn in _all_provider_objects(manager):
+        cur_url, cur_key = defn.base_url, defn.api_key
 
         tag = (
             " [custom]"
@@ -368,35 +439,31 @@ def list_cmd() -> None:
                 click.echo("  No models downloaded.")
                 click.echo("  Use 'copaw models download' to add models.")
         else:
-            if defn.is_custom or not defn.default_base_url:
-                click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
+            click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
             click.echo(
                 f"  {'api_key':16s}: "
-                f"{mask_api_key(cur_key) or '(not set)'}",
+                f"{_mask_api_key(cur_key) or '(not set)'}",
             )
             if defn.api_key_prefix:
                 click.echo(
                     f"  {'api_key_prefix':16s}: {defn.api_key_prefix}",
                 )
 
-            extra = (
-                list(settings.extra_models)
-                if settings and not defn.is_custom
-                else []
-            )
+            extra = list(defn.extra_models)
             all_models = list(defn.models) + extra
             if all_models:
                 click.echo(f"  {'models':16s}:")
+                extra_ids = {m.id for m in extra}
                 for m in all_models:
-                    label = " [user-added]" if m in extra else ""
+                    label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
 
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")
     click.echo(f"{'═' * 44}")
 
-    llm = data.active_llm
-    if llm.provider_id and llm.model:
+    llm = manager.get_active_model()
+    if llm and llm.provider_id and llm.model:
         click.echo(f"  {'LLM':16s}: {llm.provider_id} / {llm.model}")
     else:
         click.echo(f"  {'LLM':16s}: (not configured)")
@@ -434,12 +501,19 @@ def add_provider_cmd(
     api_key_prefix: str,
 ) -> None:
     """Add a new custom provider."""
+    manager = _manager()
     try:
-        create_custom_provider(
-            provider_id,
-            name,
-            default_base_url=base_url,
-            api_key_prefix=api_key_prefix,
+        asyncio.run(
+            manager.add_custom_provider(
+                ProviderInfo(
+                    id=provider_id,
+                    name=name,
+                    base_url=base_url,
+                    api_key_prefix=api_key_prefix,
+                    is_custom=True,
+                    chat_model="OpenAIChatModel",
+                ),
+            ),
         )
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
@@ -458,7 +532,8 @@ def add_provider_cmd(
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def remove_provider_cmd(provider_id: str, yes: bool) -> None:
     """Remove a custom provider."""
-    if is_builtin(provider_id):
+    manager = _manager()
+    if provider_id in manager.builtin_providers:
         click.echo(
             click.style(
                 f"Error: '{provider_id}' is a built-in provider and "
@@ -473,7 +548,9 @@ def remove_provider_cmd(provider_id: str, yes: bool) -> None:
         ):
             return
     try:
-        delete_custom_provider(provider_id)
+        ok = manager.remove_custom_provider(provider_id)
+        if not ok:
+            raise ValueError(f"Custom provider '{provider_id}' not found.")
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -486,6 +563,7 @@ def remove_provider_cmd(provider_id: str, yes: bool) -> None:
 @click.option("--model-name", "-n", required=True, help="Model display name")
 def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
     """Add a model to any provider (built-in or custom)."""
+    manager = _manager()
     # Prevent manual model addition for Ollama
     if provider_id == "ollama":
         click.echo(
@@ -498,7 +576,13 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
         raise SystemExit(1)
 
     try:
-        add_model(provider_id, ModelInfo(id=model_id, name=model_name))
+        provider = manager.get_provider(provider_id)
+        if provider is None:
+            raise ValueError(f"Provider '{provider_id}' not found.")
+        asyncio.run(
+            provider.add_model(ModelInfo(id=model_id, name=model_name)),
+        )
+        _save_provider(manager, provider_id)
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -512,6 +596,7 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
 @click.option("--model-id", "-m", required=True, help="Model identifier")
 def remove_model_cmd(provider_id: str, model_id: str) -> None:
     """Remove a user-added model from any provider."""
+    manager = _manager()
     # Prevent manual model removal for Ollama
     if provider_id == "ollama":
         click.echo(
@@ -524,11 +609,18 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         raise SystemExit(1)
 
     try:
-        remove_model(provider_id, model_id)
+        provider = manager.get_provider(provider_id)
+        if provider is None:
+            raise ValueError(f"Provider '{provider_id}' not found.")
+        ok, msg = asyncio.run(provider.delete_model(model_id=model_id))
+        if ok:
+            _save_provider(manager, provider_id)
+            click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
+        else:
+            click.echo(click.style(f"Error: {msg}", fg="red"))
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-    click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
 
 
 # ---------------------------------------------------------------------------
@@ -704,12 +796,10 @@ def ollama_pull_cmd(model_name: str) -> None:
       copaw models ollama-pull mistral:7b
       copaw models ollama-pull qwen2.5:3b
     """
-    from ..providers.ollama_manager import OllamaModelManager
-    from ..providers.store import get_ollama_host
 
     click.echo(f"Downloading Ollama model: {model_name}...")
     try:
-        host = get_ollama_host()
+        host = _get_ollama_host()
         OllamaModelManager.pull_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' downloaded successfully.")
         click.echo("\nTo use this model, run:\n  copaw models set-llm")
@@ -729,11 +819,8 @@ def ollama_pull_cmd(model_name: str) -> None:
 @models_group.command("ollama-list")
 def ollama_list_cmd() -> None:
     """List all Ollama models."""
-    from ..providers.ollama_manager import OllamaModelManager
-    from ..providers.store import get_ollama_host
-
     try:
-        host = get_ollama_host()
+        host = _get_ollama_host()
         models = OllamaModelManager.list_models(host=host)
     except ImportError as exc:
         click.echo(
@@ -775,15 +862,12 @@ def ollama_remove_cmd(model_name: str, yes: bool) -> None:
       copaw models ollama-remove mistral:7b
       copaw models ollama-remove qwen2.5:3b -y
     """
-    from ..providers.ollama_manager import OllamaModelManager
-    from ..providers.store import get_ollama_host
-
     if not yes:
         if not click.confirm(f"Delete Ollama model '{model_name}'?"):
             return
 
     try:
-        host = get_ollama_host()
+        host = _get_ollama_host()
         OllamaModelManager.delete_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' deleted.")
     except ImportError as exc:

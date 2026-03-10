@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
 import sys
 import threading
 import time
@@ -51,7 +52,10 @@ from .constants import (
     FEISHU_USER_NAME_FETCH_TIMEOUT,
 )
 from .utils import (
+    build_interactive_content,
     extract_json_key,
+    extract_post_image_keys,
+    extract_post_text,
     normalize_feishu_md,
     sender_display_string,
     short_session_id_from_full_id,
@@ -614,6 +618,25 @@ class FeishuChannel(BaseChannel):
                 text = extract_json_key(content_raw, "text")
                 if text:
                     text_parts.append(text)
+            elif msg_type == "post":
+                text = extract_post_text(content_raw)
+                if text:
+                    text_parts.append(text)
+                # Download images in post message
+                for img_key in extract_post_image_keys(content_raw):
+                    url_or_path = await self._download_image_resource(
+                        message_id,
+                        img_key,
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            ImageContent(
+                                type=ContentType.IMAGE,
+                                image_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[image: download failed]")
             elif msg_type == "image":
                 image_key = extract_json_key(
                     content_raw,
@@ -1208,10 +1231,23 @@ class FeishuChannel(BaseChannel):
         receive_id: str,
         body: str,
     ) -> bool:
-        """Send text as post (md). Body already has bot_prefix if needed."""
+        """Send text as post (md) or interactive card (when body has tables).
+        Body already has bot_prefix if needed."""
+        has_table = bool(re.search(r"^\s*\|", body, re.MULTILINE))
+        loop = asyncio.get_running_loop()
+        if has_table:
+            content = build_interactive_content(body)
+            return await loop.run_in_executor(
+                None,
+                lambda: self._send_message_sync(
+                    receive_id_type,
+                    receive_id,
+                    "interactive",
+                    content,
+                ),
+            )
         post = self._build_post_content(body, [])
         content = json.dumps(post, ensure_ascii=False)
-        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             lambda: self._send_message_sync(

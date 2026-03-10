@@ -2,20 +2,54 @@
   padding: 24px;
 }
 
-.title {
+/* ---- Section (same as Models / Environments) ---- */
+
+.section {
+  margin-bottom: 32px;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionTitle {
   margin-bottom: 4px;
   font-size: 24px;
   font-weight: 600;
 }
 
-.description {
-  margin: 0 0 24px;
+.sectionDesc {
+  margin: 0 0 16px;
   color: #999;
   font-size: 14px;
 }
 
+/* ---- Loading / Error ---- */
+
 .loading {
+  text-align: center;
+  padding: 60px;
+}
+
+.loadingText {
   color: #999;
+}
+
+/* ---- Empty state ---- */
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: #999;
+  font-size: 14px;
+}
+
+.emptyIcon {
+  font-size: 32px;
+  opacity: 0.6;
 }
 
 .filters {
@@ -97,15 +131,4 @@
 .modelCell {
   font-family: "SF Mono", "Menlo", monospace;
   font-size: 13px;
-}
-
-.emptyCard {
-  padding: 48px;
-  text-align: center;
-}
-
-.emptyText {
-  margin: 0;
-  color: #999;
-  font-size: 14px;
 }

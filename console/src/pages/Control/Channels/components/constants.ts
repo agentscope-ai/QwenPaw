@@ -9,6 +9,8 @@ export const CHANNEL_LABELS: Record<string, string> = {
   feishu: "Feishu",
   qq: "QQ",
   telegram: "Telegram",
+  mqtt: "MQTT",
+  mattermost: "Mattermost",
   console: "Console",
   voice: "Twilio",
 };

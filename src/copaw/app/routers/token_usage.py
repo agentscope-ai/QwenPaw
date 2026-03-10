@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Query
 
-from ...token_usage import get_token_usage_summary
+from ...token_usage import get_token_usage_manager, TokenUsageSummary
 
 router = APIRouter(prefix="/token-usage", tags=["token-usage"])
 
@@ -23,7 +23,7 @@ def _parse_date(s: str | None) -> date | None:
 @router.get(
     "",
     summary="Get token usage summary",
-    description="Return token usage aggregated by date and model",
+    description="Return token usage aggregated by date, model, and provider",
 )
 async def get_token_usage(
     start_date: str
@@ -41,15 +41,21 @@ async def get_token_usage(
         None,
         description="Filter by model name",
     ),
-) -> dict:
+    provider: str
+    | None = Query(
+        None,
+        description="Filter by provider ID",
+    ),
+) -> TokenUsageSummary:
     """Return token usage summary for the given date range."""
     end_d = _parse_date(end_date) or date.today()
     start_d = _parse_date(start_date) or (end_d - timedelta(days=30))
     if start_d > end_d:
         start_d, end_d = end_d, start_d
 
-    return get_token_usage_summary(
+    return await get_token_usage_manager().get_summary(
         start_date=start_d,
         end_date=end_d,
         model_name=model,
+        provider_id=provider,
     )

@@ -10,6 +10,7 @@ import {
   Package,
   Monitor,
   ExternalLink,
+  Sparkles,
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { SiteConfig } from "../config";
@@ -49,7 +50,6 @@ const COMMANDS = {
 interface QuickStartProps {
   config: SiteConfig;
   lang: Lang;
-  delay?: number;
 }
 
 type InstallMethod = "pip" | "script" | "docker" | "cloud" | "desktop";
@@ -132,7 +132,7 @@ function CodeBlock({ lines, copied, onCopy, lang }: CodeBlockProps) {
   );
 }
 
-export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
+export function QuickStart({ config, lang }: QuickStartProps) {
   const [selectedMethod, setSelectedMethod] = useState<InstallMethod>("pip");
   const [scriptPlatform, setScriptPlatform] = useState<ScriptPlatform>("mac");
   const [scriptWinVariant, setScriptWinVariant] =
@@ -186,9 +186,10 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
 
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay }}
+      initial={{ opacity: 0, y: 40 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
@@ -197,7 +198,11 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
       }}
     >
       <div style={{ textAlign: "center", marginBottom: "var(--space-6)" }}>
-        <h2
+        <motion.h2
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.1 }}
           style={{
             margin: "0 0 var(--space-3)",
             fontSize: "2rem",
@@ -206,32 +211,72 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
           }}
         >
           {t(lang, "quickstart.title")}
-        </h2>
-        <p
+        </motion.h2>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.2 }}
           style={{
-            margin: 0,
-            fontSize: "1rem",
-            color: "var(--text-muted)",
-            maxWidth: "40rem",
-            marginLeft: "auto",
-            marginRight: "auto",
+            position: "relative",
+            display: "inline-block",
+            padding: "var(--space-4) var(--space-5)",
+            marginBottom: "var(--space-4)",
+            background:
+              "linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%)",
+            border: "2px solid transparent",
+            backgroundImage:
+              "linear-gradient(white, white), linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            backgroundOrigin: "border-box",
+            backgroundClip: "padding-box, border-box",
+            borderRadius: "0.75rem",
+            maxWidth: "48rem",
+            boxShadow:
+              "0 4px 16px rgba(102, 126, 234, 0.15), 0 0 0 1px rgba(102, 126, 234, 0.1)",
           }}
         >
-          {t(lang, "quickstart.hintBefore")}
-          <Link
-            to={channelsDocPath}
+          <div
             style={{
-              color: "inherit",
-              textDecoration: "underline",
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "center",
+              gap: "var(--space-2)",
             }}
           >
-            {t(lang, "quickstart.hintLink")}
-          </Link>
-          {t(lang, "quickstart.hintAfter")}
-        </p>
+            <Sparkles
+              size={18}
+              strokeWidth={2}
+              style={{
+                color: "#667eea",
+                flexShrink: 0,
+                marginTop: "0.125rem",
+              }}
+              aria-hidden
+            />
+            <p
+              style={{
+                margin: 0,
+                fontSize: "1.0625rem",
+                fontWeight: 600,
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+                lineHeight: 1.4,
+                textAlign: "left",
+              }}
+            >
+              {t(lang, "quickstart.serviceNotice")}
+            </p>
+          </div>
+        </motion.div>
       </div>
 
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6, delay: 0.3 }}
         style={{
           maxWidth: "52rem",
           margin: "0 auto",
@@ -239,6 +284,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
           border: "1px solid var(--border)",
           borderRadius: "0.75rem",
           overflow: "hidden",
+          boxShadow:
+            "0 4px 16px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.02)",
         }}
       >
         {/* 顶部方法选择 tabs */}
@@ -375,8 +422,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   scriptPlatform === "mac"
                     ? COMMANDS.scriptMac
                     : scriptWinVariant === "cmd"
-                      ? COMMANDS.scriptWinCmd
-                      : COMMANDS.scriptWinPs
+                    ? COMMANDS.scriptWinCmd
+                    : COMMANDS.scriptWinPs
                 }
                 copied={
                   copiedId === `script-${scriptPlatform}-${scriptWinVariant}`
@@ -386,8 +433,8 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                     (scriptPlatform === "mac"
                       ? COMMANDS.scriptMac
                       : scriptWinVariant === "cmd"
-                        ? COMMANDS.scriptWinCmd
-                        : COMMANDS.scriptWinPs
+                      ? COMMANDS.scriptWinCmd
+                      : COMMANDS.scriptWinPs
                     ).join("\n"),
                     `script-${scriptPlatform}-${scriptWinVariant}`,
                   )
@@ -582,9 +629,46 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5, delay: 0.5 }}
+        style={{
+          margin: "var(--space-4) 0 0",
+          textAlign: "center",
+          fontSize: "1rem",
+          color: "var(--text-muted)",
+          maxWidth: "40rem",
+          marginLeft: "auto",
+          marginRight: "auto",
+        }}
+      >
+        {t(lang, "quickstart.hintBefore")}
+        <Link
+          to={channelsDocPath}
+          style={{
+            color: "inherit",
+            textDecoration: "underline",
+          }}
+        >
+          {t(lang, "quickstart.hintLink")}
+        </Link>
+        {t(lang, "quickstart.hintAfter")}
+      </motion.p>
 
       <style>{`
+        @keyframes shimmer {
+          0% {
+            background-position: -200% 0;
+          }
+          100% {
+            background-position: 200% 0;
+          }
+        }
+
         .quickstart-main-tab {
           position: relative;
           display: flex;
@@ -599,19 +683,21 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
           border: none;
           border-bottom: 2px solid transparent;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .quickstart-main-tab.active {
           color: #1d1d1f;
-          background: #f5f5f7;
-          border-bottom-color: #d2d2d7;
+          background: linear-gradient(to bottom, #f5f5f7, #fafafa);
+          border-bottom-color: #667eea;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
         }
 
         .quickstart-main-tab:not(.active):hover,
         .quickstart-main-tab:not(.active):focus-visible {
           color: var(--text);
           background: rgba(229, 229, 231, 0.5);
+          transform: translateY(-1px);
         }
 
         .quickstart-main-tab:focus-visible {
@@ -634,16 +720,33 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
         }
 
         .quickstart-link-primary {
-          background: var(--text);
+          background: linear-gradient(135deg, #1d1d1f 0%, #2d2d2f 100%);
           color: var(--surface);
           border: none;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .quickstart-link-primary::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+          transition: left 0.5s ease;
+        }
+
+        .quickstart-link-primary:hover::before {
+          left: 100%;
         }
 
         .quickstart-link-primary:hover {
           background: var(--text);
           opacity: 0.85;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          transform: translateY(-2px) scale(1.02);
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
         }
 
         .quickstart-link-primary:focus-visible {

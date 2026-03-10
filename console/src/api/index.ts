@@ -18,6 +18,7 @@ import { localModelApi } from "./modules/localModel";
 import { ollamaModelApi } from "./modules/ollamaModel";
 import { mcpApi } from "./modules/mcp";
 import { tokenUsageApi } from "./modules/tokenUsage";
+import { toolsApi } from "./modules/tools";
 
 export const api = {
   // Root
@@ -64,6 +65,8 @@ export const api = {
 
   // Token Usage
   ...tokenUsageApi,
+  // Tools
+  ...toolsApi,
 };
 
 export default api;

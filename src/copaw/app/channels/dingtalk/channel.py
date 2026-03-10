@@ -1542,9 +1542,9 @@ class DingTalkChannel(BaseChannel):
                     await client.websocket.close()
                 except Exception:
                     pass
-            await asyncio.sleep(0.2)
-            if not main_task.done():
+            while not main_task.done():
                 main_task.cancel()
+                await asyncio.sleep(0.1)
 
         watcher_task = asyncio.create_task(stop_watcher())
         try:

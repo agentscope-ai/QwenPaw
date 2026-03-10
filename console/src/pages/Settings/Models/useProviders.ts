@@ -10,8 +10,10 @@ export function useProviders() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [provData, activeData] = await Promise.all([
@@ -31,7 +33,9 @@ export function useProviders() {
       console.error("Failed to load providers:", err);
       setError(msg);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
