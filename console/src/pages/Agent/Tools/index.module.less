@@ -1,23 +1,29 @@
-.container {
+.toolsPage {
   padding: 24px;
-  max-width: 1200px;
-  margin: 0 auto;
 }
 
 .header {
-  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
 
-  .title {
-    font-size: 24px;
-    font-weight: 600;
-    margin: 0 0 4px 0;
-  }
+.headerInfo {
+  display: flex;
+  flex-direction: column;
+}
 
-  .description {
-    color: #999;
-    font-size: 14px;
-    margin: 0;
-  }
+.title {
+  margin-bottom: 4px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0;
+  color: #999;
+  font-size: 14px;
 }
 
 .loading {
@@ -28,39 +34,90 @@
 
 .toolsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
 }
 
 .toolCard {
+  border-radius: 16px;
+  transition: all 0.2s ease-in-out;
   cursor: default;
-  transition: all 0.2s;
 
-  &:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  &.enabledCard {
+    border: 2px solid #615ced !important;
+    box-shadow: rgba(97, 92, 237, 0.2) 0px 8px 24px !important;
+
+    .statusDot {
+      background-color: #52c41a;
+    }
+
+    .statusText {
+      color: #52c41a;
+    }
+  }
+
+  &.hoverCard {
+    border: 1px solid #615ced;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  &.normalCard {
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
   }
 }
 
 .cardHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 8px;
 }
 
 .toolName {
+  margin: 0;
   font-size: 16px;
   font-weight: 600;
-  margin: 0;
-  font-family:
-    Monaco,
-    Courier New,
-    monospace;
+  color: #1a1a1a;
+  font-family: Monaco, "Courier New", monospace;
+}
+
+.statusContainer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #d9d9d9;
+}
+
+.statusText {
+  font-size: 12px;
+  color: #999;
 }
 
 .toolDescription {
-  margin: 0;
+  margin: 0 0 16px 0;
   color: #666;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
+  min-height: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cardFooter {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
 }
