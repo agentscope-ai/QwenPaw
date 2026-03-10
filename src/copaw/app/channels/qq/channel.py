@@ -122,6 +122,18 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
     )
 
 
+def _qq_text_content_parts(text: str) -> list[TextContent]:
+    """Build QQ text parts without introducing empty text placeholders."""
+    if not text:
+        return []
+    return [
+        TextContent(
+            type=ContentType.TEXT,
+            text=text,
+        ),
+    ]
+
+
 def _get_api_base() -> str:
     """API root address (e.g. sandbox: https://sandbox.api.sgroup.qq.com)"""
     return os.getenv("QQ_API_BASE", DEFAULT_API_BASE).rstrip("/")
@@ -1021,12 +1033,7 @@ class QQChannel(BaseChannel):
                             native = {
                                 "channel_id": "qq",
                                 "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
+                                "content_parts": _qq_text_content_parts(text),
                                 "meta": meta,
                             }
                             request = self.build_agent_request_from_native(
@@ -1073,12 +1080,7 @@ class QQChannel(BaseChannel):
                             native = {
                                 "channel_id": "qq",
                                 "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
+                                "content_parts": _qq_text_content_parts(text),
                                 "meta": meta,
                             }
                             request = self.build_agent_request_from_native(
@@ -1125,12 +1127,7 @@ class QQChannel(BaseChannel):
                             native = {
                                 "channel_id": "qq",
                                 "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
+                                "content_parts": _qq_text_content_parts(text),
                                 "meta": meta,
                             }
                             request = self.build_agent_request_from_native(
@@ -1174,12 +1171,7 @@ class QQChannel(BaseChannel):
                             native = {
                                 "channel_id": "qq",
                                 "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
+                                "content_parts": _qq_text_content_parts(text),
                                 "meta": meta,
                             }
                             request = self.build_agent_request_from_native(

@@ -226,6 +226,23 @@ class BaseChannel(ABC):
                 return True
         return False
 
+    def _normalize_content_parts(
+        self,
+        content_parts: List[Any],
+    ) -> List[Any]:
+        """Drop semantically empty content blocks before downstream use."""
+        normalized: List[Any] = []
+        for part in content_parts or []:
+            typ = getattr(part, "type", None)
+            if typ == ContentType.TEXT:
+                if not (getattr(part, "text", None) or "").strip():
+                    continue
+            elif typ == ContentType.REFUSAL:
+                if not (getattr(part, "refusal", None) or "").strip():
+                    continue
+            normalized.append(part)
+        return normalized
+
     def _apply_no_text_debounce(
         self,
         session_id: str,
@@ -235,18 +252,21 @@ class BaseChannel(ABC):
         Debounce: if content has no text, buffer and return (False, []).
         If has text, return (True, merged) with any buffered content prepended.
         """
-        if not self._content_has_text(content_parts):
+        normalized = self._normalize_content_parts(content_parts)
+        if not normalized:
+            return (False, [])
+        if not self._content_has_text(normalized):
             self._pending_content_by_session.setdefault(
                 session_id,
                 [],
-            ).extend(content_parts)
+            ).extend(normalized)
             logger.debug(
                 "channel debounce: no text, buffered session_id=%s",
                 session_id[:24] if session_id else "",
             )
             return (False, [])
         pending = self._pending_content_by_session.pop(session_id, [])
-        merged = pending + list(content_parts)
+        merged = pending + list(normalized)
         return (True, merged)
 
     def _check_allowlist(
@@ -328,10 +348,7 @@ class BaseChannel(ABC):
             Role,
         )
 
-        if not content_parts:
-            content_parts = [
-                TextContent(type=ContentType.TEXT, text=""),
-            ]
+        content_parts = self._normalize_content_parts(content_parts)
         msg = Message(
             type=MessageType.MESSAGE,
             role=Role.USER,
