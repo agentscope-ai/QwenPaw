@@ -249,7 +249,8 @@ def _escape_markdown_v2(text: str) -> str:
     text = re.sub(r"^[*-]{3,}$", r"---", text, flags=re.MULTILINE)
 
     # 2. Escape everything except the core formatting tokens
-    # Characters that MUST be escaped in MarkdownV2: _ * [ ] ( ) ~ ` > # + - = | { } . !
+    # Characters that MUST be escaped in MarkdownV2:
+    # _ * [ ] ( ) ~ ` > # + - = | { } . !
     special_chars_pattern = r"([\_\[\]\(\)\~\>\#\+\-\=\|\{\}\.\!\*\`\\])"
 
     def full_escape(s):
@@ -281,10 +282,13 @@ def _escape_markdown_v2(text: str) -> str:
     # Restore unescaped > for lines starting with it
     text = re.sub(r"^\\\>\s*(.*)$", r">\1", text, flags=re.MULTILINE)
 
-    # Code blocks: ```text```
-    # Ensure they start/end on newlines as per Telegram's recommendation in issue #4219
-    text = re.sub(r"\\\`\\\`\\\`(.*?)\\\`\\\`\\\`", r"```\1```", text, flags=re.DOTALL)
-
+    # Code blocks: ```text``` (issue #4219)
+    text = re.sub(
+        r"\\`\\`\\`(.*?)\\`\\`\\`",
+        r"```\\1```",
+        text,
+        flags=re.DOTALL,
+    )
     # Inline code: `text`
     text = re.sub(r"\\\`(.*?)\\\`", r"`\1`", text)
 
@@ -630,7 +634,8 @@ class TelegramChannel(BaseChannel):
                 )
             except Exception:
                 logger.warning(
-                    "telegram MARKDOWN_V2 failed for chunk: %r, trying plain text",
+                    "telegram MARKDOWN_V2 failed for chunk: %r, "
+                    "trying plain text",
                     chunk_escaped,
                 )
                 try:
