@@ -111,3 +111,5 @@ src/.hypothesis/
 
 # Worktrees
 .worktrees/
+/assets/  
+/console/
