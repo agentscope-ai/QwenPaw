@@ -12,8 +12,12 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ## Prerequisites
 
-- **Python**: pypdf, pdfplumber, reportlab
-- **System**: pdftotext, pdftoppm (poppler-utils), qpdf
+- **pypdf**: core PDF reading and writing
+- **pdfplumber**: text and table extraction
+- **reportlab**: PDF creation
+- **pdftotext** (poppler-utils): command-line text extraction
+- **pdftoppm** (poppler-utils): PDF-to-image conversion
+- **qpdf**: PDF manipulation (merge, split, rotate, decrypt)
 
 ## Overview
 

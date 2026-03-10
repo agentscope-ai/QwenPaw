@@ -12,8 +12,10 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ## Prerequisites
 
-- **npm**: docx (`npm install -g docx`) for new document creation
-- **System**: LibreOffice (`soffice`) for `.doc` -> `.docx` conversion, tracked-changes acceptance, and PDF export; pandoc for text extraction; pdftoppm (poppler-utils) for document-to-image workflows
+- **docx** (`npm install -g docx`): new document creation
+- **LibreOffice** (`soffice`): `.doc` -> `.docx` conversion, tracked-changes acceptance, and PDF export
+- **pandoc**: text extraction
+- **pdftoppm** (poppler-utils): document-to-image workflows
 - If `pdftoppm` is unavailable, a Python fallback path may use `pdf2image`.
 - On Windows, dependencies must be installed and available in `PATH`; if missing, report the dependency issue and stop (do not keep retrying).
 
@@ -481,9 +483,3 @@ After running `comment.py` (see Step 2), add markers to document.xml. For replie
   </wp:inline>
 </w:drawing>
 ```
-
----
-
-## Dependencies
-
-See [Prerequisites](#prerequisites) above for the full list.

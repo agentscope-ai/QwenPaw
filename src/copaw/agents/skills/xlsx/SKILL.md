@@ -75,8 +75,9 @@ A user may ask you to create, edit, or analyze the contents of an .xlsx file. Yo
 
 ## Prerequisites
 
-- **Python**: openpyxl, pandas
-- **System**: LibreOffice (`soffice`) for formula recalculation via `scripts/recalc.py`
+- **openpyxl**: Excel file creation and editing
+- **pandas**: data analysis and bulk operations
+- **LibreOffice** (`soffice`): formula recalculation via `scripts/recalc.py`
 - `git` is optional but improves redlining diff output in validation workflows.
 - On Windows, dependencies must be installed and available in `PATH`; if missing, report the dependency issue and stop (do not keep retrying).
 

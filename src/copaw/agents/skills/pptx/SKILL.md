@@ -12,9 +12,11 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ## Prerequisites
 
-- **Python**: markitdown[pptx], Pillow
-- **npm**: pptxgenjs (`npm install -g pptxgenjs`) for creating from scratch
-- **System**: LibreOffice (`soffice`) for presentation-to-PDF conversion; pdftoppm (poppler-utils) for PDF-to-image conversion used by thumbnail/visual workflows
+- **markitdown[pptx]**: text extraction from presentations
+- **Pillow**: thumbnail grid generation
+- **pptxgenjs** (`npm install -g pptxgenjs`): creating presentations from scratch
+- **LibreOffice** (`soffice`): presentation-to-PDF conversion
+- **pdftoppm** (poppler-utils): PDF-to-image conversion for thumbnail/visual workflows
 - If `pdftoppm` is unavailable, a Python fallback path may use `pdf2image`.
 - On Windows, dependencies must be installed and available in `PATH`; if missing, report the dependency issue and stop (do not keep retrying).
 
@@ -233,8 +235,3 @@ To re-render specific slides after fixes:
 pdftoppm -jpeg -r 150 -f N -l N output.pdf slide-fixed
 ```
 
----
-
-## Dependencies
-
-See [Prerequisites](#prerequisites) above for the full list.
