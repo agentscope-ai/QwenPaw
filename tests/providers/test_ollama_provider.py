@@ -41,10 +41,25 @@ async def test_check_connection_success(monkeypatch) -> None:
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
 
-    ok = await provider.check_connection(timeout=2.0)
+    ok, msg = await provider.check_connection(timeout=2.0)
 
     assert ok is True
+    assert msg == ""
     assert called["count"] == 1
+
+
+async def test_import_error_on_missing_ollama(monkeypatch) -> None:
+    provider = OllamaProvider(
+        id="ollama",
+        name="Ollama",
+        chat_model="OllamaChatModel",
+    )
+    monkeypatch.setattr(ollama_provider_module, "ollama", None)
+
+    ok, msg = await provider.check_connection(timeout=1.0)
+
+    assert ok is False
+    assert msg == "Ollama Python SDK is not installed"
 
 
 async def test_check_connection_error_returns_false(monkeypatch) -> None:
@@ -61,9 +76,10 @@ async def test_check_connection_error_returns_false(monkeypatch) -> None:
         Exception,
     )
 
-    ok = await provider.check_connection(timeout=1.0)
+    ok, msg = await provider.check_connection(timeout=1.0)
 
     assert ok is False
+    assert msg == f"Unknown exception when connecting to `{provider.base_url}`"
 
 
 async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
@@ -119,9 +135,10 @@ async def test_check_model_connection_success(monkeypatch) -> None:
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
 
-    ok = await provider.check_model_connection("qwen2:7b", timeout=4.0)
+    ok, msg = await provider.check_model_connection("qwen2:7b", timeout=4.0)
 
     assert ok is True
+    assert msg == ""
     assert len(captured) == 1
     assert captured[0]["model"] == "qwen2:7b"
     assert captured[0]["messages"] == [{"role": "user", "content": "ping"}]
@@ -131,9 +148,10 @@ async def test_check_model_connection_success(monkeypatch) -> None:
 async def test_check_model_connection_empty_model_id_returns_false() -> None:
     provider = _make_provider()
 
-    ok = await provider.check_model_connection("   ", timeout=4.0)
+    ok, msg = await provider.check_model_connection("   ", timeout=4.0)
 
     assert ok is False
+    assert msg == "Empty model ID"
 
 
 async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
@@ -151,9 +169,10 @@ async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
         Exception,
     )
 
-    ok = await provider.check_model_connection("qwen2:7b", timeout=4.0)
+    ok, msg = await provider.check_model_connection("qwen2:7b", timeout=4.0)
 
     assert ok is False
+    assert msg == "Unknown exception when connecting to `qwen2:7b`"
 
 
 async def test_update_config_updates_only_non_none_values() -> None:

@@ -278,7 +278,6 @@ class ProviderManager:
                 await provider.add_model(
                     model,
                     target=update_target,
-                    ignore_duplicates=True,
                 )
             self._save_provider(
                 provider,

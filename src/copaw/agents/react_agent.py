@@ -166,39 +166,38 @@ class CoPawAgent(ReActAgent):
         """
         toolkit = Toolkit()
 
-        # Register built-in tools
-        toolkit.register_tool_function(
-            execute_shell_command,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            read_file,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            write_file,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            edit_file,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            browser_use,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            desktop_screenshot,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            send_file_to_user,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            get_current_time,
-            namesake_strategy=namesake_strategy,
-        )
+        # Load config to check which tools are enabled
+        config = load_config()
+        enabled_tools = {}
+        if hasattr(config, "tools") and hasattr(config.tools, "builtin_tools"):
+            enabled_tools = {
+                name: tool_config.enabled
+                for name, tool_config in config.tools.builtin_tools.items()
+            }
+
+        # Map of tool functions
+        tool_functions = {
+            "execute_shell_command": execute_shell_command,
+            "read_file": read_file,
+            "write_file": write_file,
+            "edit_file": edit_file,
+            "browser_use": browser_use,
+            "desktop_screenshot": desktop_screenshot,
+            "send_file_to_user": send_file_to_user,
+            "get_current_time": get_current_time,
+        }
+
+        # Register only enabled tools
+        for tool_name, tool_func in tool_functions.items():
+            # If tool not in config, enable by default (backward compatibility)
+            if enabled_tools.get(tool_name, True):
+                toolkit.register_tool_function(
+                    tool_func,
+                    namesake_strategy=namesake_strategy,
+                )
+                logger.debug("Registered tool: %s", tool_name)
+            else:
+                logger.debug("Skipped disabled tool: %s", tool_name)
 
         return toolkit
 

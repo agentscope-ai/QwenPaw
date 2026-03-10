@@ -24,6 +24,8 @@ dependencies = [
     "python-telegram-bot>=20.0",
     "twilio>=9.10.2",
     "pywebview>=4.0",
+    "aiofiles>=24.1.0",
+    "paho-mqtt>=2.0.0",
 ]
 
 [tool.setuptools.dynamic]

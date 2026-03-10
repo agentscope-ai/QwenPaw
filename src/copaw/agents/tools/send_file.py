@@ -67,13 +67,6 @@ async def send_file_to_user(
     as_type = _auto_as_type(mime_type)
 
     try:
-        # text
-        if as_type == "text":
-            with open(file_path, "r", encoding="utf-8") as file:
-                return ToolResponse(
-                    content=[TextBlock(type="text", text=file.read())],
-                )
-
         # Use local file URL instead of base64
         absolute_path = os.path.abspath(file_path)
         file_url = f"file://{absolute_path}"

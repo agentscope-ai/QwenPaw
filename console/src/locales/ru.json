@@ -31,6 +31,7 @@
     "agent": "Агент",
     "workspace": "Рабочее пространство",
     "skills": "Навыки",
+    "tools": "Инструменты",
     "mcp": "MCP",
     "agentConfig": "Конфигурация",
     "settings": "Настройки",
@@ -52,6 +53,10 @@
     "downloadFailed": "Не удалось скачать рабочее пространство",
     "zipOnly": "Для загрузки поддерживаются только файлы .zip",
     "fileSizeExceeded": "Размер файла превышает лимит 100 МБ. Текущий файл: {{size}} МБ",
+    "systemPromptToggleTooltip": "Включить/выключить загрузку этого файла в системный промпт",
+    "memoryFileWarning": "MEMORY.md обычно запрашивается агентом по требованию с помощью инструментов. Загрузка его в системный промпт может привести к слишком длинному контексту.",
+    "configUpdated": "Конфигурация системного промпта обновлена",
+    "configUpdateFailed": "Не удалось обновить конфигурацию системного промпта",
     "attribution": "Дизайн рабочего пространства частично вдохновлён проектом OpenClaw — спасибо! 🐾"
   },
   "skills": {
@@ -339,8 +344,8 @@
     "openAIEndpoint": "OpenAI endpoint, например https://api.openai.com/v1",
     "openAICompatibleEndpoint": "OpenAI-совместимый endpoint, например https://api.example.com (добавляйте /v1 только если ваш провайдер этого требует)",
     "azureEndpointHint": "Azure OpenAI endpoint, например https://<resource>.openai.azure.com/openai/v1",
-    "anthropicEndpointHint": "Anthropic endpoint, например https://api.anthropic.com (добавьте /v1, если это требуется в вашем окружении)",
-    "ollamaEndpointHint": "Ollama OpenAI-совместимый endpoint, например http://localhost:11434/v1",
+    "anthropicEndpointHint": "Anthropic endpoint, например https://api.anthropic.com",
+    "ollamaEndpointHint": "Ollama endpoint, например http://localhost:11434",
     "apiEndpointHint": "API endpoint, например https://api.example.com",
     "pleaseEnterBaseURL": "Пожалуйста, введите базовый URL API",
     "pleaseEnterValidURL": "Пожалуйста, введите корректный URL",
@@ -468,6 +473,21 @@
     "saveSuccess": "Конфигурация успешно сохранена",
     "saveFailed": "Не удалось сохранить конфигурацию",
     "loadFailed": "Не удалось загрузить конфигурацию"
+  },
+  "tools": {
+    "title": "Встроенные инструменты",
+    "description": "Управляйте встроенными инструментами и их статусом. Отключённые инструменты не будут доступны агенту.",
+    "emptyState": "Нет настроенных инструментов",
+    "loadError": "Не удалось загрузить инструменты",
+    "enableSuccess": "Инструмент успешно включён",
+    "disableSuccess": "Инструмент успешно отключён",
+    "toggleError": "Не удалось изменить статус инструмента",
+    "enableAll": "Включить все",
+    "disableAll": "Отключить все",
+    "enableAllSuccess": "Все инструменты включены",
+    "disableAllSuccess": "Все инструменты отключены",
+    "allEnabled": "Все инструменты уже включены",
+    "allDisabled": "Все инструменты уже отключены"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель",

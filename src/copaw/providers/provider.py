@@ -56,7 +56,7 @@ class Provider(ProviderInfo, ABC):
     """Represents a provider instance with its configuration."""
 
     @abstractmethod
-    async def check_connection(self, timeout: float = 5) -> bool:
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if the provider is reachable with the current config."""
 
     @abstractmethod
@@ -68,41 +68,38 @@ class Provider(ProviderInfo, ABC):
         self,
         model_id: str,
         timeout: float = 5,  # pylint: disable=unused-argument
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable."""
 
     async def add_model(
         self,
         model_info: ModelInfo,
         target: str = "extra_models",
-        ignore_duplicates: bool = False,
         timeout: float = 10,  # pylint: disable=unused-argument
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Add a model to the provider's model list."""
         if model_info.id in {
             model.id for model in self.models + self.extra_models
         }:
-            if not ignore_duplicates:
-                raise ValueError(f"Model '{model_info.id}' already exists")
-            return False  # the model was not added due to duplication
+            return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
             self.extra_models.append(model_info)
         elif target == "models":
             self.models.append(model_info)
         else:
-            raise ValueError(f"Invalid target '{target}' for adding model")
-        return True
+            return False, f"Invalid target '{target}' for adding model"
+        return True, ""
 
     async def delete_model(
         self,
         model_id: str,
         timeout: float = 10,  # pylint: disable=unused-argument
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Delete a model from the provider's model list."""
         self.extra_models = [
             model for model in self.extra_models if model.id != model_id
         ]
-        return True
+        return True, ""
 
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
@@ -178,8 +175,10 @@ class Provider(ProviderInfo, ABC):
 class DefaultProvider(Provider):
     """Default provider implementation with no-op methods."""
 
-    async def check_connection(self, timeout: float = 5) -> bool:
-        return len(self.models) > 0
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        if len(self.models) > 0:
+            return True, ""
+        return False, "No models available in the default provider"
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         return self.models
@@ -188,8 +187,10 @@ class DefaultProvider(Provider):
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> bool:
-        return model_id in {model.id for model in self.models}
+    ) -> tuple[bool, str]:
+        if model_id in {model.id for model in self.models}:
+            return True, ""
+        return False, f"Model '{model_id}' not found"
 
     def update_config(self, config: Dict) -> None:
         pass

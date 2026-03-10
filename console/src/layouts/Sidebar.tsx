@@ -29,6 +29,7 @@ import {
   Globe,
   Settings,
   Plug,
+  Wrench,
   PanelLeftClose,
   PanelLeftOpen,
   Copy,
@@ -55,6 +56,7 @@ const KEY_TO_PATH: Record<string, string> = {
   "cron-jobs": "/cron-jobs",
   heartbeat: "/heartbeat",
   skills: "/skills",
+  tools: "/tools",
   mcp: "/mcp",
   workspace: "/workspace",
   models: "/models",
@@ -317,6 +319,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <Briefcase size={16} />,
         },
         { key: "skills", label: t("nav.skills"), icon: <Sparkles size={16} /> },
+        { key: "tools", label: t("nav.tools"), icon: <Wrench size={16} /> },
         { key: "mcp", label: t("nav.mcp"), icon: <Plug size={16} /> },
         {
           key: "agent-config",

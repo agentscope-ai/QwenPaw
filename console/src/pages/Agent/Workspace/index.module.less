@@ -291,6 +291,39 @@
 
 .fileInfo {
   flex: 1;
+  min-width: 0;
+}
+
+.fileItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.reorderButtons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.reorderButton {
+  padding: 0 4px !important;
+  min-width: 20px !important;
+  height: 20px !important;
+  font-size: 10px;
+
+  &:disabled {
+    opacity: 0.3;
+  }
+}
+
+.enabledBadge {
+  color: #52c41a;
+  font-size: 8px;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .fileActions {

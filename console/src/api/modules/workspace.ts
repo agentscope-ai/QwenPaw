@@ -83,4 +83,13 @@ export const workspaceApi = {
         body: JSON.stringify({ content }),
       },
     ),
+
+  // System prompt files management
+  getSystemPromptFiles: () => request<string[]>("/agent/system-prompt-files"),
+
+  setSystemPromptFiles: (files: string[]) =>
+    request<string[]>("/agent/system-prompt-files", {
+      method: "PUT",
+      body: JSON.stringify(files),
+    }),
 };

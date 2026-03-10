@@ -52,6 +52,10 @@
     "downloadFailed": "ワークスペースのダウンロードに失敗しました",
     "zipOnly": "アップロードできるのは .zip ファイルのみです",
     "fileSizeExceeded": "ファイルサイズが100MBの制限を超えています。現在のファイル: {{size}}MB",
+    "systemPromptToggleTooltip": "システムプロンプトへのファイル読み込みを有効/無効にする",
+    "memoryFileWarning": "MEMORY.md は通常、エージェントがツールを使用してオンデマンドで照会および読み込みます。システムプロンプトに読み込むと、コンテキストが長くなりすぎる可能性があります。",
+    "configUpdated": "システムプロンプト設定が更新されました",
+    "configUpdateFailed": "システムプロンプト設定の更新に失敗しました",
     "attribution": "ワークスペースの設計はOpenClawプロジェクトの一部を参考にしています — ありがとう！🐾"
   },
   "skills": {
@@ -337,8 +341,8 @@
     "openAIEndpoint": "OpenAIエンドポイント、例: https://api.openai.com/v1",
     "openAICompatibleEndpoint": "OpenAI互換エンドポイント、例: https://api.example.com（プロバイダーが必要とする場合のみ /v1 を追加）",
     "azureEndpointHint": "Azure OpenAIエンドポイント、例: https://<resource>.openai.azure.com/openai/v1",
-    "anthropicEndpointHint": "Anthropicエンドポイント、例: https://api.anthropic.com（デプロイ環境が必要とする場合は /v1 を追加）",
-    "ollamaEndpointHint": "Ollama OpenAI互換エンドポイント、例: http://localhost:11434/v1",
+    "anthropicEndpointHint": "Anthropicエンドポイント、例: https://api.anthropic.com",
+    "ollamaEndpointHint": "Ollamaエンドポイント、例: http://localhost:11434",
     "apiEndpointHint": "APIエンドポイント、例: https://api.example.com",
     "pleaseEnterBaseURL": "APIベースURLを入力してください",
     "pleaseEnterValidURL": "有効なURLを入力してください",
@@ -466,6 +470,21 @@
     "saveSuccess": "設定を保存しました",
     "saveFailed": "設定の保存に失敗しました",
     "loadFailed": "設定の読み込みに失敗しました"
+  },
+  "tools": {
+    "title": "ビルトインツール",
+    "description": "ビルトインツールとその有効状態を管理します。無効なツールはエージェントで使用できません。",
+    "emptyState": "ツールが設定されていません",
+    "loadError": "ツールの読み込みに失敗しました",
+    "enableSuccess": "ツールを有効化しました",
+    "disableSuccess": "ツールを無効化しました",
+    "toggleError": "ツール状態の切り替えに失敗しました",
+    "enableAll": "すべて有効化",
+    "disableAll": "すべて無効化",
+    "enableAllSuccess": "すべてのツールを有効化しました",
+    "disableAllSuccess": "すべてのツールを無効化しました",
+    "allEnabled": "すべてのツールは既に有効です",
+    "allDisabled": "すべてのツールは既に無効です"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です",

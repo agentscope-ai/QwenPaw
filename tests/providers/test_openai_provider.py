@@ -29,9 +29,10 @@ async def test_check_connection_success(monkeypatch) -> None:
     fake_client = SimpleNamespace(models=FakeModels())
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok = await provider.check_connection(timeout=2.5)
+    ok, msg = await provider.check_connection(timeout=2.5)
 
     assert ok is True
+    assert msg == ""
     assert calls == [2.5]
 
 
@@ -46,9 +47,10 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
     monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    ok = await provider.check_connection(timeout=1)
+    ok, msg = await provider.check_connection(timeout=1)
 
     assert ok is False
+    assert msg == f"API error when connecting to `{provider.base_url}`"
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
@@ -112,9 +114,10 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok = await provider.check_model_connection("gpt-4o-mini", timeout=4)
+    ok, msg = await provider.check_model_connection("gpt-4o-mini", timeout=4)
 
     assert ok is True
+    assert msg == ""
     assert len(captured) == 1
     assert captured[0]["model"] == "gpt-4o-mini"
     assert captured[0]["timeout"] == 4
@@ -138,9 +141,10 @@ async def test_check_model_connection_api_error_returns_false(
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
     monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    ok = await provider.check_model_connection("gpt-4o-mini", timeout=4)
+    ok, msg = await provider.check_model_connection("gpt-4o-mini", timeout=4)
 
     assert ok is False
+    assert msg == "API error when connecting to model 'gpt-4o-mini'"
 
 
 async def test_update_config_updates_only_non_none_values() -> None:
