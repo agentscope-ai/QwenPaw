@@ -4,8 +4,9 @@
 /.pnp
 .pnp.js
 node_modules/
-sessions_mount_dir/
-package-lock.json
+sessions_mount_dir
+# Ignore package-lock.json in root directory only
+/package-lock.json
 
 # testing
 /coverage
