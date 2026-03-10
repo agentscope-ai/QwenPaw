@@ -8,8 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  approval-gate:
+    name: Maintainer Approval
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: maintainer-approved
+    steps:
+      - name: Approval granted
+        run: echo "Approved by maintainer"
+
   discover-unit-test-dirs:
     name: Discover Unit Test Directories
+    needs: approval-gate
+    if: |
+      always() &&
+      (
+        github.event_name == 'pull_request' ||
+        needs.approval-gate.result == 'success'
+      )
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -18,16 +34,24 @@ jobs:
 
       - name: Discover unit test subdirectories
         id: set-matrix
+        shell: bash
         run: |
           cd tests/unit
           dirs=$(find . -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1]')
-          echo "matrix=$dirs" >> $GITHUB_OUTPUT
+          echo "matrix=$dirs" >> "$GITHUB_OUTPUT"
           echo "Found unit test directories: $dirs"
 
   unit-tests:
     name: Unit Tests - ${{ matrix.subdir }} - py${{ matrix.python-version }} - ${{ matrix.os }}
-    needs: discover-unit-test-dirs
-    if: needs.discover-unit-test-dirs.outputs.matrix != '[]'
+    needs: [approval-gate, discover-unit-test-dirs]
+    if: |
+      always() &&
+      needs.discover-unit-test-dirs.result == 'success' &&
+      needs.discover-unit-test-dirs.outputs.matrix != '[]' &&
+      (
+        github.event_name == 'pull_request' ||
+        needs.approval-gate.result == 'success'
+      )
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -69,12 +93,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            # macOS: try to use prebuilt wheels for llamacpp to avoid compilation
             pip install -e ".[dev,local,ollama]"
             pip install 'mlx-lm>=0.10.0' || echo "mlx-lm install skipped"
-            # Try installing llama-cpp-python with prebuilt wheel only
             pip install --only-binary=llama-cpp-python 'llama-cpp-python>=0.3.0' || \
-              echo "⚠️  llama-cpp-python prebuilt wheel not available, skipping"
+              echo "⚠️ llama-cpp-python prebuilt wheel not available, skipping"
           else
             pip install -e ".[dev,full]"
           fi
@@ -86,6 +108,13 @@ jobs:
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    needs: approval-gate
+    if: |
+      always() &&
+      (
+        github.event_name == 'pull_request' ||
+        needs.approval-gate.result == 'success'
+      )
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -126,12 +155,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            # macOS: try to use prebuilt wheels for llamacpp to avoid compilation
             pip install -e ".[dev,local,ollama]"
             pip install 'mlx-lm>=0.10.0' || echo "mlx-lm install skipped"
-            # Try installing llama-cpp-python with prebuilt wheel only
             pip install --only-binary=llama-cpp-python 'llama-cpp-python>=0.3.0' || \
-              echo "⚠️  llama-cpp-python prebuilt wheel not available, skipping"
+              echo "⚠️ llama-cpp-python prebuilt wheel not available, skipping"
           else
             pip install -e ".[dev,full]"
           fi
@@ -140,10 +167,10 @@ jobs:
         id: check-integrated
         shell: bash
         run: |
-          if [ -d "tests/integrated" ] && [ "$(ls -A tests/integrated/*.py 2>/dev/null)" ]; then
-            echo "has_tests=true" >> $GITHUB_OUTPUT
+          if [ -d "tests/integrated" ] && compgen -G "tests/integrated/*.py" > /dev/null; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_tests=false" >> $GITHUB_OUTPUT
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run integrated tests
@@ -154,8 +181,14 @@ jobs:
 
   coverage-report:
     name: Coverage Report
+    needs: approval-gate
+    if: |
+      always() &&
+      (
+        github.event_name == 'pull_request' ||
+        needs.approval-gate.result == 'success'
+      )
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     permissions:
       contents: read
       pull-requests: write
@@ -170,10 +203,12 @@ jobs:
           cache-dependency-path: console/package-lock.json
 
       - name: Build console frontend
+        shell: bash
         run: |
           cd console && npm ci && npm run build
 
       - name: Copy console build into package
+        shell: bash
         run: |
           rm -rf src/copaw/console/*
           mkdir -p src/copaw/console
@@ -186,6 +221,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,full]"
@@ -219,19 +255,36 @@ jobs:
 
   test-summary:
     name: Test Summary
-    needs: [unit-tests, integrated-tests]
+    needs: [approval-gate, unit-tests, integrated-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check test results
+        shell: bash
         run: |
+          echo "Approval gate: ${{ needs.approval-gate.result }}"
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
 
-          if [ "${{ needs.unit-tests.result }}" == "failure" ] || \
-             [ "${{ needs.integrated-tests.result }}" == "failure" ]; then
-            echo "❌ Some tests failed"
-            exit 1
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
+               [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
+              echo "❌ Some tests failed"
+              exit 1
+            else
+              echo "✅ All tests passed"
+            fi
           else
-            echo "✅ All tests passed"
+            if [ "${{ needs.approval-gate.result }}" != "success" ]; then
+              echo "❌ Approval not granted"
+              exit 1
+            fi
+
+            if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
+               [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
+              echo "❌ Some tests failed"
+              exit 1
+            else
+              echo "✅ All tests passed"
+            fi
           fi
