@@ -67,9 +67,9 @@ def _normalize_local_path(path_or_url: str) -> Optional[str]:
 def _audio_media_type_from_path(path: str) -> str:
     ext = (os.path.splitext(path)[1] or "").lower()
     return {
-        ".mp3": "audio/mp3",
-        ".wav": "audio/wav",
-    }.get(ext, "audio/mp3")
+        ".mp3": "mp3",
+        ".wav": "wav",
+    }.get(ext, "mp3")
 
 
 def _dingtalk_audio_content_from_local_path(path_or_url: str) -> Optional[Any]:
