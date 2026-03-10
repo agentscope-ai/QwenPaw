@@ -40,7 +40,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
     """Internal handler: convert DingTalk message to native dict, enqueue via
     manager (thread-safe), await reply_future, then reply."""
 
-    # pylint: disable=R0917
     def __init__(
         self,
         main_loop: asyncio.AbstractEventLoop,
