@@ -495,13 +495,60 @@ class CoPawAgent(ReActAgent):
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Ensure a stable default tool-choice behavior across providers."""
+        """Ensure a stable default tool-choice behavior across providers.
+
+        Includes automatic retry with exponential backoff for transient
+        network errors (e.g. ``RemoteProtocolError``, ``ConnectionError``)
+        so the agent can recover without requiring a manual restart.
+
+        The maximum number of retries is controlled by the environment
+        variable ``COPAW_REASONING_MAX_RETRIES`` (default: **5**).
+        """
         tool_choice = normalize_reasoning_tool_choice(
             tool_choice=tool_choice,
             has_tools=bool(self.toolkit.get_json_schemas()),
         )
 
-        return await super()._reasoning(tool_choice=tool_choice)
+        max_retries = int(
+            os.getenv("COPAW_REASONING_MAX_RETRIES", "5"),
+        )
+        base_delay = 2.0
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await super()._reasoning(tool_choice=tool_choice)
+            except Exception as e:
+                err_name = type(e).__name__
+                is_retryable = any(
+                    keyword in err_name
+                    for keyword in (
+                        "RemoteProtocol",
+                        "Connection",
+                        "Timeout",
+                        "Read",
+                    )
+                ) or any(
+                    phrase in str(e).lower()
+                    for phrase in (
+                        "peer closed connection",
+                        "incomplete chunked read",
+                        "connection reset",
+                        "timed out",
+                        "connection aborted",
+                    )
+                )
+                if not is_retryable or attempt >= max_retries:
+                    raise
+                delay = base_delay * (2 ** (attempt - 1))
+                logger.warning(
+                    "Transient network error in _reasoning "
+                    "(attempt %d/%d): %s. Retrying in %.1fs ...",
+                    attempt,
+                    max_retries,
+                    e,
+                    delay,
+                )
+                await asyncio.sleep(delay)
 
     async def reply(
         self,
