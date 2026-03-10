@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Card, Switch, Empty } from "@agentscope-ai/design";
+import { useState, useMemo } from "react";
+import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -7,12 +7,22 @@ import styles from "./index.module.less";
 
 export default function ToolsPage() {
   const { t } = useTranslation();
-  const { tools, loading, toggleEnabled } = useTools();
+  const { tools, loading, batchLoading, toggleEnabled, enableAll, disableAll } =
+    useTools();
   const [hoverKey, setHoverKey] = useState<string | null>(null);
 
   const handleToggle = (tool: ToolInfo) => {
     toggleEnabled(tool);
   };
+
+  const hasDisabledTools = useMemo(
+    () => tools.some((tool) => !tool.enabled),
+    [tools],
+  );
+  const hasEnabledTools = useMemo(
+    () => tools.some((tool) => tool.enabled),
+    [tools],
+  );
 
   return (
     <div className={styles.toolsPage}>
@@ -20,6 +30,30 @@ export default function ToolsPage() {
         <div className={styles.headerInfo}>
           <h1 className={styles.title}>{t("tools.title")}</h1>
           <p className={styles.description}>{t("tools.description")}</p>
+        </div>
+        <div className={styles.actionTabs}>
+          <Button
+            className={`${styles.actionTab} ${
+              !hasDisabledTools ? styles.disabledTab : ""
+            }`}
+            onClick={enableAll}
+            disabled={batchLoading || loading || !hasDisabledTools}
+            type="text"
+            size="small"
+          >
+            {t("tools.enableAll")}
+          </Button>
+          <Button
+            className={`${styles.actionTab} ${
+              !hasEnabledTools ? styles.disabledTab : ""
+            }`}
+            onClick={disableAll}
+            disabled={batchLoading || loading || !hasEnabledTools}
+            type="text"
+            size="small"
+          >
+            {t("tools.disableAll")}
+          </Button>
         </div>
       </div>
 

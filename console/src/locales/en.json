@@ -481,7 +481,13 @@
     "loadError": "Failed to load tools",
     "enableSuccess": "Tool enabled successfully",
     "disableSuccess": "Tool disabled successfully",
-    "toggleError": "Failed to toggle tool status"
+    "toggleError": "Failed to toggle tool status",
+    "enableAll": "Enable All",
+    "disableAll": "Disable All",
+    "enableAllSuccess": "All tools enabled",
+    "disableAllSuccess": "All tools disabled",
+    "allEnabled": "All tools are already enabled",
+    "allDisabled": "All tools are already disabled"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required",

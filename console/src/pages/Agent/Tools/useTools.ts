@@ -8,6 +8,7 @@ export function useTools() {
   const { t } = useTranslation();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -41,9 +42,50 @@ export function useTools() {
     [t, loadTools],
   );
 
+  const enableAll = useCallback(async () => {
+    const disabledTools = tools.filter((tool) => !tool.enabled);
+    if (disabledTools.length === 0) {
+      message.info(t("tools.allEnabled"));
+      return;
+    }
+
+    setBatchLoading(true);
+    try {
+      await Promise.all(disabledTools.map((tool) => api.toggleTool(tool.name)));
+      message.success(t("tools.enableAllSuccess"));
+      await loadTools();
+    } catch {
+      message.error(t("tools.toggleError"));
+    } finally {
+      setBatchLoading(false);
+    }
+  }, [tools, t, loadTools]);
+
+  const disableAll = useCallback(async () => {
+    const enabledTools = tools.filter((tool) => tool.enabled);
+    if (enabledTools.length === 0) {
+      message.info(t("tools.allDisabled"));
+      return;
+    }
+
+    setBatchLoading(true);
+    try {
+      await Promise.all(enabledTools.map((tool) => api.toggleTool(tool.name)));
+      message.success(t("tools.disableAllSuccess"));
+      await loadTools();
+    } catch {
+      message.error(t("tools.toggleError"));
+    } finally {
+      setBatchLoading(false);
+    }
+  }, [tools, t, loadTools]);
+
   return {
     tools,
     loading,
+    batchLoading,
     toggleEnabled,
+    enableAll,
+    disableAll,
   };
 }

@@ -481,7 +481,13 @@
     "loadError": "加载工具失败",
     "enableSuccess": "工具启用成功",
     "disableSuccess": "工具禁用成功",
-    "toggleError": "切换工具状态失败"
+    "toggleError": "切换工具状态失败",
+    "enableAll": "全部启用",
+    "disableAll": "全部禁用",
+    "enableAllSuccess": "全部工具已启用",
+    "disableAllSuccess": "全部工具已禁用",
+    "allEnabled": "所有工具已处于启用状态",
+    "allDisabled": "所有工具已处于禁用状态"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型",

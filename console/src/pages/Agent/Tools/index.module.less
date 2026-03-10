@@ -5,13 +5,50 @@
 .header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  margin-bottom: 24px;
 }
 
 .headerInfo {
   display: flex;
   flex-direction: column;
+}
+
+.actionTabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 10px;
+  align-self: center;
+}
+
+.actionTab {
+  padding: 5px 14px;
+  border-radius: 7px;
+  border: none;
+  font-size: 13px;
+  color: #999;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: #666;
+    background: rgba(0, 0, 0, 0.04);
+  }
+}
+
+.disabledTab {
+  color: #615ced !important;
+  background: #fff !important;
+  cursor: not-allowed;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+
+  &:hover {
+    color: #615ced !important;
+    background: #fff !important;
+  }
 }
 
 .title {
