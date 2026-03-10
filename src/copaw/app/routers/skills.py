@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import logging
 from typing import Any
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 from ...agents.skills_manager import (
     SkillService,
@@ -187,6 +188,63 @@ async def create_skill(request: CreateSkillRequest):
         scripts=request.scripts,
     )
     return {"created": result}
+
+
+@router.post(
+    "/upload",
+    summary="Upload skill(s) from a zip archive",
+    description=(
+        "Upload a zip file containing one or more skill directories. "
+        "Each skill directory must contain a SKILL.md file with valid "
+        "YAML frontmatter (name + description). "
+        "Supports single-skill zips (SKILL.md at root) and multi-skill "
+        "zips (subdirectories each with SKILL.md)."
+    ),
+)
+async def upload_skill(
+    file: UploadFile = File(
+        ...,
+        description="Zip archive containing skill directory/directories",
+    ),
+    enable: bool = True,
+    overwrite: bool = False,
+) -> dict:
+    """Import skill(s) from an uploaded zip archive."""
+    if file.content_type and file.content_type not in (
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/octet-stream",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Expected a zip file, got content-type: {file.content_type}"
+            ),
+        )
+
+    data = await file.read()
+
+    try:
+        imported = await asyncio.to_thread(
+            SkillService.import_from_zip,
+            data,
+            overwrite,
+            enable,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Skill zip upload failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import skills from zip: {e}",
+        ) from e
+
+    return {
+        "imported": imported,
+        "count": len(imported),
+        "enabled": enable,
+    }
 
 
 @router.post("/{skill_name}/disable")

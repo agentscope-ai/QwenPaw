@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """Skills management: sync skills from code to working_dir."""
 import filecmp
+import io
 import logging
 import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
@@ -462,6 +465,36 @@ def _create_files_from_tree(
             )
 
 
+def _import_skill_dir(
+    src_dir: Path, customized_dir: Path,
+    skill_name: str, overwrite: bool,
+) -> bool:
+    """Validate SKILL.md and copy *src_dir* into *customized_dir*."""
+    try:
+        post = frontmatter.loads(
+            (src_dir / "SKILL.md").read_text(encoding="utf-8"),
+        )
+        if not post.get("name") or not post.get("description"):
+            logger.warning("Skipping '%s': missing name/description.", skill_name)
+            return False
+    except Exception as e:
+        logger.warning("Skipping '%s': bad SKILL.md: %s", skill_name, e)
+        return False
+
+    target_dir = customized_dir / skill_name
+    if target_dir.exists() and not overwrite:
+        return False
+    try:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(src_dir, target_dir)
+        logger.info("Imported skill '%s' from zip.", skill_name)
+        return True
+    except Exception as e:
+        logger.error("Failed to import skill '%s': %s", skill_name, e)
+        return False
+
+
 class SkillService:
     """
     Service for managing skills.
@@ -761,6 +794,69 @@ class SkillService:
         return sync_skills_from_active_to_customized(
             skill_names=skill_names,
         )
+
+    @staticmethod
+    def import_from_zip(
+        data: bytes,
+        overwrite: bool = False,
+        enable: bool = False,
+    ) -> list[str]:
+        """Import skill(s) from a zip archive into customized_skills.
+
+        Supports single-skill zips (SKILL.md at root) and multi-skill
+        zips (subdirectories each with SKILL.md).  Returns imported names.
+
+        Raises ValueError when zip is invalid or contains no skills.
+        """
+        if not zipfile.is_zipfile(io.BytesIO(data)):
+            raise ValueError("Uploaded file is not a valid zip archive")
+
+        customized_dir = get_customized_skills_dir()
+        customized_dir.mkdir(parents=True, exist_ok=True)
+        tmp_dir: Path | None = None
+        try:
+            tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_skill_upload_"))
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                for name in zf.namelist():
+                    if not str((tmp_dir / name).resolve()).startswith(
+                        str(tmp_dir.resolve())
+                    ):
+                        raise ValueError(f"Zip contains unsafe path: {name}")
+                zf.extractall(tmp_dir)
+
+            # Unwrap single wrapper directory
+            extract_root = tmp_dir
+            real = [e for e in tmp_dir.iterdir() if not e.name.startswith("__MACOSX")]
+            if len(real) == 1 and real[0].is_dir():
+                extract_root = real[0]
+
+            imported: list[str] = []
+            if (extract_root / "SKILL.md").exists():
+                if _import_skill_dir(extract_root, customized_dir, extract_root.name, overwrite):
+                    imported.append(extract_root.name)
+            else:
+                for child in sorted(extract_root.iterdir()):
+                    if child.name.startswith("__MACOSX"):
+                        continue
+                    if child.is_dir() and (child / "SKILL.md").exists():
+                        if _import_skill_dir(child, customized_dir, child.name, overwrite):
+                            imported.append(child.name)
+
+            if not imported:
+                raise ValueError(
+                    "No valid skills found in zip. Each skill directory must "
+                    "contain a SKILL.md with valid YAML frontmatter."
+                )
+            if enable:
+                for name in imported:
+                    try:
+                        SkillService.enable_skill(name, force=True)
+                    except Exception as e:
+                        logger.warning("Failed to enable '%s': %s", name, e)
+            return imported
+        finally:
+            if tmp_dir and tmp_dir.is_dir():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     @staticmethod
     def load_skill_file(  # pylint: disable=too-many-return-statements

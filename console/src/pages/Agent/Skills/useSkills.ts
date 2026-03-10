@@ -7,6 +7,7 @@ export function useSkills() {
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const fetchSkills = async () => {
     setLoading(true);
@@ -111,6 +112,31 @@ export function useSkills() {
     }
   };
 
+  const uploadSkill = async (file: File) => {
+    try {
+      setUploading(true);
+      const result = await api.uploadSkill(file, {
+        enable: true,
+        overwrite: false,
+      });
+      if (result?.count > 0) {
+        message.success(
+          `Imported ${result.count} skill(s): ${result.imported.join(", ")}`,
+        );
+        await fetchSkills();
+        return true;
+      }
+      message.error("No valid skills found in zip");
+      return false;
+    } catch (error) {
+      console.error("Failed to upload skill", error);
+      message.error("Upload failed");
+      return false;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const deleteSkill = async (skill: SkillSpec) => {
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
@@ -147,8 +173,10 @@ export function useSkills() {
     skills,
     loading,
     importing,
+    uploading,
     createSkill,
     importFromHub,
+    uploadSkill,
     toggleEnabled,
     deleteSkill,
   };

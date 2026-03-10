@@ -90,7 +90,12 @@
     "frontmatterDescriptionRequired": "Skills missing required field : description",
     "editNotSupported": "Edit operation is not supported by backend API",
     "editNote": "Note: Backend API does not support editing skills. You can only view or toggle enable/disable status.",
-    "create": "Create"
+    "create": "Create",
+    "uploadSkill": "Upload Skill",
+    "uploadSuccess": "Skill uploaded successfully",
+    "uploadFailed": "Skill upload failed",
+    "zipOnly": "Only .zip files are supported for upload",
+    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB"
   },
   "mcp": {
     "title": "MCP Clients",

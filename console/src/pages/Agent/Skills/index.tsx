@@ -1,6 +1,10 @@
-import { useState } from "react";
-import { Button, Form, Modal } from "@agentscope-ai/design";
-import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
+import { useRef, useState } from "react";
+import { Button, Form, Modal, message } from "@agentscope-ai/design";
+import {
+  DownloadOutlined,
+  PlusOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
 import type { SkillSpec } from "../../../api/types";
 import { SkillCard, SkillDrawer } from "./components";
 import { useSkills } from "./useSkills";
@@ -13,11 +17,14 @@ function SkillsPage() {
     skills,
     loading,
     importing,
+    uploading,
     createSkill,
     importFromHub,
+    uploadSkill,
     toggleEnabled,
     deleteSkill,
   } = useSkills();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
@@ -35,6 +42,35 @@ function SkillsPage() {
 
   const isSupportedSkillUrl = (url: string) => {
     return supportedSkillUrlPrefixes.some((prefix) => url.startsWith(prefix));
+  };
+
+  const MAX_UPLOAD_SIZE_MB = 100;
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+
+    if (!file.name.endsWith(".zip")) {
+      message.warning(t("skills.zipOnly"));
+      return;
+    }
+
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > MAX_UPLOAD_SIZE_MB) {
+      message.warning(
+        t("skills.fileSizeExceeded", { size: sizeMB.toFixed(1) }),
+      );
+      return;
+    }
+
+    await uploadSkill(file);
   };
 
   const handleCreate = () => {
@@ -123,6 +159,22 @@ function SkillsPage() {
           <p className={styles.description}>{t("skills.description")}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
+          <Button
+            type="primary"
+            onClick={handleUploadClick}
+            icon={<UploadOutlined />}
+            loading={uploading}
+            disabled={uploading}
+          >
+            {t("skills.uploadSkill")}
+          </Button>
           <Button
             type="primary"
             onClick={handleImportFromHub}

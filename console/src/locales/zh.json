@@ -90,7 +90,12 @@
     "frontmatterDescriptionRequired": "Skills 中缺少必填字段：description",
     "editNotSupported": "后端API不支持编辑操作",
     "editNote": "注意：后端API不支持编辑技能。您只能查看或切换启用/禁用状态。",
-    "create": "创建"
+    "create": "创建",
+    "uploadSkill": "上传技能",
+    "uploadSuccess": "技能上传成功",
+    "uploadFailed": "技能上传失败",
+    "zipOnly": "仅支持上传 .zip 文件",
+    "fileSizeExceeded": "文件大小超过 100MB 限制。当前文件：{{size}}MB"
   },
   "mcp": {
     "title": "MCP 客户端",
