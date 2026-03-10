@@ -121,6 +121,35 @@ def extract_post_image_keys(content: Optional[str]) -> list[str]:
     return keys
 
 
+def extract_post_media_file_keys(content: Optional[str]) -> list[str]:
+    """Extract file_key list from ``tag=media`` blocks in post content."""
+    if not content:
+        return []
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    keys: list[str] = []
+    content_blocks = data.get("content") or []
+    if isinstance(content_blocks, list):
+        for block in content_blocks:
+            if not isinstance(block, list):
+                continue
+            for item in block:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("tag") == "media":
+                    key = item.get("file_key")
+                    if isinstance(key, str) and key.strip():
+                        keys.append(key.strip())
+
+    return keys
+
+
 def normalize_feishu_md(text: str) -> str:
     """
     Light markdown normalization for Feishu post (avoid broken rendering).
