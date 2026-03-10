@@ -11,6 +11,8 @@ import re
 import json
 import logging
 
+from typing import Union, Sequence
+
 from agentscope.session import JSONSession
 
 logger = logging.getLogger(__name__)
@@ -57,12 +59,11 @@ class SafeJSONSession(JSONSession):
     async def update_session_state(
         self,
         session_id: str,
-        key: str,
+        key: Union[str, Sequence[str]],
         value,
         user_id: str = "",
         create_if_not_exist: bool = True,
     ) -> None:
-        """Update a top-level key in the session JSON file."""
         session_save_path = self._get_save_path(session_id, user_id=user_id)
 
         if os.path.exists(session_save_path):
@@ -71,8 +72,8 @@ class SafeJSONSession(JSONSession):
                 "r",
                 encoding="utf-8",
                 errors="surrogatepass",
-            ) as file:
-                states = json.load(file)
+            ) as f:
+                states = json.load(f)
         else:
             if not create_if_not_exist:
                 raise ValueError(
@@ -80,15 +81,25 @@ class SafeJSONSession(JSONSession):
                 )
             states = {}
 
-        states[key] = value
+        path = key.split(".") if isinstance(key, str) else list(key)
+        if not path:
+            raise ValueError("key path is empty")
+
+        cur = states
+        for k in path[:-1]:
+            if k not in cur or not isinstance(cur[k], dict):
+                cur[k] = {}
+            cur = cur[k]
+
+        cur[path[-1]] = value
 
         with open(
             session_save_path,
             "w",
             encoding="utf-8",
             errors="surrogatepass",
-        ) as file:
-            json.dump(states, file, ensure_ascii=False)
+        ) as f:
+            json.dump(states, f, ensure_ascii=False)
 
         logger.info(
             "Updated session state key '%s' in %s successfully.",

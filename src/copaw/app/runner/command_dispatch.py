@@ -146,7 +146,7 @@ async def run_command_path(
     if session_id and user_id:
         await runner.session.update_session_state(
             session_id=session_id,
-            key="memory",
+            key="agent.memory",
             value=memory.state_dict(),
             user_id=user_id,
         )
