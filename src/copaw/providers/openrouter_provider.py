@@ -27,7 +27,7 @@ class OpenRouterProvider(Provider):
 
     @staticmethod
     def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
-        models: List[ModelInfo] = []
+        models: dict[str, ModelInfo] = {}
         rows = getattr(payload, "data", [])
         for row in rows or []:
             model_id = str(getattr(row, "id", "") or "").strip()
@@ -36,16 +36,10 @@ class OpenRouterProvider(Provider):
             model_name = (
                 str(getattr(row, "name", "") or model_id).strip() or model_id
             )
-            models.append(ModelInfo(id=model_id, name=model_name))
-
-        deduped: List[ModelInfo] = []
-        seen: set[str] = set()
-        for model in models:
-            if model.id in seen:
-                continue
-            seen.add(model.id)
-            deduped.append(model)
-        return deduped
+            # Deduplication: keep first occurrence by model_id
+            if model_id not in models:
+                models[model_id] = ModelInfo(id=model_id, name=model_name)
+        return list(models.values())
 
     async def check_connection(self, timeout: float = 30) -> bool:
         """Check if OpenRouter provider is reachable."""
