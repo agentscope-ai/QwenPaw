@@ -138,9 +138,10 @@ def session_param_from_webhook_url(url: str) -> Optional[str]:
     )
 
 
-def get_type_mapping() -> dict:
+def get_type_mapping() -> Dict[str, str]:
     """Return DingTalk type mapping (for handler use)."""
     return dict(DINGTALK_TYPE_MAPPING)
+
 
 def get_msg_key_for_media_type(media_type: str) -> str:
     """Get msgKey for DingTalk OpenAPI based on media type."""

@@ -3,6 +3,7 @@
 
 This module handles system commands like /compact, /new, /clear, etc.
 """
+
 import logging
 from typing import TYPE_CHECKING
 
@@ -310,7 +311,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
             raise RuntimeError(f"Unknown command: {query}")
-        return await handler(messages, args)
+        return await handler(messages, args)  # pylint: disable=not-callable
 
     async def handle_command(self, query: str) -> Msg:
         """Process system commands (alias for handle_conversation_command)."""
