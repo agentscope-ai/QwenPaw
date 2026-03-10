@@ -10,7 +10,7 @@ CoPaw supports multiple LLM providers: **cloud providers** (require API Key), **
 
 ## Configure cloud providers
 
-Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, and Azure OpenAI) call remote models via API and require an **API Key**.
+Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, Azure OpenAI, Anthropic, and Venice.ai) call remote models via API and require an **API Key**.
 
 **In the console:**
 

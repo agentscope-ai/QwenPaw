@@ -310,7 +310,7 @@ To run CoPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [CoP
 
 ## API Key
 
-If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
+If you use a **cloud LLM** (e.g. DashScope, ModelScope, OpenAI, Anthropic, Venice.ai), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
 
 **How to configure:**
 

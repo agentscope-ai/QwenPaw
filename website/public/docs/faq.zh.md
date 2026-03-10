@@ -124,7 +124,7 @@ CoPaw 已开源，官方仓库地址：
 
 在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://copaw.agentscope.io/docs/models)：
 
-- 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商），再选择活跃模型。
+- 云端模型：填写提供商 API Key（如 ModelScope、DashScope、OpenAI、Anthropic、Venice.ai 或自定义提供商），再选择活跃模型。
 - 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。下载后可在同页选择活跃模型。
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。

@@ -131,8 +131,8 @@ You can check version changes in CoPaw GitHub
 In Console, go to **Settings -> Models** to configure. See the
 [Models](https://copaw.agentscope.io/docs/models) doc for details:
 
-- Cloud models: fill provider API key (e.g. ModelScope, DashScope, or custom),
-  then select the active model.
+- Cloud models: fill provider API key (e.g. ModelScope, DashScope, OpenAI,
+  Anthropic, Venice.ai, or custom), then select the active model.
 - Local models: supports `llama.cpp`, `MLX`, and Ollama. After download, select
   the active model on the same page.
 

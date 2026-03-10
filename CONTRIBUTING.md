@@ -94,7 +94,7 @@ CoPaw is designed to be **extensible**: you can add models, channels, Skills, an
 
 ### Adding New Models / Model Providers
 
-CoPaw supports **multiple model backends**: cloud APIs (e.g. DashScope, ModelScope), **Ollama**, and local backends (**llama.cpp**, **MLX**). You can contribute in two ways:
+CoPaw supports **multiple model backends**: cloud APIs (e.g. DashScope, ModelScope, OpenAI, Anthropic, Venice.ai), **Ollama**, and local backends (**llama.cpp**, **MLX**). You can contribute in two ways:
 
 #### A. Custom provider (user configuration)
 
