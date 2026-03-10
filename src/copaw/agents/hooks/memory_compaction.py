@@ -6,6 +6,7 @@ when the context window approaches its limit, preserving recent messages
 and the system prompt.
 """
 import logging
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from agentscope.agent._react_agent import _MemoryMark, ReActAgent
@@ -22,6 +23,42 @@ if TYPE_CHECKING:
     from reme.memory.file_based import ReMeInMemoryMemory
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_check_context_result(
+    result: Any,
+) -> tuple[list[Any], bool]:
+    """Normalize check_context results across dependency versions.
+
+    CoPaw only needs two fields from ``check_context``:
+    ``messages_to_compact`` and ``is_valid``. Upstream implementations may
+    evolve from a plain 3-tuple to a richer tuple, mapping, or typed object.
+    This adapter keeps the hook stable as long as those two semantics remain
+    available.
+    """
+    if isinstance(result, Mapping):
+        try:
+            return result["messages_to_compact"], bool(result["is_valid"])
+        except KeyError as exc:
+            raise ValueError(
+                "check_context result mapping is missing required keys: "
+                "'messages_to_compact' and/or 'is_valid'",
+            ) from exc
+
+    if hasattr(result, "messages_to_compact") and hasattr(result, "is_valid"):
+        return result.messages_to_compact, bool(result.is_valid)
+
+    if isinstance(result, Sequence) and not isinstance(result, (str, bytes)):
+        if len(result) < 3:
+            raise ValueError(
+                "check_context result must contain at least 3 items, "
+                f"got {len(result)}",
+            )
+        return result[0], bool(result[2])
+
+    raise TypeError(
+        "Unsupported check_context result type: " f"{type(result).__name__}",
+    )
 
 
 class MemoryCompactionHook:
@@ -104,15 +141,14 @@ class MemoryCompactionHook:
             memory_compact_reserve = (
                 config.agents.running.memory_compact_reserve
             )
-            (
-                messages_to_compact,
-                _,
-                is_valid,
-            ) = await self.memory_manager.check_context(
+            check_context_result = await self.memory_manager.check_context(
                 messages=messages,
                 memory_compact_threshold=left_compact_threshold,
                 memory_compact_reserve=memory_compact_reserve,
                 token_counter=token_counter,
+            )
+            messages_to_compact, is_valid = _normalize_check_context_result(
+                check_context_result,
             )
 
             if not messages_to_compact:
