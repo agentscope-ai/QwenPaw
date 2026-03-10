@@ -12,7 +12,6 @@ from copaw.agents.hooks.memory_compaction import MemoryCompactionHook
 class FakeMsg:
     id: str
     role: str
-    token_count: int
     content: str = "x"
 
 
@@ -24,16 +23,15 @@ class FakeMemory:
     ) -> None:
         self._messages = messages
         self._compressed_summary = compressed_summary
-        self.updated_summary = None
+        self.updated_summary: str | None = None
         self.marked_ids: list[str] = []
 
     async def get_memory(
         self,
-        exclude_mark: str | None = None,
         prepend_summary: bool = False,
         **_kwargs,
     ) -> list[FakeMsg]:
-        del exclude_mark, prepend_summary
+        del prepend_summary
         return self._messages
 
     def get_compressed_summary(self) -> str:
@@ -53,10 +51,29 @@ class FakeMemory:
         return len(msg_ids)
 
 
+class FakeCheckContextResult:
+    def __init__(
+        self,
+        messages_to_compact: list[FakeMsg],
+        is_valid: bool,
+    ) -> None:
+        self.messages_to_compact = messages_to_compact
+        self.is_valid = is_valid
+
+
 class FakeMemoryManager:
-    def __init__(self) -> None:
+    def __init__(self, check_context_result: Any) -> None:
+        self.check_context_result = check_context_result
+        self.token_counter = object()
         self.summary_task_messages: list[list[FakeMsg]] = []
         self.compact_calls: list[dict[str, Any]] = []
+        self.tool_result_compact_calls: list[list[FakeMsg]] = []
+
+    async def check_context(self, **_kwargs) -> Any:
+        return self.check_context_result
+
+    async def compact_tool_result(self, messages: list[FakeMsg]) -> None:
+        self.tool_result_compact_calls.append(list(messages))
 
     def add_async_summary_task(self, messages: list[FakeMsg]) -> None:
         self.summary_task_messages.append(list(messages))
@@ -75,138 +92,166 @@ class FakeMemoryManager:
         return "compacted-summary"
 
 
-class FakeFormatter:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def format(self, msgs: list[FakeMsg]) -> list[dict[str, Any]]:
-        self.calls += 1
-        return [
-            {
-                "role": msg.role,
-                "content": str(getattr(msg, "content", "")),
-                "_test_token_count": int(
-                    getattr(msg, "token_count", 0)
-                    or max(len(str(getattr(msg, "content", ""))) // 4, 1),
-                ),
-            }
-            for msg in msgs
-        ]
-
-
 def _make_agent(messages: list[FakeMsg], summary: str = "") -> Any:
-    memory = FakeMemory(messages=messages, compressed_summary=summary)
-    formatter = FakeFormatter()
     return SimpleNamespace(
-        memory=memory,
-        formatter=formatter,
+        memory=FakeMemory(messages=messages, compressed_summary=summary),
+        sys_prompt="system-prompt",
     )
 
 
-async def _fake_safe_count_message_tokens(
-    messages: list[dict[str, Any]],
-) -> int:
-    return sum(int(msg.get("_test_token_count", 0)) for msg in messages)
-
-
-def _fake_safe_count_str_tokens(text: str) -> int:
-    return len(text) // 4 if text else 0
-
-
-async def test_compaction_triggers_on_total_context_budget(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "copaw.agents.hooks.memory_compaction.safe_count_message_tokens",
-        _fake_safe_count_message_tokens,
-    )
-    monkeypatch.setattr(
-        "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
-        _fake_safe_count_str_tokens,
-    )
-    monkeypatch.setattr(
-        "copaw.agents.hooks.memory_compaction.load_config",
-        lambda: SimpleNamespace(
-            agents=SimpleNamespace(
-                running=SimpleNamespace(memory_compact_threshold=950),
+def _make_config(
+    *,
+    memory_compact_threshold: int = 100,
+    enable_tool_result_compact: bool = False,
+    tool_result_compact_keep_n: int = 0,
+    memory_compact_reserve: int = 10,
+) -> Any:
+    return SimpleNamespace(
+        agents=SimpleNamespace(
+            running=SimpleNamespace(
+                memory_compact_threshold=memory_compact_threshold,
+                enable_tool_result_compact=enable_tool_result_compact,
+                tool_result_compact_keep_n=tool_result_compact_keep_n,
+                memory_compact_reserve=memory_compact_reserve,
             ),
         ),
     )
+
+
+def _make_config_loader(config: Any):
+    def _loader() -> Any:
+        return config
+
+    return _loader
+
+
+def _zero_token_count(_text: str) -> int:
+    return 0
+
+
+async def test_compaction_succeeds_with_three_item_result(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
-        "copaw.agents.hooks.memory_compaction.MEMORY_COMPACT_KEEP_RECENT",
-        1,
+        "copaw.agents.hooks.memory_compaction.load_config",
+        _make_config_loader(_make_config()),
+    )
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
+        _zero_token_count,
     )
 
-    memory_manager = FakeMemoryManager()
-    hook = MemoryCompactionHook(
-        memory_manager=memory_manager,
-    )
-
-    # message_tokens = 950 (at threshold),
-    # so no compaction by message-only count
-    # summary_tokens > 0 for non-empty wrapped summary
-    # total = message_tokens + summary_tokens > threshold => should compact.
     messages = [
-        FakeMsg(id="sys", role="system", token_count=250),
-        FakeMsg(id="old-1", role="user", token_count=250),
-        FakeMsg(id="old-2", role="assistant", token_count=250),
-        FakeMsg(id="recent", role="user", token_count=200),
+        FakeMsg(id="old-1", role="user"),
+        FakeMsg(id="old-2", role="assistant"),
+        FakeMsg(id="recent", role="user"),
     ]
+    memory_manager = FakeMemoryManager(
+        check_context_result=(messages[:2], messages[2:], True),
+    )
+    hook = MemoryCompactionHook(memory_manager=memory_manager)
     agent = _make_agent(messages=messages, summary="existing-summary")
 
     await hook(agent=agent, kwargs={})
 
     assert memory_manager.compact_calls
-    assert memory_manager.summary_task_messages
+    assert memory_manager.summary_task_messages == [messages[:2]]
     assert agent.memory.updated_summary == "compacted-summary"
     assert agent.memory.marked_ids == ["old-1", "old-2"]
-    assert agent.formatter.calls == 1
 
 
-async def test_compaction_not_triggered_when_total_under_threshold(
+async def test_compaction_succeeds_with_extended_tuple_result(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "copaw.agents.hooks.memory_compaction.safe_count_message_tokens",
-        _fake_safe_count_message_tokens,
+        "copaw.agents.hooks.memory_compaction.load_config",
+        _make_config_loader(_make_config()),
     )
     monkeypatch.setattr(
         "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
-        _fake_safe_count_str_tokens,
+        _zero_token_count,
     )
+
+    messages = [
+        FakeMsg(id="old-1", role="user"),
+        FakeMsg(id="recent", role="assistant"),
+    ]
+    memory_manager = FakeMemoryManager(
+        check_context_result=(messages[:1], messages[1:], True, {"extra": 1}),
+    )
+    hook = MemoryCompactionHook(memory_manager=memory_manager)
+    agent = _make_agent(messages=messages)
+
+    await hook(agent=agent, kwargs={})
+
+    assert memory_manager.compact_calls
+    assert memory_manager.summary_task_messages == [messages[:1]]
+    assert agent.memory.marked_ids == ["old-1"]
+
+
+async def test_compaction_succeeds_with_object_result(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         "copaw.agents.hooks.memory_compaction.load_config",
-        lambda: SimpleNamespace(
-            agents=SimpleNamespace(
-                running=SimpleNamespace(memory_compact_threshold=950),
+        _make_config_loader(_make_config()),
+    )
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
+        _zero_token_count,
+    )
+
+    messages = [
+        FakeMsg(id="old-1", role="user"),
+        FakeMsg(id="recent", role="assistant"),
+    ]
+    memory_manager = FakeMemoryManager(
+        check_context_result=FakeCheckContextResult(
+            messages_to_compact=messages[:1],
+            is_valid=True,
+        ),
+    )
+    hook = MemoryCompactionHook(memory_manager=memory_manager)
+    agent = _make_agent(messages=messages)
+
+    await hook(agent=agent, kwargs={})
+
+    assert memory_manager.compact_calls
+    assert agent.memory.updated_summary == "compacted-summary"
+    assert agent.memory.marked_ids == ["old-1"]
+
+
+async def test_no_compaction_when_check_context_returns_empty_messages(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "copaw.agents.hooks.memory_compaction.load_config",
+        _make_config_loader(
+            _make_config(
+                enable_tool_result_compact=True,
+                tool_result_compact_keep_n=1,
             ),
         ),
     )
     monkeypatch.setattr(
-        "copaw.agents.hooks.memory_compaction.MEMORY_COMPACT_KEEP_RECENT",
-        1,
+        "copaw.agents.hooks.memory_compaction.safe_count_str_tokens",
+        _zero_token_count,
     )
 
-    memory_manager = FakeMemoryManager()
-    hook = MemoryCompactionHook(
-        memory_manager=memory_manager,
-    )
-
-    # message_tokens = 800
-    # summary_tokens ~= wrapped-summary-length//4
-    # total stays below threshold => should not compact.
     messages = [
-        FakeMsg(id="sys", role="system", token_count=200),
-        FakeMsg(id="old-1", role="user", token_count=200),
-        FakeMsg(id="old-2", role="assistant", token_count=200),
-        FakeMsg(id="recent", role="user", token_count=200),
+        FakeMsg(id="old-1", role="user"),
+        FakeMsg(id="recent", role="assistant"),
     ]
-    agent = _make_agent(messages=messages, summary="existing-summary")
+    memory_manager = FakeMemoryManager(
+        check_context_result={"messages_to_compact": [], "is_valid": True},
+    )
+    hook = MemoryCompactionHook(memory_manager=memory_manager)
+    agent = _make_agent(messages=messages)
 
     await hook(agent=agent, kwargs={})
 
+    assert memory_manager.tool_result_compact_calls == [messages[:-1]]
     assert not memory_manager.compact_calls
     assert not memory_manager.summary_task_messages
     assert agent.memory.updated_summary is None
     assert agent.memory.marked_ids == []
-    assert agent.formatter.calls == 1
