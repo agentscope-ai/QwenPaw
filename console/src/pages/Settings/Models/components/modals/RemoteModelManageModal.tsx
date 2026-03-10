@@ -7,6 +7,7 @@ import {
   Tag,
   message,
   Checkbox,
+  Collapse,
 } from "@agentscope-ai/design";
 import {
   DeleteOutlined,
@@ -336,121 +337,125 @@ export function RemoteModelManageModal({
       width={560}
       destroyOnHidden
     >
-      {/* Model list */}
-      <div className={styles.modelList}>
-        {all_models.length === 0 ? (
-          <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
-        ) : (
-          <>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 8,
-                padding: "0 4px",
-              }}
-            >
+      {/* Model list - collapsible */}
+      <Collapse
+        defaultActiveKey={[]}
+        ghost
+        items={[
+          {
+            key: "models",
+            label: (
               <span style={{ fontWeight: 500 }}>
                 {t("models.modelList")} ({all_models.length})
               </span>
-              {(provider.extra_models?.length ?? 0) > 0 && (
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<ClearOutlined />}
-                  onClick={handleClearAllModels}
-                  loading={saving}
-                >
-                  {t("models.clearAll")}
-                </Button>
-              )}
-            </div>
-            {all_models.map((m) => {
-              const isDeletable = extraModelIds.has(m.id);
-              // Check if it's an extended model (has input_modalities)
-              const hasExtendedInfo = (m as any).input_modalities;
-              return (
-                <div key={m.id} className={styles.modelListItem}>
-                  <div className={styles.modelListItemInfo}>
-                    <span className={styles.modelListItemName}>{m.name}</span>
-                    <span className={styles.modelListItemId}>
-                      {m.id}
-                      {/* Show modalities and price for extended models */}
-                      {hasExtendedInfo && (
-                        <span style={{ marginLeft: 8, fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 2 }}>
-                          {(m as any).input_modalities?.includes("text") && <SparkTextLine style={{ fontSize: 12 }} />}
-                          {(m as any).input_modalities?.includes("image") && <SparkImageuploadLine style={{ fontSize: 12 }} />}
-                          {(m as any).input_modalities?.includes("audio") && <SparkAudiouploadLine style={{ fontSize: 12 }} />}
-                          {(m as any).input_modalities?.includes("video") && <SparkVideouploadLine style={{ fontSize: 12 }} />}
-                          {(m as any).input_modalities?.includes("file") && <SparkFilePdfLine style={{ fontSize: 12 }} />}
-                          {(m as any).output_modalities?.includes("image") && <SparkTextImageLine style={{ fontSize: 12, color: "purple" }} />}
-                          {((m as any).pricing?.prompt) && (
-                            <span style={{ color: "green", marginLeft: 4 }}>
-                              ${((m as any).pricing.prompt * 1_000_000).toFixed(2)}/1M in
-                              {((m as any).pricing.completion) && (
-                                <span> · ${((m as any).pricing.completion * 1_000_000).toFixed(2)}/1M out</span>
-                              )}
-                            </span>
+            ),
+            extra: (provider.extra_models?.length ?? 0) > 0 ? (
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<ClearOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClearAllModels();
+                }}
+                loading={saving}
+              >
+                {t("models.clearAll")}
+              </Button>
+            ) : null,
+            children: (
+              <>
+                {all_models.length === 0 ? (
+                  <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
+                ) : (
+                  all_models.map((m) => {
+                    const isDeletable = extraModelIds.has(m.id);
+                    // Check if it's an extended model (has input_modalities)
+                    const hasExtendedInfo = (m as any).input_modalities;
+                    return (
+                      <div key={m.id} className={styles.modelListItem}>
+                        <div className={styles.modelListItemInfo}>
+                          <span className={styles.modelListItemName}>{m.name}</span>
+                          <span className={styles.modelListItemId}>
+                            {m.id}
+                            {/* Show modalities and price for extended models */}
+                            {hasExtendedInfo && (
+                              <span style={{ marginLeft: 8, fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 2 }}>
+                                {(m as any).input_modalities?.includes("text") && <SparkTextLine style={{ fontSize: 12 }} />}
+                                {(m as any).input_modalities?.includes("image") && <SparkImageuploadLine style={{ fontSize: 12 }} />}
+                                {(m as any).input_modalities?.includes("audio") && <SparkAudiouploadLine style={{ fontSize: 12 }} />}
+                                {(m as any).input_modalities?.includes("video") && <SparkVideouploadLine style={{ fontSize: 12 }} />}
+                                {(m as any).input_modalities?.includes("file") && <SparkFilePdfLine style={{ fontSize: 12 }} />}
+                                {(m as any).output_modalities?.includes("image") && <SparkTextImageLine style={{ fontSize: 12, color: "purple" }} />}
+                                {((m as any).pricing?.prompt) && (
+                                  <span style={{ color: "green", marginLeft: 4 }}>
+                                    ${((m as any).pricing.prompt * 1_000_000).toFixed(2)}/1M in
+                                    {((m as any).pricing.completion) && (
+                                      <span> · ${((m as any).pricing.completion * 1_000_000).toFixed(2)}/1M out</span>
+                                    )}
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className={styles.modelListItemActions}>
+                          {isDeletable ? (
+                            <>
+                              <Tag
+                                color="blue"
+                                style={{ fontSize: 11, marginRight: 4 }}
+                              >
+                                {t("models.userAdded")}
+                              </Tag>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ApiOutlined />}
+                                onClick={() => handleTestModel(m.id)}
+                                loading={testingModelId === m.id}
+                                style={{ marginRight: 4 }}
+                              >
+                                {t("models.testConnection")}
+                              </Button>
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                onClick={() => handleRemoveModel(m.id, m.name)}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <Tag
+                                color="green"
+                                style={{ fontSize: 11, marginRight: 4 }}
+                              >
+                                {t("models.builtin")}
+                              </Tag>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ApiOutlined />}
+                                onClick={() => handleTestModel(m.id)}
+                                loading={testingModelId === m.id}
+                              >
+                                {t("models.testConnection")}
+                              </Button>
+                            </>
                           )}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className={styles.modelListItemActions}>
-                    {isDeletable ? (
-                      <>
-                        <Tag
-                          color="blue"
-                          style={{ fontSize: 11, marginRight: 4 }}
-                        >
-                          {t("models.userAdded")}
-                        </Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={{ marginRight: 4 }}
-                        >
-                          {t("models.testConnection")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveModel(m.id, m.name)}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <Tag
-                          color="green"
-                          style={{ fontSize: 11, marginRight: 4 }}
-                        >
-                          {t("models.builtin")}
-                        </Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                        >
-                          {t("models.testConnection")}
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-      </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
 
       {/* OpenRouter Filter Section */}
       {isOpenRouter && (
