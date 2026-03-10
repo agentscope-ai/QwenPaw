@@ -125,12 +125,10 @@ async def _build_content_parts_from_message(
         "edited_message",
     )
     if not message:
-        return [TextContent(type=ContentType.TEXT, text="")], False, False
+        return [], False, False
 
     content_parts: list[Any] = []
-    text = (
-        getattr(message, "text", None) or getattr(message, "caption") or ""
-    ).strip()
+    text = (getattr(message, "text", None) or getattr(message, "caption") or "").strip()
 
     entities = (
         getattr(message, "entities", None)
@@ -214,9 +212,6 @@ async def _build_content_parts_from_message(
             content_parts.append(
                 content_cls(type=content_type, **{url_field: file_url}),
             )
-
-    if not content_parts:
-        content_parts.append(TextContent(type=ContentType.TEXT, text=""))
 
     return content_parts, has_bot_command, is_bot_mentioned
 
@@ -357,6 +352,9 @@ class TelegramChannel(BaseChannel):
                 bot=context.bot,
                 media_dir=self._media_dir,
             )
+            if not content_parts:
+                logger.debug("telegram: ignore non-content message")
+                return
             meta = _message_meta(update)
             if has_bot_command:
                 meta["has_bot_command"] = True
@@ -410,6 +408,21 @@ class TelegramChannel(BaseChannel):
 
         app.add_handler(MessageHandler(filters.ALL, handle_message))
         return app
+
+    def _apply_no_text_debounce(
+        self,
+        session_id: str,
+        content_parts: list[Any],
+    ) -> tuple[bool, list[Any]]:
+        """Process media-only Telegram messages without waiting for text."""
+        has_media = any(
+            getattr(part, "type", None) not in (ContentType.TEXT, ContentType.REFUSAL)
+            for part in content_parts
+        )
+        if has_media:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return True, pending + list(content_parts)
+        return super()._apply_no_text_debounce(session_id, content_parts)
 
     @classmethod
     def from_env(

@@ -50,6 +50,32 @@ async def test_build_content_parts_wraps_media_in_file_url() -> None:
     assert parts[2].file_url == "file:///tmp/doc.txt"
 
 
+@pytest.mark.asyncio
+async def test_build_content_parts_ignores_non_content_message() -> None:
+    message = SimpleNamespace(
+        text=None,
+        caption=None,
+        entities=[],
+        caption_entities=[],
+        photo=None,
+        document=None,
+        video=None,
+        voice=None,
+        audio=None,
+        new_chat_members=[SimpleNamespace(id=1)],
+    )
+    update = SimpleNamespace(message=message, edited_message=None)
+
+    parts, has_bot_command = await _build_content_parts_from_message(
+        update,
+        bot=MagicMock(),
+        media_dir=Path("/tmp"),
+    )
+
+    assert parts == []
+    assert has_bot_command is False
+
+
 def test_message_meta_includes_message_thread_id() -> None:
     update = SimpleNamespace(
         message=SimpleNamespace(
@@ -65,6 +91,32 @@ def test_message_meta_includes_message_thread_id() -> None:
 
     assert meta["chat_id"] == "123"
     assert meta["message_thread_id"] == 42
+
+
+def test_apply_no_text_debounce_processes_media_only_message() -> None:
+    channel = TelegramChannel(
+        process=MagicMock(),
+        enabled=True,
+        bot_token="token",
+        http_proxy="",
+        http_proxy_auth="",
+        bot_prefix="",
+    )
+    parts = [
+        FileContent(
+            type=ContentType.FILE,
+            file_url="file:///tmp/demo.txt",
+        ),
+    ]
+
+    # pylint: disable=protected-access
+    should_process, merged = channel._apply_no_text_debounce(
+        "telegram:123",
+        parts,
+    )
+
+    assert should_process is True
+    assert merged == parts
 
 
 @pytest.mark.asyncio
