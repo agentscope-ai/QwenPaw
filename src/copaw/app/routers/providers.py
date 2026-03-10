@@ -177,7 +177,7 @@ class DiscoverModelsRequest(BaseModel):
     )
     include_extended: bool = Field(
         default=False,
-        description="Include extended metadata (modalities, pricing) for OpenRouter",
+        description="Include extended metadata for OpenRouter",
     )
 
 
@@ -567,7 +567,7 @@ async def discover_openrouter_extended(
             providers=providers,
             total_count=len(models_dict),
         )
-    except Exception as exc:
+    except Exception:
         return DiscoverExtendedResponse(
             success=False,
             models=[],
