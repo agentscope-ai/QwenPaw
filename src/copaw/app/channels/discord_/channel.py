@@ -8,7 +8,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional, cast
 
 import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -328,7 +328,11 @@ class DiscordChannel(BaseChannel):
             raise RuntimeError("Discord client is not initialized")
         if not self._client.is_ready():
             raise RuntimeError("Discord client is not ready yet")
-        target = await self._resolve_target(to_handle, meta)
+        resolve_target = cast(
+            Callable[[str, Optional[dict]], Awaitable[Any]],
+            self._resolve_target,
+        )
+        target = await resolve_target(to_handle, meta)
         if not target:
             raise ValueError(
                 "DiscordChannel.send requires meta['channel_id']"
@@ -388,7 +392,11 @@ class DiscordChannel(BaseChannel):
         if not url:
             return
 
-        target = await self._resolve_target(to_handle, meta)
+        resolve_target = cast(
+            Callable[[str, Optional[dict]], Awaitable[Any]],
+            self._resolve_target,
+        )
+        target = await resolve_target(to_handle, meta)
         if not target:
             logger.warning(
                 "discord send_media: cannot resolve target",
