@@ -21,6 +21,7 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "discord": (".discord_", "DiscordChannel"),
     "dingtalk": (".dingtalk", "DingTalkChannel"),
     "feishu": (".feishu", "FeishuChannel"),
+    "wecom": (".wecom", "WeComChannel"),
     "qq": (".qq", "QQChannel"),
     "telegram": (".telegram", "TelegramChannel"),
     "mqtt": (".mqtt", "MQTTChannel"),

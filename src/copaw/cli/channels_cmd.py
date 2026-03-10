@@ -20,6 +20,7 @@ from ..config.config import (
     FeishuConfig,
     IMessageChannelConfig,
     QQConfig,
+    WeComConfig,
     VoiceChannelConfig,
 )
 from .utils import prompt_confirm, prompt_path, prompt_select
@@ -35,6 +36,7 @@ _SECRET_FIELDS = {
     "bot_token",
     "client_secret",
     "app_secret",
+    "bot_secret",
     "http_proxy_auth",
     "twilio_auth_token",
 }
@@ -45,6 +47,7 @@ _ALL_CHANNEL_NAMES = {
     "telegram": "Telegram",
     "dingtalk": "DingTalk",
     "feishu": "Feishu",
+    "wecom": "WeCom",
     "qq": "QQ",
     "console": "Console",
     "voice": "Twilio",
@@ -354,6 +357,72 @@ def configure_feishu(current_config: FeishuConfig) -> FeishuConfig:
     return current_config
 
 
+def configure_wecom(current_config: WeComConfig) -> WeComConfig:
+    """Configure WeCom channel interactively."""
+    click.echo("\n=== Configure WeCom Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable WeCom channel?",
+        default=current_config.enabled,
+    )
+
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+
+    current_config.bot_prefix = click.prompt(
+        "Bot prefix (e.g., @bot)",
+        default=current_config.bot_prefix or "[BOT]",
+        type=str,
+    )
+    current_config.bot_id = click.prompt(
+        "WeCom Bot ID",
+        default=current_config.bot_id or "",
+        type=str,
+    )
+    current_config.bot_secret = click.prompt(
+        "WeCom Bot Secret",
+        default=current_config.bot_secret or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.show_streaming_reply = prompt_confirm(
+        "Show streaming reply?",
+        default=current_config.show_streaming_reply is not False,
+    )
+    current_config.ws_url = click.prompt(
+        "WeCom WebSocket URL",
+        default=current_config.ws_url or "wss://openws.work.weixin.qq.com",
+        type=str,
+    )
+    current_config.ping_interval_seconds = click.prompt(
+        "Ping interval (seconds)",
+        default=current_config.ping_interval_seconds,
+        type=int,
+    )
+    current_config.reconnect_min_seconds = click.prompt(
+        "Reconnect min interval (seconds)",
+        default=current_config.reconnect_min_seconds,
+        type=int,
+    )
+    current_config.reconnect_max_seconds = click.prompt(
+        "Reconnect max interval (seconds)",
+        default=current_config.reconnect_max_seconds,
+        type=int,
+    )
+    current_config.processed_ids_path = prompt_path(
+        "Processed message ids path",
+        default=current_config.processed_ids_path or "",
+    )
+    current_config.route_store_path = prompt_path(
+        "Route store path",
+        default=current_config.route_store_path or "",
+    )
+    return current_config
+
+
 def configure_qq(current_config: QQConfig) -> QQConfig:
     """Configure QQ channel interactively."""
     click.echo("\n=== Configure QQ Channel ===")
@@ -610,6 +679,7 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "telegram": ("Telegram", configure_telegram),
     "dingtalk": ("DingTalk", configure_dingtalk),
     "feishu": ("Feishu", configure_feishu),
+    "wecom": ("WeCom", configure_wecom),
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
     "voice": ("Twilio", configure_voice),

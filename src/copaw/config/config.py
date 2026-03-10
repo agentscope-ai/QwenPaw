@@ -56,6 +56,18 @@ class FeishuConfig(BaseChannelConfig):
     media_dir: str = "~/.copaw/media"
 
 
+class WeComConfig(BaseChannelConfig):
+    show_streaming_reply: Optional[bool] = True
+    bot_id: str = ""
+    bot_secret: str = ""
+    ws_url: str = "wss://openws.work.weixin.qq.com"
+    ping_interval_seconds: int = 30
+    reconnect_min_seconds: int = 1
+    reconnect_max_seconds: int = 30
+    processed_ids_path: str = ""
+    route_store_path: str = ""
+
+
 class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
@@ -114,6 +126,7 @@ class ChannelConfig(BaseModel):
     discord: DiscordConfig = DiscordConfig()
     dingtalk: DingTalkConfig = DingTalkConfig()
     feishu: FeishuConfig = FeishuConfig()
+    wecom: WeComConfig = WeComConfig()
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
     mqtt: MQTTConfig = MQTTConfig()

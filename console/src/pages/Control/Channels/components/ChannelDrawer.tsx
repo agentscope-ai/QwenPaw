@@ -19,6 +19,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "dingtalk",
   "discord",
   "feishu",
+  "wecom",
 ];
 
 interface ChannelDrawerProps {
@@ -38,6 +39,8 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
   dingtalk:
     "https://copaw.agentscope.io/docs/channels/#%E9%92%89%E9%92%89%E6%8E%A8%E8%8D%90",
   feishu: "https://copaw.agentscope.io/docs/channels/#%E9%A3%9E%E4%B9%A6",
+  wecom:
+    "https://copaw.agentscope.io/docs/channels/#%E6%89%A9%E5%B1%95%E6%B8%A0%E9%81%93",
   imessage:
     "https://copaw.agentscope.io/docs/channels/#iMessage%E4%BB%85-macOS",
   discord: "https://copaw.agentscope.io/docs/channels/#Discord",
@@ -178,6 +181,59 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="media_dir" label="Media Dir">
               <Input placeholder="~/.copaw/media" />
+            </Form.Item>
+          </>
+        );
+      case "wecom":
+        return (
+          <>
+            <Form.Item
+              name="show_streaming_reply"
+              label="Show Streaming Reply"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item name="bot_id" label="Bot ID" rules={[{ required: true }]}>
+              <Input placeholder="wxwork-bot-id" />
+            </Form.Item>
+            <Form.Item
+              name="bot_secret"
+              label="Bot Secret"
+              rules={[{ required: true }]}
+            >
+              <Input.Password placeholder="Bot Secret" />
+            </Form.Item>
+            <Form.Item
+              name="ws_url"
+              label="WebSocket URL"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="wss://openws.work.weixin.qq.com" />
+            </Form.Item>
+            <Form.Item
+              name="ping_interval_seconds"
+              label="Ping Interval (sec)"
+            >
+              <InputNumber min={0} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="reconnect_min_seconds"
+              label="Reconnect Min (sec)"
+            >
+              <InputNumber min={1} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="reconnect_max_seconds"
+              label="Reconnect Max (sec)"
+            >
+              <InputNumber min={1} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="processed_ids_path" label="Processed IDs Path">
+              <Input placeholder="wecom_processed_ids.json" />
+            </Form.Item>
+            <Form.Item name="route_store_path" label="Route Store Path">
+              <Input placeholder="wecom_routes.json" />
             </Form.Item>
           </>
         );
