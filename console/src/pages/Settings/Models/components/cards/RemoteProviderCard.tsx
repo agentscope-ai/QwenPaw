@@ -62,7 +62,7 @@ export function RemoteProviderCard({
   const isConfigured =
     provider.is_local ||
     (provider.is_custom && provider.base_url) ||
-    (provider.id === "lmstudio" && !!provider.base_url) ||
+    (!provider.require_api_key && !!provider.base_url) ||
     provider.api_key;
   const hasModels = totalCount > 0;
   const isAvailable = isConfigured && hasModels;

@@ -291,9 +291,9 @@ CoPaw needs an LLM provider to work. You can set it up in three ways:
 | ------------ | -------------- | --------------------------------------------------- | -------------- |
 | ModelScope   | `modelscope`   | `https://api-inference.modelscope.cn/v1`            | `ms`           |
 | DashScope    | `dashscope`    | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
-| OpenAI       | `openai`       | `https://api.openai.com/v1`                         | `sk-`          |
+| OpenAI       | `openai`       | `https://api.openai.com/v1`                         | _(any)_        |
 | Azure OpenAI | `azure-openai` | _(you set it)_                                      | _(any)_        |
-| Anthropic    | `anthropic`    | `https://api.anthropic.com`                         | `sk-ant-`      |
+| Anthropic    | `anthropic`    | `https://api.anthropic.com`                         | _(any)_        |
 | Ollama       | `ollama`       | `http://localhost:11434`                            | _(none)_       |
 | LM Studio    | `lmstudio`     | `http://localhost:1234/v1`                          | _(none)_       |
 | Custom       | `custom`       | _(you set it)_                                      | _(any)_        |

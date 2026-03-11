@@ -18,6 +18,7 @@ export interface ProviderInfo {
   freeze_url: boolean;
   api_key: string;
   base_url: string;
+  require_api_key: boolean;
 }
 
 export interface ProviderConfigRequest {
