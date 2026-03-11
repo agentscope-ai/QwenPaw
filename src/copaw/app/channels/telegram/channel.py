@@ -130,7 +130,9 @@ async def _build_content_parts_from_message(
         return [], False, False
 
     content_parts: list[Any] = []
-    text = (getattr(message, "text", None) or getattr(message, "caption") or "").strip()
+    text = (
+        getattr(message, "text", None) or getattr(message, "caption") or ""
+    ).strip()
 
     entities = (
         getattr(message, "entities", None)
@@ -418,7 +420,8 @@ class TelegramChannel(BaseChannel):
     ) -> tuple[bool, list[Any]]:
         """Process media-only Telegram messages without waiting for text."""
         has_media = any(
-            getattr(part, "type", None) not in (ContentType.TEXT, ContentType.REFUSAL)
+            getattr(part, "type", None)
+            not in (ContentType.TEXT, ContentType.REFUSAL)
             for part in content_parts
         )
         if has_media:
@@ -704,7 +707,10 @@ class TelegramChannel(BaseChannel):
         if isinstance(value, str) and value.startswith("file://"):
             raw_path = file_url_to_local_path(value)
             if not raw_path:
-                logger.warning("telegram: could not resolve file URL: %s", value)
+                logger.warning(
+                    "telegram: could not resolve file URL: %s",
+                    value,
+                )
                 return
             local_path = Path(raw_path).resolve()
             allowed_root = self._media_dir.resolve()

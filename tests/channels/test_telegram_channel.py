@@ -236,7 +236,7 @@ async def test_send_media_warns_for_path_outside_media_dir() -> None:
     )
 
     with patch(
-        "copaw.app.channels.telegram.channel.logger"
+        "copaw.app.channels.telegram.channel.logger",
     ) as mock_logger:
         await channel.send_media(
             "chat-1",
