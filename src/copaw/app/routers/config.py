@@ -175,6 +175,18 @@ async def put_channel(
         from ...config.config import VoiceChannelConfig
 
         channel_config = VoiceChannelConfig(**single_channel_config)
+    elif channel_name == "mattermost":
+        from ...config.config import MattermostConfig
+
+        channel_config = MattermostConfig(**single_channel_config)
+    elif channel_name == "mqtt":
+        from ...config.config import MQTTConfig
+
+        channel_config = MQTTConfig(**single_channel_config)
+    elif channel_name == "matrix":
+        from ...config.config import MatrixConfig
+
+        channel_config = MatrixConfig(**single_channel_config)
     else:
         # For custom channels, just use the dict
         channel_config = single_channel_config

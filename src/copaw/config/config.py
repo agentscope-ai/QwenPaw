@@ -465,5 +465,6 @@ ChannelConfigUnion = Union[
     MattermostConfig,
     MQTTConfig,
     ConsoleConfig,
+    MatrixConfig,
     VoiceChannelConfig,
 ]
