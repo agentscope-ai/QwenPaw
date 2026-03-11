@@ -112,3 +112,14 @@ def resolve_skill_key(skill_name: str, metadata: SkillMetadata | None) -> str:
     if metadata and metadata.skill_key:
         return metadata.skill_key
     return skill_name
+
+
+def declared_skill_env_keys(metadata: SkillMetadata | None) -> set[str]:
+    """Return env keys explicitly declared by skill metadata."""
+    if metadata is None:
+        return set()
+
+    keys = set(metadata.requires.env)
+    if metadata.primary_env:
+        keys.add(metadata.primary_env)
+    return {item for item in keys if item}

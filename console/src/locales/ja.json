@@ -101,6 +101,7 @@
     "requiredBins": "必要なコマンド",
     "missing": "不足項目",
     "runtimeConfig": "実行設定",
+    "skillEnabledOverride": "実行時の有効状態を上書き",
     "skillEnabled": "実行時に有効",
     "apiKey": "API Key",
     "apiKeyHint": "metadata に primaryEnv がある場合、実行前にその環境変数へ注入されます。",

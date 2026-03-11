@@ -11,7 +11,11 @@ from typing import Any, Iterator
 from pydantic import BaseModel, Field
 
 from ..config import Config, SkillEntryConfig
-from .skill_metadata import SkillMetadata, resolve_skill_key
+from .skill_metadata import (
+    SkillMetadata,
+    declared_skill_env_keys,
+    resolve_skill_key,
+)
 
 
 class SkillEligibilityStatus(BaseModel):
@@ -150,6 +154,24 @@ def has_skill_env_overrides(
     return False
 
 
+def _build_pending_skill_env(
+    metadata: SkillMetadata | None,
+    skill_config: SkillEntryConfig,
+) -> dict[str, str]:
+    allowed_keys = declared_skill_env_keys(metadata)
+    pending_env = {
+        env_name: env_value
+        for env_name, env_value in skill_config.env.items()
+        if env_name in allowed_keys
+    }
+    if metadata and metadata.primary_env and skill_config.api_key:
+        pending_env.setdefault(
+            metadata.primary_env,
+            skill_config.api_key,
+        )
+    return pending_env
+
+
 @contextmanager
 def apply_skill_env_overrides(
     skills: list[Any],
@@ -157,6 +179,7 @@ def apply_skill_env_overrides(
 ) -> Iterator[None]:
     """Temporarily inject skill env/api_key overrides into process env."""
     original_values: dict[str, str | None] = {}
+    applied_values: dict[str, str] = {}
 
     try:
         for skill in skills:
@@ -165,18 +188,22 @@ def apply_skill_env_overrides(
             if not skill_config:
                 continue
 
-            pending_env = dict(skill_config.env)
-            if metadata and metadata.primary_env and skill_config.api_key:
-                pending_env.setdefault(
-                    metadata.primary_env,
-                    skill_config.api_key,
-                )
+            pending_env = _build_pending_skill_env(metadata, skill_config)
 
             for env_name, env_value in pending_env.items():
                 if not env_name or env_value is None:
                     continue
+                previous_applied = applied_values.get(env_name)
+                if (
+                    previous_applied is not None
+                    and previous_applied != env_value
+                ):
+                    raise ValueError(
+                        f"Conflicting skill env override for '{env_name}'",
+                    )
                 if env_name not in original_values:
                     original_values[env_name] = os.environ.get(env_name)
+                applied_values[env_name] = env_value
                 os.environ[env_name] = env_value
 
         yield

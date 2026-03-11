@@ -10,6 +10,7 @@ from ...agents.skills_manager import (
     SkillInfo,
     list_available_skills,
 )
+from ...agents.skill_metadata import declared_skill_env_keys
 from ...agents.skills_hub import (
     search_hub_skills,
     install_skill_from_hub,
@@ -112,16 +113,7 @@ def _build_skill_config_view(
 
 
 def _allowed_skill_env_keys(skill: SkillInfo) -> set[str]:
-    allowed: set[str] = set()
-    metadata = skill.metadata
-    if not metadata:
-        return allowed
-
-    if metadata.primary_env:
-        allowed.add(metadata.primary_env)
-    if metadata.requires:
-        allowed.update(item for item in metadata.requires.env if item)
-    return allowed
+    return declared_skill_env_keys(skill.metadata)
 
 
 def _validate_skill_env_payload(

@@ -102,6 +102,7 @@
     "requiredBins": "必需命令",
     "missing": "缺失项",
     "runtimeConfig": "运行配置",
+    "skillEnabledOverride": "覆盖运行时启用状态",
     "skillEnabled": "运行时启用",
     "apiKey": "API Key",
     "apiKeyHint": "若 skill metadata 声明了 primaryEnv，这里的值会在执行前注入对应环境变量。",

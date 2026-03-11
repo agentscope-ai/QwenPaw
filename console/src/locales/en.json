@@ -102,6 +102,7 @@
     "requiredBins": "Required Binaries",
     "missing": "Missing",
     "runtimeConfig": "Runtime Config",
+    "skillEnabledOverride": "Override runtime enabled state",
     "skillEnabled": "Enabled At Runtime",
     "apiKey": "API Key",
     "apiKeyHint": "If metadata declares primaryEnv, this value is injected into that env var before execution.",

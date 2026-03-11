@@ -81,11 +81,11 @@ name: demo_skill
 description: demo
 metadata:
   {
-    "copaw":
+        "copaw":
       {
         "skillKey": "demo_alias",
         "primaryEnv": "DEMO_API_KEY",
-        "requires": { "env": ["DEMO_API_KEY"] }
+        "requires": { "env": ["DEMO_API_KEY", "DEMO_REGION"] }
       }
   }
 ---
@@ -114,6 +114,88 @@ demo
 
     assert os.environ["DEMO_API_KEY"] == "existing-token"
     assert os.environ["DEMO_REGION"] == "us"
+
+
+def test_apply_skill_env_overrides_rejects_conflicting_values(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("DEMO_API_KEY", raising=False)
+
+    metadata = parse_skill_metadata_from_content(
+        """---
+name: demo_skill
+description: demo
+metadata:
+  {
+    "copaw":
+      {
+        "primaryEnv": "DEMO_API_KEY",
+        "requires": { "env": ["DEMO_API_KEY"] }
+      }
+  }
+---
+demo
+""",
+    )
+    assert metadata is not None
+
+    config = Config(
+        skills=SkillsConfig(
+            entries={
+                "skill_a": SkillEntryConfig(apiKey="first-token"),
+                "skill_b": SkillEntryConfig(apiKey="second-token"),
+            },
+        ),
+    )
+
+    skill_a = DummySkill(name="skill_a", metadata=metadata)
+    skill_b = DummySkill(name="skill_b", metadata=metadata)
+
+    with pytest.raises(ValueError) as exc:
+        with apply_skill_env_overrides([skill_a, skill_b], config):
+            pass
+
+    assert "DEMO_API_KEY" in str(exc.value)
+
+
+def test_apply_skill_env_overrides_filters_undeclared_env(monkeypatch) -> None:
+    monkeypatch.delenv("UNDECLARED_ENV", raising=False)
+    monkeypatch.delenv("DEMO_REGION", raising=False)
+
+    metadata = parse_skill_metadata_from_content(
+        """---
+name: demo_skill
+description: demo
+metadata:
+  {
+    "copaw":
+      {
+        "requires": { "env": ["DEMO_REGION"] }
+      }
+  }
+---
+demo
+""",
+    )
+    assert metadata is not None
+
+    config = Config(
+        skills=SkillsConfig(
+            entries={
+                "demo_skill": SkillEntryConfig(
+                    env={
+                        "DEMO_REGION": "cn",
+                        "UNDECLARED_ENV": "should-not-be-injected",
+                    },
+                ),
+            },
+        ),
+    )
+
+    skill = DummySkill(name="demo_skill", metadata=metadata)
+    with apply_skill_env_overrides([skill], config):
+        assert os.environ["DEMO_REGION"] == "cn"
+        assert "UNDECLARED_ENV" not in os.environ
 
 
 def test_validate_skill_env_payload_rejects_undeclared_keys() -> None:

@@ -40,6 +40,7 @@ function parseFrontmatter(content: string): Record<string, string> | null {
 }
 
 type SkillDrawerFormValues = SkillSpec & {
+  enabledOverride?: boolean;
   skillEnabled?: boolean;
   apiKey?: string;
   clearApiKey?: boolean;
@@ -140,6 +141,9 @@ export function SkillDrawer({
         content: editingSkill.content,
         source: editingSkill.source,
         path: editingSkill.path,
+        enabledOverride:
+          editingSkill.config_status?.enabled !== undefined &&
+          editingSkill.config_status?.enabled !== null,
         skillEnabled:
           editingSkill.config_status?.enabled ?? editingSkill.enabled ?? false,
         apiKey: "",
@@ -162,6 +166,8 @@ export function SkillDrawer({
       }
 
       form.setFieldsValue({
+        enabledOverride:
+          configView.enabled !== undefined && configView.enabled !== null,
         skillEnabled: configView.enabled ?? editingSkill.enabled ?? false,
         apiKey: "",
         clearApiKey: false,
@@ -198,6 +204,7 @@ export function SkillDrawer({
     }
     try {
       const values = await form.validateFields([
+        "enabledOverride",
         "skillEnabled",
         "apiKey",
         "clearApiKey",
@@ -208,7 +215,7 @@ export function SkillDrawer({
       const env = parseJsonRecord(values.envJson || "", "env");
       const config = parseJsonRecord(values.configJson || "", "config");
       const payload: SkillConfigUpdatePayload = {
-        enabled: values.skillEnabled ?? null,
+        enabled: values.enabledOverride ? (values.skillEnabled ?? false) : null,
         clearApiKey: values.clearApiKey || false,
         env: Object.fromEntries(
           Object.entries(env).map(([key, value]) => [key, String(value ?? "")]),
@@ -384,11 +391,23 @@ export function SkillDrawer({
             </div>
 
             <Form.Item
+              name="enabledOverride"
+              label={t("skills.skillEnabledOverride")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+
+            <Form.Item shouldUpdate noStyle>
+              {({ getFieldValue }) => (
+                <Form.Item
               name="skillEnabled"
               label={t("skills.skillEnabled")}
               valuePropName="checked"
             >
-              <Switch />
+                  <Switch disabled={!getFieldValue("enabledOverride")} />
+                </Form.Item>
+              )}
             </Form.Item>
 
             <Form.Item

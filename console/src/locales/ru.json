@@ -102,6 +102,7 @@
     "requiredBins": "Нужные команды",
     "missing": "Отсутствует",
     "runtimeConfig": "Runtime-конфиг",
+    "skillEnabledOverride": "Переопределить состояние включения",
     "skillEnabled": "Включён во время выполнения",
     "apiKey": "API Key",
     "apiKeyHint": "Если metadata указывает primaryEnv, значение будет инжектировано в эту env-переменную перед выполнением.",
