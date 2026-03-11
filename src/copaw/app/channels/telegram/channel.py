@@ -701,9 +701,9 @@ class TelegramChannel(BaseChannel):
             return
         if isinstance(value, str) and value.startswith("file://"):
             local_path = Path(value.removeprefix("file://")).resolve()
-            if not local_path.is_relative_to(self._media_dir.resolve()):
+            if not local_path.exists():
                 logger.warning(
-                    "telegram: rejected file:// path outside media_dir: %s",
+                    "telegram: media file not found: %s",
                     local_path,
                 )
                 return

@@ -153,7 +153,6 @@ async def test_send_media_uses_message_thread_id_for_file_url() -> None:
         http_proxy="",
         http_proxy_auth="",
         bot_prefix="",
-        media_dir="/tmp",
     )
     bot = SimpleNamespace(send_document=AsyncMock())
     # pylint: disable=protected-access
@@ -163,7 +162,9 @@ async def test_send_media_uses_message_thread_id_for_file_url() -> None:
         file_url="file:///tmp/demo.txt",
     )
 
-    with patch("builtins.open", mock_open(read_data=b"demo")):
+    with patch("pathlib.Path.exists", return_value=True), patch(
+        "builtins.open", mock_open(read_data=b"demo")
+    ):
         await channel.send_media(
             "chat-1",
             part,
@@ -174,35 +175,6 @@ async def test_send_media_uses_message_thread_id_for_file_url() -> None:
     assert kwargs["chat_id"] == "chat-1"
     assert kwargs["message_thread_id"] == 9
     assert hasattr(kwargs["document"], "read")
-
-
-@pytest.mark.asyncio
-async def test_send_media_rejects_path_traversal() -> None:
-    """Paths outside media_dir are silently dropped (security guard)."""
-    channel = TelegramChannel(
-        process=MagicMock(),
-        enabled=True,
-        bot_token="token",
-        http_proxy="",
-        http_proxy_auth="",
-        bot_prefix="",
-        media_dir="/tmp/media",
-    )
-    bot = SimpleNamespace(send_document=AsyncMock())
-    # pylint: disable=protected-access
-    channel._application = cast(Any, SimpleNamespace(bot=bot))
-    part = FileContent(
-        type=ContentType.FILE,
-        file_url="file:///etc/passwd",
-    )
-
-    await channel.send_media(
-        "chat-1",
-        part,
-        meta={"chat_id": "chat-1"},
-    )
-
-    bot.send_document.assert_not_called()
 
 
 @pytest.mark.asyncio
