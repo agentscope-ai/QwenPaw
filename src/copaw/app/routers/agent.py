@@ -170,3 +170,34 @@ async def put_agents_running_config(
     config.agents.running = running_config
     save_config(config)
     return running_config
+
+
+@router.get(
+    "/system-prompt-files",
+    response_model=list[str],
+    summary="Get system prompt files",
+    description="Get list of markdown files enabled for system prompt",
+)
+async def get_system_prompt_files() -> list[str]:
+    """Get list of enabled system prompt files."""
+    config = load_config()
+    return config.agents.system_prompt_files
+
+
+@router.put(
+    "/system-prompt-files",
+    response_model=list[str],
+    summary="Update system prompt files",
+    description="Update list of markdown files enabled for system prompt",
+)
+async def put_system_prompt_files(
+    files: list[str] = Body(
+        ...,
+        description="List of markdown filenames to load into system prompt",
+    ),
+) -> list[str]:
+    """Update list of enabled system prompt files."""
+    config = load_config()
+    config.agents.system_prompt_files = files
+    save_config(config)
+    return files

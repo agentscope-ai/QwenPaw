@@ -39,6 +39,7 @@ export function useChannels() {
       "discord",
       "telegram",
       "qq",
+      "matrix",
     ],
     [],
   );

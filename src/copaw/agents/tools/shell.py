@@ -10,10 +10,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
+from agentscope.tool import ToolResponse
 
 from copaw.constant import WORKING_DIR
+from .utils import truncate_shell_output
 
 
 def _execute_subprocess_sync(
@@ -45,17 +46,15 @@ def _execute_subprocess_sync(
             cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            text=False,
             cwd=cwd,
             timeout=timeout,
-            encoding=locale.getpreferredencoding(False) or "utf-8",
-            errors="replace",
             check=True,
         )
         return (
             result.returncode,
-            result.stdout.strip("\n"),
-            result.stderr.strip("\n"),
+            smart_decode(result.stdout),
+            smart_decode(result.stderr),
         )
     except subprocess.TimeoutExpired:
         return (
@@ -124,13 +123,8 @@ async def execute_shell_command(
                     proc.communicate(),
                     timeout=timeout,
                 )
-                encoding = locale.getpreferredencoding(False) or "utf-8"
-                stdout_str = stdout.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
-                stderr_str = stderr.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
+                stdout_str = smart_decode(stdout)
+                stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
             except asyncio.TimeoutError:
@@ -160,19 +154,8 @@ async def execute_shell_command(
                         )
                     except asyncio.TimeoutError:
                         stdout, stderr = b"", b""
-                    encoding = locale.getpreferredencoding(False) or "utf-8"
-                    stdout_str = stdout.decode(
-                        encoding,
-                        errors="replace",
-                    ).strip(
-                        "\n",
-                    )
-                    stderr_str = stderr.decode(
-                        encoding,
-                        errors="replace",
-                    ).strip(
-                        "\n",
-                    )
+                    stdout_str = smart_decode(stdout)
+                    stderr_str = smart_decode(stderr)
                     if stderr_str:
                         stderr_str += f"\n{stderr_suffix}"
                     else:
@@ -180,6 +163,10 @@ async def execute_shell_command(
                 except ProcessLookupError:
                     stdout_str = ""
                     stderr_str = stderr_suffix
+
+        # Apply output truncation
+        stdout_str = truncate_shell_output(stdout_str)
+        stderr_str = truncate_shell_output(stderr_str)
 
         # Format the response in a human-friendly way
         if returncode == 0:
@@ -215,3 +202,13 @@ async def execute_shell_command(
                 ),
             ],
         )
+
+
+def smart_decode(data: bytes) -> str:
+    try:
+        decoded_str = data.decode("utf-8")
+    except UnicodeDecodeError:
+        encoding = locale.getpreferredencoding(False) or "utf-8"
+        decoded_str = data.decode(encoding, errors="replace")
+
+    return decoded_str.strip("\n")

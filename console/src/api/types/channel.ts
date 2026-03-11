@@ -3,6 +3,10 @@ export interface BaseChannelConfig {
   bot_prefix: string;
   filter_tool_messages?: boolean;
   filter_thinking?: boolean;
+  dm_policy?: "open" | "allowlist";
+  group_policy?: "open" | "allowlist";
+  allow_from?: string[];
+  require_mention?: boolean;
 }
 
 export interface IMessageChannelConfig extends BaseChannelConfig {
@@ -19,9 +23,6 @@ export interface DiscordConfig extends BaseChannelConfig {
 export interface DingTalkConfig extends BaseChannelConfig {
   client_id: string;
   client_secret: string;
-  dm_policy: "open" | "allowlist";
-  group_policy: "open" | "allowlist";
-  allow_from: string[];
 }
 
 export interface FeishuConfig extends BaseChannelConfig {
@@ -42,6 +43,28 @@ export interface TelegramConfig extends BaseChannelConfig {
   http_proxy: string;
   http_proxy_auth: string;
   show_typing?: boolean;
+}
+
+export interface MQTTConfig extends BaseChannelConfig {
+  host: string;
+  port: number;
+  transport: string;
+  clean_session: boolean;
+  qos: number;
+  username: string;
+  password: string;
+  subscribe_topic: string;
+  publish_topic: string;
+  tls_enabled?: boolean;
+  tls_ca_certs?: string;
+  tls_certfile?: string;
+  tls_keyfile?: string;
+}
+
+export interface MatrixConfig extends BaseChannelConfig {
+  homeserver: string;
+  user_id: string;
+  access_token: string;
 }
 
 export type ConsoleConfig = BaseChannelConfig;
@@ -65,6 +88,8 @@ export interface ChannelConfig {
   feishu: FeishuConfig;
   qq: QQConfig;
   telegram: TelegramConfig;
+  mqtt: MQTTConfig;
+  matrix: MatrixConfig;
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
 }
@@ -77,4 +102,6 @@ export type SingleChannelConfig =
   | QQConfig
   | ConsoleConfig
   | TelegramConfig
+  | MQTTConfig
+  | MatrixConfig
   | VoiceChannelConfig;

@@ -119,6 +119,12 @@ Create and manage scheduled jobs that CoPaw runs automatically by time.
 
 **Create a new job:**
 
+> If the cron job fails to be created, please refer to the **Troubleshooting Scheduled (Cron) Tasks** section in the [FAQ](https://copaw.agentscope.io/docs/faq) to identify the cause.
+
+The **simplest way to create a cron job is to chat directly with CoPaw** and let it handle the creation for you. For example, if you want to receive a reminder to drink water on DingTalk, simply message CoPaw on DingTalk: "Help me create a cron job to remind me to drink water every 5 minutes." Once created, you can view the new task on the Cron Jobs page in the console.
+
+Alternatively, you can create tasks directly via the Console interface:
+
 1. Click **+ Create Job**.
 
    ![Create Cron Job](https://img.alicdn.com/imgextra/i2/O1CN01jFAcIZ1wCAqyxDGKX_!!6000000006271-2-tps-3822-2070.png)

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import { CopawMascot } from "./CopawMascot";
 import { t, type Lang } from "../i18n";
@@ -100,21 +100,94 @@ export function Hero({
       <motion.div variants={item} style={{ marginBottom: "var(--space-5)" }}>
         <Link
           to={docsPath.replace(/\/$/, "") || "/docs"}
+          className="hero-cta-button"
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: "var(--space-1)",
-            padding: "var(--space-2) var(--space-4)",
-            background: "var(--text)",
+            gap: "var(--space-2)",
+            padding: "var(--space-3) var(--space-5)",
+            background: "linear-gradient(135deg, #1d1d1f 0%, #2d2d2f 100%)",
             color: "var(--surface)",
-            borderRadius: "0.5rem",
-            fontSize: "1rem",
+            borderRadius: "0.75rem",
+            fontSize: "1.0625rem",
             fontWeight: 600,
+            textDecoration: "none",
+            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+            transition: "all 0.2s ease",
+            position: "relative",
+            overflow: "hidden",
           }}
         >
-          {t(lang, "hero.cta")}
-          <ArrowRight size={20} strokeWidth={2} aria-hidden />
+          <span style={{ position: "relative", zIndex: 1 }}>
+            {t(lang, "hero.cta")}
+          </span>
+          <ArrowRight
+            size={20}
+            strokeWidth={2}
+            aria-hidden
+            style={{ position: "relative", zIndex: 1 }}
+          />
         </Link>
+      </motion.div>
+      <style>{`
+        .hero-cta-button::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+          transition: left 0.5s ease;
+        }
+
+        .hero-cta-button:hover {
+          transform: translateY(-2px) scale(1.02);
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .hero-cta-button:hover::before {
+          left: 100%;
+        }
+      `}</style>
+      <motion.div
+        variants={item}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          marginTop: "var(--space-6)",
+        }}
+      >
+        <motion.div
+          animate={{
+            y: [0, 8, 0],
+          }}
+          transition={{
+            duration: 1.5,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          style={{
+            color: "var(--text-muted)",
+            opacity: 0.6,
+          }}
+        >
+          <ChevronDown size={28} strokeWidth={2} aria-hidden />
+        </motion.div>
+        <p
+          style={{
+            fontSize: "0.875rem",
+            color: "var(--text-muted)",
+            margin: 0,
+            fontWeight: 500,
+          }}
+        >
+          {lang === "zh"
+            ? "向下滚动查看快速开始"
+            : "Scroll down for quick start"}
+        </p>
       </motion.div>
     </motion.section>
   );

@@ -35,6 +35,7 @@ BUILTIN_CHANNEL_TYPES = (
     "feishu",
     "qq",
     "telegram",
+    "mqtt",
     "console",
     "voice",
 )

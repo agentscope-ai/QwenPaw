@@ -12,6 +12,7 @@ import CronJobsPage from "../../pages/Control/CronJobs";
 import HeartbeatPage from "../../pages/Control/Heartbeat";
 import AgentConfigPage from "../../pages/Agent/Config";
 import SkillsPage from "../../pages/Agent/Skills";
+import ToolsPage from "../../pages/Agent/Tools";
 import WorkspacePage from "../../pages/Agent/Workspace";
 import MCPPage from "../../pages/Agent/MCP";
 import ModelsPage from "../../pages/Settings/Models";
@@ -26,6 +27,7 @@ const pathToKey: Record<string, string> = {
   "/cron-jobs": "cron-jobs",
   "/heartbeat": "heartbeat",
   "/skills": "skills",
+  "/tools": "tools",
   "/mcp": "mcp",
   "/workspace": "workspace",
   "/agents": "agents",
@@ -61,6 +63,7 @@ export default function MainLayout() {
               <Route path="/cron-jobs" element={<CronJobsPage />} />
               <Route path="/heartbeat" element={<HeartbeatPage />} />
               <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/tools" element={<ToolsPage />} />
               <Route path="/mcp" element={<MCPPage />} />
               <Route path="/workspace" element={<WorkspacePage />} />
               <Route path="/models" element={<ModelsPage />} />

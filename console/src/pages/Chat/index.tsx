@@ -8,11 +8,11 @@ import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
-import { useLocalStorageState } from "ahooks";
-import defaultConfig, { DefaultConfig } from "./OptionsPanel/defaultConfig";
+import defaultConfig from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
 import { getApiUrl, getApiToken } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
+import ModelSelector from "./ModelSelector";
 import "./index.module.less";
 
 interface CustomWindow extends Window {
@@ -23,19 +23,11 @@ interface CustomWindow extends Window {
 
 declare const window: CustomWindow;
 
-type OptionsConfig = DefaultConfig;
-
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [showModelPrompt, setShowModelPrompt] = useState(false);
-  const [optionsConfig] = useLocalStorageState<OptionsConfig>(
-    "agent-scope-runtime-webui-options",
-    {
-      defaultValue: defaultConfig,
-      listenStorageChange: true,
-    },
-  );
+  const optionsConfig = defaultConfig;
 
   const handleConfigureModel = () => {
     setShowModelPrompt(false);
@@ -108,12 +100,14 @@ export default function ChatPage() {
       }
 
       const url = optionsConfig?.api?.baseURL || getApiUrl("/agent/process");
-      return fetch(url, {
+      const response = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
+
+      return response;
     };
 
     return {
@@ -124,6 +118,7 @@ export default function ChatPage() {
       },
       theme: {
         ...optionsConfig.theme,
+        rightHeader: <ModelSelector />,
       },
       api: {
         ...optionsConfig.api,

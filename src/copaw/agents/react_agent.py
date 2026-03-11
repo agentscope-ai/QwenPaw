@@ -41,7 +41,6 @@ from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
 from ..config import load_config
 from ..constant import (
-    MEMORY_COMPACT_KEEP_RECENT,
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
@@ -167,39 +166,38 @@ class CoPawAgent(ReActAgent):
         """
         toolkit = Toolkit()
 
-        # Register built-in tools
-        toolkit.register_tool_function(
-            execute_shell_command,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            read_file,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            write_file,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            edit_file,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            browser_use,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            desktop_screenshot,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            send_file_to_user,
-            namesake_strategy=namesake_strategy,
-        )
-        toolkit.register_tool_function(
-            get_current_time,
-            namesake_strategy=namesake_strategy,
-        )
+        # Load config to check which tools are enabled
+        config = load_config()
+        enabled_tools = {}
+        if hasattr(config, "tools") and hasattr(config.tools, "builtin_tools"):
+            enabled_tools = {
+                name: tool_config.enabled
+                for name, tool_config in config.tools.builtin_tools.items()
+            }
+
+        # Map of tool functions
+        tool_functions = {
+            "execute_shell_command": execute_shell_command,
+            "read_file": read_file,
+            "write_file": write_file,
+            "edit_file": edit_file,
+            "browser_use": browser_use,
+            "desktop_screenshot": desktop_screenshot,
+            "send_file_to_user": send_file_to_user,
+            "get_current_time": get_current_time,
+        }
+
+        # Register only enabled tools
+        for tool_name, tool_func in tool_functions.items():
+            # If tool not in config, enable by default (backward compatibility)
+            if enabled_tools.get(tool_name, True):
+                toolkit.register_tool_function(
+                    tool_func,
+                    namesake_strategy=namesake_strategy,
+                )
+                logger.debug("Registered tool: %s", tool_name)
+            else:
+                logger.debug("Skipped disabled tool: %s", tool_name)
 
         return toolkit
 
@@ -263,25 +261,9 @@ class CoPawAgent(ReActAgent):
         # Register memory_search tool if enabled and available
         if self._enable_memory_manager and self.memory_manager is not None:
             # update memory manager
+            self.memory = self.memory_manager.get_in_memory_memory()
             self.memory_manager.chat_model = self.model
             self.memory_manager.formatter = self.formatter
-            memory_toolkit = Toolkit()
-            memory_toolkit.register_tool_function(
-                read_file,
-                namesake_strategy=self._namesake_strategy,
-            )
-            memory_toolkit.register_tool_function(
-                write_file,
-                namesake_strategy=self._namesake_strategy,
-            )
-            memory_toolkit.register_tool_function(
-                edit_file,
-                namesake_strategy=self._namesake_strategy,
-            )
-            self.memory_manager.toolkit = memory_toolkit
-            self.memory_manager.update_config_params()
-
-            self.memory = self.memory_manager.get_in_memory_memory()
 
             # Register memory_search as a tool function
             self.toolkit.register_tool_function(
@@ -309,8 +291,6 @@ class CoPawAgent(ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
-                memory_compact_threshold=self._memory_compact_threshold,
-                keep_recent=MEMORY_COMPACT_KEEP_RECENT,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",

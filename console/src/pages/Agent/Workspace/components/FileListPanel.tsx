@@ -1,6 +1,19 @@
 import React from "react";
 import { Button, Card } from "@agentscope-ai/design";
 import { ReloadOutlined } from "@ant-design/icons";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { FileItem } from "./FileItem";
 import { useTranslation } from "react-i18next";
@@ -12,9 +25,12 @@ interface FileListPanelProps {
   dailyMemories: DailyMemoryFile[];
   expandedMemory: boolean;
   workspacePath: string;
+  enabledFiles: string[];
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
+  onToggleEnabled: (filename: string) => void;
+  onReorder: (newOrder: string[]) => void;
 }
 
 export const FileListPanel: React.FC<FileListPanelProps> = ({
@@ -22,11 +38,34 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   selectedFile,
   dailyMemories,
   expandedMemory,
+  enabledFiles,
   onRefresh,
   onFileClick,
   onDailyMemoryClick,
+  onToggleEnabled,
+  onReorder,
 }) => {
   const { t } = useTranslation();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = enabledFiles.indexOf(active.id as string);
+    const newIndex = enabledFiles.indexOf(over.id as string);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newOrder = arrayMove(enabledFiles, oldIndex, newIndex);
+    onReorder(newOrder);
+  };
 
   return (
     <div className={styles.fileListPanel}>
@@ -52,17 +91,33 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
 
         <div className={styles.scrollContainer}>
           {files.length > 0 ? (
-            files.map((file) => (
-              <FileItem
-                key={file.filename}
-                file={file}
-                selectedFile={selectedFile}
-                expandedMemory={expandedMemory}
-                dailyMemories={dailyMemories}
-                onFileClick={onFileClick}
-                onDailyMemoryClick={onDailyMemoryClick}
-              />
-            ))
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={enabledFiles}
+                strategy={verticalListSortingStrategy}
+              >
+                {files.map((file) => {
+                  const isEnabled = enabledFiles.includes(file.filename);
+                  return (
+                    <FileItem
+                      key={file.filename}
+                      file={file}
+                      selectedFile={selectedFile}
+                      expandedMemory={expandedMemory}
+                      dailyMemories={dailyMemories}
+                      enabled={isEnabled}
+                      onFileClick={onFileClick}
+                      onDailyMemoryClick={onDailyMemoryClick}
+                      onToggleEnabled={onToggleEnabled}
+                    />
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
           ) : (
             <div className={styles.emptyState}>{t("workspace.noFiles")}</div>
           )}

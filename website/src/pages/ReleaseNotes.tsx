@@ -22,6 +22,7 @@ interface ReleaseNotesProps {
 }
 
 const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
+  { version: "v0.0.6" },
   { version: "v0.0.5" },
   { version: "v0.0.5-beta.3" },
   { version: "v0.0.5-beta.2" },

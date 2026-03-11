@@ -15,7 +15,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.3.0.5",
+    "reme-ai==0.3.0.6b3",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -23,6 +23,10 @@ dependencies = [
     "lark-oapi>=1.5.3",
     "python-telegram-bot>=20.0",
     "twilio>=9.10.2",
+    "pywebview>=4.0",
+    "aiofiles>=24.1.0",
+    "paho-mqtt>=2.0.0",
+    "matrix-nio>=0.24.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -64,10 +68,14 @@ llamacpp = [
 ]
 mlx = [
     "copaw[local]",
-    "mlx-lm>=0.10.0",
+    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
 ollama = [
     "ollama>=0.6.1",
+]
+full = [
+    "copaw[local,ollama,llamacpp]",
+    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
 
 [tool.pytest.ini_options]

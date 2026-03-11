@@ -15,11 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_messages(messages: list[dict]) -> list[dict]:
-    """Ensure every message ``content`` is a plain string.
+    """Normalise messages for MLX tokenizer chat templates.
 
-    agentscope formatters may produce content as a list of block dicts
-    (e.g. ``[{"type": "text", "text": "..."}]``), but
-    ``tokenizer.apply_chat_template`` requires content to be a plain string.
+    * Content must be a plain string (never ``None`` or a list of blocks).
+    * ``tool_calls`` must be a proper list or absent (never ``None``).
     """
     out: list[dict] = []
     for msg in messages:
@@ -32,6 +31,12 @@ def _normalize_messages(messages: list[dict]) -> list[dict]:
                 elif isinstance(block, str):
                     parts.append(block)
             msg = {**msg, "content": "\n".join(parts)}
+        elif content is None:
+            msg = {**msg, "content": ""}
+
+        if "tool_calls" in msg and not msg["tool_calls"]:
+            msg = {k: v for k, v in msg.items() if k != "tool_calls"}
+
         out.append(msg)
     return out
 

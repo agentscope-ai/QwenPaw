@@ -5,6 +5,10 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import re
+import tempfile
+from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any, Optional
 
 import aiohttp
@@ -19,14 +23,23 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
-from ..base import BaseChannel, OnReplySent, ProcessHandler
+from ..base import (
+    BaseChannel,
+    OnReplySent,
+    OutgoingContentPart,
+    ProcessHandler,
+)
 
 logger = logging.getLogger(__name__)
+
+# Regex that matches a code-fence opening/closing line (``` or ~~~).
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
 class DiscordChannel(BaseChannel):
     channel = "discord"
     uses_manager_queue = True
+    _DISCORD_MAX_LEN: int = 2000
 
     def __init__(
         self,
@@ -40,6 +53,11 @@ class DiscordChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -47,6 +65,11 @@ class DiscordChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.token = token
@@ -83,7 +106,18 @@ class DiscordChannel(BaseChannel):
                 text = (message.content or "").strip()
                 attachments = message.attachments
 
-                # Build runtime content parts
+                is_bot_mentioned = False
+                bot_user = self._client.user
+                if getattr(message, "mention_everyone", False):
+                    is_bot_mentioned = True
+                if bot_user and bot_user in message.mentions:
+                    is_bot_mentioned = True
+                    text = re.sub(
+                        rf"<@!?{bot_user.id}>",
+                        "",
+                        text,
+                    ).strip()
+
                 content_parts = []
                 if text:
                     content_parts.append(
@@ -148,6 +182,7 @@ class DiscordChannel(BaseChannel):
                                 ),
                             )
 
+                is_group = message.guild is not None
                 meta = {
                     "user_id": str(message.author.id),
                     "channel_id": str(message.channel.id),
@@ -155,8 +190,28 @@ class DiscordChannel(BaseChannel):
                     if message.guild
                     else None,
                     "message_id": str(message.id),
-                    "is_dm": message.guild is None,
+                    "is_dm": not is_group,
+                    "is_group": is_group,
                 }
+                if is_bot_mentioned:
+                    meta["bot_mentioned"] = True
+
+                allowed, error_msg = self._check_allowlist(
+                    str(message.author.id),
+                    is_group,
+                )
+                if not allowed:
+                    logger.info(
+                        "discord allowlist blocked: sender=%s is_group=%s",
+                        message.author.id,
+                        is_group,
+                    )
+                    await message.channel.send(error_msg or "")
+                    return
+
+                if not self._check_group_mention(is_group, meta):
+                    return
+
                 native = {
                     "channel_id": self.channel,
                     "sender_id": str(message.author),
@@ -176,6 +231,12 @@ class DiscordChannel(BaseChannel):
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ) -> "DiscordChannel":
+        allow_from_env = os.getenv("DISCORD_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("DISCORD_CHANNEL_ENABLED", "1") == "1",
@@ -187,6 +248,11 @@ class DiscordChannel(BaseChannel):
             http_proxy_auth=os.getenv("DISCORD_HTTP_PROXY_AUTH", ""),
             bot_prefix=os.getenv("DISCORD_BOT_PREFIX", "[BOT] "),
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("DISCORD_DM_POLICY", "open"),
+            group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("DISCORD_DENY_MESSAGE", ""),
+            require_mention=os.getenv("DISCORD_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -210,7 +276,99 @@ class DiscordChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=config.dm_policy or "open",
+            group_policy=config.group_policy or "open",
+            allow_from=config.allow_from or [],
+            deny_message=config.deny_message or "",
+            require_mention=config.require_mention,
         )
+
+    async def _resolve_target(self, to_handle, meta):
+        """Resolve a Discord Messageable from meta or to_handle."""
+        meta = meta or {}
+        if not meta.get("channel_id") and not meta.get("user_id"):
+            meta.update(self._route_from_handle(to_handle))
+        channel_id = meta.get("channel_id")
+        user_id = meta.get("user_id")
+        if channel_id:
+            ch = self._client.get_channel(int(channel_id))
+            if ch is None:
+                ch = await self._client.fetch_channel(
+                    int(channel_id),
+                )
+            return ch
+        if user_id:
+            user = self._client.get_user(int(user_id))
+            if user is None:
+                user = await self._client.fetch_user(
+                    int(user_id),
+                )
+            return user.dm_channel or await user.create_dm()
+        return None
+
+    @staticmethod
+    def _chunk_text(text: str, max_len: int = 2000) -> list[str]:
+        """Split *text* into chunks that fit Discord's message limit.
+
+        Splits at newline boundaries to preserve formatting.  If a single
+        line exceeds *max_len* it is hard-split at *max_len*.
+
+        Markdown code fences are tracked so that a chunk ending inside an
+        open fence gets a closing fence appended and the next chunk gets
+        a matching opening fence prepended.  This keeps code blocks
+        rendered correctly across split messages.
+        """
+        if len(text) <= max_len:
+            return [text]
+
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+        fence_open: str = ""  # e.g. "```python"
+
+        def _flush() -> None:
+            nonlocal fence_open
+            body = "".join(current).rstrip("\n")
+            if fence_open:
+                body += "\n```"  # close dangling fence
+            chunks.append(body)
+            current.clear()
+
+        for line in text.split("\n"):
+            line_with_nl = line + "\n"
+            stripped = line.strip()
+
+            # Detect fence toggle.
+            if _FENCE_RE.match(stripped):
+                if fence_open:
+                    fence_open = ""
+                else:
+                    fence_open = stripped
+
+            # Flush if adding this line would exceed the limit.
+            if current and current_len + len(line_with_nl) > max_len:
+                saved_fence = fence_open
+                _flush()
+                current_len = 0
+                # Re-open the fence in the next chunk.
+                if saved_fence:
+                    fence_open = saved_fence
+                    reopener = saved_fence + "\n"
+                    current.append(reopener)
+                    current_len += len(reopener)
+
+            # Single line exceeds max_len -> hard-split.
+            if len(line_with_nl) > max_len:
+                for i in range(0, len(line), max_len):
+                    chunks.append(line[i : i + max_len])
+            else:
+                current.append(line_with_nl)
+                current_len += len(line_with_nl)
+
+        if current:
+            chunks.append("".join(current).rstrip("\n"))
+
+        return [c for c in chunks if c.strip()]
 
     async def send(
         self,
@@ -228,6 +386,8 @@ class DiscordChannel(BaseChannel):
             1) meta["channel_id"]  -> send to that channel
             2) meta["user_id"]     -> DM that user (opens/uses DM channel)
         - If neither is provided, this raises ValueError.
+        - Messages exceeding 2000 chars are automatically split into
+            multiple messages preserving markdown code fences.
         """
         if not self.enabled:
             return
@@ -235,38 +395,107 @@ class DiscordChannel(BaseChannel):
             raise RuntimeError("Discord client is not initialized")
         if not self._client.is_ready():
             raise RuntimeError("Discord client is not ready yet")
+        target = await self._resolve_target(to_handle, meta)
+        if not target:
+            raise ValueError(
+                "DiscordChannel.send requires meta['channel_id']"
+                " or meta['user_id']",
+            )
+        for chunk in self._chunk_text(text, self._DISCORD_MAX_LEN):
+            await target.send(chunk)
 
-        meta = meta or {}
+    async def send_content_parts(
+        self,
+        to_handle: str,
+        parts: list[OutgoingContentPart],
+        meta: Optional[dict] = None,
+    ) -> None:
+        media_types = {
+            ContentType.IMAGE,
+            ContentType.VIDEO,
+            ContentType.AUDIO,
+            ContentType.FILE,
+        }
+        text_parts = [
+            p
+            for p in (parts or [])
+            if getattr(p, "type", None) not in media_types
+        ]
+        media_parts = [
+            p for p in (parts or []) if getattr(p, "type", None) in media_types
+        ]
+        if text_parts:
+            await super().send_content_parts(
+                to_handle,
+                text_parts,
+                meta,
+            )
+        for m in media_parts:
+            await self.send_media(to_handle, m, meta)
 
-        if not meta.get("channel_id") and not meta.get("user_id"):
-            meta.update(self._route_from_handle(to_handle))
-
-        channel_id = meta.get("channel_id")
-        user_id = meta.get("user_id")
-
-        if channel_id:
-            ch = self._client.get_channel(int(channel_id))
-            if ch is None:
-                ch = await self._client.fetch_channel(
-                    int(channel_id),
-                )
-            await ch.send(text)
+    async def send_media(
+        self,
+        to_handle: str,
+        part: OutgoingContentPart,
+        meta: Optional[dict] = None,
+    ) -> None:
+        """Send a media part as a Discord file attachment."""
+        if not self.enabled or not self._client:
             return
-
-        if user_id:
-            user = self._client.get_user(int(user_id))
-            if user is None:
-                user = await self._client.fetch_user(
-                    int(user_id),
-                )
-            dm = user.dm_channel or await user.create_dm()
-            await dm.send(text)
+        if not self._client.is_ready():
             return
+        import discord
 
-        raise ValueError(
-            "DiscordChannel.send requires meta['channel_id'] or meta["
-            "'user_id']",
+        url = (
+            getattr(part, "image_url", None)
+            or getattr(part, "video_url", None)
+            or getattr(part, "data", None)
+            or getattr(part, "file_url", None)
         )
+        if not url:
+            return
+
+        target = await self._resolve_target(to_handle, meta)
+        if not target:
+            logger.warning(
+                "discord send_media: cannot resolve target",
+            )
+            return
+
+        temp_path = None
+        if url.startswith("file://"):
+            file = discord.File(url[7:])
+        elif url.startswith(("http://", "https://")):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            "discord send_media: download failed status=%d",
+                            resp.status,
+                        )
+                        return
+                    data = await resp.read()
+            parsed_path = urlparse(url).path
+            suffix = Path(parsed_path).suffix
+            fname = Path(parsed_path).name or f"file{suffix}"
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix,
+            ) as tmp:
+                tmp.write(data)
+            temp_path = tmp.name
+            file = discord.File(
+                temp_path,
+                filename=fname,
+            )
+        else:
+            return
+
+        try:
+            await target.send(file=file)
+        finally:
+            if temp_path:
+                Path(temp_path).unlink(missing_ok=True)
 
     async def _run(self) -> None:
         if not self.enabled or not self.token or not self._client:
@@ -336,7 +565,7 @@ class DiscordChannel(BaseChannel):
         return session_id
 
     def _route_from_handle(self, to_handle: str) -> dict:
-        # to_handle: discord:ch:<channel_id> 或 discord:dm:<user_id>
+        # to_handle format: discord:ch:<channel_id> or discord:dm:<user_id>
         parts = (to_handle or "").split(":")
         if len(parts) >= 3 and parts[0] == "discord":
             kind, ident = parts[1], parts[2]

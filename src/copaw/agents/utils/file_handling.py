@@ -38,6 +38,18 @@ def _resolve_local_path(
             if p.is_file() and p.stat().st_size == 0:
                 raise ValueError(f"Local file is empty: {p}")
             return str(p.resolve())
+    # Windows absolute path: urlparse("C:\\path") -> scheme="c", path="\\path"
+    if (
+        os.name == "nt"
+        and len(parsed.scheme) == 1
+        and parsed.scheme.isalpha()
+        and (parsed.path.startswith("\\") or parsed.path.startswith("/"))
+    ):
+        p = Path(url.strip()).resolve()
+        if p.exists() and p.is_file():
+            if p.stat().st_size == 0:
+                raise ValueError(f"Local file is empty: {p}")
+            return str(p)
     return None
 
 
