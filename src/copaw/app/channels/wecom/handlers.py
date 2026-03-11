@@ -143,7 +143,7 @@ async def handle_voice(
 
 
 async def handle_file(
-    channel: "WecomChannel",  # noqa: ARG001
+    channel: "WecomChannel",  # pylint: disable=unused-argument
     frame: WsFrame,
 ) -> None:
     """Handle file message (log only, not yet processed).

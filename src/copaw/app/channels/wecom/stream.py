@@ -61,7 +61,7 @@ async def stream_reply(
     event_count = 0
 
     try:
-        async for event in channel._process(request):
+        async for event in channel._process(request):  # pylint: disable=protected-access  # noqa: E501
             event_count += 1
             obj = getattr(event, "object", None)
             status = getattr(event, "status", None)
@@ -76,7 +76,7 @@ async def stream_reply(
             )
 
             if obj == "message" and status == RunStatus.Completed:
-                parts = channel._message_to_content_parts(event)
+                parts = channel._message_to_content_parts(event)  # pylint: disable=protected-access  # noqa: E501
                 logger.debug(
                     "[WeCom] Message completed: parts_count=%d",
                     len(parts),
