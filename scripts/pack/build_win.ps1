@@ -135,6 +135,9 @@ REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 
+REM Log level: env var COPAW_LOG_LEVEL or default to "info"
+if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=info"
+
 REM Set SSL certificate paths for packaged environment
 REM Query certifi path from the packaged Python interpreter
 for /f "delims=" %%i in ('"%~dp0python.exe" -c "import certifi; print(certifi.where())" 2^>nul') do set "CERT_FILE=%%i"
@@ -149,7 +152,7 @@ if defined CERT_FILE (
 if not exist "%USERPROFILE%\.copaw\config.json" (
   "%~dp0python.exe" -m copaw init --defaults --accept-security
 )
-"%~dp0python.exe" -m copaw desktop
+"%~dp0python.exe" -m copaw desktop --log-level %COPAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -161,6 +164,9 @@ cd /d "%~dp0"
 REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
+
+REM Debug mode: use debug log level by default (can override with COPAW_LOG_LEVEL)
+if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=debug"
 
 REM Set SSL certificate paths for packaged environment
 REM Query certifi path from the packaged Python interpreter
@@ -179,16 +185,17 @@ echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
 echo PATH: %PATH%
+echo Log Level: %COPAW_LOG_LEVEL%
 echo SSL_CERT_FILE: %SSL_CERT_FILE%
 echo.
 if not exist "%USERPROFILE%\.copaw\config.json" (
   echo [Init] Creating config...
   "%~dp0python.exe" -m copaw init --defaults --accept-security
 )
-echo [Launch] Starting CoPaw Desktop...
+echo [Launch] Starting CoPaw Desktop with log-level=%COPAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -m copaw desktop
+"%~dp0python.exe" -m copaw desktop --log-level %COPAW_LOG_LEVEL%
 echo.
 echo [Exit] CoPaw Desktop closed
 pause

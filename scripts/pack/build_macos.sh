@@ -82,12 +82,17 @@ if [ -x "$ENV_DIR/bin/python" ]; then
 fi
 
 cd "$HOME" || true
+
+# Log level: env var COPAW_LOG_LEVEL or default to "info"
+LOG_LEVEL="${COPAW_LOG_LEVEL:-info}"
+
 if [ ! -t 2 ]; then
   mkdir -p "$HOME/.copaw"
   { echo "=== $(date) CoPaw starting ==="
     echo "ENV_DIR=$ENV_DIR"
     echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
     echo "PATH=$PATH"
+    echo "LOG_LEVEL=$LOG_LEVEL"
     echo "SSL_CERT_FILE=${SSL_CERT_FILE:-not set}"
     if [ -n "$SSL_CERT_FILE" ] && [ -f "$SSL_CERT_FILE" ]; then
       echo "SSL certificate file found at $SSL_CERT_FILE"
@@ -106,8 +111,8 @@ if [ ! -t 2 ]; then
   if [ ! -f "$HOME/.copaw/config.json" ]; then
     "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
   fi
-  echo "Launching python..."
-  "$ENV_DIR/bin/python" -u -m copaw desktop
+  echo "Launching python with log-level=$LOG_LEVEL..."
+  "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
   EXIT=$?
   if [ $EXIT -ge 128 ]; then
     SIG=$((EXIT - 128))
@@ -121,7 +126,7 @@ fi
 if [ ! -f "$HOME/.copaw/config.json" ]; then
   "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
 fi
-exec "$ENV_DIR/bin/python" -u -m copaw desktop
+exec "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
