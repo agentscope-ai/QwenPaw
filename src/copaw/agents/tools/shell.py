@@ -79,6 +79,7 @@ def _execute_subprocess_sync(
             stderr=subprocess.PIPE,
             text=False,
             cwd=cwd,
+            env=env,
             creationflags=creationflags,
         ) as proc:
             try:
