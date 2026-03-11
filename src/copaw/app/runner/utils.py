@@ -15,6 +15,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 from agentscope_runtime.engine.helpers.agent_api_builder import ResponseBuilder
 
+from ...agents.utils.file_handling import is_media_file_url, load_media_as_base64
 from ...config import load_config
 
 logger = logging.getLogger(__name__)
@@ -273,7 +274,17 @@ def agentscope_msg_to_message(
                     isinstance(block.get("source"), dict)
                     and block.get("source", {}).get("type") == "url"
                 ):
-                    cb.set_image_url(block.get("source", {}).get("url"))
+                    url = block.get("source", {}).get("url")
+                    # For media directory files, convert to base64 for frontend
+                    if is_media_file_url(url):
+                        base64_url = load_media_as_base64(url)
+                        if base64_url:
+                            cb.set_image_url(base64_url)
+                        else:
+                            # Keep original URL if conversion fails
+                            cb.set_image_url(url)
+                    else:
+                        cb.set_image_url(url)
 
                 elif (
                     isinstance(block.get("source"), dict)

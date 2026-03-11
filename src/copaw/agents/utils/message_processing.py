@@ -15,9 +15,13 @@ from typing import Optional
 
 from agentscope.message import Msg
 
-from ...config import load_config
 from ...constant import WORKING_DIR
-from .file_handling import download_file_from_base64, download_file_from_url
+from .file_handling import (
+    download_file_from_base64,
+    download_file_from_url,
+    compress_base64_image,
+    save_base64_to_media,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +56,13 @@ async def _process_single_file_block(
     if isinstance(source, dict) and source.get("type") == "base64":
         if "data" in source:
             base64_data = source.get("data", "")
+            media_type = source.get(
+                "media_type",
+            )  # Get media_type for extension
             local_path = await download_file_from_base64(
                 base64_data,
                 filename,
+                media_type=media_type,
             )
             logger.debug(
                 "Processed base64 file block: %s -> %s",
@@ -92,9 +100,31 @@ async def _process_single_file_block(
 
 
 def _extract_source_and_filename(block: dict, block_type: str):
-    """Extract source and filename from a block."""
+    """Extract source and filename from a block.
+
+    Handles both legacy `source` format and direct URL formats:
+    - Legacy: { "source": { "type": "url", "url": "..." } }
+    - Direct: { "image_url": "...", "video_url": "...", etc. }
+    """
     if block_type == "file":
+        # Check for direct file_url first
+        if "file_url" in block:
+            url = block.get("file_url", "")
+            if url:
+                return {"type": "url", "url": url}, block.get("filename")
         return block.get("source", {}), block.get("filename")
+
+    # Handle direct URL formats (image_url, video_url, audio_url)
+    url_key = f"{block_type}_url"  # e.g., "image_url", "video_url"
+    if url_key in block:
+        url = block.get(url_key, "")
+        if url:
+            # Parse filename from URL if available
+            filename = None
+            if url and not url.startswith("data:"):
+                parsed = urllib.parse.urlparse(url)
+                filename = os.path.basename(parsed.path) or None
+            return {"type": "url", "url": url}, filename
 
     source = block.get("source", {})
     if not isinstance(source, dict):
@@ -177,6 +207,64 @@ async def _process_single_block(
     if source is None:
         return None
 
+    # For image blocks with base64 source:
+    # 1. Compress if too large for LLM API (>7MB)
+    # 2. Save to media directory and use file:// URL
+    #    (keeps token count low for context)
+    if (
+        block_type == "image"
+        and isinstance(source, dict)
+        and source.get("type") == "base64"
+    ):
+        base64_data = source.get("data", "")
+        media_type = source.get("media_type")
+        if base64_data:
+            try:
+                # Compress if image is too large for LLM API (>7MB)
+                compressed_data, new_media_type = compress_base64_image(
+                    base64_data,
+                    media_type,
+                )
+
+                if compressed_data != base64_data:
+                    logger.info(
+                        "Compressed image from %.2f MB to %.2f MB for LLM",
+                        len(base64_data) * 3 / 4 / (1024 * 1024),
+                        len(compressed_data) * 3 / 4 / (1024 * 1024),
+                    )
+                    # Use compressed data for saving
+                    final_data = compressed_data
+                    final_media_type = new_media_type or media_type
+                else:
+                    final_data = base64_data
+                    final_media_type = media_type
+
+                # Save to media dir and use file:// URL
+                # This keeps token count low for context management
+                file_url, _ = save_base64_to_media(
+                    final_data,
+                    final_media_type,
+                    compress_if_large=False,
+                )
+
+                # Update block to use file URL
+                message_content[index]["source"] = {
+                    "type": "url",
+                    "url": file_url,
+                }
+                if final_media_type:
+                    message_content[index]["source"][
+                        "media_type"
+                    ] = final_media_type
+                logger.debug("Saved image to media: %s", file_url)
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to process image: %s",
+                    e,
+                )
+        return None
+
     # Normalize: when source is "base64" but data is a local path (e.g.
     # DingTalk voice returns path), treat as url only if under allowed dir.
     if (
@@ -247,8 +335,7 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
         if not isinstance(message.content, list):
             continue
 
-        downloaded_files = []
-
+        # Process each block (compress images, download files, etc.)
         for i, block in enumerate(message.content):
             if not isinstance(block, dict):
                 continue
@@ -257,20 +344,7 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
             if block_type not in ["file", "image", "audio", "video"]:
                 continue
 
-            local_path = await _process_single_block(message.content, i, block)
-            if local_path:
-                downloaded_files.append((i, local_path))
-
-        if downloaded_files:
-            lang = load_config().agents.language
-            for i, local_path in reversed(downloaded_files):
-                text = (
-                    f"用户上传文件，已经下载到 {local_path}"
-                    if lang == "zh"
-                    else f"User uploaded a file, downloaded to {local_path}"
-                )
-                text_block = {"type": "text", "text": text}
-                message.content.insert(i + 1, text_block)
+            await _process_single_block(message.content, i, block)
 
 
 def is_first_user_interaction(messages: list) -> bool:

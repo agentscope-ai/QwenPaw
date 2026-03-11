@@ -80,6 +80,57 @@ const extractTextFromContent = (content: unknown): string => {
     .filter(Boolean)
     .join("\n");
 };
+/**
+ * Convert message content to UI content format.
+ * Preserves all content blocks (text, images, etc.) in original order.
+ */
+function convertContentToUIFormat(content: unknown): ContentItem[] {
+  if (typeof content === "string") {
+    return [{ type: "text", text: content, status: "created" }];
+  }
+  if (!Array.isArray(content)) {
+    return [{ type: "text", text: String(content || ""), status: "created" }];
+  }
+  return (content as ContentItem[]).map((item) => {
+    if (item.type === "text") {
+      return { ...item, status: "created" };
+    }
+    if (item.type === "image") {
+      // Handle image blocks - extract URL from various formats
+      let imageUrl = "";
+      // image_url can be string or object { url: "..." }
+      const imgUrlField = item.image_url as string | { url?: string };
+      if (typeof imgUrlField === "string") {
+        imageUrl = imgUrlField;
+      } else if (imgUrlField?.url) {
+        imageUrl = imgUrlField.url;
+      }
+      // Handle source field
+      if (!imageUrl && item.source) {
+        const source = item.source as {
+          type?: string;
+          url?: string;
+          media_type?: string;
+          data?: string;
+        };
+        if (source.type === "url" && source.url) {
+          imageUrl = source.url;
+        } else if (source.type === "base64" && source.data) {
+          // Convert base64 source to data URL for display
+          const mediaType = source.media_type || "image/png";
+          imageUrl = `data:${mediaType};base64,${source.data}`;
+        }
+      }
+      return {
+        type: "image",
+        image_url: imageUrl || "",
+        status: "created",
+      };
+    }
+    // Preserve other block types as-is
+    return { ...item, status: "created" };
+  });
+}
 
 /**
  * Convert a backend message to a response output message.
@@ -96,7 +147,7 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
 function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
-  const text = extractTextFromContent(msg.content);
+  const content = convertContentToUIFormat(msg.content);
   return {
     id: (msg.id as string) || generateId(),
     role: "user",
@@ -108,7 +159,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
             {
               role: "user",
               type: "message",
-              content: [{ type: "text", text, status: "created" }],
+              content,
             },
           ],
         },
