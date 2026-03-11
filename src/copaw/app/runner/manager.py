@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from .models import ChatSpec
-from .repo import BaseChatRepository
+from .repo.base import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
 
 logger = logging.getLogger(__name__)

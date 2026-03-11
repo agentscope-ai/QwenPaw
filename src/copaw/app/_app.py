@@ -12,11 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
 
-from .runner import AgentRunner
+from .runner.runner import AgentRunner
 from ..config import (  # pylint: disable=no-name-in-module
     load_config,
     update_last_dispatch,
     ConfigWatcher,
+    get_state_db_path,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
@@ -25,10 +26,11 @@ from ..utils.logging import setup_logger, add_copaw_file_handler
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
 from .channels.utils import make_process_from_runner
 from .mcp import MCPClientManager, MCPConfigWatcher  # MCP hot-reload support
-from .runner.repo.json_repo import JsonChatRepository
-from .crons.repo.json_repo import JsonJobRepository
+from .runner.repo.sqlite_repo import SQLiteChatRepository
+from .crons.repo.sqlite_repo import SQLiteJobRepository
 from .crons.manager import CronManager
 from .runner.manager import ChatManager
+from .state_db import initialize_state_db
 from .routers import router as api_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
@@ -63,6 +65,12 @@ async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
+    await initialize_state_db(
+        get_state_db_path(),
+        chats_path=get_chats_path(),
+        jobs_path=get_jobs_path(),
+        sessions_dir=WORKING_DIR / "sessions",
+    )
     await runner.start()
 
     # --- MCP client manager init (independent module, hot-reloadable) ---
@@ -87,7 +95,7 @@ async def lifespan(
     await channel_manager.start_all()
 
     # --- cron init/start ---
-    repo = JsonJobRepository(get_jobs_path())
+    repo = SQLiteJobRepository(get_state_db_path())
     cron_manager = CronManager(
         repo=repo,
         runner=runner,
@@ -97,7 +105,7 @@ async def lifespan(
     await cron_manager.start()
 
     # --- chat manager init and connect to runner.session ---
-    chat_repo = JsonChatRepository(get_chats_path())
+    chat_repo = SQLiteChatRepository(get_state_db_path())
     chat_manager = ChatManager(
         repo=chat_repo,
     )
@@ -323,7 +331,7 @@ async def lifespan(
             await _teardown_new_stack(mcp_mgr=new_mcp_manager)
             return
 
-        job_repo = JsonJobRepository(get_jobs_path())
+        job_repo = SQLiteJobRepository(get_state_db_path())
         new_cron_manager = CronManager(
             repo=job_repo,
             runner=runner,

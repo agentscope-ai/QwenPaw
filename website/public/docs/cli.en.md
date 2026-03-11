@@ -417,8 +417,8 @@ copaw --host 0.0.0.0 --port 9090 cron list
 ## Working directory
 
 All config and data live in `~/.copaw` by default: `config.json`,
-`HEARTBEAT.md`, `jobs.json`, `chats.json`, skills, memory, and agent persona
-files.
+`HEARTBEAT.md`, `state.sqlite3`, legacy migration files such as `jobs.json`
+and `chats.json`, skills, memory, and agent persona files.
 
 | Variable            | Description                         |
 | ------------------- | ----------------------------------- |

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
-import json
 
 from typing import Optional
 from uuid import uuid4
@@ -150,20 +149,21 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
-    # pylint: disable=protected-access
-    session_path = session._get_save_path(
-        chat_spec.session_id,
-        chat_spec.user_id,
-    )
-
     try:
-        with open(session_path, "r", encoding="utf-8") as file:
-            state = json.load(file)
+        state = await session.get_session_state_dict(
+            session_id=chat_spec.session_id,
+            user_id=chat_spec.user_id,
+        )
     except Exception:
         return ChatHistory(messages=[])
     memories = state.get("agent", {}).get("memory", [])
+    if not isinstance(memories, dict):
+        return ChatHistory(messages=[])
     memory = InMemoryMemory()
-    memory.load_state_dict(memories)
+    try:
+        memory.load_state_dict(memories)
+    except Exception:
+        return ChatHistory(messages=[])
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)

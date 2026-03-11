@@ -16,12 +16,12 @@ from .command_dispatch import (
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
-from .session import SafeJSONSession
+from .session import SQLiteSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
-from ...config import load_config
+from ...config import load_config, get_state_db_path
 from ...constant import (
     WORKING_DIR,
 )
@@ -217,7 +217,10 @@ class AgentRunner(Runner):
             )
 
         session_dir = str(WORKING_DIR / "sessions")
-        self.session = SafeJSONSession(save_dir=session_dir)
+        self.session = SQLiteSession(
+            save_dir=session_dir,
+            db_path=str(get_state_db_path()),
+        )
 
         try:
             if self.memory_manager is None:

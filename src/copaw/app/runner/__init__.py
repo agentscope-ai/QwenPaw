@@ -1,30 +1,37 @@
 # -*- coding: utf-8 -*-
-"""Runner module with chat manager for coordinating repository."""
-from .runner import AgentRunner
-from .api import router
-from .manager import ChatManager
-from .models import (
-    ChatSpec,
-    ChatHistory,
-    ChatsFile,
-)
-from .repo import (
-    BaseChatRepository,
-    JsonChatRepository,
-)
+"""Runner module exports with lazy loading to avoid import cycles."""
+# pylint: disable=undefined-all-variable
+from __future__ import annotations
+
+from importlib import import_module
 
 
 __all__ = [
-    # Core classes
     "AgentRunner",
     "ChatManager",
-    # API
     "router",
-    # Models
     "ChatSpec",
     "ChatHistory",
     "ChatsFile",
-    # Chat Repository
     "BaseChatRepository",
     "JsonChatRepository",
+    "SQLiteChatRepository",
 ]
+
+
+def __getattr__(name: str):
+    if name == "AgentRunner":
+        return getattr(import_module(".runner", __name__), name)
+    if name == "ChatManager":
+        return getattr(import_module(".manager", __name__), name)
+    if name == "router":
+        return getattr(import_module(".api", __name__), name)
+    if name in {"ChatSpec", "ChatHistory", "ChatsFile"}:
+        return getattr(import_module(".models", __name__), name)
+    if name in {
+        "BaseChatRepository",
+        "JsonChatRepository",
+        "SQLiteChatRepository",
+    }:
+        return getattr(import_module(".repo", __name__), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
