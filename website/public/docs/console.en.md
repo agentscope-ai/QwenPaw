@@ -327,6 +327,28 @@ automatically when models are added/removed via Ollama CLI or Console.
 > `copaw models ollama-list`, `copaw models ollama-remove`. See
 > [CLI](./cli#ollama-models).
 
+### LM Studio provider
+
+The LM Studio provider connects to the LM Studio desktop application's
+OpenAI-compatible local server to discover and use loaded models.
+
+**Prerequisites:**
+
+- Install LM Studio from [lmstudio.ai](https://lmstudio.ai)
+- Load a model and start the local server in LM Studio (default: `http://localhost:1234`)
+
+**Configure:**
+
+1. Click **Settings** on the LM Studio provider card.
+2. The default Base URL is `http://localhost:1234/v1`. Adjust if needed, then
+   click **Save**.
+3. Click **Manage Models** to see models loaded in LM Studio. You can also
+   manually add model IDs.
+4. Select **LM Studio** in the **Provider** dropdown and pick a model.
+
+> LM Studio does not require an API key by default. Models must be loaded
+> in LM Studio before they appear in CoPaw.
+
 ### Choose the active model
 
 1. In the **LLM Config** section, select a **Provider** from the dropdown
@@ -375,18 +397,18 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ## Quick Reference
 
-| Page                  | Sidebar path                     | What you can do                                      |
-| --------------------- | -------------------------------- | ---------------------------------------------------- |
-| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                     |
-| Channels              | Control → Channels               | Enable/disable channels, configure credentials       |
-| Sessions              | Control → Sessions               | Filter, rename, delete sessions                      |
-| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately             |
-| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download     |
-| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                  |
-| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients             |
-| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                         |
-| Models                | Settings → Models                | Configure providers, manage local/Ollama, pick model |
-| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                |
+| Page                  | Sidebar path                     | What you can do                                                |
+| --------------------- | -------------------------------- | -------------------------------------------------------------- |
+| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                               |
+| Channels              | Control → Channels               | Enable/disable channels, configure credentials                 |
+| Sessions              | Control → Sessions               | Filter, rename, delete sessions                                |
+| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately                       |
+| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download               |
+| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                            |
+| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients                       |
+| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                                   |
+| Models                | Settings → Models                | Configure providers, manage local/Ollama/LM Studio, pick model |
+| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                          |
 
 ---
 

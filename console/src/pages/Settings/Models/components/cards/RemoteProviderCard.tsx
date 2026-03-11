@@ -66,7 +66,6 @@ export function RemoteProviderCard({
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
   } else if (provider.require_api_key === false) {
-    // If API key is not required, consider it configured
     isConfigured = true;
   } else if (provider.require_api_key && provider.api_key) {
     isConfigured = true;

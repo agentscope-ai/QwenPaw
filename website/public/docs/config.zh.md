@@ -278,11 +278,17 @@ CoPaw 需要 LLM 提供商才能运行。有三种设置方式：
 
 ### 内置提供商
 
-| 提供商             | ID           | 默认 Base URL                                       | API Key 前缀 |
-| ------------------ | ------------ | --------------------------------------------------- | ------------ |
-| ModelScope（魔搭） | `modelscope` | `https://api-inference.modelscope.cn/v1`            | `ms`         |
-| DashScope（灵积）  | `dashscope`  | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`         |
-| 自定义             | `custom`     | _（你自己填）_                                      | _（任意）_   |
+| 提供商                 | ID                  | 默认 Base URL                                       | API Key 前缀 |
+| ---------------------- | ------------------- | --------------------------------------------------- | ------------ |
+| ModelScope（魔搭）     | `modelscope`        | `https://api-inference.modelscope.cn/v1`            | `ms`         |
+| DashScope（灵积）      | `dashscope`         | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`         |
+| 阿里云百炼 Coding Plan | `aliyun-codingplan` | `https://coding.dashscope.aliyuncs.com/v1`          | `sk-sp`      |
+| OpenAI                 | `openai`            | `https://api.openai.com/v1`                         | _（任意）_   |
+| Azure OpenAI           | `azure-openai`      | _（你自己填）_                                      | _（任意）_   |
+| Anthropic              | `anthropic`         | `https://api.anthropic.com`                         | _（任意）_   |
+| Ollama                 | `ollama`            | `http://localhost:11434`                            | _（无需）_   |
+| LM Studio              | `lmstudio`          | `http://localhost:1234/v1`                          | _（无需）_   |
+| 自定义                 | `custom`            | _（你自己填）_                                      | _（任意）_   |
 
 每个提供商需要设置：
 

@@ -293,7 +293,7 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 >   -v copaw-secrets:/app/working.secret \
 >   agentscope/copaw:latest
 > ```
-> Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434` or your corresponding port.
+> Then in CoPaw **Settings → Models**, change the Base URL to `http://host.docker.internal:<port>` — for example, `http://host.docker.internal:11434` for Ollama, or `http://host.docker.internal:1234/v1` for LM Studio.
 >
 > **Option B** — Host networking (Linux only):
 > ```bash

@@ -353,6 +353,7 @@
     "azureEndpointHint": "Azure OpenAI endpoint, например https://<resource>.openai.azure.com/openai/v1",
     "anthropicEndpointHint": "Anthropic endpoint, например https://api.anthropic.com",
     "ollamaEndpointHint": "Ollama endpoint, например http://localhost:11434",
+    "lmstudioEndpointHint": "LM Studio endpoint, например http://localhost:1234/v1",
     "apiEndpointHint": "API endpoint, например https://api.example.com",
     "pleaseEnterBaseURL": "Пожалуйста, введите базовый URL API",
     "pleaseEnterValidURL": "Пожалуйста, введите корректный URL",
@@ -520,5 +521,12 @@
       "viewReleases": "Открыть релизы",
       "close": "Закрыть"
     }
+  },
+  "chat": {
+    "disclaimer": "Работает для вас, растёт вместе с вами",
+    "greeting": "Привет, чем я могу помочь вам сегодня?",
+    "description": "Я полезный ассистент, который поможет вам с вашими вопросами.",
+    "prompt1": "Давайте начнём новое путешествие!",
+    "prompt2": "Расскажи мне, какими навыками ты обладаешь?"
   }
 }
