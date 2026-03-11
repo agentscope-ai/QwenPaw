@@ -47,37 +47,36 @@ async def get_token_usage(
     lines.append(f"Token usage ({start} ~ {end}, {', '.join(filter_desc)}):")
     lines.append("")
     total_tokens = (
-        summary["total_prompt_tokens"] + summary["total_completion_tokens"]
+        summary.total_prompt_tokens + summary.total_completion_tokens
     )
     lines.append(f"- Total tokens: {total_tokens:,}")
-    lines.append(f"- Prompt tokens: {summary['total_prompt_tokens']:,}")
+    lines.append(f"- Prompt tokens: {summary.total_prompt_tokens:,}")
     lines.append(
-        f"- Completion tokens: {summary['total_completion_tokens']:,}",
+        f"- Completion tokens: {summary.total_completion_tokens:,}",
     )
-    lines.append(f"- Total calls: {summary['total_calls']:,}")
+    lines.append(f"- Total calls: {summary.total_calls:,}")
     lines.append("")
 
-    if summary["by_model"]:
+    if summary.by_model:
         lines.append("By model:")
-        for model, stats in summary["by_model"].items():
-            tokens = stats["prompt_tokens"] + stats["completion_tokens"]
+        for model, stats in summary.by_model.items():
+            tokens = stats.prompt_tokens + stats.completion_tokens
             lines.append(
                 f"  - {model}: {tokens:,} tokens "
-                f"({stats['call_count']} calls)",
+                f"({stats.call_count} calls)",
             )
         lines.append("")
 
-    if summary["by_date"] and len(summary["by_date"]) <= 14:
+    if summary.by_date and len(summary.by_date) <= 14:
         lines.append("By date:")
-        for dt, stats in list(summary["by_date"].items())[-7:]:
-            tokens = stats["prompt_tokens"] + stats["completion_tokens"]
+        for dt, stats in list(summary.by_date.items())[-7:]:
+            tokens = stats.prompt_tokens + stats.completion_tokens
             lines.append(
-                f"  - {dt}: {tokens:,} tokens "
-                f"({stats['call_count']} calls)",
+                f"  - {dt}: {tokens:,} tokens " f"({stats.call_count} calls)",
             )
-    elif summary["by_date"]:
+    elif summary.by_date:
         lines.append(
-            f"By date: {len(summary['by_date'])} days with usage "
+            f"By date: {len(summary.by_date)} days with usage "
             "(see console for details)",
         )
 
