@@ -13,6 +13,10 @@ from enum import Enum
 from typing import Any
 
 
+# Memory mark attached to tool-guard denied messages so they can be
+# identified and cleaned up across modules (react_agent, runner, etc.).
+TOOL_GUARD_DENIED_MARK = "tool_guard_denied"
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------

@@ -24,7 +24,8 @@ from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.memory import MemoryManager
-from ...agents.react_agent import CoPawAgent, _TOOL_GUARD_DENIED_MARK
+from ...agents.react_agent import CoPawAgent
+from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config import load_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
@@ -319,7 +320,7 @@ class AgentRunner(Runner):
 
         1. Removes the LLM denial explanation (the assistant message
            immediately following the last marked entry).
-        2. Strips ``_TOOL_GUARD_DENIED_MARK`` from all marks lists so
+        2. Strips ``TOOL_GUARD_DENIED_MARK`` from all marks lists so
            the kept tool-call info becomes normal memory entries.
         3. Appends *denial_response* (e.g. "❌ Tool denied") to the
            persisted session memory.
@@ -355,7 +356,7 @@ class AgentRunner(Runner):
                     isinstance(entry, list)
                     and len(entry) >= 2
                     and isinstance(entry[1], list)
-                    and _TOOL_GUARD_DENIED_MARK in entry[1]
+                    and TOOL_GUARD_DENIED_MARK in entry[1]
                 )
 
             last_marked_idx = -1
@@ -378,7 +379,7 @@ class AgentRunner(Runner):
 
             for entry in content:
                 if _is_marked(entry):
-                    entry[1].remove(_TOOL_GUARD_DENIED_MARK)
+                    entry[1].remove(TOOL_GUARD_DENIED_MARK)
                     modified = True
 
             if denial_response is not None:

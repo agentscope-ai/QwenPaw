@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 _GC_MAX_AGE_SECONDS = 3600.0
 _GC_MAX_COMPLETED = 500
+_GC_PENDING_MAX_AGE_SECONDS = 1800.0
+_GC_MAX_PENDING = 200
 
 
 # ------------------------------------------------------------------
@@ -101,6 +103,7 @@ class ApprovalService:
 
         async with self._lock:
             self._pending[request_id] = pending
+            self._gc_pending_locked()
             self._gc_completed_locked()
 
         return pending
@@ -172,6 +175,40 @@ class ApprovalService:
     # ------------------------------------------------------------------
     # Garbage collection
     # ------------------------------------------------------------------
+
+    def _gc_pending_locked(self) -> None:
+        """Evict stale pending records whose futures were never resolved.
+
+        Caller must hold ``_lock``.
+        """
+        now = time.time()
+        expired = [
+            k
+            for k, v in self._pending.items()
+            if now - v.created_at > _GC_PENDING_MAX_AGE_SECONDS
+        ]
+        for k in expired:
+            pending = self._pending.pop(k)
+            if not pending.future.done():
+                pending.future.set_result(ApprovalDecision.TIMEOUT)
+            pending.status = "timeout"
+            pending.resolved_at = now
+            self._completed[k] = pending
+
+        overflow = len(self._pending) - _GC_MAX_PENDING
+        if overflow <= 0:
+            return
+        ordered = sorted(
+            self._pending.items(),
+            key=lambda item: item[1].created_at,
+        )
+        for key, pending in ordered[:overflow]:
+            del self._pending[key]
+            if not pending.future.done():
+                pending.future.set_result(ApprovalDecision.TIMEOUT)
+            pending.status = "timeout"
+            pending.resolved_at = now
+            self._completed[key] = pending
 
     def _gc_completed_locked(self) -> None:
         """Remove stale/overflow completed records.

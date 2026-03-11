@@ -162,7 +162,20 @@ def load_rules_from_yaml(yaml_path: Path) -> list[GuardRule]:
                 type(data).__name__,
             )
             return []
-        return [GuardRule(item) for item in data if isinstance(item, dict)]
+        rules: list[GuardRule] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                rules.append(GuardRule(item))
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid rule %r in %s: %s",
+                    item.get("id", "<no id>"),
+                    yaml_path,
+                    exc,
+                )
+        return rules
     except Exception as exc:
         logger.warning(
             "Failed to load guard rules from %s: %s",

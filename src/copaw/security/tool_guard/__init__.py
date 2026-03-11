@@ -34,6 +34,7 @@ Quick start::
 from __future__ import annotations
 
 from .models import (
+    TOOL_GUARD_DENIED_MARK,
     GuardFinding,
     GuardSeverity,
     GuardThreatCategory,
@@ -44,6 +45,7 @@ from .guardians import BaseToolGuardian
 from .guardians.rule_guardian import RuleBasedToolGuardian
 
 __all__ = [
+    "TOOL_GUARD_DENIED_MARK",
     "GuardFinding",
     "GuardSeverity",
     "GuardThreatCategory",

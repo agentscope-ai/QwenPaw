@@ -44,14 +44,12 @@ from ..constant import (
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
+from ..security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 
 logger = logging.getLogger(__name__)
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
-
-# Memory mark for tool-guard denied messages (reasoning + tool result)
-_TOOL_GUARD_DENIED_MARK = "tool_guard_denied"
 
 
 def normalize_reasoning_tool_choice(
@@ -673,8 +671,8 @@ class CoPawAgent(ReActAgent):
 
         for msg, marks in reversed(self.memory.content):
             if msg.role == "assistant":
-                if _TOOL_GUARD_DENIED_MARK not in marks:
-                    marks.append(_TOOL_GUARD_DENIED_MARK)
+                if TOOL_GUARD_DENIED_MARK not in marks:
+                    marks.append(TOOL_GUARD_DENIED_MARK)
                 break
 
         await self._tool_guard_approval_service.create_pending(
@@ -714,7 +712,7 @@ class CoPawAgent(ReActAgent):
         await self.print(tool_res_msg, True)
         await self.memory.add(
             tool_res_msg,
-            marks=_TOOL_GUARD_DENIED_MARK,
+            marks=TOOL_GUARD_DENIED_MARK,
         )
         return None
 
@@ -724,7 +722,7 @@ class CoPawAgent(ReActAgent):
     ) -> None:
         """Remove tool-guard denied messages from memory.
 
-        Finds messages marked with ``_TOOL_GUARD_DENIED_MARK`` and
+        Finds messages marked with ``TOOL_GUARD_DENIED_MARK`` and
         removes them.  When *include_denial_response* is ``True``,
         also removes the assistant message immediately following the
         last marked message (the LLM's denial explanation).
@@ -738,7 +736,7 @@ class CoPawAgent(ReActAgent):
         last_marked_idx = -1
 
         for i, (msg, marks) in enumerate(self.memory.content):
-            if _TOOL_GUARD_DENIED_MARK in marks:
+            if TOOL_GUARD_DENIED_MARK in marks:
                 ids_to_delete.append(msg.id)
                 last_marked_idx = i
 
@@ -763,7 +761,7 @@ class CoPawAgent(ReActAgent):
         if not self.memory.content:
             return False
         msg, marks = self.memory.content[-1]
-        return _TOOL_GUARD_DENIED_MARK in marks and msg.role == "system"
+        return TOOL_GUARD_DENIED_MARK in marks and msg.role == "system"
 
     async def _reasoning(
         self,
