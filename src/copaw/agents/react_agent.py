@@ -626,12 +626,13 @@ class CoPawAgent(ReActAgent):
 
         findings_text = format_findings_summary(guard_result)
         denied_text = (
-            f"**Tool Guard: Tool Blocked (auto-denied)**\n\n"
-            f"- Tool: `{tool_name}`\n"
-            f"- Max severity: `{guard_result.max_severity.value}`\n"
-            f"- Findings: `{guard_result.findings_count}`\n\n"
+            f"⛔ **Tool Blocked / 工具已拦截**\n\n"
+            f"- Tool / 工具: `{tool_name}`\n"
+            f"- Severity / 严重性: `{guard_result.max_severity.value}`\n"
+            f"- Findings / 发现: `{guard_result.findings_count}`\n\n"
             f"{findings_text}\n\n"
-            f"This tool is in the denied list and cannot be approved."
+            f"This tool is blocked and cannot be approved.\n"
+            f"该工具已被禁止，无法批准执行。"
         )
 
         tool_res_msg = Msg(
@@ -687,13 +688,14 @@ class CoPawAgent(ReActAgent):
 
         findings_text = format_findings_summary(guard_result)
         denied_text = (
-            f"⚠️ **Tool Guard: Risk Detected — execution denied**\n\n"
-            f"- Tool: `{tool_name}`\n"
-            f"- Max severity: `{guard_result.max_severity.value}`\n"
-            f"- Findings: `{guard_result.findings_count}`\n\n"
+            f"⚠️ **Risk Detected / 检测到风险**\n\n"
+            f"- Tool / 工具: `{tool_name}`\n"
+            f"- Severity / 严重性: `{guard_result.max_severity.value}`\n"
+            f"- Findings / 发现: `{guard_result.findings_count}`\n\n"
             f"{findings_text}\n\n"
-            f"Type `/daemon approve` to allow execution, "
-            f"or send any other message to deny."
+            f"Type `/daemon approve` to approve, "
+            f"or send any message to deny.\n"
+            f"输入 `/daemon approve` 批准执行，或发送任意消息拒绝。"
         )
 
         tool_res_msg = Msg(
@@ -757,7 +759,7 @@ class CoPawAgent(ReActAgent):
             )
 
     def _last_tool_response_is_denied(self) -> bool:
-        """Check if the last message in memory is a guard-denied tool result."""
+        """Check if the last message is a guard-denied tool result."""
         if not self.memory.content:
             return False
         msg, marks = self.memory.content[-1]
@@ -776,9 +778,10 @@ class CoPawAgent(ReActAgent):
         if self._last_tool_response_is_denied():
             msg = Msg(
                 self.name,
-                "This tool needs user approval, please type "
-                "/approve to allow execution, "
-                "or send any other message to deny.",
+                "⏳ Waiting for approval / 等待审批\n\n"
+                "Type `/daemon approve` to approve, "
+                "or send any message to deny.\n"
+                "输入 `/daemon approve` 批准执行，或发送任意消息拒绝。",
                 "assistant",
             )
             await self.print(msg, True)

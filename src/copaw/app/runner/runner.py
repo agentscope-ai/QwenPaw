@@ -100,8 +100,9 @@ class AgentRunner(Runner):
                             type="text",
                             text=(
                                 f"⏰ Tool `{pending.tool_name}` approval "
-                                f"timed out after {int(elapsed)}s — "
-                                f"execution denied."
+                                f"timed out ({int(elapsed)}s) — denied.\n"
+                                f"工具 `{pending.tool_name}` 审批超时"
+                                f"（{int(elapsed)}s），已拒绝执行。"
                             ),
                         ),
                     ],
@@ -129,7 +130,8 @@ class AgentRunner(Runner):
                     TextBlock(
                         type="text",
                         text=(
-                            f"❌ Tool `{pending.tool_name}` execution denied."
+                            f"❌ Tool `{pending.tool_name}` denied.\n"
+                            f"工具 `{pending.tool_name}` 已拒绝执行。"
                         ),
                     ),
                 ],
