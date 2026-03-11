@@ -403,8 +403,8 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## 工作目录
 
-配置和数据都在 `~/.copaw`（默认）：`config.json`、`HEARTBEAT.md`、`jobs.json`、
-`chats.json`、技能文件、记忆文件和 Agent 人设 Markdown 文件。
+配置和数据都在 `~/.copaw`（默认）：`config.json`、`HEARTBEAT.md`、`state.sqlite3`、
+以及用于兼容迁移的 `jobs.json` / `chats.json`、技能文件、记忆文件和 Agent 人设 Markdown 文件。
 
 | 变量                | 说明             |
 | ------------------- | ---------------- |

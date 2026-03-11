@@ -3,11 +3,13 @@
 # pylint:disable=consider-using-with
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import httpx
 
@@ -30,11 +32,26 @@ def _tee_stream(stream, buffer: list[str]) -> None:
         stream.close()
 
 
+def _build_repo_env(repo_root: Path) -> dict[str, str]:
+    """Force subprocess tests to import the current repo source tree."""
+    src_path = str(repo_root / "src")
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        f"{src_path}{os.pathsep}{existing_pythonpath}"
+        if existing_pythonpath
+        else src_path
+    )
+    return env
+
+
 def test_app_startup_and_console() -> None:
     """Test that copaw app starts correctly with backend and console."""
     host = "127.0.0.1"
     port = _find_free_port(host)
     log_lines: list[str] = []
+    repo_root = Path(__file__).resolve().parents[2]
+    env = _build_repo_env(repo_root)
 
     process = subprocess.Popen(
         [
@@ -53,6 +70,8 @@ def test_app_startup_and_console() -> None:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        cwd=repo_root,
+        env=env,
     )
 
     assert process.stdout is not None

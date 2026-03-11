@@ -1,19 +1,29 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import json
+import logging
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from .base import BaseJobRepository
 from ..models import JobsFile
+from ....utils.json_storage import (
+    load_json_with_recovery,
+    repair_json_file,
+    save_json_atomically,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class JsonJobRepository(BaseJobRepository):
     """jobs.json repository (single-file storage).
 
     Notes:
-    - Single-machine, no cross-process lock.
-    - Atomic write: write tmp then replace.
+    - Uses a sibling lock file for cross-process coordination.
+    - Writes via unique temp file + atomic replace.
     """
 
     def __init__(self, path: Path):
@@ -24,20 +34,28 @@ class JsonJobRepository(BaseJobRepository):
         return self._path
 
     async def load(self) -> JobsFile:
-        if not self._path.exists():
-            return JobsFile(version=1, jobs=[])
-
-        data = json.loads(self._path.read_text(encoding="utf-8"))
-        return JobsFile.model_validate(data)
+        default_file = JobsFile(version=1, jobs=[])
+        data = load_json_with_recovery(
+            self._path,
+            default_payload=default_file.model_dump(mode="json"),
+            storage_name="job repository",
+            logger_=logger,
+        )
+        try:
+            return JobsFile.model_validate(data)
+        except ValidationError as exc:
+            repair_json_file(
+                self._path,
+                default_payload=default_file.model_dump(mode="json"),
+                storage_name="job repository",
+                reason=f"schema validation failed: {exc}",
+                logger_=logger,
+            )
+            return default_file
 
     async def save(self, jobs_file: JobsFile) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
         payload = jobs_file.model_dump(mode="json")
-
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
+        save_json_atomically(
+            self._path,
+            payload,
         )
-        tmp_path.replace(self._path)

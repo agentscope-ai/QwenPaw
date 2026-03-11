@@ -83,6 +83,11 @@ JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
 
+STATE_DB_FILE = EnvVarLoader.get_str(
+    "COPAW_STATE_DB_FILE",
+    "state.sqlite3",
+)
+
 CONFIG_FILE = EnvVarLoader.get_str("COPAW_CONFIG_FILE", "config.json")
 
 HEARTBEAT_FILE = EnvVarLoader.get_str("COPAW_HEARTBEAT_FILE", "HEARTBEAT.md")

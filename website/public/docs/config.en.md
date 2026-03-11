@@ -23,8 +23,9 @@ you'll find inside:
 | -------------------- | ------------------------------------------------------------------ |
 | `config.json`        | Channel on/off and credentials, heartbeat settings, language, etc. |
 | `HEARTBEAT.md`       | Prompt content used each heartbeat run                             |
-| `jobs.json`          | Cron job list (managed via `copaw cron` or API)                    |
-| `chats.json`         | Chat/session list (file storage mode)                              |
+| `state.sqlite3`      | Main local database for chats, cron jobs, and session state        |
+| `jobs.json`          | Legacy cron export/import source used for one-time migration       |
+| `chats.json`         | Legacy chat export/import source used for one-time migration       |
 | `active_skills/`     | Skills currently active and used by the agent                      |
 | `customized_skills/` | User-created custom skills                                         |
 | `memory/`            | Agent memory files (auto-managed)                                  |
@@ -45,12 +46,13 @@ specific file names:
 
 | Variable                           | Default           | Meaning                                                                                                                                                                                 |
 | ---------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COPAW_WORKING_DIR`                | `~/.copaw`        | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here                                                                                                     |
+| `COPAW_WORKING_DIR`                | `~/.copaw`        | Working directory; config, heartbeat, SQLite state DB, legacy import files, skills, and memory all live here                                                                            |
 | `COPAW_SECRET_DIR`                 | `~/.copaw.secret` | Secret directory (sibling of working dir); stores `providers.json` (model provider settings, API keys) and `envs.json` (environment variables). In Docker, set to `/app/working.secret` |
 | `COPAW_CONFIG_FILE`                | `config.json`     | Config file name (relative to working dir)                                                                                                                                              |
 | `COPAW_HEARTBEAT_FILE`             | `HEARTBEAT.md`    | Heartbeat prompt file name (relative to working dir)                                                                                                                                    |
-| `COPAW_JOBS_FILE`                  | `jobs.json`       | Cron jobs file name (relative to working dir)                                                                                                                                           |
-| `COPAW_CHATS_FILE`                 | `chats.json`      | Chats file name (relative to working dir)                                                                                                                                               |
+| `COPAW_STATE_DB_FILE`              | `state.sqlite3`   | SQLite state database file name (relative to working dir)                                                                                                                               |
+| `COPAW_JOBS_FILE`                  | `jobs.json`       | Legacy cron JSON file name used as a migration/import source                                                                                                                            |
+| `COPAW_CHATS_FILE`                 | `chats.json`      | Legacy chats JSON file name used as a migration/import source                                                                                                                           |
 | `COPAW_LOG_LEVEL`                  | `info`            | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`)                                                                                                                 |
 | `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`          | Character threshold to trigger memory compaction                                                                                                                                        |
 | `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`               | Number of recent messages kept after compaction                                                                                                                                         |

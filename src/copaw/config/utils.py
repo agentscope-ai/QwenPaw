@@ -13,6 +13,7 @@ from ..constant import (
     HEARTBEAT_FILE,
     JOBS_FILE,
     CHATS_FILE,
+    STATE_DB_FILE,
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
@@ -404,3 +405,8 @@ def get_jobs_path() -> Path:
 def get_chats_path() -> Path:
     """Return chats.json path."""
     return (WORKING_DIR / CHATS_FILE).expanduser()
+
+
+def get_state_db_path() -> Path:
+    """Return SQLite state database path."""
+    return (WORKING_DIR / STATE_DB_FILE).expanduser()
