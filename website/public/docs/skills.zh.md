@@ -17,19 +17,18 @@
 
 当前内置的 Skills 如下，安装后会在首次需要时同步到工作目录，你可在控制台或通过配置启用/禁用。
 
-| Skill 名称                   | 说明                                                                                                                                                                      | 来源                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **cron**                     | 定时任务管理。通过 `copaw cron` 或控制台 Cron Jobs 创建、查询、暂停、恢复、删除定时任务，按时间表执行并把结果发到频道。                                                   | 自建                                                           |
-| **file_reader**              | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由下方专用 Skill 处理。                                                                    | 自建                                                           |
-| **dingtalk_channel_connect** | 辅助完成钉钉频道接入流程：引导进入开发者后台、填写必要信息，帮助用户获取 `Client ID` 与 `Client Secret`，并提示用户完成必要的手动配置步骤。                               | 自建                                                           |
-| **himalaya**                 | 通过 CLI 管理邮件（IMAP/SMTP）。使用 `himalaya` 列出、阅读、搜索、整理邮件，支持多账户与附件管理。                                                                        | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
-| **news**                     | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。                                                                                | 自建                                                           |
-| **pdf**                      | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。                                                                                 | https://github.com/anthropics/skills/tree/main/skills/pdf      |
-| **docx**                     | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                                                                        | https://github.com/anthropics/skills/tree/main/skills/docx     |
-| **pptx**                     | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                                                                                              | https://github.com/anthropics/skills/tree/main/skills/pptx     |
-| **xlsx**                     | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                                                                        | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
-| **browser_visible**          | 以可见模式（headed）启动真实浏览器窗口，适用于演示、调试或需要人工参与（如登录、验证码）的场景。                                                                          | 自建                                                           |
-| **token_usage**              | 通过主动询问获知过去一段时间的 LLM Token 消耗。在聊天中问「用了多少 token」时，Agent 会调用 `get_token_usage` 工具返回统计。控制台 **设置 → Token 消耗** 可查看详细图表。 | 自建                                                           |
+| Skill 名称                   | 说明                                                                                                                                        | 来源                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **cron**                     | 定时任务管理。通过 `copaw cron` 或控制台 Cron Jobs 创建、查询、暂停、恢复、删除定时任务，按时间表执行并把结果发到频道。                     | 自建                                                           |
+| **file_reader**              | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由下方专用 Skill 处理。                                      | 自建                                                           |
+| **dingtalk_channel_connect** | 辅助完成钉钉频道接入流程：引导进入开发者后台、填写必要信息，帮助用户获取 `Client ID` 与 `Client Secret`，并提示用户完成必要的手动配置步骤。 | 自建                                                           |
+| **himalaya**                 | 通过 CLI 管理邮件（IMAP/SMTP）。使用 `himalaya` 列出、阅读、搜索、整理邮件，支持多账户与附件管理。                                          | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
+| **news**                     | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。                                                  | 自建                                                           |
+| **pdf**                      | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。                                                   | https://github.com/anthropics/skills/tree/main/skills/pdf      |
+| **docx**                     | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                                          | https://github.com/anthropics/skills/tree/main/skills/docx     |
+| **pptx**                     | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                                                                | https://github.com/anthropics/skills/tree/main/skills/pptx     |
+| **xlsx**                     | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                                          | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
+| **browser_visible**          | 以可见模式（headed）启动真实浏览器窗口，适用于演示、调试或需要人工参与（如登录、验证码）的场景。                                            | 自建                                                           |
 
 ---
 
