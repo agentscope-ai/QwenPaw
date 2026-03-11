@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "test": "node --test src/pages/Control/CronJobs/components/parseCron.test.ts",
     "preview": "vite preview",
     "preview:prod": "vite preview --mode production",
     "preview:test": "vite preview --mode test"

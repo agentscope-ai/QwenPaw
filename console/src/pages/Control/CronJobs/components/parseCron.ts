@@ -14,6 +14,7 @@ export interface CronParts {
 }
 
 const CRON_RE = /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$/;
+const INTEGER_RE = /^(?:0|[1-9]\d*)$/;
 
 /**
  * Parse cron expression to CronParts
@@ -50,18 +51,18 @@ export function parseCron(cron: string): CronParts {
 
   // Daily: "M H * * *"
   if (dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
-    const h = parseInt(hour, 10);
-    const m = parseInt(minute, 10);
-    if (!isNaN(h) && !isNaN(m) && h >= 0 && h < 24 && m >= 0 && m < 60) {
+    const h = parsePlainCronNumber(hour, 0, 23);
+    const m = parsePlainCronNumber(minute, 0, 59);
+    if (h !== null && m !== null) {
       return { type: "daily", hour: h, minute: m };
     }
   }
 
   // Weekly: "M H * * D" where D is days
   if (dayOfMonth === "*" && month === "*" && dayOfWeek !== "*") {
-    const h = parseInt(hour, 10);
-    const m = parseInt(minute, 10);
-    if (!isNaN(h) && !isNaN(m) && h >= 0 && h < 24 && m >= 0 && m < 60) {
+    const h = parsePlainCronNumber(hour, 0, 23);
+    const m = parsePlainCronNumber(minute, 0, 59);
+    if (h !== null && m !== null) {
       const days = parseDaysOfWeek(dayOfWeek);
       if (days.length > 0) {
         return { type: "weekly", hour: h, minute: m, daysOfWeek: days };
@@ -71,6 +72,23 @@ export function parseCron(cron: string): CronParts {
 
   // Everything else is custom
   return { type: "custom", rawCron: trimmed };
+}
+
+function parsePlainCronNumber(
+  value: string,
+  min: number,
+  max: number,
+): number | null {
+  if (!INTEGER_RE.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (parsed < min || parsed > max) {
+    return null;
+  }
+
+  return parsed;
 }
 
 /**
@@ -114,8 +132,10 @@ function parseDaysOfWeek(dayOfWeek: string): number[] {
 
   for (const part of parts) {
     if (part.includes("-")) {
-      const [start, end] = part.split("-").map((s) => parseInt(s, 10));
-      if (!isNaN(start) && !isNaN(end)) {
+      const [startText, endText] = part.split("-");
+      const start = parsePlainCronNumber(startText, 0, 6);
+      const end = parsePlainCronNumber(endText, 0, 6);
+      if (start !== null && end !== null && start <= end) {
         for (let i = start; i <= end; i++) {
           if (i >= 0 && i <= 6 && !days.includes(i)) {
             days.push(i);
@@ -123,8 +143,8 @@ function parseDaysOfWeek(dayOfWeek: string): number[] {
         }
       }
     } else {
-      const day = parseInt(part, 10);
-      if (!isNaN(day) && day >= 0 && day <= 6 && !days.includes(day)) {
+      const day = parsePlainCronNumber(part, 0, 6);
+      if (day !== null && !days.includes(day)) {
         days.push(day);
       }
     }
