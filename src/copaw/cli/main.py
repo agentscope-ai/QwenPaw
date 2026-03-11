@@ -96,6 +96,11 @@ from .desktop_cmd import desktop_cmd  # noqa: E402
 
 _record(".desktop_cmd", time.perf_counter() - _t)
 
+_t = time.perf_counter()
+from .bootstrap_cmd import bootstrap_cmd  # noqa: E402
+
+_record(".bootstrap_cmd", time.perf_counter() - _t)
+
 _total = time.perf_counter() - _t0_main
 _init_timings.append(("(total imports)", _total))
 logger.debug("%.3fs (total imports)", _total)
@@ -146,3 +151,4 @@ cli.add_command(models_group)
 cli.add_command(skills_group)
 cli.add_command(uninstall_cmd)
 cli.add_command(desktop_cmd)
+cli.add_command(bootstrap_cmd)

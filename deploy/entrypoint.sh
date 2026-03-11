@@ -3,6 +3,7 @@
 # Default port 8088; override at runtime with -e COPAW_PORT=3000.
 set -e
 export COPAW_PORT="${COPAW_PORT:-8088}"
+copaw bootstrap
 envsubst '${COPAW_PORT}' \
   < /etc/supervisor/conf.d/supervisord.conf.template \
   > /etc/supervisor/conf.d/supervisord.conf
