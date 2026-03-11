@@ -45,7 +45,7 @@ def test_normalize_file_scheme_image_block() -> None:
     assert normalized[0].content == [
         {
             "type": "text",
-            "text": "[Local media omitted for model call: /tmp/a.png]",
+            "text": "[Local media omitted for model call: a.png]",
         },
     ]
 
@@ -70,7 +70,7 @@ def test_normalize_windows_file_scheme_image_block() -> None:
     assert normalized[0].content == [
         {
             "type": "text",
-            "text": "[Local media omitted for model call: C:/tmp/a.png]",
+            "text": "[Local media omitted for model call: a.png]",
         },
     ]
 
@@ -121,7 +121,7 @@ def test_normalize_plain_local_path_image_block() -> None:
     assert normalized[0].content == [
         {
             "type": "text",
-            "text": "[Local media omitted for model call: /tmp/plain-path.png]",
+            "text": "[Local media omitted for model call: plain-path.png]",
         },
     ]
 
@@ -146,7 +146,7 @@ def test_normalize_plain_windows_path_image_block() -> None:
     assert normalized[0].content == [
         {
             "type": "text",
-            "text": "[Local media omitted for model call: C:/tmp/plain-path.png]",
+            "text": "[Local media omitted for model call: plain-path.png]",
         },
     ]
 
@@ -184,12 +184,50 @@ def test_normalize_local_media_in_tool_result_output() -> None:
             "output": [
                 {
                     "type": "text",
-                    "text": (
-                        "[Local media omitted for model call: "
-                        "/home/lcy/page-1773199016.png]"
-                    ),
+                    "text": "[Local media omitted for model call: page-1773199016.png]",
                 },
                 {"type": "text", "text": "已成功发送文件"},
             ],
         },
     ]
+
+
+def test_normalize_local_media_in_deep_nested_structure() -> None:
+    msg = Msg(
+        name="system",
+        content=[
+            {
+                "type": "tool_result",
+                "id": "tool_nested",
+                "name": "complex_tool",
+                "output": [
+                    {
+                        "type": "text",
+                        "text": "result",
+                    },
+                    {
+                        "nested": {
+                            "items": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "url",
+                                        "url": "file:///home/lcy/secret.png",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+        role="system",
+    )
+
+    normalized = _normalize_messages_for_model([msg])
+
+    nested_item = normalized[0].content[0]["output"][1]["nested"]["items"][0]
+    assert nested_item == {
+        "type": "text",
+        "text": "[Local media omitted for model call: secret.png]",
+    }

@@ -307,14 +307,43 @@ def _sanitize_local_media_block(block: dict) -> tuple[dict, bool]:
     if not local_path:
         return block, False
 
+    filename = os.path.basename(local_path.replace("\\", "/")) or "local-file"
     if block_type == "file":
-        filename = block.get("filename") or os.path.basename(
-            local_path.replace("\\", "/"),
-        )
-        text = f"[Local file omitted for model call: {filename or local_path}]"
+        display_name = block.get("filename") or filename
+        text = f"[Local file omitted for model call: {display_name}]"
     else:
-        text = f"[Local media omitted for model call: {local_path}]"
+        text = f"[Local media omitted for model call: {filename}]"
     return {"type": "text", "text": text}, True
+
+
+def _sanitize_local_media_in_value(value: Any) -> tuple[Any, bool]:
+    """Recursively sanitize local media blocks in nested structures."""
+    if isinstance(value, list):
+        new_list = []
+        changed = False
+        for item in value:
+            new_item, item_changed = _sanitize_local_media_in_value(item)
+            new_list.append(new_item)
+            changed = changed or item_changed
+        return new_list, changed
+
+    if isinstance(value, dict):
+        replaced_block, replaced = _sanitize_local_media_block(value)
+        if replaced:
+            return replaced_block, True
+
+        new_dict = {}
+        changed = False
+        for key, item in value.items():
+            if isinstance(item, (list, dict)):
+                new_item, item_changed = _sanitize_local_media_in_value(item)
+                new_dict[key] = new_item
+                changed = changed or item_changed
+            else:
+                new_dict[key] = item
+        return (new_dict, True) if changed else (value, False)
+
+    return value, False
 
 
 def _normalize_messages_for_model(msgs: list[Msg]) -> list[Msg]:
@@ -338,31 +367,12 @@ def _normalize_messages_for_model(msgs: list[Msg]) -> list[Msg]:
                     changed = True
                     continue
 
-                sanitized_block, replaced = _sanitize_local_media_block(block)
+                sanitized_block, replaced = _sanitize_local_media_in_value(block)
                 if replaced:
-                    fixed_blocks.append(sanitized_block)
+                    block = sanitized_block
                     changed = True
-                    continue
 
-                block_type = block.get("type")
-                if block_type == "tool_result":
-                    output = block.get("output")
-                    if isinstance(output, list):
-                        output_fixed = []
-                        output_changed = False
-                        for out_block in output:
-                            if isinstance(out_block, dict):
-                                new_out, out_replaced = _sanitize_local_media_block(
-                                    out_block,
-                                )
-                                output_fixed.append(new_out)
-                                output_changed = output_changed or out_replaced
-                            else:
-                                output_fixed.append(out_block)
-                        if output_changed:
-                            block = dict(block)
-                            block["output"] = output_fixed
-                            changed = True
+                block_type = block.get("type") if isinstance(block, dict) else None
 
                 if not isinstance(block_type, str):
                     fixed_blocks.append({"type": "text", "text": str(block)})
