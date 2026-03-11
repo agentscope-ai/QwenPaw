@@ -269,6 +269,7 @@
     "welcomeGreeting": "欢迎语",
     "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",
     "voiceSetupLink": "打开 Twilio 控制台",
+    "xiaoyiSetupGuide": "请在华为开发者平台创建智能体并获取 AK/SK 和 Agent ID。AK/SK 可在凭证管理页面找到。",
     "filterAll": "全部",
     "builtin": "内置",
     "custom": "自定义"

@@ -434,6 +434,41 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+      case "xiaoyi":
+        return (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              message={t("channels.xiaoyiSetupGuide")}
+              style={{ marginBottom: 16 }}
+            />
+            <Form.Item
+              name="ak"
+              label="Access Key (AK)"
+              rules={[{ required: true, message: "Please input Access Key" }]}
+            >
+              <Input placeholder="Access Key from Huawei Developer Platform" />
+            </Form.Item>
+            <Form.Item
+              name="sk"
+              label="Secret Key (SK)"
+              rules={[{ required: true, message: "Please input Secret Key" }]}
+            >
+              <Input.Password placeholder="Secret Key from Huawei Developer Platform" />
+            </Form.Item>
+            <Form.Item
+              name="agent_id"
+              label="Agent ID"
+              rules={[{ required: true, message: "Please input Agent ID" }]}
+            >
+              <Input placeholder="Agent ID from XiaoYi platform" />
+            </Form.Item>
+            <Form.Item name="ws_url" label="WebSocket URL">
+              <Input placeholder="wss://hag.cloud.huawei.com/openclaw/v1/ws/link" />
+            </Form.Item>
+          </>
+        );
       default:
         return null;
     }

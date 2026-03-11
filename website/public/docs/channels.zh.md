@@ -637,6 +637,26 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ---
 
+## 小艺（XiaoYi）
+
+小艺通道通过 **A2A (Agent-to-Agent) 协议** 基于 WebSocket 连接华为小艺平台。
+
+### 获取凭证
+
+1. 在小艺开放平台创建Agent。
+2. 获取 **AK** (Access Key)、**SK** (Secret Key) 和 **Agent ID**。
+
+### 核心配置
+
+| 字段         | 说明           | 默认值                                           |
+| ------------ | -------------- | ------------------------------------------------ |
+| **ak**       | 访问密钥       | -                                                |
+| **sk**       | 密钥           | -                                                |
+| **agent_id** | 代理唯一标识   | -                                                |
+| **ws_url**   | WebSocket 地址 | `wss://hag.cloud.huawei.com/openclaw/v1/ws/link` |
+
+---
+
 ## 附录
 
 ### 配置总览
@@ -651,6 +671,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                   |
+| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                       |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 
@@ -669,6 +690,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
 | Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| 小艺       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 
 说明：
 
@@ -679,6 +701,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
+- **小艺**：当前仅支持文本。
 
 ### 通过 HTTP 修改配置
 

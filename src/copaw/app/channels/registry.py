@@ -28,6 +28,7 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "console": (".console", "ConsoleChannel"),
     "matrix": (".matrix", "MatrixChannel"),
     "voice": (".voice", "VoiceChannel"),
+    "xiaoyi": (".xiaoyi", "XiaoYiChannel"),
 }
 
 # Required channels must load; failures are raised, not skipped.

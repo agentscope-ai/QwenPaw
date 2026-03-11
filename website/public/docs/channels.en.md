@@ -641,6 +641,26 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 
 ---
 
+## XiaoYi
+
+The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over WebSocket to Huawei's AI assistant platform.
+
+### Get credentials
+
+1. Create an agent in the XiaoYi Open Platform.
+2. Obtain **AK** (Access Key), **SK** (Secret Key), and **Agent ID**.
+
+### Core Config
+
+| Field        | Description             | Default                                          |
+| ------------ | ----------------------- | ------------------------------------------------ |
+| **ak**       | Access Key              | -                                                |
+| **sk**       | Secret Key              | -                                                |
+| **agent_id** | Agent unique identifier | -                                                |
+| **ws_url**   | WebSocket URL           | `wss://hag.cloud.huawei.com/openclaw/v1/ws/link` |
+
+---
+
 ## Appendix
 
 ### Config overview
@@ -655,6 +675,7 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                       |
+| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                       |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -675,6 +696,7 @@ done). **✗** = not supported (not possible on this channel).
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| XiaoYi     | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 
 Notes:
 
@@ -691,6 +713,7 @@ Notes:
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
+- **XiaoYi**: Text only; media support is 🚧.
 
 ### Changing config via HTTP
 
