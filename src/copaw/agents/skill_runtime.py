@@ -64,7 +64,9 @@ def build_skill_config_status(
 
 
 def _resolve_config_path(config: Config | None, path: str) -> Any:
-    current: Any = config.model_dump(mode="json", by_alias=True) if config else {}
+    current: Any = (
+        config.model_dump(mode="json", by_alias=True) if config else {}
+    )
     for part in [item for item in path.split(".") if item]:
         if not isinstance(current, dict):
             return None
@@ -102,7 +104,11 @@ def compute_skill_eligibility(
             has_value = bool(os.environ.get(env_name))
             if not has_value and skill_config:
                 has_value = bool(skill_config.env.get(env_name))
-                if not has_value and metadata and metadata.primary_env == env_name:
+                if (
+                    not has_value
+                    and metadata
+                    and metadata.primary_env == env_name
+                ):
                     has_value = bool(skill_config.api_key)
             if not has_value:
                 missing_env.append(env_name)
@@ -125,7 +131,10 @@ def compute_skill_eligibility(
 
 
 @contextmanager
-def apply_skill_env_overrides(skills: list[Any], config: Config | None) -> Iterator[None]:
+def apply_skill_env_overrides(
+    skills: list[Any],
+    config: Config | None,
+) -> Iterator[None]:
     """Temporarily inject skill env/api_key overrides into process env."""
     original_values: dict[str, str | None] = {}
 
@@ -138,7 +147,10 @@ def apply_skill_env_overrides(skills: list[Any], config: Config | None) -> Itera
 
             pending_env = dict(skill_config.env)
             if metadata and metadata.primary_env and skill_config.api_key:
-                pending_env.setdefault(metadata.primary_env, skill_config.api_key)
+                pending_env.setdefault(
+                    metadata.primary_env,
+                    skill_config.api_key,
+                )
 
             for env_name, env_value in pending_env.items():
                 if not env_name or env_value is None or env_name in os.environ:

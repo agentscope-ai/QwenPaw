@@ -325,7 +325,9 @@ export function SkillDrawer({
             </div>
 
             <div className={styles.requirementsPanel}>
-              <div className={styles.sectionTitle}>{t("skills.requirements")}</div>
+              <div className={styles.sectionTitle}>
+                {t("skills.requirements")}
+              </div>
               <div className={styles.requirementRow}>
                 <span>{t("skills.requiredEnv")}</span>
                 <code>{requirements?.env?.join(", ") || "-"}</code>
@@ -362,7 +364,9 @@ export function SkillDrawer({
               />
             </Form.Item>
 
-            <div className={styles.sectionTitle}>{t("skills.runtimeConfig")}</div>
+            <div className={styles.sectionTitle}>
+              {t("skills.runtimeConfig")}
+            </div>
 
             <Form.Item
               name="skillEnabled"
@@ -415,8 +419,7 @@ export function SkillDrawer({
 
             <div className={styles.hintBox}>
               {t("skills.configStatusHint", {
-                envKeys:
-                  editingSkill.config_status?.env_keys.join(", ") || "-",
+                envKeys: editingSkill.config_status?.env_keys.join(", ") || "-",
                 configKeys:
                   editingSkill.config_status?.config_keys.join(", ") || "-",
                 hasApiKey: editingSkill.config_status?.has_api_key

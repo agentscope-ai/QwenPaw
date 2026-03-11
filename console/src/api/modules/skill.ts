@@ -40,18 +40,16 @@ export const skillApi = {
     }),
 
   getSkillConfig: (skillName: string) =>
+    request<SkillConfigView>(`/skills/${encodeURIComponent(skillName)}/config`),
+
+  updateSkillConfig: (skillName: string, payload: SkillConfigUpdatePayload) =>
     request<SkillConfigView>(
       `/skills/${encodeURIComponent(skillName)}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      },
     ),
-
-  updateSkillConfig: (
-    skillName: string,
-    payload: SkillConfigUpdatePayload,
-  ) =>
-    request<SkillConfigView>(`/skills/${encodeURIComponent(skillName)}/config`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
 
   searchHubSkills: (query: string, limit = 20) =>
     request<HubSkillSpec[]>(

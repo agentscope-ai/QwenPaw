@@ -61,7 +61,9 @@ def parse_skill_metadata_from_content(content: str) -> SkillMetadata | None:
     return parse_skill_metadata_from_post(post.metadata)
 
 
-def parse_skill_metadata_from_post(post_metadata: dict[str, Any]) -> SkillMetadata | None:
+def parse_skill_metadata_from_post(
+    post_metadata: dict[str, Any],
+) -> SkillMetadata | None:
     """Parse metadata from frontmatter metadata dict."""
     raw_metadata = post_metadata.get("metadata")
     metadata_payload = _parse_metadata_payload(raw_metadata)
@@ -80,7 +82,9 @@ def parse_skill_metadata_from_post(post_metadata: dict[str, Any]) -> SkillMetada
     requires = raw_requires if isinstance(raw_requires, dict) else {}
 
     return SkillMetadata(
-        emoji=namespace.get("emoji") if isinstance(namespace.get("emoji"), str) else None,
+        emoji=namespace.get("emoji")
+        if isinstance(namespace.get("emoji"), str)
+        else None,
         skill_key=(
             namespace.get("skill_key")
             if isinstance(namespace.get("skill_key"), str)

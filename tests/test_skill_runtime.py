@@ -15,7 +15,9 @@ class DummySkill:
         self.metadata = metadata
 
 
-def test_skill_metadata_enables_api_key_backed_eligibility(monkeypatch) -> None:
+def test_skill_metadata_enables_api_key_backed_eligibility(
+    monkeypatch,
+) -> None:
     monkeypatch.delenv("DEMO_API_KEY", raising=False)
 
     content = """---
