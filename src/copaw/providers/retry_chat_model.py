@@ -99,32 +99,28 @@ def _get_httpx_retryable() -> tuple[type[Exception], ...]:
 def _is_retryable(exc: Exception) -> bool:
     """Return *True* if *exc* should trigger a retry.
 
-    Checks, in order:
-
-    1. OpenAI / Anthropic SDK exceptions (rate-limit, timeout, connection).
-    2. HTTP status codes on the exception object (429, 5xx).
-    3. ``httpx`` transport-level exceptions (remote protocol error,
-       read/connect timeout, connect/read error).
-    4. Python built-in network exceptions (``ConnectionError``,
-       ``TimeoutError``, ``OSError``).
+    Checks for two types of retryable conditions:
+    1. **HTTP status codes**: Checks if the exception has a ``status_code``
+       attribute that is in the set of retryable codes (429, 5xx).
+    2. **Exception type**: Checks if the exception is an instance of a known
+       transient error from provider SDKs (OpenAI, Anthropic), the ``httpx``
+       transport layer, or Python's built-in network exceptions
+       (``ConnectionError``, ``TimeoutError``, etc.).
     """
-    # 1. Provider SDK exceptions
-    sdk_retryable = _get_openai_retryable() + _get_anthropic_retryable()
-    if sdk_retryable and isinstance(exc, sdk_retryable):
-        return True
-
-    # 2. HTTP status codes
+    # First, check for retryable status codes, as this is a common
+    # and explicit signal from APIs.
     status = getattr(exc, "status_code", None)
     if status is not None and status in RETRYABLE_STATUS_CODES:
         return True
 
-    # 3. httpx transport-level exceptions
-    httpx_retryable = _get_httpx_retryable()
-    if httpx_retryable and isinstance(exc, httpx_retryable):
-        return True
-
-    # 4. Python built-in network exceptions
-    if isinstance(exc, _BUILTIN_NETWORK_ERRORS):
+    # Next, check against a combined list of retryable exception types.
+    retryable_exc_types = (
+        _get_openai_retryable()
+        + _get_anthropic_retryable()
+        + _get_httpx_retryable()
+        + _BUILTIN_NETWORK_ERRORS
+    )
+    if retryable_exc_types and isinstance(exc, retryable_exc_types):
         return True
 
     return False

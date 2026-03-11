@@ -57,48 +57,29 @@ class TestHttpxExceptions:
     def _skip_if_no_httpx(self):
         pytest.importorskip("httpx")
 
-    def test_remote_protocol_error(self):
+    @pytest.mark.parametrize(
+        "exception_factory",
+        [
+            lambda httpx: httpx.RemoteProtocolError(
+                "peer closed connection without sending complete message body",
+            ),
+            lambda httpx: httpx.ReadTimeout("timed out", request=MagicMock()),
+            lambda httpx: httpx.ConnectTimeout("timed out", request=MagicMock()),
+            lambda httpx: httpx.ConnectError("connection refused", request=MagicMock()),
+            lambda httpx: httpx.ReadError("connection reset by peer", request=MagicMock()),
+        ],
+        ids=[
+            "RemoteProtocolError",
+            "ReadTimeout",
+            "ConnectTimeout",
+            "ConnectError",
+            "ReadError",
+        ],
+    )
+    def test_httpx_exceptions_are_retryable(self, exception_factory):
         import httpx
 
-        exc = httpx.RemoteProtocolError(
-            "peer closed connection without sending complete message body",
-        )
-        assert _is_retryable(exc) is True
-
-    def test_read_timeout(self):
-        import httpx
-
-        exc = httpx.ReadTimeout(
-            "timed out",
-            request=MagicMock(),
-        )
-        assert _is_retryable(exc) is True
-
-    def test_connect_timeout(self):
-        import httpx
-
-        exc = httpx.ConnectTimeout(
-            "timed out",
-            request=MagicMock(),
-        )
-        assert _is_retryable(exc) is True
-
-    def test_connect_error(self):
-        import httpx
-
-        exc = httpx.ConnectError(
-            "connection refused",
-            request=MagicMock(),
-        )
-        assert _is_retryable(exc) is True
-
-    def test_read_error(self):
-        import httpx
-
-        exc = httpx.ReadError(
-            "connection reset by peer",
-            request=MagicMock(),
-        )
+        exc = exception_factory(httpx)
         assert _is_retryable(exc) is True
 
 
@@ -110,20 +91,25 @@ class TestHttpxExceptions:
 class TestBuiltinNetworkErrors:
     """Verify that Python built-in network exceptions are retryable."""
 
-    def test_connection_error(self):
-        assert _is_retryable(ConnectionError("connection refused")) is True
-
-    def test_connection_reset_error(self):
-        assert _is_retryable(ConnectionResetError("reset by peer")) is True
-
-    def test_timeout_error(self):
-        assert _is_retryable(TimeoutError("timed out")) is True
-
-    def test_os_error_network(self):
-        assert _is_retryable(OSError(101, "Network unreachable")) is True
-
-    def test_broken_pipe(self):
-        assert _is_retryable(BrokenPipeError("broken pipe")) is True
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            ConnectionError("connection refused"),
+            ConnectionResetError("reset by peer"),
+            TimeoutError("timed out"),
+            OSError(101, "Network unreachable"),
+            BrokenPipeError("broken pipe"),
+        ],
+        ids=[
+            "ConnectionError",
+            "ConnectionResetError",
+            "TimeoutError",
+            "OSError_NetworkUnreachable",
+            "BrokenPipeError",
+        ],
+    )
+    def test_builtin_network_errors_are_retryable(self, exc):
+        assert _is_retryable(exc) is True
 
 
 # ---------------------------------------------------------------------------
@@ -134,17 +120,22 @@ class TestBuiltinNetworkErrors:
 class TestNonRetryable:
     """Verify that non-network exceptions are NOT marked as retryable."""
 
-    def test_value_error(self):
-        assert _is_retryable(ValueError("bad value")) is False
-
-    def test_type_error(self):
-        assert _is_retryable(TypeError("wrong type")) is False
-
-    def test_runtime_error(self):
-        assert _is_retryable(RuntimeError("generic runtime")) is False
-
-    def test_key_error(self):
-        assert _is_retryable(KeyError("missing key")) is False
-
-    def test_generic_exception_no_status(self):
-        assert _is_retryable(Exception("something went wrong")) is False
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            ValueError("bad value"),
+            TypeError("wrong type"),
+            RuntimeError("generic runtime"),
+            KeyError("missing key"),
+            Exception("something went wrong"),
+        ],
+        ids=[
+            "ValueError",
+            "TypeError",
+            "RuntimeError",
+            "KeyError",
+            "GenericException",
+        ],
+    )
+    def test_non_retryable_exceptions(self, exc):
+        assert _is_retryable(exc) is False
