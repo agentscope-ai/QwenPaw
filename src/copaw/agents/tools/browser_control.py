@@ -17,7 +17,7 @@ import os
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor  # pylint: disable=no-name-in-module
 from typing import Any, Optional
 
 from agentscope.message import TextBlock
