@@ -51,16 +51,14 @@ class CronExecutor:
             )
             return
 
-        # agent: run request as the dispatch target user so context matches
+        # agent: preserve request context; only delivery uses dispatch target
         logger.info(
             "cron agent: job_id=%s channel=%s stream_query then send_event",
             job.id,
             job.dispatch.channel,
         )
         assert job.request is not None
-        req: Dict[str, Any] = job.request.model_dump(mode="json")
-        req["user_id"] = target_user_id or "cron"
-        req["session_id"] = target_session_id or f"cron:{job.id}"
+        req: Dict[str, Any] = job.build_agent_request()
 
         async def _run() -> None:
             async for event in self._runner.stream_query(req):

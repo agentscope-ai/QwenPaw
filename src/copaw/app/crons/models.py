@@ -101,15 +101,32 @@ class CronJobSpec(BaseModel):
         elif self.task_type == "agent":
             if self.request is None:
                 raise ValueError("task_type is agent but request is missing")
-            # Keep request.user_id and request.session_id in sync with target
-            target = self.dispatch.target
-            self.request = self.request.model_copy(
-                update={
-                    "user_id": target.user_id,
-                    "session_id": target.session_id,
-                },
-            )
         return self
+
+    def build_agent_request(self) -> Dict[str, Any]:
+        """Build the effective runner request for an agent cron job.
+
+        Request context and dispatch target are distinct concepts:
+        request.* controls the agent execution context, while dispatch.target.*
+        controls where the response is delivered. For backward compatibility,
+        missing request identity falls back to the dispatch target.
+        """
+
+        if self.task_type != "agent" or self.request is None:
+            raise ValueError(
+                "build_agent_request is only valid for agent jobs",
+            )
+
+        req = self.request.model_dump(mode="json")
+        req["user_id"] = (
+            self.request.user_id or self.dispatch.target.user_id or "cron"
+        )
+        req["session_id"] = (
+            self.request.session_id
+            or self.dispatch.target.session_id
+            or f"cron:{self.id}"
+        )
+        return req
 
 
 class JobsFile(BaseModel):
