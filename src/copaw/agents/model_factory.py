@@ -9,10 +9,11 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
-
 import logging
+from copy import deepcopy
 from typing import Sequence, Tuple, Type, Any
 from functools import wraps
+from urllib.parse import urlparse
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
@@ -128,6 +129,7 @@ def _create_file_block_support_formatter(
             ``extra_content`` on tool_use blocks (e.g. Gemini
             thought_signature) is carried through to the API request.
             """
+            msgs = _normalize_messages_for_model(msgs)
             msgs = _sanitize_tool_messages(msgs)
 
             reasoning_contents = {}
@@ -142,10 +144,7 @@ def _create_file_block_support_formatter(
                             reasoning_contents[id(msg)] = thinking
                         break
                 for block in msg.get_content_blocks():
-                    if (
-                        block.get("type") == "tool_use"
-                        and "extra_content" in block
-                    ):
+                    if block.get("type") == "tool_use" and "extra_content" in block:
                         extra_contents[block["id"]] = block["extra_content"]
 
             messages = await super()._format(msgs)
@@ -159,9 +158,7 @@ def _create_file_block_support_formatter(
 
             if reasoning_contents:
                 in_assistant = [m for m in msgs if m.role == "assistant"]
-                out_assistant = [
-                    m for m in messages if m.get("role") == "assistant"
-                ]
+                out_assistant = [m for m in messages if m.get("role") == "assistant"]
                 if len(in_assistant) != len(out_assistant):
                     logger.warning(
                         "Assistant message count mismatch after formatting "
@@ -214,8 +211,7 @@ def _create_file_block_support_formatter(
                 for block in output:
                     if not isinstance(block, dict) or "type" not in block:
                         raise ValueError(
-                            f"Invalid block: {block}, "
-                            "expected a dict with 'type' key",
+                            f"Invalid block: {block}, expected a dict with 'type' key",
                         ) from e
 
                     if block["type"] == "file":
@@ -269,6 +265,82 @@ def _strip_top_level_message_name(
     for message in messages:
         message.pop("name", None)
     return messages
+
+
+def _normalize_messages_for_model(msgs: list[Msg]) -> list[Msg]:
+    """Normalize messages before formatting for model APIs."""
+    normalized: list[Msg] = []
+
+    for msg in deepcopy(msgs):
+        content = msg.content
+
+        if isinstance(content, str):
+            msg.content = [{"type": "text", "text": content}]
+            normalized.append(msg)
+            continue
+
+        if not isinstance(content, list):
+            msg.content = [{"type": "text", "text": str(content)}]
+            normalized.append(msg)
+            continue
+
+        fixed_blocks: list[dict] = []
+        for block in content:
+            if not isinstance(block, dict):
+                fixed_blocks.append({"type": "text", "text": str(block)})
+                continue
+
+            block_type = block.get("type")
+            if block_type in {"image", "audio", "video"}:
+                source = block.get("source")
+                if isinstance(source, dict):
+                    url = source.get("url")
+                    if isinstance(url, str) and url.startswith("file://"):
+                        local_path = _file_url_to_path(url)
+                        fixed_blocks.append(
+                            {
+                                "type": "text",
+                                "text": (
+                                    "[Local media omitted for model call: "
+                                    f"{local_path}]"
+                                ),
+                            },
+                        )
+                        continue
+
+            if block_type == "file":
+                source = block.get("source")
+                if isinstance(source, dict):
+                    url = source.get("url")
+                    if isinstance(url, str) and url.startswith("file://"):
+                        local_path = _file_url_to_path(url)
+                        filename = (
+                            block.get("filename")
+                            or urlparse(
+                                local_path,
+                            ).path.split("/")[-1]
+                        )
+                        fixed_blocks.append(
+                            {
+                                "type": "text",
+                                "text": (
+                                    "[Local file omitted for model call: "
+                                    f"{filename or local_path}]"
+                                ),
+                            },
+                        )
+                        continue
+
+            if not isinstance(block_type, str):
+                fixed_blocks.append({"type": "text", "text": str(block)})
+                continue
+
+            fixed_blocks.append(block)
+
+        msg.content = fixed_blocks
+        normalized.append(msg)
+
+    return normalized
 
 
 def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
