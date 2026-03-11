@@ -387,7 +387,10 @@ def _sanitize_local_media_in_value(value: Any) -> tuple[Any, bool]:
 
 
 _LOCAL_PATH_TEXT_RE = re.compile(
-    r"(?i)(file://\S+|(?:[A-Za-z]:[\\/]|/|\./|\.\./|~/)\S+)",
+    r"(?i)("
+    r"file://\S+|"
+    r"(?<!\S)(?:[A-Za-z]:[\\/]|/(?!/)|\./|\.\./|~/)\S+"
+    r")",
 )
 
 
@@ -434,7 +437,7 @@ def _normalize_messages_for_model(msgs: list[Msg]) -> list[Msg]:
                     changed = True
                     continue
 
-                fixed_blocks.append(block)
+                fixed_blocks.append(deepcopy(block))
 
             if changed:
                 new_content = fixed_blocks

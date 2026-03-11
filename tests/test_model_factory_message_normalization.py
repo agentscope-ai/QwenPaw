@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from agentscope.message import Msg
 
-from copaw.agents.model_factory import _normalize_messages_for_model
+from copaw.agents.model_factory import (
+    _normalize_messages_for_model,
+)
 
 
 def test_normalize_string_content_to_text_block() -> None:
@@ -353,3 +355,43 @@ def test_normalize_string_content_with_local_path_redacted() -> None:
             "text": "saved at [LOCAL_PATH] and [LOCAL_PATH]",
         },
     ]
+
+
+def test_normalize_string_content_keeps_https_url() -> None:
+    msg = Msg(
+        name="assistant",
+        content="see https://example.com/a.png and /tmp/a.png",
+        role="assistant",
+    )
+
+    normalized = _normalize_messages_for_model([msg])
+
+    assert normalized[0].content == [
+        {
+            "type": "text",
+            "text": "see https://example.com/a.png and [LOCAL_PATH]",
+        },
+    ]
+
+
+def test_normalize_preserves_message_content_isolation() -> None:
+    msg = Msg(
+        name="assistant",
+        content=[
+            {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": "file:///tmp/a.png",
+                },
+            },
+            {"type": "text", "text": "hello"},
+        ],
+        role="assistant",
+    )
+    original_text_block = msg.content[1]
+
+    normalized = _normalize_messages_for_model([msg])
+
+    assert normalized[0].content[1] == original_text_block
+    assert normalized[0].content[1] is not original_text_block
