@@ -387,15 +387,15 @@ export function ProviderConfigModal({
 
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
-      const result = await api.testProviderConnection(provider.id, {
-        api_key: values.api_key,
-        base_url: values.base_url,
-        chat_model: values.chat_model,
-      });
+      if (!provider.is_custom) {
+        const result = await api.testProviderConnection(provider.id, {
+          api_key: values.api_key,
+          base_url: values.base_url,
+          chat_model: values.chat_model,
+        });
 
-      if (!result.success) {
-        message.error(result.message || t("models.testConnectionFailed"));
-        if (!provider.is_custom) {
+        if (!result.success) {
+          message.error(result.message || t("models.testConnectionFailed"));
           // For built-in providers, we want to enforce valid config before saving
           return;
         }
