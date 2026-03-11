@@ -520,5 +520,12 @@
       "viewReleases": "View Releases",
       "close": "Close"
     }
+  },
+  "chat": {
+    "disclaimer": "Works for you, grows with you",
+    "greeting": "Hello, how can I help you today?",
+    "description": "I am a helpful assistant that can help you with your questions.",
+    "prompt1": "Let's start a new journey!",
+    "prompt2": "Can you tell me what skills you have?"
   }
 }
