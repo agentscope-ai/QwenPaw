@@ -132,10 +132,14 @@ $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 cd /d "%~dp0"
 
 REM Set SSL certificate paths for packaged environment
-if exist "%~dp0Lib\site-packages\certifi\cacert.pem" (
-  set "SSL_CERT_FILE=%~dp0Lib\site-packages\certifi\cacert.pem"
-  set "REQUESTS_CA_BUNDLE=%~dp0Lib\site-packages\certifi\cacert.pem"
-  set "CURL_CA_BUNDLE=%~dp0Lib\site-packages\certifi\cacert.pem"
+REM Query certifi path from the packaged Python interpreter
+for /f "delims=" %%i in ('"%~dp0python.exe" -c "import certifi; print(certifi.where())" 2^>nul') do set "CERT_FILE=%%i"
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
 )
 
 if not exist "%USERPROFILE%\.copaw\config.json" (
@@ -151,10 +155,14 @@ $DebugBat = Join-Path $EnvRoot "CoPaw Desktop (Debug).bat"
 cd /d "%~dp0"
 
 REM Set SSL certificate paths for packaged environment
-if exist "%~dp0Lib\site-packages\certifi\cacert.pem" (
-  set "SSL_CERT_FILE=%~dp0Lib\site-packages\certifi\cacert.pem"
-  set "REQUESTS_CA_BUNDLE=%~dp0Lib\site-packages\certifi\cacert.pem"
-  set "CURL_CA_BUNDLE=%~dp0Lib\site-packages\certifi\cacert.pem"
+REM Query certifi path from the packaged Python interpreter
+for /f "delims=" %%i in ('"%~dp0python.exe" -c "import certifi; print(certifi.where())" 2^>nul') do set "CERT_FILE=%%i"
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
 )
 
 echo ====================================

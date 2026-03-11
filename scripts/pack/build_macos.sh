@@ -66,16 +66,16 @@ export PYTHONHOME="$ENV_DIR"
 export COPAW_DESKTOP_APP=1
 
 # Set SSL certificate paths for packaged environment
-# Try to locate certifi's cacert.pem (Python version agnostic)
-for py_ver in 3.10 3.11 3.12 3.13; do
-  CERT_FILE="$ENV_DIR/lib/python${py_ver}/site-packages/certifi/cacert.pem"
-  if [ -f "$CERT_FILE" ]; then
+# Query certifi path from the packaged Python interpreter
+if [ -x "$ENV_DIR/bin/python" ]; then
+  CERT_FILE=$("$ENV_DIR/bin/python" -c \
+    "import certifi; print(certifi.where())" 2>/dev/null)
+  if [ -n "$CERT_FILE" ] && [ -f "$CERT_FILE" ]; then
     export SSL_CERT_FILE="$CERT_FILE"
     export REQUESTS_CA_BUNDLE="$CERT_FILE"
     export CURL_CA_BUNDLE="$CERT_FILE"
-    break
   fi
-done
+fi
 
 cd "$HOME" || true
 if [ ! -t 2 ]; then
