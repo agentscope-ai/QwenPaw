@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Token usage manager: singleton that handles recording and querying token usage.
-Follows the same pattern as ProviderManager (single entry point, owned storage)."""
+"""Token usage manager"""
 
 import json
 import logging
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class TokenUsageStats(BaseModel):
-    """Prompt/completion tokens and call count. Reused as aggregate and as base for record/entry."""
+    """Prompt/completion tokens and call count."""
 
     prompt_tokens: int = Field(0, ge=0)
     completion_tokens: int = Field(0, ge=0)
@@ -60,8 +59,8 @@ class TokenUsageSummary(BaseModel):
 
 
 class TokenUsageManager:
-    """Manager for token usage records: persist to a single JSON file and provide
-    record/query/summary APIs. Use get_instance() to obtain the singleton."""
+    """Manager for token usage records.
+    Use get_instance() to obtain the singleton."""
 
     _instance: "TokenUsageManager | None" = None
     _lock = threading.Lock()
@@ -71,7 +70,7 @@ class TokenUsageManager:
         self._file_lock = threading.Lock()
 
     async def _load_data(self) -> dict:
-        """Load full token usage data from disk. Returns {} on missing/error."""
+        """Load full token usage data from disk."""
         if not self._path.exists():
             return {}
         try:

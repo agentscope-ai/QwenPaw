@@ -92,7 +92,8 @@ def create_local_chat_model(
             )
 
             return TokenRecordingModelWrapper(
-                str(info.backend), model_instance
+                str(info.backend),
+                model_instance,
             )
 
         # Unload previous model
