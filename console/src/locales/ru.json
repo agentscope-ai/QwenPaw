@@ -637,5 +637,23 @@
         "TOOL_CMD_DANGEROUS_MV": "Обнаруживает команду mv, которая может неожиданно переместить или перезаписать файлы"
       }
     }
+  },
+  "login": {
+    "title": "Вход в CoPaw",
+    "registerTitle": "Создать аккаунт",
+    "firstUserHint": "Создайте первый аккаунт для начала работы",
+    "usernamePlaceholder": "Имя пользователя",
+    "passwordPlaceholder": "Пароль",
+    "usernameRequired": "Введите имя пользователя",
+    "passwordRequired": "Введите пароль",
+    "submit": "Войти",
+    "register": "Регистрация",
+    "failed": "Неверное имя пользователя или пароль",
+    "registerSuccess": "Аккаунт успешно создан",
+    "registerFailed": "Ошибка регистрации",
+    "authNotEnabled": "Аутентификация не включена",
+    "logout": "Выйти",
+    "switchToLogin": "Уже есть аккаунт? Войти",
+    "switchToRegister": "Создать новый аккаунт"
   }
 }

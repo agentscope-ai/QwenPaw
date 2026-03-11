@@ -637,5 +637,23 @@
         "TOOL_CMD_DANGEROUS_MV": "ファイルを意図せず移動・上書きする可能性のある mv コマンドを検出"
       }
     }
+  },
+  "login": {
+    "title": "CoPaw にログイン",
+    "registerTitle": "アカウント作成",
+    "firstUserHint": "最初のアカウントを作成して始めましょう",
+    "usernamePlaceholder": "ユーザー名",
+    "passwordPlaceholder": "パスワード",
+    "usernameRequired": "ユーザー名を入力してください",
+    "passwordRequired": "パスワードを入力してください",
+    "submit": "ログイン",
+    "register": "登録",
+    "failed": "ユーザー名またはパスワードが正しくありません",
+    "registerSuccess": "アカウントが作成されました",
+    "registerFailed": "登録に失敗しました",
+    "authNotEnabled": "認証は有効になっていません",
+    "logout": "ログアウト",
+    "switchToLogin": "アカウントをお持ちですか？ログイン",
+    "switchToRegister": "新しいアカウントを作成"
   }
 }

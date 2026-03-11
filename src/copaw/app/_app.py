@@ -34,6 +34,7 @@ from .routers import router as api_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
+from .auth import AuthMiddleware
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -463,6 +464,10 @@ if CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# Auth middleware is added *before* CORS so that CORS is outermost
+# and preflight OPTIONS requests always receive proper CORS headers.
+app.add_middleware(AuthMiddleware)
 
 
 # Console static dir: env, or copaw package data (console), or cwd.
