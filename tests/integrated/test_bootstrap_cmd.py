@@ -17,11 +17,10 @@ def _run_bootstrap(
     env["COPAW_WORKING_DIR"] = working_dir
     env["COPAW_SECRET_DIR"] = secret_dir
     existing_pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = (
-        f"src{os.pathsep}{existing_pythonpath}"
-        if existing_pythonpath
-        else "src"
-    )
+    if existing_pythonpath:
+        env["PYTHONPATH"] = os.pathsep.join(["src", existing_pythonpath])
+    else:
+        env["PYTHONPATH"] = "src"
     return subprocess.run(
         [sys.executable, "-m", "copaw", "bootstrap"],
         capture_output=True,
