@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import {
   Form,
   InputNumber,
+  Select,
   Button,
   Card,
+  Modal,
   message,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
@@ -11,12 +13,20 @@ import api from "../../../api";
 import styles from "./index.module.less";
 import type { AgentsRunningConfig } from "../../../api/types";
 
+const LANGUAGE_OPTIONS = [
+  { value: "zh", label: "中文" },
+  { value: "en", label: "English" },
+  { value: "ru", label: "Русский" },
+];
+
 function AgentConfigPage() {
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [language, setLanguage] = useState<string>("zh");
+  const [savingLang, setSavingLang] = useState(false);
 
   useEffect(() => {
     fetchConfig();
@@ -27,8 +37,12 @@ function AgentConfigPage() {
     setLoading(true);
     setError(null);
     try {
-      const config = await api.getAgentRunningConfig();
+      const [config, langResp] = await Promise.all([
+        api.getAgentRunningConfig(),
+        api.getAgentLanguage(),
+      ]);
       form.setFieldsValue(config);
+      setLanguage(langResp.language);
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.loadFailed");
@@ -54,6 +68,44 @@ function AgentConfigPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleLanguageChange = (value: string) => {
+    if (value === language) return;
+    Modal.confirm({
+      title: t("agentConfig.languageConfirmTitle"),
+      content: (
+        <span style={{ whiteSpace: "pre-line" }}>
+          {t("agentConfig.languageConfirmContent")}
+        </span>
+      ),
+      okText: t("agentConfig.languageConfirmOk"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        setSavingLang(true);
+        try {
+          const resp = await api.updateAgentLanguage(value);
+          setLanguage(resp.language);
+          if (resp.copied_files && resp.copied_files.length > 0) {
+            message.success(
+              t("agentConfig.languageSaveSuccessWithFiles", {
+                count: resp.copied_files.length,
+              }),
+            );
+          } else {
+            message.success(t("agentConfig.languageSaveSuccess"));
+          }
+        } catch (err) {
+          const errMsg =
+            err instanceof Error
+              ? err.message
+              : t("agentConfig.languageSaveFailed");
+          message.error(errMsg);
+        } finally {
+          setSavingLang(false);
+        }
+      },
+    });
   };
 
   const handleReset = () => {
@@ -87,6 +139,20 @@ function AgentConfigPage() {
 
         <Card className={styles.formCard}>
           <Form form={form} layout="vertical" className={styles.form}>
+            <Form.Item
+              label={t("agentConfig.language")}
+              tooltip={t("agentConfig.languageTooltip")}
+            >
+              <Select
+                value={language}
+                options={LANGUAGE_OPTIONS}
+                onChange={handleLanguageChange}
+                loading={savingLang}
+                disabled={savingLang}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+
             <Form.Item
               label={t("agentConfig.maxIters")}
               name="max_iters"

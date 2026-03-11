@@ -34,7 +34,8 @@ you'll find inside:
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
 > generic "You are a helpful assistant" prompt. Run `copaw init` to auto-copy
-> them based on your language choice (`zh` / `en`).
+> them based on your language choice (`zh` / `en` / `ru`). You can also
+> change the language later via the Console (Agent → Configuration).
 
 ---
 
@@ -215,7 +216,7 @@ Each channel has a common base and channel-specific fields.
 | ------------------------------------ | -------------- | --------- | ----------------------------------------------------------------------- |
 | `agents.defaults.heartbeat`          | object \| null | See below | Heartbeat configuration                                                 |
 | `agents.running`                     | object         | See below | Agent runtime behavior configuration                                    |
-| `agents.language`                    | string         | `"zh"`    | Language for agent MD files (`"en"` or `"zh"`)                          |
+| `agents.language`                    | string         | `"zh"`    | Language for agent MD files (`"zh"` / `"en"` / `"ru"`)                  |
 | `agents.installed_md_files_language` | string \| null | `null`    | Tracks which language's MD files are installed; managed by `copaw init` |
 
 **`agents.running`** — Agent runtime behavior
