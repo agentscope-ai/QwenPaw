@@ -2,7 +2,7 @@ import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Modal, Button, Result } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -28,6 +28,7 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const optionsConfig = defaultConfig;
+  const isComposingRef = useRef(false);
 
   const handleConfigureModel = () => {
     setShowModelPrompt(false);
@@ -38,7 +39,76 @@ export default function ChatPage() {
     setShowModelPrompt(false);
   };
 
+  useEffect(() => {
+    const handleCompositionStart = () => {
+      console.log("[IME] Composition start");
+      isComposingRef.current = true;
+    };
+
+    const handleCompositionEnd = () => {
+      console.log("[IME] Composition end");
+      setTimeout(() => {
+        isComposingRef.current = false;
+        console.log("[IME] Composition state cleared");
+      }, 150);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "TEXTAREA" && e.key === "Enter") {
+        console.log("[IME] KeyDown Enter:", {
+          isComposing: (e as any).isComposing,
+          isComposingRef: isComposingRef.current,
+          shiftKey: e.shiftKey,
+        });
+      }
+    };
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+        console.log("[IME] KeyPress Enter:", {
+          isComposing: (e as any).isComposing,
+          isComposingRef: isComposingRef.current,
+        });
+        if (isComposingRef.current || (e as any).isComposing) {
+          console.log("[IME] Blocking enter key");
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return false;
+        }
+      }
+    };
+
+    document.addEventListener("compositionstart", handleCompositionStart, true);
+    document.addEventListener("compositionend", handleCompositionEnd, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("keypress", handleKeyPress, true);
+
+    return () => {
+      document.removeEventListener(
+        "compositionstart",
+        handleCompositionStart,
+        true,
+      );
+      document.removeEventListener(
+        "compositionend",
+        handleCompositionEnd,
+        true,
+      );
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keypress", handleKeyPress, true);
+    };
+  }, []);
+
   const options = useMemo(() => {
+    const handleBeforeSubmit = async () => {
+      if (isComposingRef.current) {
+        return false;
+      }
+      return true;
+    };
+
     const handleModelError = () => {
       setShowModelPrompt(true);
       return new Response(
@@ -112,6 +182,10 @@ export default function ChatPage() {
 
     return {
       ...optionsConfig,
+      sender: {
+        ...optionsConfig.sender,
+        beforeSubmit: handleBeforeSubmit,
+      },
       session: {
         multiple: true,
         api: sessionApi,
