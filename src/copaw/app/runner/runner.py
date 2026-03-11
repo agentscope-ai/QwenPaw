@@ -199,7 +199,15 @@ class AgentRunner(Runner):
                 )
 
             if self._chat_manager is not None and chat is not None:
-                await self._chat_manager.update_chat(chat)
+                try:
+                    await self._chat_manager.update_chat(chat)
+                except Exception:
+                    logger.warning(
+                        "update_chat failed: session_id=%s user_id=%s",
+                        session_id if "session_id" in locals() else "",
+                        user_id if "user_id" in locals() else "",
+                        exc_info=True,
+                    )
 
     async def init_handler(self, *args, **kwargs):
         """

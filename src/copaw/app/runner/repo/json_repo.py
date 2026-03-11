@@ -2,11 +2,16 @@
 """JSON-based chat repository."""
 from __future__ import annotations
 
+import asyncio
+import errno
 import json
+import logging
 from pathlib import Path
 
 from .base import BaseChatRepository
 from ..models import ChatsFile
+
+logger = logging.getLogger(__name__)
 
 
 class JsonChatRepository(BaseChatRepository):
@@ -65,5 +70,17 @@ class JsonChatRepository(BaseChatRepository):
             encoding="utf-8",
         )
 
-        # Atomic replace
-        tmp_path.replace(self._path)
+        # Atomic replace can transiently fail with EBUSY on some bind mounts.
+        for attempt in range(3):
+            try:
+                tmp_path.replace(self._path)
+                return
+            except OSError as exc:
+                if exc.errno != errno.EBUSY or attempt == 2:
+                    raise
+                logger.warning(
+                    "chat repo replace busy; retrying path=%s attempt=%s",
+                    self._path,
+                    attempt + 1,
+                )
+                await asyncio.sleep(0.05 * (attempt + 1))
