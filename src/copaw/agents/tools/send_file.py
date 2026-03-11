@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long,too-many-return-statements
 import os
 import mimetypes
+import unicodedata
 
 from agentscope.tool import ToolResponse
 from agentscope.message import (
@@ -13,6 +14,9 @@ from agentscope.message import (
 )
 
 from ..schema import FileBlock
+
+
+_TELEGRAM_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB – Telegram bot limit
 
 
 def _auto_as_type(mt: str) -> str:
@@ -39,6 +43,11 @@ async def send_file_to_user(
             The tool response containing the file or an error message.
     """
 
+    # Normalize the path: expand ~ and fix Unicode normalization differences
+    # (e.g. macOS stores filenames as NFD but paths from the LLM arrive as NFC,
+    # causing os.path.exists to return False for files that do exist).
+    file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
+
     if not os.path.exists(file_path):
         return ToolResponse(
             content=[
@@ -55,6 +64,22 @@ async def send_file_to_user(
                 TextBlock(
                     type="text",
                     text=f"Error: The path {file_path} is not a file.",
+                ),
+            ],
+        )
+
+    file_size = os.path.getsize(file_path)
+    if file_size > _TELEGRAM_MAX_FILE_SIZE_BYTES:
+        file_size_mb = file_size / (1024 * 1024)
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"Error: The file {os.path.basename(file_path)} is too large "
+                        f"to send ({file_size_mb:.1f} MB). "
+                        "Telegram bot limit is 50 MB."
+                    ),
                 ),
             ],
         )
@@ -76,21 +101,21 @@ async def send_file_to_user(
             return ToolResponse(
                 content=[
                     ImageBlock(type="image", source=source),
-                    TextBlock(type="text", text="已成功发送文件"),
+                    TextBlock(type="text", text="File sent successfully."),
                 ],
             )
         if as_type == "audio":
             return ToolResponse(
                 content=[
                     AudioBlock(type="audio", source=source),
-                    TextBlock(type="text", text="已成功发送文件"),
+                    TextBlock(type="text", text="File sent successfully."),
                 ],
             )
         if as_type == "video":
             return ToolResponse(
                 content=[
                     VideoBlock(type="video", source=source),
-                    TextBlock(type="text", text="已成功发送文件"),
+                    TextBlock(type="text", text="File sent successfully."),
                 ],
             )
 
@@ -101,7 +126,7 @@ async def send_file_to_user(
                     source=source,
                     filename=os.path.basename(file_path),
                 ),
-                TextBlock(type="text", text="已成功发送文件"),
+                TextBlock(type="text", text="File sent successfully."),
             ],
         )
 

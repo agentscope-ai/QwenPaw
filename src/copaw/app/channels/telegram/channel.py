@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import (
+    BadRequest,
+    Forbidden,
+    NetworkError,
+    RetryAfter,
+    TimedOut,
+)
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
@@ -38,6 +44,9 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
+TELEGRAM_MAX_FILE_SIZE_BYTES = (
+    50 * 1024 * 1024
+)  # 50 MB – Telegram bot upload limit
 
 _DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
 _TYPING_TIMEOUT_S = 180
@@ -48,6 +57,10 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("voice", AudioContent, ContentType.AUDIO, "data"),
     ("audio", AudioContent, ContentType.AUDIO, "data"),
 ]
+
+
+class _FileTooLargeError(Exception):
+    """Raised when a local media file exceeds Telegram's upload size limit."""
 
 
 async def _download_telegram_file(
@@ -624,7 +637,7 @@ class TelegramChannel(BaseChannel):
                 logger.exception("telegram send_message failed")
                 return
 
-    async def send_media(
+    async def send_media(  # pylint: disable=too-many-statements
         self,
         to_handle: str,
         part: OutgoingContentPart,
@@ -688,6 +701,52 @@ class TelegramChannel(BaseChannel):
                     payload_name="document",
                     message_thread_id=message_thread_id,
                 )
+        except _FileTooLargeError as exc:
+            logger.warning("telegram send_media: file too large: %s", exc)
+            await self.send(to_handle, str(exc), meta)
+        except BadRequest as exc:
+            logger.warning("telegram send_media: bad request: %s", exc)
+            await self.send(
+                to_handle,
+                f"Telegram rejected the file: {exc}",
+                meta,
+            )
+        except TimedOut as exc:
+            logger.warning("telegram send_media: timed out: %s", exc)
+            await self.send(
+                to_handle,
+                "File upload timed out. "
+                "The file may be too large (Telegram bot limit: 50 MB).",
+                meta,
+            )
+        except RetryAfter as exc:
+            logger.warning("telegram send_media: rate limited: %s", exc)
+            await self.send(
+                to_handle,
+                f"Too many requests. Please try again later. ({exc})",
+                meta,
+            )
+        except Forbidden as exc:
+            logger.warning("telegram send_media: forbidden: %s", exc)
+            await self.send(
+                to_handle,
+                "The bot does not have permission to send media in this chat.",
+                meta,
+            )
+        except NetworkError as exc:
+            logger.warning("telegram send_media: network error: %s", exc)
+            await self.send(
+                to_handle,
+                "Network error. Failed to send file, please try again later.",
+                meta,
+            )
+        except OSError as exc:
+            logger.warning("telegram send_media: OS error: %s", exc)
+            await self.send(
+                to_handle,
+                f"Failed to read the file, cannot send ({exc.strerror}).",
+                meta,
+            )
         except Exception:
             logger.exception("telegram send_media failed")
 
@@ -725,6 +784,13 @@ class TelegramChannel(BaseChannel):
                     local_path,
                 )
                 return
+            file_size = local_path.stat().st_size
+            if file_size > TELEGRAM_MAX_FILE_SIZE_BYTES:
+                file_size_mb = file_size / (1024 * 1024)
+                raise _FileTooLargeError(
+                    f"File too large to send via Telegram: {local_path.name} "
+                    f"({file_size_mb:.1f} MB, Telegram bot limit: 50 MB)",
+                )
             try:
                 with open(local_path, "rb") as media_file:
                     await self._send_media_payload(
@@ -741,6 +807,7 @@ class TelegramChannel(BaseChannel):
                     local_path,
                     exc,
                 )
+                raise
             return
         await self._send_media_payload(
             bot=bot,
