@@ -63,10 +63,18 @@ class TestHttpxExceptions:
             lambda httpx: httpx.RemoteProtocolError(
                 "peer closed connection without sending complete message body",
             ),
-            lambda httpx: httpx.ReadTimeout("timed out", request=MagicMock()),
-            lambda httpx: httpx.ConnectTimeout("timed out", request=MagicMock()),
-            lambda httpx: httpx.ConnectError("connection refused", request=MagicMock()),
-            lambda httpx: httpx.ReadError("connection reset by peer", request=MagicMock()),
+            lambda httpx: httpx.ReadTimeout(
+                "timed out", request=MagicMock()
+            ),
+            lambda httpx: httpx.ConnectTimeout(
+                "timed out", request=MagicMock()
+            ),
+            lambda httpx: httpx.ConnectError(
+                "connection refused", request=MagicMock()
+            ),
+            lambda httpx: httpx.ReadError(
+                "connection reset by peer", request=MagicMock()
+            ),
         ],
         ids=[
             "RemoteProtocolError",
