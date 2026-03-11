@@ -353,6 +353,7 @@ class QQChannel(BaseChannel):
         client_secret: str,
         bot_prefix: str = "",
         markdown_enabled: bool = True,
+        stream_reply: bool = True,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -371,6 +372,7 @@ class QQChannel(BaseChannel):
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
         self._markdown_enabled = markdown_enabled
+        self._stream_reply = stream_reply
         self._media_dir = (
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         )
@@ -469,6 +471,7 @@ class QQChannel(BaseChannel):
             client_secret=os.getenv("QQ_CLIENT_SECRET", ""),
             bot_prefix=os.getenv("QQ_BOT_PREFIX", ""),
             markdown_enabled=_as_bool(os.getenv("QQ_MARKDOWN_ENABLED", "1")),
+            stream_reply=_as_bool(os.getenv("QQ_STREAM_REPLY", "1")),
             on_reply_sent=on_reply_sent,
         )
 
@@ -489,6 +492,7 @@ class QQChannel(BaseChannel):
             client_secret=config.client_secret or "",
             bot_prefix=config.bot_prefix or "",
             markdown_enabled=getattr(config, "markdown_enabled", True),
+            stream_reply=getattr(config, "stream_reply", True),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -783,6 +787,7 @@ class QQChannel(BaseChannel):
             last_response = None
             accumulated_parts: List[OutgoingContentPart] = []
             event_count = 0
+            sent_reply = False
 
             async for event in self._process(request):
                 event_count += 1
@@ -803,23 +808,40 @@ class QQChannel(BaseChannel):
                         ev_type,
                         len(parts),
                     )
-                    accumulated_parts.extend(parts)
+                    if self._stream_reply and parts:
+                        chunk_meta = dict(send_meta)
+                        if sent_reply:
+                            chunk_meta["bot_prefix"] = ""
+                        await self.send_content_parts(
+                            to_handle,
+                            parts,
+                            chunk_meta,
+                        )
+                        sent_reply = True
+                    else:
+                        accumulated_parts.extend(parts)
                 elif obj == "response":
                     last_response = event
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
                 err_text = self.bot_prefix + f"Error: {err_msg}"
+                err_meta = dict(send_meta)
+                if sent_reply:
+                    err_meta["bot_prefix"] = ""
                 await self.send_content_parts(
                     to_handle,
                     [TextContent(type=ContentType.TEXT, text=err_text)],
-                    send_meta,
+                    err_meta,
                 )
             elif accumulated_parts:
+                final_meta = dict(send_meta)
+                if sent_reply:
+                    final_meta["bot_prefix"] = ""
                 await self.send_content_parts(
                     to_handle,
                     accumulated_parts,
-                    send_meta,
+                    final_meta,
                 )
             elif last_response is None:
                 await self.send_content_parts(

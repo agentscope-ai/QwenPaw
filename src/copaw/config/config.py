@@ -61,6 +61,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    stream_reply: bool = True
 
 
 class TelegramConfig(BaseChannelConfig):
