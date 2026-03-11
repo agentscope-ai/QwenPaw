@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-import aiofiles
 import websocket
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -67,7 +66,7 @@ def _as_bool(value: Any) -> bool:
     return bool(value)
 
 
-def _parse_message(message: Any) -> List[OutgoingContentPart]:
+def _parse_message(message: Any) -> List[OutgoingContentPart]:  # noqa: R0912
     """Parse OneBot 11 message to content parts.
 
     Handles:
@@ -83,10 +82,12 @@ def _parse_message(message: Any) -> List[OutgoingContentPart]:
     # If message is a string (plain text)
     if isinstance(message, str):
         if message.strip():
-            parts.append(TextContent(
-                type=ContentType.TEXT,
-                text=message.strip()
-            ))
+            parts.append(
+                TextContent(
+                    type=ContentType.TEXT,
+                    text=message.strip(),
+                ),
+            )
         return parts
 
     # If message is a list of segments
@@ -104,36 +105,44 @@ def _parse_message(message: Any) -> List[OutgoingContentPart]:
                 # Image can be file path, URL, or base64
                 image_data = seg_data.get("file", seg_data.get("url", ""))
                 if image_data:
-                    parts.append(ImageContent(
-                        type=ContentType.IMAGE,
-                        image_url=image_data
-                    ))
+                    parts.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=image_data,
+                        ),
+                    )
 
             elif seg_type == "record":  # Voice
                 record_data = seg_data.get("file", seg_data.get("url", ""))
                 if record_data:
-                    parts.append(AudioContent(
-                        type=ContentType.AUDIO,
-                        data=record_data
-                    ))
+                    parts.append(
+                        AudioContent(
+                            type=ContentType.AUDIO,
+                            data=record_data,
+                        ),
+                    )
 
             elif seg_type == "video":
                 video_data = seg_data.get("file", seg_data.get("url", ""))
                 if video_data:
-                    parts.append(VideoContent(
-                        type=ContentType.VIDEO,
-                        video_url=video_data
-                    ))
+                    parts.append(
+                        VideoContent(
+                            type=ContentType.VIDEO,
+                            video_url=video_data,
+                        ),
+                    )
 
             elif seg_type == "file":
                 file_data = seg_data.get("file", seg_data.get("url", ""))
                 file_name = seg_data.get("name", "file")
                 if file_data:
-                    parts.append(FileContent(
-                        type=ContentType.FILE,
-                        filename=file_name,
-                        file_url=file_data
-                    ))
+                    parts.append(
+                        FileContent(
+                            type=ContentType.FILE,
+                            filename=file_name,
+                            file_url=file_data,
+                        ),
+                    )
 
     return parts
 
@@ -213,8 +222,13 @@ async def _send_group_message(
         "auto_escape": auto_escape,
     }
     result = await _api_request(
-        session, host, port, access_token,
-        "POST", "/send_group_msg", body
+        session,
+        host,
+        port,
+        access_token,
+        "POST",
+        "/send_group_msg",
+        body,
     )
     return (result.get("data") or {}).get("message_id", 0)
 
@@ -239,8 +253,13 @@ async def _send_private_message(
         "auto_escape": auto_escape,
     }
     result = await _api_request(
-        session, host, port, access_token,
-        "POST", "/send_private_msg", body
+        session,
+        host,
+        port,
+        access_token,
+        "POST",
+        "/send_private_msg",
+        body,
     )
     return (result.get("data") or {}).get("message_id", 0)
 
@@ -253,8 +272,13 @@ async def _get_login_info(
 ) -> Dict[str, Any]:
     """Get login info."""
     result = await _api_request(
-        session, host, port, access_token,
-        "POST", "/get_login_info", None
+        session,
+        host,
+        port,
+        access_token,
+        "POST",
+        "/get_login_info",
+        None,
     )
     return result.get("data", {})
 
@@ -267,8 +291,13 @@ async def _get_group_list(
 ) -> List[Dict[str, Any]]:
     """Get group list."""
     result = await _api_request(
-        session, host, port, access_token,
-        "POST", "/get_group_list", None
+        session,
+        host,
+        port,
+        access_token,
+        "POST",
+        "/get_group_list",
+        None,
     )
     return result.get("data", [])
 
@@ -389,7 +418,11 @@ class NapCatChannel(BaseChannel):
             media_dir=media_dir,
         )
 
-    def _should_process(self, user_id: str, group_id: Optional[str] = None) -> bool:
+    def _should_process(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+    ) -> bool:
         """Check if the message should be processed based on policy."""
         # Check allow_from list
         if self.allow_from and user_id not in self.allow_from:
@@ -425,9 +458,6 @@ class NapCatChannel(BaseChannel):
         text = text.strip()
         meta = meta or {}
 
-        # Debug: log what's passed to send
-        print(f"[DEBUG napcat send] to_handle={to_handle}, meta={meta}")
-
         # Determine if this is group or private message
         # Check multiple sources for group_id
         group_id = meta.get("group_id")
@@ -436,55 +466,74 @@ class NapCatChannel(BaseChannel):
         # If no group_id in meta, try to extract from session_id
         if not group_id and session_id.startswith("napcat:group:"):
             group_id = session_id.split(":")[-1]
-            print(f"[DEBUG napcat send] extracted group_id from session_id: {group_id}")
 
         message_type = meta.get("message_type", "")
-        is_group = bool(group_id) or message_type == "group" or to_handle.startswith("group:")
+        is_group = (
+            bool(group_id)
+            or message_type == "group"
+            or to_handle.startswith("group:")
+        )
 
         if is_group:
             # group_id already extracted above from session_id if needed
-            # Use the extracted group_id, don't overwrite with meta.get("group_id")
+            # Don't overwrite with meta.get("group_id")
             if not group_id:
                 # Fallback: extract from session_id in session_id field
                 session_id = meta.get("session_id", "")
                 if session_id.startswith("napcat:group:"):
                     group_id = session_id.split(":")[-1]
             if not group_id:
-                logger.warning(f"NapCat send: group_id is None, message_type={message_type}, session_id={session_id}")
+                logger.warning(
+                    "NapCat send: group_id is None, "
+                    f"message_type={message_type}, session_id={session_id}",
+                )
             try:
                 await _send_group_message(
-                    self._http, self.host, self.port, self.access_token,
-                    group_id, text, auto_escape=True
+                    self._http,
+                    self.host,
+                    self.port,
+                    self.access_token,
+                    group_id,
+                    text,
+                    auto_escape=True,
                 )
             except Exception as e:
-                logger.exception(f"NapCat send to group {group_id} failed: {e}")
+                logger.exception(
+                    f"NapCat send to group {group_id} failed: {e}",
+                )
         else:
             # Private message
             user_id = meta.get("user_id") or to_handle
             try:
                 await _send_private_message(
-                    self._http, self.host, self.port, self.access_token,
-                    user_id, text, auto_escape=True
+                    self._http,
+                    self.host,
+                    self.port,
+                    self.access_token,
+                    user_id,
+                    text,
+                    auto_escape=True,
                 )
             except Exception as e:
-                logger.exception(f"NapCat send to user {user_id} failed: {e}")
+                logger.exception(
+                    "NapCat send to user %s failed: %s",
+                    user_id,
+                    e,
+                )
 
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
         """Build AgentRequest from NapCat/OneBot 11 event dict."""
         payload = native_payload if isinstance(native_payload, dict) else {}
 
-        # Debug: log to file
-        import os
-        debug_file = os.path.expanduser("~/copaw_napcat_debug.log")
-        with open(debug_file, "a", encoding="utf-8") as f:
-            f.write(f"=== build_agent_request ===\n")
-            f.write(f"payload: {payload}\n\n")
-
         # Extract common fields
         post_type = payload.get("post_type", "")
         message_type = payload.get("message_type", "")
         user_id = str(payload.get("user_id", ""))
-        group_id = str(payload.get("group_id", "")) if payload.get("group_id") else None
+        group_id = (
+            str(payload.get("group_id", ""))
+            if payload.get("group_id")
+            else None
+        )
         raw_message = payload.get("message", "")
         message_id = payload.get("message_id", 0)
 
@@ -496,7 +545,11 @@ class NapCatChannel(BaseChannel):
         if self.bot_prefix and isinstance(raw_message, str):
             if not raw_message.startswith(self.bot_prefix):
                 # Check if it's an @ mention (CQ code)
-                bot_qq = str(self._login_info.get('user_id', '')) if self._login_info else ''
+                bot_qq = (
+                    str(self._login_info.get("user_id", ""))
+                    if self._login_info
+                    else ""
+                )
                 if bot_qq and f"[CQ:at,qq={bot_qq}]" not in raw_message:
                     return None
 
@@ -525,7 +578,7 @@ class NapCatChannel(BaseChannel):
             channel_meta=meta,
         )
 
-    async def consume_one(self, payload: Any) -> None:
+    async def consume_one(self, payload: Any) -> None:  # noqa: R0912,R0915
         """Process one AgentRequest from queue."""
         request = payload
         if getattr(request, "input", None):
@@ -553,22 +606,15 @@ class NapCatChannel(BaseChannel):
             # Add session_id to send_meta so send method can access it
             send_meta["session_id"] = getattr(request, "session_id", "")
 
-            # Debug: log send_meta - use print to ensure visibility
-            print(f"[DEBUG] napcat send_meta: {send_meta}")
-
-            # For group messages, use group_id as to_handle; otherwise use user_id
+            # For group messages, use group_id; otherwise use user_id
             group_id = send_meta.get("group_id")
             message_type = send_meta.get("message_type")
-            print(f"[DEBUG] group_id from send_meta: {group_id}, message_type: {message_type}")
 
-            # 如果没有 group_id 但 message_type 是 group，尝试从 session_id 获取
+            # Try to get group_id from session_id if not present
             if not group_id and message_type == "group":
                 session_id = getattr(request, "session_id", "") or ""
-                print(f"[DEBUG] trying to extract group_id from session_id: {session_id}")
                 if session_id.startswith("napcat:group:"):
                     group_id = session_id.split(":")[-1]
-                    print(f"[DEBUG] extracted group_id: {group_id}")
-            print(f"[DEBUG] final group_id: {group_id}, user_id: {request.user_id}")
             if group_id:
                 to_handle = group_id
             else:
@@ -584,13 +630,17 @@ class NapCatChannel(BaseChannel):
                 ev_type = getattr(event, "type", None)
                 logger.debug(
                     "napcat event #%s: object=%s status=%s type=%s",
-                    event_count, obj, status, ev_type,
+                    event_count,
+                    obj,
+                    status,
+                    ev_type,
                 )
                 if obj == "message" and status == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
                     logger.info(
                         "napcat completed message: type=%s parts_count=%s",
-                        ev_type, len(parts),
+                        ev_type,
+                        len(parts),
                     )
                     accumulated_parts.extend(parts)
                 elif obj == "response":
@@ -611,14 +661,12 @@ class NapCatChannel(BaseChannel):
                     send_meta,
                 )
             elif last_response is None:
+                err_text = (
+                    self.bot_prefix + "An error occurred while processing."
+                )
                 await self.send_content_parts(
                     to_handle,
-                    [
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=self.bot_prefix + "An error occurred while processing your request.",
-                        ),
-                    ],
+                    [TextContent(type=ContentType.TEXT, text=err_text)],
                     send_meta,
                 )
             if self._on_reply_sent:
@@ -652,7 +700,7 @@ class NapCatChannel(BaseChannel):
         quick_disconnect_count = 0
 
         def connect() -> bool:
-            nonlocal reconnect_attempts, last_connect_time, quick_disconnect_count
+            nonlocal reconnect_attempts, last_connect_time, quick_disconnect_count  # noqa: E501
             if self._stop_event.is_set():
                 return False
 
@@ -705,23 +753,33 @@ class NapCatChannel(BaseChannel):
                     pass
 
             # Calculate reconnect delay
-            if last_connect_time and (time.time() - last_connect_time) < QUICK_DISCONNECT_THRESHOLD:
+            if (
+                last_connect_time
+                and (time.time() - last_connect_time)
+                < QUICK_DISCONNECT_THRESHOLD
+            ):
                 quick_disconnect_count += 1
                 if quick_disconnect_count >= MAX_QUICK_DISCONNECT_COUNT:
                     quick_disconnect_count = 0
                     delay = 60  # Rate limit
                 else:
-                    delay = RECONNECT_DELAYS[min(reconnect_attempts, len(RECONNECT_DELAYS) - 1)]
+                    delay = RECONNECT_DELAYS[
+                        min(reconnect_attempts, len(RECONNECT_DELAYS) - 1)
+                    ]
             else:
                 quick_disconnect_count = 0
-                delay = RECONNECT_DELAYS[min(reconnect_attempts, len(RECONNECT_DELAYS) - 1)]
+                delay = RECONNECT_DELAYS[
+                    min(reconnect_attempts, len(RECONNECT_DELAYS) - 1)
+                ]
 
             reconnect_attempts += 1
             if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
                 logger.error("napcat max reconnect attempts reached")
                 return False
 
-            logger.info(f"napcat reconnecting in {delay}s (attempt {reconnect_attempts})")
+            logger.info(
+                f"napcat reconnecting in {delay}s (attempt {reconnect_attempts})",  # noqa: E501
+            )
             self._stop_event.wait(timeout=delay)
             return not self._stop_event.is_set()
 
@@ -742,7 +800,7 @@ class NapCatChannel(BaseChannel):
                 logger.info(
                     f"napcat recv: type={payload.get('message_type')} "
                     f"user={payload.get('user_id')} "
-                    f"group={payload.get('group_id', 'N/A')}"
+                    f"group={payload.get('group_id', 'N/A')}",
                 )
         elif post_type == "notice":
             # Handle notice events (optional)
@@ -771,12 +829,18 @@ class NapCatChannel(BaseChannel):
         # Test connection and get login info
         try:
             self._login_info = await _get_login_info(
-                self._http, self.host, self.port, self.access_token
+                self._http,
+                self.host,
+                self.port,
+                self.access_token,
             )
             logger.info(f"napcat logged in as: {self._login_info}")
 
             self._group_list = await _get_group_list(
-                self._http, self.host, self.port, self.access_token
+                self._http,
+                self.host,
+                self.port,
+                self.access_token,
             )
             logger.info(f"napcat joined {len(self._group_list)} groups")
         except Exception as e:

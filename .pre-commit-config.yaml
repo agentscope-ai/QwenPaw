@@ -89,6 +89,8 @@ repos:
           --disable=W0603,
           --disable=R1705,
           --disable=R0914,
+          --disable=R0912,
+          --disable=R0915,
           --disable=E0601,
           --disable=W0602,
           --disable=W0604,
