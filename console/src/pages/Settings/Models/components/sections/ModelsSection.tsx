@@ -53,7 +53,7 @@ export function ModelsSection({
         if (p.is_local) return true;
         if (p.id === "ollama") return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
-        if (p.require_api_key) return !!p.api_key;
+        if (p.require_api_key ?? true) return !!p.api_key;
         return true;
       }),
     [providers],
