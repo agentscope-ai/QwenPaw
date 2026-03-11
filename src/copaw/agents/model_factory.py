@@ -31,6 +31,8 @@ except ImportError:  # pragma: no cover - compatibility fallback
     GeminiChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
+from ..config.utils import load_config
+from ..local_models import create_local_chat_model
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import RetryChatModel
 from ..token_usage import TokenRecordingModelWrapper
@@ -277,6 +279,97 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _resolve_routing_slot(
+    slot,
+    *,
+    manager: ProviderManager,
+):
+    provider_id = getattr(slot, "provider_id", "")
+    model_name = getattr(slot, "model", "")
+    if not provider_id or not model_name:
+        return None
+
+    provider = manager.get_provider(provider_id)
+    if provider is None or not provider.has_model(model_name):
+        return None
+    return provider, model_name
+
+
+def _create_routing_endpoint(
+    provider,
+    model_name: str,
+):
+    from .routing_chat_model import RoutingEndpoint
+
+    chat_model_class = provider.get_chat_model_cls()
+
+    def _load_endpoint() -> tuple[ChatModelBase, FormatterBase]:
+        if provider.is_local:
+            model = create_local_chat_model(
+                model_id=model_name,
+                stream=True,
+                generate_kwargs={"max_tokens": None},
+            )
+        else:
+            model = provider.get_chat_model_instance(model_name)
+        formatter = _create_formatter_instance(chat_model_class)
+        return model, formatter
+
+    return RoutingEndpoint(
+        provider_id=provider.id,
+        model_name=model_name,
+        formatter_family=_get_formatter_for_chat_model(chat_model_class),
+        loader=_load_endpoint,
+    )
+
+
+def _create_formatter_from_family(
+    formatter_family: Type[FormatterBase],
+) -> FormatterBase:
+    formatter_class = _create_file_block_support_formatter(formatter_family)
+    return formatter_class()
+
+
+def _create_routing_model_and_formatter(
+    *,
+    manager: ProviderManager,
+    routing_cfg,
+    cloud_fallback_slot=None,
+) -> Tuple[ChatModelBase, FormatterBase] | None:
+    from .routing_chat_model import RoutingChatModel
+
+    cloud_slot = routing_cfg.cloud or cloud_fallback_slot or manager.get_active_model()
+    local_resolved = _resolve_routing_slot(
+        routing_cfg.local,
+        manager=manager,
+    )
+    cloud_resolved = _resolve_routing_slot(
+        cloud_slot,
+        manager=manager,
+    )
+    if local_resolved is None or cloud_resolved is None:
+        return None
+
+    local_endpoint = _create_routing_endpoint(*local_resolved)
+    cloud_endpoint = _create_routing_endpoint(*cloud_resolved)
+    if local_endpoint.formatter_family is not cloud_endpoint.formatter_family:
+        logger.warning(
+            "Skipping routing model because local/cloud formatter families "
+            "do not match: %s vs %s",
+            local_endpoint.formatter_family.__name__,
+            cloud_endpoint.formatter_family.__name__,
+        )
+        return None
+
+    model = RoutingChatModel(
+        local_endpoint=local_endpoint,
+        cloud_endpoint=cloud_endpoint,
+        routing_cfg=routing_cfg,
+    )
+    formatter = _create_formatter_from_family(local_endpoint.formatter_family)
+    return RetryChatModel(model), formatter
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -298,6 +391,8 @@ def create_model_and_formatter(
     from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
 
+    manager = ProviderManager.get_instance()
+
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
         try:
@@ -314,10 +409,23 @@ def create_model_and_formatter(
         except Exception:
             pass
 
+    routing_cfg = load_config().agents.llm_routing
+    if (
+        routing_cfg.enabled
+        and routing_cfg.local.provider_id
+        and routing_cfg.local.model
+    ):
+        routed_model = _create_routing_model_and_formatter(
+            manager=manager,
+            routing_cfg=routing_cfg,
+            cloud_fallback_slot=model_slot,
+        )
+        if routed_model is not None:
+            return routed_model
+
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
         # Use agent-specific model
-        manager = ProviderManager.get_instance()
         provider = manager.get_provider(model_slot.provider_id)
         if provider is None:
             raise ValueError(

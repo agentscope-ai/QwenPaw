@@ -637,6 +637,20 @@
     "configureNow": "モデルを設定",
     "modelNotConfigured": "チャットを使用する前に設定でモデルを設定してください"
   },
+  "chatModelSelector": {
+    "triggerRouting": "Routing",
+    "routingGroup": "Routing",
+    "localModel": "ローカルモデル",
+    "cloudModel": "クラウドモデル",
+    "localFirst": "ローカル優先",
+    "cloudFirst": "クラウド優先",
+    "routingLocalFirstEnabled": "Routing を有効化しました：ローカル優先",
+    "routingCloudFirstEnabled": "Routing を有効化しました：クラウド優先",
+    "routingModelUpdated": "Routing モデルを更新しました",
+    "routingDisabled": "Routing を無効化し、アクティブモデルを更新しました",
+    "configureRoutingFirst": "Routing にはローカルモデルとクラウドモデルが 1 つずつ必要です。",
+    "updateFailed": "チャットのモデル選択を更新できませんでした"
+  },
   "header": {
     "changelog": "変更履歴",
     "docs": "ドキュメント",

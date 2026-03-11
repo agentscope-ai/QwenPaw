@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Literal, Type
+from typing import Any, AsyncGenerator, Callable, Literal, Type
 
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
@@ -57,9 +57,33 @@ class RoutingPolicy:
 class RoutingEndpoint:
     provider_id: str
     model_name: str
-    model: ChatModelBase
-    formatter: FormatterBase
     formatter_family: Type[FormatterBase]
+    loader: Callable[[], tuple[ChatModelBase, FormatterBase]]
+    _model: ChatModelBase | None = field(default=None, init=False, repr=False)
+    _formatter: FormatterBase | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+
+    def _ensure_loaded(self) -> None:
+        if self._model is not None and self._formatter is not None:
+            return
+        model, formatter = self.loader()
+        object.__setattr__(self, "_model", model)
+        object.__setattr__(self, "_formatter", formatter)
+
+    @property
+    def model(self) -> ChatModelBase:
+        self._ensure_loaded()
+        assert self._model is not None
+        return self._model
+
+    @property
+    def formatter(self) -> FormatterBase:
+        self._ensure_loaded()
+        assert self._formatter is not None
+        return self._formatter
 
 
 class RoutingChatModel(ChatModelBase):
@@ -74,7 +98,7 @@ class RoutingChatModel(ChatModelBase):
     ) -> None:
         super().__init__(
             model_name="routing",
-            stream=bool(getattr(local_endpoint.model, "stream", True)),
+            stream=True,
         )
         self.local_endpoint = local_endpoint
         self.cloud_endpoint = cloud_endpoint

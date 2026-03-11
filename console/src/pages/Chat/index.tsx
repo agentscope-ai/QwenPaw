@@ -20,6 +20,11 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
 import styles from "./index.module.less";
+import type {
+  ActiveModelsInfo,
+  LLMRoutingConfig,
+  ModelSlotConfig,
+} from "../../api/types/provider";
 import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
@@ -153,6 +158,23 @@ function RuntimeLoadingBridge({
   }, [getLoading, setLoading, bridgeRef]);
 
   return null;
+}
+
+function hasConfiguredSlot(slot?: ModelSlotConfig | null): boolean {
+  return Boolean(slot?.provider_id && slot?.model);
+}
+
+function canSendRequest(
+  activeModels: ActiveModelsInfo | null,
+  routingConfig: LLMRoutingConfig | null,
+): boolean {
+  if (routingConfig?.enabled) {
+    return (
+      hasConfiguredSlot(routingConfig.local) &&
+      hasConfiguredSlot(routingConfig.cloud)
+    );
+  }
+  return hasConfiguredSlot(activeModels?.active_llm);
 }
 
 export default function ChatPage() {
@@ -350,11 +372,12 @@ export default function ChatPage() {
       };
 
       try {
-        const activeModels = await providerApi.getActiveModels();
-        if (
-          !activeModels?.active_llm?.provider_id ||
-          !activeModels?.active_llm?.model
-        ) {
+        const [activeModels, routingConfig] = await Promise.all([
+          providerApi.getActiveModels(),
+          providerApi.getLlmRoutingConfig(),
+        ]);
+
+        if (!canSendRequest(activeModels, routingConfig)) {
           setShowModelPrompt(true);
           return buildModelError();
         }

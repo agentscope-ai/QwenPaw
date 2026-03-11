@@ -6,6 +6,7 @@ import {
   PageHeader,
   LoadingState,
   ProviderCard,
+  ModelsSection,
   CustomProviderModal,
 } from "./components";
 import { useTranslation } from "react-i18next";
@@ -18,7 +19,8 @@ import styles from "./index.module.less";
 
 function ModelsPage() {
   const { t } = useTranslation();
-  const { providers, activeModels, loading, error, fetchAll } = useProviders();
+  const { providers, activeModels, routingConfig, loading, error, fetchAll } =
+    useProviders();
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,7 +78,19 @@ function ModelsPage() {
         <LoadingState message={error} error onRetry={fetchAll} />
       ) : (
         <>
-          {/* ---- Providers Section ---- */}
+          {/* ---- LLM Section (top) ---- */}
+          <PageHeader
+            title={t("models.llmTitle")}
+            description={t("models.llmDescription")}
+          />
+          <ModelsSection
+            providers={providers}
+            activeModels={activeModels}
+            routingConfig={routingConfig}
+            onSaved={fetchAll}
+          />
+
+          {/* ---- Providers Section (below) ---- */}
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader

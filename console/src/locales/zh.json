@@ -651,6 +651,20 @@
     "configureNow": "配置模型",
     "modelNotConfigured": "请先在设置中配置模型后再使用聊天功能"
   },
+  "chatModelSelector": {
+    "triggerRouting": "Routing",
+    "routingGroup": "Routing",
+    "localModel": "本地模型",
+    "cloudModel": "云端模型",
+    "localFirst": "本地优先",
+    "cloudFirst": "云端优先",
+    "routingLocalFirstEnabled": "已开启 routing：本地优先",
+    "routingCloudFirstEnabled": "已开启 routing：云端优先",
+    "routingModelUpdated": "Routing 模型已更新",
+    "routingDisabled": "已关闭 routing，并更新当前模型",
+    "configureRoutingFirst": "Routing 需要一个本地模型和一个云端模型。",
+    "updateFailed": "更新聊天模型选择失败"
+  },
   "header": {
     "changelog": "更新日志",
     "docs": "文档",
