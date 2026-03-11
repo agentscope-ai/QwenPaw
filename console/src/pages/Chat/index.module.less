@@ -36,84 +36,69 @@
 }
 
 /* Attachment thumbnail preview hover effect - add eye icon like conversation images */
-:global([class*="sender"] [class*="attachment"] img),
-:global([class*="Sender"] [class*="attachment"] img),
-:global([class*="sender"] [class*="Attachment"] img),
-:global([class*="Sender"] [class*="Attachment"] img),
-:global([class*="attachments"] img) {
-  cursor: pointer;
+
+// Mixin for attachment container styles with eye icon overlay
+.attachment-preview-overlay() {
+  position: relative;
+
+  // Dark overlay background
+  &::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    border-radius: 8px;
+  }
+
+  // Eye icon
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 24px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  // Show overlay and icon on hover
+  &:hover::after,
+  &:hover::before {
+    opacity: 1;
+  }
+
+  // Clickable image inside
+  img {
+    cursor: pointer;
+  }
 }
 
+// Apply mixin to all attachment containers
 :global([class*="sender"] [class*="attachment"]),
 :global([class*="Sender"] [class*="attachment"]),
 :global([class*="sender"] [class*="Attachment"]),
 :global([class*="Sender"] [class*="Attachment"]),
 :global([class*="attachments"] [class*="item"]),
 :global([class*="attachments"] [class*="preview"]) {
-  position: relative;
+  .attachment-preview-overlay();
 }
 
-:global([class*="sender"] [class*="attachment"])::after,
-:global([class*="Sender"] [class*="attachment"])::after,
-:global([class*="sender"] [class*="Attachment"])::after,
-:global([class*="Sender"] [class*="Attachment"])::after,
-:global([class*="attachments"] [class*="item"])::after,
-:global([class*="attachments"] [class*="preview"])::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  transition: opacity 0.2s;
-  pointer-events: none;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-:global([class*="sender"] [class*="attachment"]):hover::after,
-:global([class*="Sender"] [class*="attachment"]):hover::after,
-:global([class*="sender"] [class*="Attachment"]):hover::after,
-:global([class*="Sender"] [class*="Attachment"]):hover::after,
-:global([class*="attachments"] [class*="item"]):hover::after,
-:global([class*="attachments"] [class*="preview"]):hover::after {
-  opacity: 1;
-}
-
-/* Eye icon on hover - use SVG for better compatibility */
-:global([class*="sender"] [class*="attachment"])::before,
-:global([class*="Sender"] [class*="attachment"])::before,
-:global([class*="sender"] [class*="Attachment"])::before,
-:global([class*="Sender"] [class*="Attachment"])::before,
-:global([class*="attachments"] [class*="item"])::before,
-:global([class*="attachments"] [class*="preview"])::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 24px;
-  height: 24px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z'/%3E%3C/svg%3E");
-  background-size: contain;
-  background-repeat: no-repeat;
-  opacity: 0;
-  transition: opacity 0.2s;
-  z-index: 2;
-  pointer-events: none;
-}
-
-:global([class*="sender"] [class*="attachment"]):hover::before,
-:global([class*="Sender"] [class*="attachment"]):hover::before,
-:global([class*="sender"] [class*="Attachment"]):hover::before,
-:global([class*="Sender"] [class*="Attachment"]):hover::before,
-:global([class*="attachments"] [class*="item"]):hover::before,
-:global([class*="attachments"] [class*="preview"]):hover::before {
-  opacity: 1;
+// Also make standalone attachment images clickable
+:global([class*="attachments"] img) {
+  cursor: pointer;
 }
 
 /* Disabled input overlay */
