@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, AsyncIterator
+from unittest.mock import AsyncMock, Mock
 
 from copaw.app.crons.executor import CronExecutor
 from copaw.app.crons.models import CronJobSpec
@@ -94,48 +96,28 @@ def test_build_agent_request_falls_back_to_dispatch_target() -> None:
     assert request["session_id"] == "target-session"
 
 
-class _FakeRunner:
-    def __init__(self) -> None:
-        self.requests: list[dict] = []
-
-    async def stream_query(self, request: dict):
-        self.requests.append(request)
-        yield {"type": "done"}
-
-
-class _FakeChannelManager:
-    def __init__(self) -> None:
-        self.events: list[dict] = []
-
-    async def send_event(
-        self,
-        *,
-        channel: str,
-        user_id: str,
-        session_id: str,
-        event,
-        meta=None,
-    ) -> None:
-        self.events.append(
-            {
-                "channel": channel,
-                "user_id": user_id,
-                "session_id": session_id,
-                "event": event,
-                "meta": meta,
-            },
-        )
+async def _yield_single_event(
+    requests: list[dict[str, Any]],
+    request: dict[str, Any],
+) -> AsyncIterator[dict[str, str]]:
+    requests.append(request)
+    yield {"type": "done"}
 
 
 async def test_executor_uses_request_context_and_dispatch_target() -> None:
-    runner = _FakeRunner()
-    channel_manager = _FakeChannelManager()
+    requests: list[dict[str, Any]] = []
+    runner = Mock()
+    runner.stream_query = Mock(
+        side_effect=lambda request: _yield_single_event(requests, request),
+    )
+    channel_manager = Mock()
+    channel_manager.send_event = AsyncMock()
     executor = CronExecutor(runner=runner, channel_manager=channel_manager)
     job = CronJobSpec.model_validate(_build_agent_payload())
 
     await executor.execute(job)
 
-    assert runner.requests == [
+    assert requests == [
         {
             "input": [
                 {
@@ -148,12 +130,10 @@ async def test_executor_uses_request_context_and_dispatch_target() -> None:
             "session_id": "request-session",
         },
     ]
-    assert channel_manager.events == [
-        {
-            "channel": "console",
-            "user_id": "target-user",
-            "session_id": "target-session",
-            "event": {"type": "done"},
-            "meta": {},
-        },
-    ]
+    channel_manager.send_event.assert_awaited_once_with(
+        channel="console",
+        user_id="target-user",
+        session_id="target-session",
+        event={"type": "done"},
+        meta={},
+    )
