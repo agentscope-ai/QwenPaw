@@ -7,7 +7,6 @@
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
 | **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Compatibility & Ease of Use**       | App-level packaging (.dmg, .exe)                                                                                                                 | In Progress          |
 | **Self-healing**                      | Magic commands and daemon capabilities (CLI, status, restart, logs)                                                                              | In Progress          |
 |                                       | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | Planned              |
 | **Multi-agent**                       | Background task support                                                                                                                          | In Progress          |
@@ -15,18 +14,20 @@
 |                                       | Inter-agent contention resolution                                                                                                                | Planned              |
 |                                       | Multi-agent communication                                                                                                                        | Planned              |
 | **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
-| **Bugfixes & Enhancements**           | Skills and MCP runtime install, hot-reload improvements                                                                                          | Planned              |
+| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows and sensitive-data use cases                                                                | In Progress          |
+|                                       | Multi-model routing. Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability          | Planned              |
+| **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
+|                                       | Multimodal memory fusion                                                                                                                         | Planned              |
+|                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
 | **Security**                          | Shell execution confirmation                                                                                                                     | Planned              |
 |                                       | Tool/skills security                                                                                                                             | Planned              |
 |                                       | Configurable security levels (user-configurable)                                                                                                 | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term planned    |
-| **CoPaw-optimized local models**      | LLMs tuned for CoPaw's native skills and common tasks; better local personal-assistant usability                                                 | Long-term planned    |
-| **Small + large model collaboration** | Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability                               | Long-term planned    |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term planned    |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term planned    |
+| **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
+| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term Planned    |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term Planned    |
+| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planned    |
 
-_Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or under design, also **welcome contributions**; _Seeking Contributors_ — we **strongly encourage community contributions**; _Long-term planned_ — longer-horizon roadmap.
+_Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or under design, also **welcome contributions**; _Seeking Contributors_ — we **strongly encourage community contributions**; _Long-term Planned_ — longer-horizon roadmap.
 
 ---
 

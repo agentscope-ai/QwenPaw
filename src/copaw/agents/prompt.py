@@ -22,50 +22,48 @@ SYS_PROMPT = DEFAULT_SYS_PROMPT
 class PromptConfig:
     """Configuration for system prompt building."""
 
-    # Define file loading order: (filename, required)
-    FILE_ORDER = [
-        ("AGENTS.md", True),
-        ("SOUL.md", True),
-        ("PROFILE.md", False),
+    # Default files to load when no config is provided
+    # All files are optional - if they don't exist, they'll be skipped
+    DEFAULT_FILES = [
+        "AGENTS.md",
+        "SOUL.md",
+        "PROFILE.md",
     ]
 
 
 class PromptBuilder:
     """Builder for constructing system prompts from markdown files."""
 
-    def __init__(self, working_dir: Path):
+    def __init__(
+        self,
+        working_dir: Path,
+        enabled_files: list[str] | None = None,
+    ):
         """Initialize prompt builder.
 
         Args:
             working_dir: Directory containing markdown configuration files
+            enabled_files: List of filenames to load (if None, uses default order)
         """
         self.working_dir = working_dir
+        self.enabled_files = enabled_files
         self.prompt_parts = []
         self.loaded_count = 0
 
-    def _load_file(self, filename: str, required: bool) -> bool:
+    def _load_file(self, filename: str) -> None:
         """Load a single markdown file.
+
+        All files are optional - if they don't exist or can't be read,
+        they will be silently skipped.
 
         Args:
             filename: Name of the file to load
-            required: Whether the file is required
-
-        Returns:
-            True if file was loaded successfully, False otherwise
         """
         file_path = self.working_dir / filename
 
         if not file_path.exists():
-            if required:
-                logger.warning(
-                    "%s not found in working directory (%s), using default prompt",
-                    filename,
-                    self.working_dir,
-                )
-                return False
-            else:
-                logger.debug("Optional file %s not found, skipping", filename)
-                return True  # Not an error for optional files
+            logger.debug("File %s not found, skipping", filename)
+            return
 
         try:
             content = file_path.read_text(encoding="utf-8").strip()
@@ -88,35 +86,31 @@ class PromptBuilder:
             else:
                 logger.debug("Skipped empty file: %s", filename)
 
-            return True
-
         except Exception as e:
-            if required:
-                logger.error(
-                    "Failed to read required file %s: %s",
-                    filename,
-                    e,
-                    exc_info=True,
-                )
-                return False
-            else:
-                logger.warning(
-                    "Failed to read optional file %s: %s",
-                    filename,
-                    e,
-                )
-                return True  # Not fatal for optional files
+            logger.warning(
+                "Failed to read file %s: %s, skipping",
+                filename,
+                e,
+            )
 
     def build(self) -> str:
         """Build the system prompt from markdown files.
 
+        All files are optional. If no files can be loaded, returns the default prompt.
+
         Returns:
             Constructed system prompt string
         """
-        for filename, required in PromptConfig.FILE_ORDER:
-            if not self._load_file(filename, required):
-                # Required file failed to load
-                return DEFAULT_SYS_PROMPT
+        # Determine which files to load
+        files_to_load = (
+            PromptConfig.DEFAULT_FILES
+            if self.enabled_files is None
+            else self.enabled_files
+        )
+
+        # Load all files (all are optional)
+        for filename in files_to_load:
+            self._load_file(filename)
 
         if not self.prompt_parts:
             logger.warning("No content loaded from working directory")
@@ -142,22 +136,38 @@ def build_system_prompt_from_working_dir() -> str:
     WORKING_DIR (~/.copaw by default). These files define the agent's behavior,
     personality, and operational guidelines.
 
-    Loading order and priority:
-    1. AGENTS.md (required) - Detailed workflows, rules, and guidelines
-    2. SOUL.md (required) - Core identity and behavioral principles
-    3. PROFILE.md (optional) - Agent identity and user profile
+    The files to load are determined by the agents.system_prompt_files configuration.
+    If not configured, falls back to default files:
+    - AGENTS.md - Detailed workflows, rules, and guidelines
+    - SOUL.md - Core identity and behavioral principles
+    - PROFILE.md - Agent identity and user profile
+
+    All files are optional. If a file doesn't exist or can't be read, it will be
+    skipped. If no files can be loaded, returns the default prompt.
 
     Returns:
         str: Constructed system prompt from markdown files.
-             If required files don't exist, returns the default prompt.
+             If no files exist, returns the default prompt.
 
     Example:
         If working_dir contains AGENTS.md, SOUL.md and PROFILE.md, they will be combined:
         "# AGENTS.md\\n\\n...\\n\\n# SOUL.md\\n\\n...\\n\\n# PROFILE.md\\n\\n..."
     """
     from ..constant import WORKING_DIR
+    from ..config import load_config
 
-    builder = PromptBuilder(working_dir=Path(WORKING_DIR))
+    # Load enabled files from config
+    config = load_config()
+    enabled_files = (
+        config.agents.system_prompt_files
+        if config.agents.system_prompt_files is not None
+        else None
+    )
+
+    builder = PromptBuilder(
+        working_dir=Path(WORKING_DIR),
+        enabled_files=enabled_files,
+    )
     return builder.build()
 
 
@@ -167,47 +177,50 @@ def build_bootstrap_guidance(
     """Build bootstrap guidance message for first-time setup.
 
     Args:
-        language: Language code (en/zh)
+        language: Language code (zh/en/ru)
 
     Returns:
         Formatted bootstrap guidance message
     """
-    if language == "en":
-        return """# 🌟 BOOTSTRAP MODE ACTIVATED
-
-**IMPORTANT: You are in first-time setup mode.**
-
-A `BOOTSTRAP.md` file exists in your working directory. This means you should guide the user through the bootstrap process to establish your identity and preferences.
-
-**Your task:**
-1. Read the BOOTSTRAP.md file, greet the user warmly as a first meeting, and guide them through the bootstrap process.
-2. Follow the instructions in BOOTSTRAP.md. For example, help the user define your identity, their preferences, and establish the working relationship.
-3. Create and update the necessary files (PROFILE.md, MEMORY.md, etc.) as described in the guide.
-4. After completing the bootstrap process, delete BOOTSTRAP.md as instructed.
-
-**If the user wants to skip:**
-If the user explicitly says they want to skip the bootstrap or just want their question answered directly, then proceed to answer their original question below. You can always help them bootstrap later.
-
-**Original user message:**
-"""
-    else:  # zh
-        return """# 🌟 引导模式已激活
-
-**重要：你正处于首次设置模式。**
-
-你的工作目录中存在 `BOOTSTRAP.md` 文件。这意味着你应该引导用户完成引导流程，以建立你的身份和偏好。
-
-**你的任务：**
-1. 阅读 BOOTSTRAP.md 文件，友好地表示初次见面，引导用户完成引导流程。
-2. 按照BOOTSTRAP.md 里面的指示执行。例如，帮助用户定义你的身份、他们的偏好，并建立工作关系
-3. 按照指南中的描述创建和更新必要的文件（PROFILE.md、MEMORY.md 等）
-4. 完成引导流程后，按照指示删除 BOOTSTRAP.md
-
-**如果用户希望跳过：**
-如果用户明确表示想跳过引导，那就继续回答下面的原始问题。你随时可以帮助他们完成引导。
-
-**用户的原始消息：**
-"""
+    if language == "zh":
+        return (
+            "# 引导模式\n"
+            "\n"
+            "工作目录中存在 `BOOTSTRAP.md` — 首次设置。\n"
+            "\n"
+            "1. 阅读 BOOTSTRAP.md，友好地表示初次见面，"
+            "引导用户完成设置。\n"
+            "2. 按照 BOOTSTRAP.md 的指示，"
+            "帮助用户定义你的身份和偏好。\n"
+            "3. 按指南创建/更新必要文件"
+            "（PROFILE.md、MEMORY.md 等）。\n"
+            "4. 完成后删除 BOOTSTRAP.md。\n"
+            "\n"
+            "如果用户希望跳过，直接回答下面的问题即可。\n"
+            "\n"
+            "---\n"
+            "\n"
+        )
+    # en / ru / other — default to English
+    return (
+        "# BOOTSTRAP MODE\n"
+        "\n"
+        "`BOOTSTRAP.md` exists — first-time setup.\n"
+        "\n"
+        "1. Read BOOTSTRAP.md, greet the user, "
+        "and guide them through setup.\n"
+        "2. Follow BOOTSTRAP.md instructions "
+        "to define identity and preferences.\n"
+        "3. Create/update files "
+        "(PROFILE.md, MEMORY.md, etc.) as described.\n"
+        "4. Delete BOOTSTRAP.md when done.\n"
+        "\n"
+        "If the user wants to skip, answer their "
+        "question directly instead.\n"
+        "\n"
+        "---\n"
+        "\n"
+    )
 
 
 __all__ = [

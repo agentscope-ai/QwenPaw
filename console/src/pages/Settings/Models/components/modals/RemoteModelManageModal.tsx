@@ -22,7 +22,7 @@ interface RemoteModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }
 
 export function RemoteModelManageModal({
@@ -37,19 +37,11 @@ export function RemoteModelManageModal({
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
-  // const canDiscover =
-  //   provider.id === "ollama" || provider.needs_base_url
-  //     ? !!provider.current_base_url
-  //     : !!provider.current_api_key;
   const canDiscover = false;
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
-  const extraModelIds = new Set(
-    provider.is_custom
-      ? provider.models.map((m) => m.id)
-      : (provider.extra_models || []).map((m) => m.id),
-  );
+  const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
 
   const doAddModel = async (id: string, name: string) => {
     await api.addModel(provider.id, { id, name });
@@ -147,7 +139,7 @@ export function RemoteModelManageModal({
         try {
           await api.removeModel(provider.id, modelId);
           message.success(t("models.modelRemoved", { name: modelName }));
-          onSaved();
+          await onSaved();
         } catch (error) {
           const errMsg =
             error instanceof Error
@@ -181,14 +173,15 @@ export function RemoteModelManageModal({
             added: result.added_count,
           }),
         );
+        await onSaved();
       } else if (result.models.length > 0) {
         message.info(
           t("models.autoDiscoveredNoNew", { count: result.models.length }),
         );
+        await onSaved();
       } else {
         message.info(result.message || t("models.noModels"));
       }
-      onSaved();
     } catch (error) {
       const errMsg =
         error instanceof Error
@@ -201,12 +194,14 @@ export function RemoteModelManageModal({
   };
 
   useEffect(() => {
-    if (!open || !canDiscover || provider.models.length > 0 || discovering) {
-      return;
-    }
-    void handleDiscoverModels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Do not auto-discover models when modal opens, as it may take some time and we don't want to block the UI.
+    // Instead, users can click the "Discover Models" button to trigger discovery when needed.
   }, [open, canDiscover, provider.id, provider.models.length]);
+
+  const all_models = [
+    ...(provider.models ?? []),
+    ...(provider.extra_models ?? []),
+  ];
 
   return (
     <Modal
@@ -225,10 +220,10 @@ export function RemoteModelManageModal({
     >
       {/* Model list */}
       <div className={styles.modelList}>
-        {provider.models.length === 0 ? (
+        {all_models.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          provider.models.map((m) => {
+          all_models.map((m) => {
             const isDeletable = extraModelIds.has(m.id);
             return (
               <div key={m.id} className={styles.modelListItem}>

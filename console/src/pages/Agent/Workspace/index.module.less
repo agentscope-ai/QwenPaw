@@ -291,6 +291,49 @@
 
 .fileInfo {
   flex: 1;
+  min-width: 0;
+}
+
+.fileItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.dragHandle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  color: #bbb;
+  cursor: grab;
+  font-size: 14px;
+  transition: color 0.2s;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &:hover {
+    color: #615ced;
+  }
+}
+
+.dragging {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border-color: #615ced !important;
+  background-color: #f6f5ff !important;
+}
+
+.enabledBadge {
+  color: #52c41a;
+  font-size: 8px;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .fileActions {

@@ -3,6 +3,7 @@
 import asyncio
 import mimetypes
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from .runner.manager import ChatManager
 from .routers import router as api_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
+from ..providers.provider_manager import ProviderManager
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -61,6 +63,7 @@ agent_app = AgentApp(
 async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
+    startup_start_time = time.time()
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
     await runner.start()
 
@@ -126,6 +129,15 @@ async def lifespan(
                 raise
             logger.exception("Failed to start MCP watcher")
 
+    # Inject channel_manager into approval service so it can
+    # proactively push approval messages to channels like DingTalk.
+    from .approvals import get_approval_service
+
+    get_approval_service().set_channel_manager(channel_manager)
+
+    # --- Model provider manager (non-reloadable, in-memory) ---
+    provider_manager = ProviderManager.get_instance()
+
     # expose to endpoints
     app.state.runner = runner
     app.state.channel_manager = channel_manager
@@ -134,6 +146,7 @@ async def lifespan(
     app.state.config_watcher = config_watcher
     app.state.mcp_manager = mcp_manager
     app.state.mcp_watcher = mcp_watcher
+    app.state.provider_manager = provider_manager
 
     _restart_task: asyncio.Task | None = None
 
@@ -389,6 +402,11 @@ async def lifespan(
         logger.info("Daemon restart (in-process) completed: managers rebuilt")
 
     setattr(runner, "_restart_callback", _restart_services)
+
+    startup_elapsed = time.time() - startup_start_time
+    logger.debug(
+        f"Application startup completed in {startup_elapsed:.3f} seconds",
+    )
 
     try:
         yield

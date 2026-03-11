@@ -5,21 +5,24 @@
 
 import asyncio
 import locale
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
-from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
+from agentscope.tool import ToolResponse
 
 from copaw.constant import WORKING_DIR
+from .utils import truncate_shell_output
 
 
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
     timeout: int,
+    env: dict | None = None,
 ) -> tuple[int, str, str]:
     """Execute subprocess synchronously in a thread.
 
@@ -33,6 +36,8 @@ def _execute_subprocess_sync(
             The working directory for the command execution.
         timeout (`int`):
             The maximum time (in seconds) allowed for the command to run.
+        env (`dict | None`):
+            Environment variables for the subprocess.
 
     Returns:
         `tuple[int, str, str]`:
@@ -45,17 +50,16 @@ def _execute_subprocess_sync(
             cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            text=False,
             cwd=cwd,
             timeout=timeout,
-            encoding=locale.getpreferredencoding(False) or "utf-8",
-            errors="replace",
+            env=env,
             check=True,
         )
         return (
             result.returncode,
-            result.stdout.strip("\n"),
-            result.stderr.strip("\n"),
+            smart_decode(result.stdout),
+            smart_decode(result.stderr),
         )
     except subprocess.TimeoutExpired:
         return (
@@ -99,6 +103,15 @@ async def execute_shell_command(
     # Set working directory
     working_dir = cwd if cwd is not None else WORKING_DIR
 
+    # Ensure the venv Python is on PATH for subprocesses
+    env = os.environ.copy()
+    python_bin_dir = str(Path(sys.executable).parent)
+    existing_path = env.get("PATH", "")
+    if existing_path:
+        env["PATH"] = python_bin_dir + os.pathsep + existing_path
+    else:
+        env["PATH"] = python_bin_dir
+
     try:
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
@@ -107,6 +120,7 @@ async def execute_shell_command(
                 cmd,
                 str(working_dir),
                 timeout,
+                env,
             )
         else:
             proc = await asyncio.create_subprocess_shell(
@@ -115,6 +129,7 @@ async def execute_shell_command(
                 stderr=asyncio.subprocess.PIPE,
                 bufsize=0,
                 cwd=str(working_dir),
+                env=env,
             )
 
             try:
@@ -124,13 +139,8 @@ async def execute_shell_command(
                     proc.communicate(),
                     timeout=timeout,
                 )
-                encoding = locale.getpreferredencoding(False) or "utf-8"
-                stdout_str = stdout.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
-                stderr_str = stderr.decode(encoding, errors="replace").strip(
-                    "\n",
-                )
+                stdout_str = smart_decode(stdout)
+                stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
             except asyncio.TimeoutError:
@@ -160,19 +170,8 @@ async def execute_shell_command(
                         )
                     except asyncio.TimeoutError:
                         stdout, stderr = b"", b""
-                    encoding = locale.getpreferredencoding(False) or "utf-8"
-                    stdout_str = stdout.decode(
-                        encoding,
-                        errors="replace",
-                    ).strip(
-                        "\n",
-                    )
-                    stderr_str = stderr.decode(
-                        encoding,
-                        errors="replace",
-                    ).strip(
-                        "\n",
-                    )
+                    stdout_str = smart_decode(stdout)
+                    stderr_str = smart_decode(stderr)
                     if stderr_str:
                         stderr_str += f"\n{stderr_suffix}"
                     else:
@@ -180,6 +179,10 @@ async def execute_shell_command(
                 except ProcessLookupError:
                     stdout_str = ""
                     stderr_str = stderr_suffix
+
+        # Apply output truncation
+        stdout_str = truncate_shell_output(stdout_str)
+        stderr_str = truncate_shell_output(stderr_str)
 
         # Format the response in a human-friendly way
         if returncode == 0:
@@ -215,3 +218,13 @@ async def execute_shell_command(
                 ),
             ],
         )
+
+
+def smart_decode(data: bytes) -> str:
+    try:
+        decoded_str = data.decode("utf-8")
+    except UnicodeDecodeError:
+        encoding = locale.getpreferredencoding(False) or "utf-8"
+        decoded_str = data.decode(encoding, errors="replace")
+
+    return decoded_str.strip("\n")

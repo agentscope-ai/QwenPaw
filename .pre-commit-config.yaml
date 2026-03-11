@@ -3,31 +3,31 @@ repos:
     rev: v4.3.0
     hooks:
       - id: check-ast
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
       - id: sort-simple-yaml
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
       - id: check-yaml
         exclude: |
           (?x)^(
               meta.yaml
           )$
       - id: check-xml
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
       - id: check-toml
       - id: check-docstring-first
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
       - id: check-json
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
       - id: fix-encoding-pragma
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
       - id: detect-private-key
       - id: trailing-whitespace
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v3.1.0
     hooks:
       - id: add-trailing-comma
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.7.0
     hooks:
@@ -56,13 +56,13 @@ repos:
     hooks:
       - id: black
         args: [ --line-length=79 ]
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
   - repo: https://github.com/PyCQA/flake8
     rev: 6.1.0
     hooks:
       - id: flake8
         args: [ "--extend-ignore=E203"]
-        exclude: '.*/skills/.*'
+        exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
   - repo: https://github.com/pylint-dev/pylint
     rev: v3.0.2
     hooks:
@@ -117,4 +117,4 @@ repos:
       - id: prettier
         additional_dependencies: [ 'prettier@3.0.0' ]
         files: \.(tsx?)$
-        exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*)'
+        exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/)'

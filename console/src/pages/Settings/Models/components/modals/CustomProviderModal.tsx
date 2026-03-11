@@ -99,10 +99,6 @@ export function CustomProviderModal({
           <Input placeholder={t("models.defaultBaseUrlPlaceholder")} />
         </Form.Item>
 
-        <Form.Item name="api_key_prefix" label={t("models.apiKeyPrefixLabel")}>
-          <Input placeholder={t("models.apiKeyPrefixPlaceholder")} />
-        </Form.Item>
-
         <Form.Item
           name="chat_model"
           label={t("models.protocol")}

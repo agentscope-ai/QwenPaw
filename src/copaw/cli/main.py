@@ -37,6 +37,11 @@ from ..config.utils import read_last_api  # noqa: E402
 _record("..config.utils", time.perf_counter() - _t)
 
 _t = time.perf_counter()
+from ..__version__ import __version__  # noqa: E402
+
+_record("..__version__", time.perf_counter() - _t)
+
+_t = time.perf_counter()
 from .app_cmd import app_cmd  # noqa: E402
 
 _record(".app_cmd", time.perf_counter() - _t)
@@ -91,6 +96,11 @@ from .uninstall_cmd import uninstall_cmd  # noqa: E402
 
 _record(".uninstall_cmd", time.perf_counter() - _t)
 
+_t = time.perf_counter()
+from .desktop_cmd import desktop_cmd  # noqa: E402
+
+_record(".desktop_cmd", time.perf_counter() - _t)
+
 _total = time.perf_counter() - _t0_main
 _init_timings.append(("(total imports)", _total))
 logger.debug("%.3fs (total imports)", _total)
@@ -103,6 +113,7 @@ def log_init_timings() -> None:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(version=__version__, prog_name="CoPaw")
 @click.option("--host", default=None, help="API Host")
 @click.option(
     "--port",
@@ -140,3 +151,4 @@ cli.add_command(init_cmd)
 cli.add_command(models_group)
 cli.add_command(skills_group)
 cli.add_command(uninstall_cmd)
+cli.add_command(desktop_cmd)

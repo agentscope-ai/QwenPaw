@@ -15,10 +15,11 @@ FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
 ENV NODE_ENV=production
 ENV WORKSPACE_DIR=/app
 ENV COPAW_WORKING_DIR=/app/working
+ENV COPAW_SECRET_DIR=/app/working.secret
 
-# Available channels for this image (imessage & discord excluded).
+# Available channels for this image.
 # Override at runtime with -e COPAW_ENABLED_CHANNELS=... if needed.
-ARG COPAW_ENABLED_CHANNELS="dingtalk,feishu,qq,console"
+ARG COPAW_ENABLED_CHANNELS="discord,telegram,dingtalk,feishu,qq,console"
 ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
 
 ARG DEBIAN_FRONTEND=noninteractive

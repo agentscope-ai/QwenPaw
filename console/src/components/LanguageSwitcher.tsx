@@ -29,12 +29,18 @@ export default function LanguageSwitcher() {
       label: "简体中文",
       onClick: () => changeLanguage("zh"),
     },
+    {
+      key: "ja",
+      label: "日本語",
+      onClick: () => changeLanguage("ja"),
+    },
   ];
 
   const languageLabels: Record<string, string> = {
     en: "English",
     ru: "Русский",
     zh: "简体中文",
+    ja: "日本語",
   };
 
   const currentLabel = languageLabels[currentLanguage] ?? "English";

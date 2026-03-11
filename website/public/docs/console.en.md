@@ -15,6 +15,7 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Modify runtime configuration
 - Configure LLM providers and select active models
 - Manage environment variables needed by tools
+- View LLM token usage statistics
 
 The sidebar on the left groups features into **Chat**, **Control**, **Agent**,
 and **Settings**. Click any item to switch pages. The sections below walk
@@ -118,6 +119,12 @@ Create and manage scheduled jobs that CoPaw runs automatically by time.
 ![Cron Jobs](https://img.alicdn.com/imgextra/i3/O1CN01JET1Aw1C9SAvXuIpk_!!6000000000038-2-tps-3822-2070.png)
 
 **Create a new job:**
+
+> If the cron job fails to be created, please refer to the **Troubleshooting Scheduled (Cron) Tasks** section in the [FAQ](https://copaw.agentscope.io/docs/faq) to identify the cause.
+
+The **simplest way to create a cron job is to chat directly with CoPaw** and let it handle the creation for you. For example, if you want to receive a reminder to drink water on DingTalk, simply message CoPaw on DingTalk: "Help me create a cron job to remind me to drink water every 5 minutes." Once created, you can view the new task on the Cron Jobs page in the console.
+
+Alternatively, you can create tasks directly via the Console interface:
 
 1. Click **+ Create Job**.
 
@@ -321,6 +328,28 @@ automatically when models are added/removed via Ollama CLI or Console.
 > `copaw models ollama-list`, `copaw models ollama-remove`. See
 > [CLI](./cli#ollama-models).
 
+### LM Studio provider
+
+The LM Studio provider connects to the LM Studio desktop application's
+OpenAI-compatible local server to discover and use loaded models.
+
+**Prerequisites:**
+
+- Install LM Studio from [lmstudio.ai](https://lmstudio.ai)
+- Load a model and start the local server in LM Studio (default: `http://localhost:1234`)
+
+**Configure:**
+
+1. Click **Settings** on the LM Studio provider card.
+2. The default Base URL is `http://localhost:1234/v1`. Adjust if needed, then
+   click **Save**.
+3. Click **Manage Models** to see models loaded in LM Studio. You can also
+   manually add model IDs.
+4. Select **LM Studio** in the **Provider** dropdown and pick a model.
+
+> LM Studio does not require an API key by default. Models must be loaded
+> in LM Studio before they appear in CoPaw.
+
 ### Choose the active model
 
 1. In the **LLM Config** section, select a **Provider** from the dropdown
@@ -367,20 +396,41 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ---
 
+## Token Usage
+
+> Sidebar: **Settings → Token Usage**
+
+View LLM token consumption over a time range, aggregated by date and model.
+
+**View usage:**
+
+1. Select a date range (default: last 30 days).
+2. Click **Refresh** to fetch data.
+3. The page shows total tokens, total calls, and breakdowns by model and date.
+
+**Query via chat:**
+
+Ask CoPaw directly, e.g. "How many tokens have I used recently?" or "Show me token usage." The agent will call the `get_token_usage` tool and return the summary.
+
+> Data is stored in `~/.copaw/token_usage.json`. You can override the filename with the `COPAW_TOKEN_USAGE_FILE` environment variable. See [Config — Environment Variables](./config#environment-variables).
+
+---
+
 ## Quick Reference
 
-| Page                  | Sidebar path                     | What you can do                                      |
-| --------------------- | -------------------------------- | ---------------------------------------------------- |
-| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                     |
-| Channels              | Control → Channels               | Enable/disable channels, configure credentials       |
-| Sessions              | Control → Sessions               | Filter, rename, delete sessions                      |
-| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately             |
-| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download     |
-| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                  |
-| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients             |
-| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                         |
-| Models                | Settings → Models                | Configure providers, manage local/Ollama, pick model |
-| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                |
+| Page                  | Sidebar path                     | What you can do                                                |
+| --------------------- | -------------------------------- | -------------------------------------------------------------- |
+| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                               |
+| Channels              | Control → Channels               | Enable/disable channels, configure credentials                 |
+| Sessions              | Control → Sessions               | Filter, rename, delete sessions                                |
+| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately                       |
+| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download               |
+| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                            |
+| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients                       |
+| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                                   |
+| Models                | Settings → Models                | Configure providers, manage local/Ollama/LM Studio, pick model |
+| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                          |
+| Token Usage           | Settings → Token Usage           | View LLM token usage by date and model                         |
 
 ---
 

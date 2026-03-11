@@ -7,6 +7,8 @@ import logging
 import threading
 from typing import Any, Optional
 
+from copaw.token_usage import TokenRecordingModelWrapper
+
 from .schema import BackendType, LocalModelInfo
 from .manager import get_local_model
 from .backends.base import LocalBackend
@@ -82,11 +84,16 @@ def create_local_chat_model(
             and _active_backend.is_loaded
         ):
             logger.debug("Reusing already-loaded model: %s", model_id)
-            return LocalChatModel(
+            model_instance = LocalChatModel(
                 model_name=model_id,
                 backend=_active_backend,
                 stream=stream,
                 generate_kwargs=generate_kwargs,
+            )
+
+            return TokenRecordingModelWrapper(
+                str(info.backend),
+                model_instance,
             )
 
         # Unload previous model
@@ -99,12 +106,14 @@ def create_local_chat_model(
         _active_backend = backend
         _active_model_id = model_id
 
-    return LocalChatModel(
-        model_name=model_id,
-        backend=backend,
-        stream=stream,
-        generate_kwargs=generate_kwargs,
-    )
+        model_instance = LocalChatModel(
+            model_name=model_id,
+            backend=_active_backend,
+            stream=stream,
+            generate_kwargs=generate_kwargs,
+        )
+
+        return TokenRecordingModelWrapper(str(info.backend), model_instance)
 
 
 def _create_backend(

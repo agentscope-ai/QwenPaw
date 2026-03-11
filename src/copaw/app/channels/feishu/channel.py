@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
 import sys
 import threading
 import time
@@ -30,6 +31,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     # AudioContent,
     FileContent,
     ImageContent,
+    RunStatus,
     TextContent,
 )
 
@@ -51,7 +53,11 @@ from .constants import (
     FEISHU_USER_NAME_FETCH_TIMEOUT,
 )
 from .utils import (
+    build_interactive_content,
     extract_json_key,
+    extract_post_image_keys,
+    extract_post_media_file_keys,
+    extract_post_text,
     normalize_feishu_md,
     sender_display_string,
     short_session_id_from_full_id,
@@ -160,6 +166,11 @@ class FeishuChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[List[str]] = None,
+        deny_message: str = "",
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -167,6 +178,11 @@ class FeishuChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.app_id = app_id
@@ -186,6 +202,7 @@ class FeishuChannel(BaseChannel):
         self._tenant_access_token_expire_at: float = 0.0
         self._token_lock = asyncio.Lock()
         self._http: Optional[aiohttp.ClientSession] = None
+        self._bot_open_id: Optional[str] = None
 
         # message_id dedup (ordered, trim when over limit)
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
@@ -204,6 +221,12 @@ class FeishuChannel(BaseChannel):
     ) -> "FeishuChannel":
         import os
 
+        allow_from_env = os.getenv("FEISHU_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("FEISHU_CHANNEL_ENABLED", "0") == "1",
@@ -214,6 +237,11 @@ class FeishuChannel(BaseChannel):
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
             media_dir=os.getenv("FEISHU_MEDIA_DIR", "~/.copaw/media"),
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("FEISHU_DM_POLICY", "open"),
+            group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
+            require_mention=os.getenv("FEISHU_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -239,6 +267,11 @@ class FeishuChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=config.dm_policy or "open",
+            group_policy=config.group_policy or "open",
+            allow_from=config.allow_from or [],
+            deny_message=config.deny_message or "",
+            require_mention=config.require_mention,
         )
 
     def resolve_session_id(
@@ -394,6 +427,23 @@ class FeishuChannel(BaseChannel):
             self._tenant_access_token = token
             self._tenant_access_token_expire_at = now + expire
             return token
+
+    async def _fetch_bot_open_id(self) -> Optional[str]:
+        """GET /open-apis/bot/v3/info to get this bot's open_id."""
+        token = await self._get_tenant_access_token()
+        url = "https://open.feishu.cn/open-apis/bot/v3/info"
+        headers = {"Authorization": f"Bearer {token}"}
+        async with self._http.get(url, headers=headers) as resp:
+            data = await resp.json(content_type=None)
+        data = data or {}
+        if data.get("code", -1) != 0:
+            logger.warning(
+                "feishu bot/v3/info error: code=%s msg=%s",
+                data.get("code"),
+                data.get("msg"),
+            )
+            return None
+        return (data.get("bot") or {}).get("open_id")
 
     async def _get_user_name_by_open_id(self, open_id: str) -> Optional[str]:
         """Fetch user name (nickname) from Feishu Contact API by open_id.
@@ -583,7 +633,22 @@ class FeishuChannel(BaseChannel):
             ).strip()
             content_raw = getattr(message, "content", None) or ""
 
-            await self._add_reaction(message_id, "Typing")
+            mentions_raw = getattr(message, "mentions", None) or []
+            is_bot_mentioned = False
+            bot_mention_keys: List[str] = []
+            if "@_all" in content_raw:
+                is_bot_mentioned = True
+            if self._bot_open_id and mentions_raw:
+                for m in mentions_raw:
+                    m_id = getattr(m, "id", None)
+                    if not m_id:
+                        continue
+                    m_open_id = getattr(m_id, "open_id", None) or ""
+                    if m_open_id == self._bot_open_id:
+                        is_bot_mentioned = True
+                        key = getattr(m, "key", None) or ""
+                        if key:
+                            bot_mention_keys.append(key)
 
             content_parts: List[Any] = []
             text_parts: List[str] = []
@@ -591,7 +656,45 @@ class FeishuChannel(BaseChannel):
             if msg_type == "text":
                 text = extract_json_key(content_raw, "text")
                 if text:
+                    for key in bot_mention_keys:
+                        text = text.replace(key, "")
+                    text = text.strip()
+                if text:
                     text_parts.append(text)
+            elif msg_type == "post":
+                text = extract_post_text(content_raw)
+                if text:
+                    text_parts.append(text)
+                # Download images in post message
+                for img_key in extract_post_image_keys(content_raw):
+                    url_or_path = await self._download_image_resource(
+                        message_id,
+                        img_key,
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            ImageContent(
+                                type=ContentType.IMAGE,
+                                image_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[image: download failed]")
+                # Download media files in post message
+                for file_key in extract_post_media_file_keys(content_raw):
+                    url_or_path = await self._download_file_resource(
+                        message_id,
+                        file_key,
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[media: download failed]")
             elif msg_type == "image":
                 image_key = extract_json_key(
                     content_raw,
@@ -674,16 +777,42 @@ class FeishuChannel(BaseChannel):
             if not content_parts:
                 return
 
+            is_group = chat_type == "group"
             meta: Dict[str, Any] = {
                 "feishu_message_id": message_id,
                 "feishu_chat_id": chat_id,
                 "feishu_chat_type": chat_type,
                 "feishu_sender_id": sender_id,
+                "is_group": is_group,
             }
-            receive_id = chat_id if chat_type == "group" else sender_id
-            receive_id_type = "chat_id" if chat_type == "group" else "open_id"
+            receive_id = chat_id if is_group else sender_id
+            receive_id_type = "chat_id" if is_group else "open_id"
             meta["feishu_receive_id"] = receive_id
             meta["feishu_receive_id_type"] = receive_id_type
+            if is_bot_mentioned:
+                meta["bot_mentioned"] = True
+
+            allowed, error_msg = self._check_allowlist(
+                sender_id,
+                is_group,
+            )
+            if not allowed:
+                logger.info(
+                    "feishu allowlist blocked: sender=%s is_group=%s",
+                    sender_id,
+                    is_group,
+                )
+                await self._send_text(
+                    receive_id_type,
+                    receive_id,
+                    error_msg or "",
+                )
+                return
+
+            if not self._check_group_mention(is_group, meta):
+                return
+
+            await self._add_reaction(message_id, "Typing")
 
             session_id = self.resolve_session_id(sender_id, meta)
             native = {
@@ -1118,10 +1247,13 @@ class FeishuChannel(BaseChannel):
         receive_id: str,
         msg_type: str,
         content: str,
-    ) -> bool:
-        """Send one message (post, image, or file) via lark client."""
+    ) -> Optional[str]:
+        """Send one message (post, image, or file) via lark client.
+
+        Returns the message_id on success, None on failure.
+        """
         if not self._client:
-            return False
+            return None
         logger.info(
             "feishu _send_message_sync: msg_type=%s receive_id_type=%s "
             "content_len=%s",
@@ -1151,26 +1283,46 @@ class FeishuChannel(BaseChannel):
                     getattr(resp, "code", ""),
                     getattr(resp, "msg", ""),
                 )
-                return False
-            logger.info(
-                "feishu _send_message_sync ok: msg_type=%s",
-                msg_type,
+                return None
+            msg_id = (
+                getattr(resp.data, "message_id", None) if resp.data else None
             )
-            return True
+            logger.info(
+                "feishu _send_message_sync ok: msg_type=%s msg_id=%s",
+                msg_type,
+                (msg_id or "")[:24],
+            )
+            return msg_id
         except Exception:
             logger.exception("feishu _send_message_sync failed")
-            return False
+            return None
 
     async def _send_text(
         self,
         receive_id_type: str,
         receive_id: str,
         body: str,
-    ) -> bool:
-        """Send text as post (md). Body already has bot_prefix if needed."""
+    ) -> Optional[str]:
+        """Send text as post (md) or interactive card (when body has tables).
+
+        Returns the message_id on success, None on failure.
+        Body already has bot_prefix if needed.
+        """
+        has_table = bool(re.search(r"^\s*\|", body, re.MULTILINE))
+        loop = asyncio.get_running_loop()
+        if has_table:
+            content = build_interactive_content(body)
+            return await loop.run_in_executor(
+                None,
+                lambda: self._send_message_sync(
+                    receive_id_type,
+                    receive_id,
+                    "interactive",
+                    content,
+                ),
+            )
         post = self._build_post_content(body, [])
         content = json.dumps(post, ensure_ascii=False)
-        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             lambda: self._send_message_sync(
@@ -1233,8 +1385,11 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         part: OutgoingContentPart,
-    ) -> bool:
-        """Upload image and send as msg_type=image (image_key) per API."""
+    ) -> Optional[str]:
+        """Upload image and send as msg_type=image (image_key) per API.
+
+        Returns the message_id on success, None on failure.
+        """
         logger.info(
             "feishu _send_image: part type=%s",
             getattr(part, "type", None),
@@ -1244,7 +1399,7 @@ class FeishuChannel(BaseChannel):
             logger.info(
                 "feishu _send_image: no image data, skip (url/base64/path)",
             )
-            return False
+            return None
         loop = asyncio.get_running_loop()
         image_key = await loop.run_in_executor(
             None,
@@ -1254,7 +1409,7 @@ class FeishuChannel(BaseChannel):
             logger.info(
                 "feishu _send_image: upload failed, no image_key",
             )
-            return False
+            return None
         logger.info(
             "feishu _send_image: upload ok image_key=%s",
             image_key[:24] if image_key else "",
@@ -1333,8 +1488,11 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         part: OutgoingContentPart,
-    ) -> bool:
-        """Upload file and send file message (msg_type=file, file_key)."""
+    ) -> Optional[str]:
+        """Upload file and send file message (msg_type=file, file_key).
+
+        Returns the message_id on success, None on failure.
+        """
         logger.info(
             "feishu _send_file: part type=%s",
             getattr(part, "type", None),
@@ -1344,13 +1502,13 @@ class FeishuChannel(BaseChannel):
             logger.info(
                 "feishu _send_file: no path/url/base64, skip",
             )
-            return False
+            return None
         file_key = await self._upload_file(path_or_url)
         if not file_key:
             logger.info(
                 "feishu _send_file: upload failed, no file_key",
             )
-            return False
+            return None
         logger.info(
             "feishu _send_file: upload ok file_key=%s",
             file_key[:24] if file_key else "",
@@ -1442,15 +1600,19 @@ class FeishuChannel(BaseChannel):
             )
         return recv
 
-    async def send_content_parts(
+    async def send_content_parts(  # type: ignore[override]
         self,
         to_handle: str,
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Send text as post (md), then images, then files."""
+    ) -> Optional[str]:
+        """Send text as post (md), then images, then files.
+
+        Returns the message_id of the last successfully sent message,
+        or None if nothing was sent.
+        """
         if not self.enabled:
-            return
+            return None
         recv = await self._get_receive_for_send(to_handle, meta)
         if not recv:
             logger.warning(
@@ -1459,7 +1621,7 @@ class FeishuChannel(BaseChannel):
                 "dispatch.meta.feishu_receive_id)",
                 to_handle[:50] if to_handle else "",
             )
-            return
+            return None
         receive_id_type, receive_id = recv
         logger.info(
             "feishu send_content_parts: resolved receive_id_type=%s "
@@ -1502,35 +1664,93 @@ class FeishuChannel(BaseChannel):
         )
         if prefix and body:
             body = prefix + body
+        last_message_id: Optional[str] = None
         if body:
-            await self._send_text(receive_id_type, receive_id, body)
+            last_message_id = await self._send_text(
+                receive_id_type,
+                receive_id,
+                body,
+            )
         for part in media_parts:
             pt = getattr(part, "type", None)
             if pt == ContentType.IMAGE:
-                ok = await self._send_image(
+                msg_id = await self._send_image(
                     receive_id_type,
                     receive_id,
                     part,
                 )
                 logger.info(
                     "feishu send_content_parts: image sent ok=%s",
-                    ok,
+                    bool(msg_id),
                 )
+                if msg_id:
+                    last_message_id = msg_id
             elif pt in (
                 ContentType.FILE,
                 ContentType.VIDEO,
                 ContentType.AUDIO,
             ):
-                ok = await self._send_file(
+                msg_id = await self._send_file(
                     receive_id_type,
                     receive_id,
                     part,
                 )
                 logger.info(
                     "feishu send_content_parts: file sent ok=%s type=%s",
-                    ok,
+                    bool(msg_id),
                     pt,
                 )
+                if msg_id:
+                    last_message_id = msg_id
+        return last_message_id
+
+    async def _run_process_loop(
+        self,
+        request: Any,
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Override to track the last sent message_id across all events
+        and add a DONE reaction after the full reply is complete.
+        """
+        last_message_id: Optional[str] = None
+        last_response = None
+        try:
+            async for event in self._process(request):
+                obj = getattr(event, "object", None)
+                status = getattr(event, "status", None)
+                if obj == "message" and status == RunStatus.Completed:
+                    parts = self._message_to_content_parts(event)
+                    if parts:
+                        msg_id = await self.send_content_parts(
+                            to_handle,
+                            parts,
+                            send_meta,
+                        )
+                        if msg_id:
+                            last_message_id = msg_id
+                elif obj == "response":
+                    last_response = event
+                    await self.on_event_response(request, event)
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    f"Error: {err_msg}",
+                )
+            elif last_message_id:
+                await self._add_reaction(last_message_id, "DONE")
+            if self._on_reply_sent:
+                args = self.get_on_reply_sent_args(request, to_handle)
+                self._on_reply_sent(self.channel, *args)
+        except Exception:
+            logger.exception("channel consume_one failed")
+            await self._on_consume_error(
+                request,
+                to_handle,
+                "An error occurred while processing your request.",
+            )
 
     async def send(
         self,
@@ -1656,6 +1876,16 @@ class FeishuChannel(BaseChannel):
         self._ws_thread.start()
         if self._http is None:
             self._http = aiohttp.ClientSession()
+        try:
+            self._bot_open_id = await self._fetch_bot_open_id()
+            logger.info(
+                "feishu: bot open_id=%s",
+                self._bot_open_id[:12] if self._bot_open_id else "?",
+            )
+        except Exception:
+            logger.warning(
+                "feishu: failed to fetch bot open_id (non-fatal)",
+            )
         logger.info("feishu channel started (app_id=%s)", self.app_id[:12])
 
     async def stop(self) -> None:

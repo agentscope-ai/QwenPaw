@@ -306,13 +306,7 @@ def is_running_in_container() -> bool:
     Prefer env COPAW_RUNNING_IN_CONTAINER (1/true/yes) at call time so
     supervisord child gets correct value; else check /.dockerenv and cgroup.
     """
-    if os.environ.get("COPAW_RUNNING_IN_CONTAINER", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        return True
-    if RUNNING_IN_CONTAINER.strip().lower() in ("1", "true", "yes"):
+    if RUNNING_IN_CONTAINER:
         return True
     if os.path.exists("/.dockerenv"):
         return True

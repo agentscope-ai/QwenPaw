@@ -122,8 +122,6 @@ export function OllamaModelManageModal({
     if (!open) return;
 
     fetchOllamaModels();
-    setAdding(false);
-    form.resetFields();
     ollamaNotifiedRef.current.clear();
 
     api

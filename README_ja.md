@@ -54,13 +54,15 @@
 
 ## ニュース
 
-[2026-03-06] v0.0.5をリリースしました！詳細は[v0.0.5リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
+[2026-03-09] v0.0.6をリリースしました！詳細は[v0.0.6リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
-- **[v0.0.5] 追加:** デーモンモード; Twilio音声チャネル; DeepSeek Reasonerサポート; エージェント中断API; バージョン更新通知; 思考・ツール呼び出しの表示オプション。
-- **[v0.0.5] 改善:** メモリシステムのアップグレード; コンソールUIの改善; オプショナルチャネルの遅延読み込み; Windowsワンクリックインストールスクリプト。
-- **[v0.0.5] 修正:** Docker設定の永続化; Ollama base URL; チャネル関連の修正; Windows互換性; MCPクライアントの安定性。
-- **[v0.0.5] ドキュメント:** リリースノート; モデル・チャネル設定ガイドの改善; Docker + Ollama接続ガイド。
-- **[v0.0.5] 貢献者:** 新規貢献者の皆さんに感謝します: [@qoli](https://github.com/qoli), [@qbc2016](https://github.com/qbc2016), [@yunlzheng](https://github.com/yunlzheng), [@BlueSkyXN](https://github.com/BlueSkyXN), [@sidonsoft](https://github.com/sidonsoft), [@lishengzxc](https://github.com/lishengzxc), [@pikaxinge](https://github.com/pikaxinge), [@linshengli](https://github.com/linshengli), [@eltociear](https://github.com/eltociear), [@liuxiaopai-ai](https://github.com/liuxiaopai-ai), [@Leirunlin](https://github.com/Leirunlin), [@pan-x-c](https://github.com/pan-x-c), [@garyzhang99](https://github.com/garyzhang99), [@celestialhorse51D](https://github.com/celestialhorse51D), [@wwx814](https://github.com/wwx814), [@nszhsl](https://github.com/nszhsl), [@DavdGao](https://github.com/DavdGao), [@zhangckcup](https://github.com/zhangckcup)。
+- **[v0.0.6] 追加:** ワンクリックセットアップのネイティブデスクトップインストーラー（Windows/macOS）; UIとエージェント設定全体でのロシア語と日本語サポート; 許可リスト付きTelegramアクセス制御; QQ Markdownとリッチメディアサポート; Discord/Feishu/DingTalkメディア機能強化; IoT統合用MQTTチャネル; Gemini思考モデルとMLXバックエンドサポート; 組み込みツール管理ページ; ワークスペースファイルからのカスタムシステムプロンプト; スマート切り詰め機能付きReMeLightメモリシステム。
+- **[v0.0.6] 改善:** 動的メモリ圧縮設定; PyPIタイムスタンプを使用したバージョン検出; LESSベースのスタイルリファクタリング; UTCタイムゾーン標準化; ライフサイクル管理を備えたモジュール型Providerアーキテクチャ。
+- **[v0.0.6] 修正:** Windowsファイルパスとシェルエンコーディング; DingTalk Officeファイル検出; スキルインポートUTF-8処理; Docker対応URL検証; バージョンバッジの配置; 言語対応ファイル通知。
+- **[v0.0.6] ドキュメント:** 新しいロゴとソーシャルメディア統合; デスクトップアプリインストールガイド; メモリ圧縮とコマンドドキュメント; ロードマップ更新; ウェブサイトプレゼンテーション強化。
+- **[v0.0.6] 貢献者:** 新規貢献者の皆さんに感謝します: [@Osier-Yi](https://github.com/Osier-Yi), [@muchenhen](https://github.com/muchenhen), [@hongxicheng](https://github.com/hongxicheng), [@YingchaoX](https://github.com/YingchaoX), [@seoeaa](https://github.com/seoeaa), [@Chiytako](https://github.com/Chiytako), [@eviaaaaa](https://github.com/eviaaaaa), [@vvv214](https://github.com/vvv214), [@baijunty](https://github.com/baijunty), [@p8rtop](https://github.com/p8rtop), [@yifanli-intel](https://github.com/yifanli-intel), [@Eduiskss](https://github.com/Eduiskss), [@snai1557](https://github.com/snai1557)。
+
+[2026-03-06] v0.0.5をリリースしました！詳細は[v0.0.5リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 [2026-03-02] v0.0.4をリリースしました！詳細は[v0.0.4リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
@@ -220,18 +222,64 @@ copaw uninstall --purge  # すべて削除
 
 </details>
 
+### デスクトップアプリケーション（Beta）
+
+> **Beta版の注意事項**: デスクトップアプリケーションは現在Beta版テスト段階にあり、以下の既知の制限があります：
+> - **互換性テストが不完全**: すべてのシステムバージョンとハードウェア構成で十分にテストされていません
+> - **パフォーマンスの問題の可能性**: 起動時間、メモリ使用量などのパフォーマンス面でさらなる最適化が必要な場合があります
+> - **開発中の機能**: 一部の機能が不安定または欠落している可能性があります
+
+コマンドラインツールに慣れていない場合、CoPawのデスクトップアプリケーションをダウンロードして使用できます。Python環境の手動設定やコマンドの実行は不要です。
+
+#### ダウンロード
+
+[GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases)からデスクトップアプリをダウンロード:
+- **Windows**: `CoPaw-Setup-<version>.exe`
+- **macOS**: `CoPaw-<version>-macOS.zip` (Apple Silicon推奨)
+
+#### 特徴
+
+- ✅ **ゼロ設定**: ダウンロードしてダブルクリックするだけで実行可能、Pythonのインストールや環境変数の設定は不要
+- ✅ **クロスプラットフォーム**: Windows 10+ と macOS 14+ に対応
+- ✅ **ビジュアルインターフェース**: ブラウザインターフェースが自動的に開き、手動でアドレスを入力する必要はありません
+- ⚠️ **Beta段階**: 機能は継続的に改善中、フィードバックを歓迎します
+
+#### 初回起動
+
+**重要**: 初回起動には10〜60秒かかる場合があります（システム構成によります）。アプリケーションはPython環境の初期化と依存関係の読み込みが必要です。ブラウザウィンドウが自動的に開くまでお待ちください。
+
+#### macOS: システムセキュリティ制限の回避
+
+ReleasesからCoPaw macOSアプリをダウンロードすると、macOSは次のように表示する場合があります: *「Appleは'CoPaw'に悪意のあるソフトウェアが含まれていないことを確認できません」*。これはアプリが公証されていないためです。以下の方法で開くことができます:
+
+- **右クリックして開く（推奨）**
+  CoPawアプリを右クリック（またはControl+クリック）→ **「開く」** → ダイアログで再度 **「開く」** をクリック。これによりGatekeeperにアプリを信頼していることを伝えます。その後は通常通りダブルクリックで起動できます。
+
+- **システム設定で許可**
+  それでもブロックされる場合、**システム設定 → プライバシーとセキュリティ** に移動し、*「'CoPaw'は未確認の開発元からのものであるためブロックされました」* のようなメッセージまでスクロールし、**「このまま開く」** または **「許可」** をクリックします。
+
+- **検疫属性の削除（ほとんどのユーザーには非推奨）**
+  ターミナルで実行:
+  `xattr -cr /Applications/CoPaw.app`
+  （または解凍後の `.app` へのパスを使用）。これにより「インターネットからダウンロードされた」検疫フラグがクリアされ、通常は警告が表示されなくなりますが、**右クリック → 開く** を使用するよりも安全性と制御性が低くなります。
+
+詳細な使用方法、トラブルシューティング、よくある問題については、[デスクトップアプリケーションガイド](https://copaw.agentscope.io/docs/desktop)を参照してください。
+
 ### Dockerを使用
 
 イメージは **Docker Hub**（`agentscope/copaw`）で公開しています。タグ: `latest`（安定版）; `pre`（PyPIプレリリース版）。
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 中国のユーザーは阿里雲コンテナレジストリ（ACR）も利用できます: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（タグは同じ）。
 
-ブラウザで **http://127.0.0.1:8088/** を開くとコンソールが利用できます。設定、メモリ、スキルは `copaw-data` ボリュームに保存されます。APIキー（例: `DASHSCOPE_API_KEY`）を渡すには、`docker run` に `-e VAR=value` または `--env-file .env` を追加してください。
+ブラウザで **http://127.0.0.1:8088/** を開くとコンソールが利用できます。設定、メモリ、スキルは `copaw-data` ボリュームに保存されます。モデル設定とAPIキーは `copaw-secrets` ボリュームに保存されます。APIキー（例: `DASHSCOPE_API_KEY`）を渡すには、`docker run` に `-e VAR=value` または `--env-file .env` を追加してください。
 
 > **ホストマシン上のOllamaや他のモデルサービスに接続する**
 >
@@ -241,15 +289,22 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 > ```bash
 > docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
->   -v copaw-data:/app/working agentscope/copaw:latest
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
-> その後、CoPawの **Settings → Models → Ollama** で、Base URLを `http://host.docker.internal:11434/v1` または対応するポートに変更してください。
+> その後、CoPawの **Settings → Models → Ollama** で、Base URLを `http://host.docker.internal:11434` または対応するポートに変更してください。
 >
 > **方法B** — ホストネットワーク（Linuxのみ）：
 > ```bash
-> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > ポートマッピング（`-p`）は不要で、コンテナはホストネットワークを直接共有します。ただし、コンテナの全ポートがホスト上に公開されるため、使用中のポートと競合する可能性があります。
+>
+> **ヒント：** `/app/working` のみをマウントし `/app/working.secret` を別途マウントしない場合、エントリポイントスクリプトが自動的にsecretsを `/app/working/.secret` にリダイレクトし、同じボリュームに永続化します。
 
 イメージはゼロからビルドされています。自分でイメージをビルドする場合は、`scripts/README.md` の [Build Docker image](scripts/README.md#build-docker-image) セクションを参照し、レジストリにプッシュしてください。
 
@@ -307,8 +362,9 @@ copaw app    # サーバーを起動
 | [モデル](https://copaw.agentscope.io/docs/models)                         | クラウド・ローカル・カスタムプロバイダーの設定       |
 | [チャネル](https://copaw.agentscope.io/docs/channels)                      | DingTalk、Feishu、QQ、Discord、iMessageなど         |
 | [スキル](https://copaw.agentscope.io/docs/skills)                          | 機能の拡張とカスタマイズ                             |
-| [MCP](https://copaw.agentscope.io/docs/skills)                             | MCPクライアントの管理                               |
-| [メモリ](https://copaw.agentscope.io/docs/memory)                          | コンテキストと長期記憶                              |
+| [MCP](https://copaw.agentscope.io/docs/mcp)                                | MCPクライアントの管理                               |
+| [メモリ](https://copaw.agentscope.io/docs/memory)                          | 長期記憶                              |
+| [コンテキスト](https://copaw.agentscope.io/docs/context)                  | コンテキスト管理メカニズム                          |
 | [魔法コマンド](https://copaw.agentscope.io/docs/commands)                 | AIの応答を待たずに会話状態を制御                     |
 | [ハートビート](https://copaw.agentscope.io/docs/heartbeat)                 | スケジュールされたチェックインとダイジェスト        |
 | [設定とワーキングディレクトリ](https://copaw.agentscope.io/docs/config)   | ワーキングディレクトリと設定ファイル                 |
@@ -327,39 +383,39 @@ copaw app    # サーバーを起動
 
 ## ロードマップ
 
-| 領域 | 項目 | 状態 |
+| 方向 | 項目 | 状態 |
 | --- | --- | --- |
-| 横展開 | チャネル・モデル・スキル・MCPの追加 — **コミュニティの貢献歓迎** | 貢献者募集中 |
-| 既存機能の拡張 | 表示の最適化、ダウンロードヒント、Windowsパス互換など — **コミュニティの貢献歓迎** | 貢献者募集中 |
-| 互換性・使いやすさ | アプリレベルパッケージ（DMG、EXE） | 進行中 |
-| | ワンクリックデプロイ: 組み込み依存、dev拡張、インストール/アップグレードチュートリアル | 進行中 |
-| リリース・貢献 | 貢献ドキュメントとテストフレームワーク | 進行中 |
-| | コミュニティ貢献への迅速な対応 | 進行中 |
-| | Vibe Coding 等エージェントの貢献ガイダンス | 計画中 |
-| バグ修正・機能強化 | メッセージの折りたたみ/非表示 | 計画中 |
-| | スキルとMCPランタイムのインストール、ホットリロードの改善 | 計画中 |
-| | コンテキスト管理と圧縮（長いツール出力、トークン削減） | 計画中 |
-| | マルチモーダル対応 | 進行中 |
-| セキュリティ | シェル実行の確認 | 計画中 |
+| **横展開** | より多くのチャネル、モデル、スキル、MCP など — **コミュニティの貢献歓迎** | 貢献者募集中 |
+| **既存機能の拡張・改善** | 表示の最適化、ダウンロードヒント、Windowsパス互換など — **コミュニティの貢献歓迎** | 貢献者募集中 |
+| **コンソール Web UI** | コンソールでより多くの情報と設定を公開 | 進行中 |
+| **自己修復** | マジックコマンドとデーモン機能（CLI、status、restart、logs） | 進行中 |
+| | DaemonAgent: 自律診断、自己修復、復旧 | 計画中 |
+| **マルチエージェント** | バックグラウンドタスクサポート | 進行中 |
+| | マルチエージェントの分離 | 計画中 |
+| | エージェント間の競合・衝突の解決 | 計画中 |
+| | マルチエージェント通信 | 計画中 |
+| **マルチモーダル** | 音声/ビデオ通話とリアルタイム対話 | 進行中 |
+| **大小モデル協調** | CoPaw ワークフローと機密データ向けのローカル小モデル学習・ファインチューニング | 進行中 |
+| | マルチモデルルーティング。ローカルモデルで機密データ処理、クラウドモデルで計画・コーディング；プライバシー・性能・能力の両立 | 計画中 |
+| **メモリシステム** | 経験の蓄積とスキル抽出 | 進行中 |
+| | マルチモーダルメモリの融合強化 | 計画中 |
+| | シーン認識による能動的プッシュ | 計画中 |
+| **セキュリティ** | シェル実行の確認 | 計画中 |
 | | ツール/スキルのセキュリティ | 計画中 |
 | | 設定可能なセキュリティレベル | 計画中 |
-| マルチモーダル | 音声/ビデオ通話とリアルタイム対話 | 長期計画 |
-| マルチエージェント | [AgentScope](https://github.com/agentscope-ai/agentscope)ベース、ネイティブマルチエージェント連携 | 長期計画 |
-| サンドボックス | AgentScope Runtimeサンドボックスとの深い統合 | 長期計画 |
-| 自己修復 | デーモンエージェントによる自動復旧とヘルス監視 | 長期計画 |
-| CoPaw最適化ローカルモデル | CoPawネイティブスキルと常見タスク向けにチューニングしたLLM | 長期計画 |
-| 大小モデル連携 | ローカルLLMで機密データ、クラウドLLMで計画・コーディング | 長期計画 |
-| クラウドネイティブ | AgentScope Runtimeとの深い統合、クラウド計算・ストレージ・ツールの活用 | 長期計画 |
-| スキルハブ | [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills)の充実、高品質スキルの発見性向上 | 長期計画 |
+| **バージョンリリース・貢献規範** | Vibe Coding 等のエージェント向け貢献ガイダンス | 計画中 |
+| **サンドボックス** | AgentScope Runtime サンドボックスとの深い統合 | 長期計画 |
+| **クラウドネイティブ** | AgentScope Runtime との深い統合、クラウド算力・ストレージ・ツールエコシステムの活用 | 長期計画 |
+| **スキルエコシステム** | [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) リポジトリの充実、高品質スキルの発見・利用向上 | 長期計画 |
 
-*状態:* *進行中* — 作業中; *計画中* — 予定または設計中、**貢献歓迎**; *貢献者募集中* — **コミュニティの参加を歓迎**; *長期計画* — 中長期のロードマップ。
+*状態説明：進行中 — 推進中；計画中 — 予定または設計中、**貢献も歓迎**；**貢献者募集中** — **コミュニティの参加を歓迎**；長期計画 — 中長期ロードマップ。*
 
 ### 参加方法
 
 CoPawはオープンに開発しており、あらゆる形の貢献を歓迎しています！上記の[ロードマップ](#ロードマップ)（特に**貢献者募集中**の項目）から興味のある領域を選び、[CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md)を読んで始めてください。特に歓迎するのは：
 
 - **横展開** — 新規チャネル、モデルプロバイダー、スキル、MCP。
-- **既存機能の拡張** — 表示・UXの改善、ダウンロードヒント、Windowsパス互換など。
+- **既存機能の拡張・改善** — 表示とインタラクションの最適化、ダウンロードヒント、Windowsパス互換など。
 
 [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions)で議論に参加し、アイデアを提案したりタスクを担当したりしてください。
 
@@ -370,11 +426,21 @@ CoPawはオープンに開発しており、あらゆる形の貢献を歓迎し
 ```bash
 git clone https://github.com/agentscope-ai/CoPaw.git
 cd CoPaw
+
+# まずコンソールフロントエンドをビルド（Web UIに必須）
+cd console && npm ci && npm run build
+cd ..
+
+# コンソールのビルド出力をパッケージディレクトリにコピー
+mkdir -p src/copaw/console
+cp -R console/dist/. src/copaw/console/
+
+# Pythonパッケージのインストール
 pip install -e .
 ```
 
-- **開発**（テスト、フォーマット）: `pip install -e ".[dev]"`
-- **コンソール**（フロントエンドのビルド）: プロジェクトルートで `cd console && npm ci && npm run build` を実行し、続けて `copaw init --defaults`、その後 `copaw app` を実行。
+- **開発**（テスト、フォーマット）: `pip install -e ".[dev,full]"`
+- **その後**: `copaw init --defaults` を実行し、次に `copaw app` を実行。
 
 ---
 
