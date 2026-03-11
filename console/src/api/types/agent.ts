@@ -9,4 +9,8 @@ export interface AgentRequest {
 export interface AgentsRunningConfig {
   max_iters: number;
   max_input_length: number;
+  memory_compact_ratio: number;
+  memory_reserve_ratio: number;
+  enable_tool_result_compact: boolean;
+  tool_result_compact_keep_n: number;
 }

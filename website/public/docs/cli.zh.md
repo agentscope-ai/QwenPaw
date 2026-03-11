@@ -25,7 +25,7 @@ copaw init --force      # 覆盖已有配置文件
 
 1. **心跳** —— 间隔（如 `30m`）、目标（`main` / `last`）、可选活跃时间段。
 2. **工具详情** —— 是否在频道消息中显示工具调用细节。
-3. **语言** —— Agent 人设文件（SOUL.md 等）使用 `zh` 或 `en`。
+3. **语言** —— Agent 人设文件（SOUL.md 等）使用 `zh` / `en` / `ru`。
 4. **频道** —— 可选配置 iMessage / Discord / DingTalk / Feishu / QQ / Console。
 5. **LLM 提供商** —— 选择提供商、输入 API Key、选择模型（**必选**）。
 6. **技能** —— 全部启用 / 不启用 / 自定义选择。

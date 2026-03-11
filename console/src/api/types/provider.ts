@@ -16,14 +16,18 @@ export interface ProviderInfo {
   is_local: boolean;
   /** True when the base_url should be frozen (not editable). */
   freeze_url: boolean;
+  /** True when an API key is required for this provider. */
+  require_api_key: boolean;
   api_key: string;
   base_url: string;
+  generate_kwargs: Record<string, unknown>;
 }
 
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
   chat_model?: string;
+  generate_kwargs?: Record<string, unknown>;
 }
 
 export interface ModelSlotConfig {
@@ -119,6 +123,7 @@ export interface TestProviderRequest {
   api_key?: string;
   base_url?: string;
   chat_model?: string;
+  generate_kwargs?: Record<string, unknown>;
 }
 
 export interface TestModelRequest {

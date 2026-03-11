@@ -19,6 +19,7 @@ from copaw.providers.provider import (
     ProviderInfo,
 )
 from copaw.providers.openai_provider import OpenAIProvider
+from copaw.providers.lm_studio_provider import LMStudioProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
@@ -159,6 +160,15 @@ PROVIDER_OLLAMA = OllamaProvider(
     require_api_key=False,
 )
 
+PROVIDER_LMSTUDIO = LMStudioProvider(
+    id="lmstudio",
+    name="LM Studio",
+    base_url="http://localhost:1234/v1",
+    require_api_key=False,
+    api_key_prefix="",
+    models=[],
+)
+
 
 class ModelSlotConfig(BaseModel):
     provider_id: str = Field(
@@ -216,6 +226,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_OLLAMA)
+        self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_LLAMACPP)
         self._add_builtin(PROVIDER_MLX)
 
@@ -292,20 +303,31 @@ class ProviderManager:
             )
             return []
 
+    def _resolve_custom_provider_id(self, provider_id: str) -> str:
+        """Resolve provider ID conflicts for a custom provider."""
+        base_id = provider_id
+        if base_id in self.builtin_providers:
+            base_id = f"{base_id}-custom"
+
+        resolved_id = base_id
+        while (
+            resolved_id in self.builtin_providers
+            or resolved_id in self.custom_providers
+        ):
+            resolved_id = f"{resolved_id}-new"
+
+        return resolved_id
+
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
-        if provider_data.id in self.builtin_providers:
-            raise ValueError(
-                f"'{provider_data.id}' conflicts with a built-in provider.",
-            )
-        if provider_data.id in self.custom_providers:
-            raise ValueError(
-                f"Custom provider '{provider_data.id}' already exists.",
-            )
-        provider_data.is_custom = True
+        provider_payload = provider_data.model_dump()
+        provider_payload["id"] = self._resolve_custom_provider_id(
+            provider_data.id,
+        )
+        provider_payload["is_custom"] = True
         provider = self._provider_from_data(
-            provider_data.model_dump(),
+            provider_payload,
         )  # Validate provider data
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
@@ -419,6 +441,8 @@ class ProviderManager:
             return AnthropicProvider.model_validate(data)
         if provider_id == "ollama" or chat_model == "OllamaChatModel":
             return OllamaProvider.model_validate(data)
+        if provider_id == "lmstudio":
+            return LMStudioProvider.model_validate(data)
         if data.get("is_local", False):
             return DefaultProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
@@ -525,6 +549,7 @@ class ProviderManager:
                 builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
+                builtin.generate_kwargs = provider.generate_kwargs
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

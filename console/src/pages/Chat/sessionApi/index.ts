@@ -6,6 +6,20 @@ import {
 import api, { type ChatSpec, type Message } from "../../../api";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DEFAULT_USER_ID = "default";
+const DEFAULT_CHANNEL = "console";
+const DEFAULT_SESSION_NAME = "New Chat";
+const ROLE_TOOL = "tool";
+const ROLE_USER = "user";
+const ROLE_ASSISTANT = "assistant";
+const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
+// const CARD_REQUEST = "AgentScopeRuntimeRequestCard";
+const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+
+// ---------------------------------------------------------------------------
 // Window globals
 // ---------------------------------------------------------------------------
 
@@ -57,7 +71,7 @@ function generateId(): string {
 }
 
 /** Extract plain text from a message's content array. */
-function extractTextFromContent(content: unknown): string {
+const extractTextFromContent = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return String(content || "");
   return (content as ContentItem[])
@@ -65,19 +79,20 @@ function extractTextFromContent(content: unknown): string {
     .map((c) => c.text || "")
     .filter(Boolean)
     .join("\n");
-}
+};
 
 /**
  * Convert a backend message to a response output message.
  * Maps system + plugin_call_output → role "tool" and strips metadata.
  */
-function toOutputMessage(msg: Message): OutputMessage {
-  const role =
-    msg.type === "plugin_call_output" && msg.role === "system"
-      ? "tool"
-      : msg.role;
-  return { ...msg, role, metadata: null };
-}
+const toOutputMessage = (msg: Message): OutputMessage => ({
+  ...msg,
+  role:
+    msg.type === TYPE_PLUGIN_CALL_OUTPUT && msg.role === "system"
+      ? ROLE_TOOL
+      : msg.role,
+  metadata: null,
+});
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
 function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
@@ -106,9 +121,9 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
  * Build an assistant response card (AgentScopeRuntimeResponseCard)
  * wrapping a group of consecutive non-user output messages.
  */
-function buildResponseCard(
+const buildResponseCard = (
   outputMessages: OutputMessage[],
-): IAgentScopeRuntimeWebUIMessage {
+): IAgentScopeRuntimeWebUIMessage => {
   const now = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
     (max, m) => Math.max(max, m.sequence_number || 0),
@@ -116,10 +131,10 @@ function buildResponseCard(
   );
   return {
     id: generateId(),
-    role: "assistant",
+    role: ROLE_ASSISTANT,
     cards: [
       {
-        code: "AgentScopeRuntimeResponseCard",
+        code: CARD_RESPONSE,
         data: {
           id: `response_${generateId()}`,
           output: outputMessages,
@@ -135,7 +150,7 @@ function buildResponseCard(
     ],
     msgStatus: "finished",
   };
-}
+};
 
 /**
  * Convert flat backend messages into the card-based format expected by
@@ -145,62 +160,66 @@ function buildResponseCard(
  * - Consecutive non-user messages (assistant / system / tool) → grouped
  *   into a single AgentScopeRuntimeResponseCard with all output messages.
  */
-function convertMessages(
+const convertMessages = (
   messages: Message[],
-): IAgentScopeRuntimeWebUIMessage[] {
+): IAgentScopeRuntimeWebUIMessage[] => {
   const result: IAgentScopeRuntimeWebUIMessage[] = [];
   let i = 0;
 
   while (i < messages.length) {
-    if (messages[i].role === "user") {
+    if (messages[i].role === ROLE_USER) {
       result.push(buildUserCard(messages[i++]));
     } else {
       const outputMsgs: OutputMessage[] = [];
-      while (i < messages.length && messages[i].role !== "user") {
+      while (i < messages.length && messages[i].role !== ROLE_USER) {
         outputMsgs.push(toOutputMessage(messages[i++]));
       }
-      if (outputMsgs.length > 0) result.push(buildResponseCard(outputMsgs));
+      if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
     }
   }
 
   return result;
-}
+};
 
-function chatSpecToSession(chat: ChatSpec): ExtendedSession {
-  return {
+const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
+  ({
     id: chat.id,
-    name: (chat as ChatSpec & { name?: string }).name || "New Chat",
+    name: (chat as ChatSpec & { name?: string }).name || DEFAULT_SESSION_NAME,
     sessionId: chat.session_id,
     userId: chat.user_id,
     channel: chat.channel,
     messages: [],
     meta: chat.meta || {},
-  } as ExtendedSession;
-}
+  }) as ExtendedSession;
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
-function isLocalTimestamp(id: string): boolean {
-  return /^\d+$/.test(id);
-}
+const isLocalTimestamp = (id: string): boolean => /^\d+$/.test(id);
 
 /**
  * Resolve and persist the real backend UUID for a local timestamp session.
- * Searches the refreshed session list for a backend record whose session_id
- * matches the timestamp, then stores realId and keeps the timestamp as id.
+ * Stores the real UUID as realId while keeping the timestamp as id, so the
+ * library's internal currentSessionId (timestamp) remains valid.
+ * Returns the resolved real UUID, or null if not found.
  */
-function resolveRealId(
+const resolveRealId = (
   sessionList: IAgentScopeRuntimeWebUISession[],
   tempSessionId: string,
-): IAgentScopeRuntimeWebUISession[] {
+): { list: IAgentScopeRuntimeWebUISession[]; realId: string | null } => {
   const realSession = sessionList.find(
     (s) => (s as ExtendedSession).sessionId === tempSessionId,
   );
-  if (!realSession) return sessionList;
+  if (!realSession) return { list: sessionList, realId: null };
 
-  (realSession as ExtendedSession).realId = realSession.id;
+  const realUUID = realSession.id;
+  // Keep the timestamp as id (so the library's currentSessionId still matches),
+  // and store the real UUID in realId for backend requests.
+  (realSession as ExtendedSession).realId = realUUID;
   realSession.id = tempSessionId;
-  return [realSession, ...sessionList.filter((s) => s !== realSession)];
-}
+  return {
+    list: [realSession, ...sessionList.filter((s) => s !== realSession)],
+    realId: realUUID,
+  };
+};
 
 // ---------------------------------------------------------------------------
 // SessionApi
@@ -217,18 +236,28 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionListRequest: Promise<IAgentScopeRuntimeWebUISession[]> | null =
     null;
 
-  constructor() {}
+  /**
+   * Called when a temporary timestamp session id is resolved to a real backend
+   * UUID. Consumers (e.g. Chat/index.tsx) can register here to update the URL.
+   */
+  onSessionIdResolved: ((tempId: string, realId: string) => void) | null = null;
+
+  /**
+   * Called after a session is removed. Consumers can register here to clear
+   * the session id from the URL.
+   */
+  onSessionRemoved: ((removedId: string) => void) | null = null;
 
   private createEmptySession(sessionId: string): ExtendedSession {
     window.currentSessionId = sessionId;
-    window.currentUserId = "default";
-    window.currentChannel = "console";
+    window.currentUserId = DEFAULT_USER_ID;
+    window.currentChannel = DEFAULT_CHANNEL;
     return {
       id: sessionId,
-      name: "New Chat",
+      name: DEFAULT_SESSION_NAME,
       sessionId,
-      userId: "default",
-      channel: "console",
+      userId: DEFAULT_USER_ID,
+      channel: DEFAULT_CHANNEL,
       messages: [],
       meta: {},
     } as ExtendedSession;
@@ -236,8 +265,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   private updateWindowVariables(session: ExtendedSession): void {
     window.currentSessionId = session.sessionId || "";
-    window.currentUserId = session.userId || "default";
-    window.currentChannel = session.channel || "console";
+    window.currentUserId = session.userId || DEFAULT_USER_ID;
+    window.currentChannel = session.channel || DEFAULT_CHANNEL;
   }
 
   private getLocalSession(sessionId: string): IAgentScopeRuntimeWebUISession {
@@ -247,6 +276,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return local;
     }
     return this.createEmptySession(sessionId);
+  }
+
+  /**
+   * Returns the real backend UUID for a session identified by id (which may be
+   * a local timestamp). Returns null when not yet resolved or not found.
+   */
+  getRealIdForSession(sessionId: string): string | null {
+    const s = this.sessionList.find((x) => x.id === sessionId) as
+      | ExtendedSession
+      | undefined;
+    return s?.realId ?? null;
   }
 
   async getSessionList() {
@@ -284,34 +324,31 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   async getSession(sessionId: string) {
-    // --- Local timestamp ID (New Chat / post-delete) ---
+    // --- Local timestamp ID (New Chat before first reply) ---
     if (isLocalTimestamp(sessionId)) {
       const fromList = this.sessionList.find((s) => s.id === sessionId) as
         | ExtendedSession
         | undefined;
-      const { realId } = fromList ?? {};
 
-      if (realId) {
-        // Already has a backend record — fetch full history
-        const chatHistory = await api.getChat(realId);
+      // If realId is already resolved, use it directly to fetch history.
+      if (fromList?.realId) {
+        const chatHistory = await api.getChat(fromList.realId);
         const session: ExtendedSession = {
           id: sessionId,
-          name: fromList?.name || "New Chat",
-          sessionId: fromList?.sessionId || sessionId,
-          userId: fromList?.userId || "default",
-          channel: fromList?.channel || "console",
+          name: fromList.name || DEFAULT_SESSION_NAME,
+          sessionId: fromList.sessionId || sessionId,
+          userId: fromList.userId || DEFAULT_USER_ID,
+          channel: fromList.channel || DEFAULT_CHANNEL,
           messages: convertMessages(chatHistory.messages || []),
-          meta: fromList?.meta || {},
-          realId,
+          meta: fromList.meta || {},
+          realId: fromList.realId,
         };
         this.updateWindowVariables(session);
         return session;
       }
 
-      // Pure local session: block until this session gets a realId, meaning
-      // updateSession has resolved the backend UUID. At that point the
-      // streaming response is done, realId is set, and we can safely fetch
-      // the full history without racing against setMessages([]).
+      // Pure local session (not yet sent to backend): wait until updateSession
+      // resolves the realId, then fetch history with the real UUID.
       await new Promise<void>((resolve) => {
         const check = () => {
           const s = this.sessionList.find((x) => x.id === sessionId) as
@@ -326,7 +363,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         setTimeout(check, 100);
       });
 
-      // Re-read after realId is available and fall through to the realId branch
       const refreshed = this.sessionList.find((s) => s.id === sessionId) as
         | ExtendedSession
         | undefined;
@@ -334,10 +370,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         const chatHistory = await api.getChat(refreshed.realId);
         const session: ExtendedSession = {
           id: sessionId,
-          name: refreshed.name || "New Chat",
+          name: refreshed.name || DEFAULT_SESSION_NAME,
           sessionId: refreshed.sessionId || sessionId,
-          userId: refreshed.userId || "default",
-          channel: refreshed.channel || "console",
+          userId: refreshed.userId || DEFAULT_USER_ID,
+          channel: refreshed.channel || DEFAULT_CHANNEL,
           messages: convertMessages(chatHistory.messages || []),
           meta: refreshed.meta || {},
           realId: refreshed.realId,
@@ -367,8 +403,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       id: sessionId,
       name: fromList?.name || sessionId,
       sessionId: fromList?.sessionId || sessionId,
-      userId: fromList?.userId || "default",
-      channel: fromList?.channel || "console",
+      userId: fromList?.userId || DEFAULT_USER_ID,
+      channel: fromList?.channel || DEFAULT_CHANNEL,
       messages: convertMessages(chatHistory.messages || []),
       meta: fromList?.meta || {},
     };
@@ -389,14 +425,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       if (isLocalTimestamp(existing.id) && !existing.realId) {
         const tempId = existing.id;
         this.getSessionList().then(() => {
-          this.sessionList = resolveRealId(this.sessionList, tempId);
+          const { list, realId } = resolveRealId(this.sessionList, tempId);
+          this.sessionList = list;
+          if (realId) {
+            this.onSessionIdResolved?.(tempId, realId);
+          }
         });
       }
     } else {
       // Session not found locally — refresh and resolve via session_id
       const tempId = session.id!;
       await this.getSessionList().then(() => {
-        this.sessionList = resolveRealId(this.sessionList, tempId);
+        const { list, realId } = resolveRealId(this.sessionList, tempId);
+        this.sessionList = list;
+        if (realId) {
+          this.onSessionIdResolved?.(tempId, realId);
+        }
       });
     }
 
@@ -409,8 +453,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const extended: ExtendedSession = {
       ...session,
       sessionId: session.id,
-      userId: "default",
-      channel: "console",
+      userId: DEFAULT_USER_ID,
+      channel: DEFAULT_CHANNEL,
     } as ExtendedSession;
 
     this.updateWindowVariables(extended);
@@ -422,6 +466,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (!session.id) return [...this.sessionList];
 
     const { id: sessionId } = session;
+
     const existing = this.sessionList.find((s) => s.id === sessionId) as
       | ExtendedSession
       | undefined;
@@ -433,6 +478,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (deleteId) await api.deleteChat(deleteId);
 
     this.sessionList = this.sessionList.filter((s) => s.id !== sessionId);
+
+    // Notify consumers (e.g. to clear the URL) with both the list id and the
+    // real backend UUID so callers can match either form.
+    const resolvedId = existing?.realId ?? sessionId;
+    this.onSessionRemoved?.(resolvedId);
 
     return [...this.sessionList];
   }

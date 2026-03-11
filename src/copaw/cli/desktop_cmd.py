@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import time
+import webbrowser
 
 import click
 
@@ -16,6 +17,16 @@ try:
     import webview
 except ImportError:
     webview = None  # type: ignore[assignment]
+
+
+class WebViewAPI:
+    """API exposed to the webview for handling external links."""
+
+    def open_external_link(self, url: str) -> None:
+        """Open URL in system's default browser."""
+        if not url.startswith(("http://", "https://")):
+            return
+        webbrowser.open(url)
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -105,17 +116,22 @@ def desktop_cmd(
                 _log_desktop(
                     "[desktop] HTTP ready, creating webview window...",
                 )
+                api = WebViewAPI()
                 webview.create_window(
                     "CoPaw Desktop",
                     url,
                     width=1280,
                     height=800,
+                    text_select=True,
+                    js_api=api,
                 )
                 _log_desktop(
                     "[desktop] Calling webview.start() "
                     "(blocks until closed)...",
                 )
-                webview.start()  # blocks until user closes the window
+                webview.start(
+                    private_mode=False,
+                )  # blocks until user closes the window
                 _log_desktop(
                     "[desktop] webview.start() returned (window closed).",
                 )

@@ -1,3 +1,7 @@
+> **Important:** All `scripts/` paths are relative to the skill directory (where SKILL.md is).
+> Run with: `cd {this_skill_dir} && python scripts/...`
+> Or use the `cwd` parameter of `execute_shell_command`.
+
 # Editing Presentations
 
 ## Template-Based Workflow

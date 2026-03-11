@@ -293,7 +293,7 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 >   -v copaw-secrets:/app/working.secret \
 >   agentscope/copaw:latest
 > ```
-> Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434` or your corresponding port.
+> Then in CoPaw **Settings → Models**, change the Base URL to `http://host.docker.internal:<port>` — for example, `http://host.docker.internal:11434` for Ollama, or `http://host.docker.internal:1234/v1` for LM Studio.
 >
 > **Option B** — Host networking (Linux only):
 > ```bash
@@ -363,7 +363,7 @@ copaw app # start the server
 | [Channels](https://copaw.agentscope.io/docs/channels)                  | DingTalk, Feishu, QQ, Discord, iMessage, and more |
 | [Skills](https://copaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [MCP](https://copaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
-| [Memory](https://copaw.agentscope.io/docs/memory)                     | Context and long-term memory                     |
+| [Memory](https://copaw.agentscope.io/docs/memory)                     | Long-term memory                     |
 | [Context](https://copaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |

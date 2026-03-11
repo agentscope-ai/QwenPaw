@@ -95,30 +95,33 @@ async def test_add_custom_provider_and_reload_from_storage(
         models=[ModelInfo(id="custom-model", name="Custom Model")],
     )
 
-    await manager.add_custom_provider(custom)
-    with pytest.raises(ValueError, match="conflicts with a built-in provider"):
-        await manager.add_custom_provider(
-            OpenAIProvider(
-                id="openai",
-                name="Conflict OpenAI",
-            ),
-        )
-
-    with pytest.raises(
-        ValueError,
-        match="Custom provider 'custom-openai' already exists",
-    ):
-        await manager.add_custom_provider(custom)
+    created = await manager.add_custom_provider(custom)
+    builtin_conflict = await manager.add_custom_provider(
+        OpenAIProvider(
+            id="openai",
+            name="Conflict OpenAI",
+        ),
+    )
+    duplicate = await manager.add_custom_provider(custom)
 
     reloaded = ProviderManager()
     loaded = reloaded.get_provider("custom-openai")
+    loaded_builtin_conflict = reloaded.get_provider("openai-custom")
+    loaded_duplicate = reloaded.get_provider("custom-openai-new")
 
+    assert created.id == "custom-openai"
+    assert builtin_conflict.id == "openai-custom"
+    assert duplicate.id == "custom-openai-new"
     assert loaded is not None
     assert isinstance(loaded, OpenAIProvider)
     assert loaded.is_custom is True
     assert loaded.base_url == "https://custom.example/v1"
     assert loaded.api_key == "sk-custom"
     assert [m.id for m in loaded.models] == ["custom-model"]
+    assert loaded_builtin_conflict is not None
+    assert isinstance(loaded_builtin_conflict, OpenAIProvider)
+    assert loaded_duplicate is not None
+    assert isinstance(loaded_duplicate, OpenAIProvider)
 
 
 async def test_activate_provider_persists_active_model(
@@ -222,7 +225,7 @@ def test_migrate_legacy_file_and_persist_active_model(
     assert active_model_file.exists()
 
 
-async def test_add_custom_provider_conflict_with_builtin_raises(
+async def test_add_custom_provider_conflict_resolution_loops_until_unique(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
@@ -231,8 +234,17 @@ async def test_add_custom_provider_conflict_with_builtin_raises(
         name="Conflict OpenAI",
     )
 
-    with pytest.raises(ValueError, match="conflicts with a built-in provider"):
-        await manager.add_custom_provider(conflict)
+    first = await manager.add_custom_provider(conflict)
+    second = await manager.add_custom_provider(conflict)
+    third = await manager.add_custom_provider(conflict)
+
+    assert first.id == "openai-custom"
+    assert second.id == "openai-custom-new"
+    assert third.id == "openai-custom-new-new"
+
+    assert manager.get_provider("openai-custom") is not None
+    assert manager.get_provider("openai-custom-new") is not None
+    assert manager.get_provider("openai-custom-new-new") is not None
 
 
 def test_update_provider_for_builtin_persists_to_builtin_path(

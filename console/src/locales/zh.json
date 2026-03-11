@@ -36,7 +36,8 @@
     "agentConfig": "运行配置",
     "settings": "设置",
     "models": "模型",
-    "environments": "环境变量"
+    "environments": "环境变量",
+    "tokenUsage": "Token 消耗"
   },
   "workspace": {
     "title": "工作区",
@@ -323,6 +324,22 @@
     "showValue": "显示值",
     "hideValue": "隐藏值"
   },
+  "tokenUsage": {
+    "title": "Token 消耗",
+    "description": "查看一段时间内的 LLM Token 消耗，按日期和模型统计。",
+    "totalTokens": "总 Token 数",
+    "totalCalls": "总调用次数",
+    "promptTokens": "输入 Token",
+    "completionTokens": "输出 Token",
+    "byModel": "按模型",
+    "byDate": "按日期",
+    "provider": "提供商",
+    "model": "模型",
+    "date": "日期",
+    "refresh": "刷新",
+    "loadFailed": "加载 Token 消耗数据失败",
+    "noData": "所选时间段内暂无 Token 消耗数据"
+  },
   "models": {
     "llmConfiguration": "LLM 配置",
     "providersTitle": "提供商",
@@ -332,6 +349,11 @@
     "configureProvider": "配置 {{name}}",
     "baseURL": "基础 URL",
     "apiKey": "API 密钥",
+    "advancedConfig": "进阶配置",
+    "generateConfig": "生成参数配置",
+    "generateConfigHint": "使用 JSON 格式表示的生成参数配置项，会被展开传入到生成请求（`openai.chat.completions` 或 `anthropic.messages`）中。",
+    "generateConfigInvalidJson": "请输入有效的 JSON",
+    "generateConfigMustBeObject": "生成参数配置必须是 JSON 对象",
     "protocol": "协议",
     "protocolHint": "为当前配置选择提供商 API 协议。",
     "selectProtocol": "请选择协议",
@@ -348,6 +370,7 @@
     "azureEndpointHint": "Azure OpenAI 端点，例如 https://<resource>.openai.azure.com/openai/v1",
     "anthropicEndpointHint": "Anthropic 端点，例如 https://api.anthropic.com",
     "ollamaEndpointHint": "Ollama 端点，例如 http://localhost:11434",
+    "lmstudioEndpointHint": "LM Studio 端点，例如 http://localhost:1234/v1",
     "apiEndpointHint": "API 端点，例如 https://api.example.com",
     "pleaseEnterBaseURL": "请输入 API 基础 URL",
     "pleaseEnterValidURL": "请输入有效的 URL",
@@ -462,6 +485,8 @@
   "agentConfig": {
     "title": "运行配置",
     "description": "配置智能体运行参数",
+    "reactAgentTitle": "ReAct 智能体",
+    "contextManagementTitle": "上下文管理",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",
     "maxItersPlaceholder": "请输入最大迭代次数",
@@ -472,6 +497,33 @@
     "maxInputLengthPlaceholder": "请输入最大输入长度",
     "maxInputLengthRequired": "最大输入长度为必填项",
     "maxInputLengthMin": "最大输入长度必须大于等于 1000",
+    "contextCompactRatio": "上下文压缩比例",
+    "contextCompactRatioTooltip": "当上下文满时，压缩上下文的比例",
+    "contextCompactRatioRequired": "上下文压缩比例为必填项",
+    "contextCompactThreshold": "上下文压缩阈值",
+    "contextCompactThresholdTooltip": "上下文压缩阈值（token 数），根据最大输入长度和上下文压缩比例自动计算",
+    "contextCompactThresholdPlaceholder": "自动计算",
+    "contextCompactReserveRatio": "上下文保留比例",
+    "contextCompactReserveRatioTooltip": "压缩上下文时保留的比例",
+    "contextCompactReserveRatioRequired": "上下文保留比例为必填项",
+    "contextCompactReserveThreshold": "上下文保留阈值",
+    "contextCompactReserveThresholdTooltip": "上下文保留阈值（token 数），根据最大输入长度和上下文保留比例自动计算",
+    "contextCompactReserveThresholdPlaceholder": "自动计算",
+    "enableToolResultCompact": "启用工具结果压缩",
+    "enableToolResultCompactTooltip": "是否压缩上下文中的工具结果消息",
+    "toolResultCompactKeepN": "工具结果保留数量",
+    "toolResultCompactKeepNTooltip": "压缩时保留的工具结果消息数量",
+    "toolResultCompactKeepNPlaceholder": "请输入保留数量",
+    "toolResultCompactKeepNRequired": "工具结果保留数量为必填项",
+    "toolResultCompactKeepNMin": "工具结果保留数量必须大于等于 1",
+    "language": "智能体语言",
+    "languageTooltip": "智能体人设文件（SOUL.md、AGENTS.md 等）使用的语言。切换语言后将自动重新复制对应语言的 MD 文件。",
+    "languageConfirmTitle": "切换智能体语言",
+    "languageConfirmContent": "切换语言将会覆盖以下文件为新语言的默认版本：\n\n  SOUL.md、AGENTS.md、PROFILE.md、MEMORY.md、BOOTSTRAP.md、HEARTBEAT.md\n\n如果您已对这些文件进行过自定义修改，请提前备份。您自行添加的其他文件不受影响。",
+    "languageConfirmOk": "切换语言",
+    "languageSaveSuccess": "语言更新成功",
+    "languageSaveSuccessWithFiles": "语言已更新，已复制 {{count}} 个 MD 文件",
+    "languageSaveFailed": "语言更新失败",
     "saveSuccess": "配置保存成功",
     "saveFailed": "配置保存失败",
     "loadFailed": "配置加载失败"
@@ -515,5 +567,12 @@
       "viewReleases": "查看 Releases",
       "close": "关闭"
     }
+  },
+  "chat": {
+    "disclaimer": "懂你所需，伴你左右",
+    "greeting": "你好，我今天能帮你做什么？",
+    "description": "我是一个智能助手，可以帮助你解答问题。",
+    "prompt1": "让我们开启一段新的旅程吧！",
+    "prompt2": "能告诉我你有哪些技能吗？"
   }
 }
