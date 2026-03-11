@@ -37,7 +37,9 @@
     "settings": "設定",
     "models": "モデル",
     "environments": "環境変数",
-    "security": "セキュリティ"
+    "security": "セキュリティ",
+    "tokenUsage": "トークン使用量",
+    "tools": "ツール"
   },
   "workspace": {
     "title": "ワークスペース",
@@ -256,6 +258,8 @@
     "allowFrom": "許可ユーザー",
     "allowFromTooltip": "Botと対話できるユーザーIDのリスト（フォーマット: ニックネーム#末尾4桁、例: John#1234）",
     "allowFromPlaceholder": "ユーザーIDを入力してEnterで追加",
+    "denyMessage": "アクセス拒否メッセージ",
+    "denyMessageTooltip": "アクセスが拒否されたユーザーに表示されるカスタムメッセージ",
     "twilioAccountSid": "Twilio アカウント SID",
     "twilioAuthToken": "Twilio 認証トークン",
     "phoneNumber": "電話番号",

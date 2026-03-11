@@ -38,7 +38,8 @@
     "settings": "Настройки",
     "models": "Модели",
     "environments": "Окружения",
-    "security": "Безопасность"
+    "security": "Безопасность",
+    "tokenUsage": "Использование токенов"
   },
   "workspace": {
     "title": "Рабочее пространство",

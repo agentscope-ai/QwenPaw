@@ -38,7 +38,7 @@
     "settings": "设置",
     "models": "模型",
     "environments": "环境变量",
-    "security": "安全"
+    "security": "安全",
     "tokenUsage": "Token 消耗"
   },
   "workspace": {

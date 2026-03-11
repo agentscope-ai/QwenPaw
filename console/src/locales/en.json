@@ -38,7 +38,7 @@
     "settings": "Settings",
     "models": "Models",
     "environments": "Environments",
-    "security": "Security"
+    "security": "Security",
     "tokenUsage": "Token Usage"
   },
   "workspace": {
