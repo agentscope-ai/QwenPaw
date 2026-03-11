@@ -292,20 +292,31 @@ class ProviderManager:
             )
             return []
 
+    def _resolve_custom_provider_id(self, provider_id: str) -> str:
+        """Resolve provider ID conflicts for a custom provider."""
+        base_id = provider_id
+        if base_id in self.builtin_providers:
+            base_id = f"{base_id}-custom"
+
+        resolved_id = base_id
+        while (
+            resolved_id in self.builtin_providers
+            or resolved_id in self.custom_providers
+        ):
+            resolved_id = f"{resolved_id}-new"
+
+        return resolved_id
+
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
-        if provider_data.id in self.builtin_providers:
-            raise ValueError(
-                f"'{provider_data.id}' conflicts with a built-in provider.",
-            )
-        if provider_data.id in self.custom_providers:
-            raise ValueError(
-                f"Custom provider '{provider_data.id}' already exists.",
-            )
-        provider_data.is_custom = True
+        provider_payload = provider_data.model_dump()
+        provider_payload["id"] = self._resolve_custom_provider_id(
+            provider_data.id,
+        )
+        provider_payload["is_custom"] = True
         provider = self._provider_from_data(
-            provider_data.model_dump(),
+            provider_payload,
         )  # Validate provider data
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
