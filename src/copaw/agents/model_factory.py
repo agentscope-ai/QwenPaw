@@ -144,7 +144,10 @@ def _create_file_block_support_formatter(
                             reasoning_contents[id(msg)] = thinking
                         break
                 for block in msg.get_content_blocks():
-                    if block.get("type") == "tool_use" and "extra_content" in block:
+                    if (
+                        block.get("type") == "tool_use"
+                        and "extra_content" in block
+                    ):
                         extra_contents[block["id"]] = block["extra_content"]
 
             messages = await super()._format(msgs)
@@ -158,7 +161,9 @@ def _create_file_block_support_formatter(
 
             if reasoning_contents:
                 in_assistant = [m for m in msgs if m.role == "assistant"]
-                out_assistant = [m for m in messages if m.get("role") == "assistant"]
+                out_assistant = [
+                    m for m in messages if m.get("role") == "assistant"
+                ]
                 if len(in_assistant) != len(out_assistant):
                     logger.warning(
                         "Assistant message count mismatch after formatting "
@@ -211,7 +216,8 @@ def _create_file_block_support_formatter(
                 for block in output:
                     if not isinstance(block, dict) or "type" not in block:
                         raise ValueError(
-                            f"Invalid block: {block}, expected a dict with 'type' key",
+                            "Invalid block for tool result conversion; "
+                            "expected dict with 'type' key",
                         ) from e
 
                     if block["type"] == "file":
@@ -279,29 +285,27 @@ def _extract_local_path_from_url(url: Any) -> str | None:
     url = url.strip()
     lowered = url.lower()
 
+    local_path: str | None = None
+
     if lowered.startswith("file://"):
-        return _file_url_to_path(url)
+        local_path = _file_url_to_path(url)
+    elif lowered.startswith(("http://", "https://", "data:")):
+        local_path = None
+    elif _WINDOWS_ABS_PATH_RE.match(url):
+        local_path = url
+    elif _WINDOWS_DRIVE_REL_RE.match(url):
+        local_path = url
+    elif url.startswith(("/", "\\")):
+        local_path = url
+    elif url.startswith(("./", "../", ".\\", "..\\", "~/")):
+        local_path = url
+    elif "://" in url:
+        local_path = None
+    else:
+        # Non-URL fallback: treat remaining values as local paths.
+        local_path = url
 
-    if lowered.startswith(("http://", "https://", "data:")):
-        return None
-
-    if _WINDOWS_ABS_PATH_RE.match(url):
-        return url
-
-    if _WINDOWS_DRIVE_REL_RE.match(url):
-        return url
-
-    if url.startswith(("/", "\\")):
-        return url
-
-    if url.startswith(("./", "../", ".\\", "..\\", "~/")):
-        return url
-
-    if "://" in url:
-        return None
-
-    # Non-URL fallback: treat remaining values as local paths to avoid leakage.
-    return url
+    return local_path
 
 
 def _sanitize_local_media_block(block: dict) -> tuple[dict, bool]:
@@ -311,7 +315,9 @@ def _sanitize_local_media_block(block: dict) -> tuple[dict, bool]:
         return block, False
 
     source = block.get("source")
-    local_path = _extract_local_path_from_url(block.get("path") or block.get("url"))
+    local_path = _extract_local_path_from_url(
+        block.get("path") or block.get("url"),
+    )
     if not local_path and isinstance(source, dict):
         local_path = _extract_local_path_from_url(
             source.get("url") or source.get("path"),
@@ -352,7 +358,10 @@ def _sanitize_local_media_in_value(value: Any) -> tuple[Any, bool]:
                 output_changed = False
                 for output_item in item:
                     if isinstance(output_item, dict):
-                        new_item, item_changed = _sanitize_local_media_in_value(
+                        (
+                            new_item,
+                            item_changed,
+                        ) = _sanitize_local_media_in_value(
                             output_item,
                         )
                         output_list.append(new_item)
@@ -409,12 +418,16 @@ def _normalize_messages_for_model(msgs: list[Msg]) -> list[Msg]:
                     changed = True
                     continue
 
-                sanitized_block, replaced = _sanitize_local_media_in_value(block)
+                sanitized_block, replaced = _sanitize_local_media_in_value(
+                    block,
+                )
                 if replaced:
                     block = sanitized_block
                     changed = True
 
-                block_type = block.get("type") if isinstance(block, dict) else None
+                block_type = (
+                    block.get("type") if isinstance(block, dict) else None
+                )
 
                 if not isinstance(block_type, str):
                     fixed_blocks.append({"type": "text", "text": str(block)})
