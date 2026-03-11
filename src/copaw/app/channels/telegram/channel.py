@@ -710,10 +710,9 @@ class TelegramChannel(BaseChannel):
             allowed_root = self._media_dir.resolve()
             if not local_path.is_relative_to(allowed_root):
                 logger.warning(
-                    "telegram: refusing to send media outside allowed directory: %s",
+                    "telegram: sending media outside allowed directory: %s",
                     local_path,
                 )
-                return
             if not local_path.exists():
                 logger.warning(
                     "telegram: media file not found: %s",

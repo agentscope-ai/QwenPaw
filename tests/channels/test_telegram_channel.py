@@ -216,8 +216,8 @@ async def test_send_strips_html_in_plain_text_fallback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_media_rejects_path_outside_media_dir() -> None:
-    """file:// paths outside media_dir are rejected to prevent data exfiltration."""
+async def test_send_media_warns_for_path_outside_media_dir() -> None:
+    """file:// paths outside media_dir emit a warning but are still sent."""
     channel = TelegramChannel(
         process=MagicMock(),
         enabled=True,
@@ -235,13 +235,20 @@ async def test_send_media_rejects_path_outside_media_dir() -> None:
         file_url="file:///etc/passwd",
     )
 
-    await channel.send_media(
-        "chat-1",
-        part,
-        meta={"chat_id": "chat-1"},
-    )
+    with patch(
+        "copaw.app.channels.telegram.channel.logger"
+    ) as mock_logger:
+        await channel.send_media(
+            "chat-1",
+            part,
+            meta={"chat_id": "chat-1"},
+        )
 
-    bot.send_document.assert_not_called()
+    warning_messages = [
+        str(call) for call in mock_logger.warning.call_args_list
+    ]
+    assert any("outside allowed directory" in msg for msg in warning_messages)
+    bot.send_document.assert_called_once()
 
 
 @pytest.mark.asyncio
