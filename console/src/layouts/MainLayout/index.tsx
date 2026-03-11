@@ -7,6 +7,7 @@ import ConsoleCronBubble from "../../components/ConsoleCronBubble";
 import styles from "../index.module.less";
 import Chat from "../../pages/Chat";
 import ChannelsPage from "../../pages/Control/Channels";
+import MonitorPage from "../../pages/Control/Monitor";
 import SessionsPage from "../../pages/Control/Sessions";
 import CronJobsPage from "../../pages/Control/CronJobs";
 import HeartbeatPage from "../../pages/Control/Heartbeat";
@@ -23,6 +24,7 @@ const { Content } = Layout;
 const pathToKey: Record<string, string> = {
   "/chat": "chat",
   "/channels": "channels",
+  "/monitor": "monitor",
   "/sessions": "sessions",
   "/cron-jobs": "cron-jobs",
   "/heartbeat": "heartbeat",
@@ -59,6 +61,7 @@ export default function MainLayout() {
             <Routes>
               <Route path="/chat" element={<Chat />} />
               <Route path="/channels" element={<ChannelsPage />} />
+              <Route path="/monitor" element={<MonitorPage />} />
               <Route path="/sessions" element={<SessionsPage />} />
               <Route path="/cron-jobs" element={<CronJobsPage />} />
               <Route path="/heartbeat" element={<HeartbeatPage />} />

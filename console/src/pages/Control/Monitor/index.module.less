@@ -1,0 +1,292 @@
+.monitorPage {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.pageHeader {
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: #1a1a1a;
+}
+
+.description {
+  font-size: 14px;
+  color: #666;
+  margin: 0;
+}
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.monitorCard {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #e8e8e8;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  
+  &:hover {
+    border-color: #1890ff;
+    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.15);
+  }
+}
+
+.cardTitle {
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  margin: 0 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardContent {
+  font-size: 16px;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.cardSubtext {
+  font-size: 12px;
+  color: #999;
+  margin: 8px 0 0 0;
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 600;
+  color: #1890ff;
+  margin: 8px 0;
+}
+
+.statLabel {
+  font-size: 13px;
+  color: #666;
+  margin: 0;
+}
+
+.listContainer {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #e8e8e8;
+  margin-bottom: 16px;
+}
+
+.listTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.listItem {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.listItemName {
+  font-size: 14px;
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+.listItemInfo {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.listItemActions {
+  display: flex;
+  gap: 8px;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.statusRunning {
+  background: #f6ffed;
+  color: #52c41a;
+}
+
+.statusStopped {
+  background: #fff1f0;
+  color: #ff4d4f;
+}
+
+.statusPaused {
+  background: #fffbe6;
+  color: #faad14;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.loadingState {
+  text-align: center;
+  padding: 40px;
+}
+
+.section {
+  margin-bottom: 24px;
+}
+
+.tokenSection {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.tokenCard {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 24px;
+  color: #fff;
+}
+
+.tokenCardSecondary {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  border-radius: 12px;
+  padding: 24px;
+  color: #fff;
+}
+
+.tokenValue {
+  font-size: 36px;
+  font-weight: 700;
+  margin: 12px 0;
+}
+
+.tokenLabel {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.gitProjectItem {
+  padding: 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+
+.gitProjectName {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 8px 0;
+}
+
+.gitProjectUrl {
+  font-size: 13px;
+  color: #1890ff;
+  margin: 0 0 8px 0;
+  word-break: break-all;
+}
+
+.gitProjectStatus {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+
+.newsItem {
+  padding: 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: #fff;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    border-color: #1890ff;
+  }
+}
+
+.newsTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 8px 0;
+}
+
+.newsSource {
+  font-size: 12px;
+  color: #999;
+  margin: 0 0 8px 0;
+}
+
+.newsLink {
+  font-size: 13px;
+  color: #1890ff;
+  text-decoration: none;
+  
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.scriptItem {
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+}
+
+.scriptName {
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.scriptPid {
+  color: #666;
+  font-size: 11px;
+}
+
+.refreshBtn {
+  margin-left: auto;
+}

@@ -1,0 +1,6 @@
+GET https://huangrichao2020.github.io/copaw/stock-report/index.html 200
+GET https://unpkg.com/vue@3/dist/vue.global.js 302
+GET https://cdn.plot.ly/plotly-2.27.0.min.js 200
+GET https://huangrichao2020.github.io/copaw/stock-report/app.js 200
+GET https://unpkg.com/vue@3.5.29/dist/vue.global.js 200
+GET https://huangrichao2020.github.io/copaw/stock-report/api_data.json 200
