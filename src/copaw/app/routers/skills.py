@@ -68,13 +68,7 @@ async def list_skills() -> list[SkillSpec]:
     for skill in all_skills:
         skills_spec.append(
             SkillSpec(
-                name=skill.name,
-                description=skill.description,
-                content=skill.content,
-                source=skill.source,
-                path=skill.path,
-                references=skill.references,
-                scripts=skill.scripts,
+                **skill.model_dump(),
                 enabled=skill.name in available_skills,
             ),
         )
@@ -88,13 +82,7 @@ async def get_available_skills() -> list[SkillSpec]:
     for skill in available_skills:
         skills_spec.append(
             SkillSpec(
-                name=skill.name,
-                description=skill.description,
-                content=skill.content,
-                source=skill.source,
-                path=skill.path,
-                references=skill.references,
-                scripts=skill.scripts,
+                **skill.model_dump(),
                 enabled=True,
             ),
         )

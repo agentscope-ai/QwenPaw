@@ -379,7 +379,13 @@ def _read_skills_from_dir(
             try:
                 post = frontmatter.loads(content)
                 description = str(post.get("description", "") or "")
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "Failed to parse SKILL.md frontmatter for skill '%s' at '%s': %s",
+                    skill_dir.name,
+                    skill_md,
+                    e,
+                )
                 description = ""
 
             # Build references directory tree
