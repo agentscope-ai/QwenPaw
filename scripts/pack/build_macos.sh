@@ -64,12 +64,33 @@ LOG="$HOME/.copaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
 export COPAW_DESKTOP_APP=1
+
+# Set SSL certificate paths for packaged environment
+# Try to locate certifi's cacert.pem (Python version agnostic)
+for py_ver in 3.10 3.11 3.12 3.13; do
+  CERT_FILE="$ENV_DIR/lib/python${py_ver}/site-packages/certifi/cacert.pem"
+  if [ -f "$CERT_FILE" ]; then
+    export SSL_CERT_FILE="$CERT_FILE"
+    export REQUESTS_CA_BUNDLE="$CERT_FILE"
+    export CURL_CA_BUNDLE="$CERT_FILE"
+    break
+  fi
+done
+
 cd "$HOME" || true
 if [ ! -t 2 ]; then
   mkdir -p "$HOME/.copaw"
   { echo "=== $(date) CoPaw starting ==="
     echo "ENV_DIR=$ENV_DIR"
     echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
+    echo "SSL_CERT_FILE=${SSL_CERT_FILE:-not set}"
+    if [ -n "$SSL_CERT_FILE" ] && [ -f "$SSL_CERT_FILE" ]; then
+      echo "SSL certificate file found at $SSL_CERT_FILE"
+    elif [ -n "$SSL_CERT_FILE" ]; then
+      echo "WARNING: SSL_CERT_FILE set but file does not exist: $SSL_CERT_FILE"
+    else
+      echo "WARNING: SSL_CERT_FILE not set, SSL connections may fail"
+    fi
   } >> "$LOG"
   exec 2>> "$LOG"
   exec 1>> "$LOG"
