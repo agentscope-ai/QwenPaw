@@ -139,6 +139,20 @@ class TestFuzzyRepairJson:
         result = _fuzzy_repair_json("{'key1': 'val1', 'key2': 'val2'}")
         assert result == {"key1": "val1", "key2": "val2"}
 
+    def test_nested_json_extraction(self):
+        """A nested JSON object with surrounding text is correctly extracted by brace balancing, not just regex."""
+        result = _fuzzy_repair_json(
+            'Here is the args: {"a": {"b": {"c": "d"}}} hope this works',
+        )
+        assert result == {"a": {"b": {"c": "d"}}}
+
+    def test_pipeline_ordering_with_extraction(self):
+        """Verifies that trailing commas and single quotes are repaired BEFORE extraction."""
+        result = _fuzzy_repair_json(
+            "Some text {'nested': {'b': 1,}, } more text.",
+        )
+        assert result == {"nested": {"b": 1}}
+
 
 # ---------------------------------------------------------------------------
 # Tests for _repair_empty_tool_inputs

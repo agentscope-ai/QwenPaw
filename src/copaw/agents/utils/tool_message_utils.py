@@ -248,74 +248,96 @@ def _remove_invalid_tool_blocks(msgs: list) -> list:
     return result if changed else msgs
 
 
-def _fuzzy_repair_json(raw: str) -> dict | None:
-    """Attempt to repair malformed JSON from LLM tool call arguments.
-
-    Some LLMs (especially smaller ones) produce syntactically incorrect
-    JSON for tool call arguments — e.g. single quotes, unquoted keys,
-    trailing commas, or text wrapped around the JSON object.  This
-    function tries several inexpensive string fixes and returns the first
-    successfully parsed dict.
-
-    Strategies tried in order:
-
-    1. **BOM / whitespace strip** — removes leading ``\\ufeff`` and
-       surrounding whitespace that occasionally appear in Windows
-       environments.
-    2. **Single-quote substitution** — replaces ``'`` with ``"``
-       (``{'cmd': 'ls'}`` → ``{"cmd": "ls"}``).
-    3. **Unquoted key quoting** — wraps bare identifiers in double quotes
-       (``{cmd: "ls"}`` → ``{"cmd": "ls"}``).
-    4. **Trailing-comma removal** — strips dangling commas before ``}``
-       or ``]`` (``{"a": 1,}`` → ``{"a": 1}``).
-    5. **Brace extraction** — pulls the first ``{...}`` block out of
-       surrounding prose (useful when the model adds narration around the
-       JSON object).
-
-    Args:
-        raw: The ``raw_input`` string that ``json.loads`` rejected.
-
-    Returns:
-        A parsed dict on success, or ``None`` if all strategies fail.
-    """
-    if not raw or not raw.strip():
+def _extract_json_block(text: str) -> str | None:
+    """Extract a balanced JSON block starting from the first '{'."""
+    start = text.find("{")
+    if start == -1:
         return None
 
-    strategies: list[str] = []
+    brace_count = 0
+    in_string = False
+    escape = False
+
+    for i in range(start, len(text)):
+        char = text[i]
+
+        if not in_string:
+            if char == "{":
+                brace_count += 1
+            elif char == "}":
+                brace_count -= 1
+                if brace_count == 0:
+                    return text[start : i + 1]
+            elif char == '"':
+                in_string = True
+        else:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+
+    return None
+
+
+def _fuzzy_repair_json(raw: str) -> dict | None:
+    """Attempt to repair common JSON formatting errors in LLM output.
+
+    Applies a sequential pipeline of lightweight fixes:
+    1. Strip BOM and whitespace.
+    2. Convert single quotes surrounding keys/values to double quotes.
+    3. Fix unquoted keys.
+    4. Remove trailing commas.
+    5. Extract the first { ... } block via brace balancing.
+
+    If any step produces valid JSON, returns the parsed dict.
+    Returns None if all repairs fail.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+
+    # Pipeline state
+    current = raw
 
     # Strategy 1: strip BOM / whitespace
-    cleaned = raw.strip().lstrip("\ufeff")
-    strategies.append(cleaned)
+    current = current.strip().lstrip("\ufeff")
 
-    # Strategy 2: replace single quotes with double quotes
-    single_to_double = cleaned.replace("'", '"')
-    strategies.append(single_to_double)
+    # Strategy 2: replace single quotes wrapping keys/values with double quotes
+    # (Doesn't attempt to handle internal single quotes cleanly, but works
+    # for simple {'key': 'val'} structures).
+    current = current.replace("'", '"')
 
-    # Strategy 3: quote unquoted keys  ({key: "val"} -> {"key": "val"})
-    quoted_keys = re.sub(
+    # Strategy 3: wrap unquoted keys in double quotes
+    # Matches alphanumeric words followed by a colon.
+    current = re.sub(
         r"(\{|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s*:",
         r'\1"\2":',
-        single_to_double,
+        current,
     )
-    strategies.append(quoted_keys)
 
     # Strategy 4: remove trailing commas  ({"a": 1,} -> {"a": 1})
-    no_trailing = re.sub(r",\s*([}\]])", r"\1", quoted_keys)
-    strategies.append(no_trailing)
+    current = re.sub(r",\s*([}\]])", r"\1", current)
+
+    # Try parsing before brace extraction
+    try:
+        parsed = json.loads(current)
+        if isinstance(parsed, dict):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
 
     # Strategy 5: extract the first { ... } block if junk surrounds it
-    brace_match = re.search(r"\{[^{}]*\}", cleaned, re.DOTALL)
-    if brace_match:
-        strategies.append(brace_match.group(0))
-
-    # Try each strategy in order
-    for candidate in strategies:
+    # We apply this *after* the previous fixes so the extracted block
+    # benefits from single-quote/trailing-comma repairs.
+    extracted = _extract_json_block(current)
+    if extracted:
         try:
-            parsed = json.loads(candidate)
+            parsed = json.loads(extracted)
             if isinstance(parsed, dict):
                 return parsed
         except (json.JSONDecodeError, TypeError):
-            continue
+            pass
 
     return None
 
@@ -426,11 +448,9 @@ def _repair_empty_tool_inputs(
                     repaired = True
                     logger.warning(
                         "Injected error feedback for unparseable "
-                        "tool_use input: id=%s, name=%s, "
-                        "raw_input_preview=%r",
+                        "tool_use input: id=%s, name=%s",
                         block.get("id"),
                         block.get("name"),
-                        preview,
                     )
 
             new_blocks.append(block)
