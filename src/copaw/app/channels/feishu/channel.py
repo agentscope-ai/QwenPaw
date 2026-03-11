@@ -23,6 +23,7 @@ import threading
 import time
 import types
 from collections import OrderedDict
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
