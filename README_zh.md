@@ -295,7 +295,7 @@ docker run -p 127.0.0.1:8088:8088 \
 >   -v copaw-secrets:/app/working.secret \
 >   agentscope/copaw:latest
 > ```
-> 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434` 或对应端口。
+> 然后在 CoPaw **设置 → 模型** 中，将 Base URL 改为 `http://host.docker.internal:<端口>` — 例如 Ollama 填 `http://host.docker.internal:11434`，LM Studio 填 `http://host.docker.internal:1234/v1`。
 >
 > **方式 B** — 使用宿主机网络（仅限 Linux）：
 > ```bash
@@ -369,7 +369,7 @@ copaw app # 启动服务
 | [频道配置](https://copaw.agentscope.io/docs/channels)     | 钉钉、飞书、QQ、Discord、iMessage 等 |
 | [Skills](https://copaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
 | [MCP](https://copaw.agentscope.io/docs/mcp)               | 管理 MCP 客户端                     |
-| [记忆](https://copaw.agentscope.io/docs/memory)           | 上下文管理与长期记忆                 |
+| [记忆](https://copaw.agentscope.io/docs/memory)           | 长期记忆                 |
 | [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
 | [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |

@@ -1,0 +1,134 @@
+.page {
+  padding: 24px;
+}
+
+/* ---- Section (same as Models / Environments) ---- */
+
+.section {
+  margin-bottom: 32px;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionTitle {
+  margin-bottom: 4px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.sectionDesc {
+  margin: 0 0 16px;
+  color: #999;
+  font-size: 14px;
+}
+
+/* ---- Loading / Error ---- */
+
+.loading {
+  text-align: center;
+  padding: 60px;
+}
+
+.loadingText {
+  color: #999;
+}
+
+/* ---- Empty state ---- */
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: #999;
+  font-size: 14px;
+}
+
+.emptyIcon {
+  font-size: 32px;
+  opacity: 0.6;
+}
+
+.filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.datePicker {
+  width: 260px;
+}
+
+.summaryCards {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.card {
+  flex: 1 1 180px;
+  min-width: 160px;
+  text-align: center;
+  padding: 20px;
+}
+
+.cardValue {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.cardLabel {
+  font-size: 13px;
+  color: #999;
+}
+
+.tableCard {
+  margin-bottom: 24px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.tableWrapper {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+
+  th,
+  td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  th {
+    font-weight: 600;
+    color: #666;
+    background: #fafafa;
+  }
+
+  td {
+    color: #333;
+  }
+
+  tbody tr:hover {
+    background: #fafafa;
+  }
+}
+
+.modelCell {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 13px;
+}

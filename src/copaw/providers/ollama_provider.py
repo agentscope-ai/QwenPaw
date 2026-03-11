@@ -14,6 +14,7 @@ except ImportError:
 from agentscope.model import ChatModelBase
 
 from copaw.providers.provider import ModelInfo, Provider, ProviderInfo
+from copaw.token_usage import TokenRecordingModelWrapper
 
 
 class OllamaProvider(Provider):
@@ -166,13 +167,16 @@ class OllamaProvider(Provider):
             openai_compatible_url = self.base_url[:-1] + "/v1"
         else:
             openai_compatible_url = self.base_url + "/v1"
-        return OpenAIChatModelCompat(
+
+        model_instance = OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
             client_kwargs={"base_url": openai_compatible_url},
             generate_kwargs=self.generate_kwargs,
         )
+
+        return TokenRecordingModelWrapper(self.id, model_instance)
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         try:

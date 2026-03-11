@@ -130,6 +130,18 @@ $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"
 @echo off
 cd /d "%~dp0"
+
+REM Set SSL certificate paths for packaged environment
+REM Query certifi path from the packaged Python interpreter
+for /f "delims=" %%i in ('"%~dp0python.exe" -c "import certifi; print(certifi.where())" 2^>nul') do set "CERT_FILE=%%i"
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
+)
+
 if not exist "%USERPROFILE%\.copaw\config.json" (
   "%~dp0python.exe" -m copaw init --defaults --accept-security
 )
@@ -141,11 +153,24 @@ $DebugBat = Join-Path $EnvRoot "CoPaw Desktop (Debug).bat"
 @"
 @echo off
 cd /d "%~dp0"
+
+REM Set SSL certificate paths for packaged environment
+REM Query certifi path from the packaged Python interpreter
+for /f "delims=" %%i in ('"%~dp0python.exe" -c "import certifi; print(certifi.where())" 2^>nul') do set "CERT_FILE=%%i"
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
+)
+
 echo ====================================
 echo CoPaw Desktop - Debug Mode
 echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
+echo SSL_CERT_FILE: %SSL_CERT_FILE%
 echo.
 if not exist "%USERPROFILE%\.copaw\config.json" (
   echo [Init] Creating config...

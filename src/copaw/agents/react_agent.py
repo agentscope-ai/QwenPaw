@@ -32,6 +32,7 @@ from .tools import (
     edit_file,
     execute_shell_command,
     get_current_time,
+    get_token_usage,
     read_file,
     send_file_to_user,
     write_file,
@@ -188,6 +189,7 @@ class CoPawAgent(ReActAgent):
             "desktop_screenshot": desktop_screenshot,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
+            "get_token_usage": get_token_usage,
         }
 
         # Register only enabled tools

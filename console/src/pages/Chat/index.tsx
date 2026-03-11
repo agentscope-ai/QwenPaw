@@ -23,10 +23,6 @@ interface CustomWindow extends Window {
 
 declare const window: CustomWindow;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function buildModelError(): Response {
   return new Response(
     JSON.stringify({
@@ -37,30 +33,62 @@ function buildModelError(): Response {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { chatId } = useParams<{ chatId: string }>();
   const [showModelPrompt, setShowModelPrompt] = useState(false);
 
-  // Refs so stable callbacks can always read the latest values without
-  // being recreated on every render.
+  const isComposingRef = useRef(false);
+
   const lastSessionIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
-  // -------------------------------------------------------------------------
-  // sessionApi callbacks → keep URL in sync
-  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const handleCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+
+    const handleCompositionEnd = () => {
+      setTimeout(() => {
+        isComposingRef.current = false;
+      }, 150);
+    };
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+        if (isComposingRef.current || (e as any).isComposing) {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return false;
+        }
+      }
+    };
+
+    document.addEventListener("compositionstart", handleCompositionStart, true);
+    document.addEventListener("compositionend", handleCompositionEnd, true);
+    document.addEventListener("keypress", handleKeyPress, true);
+
+    return () => {
+      document.removeEventListener(
+        "compositionstart",
+        handleCompositionStart,
+        true,
+      );
+      document.removeEventListener(
+        "compositionend",
+        handleCompositionEnd,
+        true,
+      );
+      document.removeEventListener("keypress", handleKeyPress, true);
+    };
+  }, []);
 
   useEffect(() => {
-    // When a temp timestamp id is resolved to the real backend UUID, update URL.
     sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (chatIdRef.current === tempId) {
         lastSessionIdRef.current = realId;
@@ -68,7 +96,6 @@ export default function ChatPage() {
       }
     };
 
-    // When a session is removed, clear the id from the URL if it was active.
     sessionApi.onSessionRemoved = (removedId) => {
       if (chatIdRef.current === removedId) {
         lastSessionIdRef.current = null;
@@ -82,16 +109,11 @@ export default function ChatPage() {
     };
   }, []);
 
-  // -------------------------------------------------------------------------
-  // Wrapped session API (stable references via empty-dep useCallback)
-  // -------------------------------------------------------------------------
-
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
     const currentChatId = chatIdRef.current;
 
     if (currentChatId) {
-      // Move the URL-specified session to the front so the library selects it.
       const idx = sessions.findIndex((s) => s.id === currentChatId);
       if (idx > 0) {
         return [
@@ -108,8 +130,6 @@ export default function ChatPage() {
   const getSessionWrapped = useCallback(async (sessionId: string) => {
     const currentChatId = chatIdRef.current;
 
-    // Sync URL when the active session changes. Use realId for timestamp
-    // sessions so the address bar always shows the canonical backend UUID.
     if (
       sessionId &&
       sessionId !== lastSessionIdRef.current &&
@@ -133,7 +153,6 @@ export default function ChatPage() {
     return result;
   }, []);
 
-  // Single stable object — never recreated after mount.
   const wrappedSessionApi = useMemo(
     () => ({
       getSessionList: getSessionListWrapped,
@@ -144,10 +163,6 @@ export default function ChatPage() {
     }),
     [],
   );
-
-  // -------------------------------------------------------------------------
-  // Options
-  // -------------------------------------------------------------------------
 
   const customFetch = useCallback(
     async (data: {
@@ -199,13 +214,23 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
+
+    const handleBeforeSubmit = async () => {
+      if (isComposingRef.current) return false;
+      return true;
+    };
+
     return {
       ...i18nConfig,
-      session: { multiple: true, api: wrappedSessionApi },
       theme: {
         ...defaultConfig.theme,
         rightHeader: <ModelSelector />,
       },
+      sender: {
+        ...(i18nConfig as any)?.sender,
+        beforeSubmit: handleBeforeSubmit,
+      },
+      session: { multiple: true, api: wrappedSessionApi },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
@@ -218,10 +243,6 @@ export default function ChatPage() {
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [wrappedSessionApi, customFetch, t]);
-
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
 
   return (
     <div style={{ height: "100%", width: "100%" }}>

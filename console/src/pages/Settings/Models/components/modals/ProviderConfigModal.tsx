@@ -328,6 +328,9 @@ export function ProviderConfigModal({
     if (provider.id === "ollama") {
       return t("models.ollamaEndpointHint");
     }
+    if (provider.id === "lmstudio") {
+      return t("models.lmstudioEndpointHint");
+    }
     if (provider.is_custom) {
       return effectiveChatModel === "AnthropicChatModel"
         ? t("models.anthropicEndpointHint")
@@ -351,6 +354,9 @@ export function ProviderConfigModal({
     }
     if (provider.id === "ollama") {
       return "http://localhost:11434";
+    }
+    if (provider.id === "lmstudio") {
+      return "http://localhost:1234/v1";
     }
     if (provider.is_custom && effectiveChatModel === "AnthropicChatModel") {
       return "https://api.anthropic.com";
@@ -387,15 +393,15 @@ export function ProviderConfigModal({
 
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
-      const result = await api.testProviderConnection(provider.id, {
-        api_key: values.api_key,
-        base_url: values.base_url,
-        chat_model: values.chat_model,
-      });
+      if (!provider.is_custom) {
+        const result = await api.testProviderConnection(provider.id, {
+          api_key: values.api_key,
+          base_url: values.base_url,
+          chat_model: values.chat_model,
+        });
 
-      if (!result.success) {
-        message.error(result.message || t("models.testConnectionFailed"));
-        if (!provider.is_custom) {
+        if (!result.success) {
+          message.error(result.message || t("models.testConnectionFailed"));
           // For built-in providers, we want to enforce valid config before saving
           return;
         }
@@ -502,14 +508,16 @@ export function ProviderConfigModal({
                 {t("models.revokeAuthorization")}
               </Button>
             )}
-            <Button
-              size="small"
-              icon={<ApiOutlined />}
-              onClick={handleTest}
-              loading={testing}
-            >
-              {t("models.testConnection")}
-            </Button>
+            {!provider.is_custom && (
+              <Button
+                size="small"
+                icon={<ApiOutlined />}
+                onClick={handleTest}
+                loading={testing}
+              >
+                {t("models.testConnection")}
+              </Button>
+            )}
           </div>
           <div className={styles.modalFooterRight}>
             <Button onClick={onClose}>{t("models.cancel")}</Button>

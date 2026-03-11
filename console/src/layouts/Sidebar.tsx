@@ -35,6 +35,7 @@ import {
   PanelLeftOpen,
   Copy,
   Check,
+  BarChart3,
 } from "lucide-react";
 import api from "../api";
 import styles from "./index.module.less";
@@ -64,6 +65,7 @@ const KEY_TO_PATH: Record<string, string> = {
   environments: "/environments",
   "agent-config": "/agent-config",
   security: "/security",
+  "token-usage": "/token-usage",
 };
 
 const UPDATE_MD: Record<string, string> = {
@@ -345,6 +347,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "security",
           label: t("nav.security"),
           icon: <Shield size={16} />,
+        },
+        {
+          key: "token-usage",
+          label: t("nav.tokenUsage"),
+          icon: <BarChart3 size={16} />,
         },
       ],
     },

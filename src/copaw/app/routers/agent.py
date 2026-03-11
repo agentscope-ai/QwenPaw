@@ -142,6 +142,63 @@ async def write_memory_file(
 
 
 @router.get(
+    "/language",
+    summary="Get agent language",
+    description="Get the language setting for agent MD files (en/zh/ru)",
+)
+async def get_agent_language() -> dict:
+    """Get agent language setting."""
+    config = load_config()
+    return {"language": config.agents.language}
+
+
+@router.put(
+    "/language",
+    summary="Update agent language",
+    description=(
+        "Update the language for agent MD files (en/zh/ru). "
+        "Optionally copies MD files for the new language."
+    ),
+)
+async def put_agent_language(
+    body: dict = Body(
+        ...,
+        description='Language setting, e.g. {"language": "zh"}',
+    ),
+) -> dict:
+    """Update agent language and optionally re-copy MD files."""
+    language = (body.get("language") or "").strip().lower()
+    valid = {"zh", "en", "ru"}
+    if language not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid language '{language}'. "
+                f"Must be one of: {', '.join(sorted(valid))}"
+            ),
+        )
+    config = load_config()
+    old_language = config.agents.language
+    config.agents.language = language
+    save_config(config)
+
+    copied_files: list[str] = []
+    if old_language != language:
+        from ...agents.utils import copy_md_files
+
+        copied_files = copy_md_files(language) or []
+        if copied_files:
+            config = load_config()
+            config.agents.installed_md_files_language = language
+            save_config(config)
+
+    return {
+        "language": language,
+        "copied_files": copied_files,
+    }
+
+
+@router.get(
     "/running-config",
     response_model=AgentsRunningConfig,
     summary="Get agent running config",

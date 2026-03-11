@@ -192,14 +192,15 @@ class AgentsRunningConfig(BaseModel):
 
     memory_compact_ratio: float = Field(
         default=0.75,
-        ge=0.01,
-        le=0.99,
+        ge=0.3,
+        le=0.9,
         description="Ratio of memory to compact when memory is full",
     )
 
     memory_reserve_ratio: float = Field(
         default=0.1,
-        ge=0.01,
+        ge=0.05,
+        le=0.3,
         description="Ratio of memory to reserve when compact memory",
     )
 
@@ -211,6 +212,7 @@ class AgentsRunningConfig(BaseModel):
     tool_result_compact_keep_n: int = Field(
         default=5,
         ge=1,
+        le=10,
         description=(
             "Number of tool result messages to keep in memory when compacting"
         ),
@@ -265,7 +267,7 @@ class AgentsConfig(BaseModel):
     )
     language: str = Field(
         default="zh",
-        description="Language for agent MD files (en/zh)",
+        description="Language for agent MD files (zh/en/ru)",
     )
     installed_md_files_language: Optional[str] = Field(
         default=None,
@@ -430,6 +432,11 @@ class ToolsConfig(BaseModel):
                 name="get_current_time",
                 enabled=True,
                 description="Get current date and time",
+            ),
+            "get_token_usage": BuiltinToolConfig(
+                name="get_token_usage",
+                enabled=True,
+                description="Get llm token usage",
             ),
         },
     )

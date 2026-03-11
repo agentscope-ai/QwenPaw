@@ -503,7 +503,7 @@ def add_provider_cmd(
     """Add a new custom provider."""
     manager = _manager()
     try:
-        asyncio.run(
+        provider_info = asyncio.run(
             manager.add_custom_provider(
                 ProviderInfo(
                     id=provider_id,
@@ -518,7 +518,12 @@ def add_provider_cmd(
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-    click.echo(f"✓ Custom provider '{name}' ({provider_id}) created.")
+    click.echo(
+        "✓ Custom provider "
+        f"'{provider_info.name}' ({provider_info.id}) created.",
+    )
+    if provider_info.id != provider_id:
+        click.echo(f"  requested id: {provider_id}")
     if base_url:
         click.echo(f"  base_url: {base_url}")
     click.echo(
