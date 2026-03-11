@@ -111,6 +111,36 @@ def _build_skill_config_view(
     )
 
 
+def _allowed_skill_env_keys(skill: SkillInfo) -> set[str]:
+    allowed: set[str] = set()
+    metadata = skill.metadata
+    if not metadata:
+        return allowed
+
+    if metadata.primary_env:
+        allowed.add(metadata.primary_env)
+    if metadata.requires:
+        allowed.update(item for item in metadata.requires.env if item)
+    return allowed
+
+
+def _validate_skill_env_payload(
+    skill: SkillInfo,
+    env_payload: dict[str, str] | None,
+) -> None:
+    env_payload = env_payload or {}
+    invalid_keys = sorted(set(env_payload) - _allowed_skill_env_keys(skill))
+    if not invalid_keys:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Skill '{skill.name}' does not declare env key(s): "
+            f"{', '.join(invalid_keys)}"
+        ),
+    )
+
+
 @router.get("")
 async def list_skills() -> list[SkillSpec]:
     all_skills = SkillService.list_all_skills()
@@ -247,6 +277,9 @@ async def put_skill_config(
     skill_key = skill.resolved_skill_key or skill.name
     existing = config.skills.entries.get(skill_key, SkillEntryConfig())
     update_data = request.model_dump(exclude_unset=True, by_alias=False)
+
+    if "env" in update_data:
+        _validate_skill_env_payload(skill, update_data["env"])
 
     if "enabled" in update_data:
         existing.enabled = update_data["enabled"]

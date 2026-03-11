@@ -130,6 +130,26 @@ def compute_skill_eligibility(
     )
 
 
+def has_skill_env_overrides(
+    skills: list[Any],
+    config: Config | None,
+) -> bool:
+    """Return True when any skill needs temporary env/api_key injection."""
+    for skill in skills:
+        metadata = getattr(skill, "metadata", None)
+        skill_config = resolve_skill_config(config, skill.name, metadata)
+        if not skill_config:
+            continue
+
+        if skill_config.env:
+            return True
+
+        if metadata and metadata.primary_env and skill_config.api_key:
+            return True
+
+    return False
+
+
 @contextmanager
 def apply_skill_env_overrides(
     skills: list[Any],
@@ -153,10 +173,10 @@ def apply_skill_env_overrides(
                 )
 
             for env_name, env_value in pending_env.items():
-                if not env_name or env_value is None or env_name in os.environ:
+                if not env_name or env_value is None:
                     continue
                 if env_name not in original_values:
-                    original_values[env_name] = None
+                    original_values[env_name] = os.environ.get(env_name)
                 os.environ[env_name] = env_value
 
         yield

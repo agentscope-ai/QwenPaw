@@ -97,6 +97,7 @@ export function SkillDrawer({
   const [showMarkdown, setShowMarkdown] = useState(true);
   const [contentValue, setContentValue] = useState("");
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -127,6 +128,8 @@ export function SkillDrawer({
     const loadConfig = async () => {
       if (!editingSkill) {
         setContentValue("");
+        setConfigLoadFailed(false);
+        setLoadingConfig(false);
         form.resetFields();
         return;
       }
@@ -146,8 +149,14 @@ export function SkillDrawer({
       });
 
       setLoadingConfig(true);
+      setConfigLoadFailed(false);
       const configView = await onLoadConfig(editingSkill.name);
-      if (cancelled || !configView) {
+      if (cancelled) {
+        setLoadingConfig(false);
+        return;
+      }
+      if (!configView) {
+        setConfigLoadFailed(true);
         setLoadingConfig(false);
         return;
       }
@@ -164,6 +173,7 @@ export function SkillDrawer({
 
     loadConfig().catch(() => {
       if (!cancelled) {
+        setConfigLoadFailed(true);
         setLoadingConfig(false);
       }
     });
@@ -183,13 +193,14 @@ export function SkillDrawer({
   };
 
   const handleSaveConfig = async () => {
-    if (!editingSkill) {
+    if (!editingSkill || configLoadFailed) {
       return;
     }
     try {
       const values = await form.validateFields([
         "skillEnabled",
         "apiKey",
+        "clearApiKey",
         "envJson",
         "configJson",
       ]);
@@ -240,7 +251,11 @@ export function SkillDrawer({
       onClose={onClose}
       destroyOnClose
     >
-      <Form form={form} layout="vertical" onFinish={handleCreateSubmit}>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={!editingSkill ? handleCreateSubmit : undefined}
+      >
         {!editingSkill && (
           <>
             <Form.Item
@@ -293,12 +308,12 @@ export function SkillDrawer({
               </div>
               <div
                 className={`${styles.eligibilityBadge} ${
-                  editingSkill.eligibility?.eligible
+                  (editingSkill.eligibility?.eligible ?? true)
                     ? styles.eligible
                     : styles.ineligible
                 }`}
               >
-                {editingSkill.eligibility?.eligible
+                {(editingSkill.eligibility?.eligible ?? true)
                   ? t("skills.eligible")
                   : t("skills.ineligible")}
               </div>
@@ -434,6 +449,7 @@ export function SkillDrawer({
                 type="primary"
                 onClick={handleSaveConfig}
                 loading={savingConfig || loadingConfig}
+                disabled={configLoadFailed}
               >
                 {t("common.save")}
               </Button>

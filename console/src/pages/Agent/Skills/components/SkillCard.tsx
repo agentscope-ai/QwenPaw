@@ -152,7 +152,7 @@ export function SkillCard({
         <div className={styles.infoSection}>
           <div className={styles.infoLabel}>{t("skills.skillKey")}</div>
           <code className={`${styles.infoCode} ${styles.path}`}>
-            {skill.resolved_skill_key || skill.path}
+            {skill.resolved_skill_key || skill.name || "-"}
           </code>
         </div>
       </div>

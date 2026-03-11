@@ -26,7 +26,10 @@ from .skills_manager import (
     get_working_skills_dir,
     SkillService,
 )
-from .skill_runtime import apply_skill_env_overrides
+from .skill_runtime import (
+    apply_skill_env_overrides,
+    has_skill_env_overrides,
+)
 from .tools import (
     browser_use,
     desktop_screenshot,
@@ -47,6 +50,7 @@ from ..constant import (
 )
 
 logger = logging.getLogger(__name__)
+SKILL_ENV_OVERRIDE_LOCK = asyncio.Lock()
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
@@ -556,14 +560,23 @@ class CoPawAgent(ReActAgent):
 
         # Normal message processing
         eligible_skills = self._sync_registered_skills(self.toolkit)
-        with apply_skill_env_overrides(
-            skills=eligible_skills,
-            config=load_config(),
-        ):
+        config = load_config()
+
+        if not has_skill_env_overrides(eligible_skills, config):
             return await super().reply(
                 msg=msg,
                 structured_model=structured_model,
             )
+
+        async with SKILL_ENV_OVERRIDE_LOCK:
+            with apply_skill_env_overrides(
+                skills=eligible_skills,
+                config=config,
+            ):
+                return await super().reply(
+                    msg=msg,
+                    structured_model=structured_model,
+                )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
