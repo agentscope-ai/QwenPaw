@@ -187,6 +187,63 @@ def _handle_download_failure(block_type: str) -> Optional[dict]:
     return None
 
 
+def _process_base64_image_block(
+    message_content: list,
+    index: int,
+    source: dict,
+) -> bool:
+    """
+    Process a base64 image block: compress if needed and save to media dir.
+
+    Returns:
+        True if processed successfully, False otherwise.
+    """
+    base64_data = source.get("data", "")
+    media_type = source.get("media_type")
+    if not base64_data:
+        return False
+
+    try:
+        # Compress if image is too large for LLM API (>7MB)
+        compressed_data, new_media_type = compress_base64_image(
+            base64_data,
+            media_type,
+        )
+
+        if compressed_data != base64_data:
+            logger.info(
+                "Compressed image from %.2f MB to %.2f MB for LLM",
+                len(base64_data) * 3 / 4 / (1024 * 1024),
+                len(compressed_data) * 3 / 4 / (1024 * 1024),
+            )
+            final_data = compressed_data
+            final_media_type = new_media_type or media_type
+        else:
+            final_data = base64_data
+            final_media_type = media_type
+
+        # Save to media dir and use file:// URL
+        file_url, _ = save_base64_to_media(
+            final_data,
+            final_media_type,
+            compress_if_large=False,
+        )
+
+        # Update block to use file URL
+        message_content[index]["source"] = {
+            "type": "url",
+            "url": file_url,
+        }
+        if final_media_type:
+            message_content[index]["source"]["media_type"] = final_media_type
+        logger.debug("Saved image to media: %s", file_url)
+        return True
+
+    except Exception as e:
+        logger.warning("Failed to process image: %s", e)
+        return False
+
+
 async def _process_single_block(
     message_content: list,
     index: int,
@@ -216,53 +273,7 @@ async def _process_single_block(
         and isinstance(source, dict)
         and source.get("type") == "base64"
     ):
-        base64_data = source.get("data", "")
-        media_type = source.get("media_type")
-        if base64_data:
-            try:
-                # Compress if image is too large for LLM API (>7MB)
-                compressed_data, new_media_type = compress_base64_image(
-                    base64_data,
-                    media_type,
-                )
-
-                if compressed_data != base64_data:
-                    logger.info(
-                        "Compressed image from %.2f MB to %.2f MB for LLM",
-                        len(base64_data) * 3 / 4 / (1024 * 1024),
-                        len(compressed_data) * 3 / 4 / (1024 * 1024),
-                    )
-                    # Use compressed data for saving
-                    final_data = compressed_data
-                    final_media_type = new_media_type or media_type
-                else:
-                    final_data = base64_data
-                    final_media_type = media_type
-
-                # Save to media dir and use file:// URL
-                # This keeps token count low for context management
-                file_url, _ = save_base64_to_media(
-                    final_data,
-                    final_media_type,
-                    compress_if_large=False,
-                )
-
-                # Update block to use file URL
-                message_content[index]["source"] = {
-                    "type": "url",
-                    "url": file_url,
-                }
-                if final_media_type:
-                    message_content[index]["source"][
-                        "media_type"
-                    ] = final_media_type
-                logger.debug("Saved image to media: %s", file_url)
-
-            except Exception as e:
-                logger.warning(
-                    "Failed to process image: %s",
-                    e,
-                )
+        _process_base64_image_block(message_content, index, source)
         return None
 
     # Normalize: when source is "base64" but data is a local path (e.g.

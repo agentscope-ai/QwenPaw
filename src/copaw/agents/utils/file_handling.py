@@ -217,6 +217,75 @@ async def download_file_from_base64(
         raise
 
 
+def _save_data_url_to_file(
+    url: str,
+    filename: Optional[str],
+    download_dir: str,
+) -> str:
+    """
+    Parse and save a data: URL to file.
+
+    Args:
+        url: data: URL (e.g., "data:image/png;base64,...")
+        filename: Optional filename to save as.
+        download_dir: Directory to save file.
+
+    Returns:
+        Local file path.
+    """
+    # Parse data URL: data:[<mediatype>][;base64],<data>
+    header, encoded_data = url.split(",", 1)
+    # Extract media type and check if base64
+    parts = header[5:].split(";")  # Remove "data:" prefix
+    media_type = parts[0] if parts else ""
+    is_base64 = "base64" in parts
+
+    if not is_base64:
+        raise ValueError("Only base64-encoded data URLs are supported")
+
+    # Decode base64 data
+    file_content = base64.b64decode(encoded_data)
+
+    # Generate filename if not provided
+    if not filename:
+        ext = mimetypes.guess_extension(media_type) or ".bin"
+        file_hash = hashlib.md5(file_content).hexdigest()[:12]
+        filename = f"file_{file_hash}{ext}"
+
+    download_path = Path(download_dir)
+    download_path.mkdir(parents=True, exist_ok=True)
+    local_file_path = download_path / filename
+
+    with open(local_file_path, "wb") as f:
+        f.write(file_content)
+
+    logger.debug("Saved data URL to: %s", local_file_path)
+    return str(local_file_path.absolute())
+
+
+def _fix_file_extension(local_file_path: Path, url: str) -> Path:
+    """
+    Fix .file extension by detecting real file type.
+
+    DingTalk and similar services return URLs that save as .file;
+    this replaces with the real extension.
+    """
+    if local_file_path.suffix != ".file":
+        return local_file_path
+
+    real_suffix = _guess_suffix_from_url_headers(url)
+    if not real_suffix:
+        real_suffix = _guess_suffix_from_file_content(local_file_path)
+
+    if real_suffix:
+        new_path = local_file_path.with_suffix(real_suffix)
+        local_file_path.rename(new_path)
+        logger.debug("Replaced .file with %s for %s", real_suffix, new_path)
+        return new_path
+
+    return local_file_path
+
+
 async def download_file_from_url(
     url: str,
     filename: Optional[str] = None,
@@ -245,38 +314,8 @@ async def download_file_from_url(
     try:
         # Handle data: URLs (base64-encoded content)
         if url.startswith("data:"):
-            # Parse data URL: data:[<mediatype>][;base64],<data>
             try:
-                header, encoded_data = url.split(",", 1)
-                # Extract media type and check if base64
-                parts = header[5:].split(";")  # Remove "data:" prefix
-                media_type = parts[0] if parts else ""
-                is_base64 = "base64" in parts
-
-                if not is_base64:
-                    raise ValueError(
-                        "Only base64-encoded data URLs are supported",
-                    )
-
-                # Decode base64 data
-                file_content = base64.b64decode(encoded_data)
-
-                # Generate filename if not provided
-                if not filename:
-                    # Use media type to get extension
-                    ext = mimetypes.guess_extension(media_type) or ".bin"
-                    file_hash = hashlib.md5(file_content).hexdigest()[:12]
-                    filename = f"file_{file_hash}{ext}"
-
-                download_path = Path(download_dir)
-                download_path.mkdir(parents=True, exist_ok=True)
-                local_file_path = download_path / filename
-
-                with open(local_file_path, "wb") as f:
-                    f.write(file_content)
-
-                logger.debug("Saved data URL to: %s", local_file_path)
-                return str(local_file_path.absolute())
+                return _save_data_url_to_file(url, filename, download_dir)
             except Exception as e:
                 logger.error("Failed to parse data URL: %s", e)
                 raise
@@ -301,21 +340,10 @@ async def download_file_from_url(
             raise FileNotFoundError("Downloaded file does not exist")
         if local_file_path.stat().st_size == 0:
             raise ValueError("Downloaded file is empty")
-        # DingTalk (and similar) return URLs that save as .file; replace with
-        # real extension. Try HEAD first; if that fails (e.g. OSS), use magic.
-        if local_file_path.suffix == ".file":
-            real_suffix = _guess_suffix_from_url_headers(url)
-            if not real_suffix:
-                real_suffix = _guess_suffix_from_file_content(local_file_path)
-            if real_suffix:
-                new_path = local_file_path.with_suffix(real_suffix)
-                local_file_path.rename(new_path)
-                local_file_path = new_path
-                logger.debug(
-                    "Replaced .file with %s for %s",
-                    real_suffix,
-                    local_file_path,
-                )
+
+        # Fix .file extension if needed
+        local_file_path = _fix_file_extension(local_file_path, url)
+
         return str(local_file_path.absolute())
     except subprocess.TimeoutExpired as e:
         logger.error("Download timeout for URL: %s", url)
