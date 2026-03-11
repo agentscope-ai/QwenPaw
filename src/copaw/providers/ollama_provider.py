@@ -66,14 +66,21 @@ class OllamaProvider(Provider):
             deduped.append(model)
         return deduped
 
-    async def check_connection(self, timeout: float = 5) -> bool:
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if Ollama provider is reachable with current configuration."""
         try:
             client = self._client(timeout=timeout)
             await client.list()
-            return True
-        except (ImportError, ConnectionError, OSError, RuntimeError):
-            return False
+            return True, ""
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`",
+            )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models and cache them on this provider instance."""
@@ -90,12 +97,11 @@ class OllamaProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable."""
         target = (model_id or "").strip()
         if not target:
-            return False
-
+            return False, "Empty model ID"
         try:
             client = self._client(timeout=timeout)
             await client.chat(
@@ -103,46 +109,55 @@ class OllamaProvider(Provider):
                 messages=[{"role": "user", "content": "ping"}],
                 options={"num_predict": 1},
             )
-            return True
-        except (ImportError, ConnectionError, OSError, RuntimeError):
-            return False
+            return True, ""
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception:
+            return False, f"Unknown exception when connecting to `{target}`"
 
     async def add_model(
         self,
         model_info: ModelInfo,
         target: str = "models",
-        ignore_duplicates: bool = False,
         timeout: float = 36000,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Ollama models are added by pulling from a registry, so here we
         interpret "adding" a model as pulling it from the registry.
         The model_info.id is expected to be in the format of
         "registry/model:tag" or "registry/model".
         """
         if model_info.id in {model.id for model in self.models}:
-            if not ignore_duplicates:
-                raise ValueError(f"Model '{model_info.id}' already exists")
-            return False  # the model was not added due to duplication
+            return False, f"Model '{model_info.id}' already exists"
         client = self._client(timeout=timeout)
         try:
             await client.pull(model=model_info.id)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to pull model '{model_info.id}': {e}",
-            ) from e
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception:
+            return False, f"Failed to pull model '{model_info.id}'"
         self.models = await self.fetch_models()
-        return True
+        return True, ""
 
-    async def delete_model(self, model_id: str, timeout: float = 60) -> bool:
+    async def delete_model(
+        self,
+        model_id: str,
+        timeout: float = 60,
+    ) -> tuple[bool, str]:
         client = self._client(timeout=timeout)
         try:
             await client.delete(model=model_id)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to delete model '{model_id}': {e}",
-            ) from e
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception:
+            return False, f"Failed to delete model '{model_id}'"
         self.models = await self.fetch_models()
-        return True
+        return True, ""
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat

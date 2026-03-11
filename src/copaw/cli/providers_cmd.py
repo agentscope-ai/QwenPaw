@@ -214,12 +214,15 @@ def _add_models_interactive(provider_id: str) -> None:
             default=model_id,
         ).strip()
         try:
-            asyncio.run(
+            ok, msg = asyncio.run(
                 defn.add_model(ModelInfo(id=model_id, name=model_name)),
             )
-            _save_provider(manager, provider_id)
-            click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
-            all_models.append(ModelInfo(id=model_id, name=model_name))
+            if ok:
+                _save_provider(manager, provider_id)
+                click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
+                all_models.append(ModelInfo(id=model_id, name=model_name))
+            else:
+                click.echo(click.style(f"Error: {msg}", fg="red"))
         except ValueError as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
 
@@ -609,12 +612,15 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found.")
-        asyncio.run(provider.delete_model(model_id=model_id))
-        _save_provider(manager, provider_id)
+        ok, msg = asyncio.run(provider.delete_model(model_id=model_id))
+        if ok:
+            _save_provider(manager, provider_id)
+            click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
+        else:
+            click.echo(click.style(f"Error: {msg}", fg="red"))
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-    click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ class BaseChannelConfig(BaseModel):
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
+    require_mention: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):
@@ -85,10 +86,28 @@ class MQTTConfig(BaseChannelConfig):
     tls_keyfile: Optional[str] = None
 
 
+class MattermostConfig(BaseChannelConfig):
+    """Mattermost channel: WebSocket polling and REST API."""
+
+    url: str = ""
+    bot_token: str = ""
+    media_dir: str = "~/.copaw/media/mattermost"
+    show_typing: Optional[bool] = None
+    thread_follow_without_mention: bool = False
+
+
 class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
+
+
+class MatrixConfig(BaseChannelConfig):
+    """Matrix channel configuration."""
+
+    homeserver: str = ""
+    user_id: str = ""
+    access_token: str = ""
 
 
 class VoiceChannelConfig(BaseChannelConfig):
@@ -116,8 +135,10 @@ class ChannelConfig(BaseModel):
     feishu: FeishuConfig = FeishuConfig()
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
+    mattermost: MattermostConfig = MattermostConfig()
     mqtt: MQTTConfig = MQTTConfig()
     console: ConsoleConfig = ConsoleConfig()
+    matrix: MatrixConfig = MatrixConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
 
 
@@ -168,16 +189,25 @@ class AgentsRunningConfig(BaseModel):
             "Maximum input length (tokens) for the model context window"
         ),
     )
+
     memory_compact_ratio: float = Field(
-        default=0.7,
+        default=0.75,
         ge=0.01,
         le=0.99,
-        description=("Ratio of memory to compact when memory is full"),
+        description="Ratio of memory to compact when memory is full",
     )
+
+    memory_reserve_ratio: float = Field(
+        default=0.1,
+        ge=0.01,
+        description="Ratio of memory to reserve when compact memory",
+    )
+
     enable_tool_result_compact: bool = Field(
         default=False,
-        description=("Whether to compact tool result messages in memory"),
+        description="Whether to compact tool result messages in memory",
     )
+
     tool_result_compact_keep_n: int = Field(
         default=5,
         ge=1,
@@ -185,14 +215,15 @@ class AgentsRunningConfig(BaseModel):
             "Number of tool result messages to keep in memory when compacting"
         ),
     )
-    memory_compact_reserve: int = Field(
-        default=10000,
-        ge=1000,
-        description=("Number of tokens to reserve in memory for tool results"),
-    )
+
+    @property
+    def memory_compact_reserve(self) -> int:
+        """Memory compact reserve size (tokens)."""
+        return int(self.max_input_length * self.memory_reserve_ratio)
 
     @property
     def memory_compact_threshold(self) -> int:
+        """Memory compact threshold size (tokens)."""
         return int(self.max_input_length * self.memory_compact_ratio)
 
 
@@ -424,6 +455,7 @@ ChannelConfigUnion = Union[
     FeishuConfig,
     QQConfig,
     TelegramConfig,
+    MattermostConfig,
     MQTTConfig,
     ConsoleConfig,
     VoiceChannelConfig,

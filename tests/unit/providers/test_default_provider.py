@@ -13,18 +13,23 @@ def _make_provider() -> DefaultProvider:
 
 async def test_check_connection() -> None:
     provider = _make_provider()
-    ok = await provider.check_connection(timeout=1.0)
+    ok, msg = await provider.check_connection(timeout=1.0)
     assert ok is False
+    assert msg == "No models available in the default provider"
     provider.models.append(ModelInfo(id="gpt-3.5-turbo", name="gpt-3.5-turbo"))
-    ok = await provider.check_connection(timeout=1.0)
+    ok, msg = await provider.check_connection(timeout=1.0)
     assert ok is True
-    ok = await provider.check_model_connection("gpt-3.5-turbo", timeout=1.0)
+    ok, msg = await provider.check_model_connection(
+        "gpt-3.5-turbo",
+        timeout=1.0,
+    )
     assert ok is True
-    ok = await provider.check_model_connection(
+    ok, msg = await provider.check_model_connection(
         "nonexistent-model",
         timeout=1.0,
     )
     assert ok is False
+    assert msg == "Model 'nonexistent-model' not found"
 
 
 async def test_chat_model() -> None:

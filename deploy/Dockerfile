@@ -15,6 +15,7 @@ FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
 ENV NODE_ENV=production
 ENV WORKSPACE_DIR=/app
 ENV COPAW_WORKING_DIR=/app/working
+ENV COPAW_SECRET_DIR=/app/working.secret
 
 # Available channels for this image.
 # Override at runtime with -e COPAW_ENABLED_CHANNELS=... if needed.

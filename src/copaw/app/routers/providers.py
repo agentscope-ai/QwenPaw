@@ -204,10 +204,12 @@ async def test_provider(
             tmp_provider.api_key = body.api_key
         if body and body.base_url:
             tmp_provider.base_url = body.base_url
-        ok = await tmp_provider.check_connection()
+        ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
-            message="Connection successful" if ok else "Connection failed",
+            message="Connection successful"
+            if ok
+            else f"Connection failed: {msg}",
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -265,10 +267,12 @@ async def test_model(
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found")
-        ok = await provider.check_model_connection(model_id=body.model_id)
+        ok, msg = await provider.check_model_connection(model_id=body.model_id)
         return TestConnectionResponse(
             success=ok,
-            message="Connection successful" if ok else "Connection failed",
+            message="Model connection successful"
+            if ok
+            else f"Model connection failed: {msg}",
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

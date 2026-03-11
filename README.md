@@ -54,13 +54,15 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 ## News
 
-[2026-03-06] We released v0.0.5! See the [v0.0.5 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+[2026-03-09] We released v0.0.6! See the [v0.0.6 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v0.0.5] Added:** Daemon mode; Twilio voice channel; DeepSeek Reasoner support; agent interruption API; version update notifications; optional display of thinking and tool calls.
-- **[v0.0.5] Improved:** Memory system upgrade; console UI improvements; optional channel lazy loading; Windows one-click installation script.
-- **[v0.0.5] Fixed:** Docker configuration persistence; Ollama base URL; channel fixes; Windows compatibility; MCP client stability.
-- **[v0.0.5] Docs:** Release notes; improved model and channel configuration guides; Docker + Ollama connection guide.
-- **[v0.0.5] Contributors:** Thanks to new contributors: [@qoli](https://github.com/qoli), [@qbc2016](https://github.com/qbc2016), [@yunlzheng](https://github.com/yunlzheng), [@BlueSkyXN](https://github.com/BlueSkyXN), [@sidonsoft](https://github.com/sidonsoft), [@lishengzxc](https://github.com/lishengzxc), [@pikaxinge](https://github.com/pikaxinge), [@linshengli](https://github.com/linshengli), [@eltociear](https://github.com/eltociear), [@liuxiaopai-ai](https://github.com/liuxiaopai-ai), [@Leirunlin](https://github.com/Leirunlin), [@pan-x-c](https://github.com/pan-x-c), [@garyzhang99](https://github.com/garyzhang99), [@celestialhorse51D](https://github.com/celestialhorse51D), [@wwx814](https://github.com/wwx814), [@nszhsl](https://github.com/nszhsl), [@DavdGao](https://github.com/DavdGao), [@zhangckcup](https://github.com/zhangckcup).
+- **[v0.0.6] Added:** Native desktop installers with one-click setup (Windows/macOS); Russian and Japanese language support across UI and agent configs; Telegram access control with allowlists; QQ Markdown and rich media support; Discord/Feishu/DingTalk media enhancements; MQTT channel for IoT integration; Gemini thinking model and MLX backend support; built-in tool management page; custom system prompts from workspace files; ReMeLight memory system with smart truncation.
+- **[v0.0.6] Improved:** Dynamic memory compaction configuration; version detection using PyPI timestamps; LESS-based style refactoring; UTC timezone standardization; modular provider architecture with lifecycle management.
+- **[v0.0.6] Fixed:** Windows file paths and shell encoding; DingTalk Office file detection; skill import UTF-8 handling; Docker-friendly URL validation; version badge positioning; language-aware file notifications.
+- **[v0.0.6] Docs:** New logo and social media integration; desktop app installation guides; memory compaction and command documentation; updated roadmap; enhanced website presentation.
+- **[v0.0.6] Contributors:** Thanks to new contributors: [@Osier-Yi](https://github.com/Osier-Yi), [@muchenhen](https://github.com/muchenhen), [@hongxicheng](https://github.com/hongxicheng), [@YingchaoX](https://github.com/YingchaoX), [@seoeaa](https://github.com/seoeaa), [@Chiytako](https://github.com/Chiytako), [@eviaaaaa](https://github.com/eviaaaaa), [@vvv214](https://github.com/vvv214), [@baijunty](https://github.com/baijunty), [@p8rtop](https://github.com/p8rtop), [@yifanli-intel](https://github.com/yifanli-intel), [@Eduiskss](https://github.com/Eduiskss), [@snai1557](https://github.com/snai1557).
+
+[2026-03-06] We released v0.0.5! See the [v0.0.5 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
 [2026-03-02] We released v0.0.4! See the [v0.0.4 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
@@ -269,12 +271,15 @@ Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable)
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 Also available on Alibaba Cloud Container Registry (ACR) for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
 
-Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
+Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume; model provider settings and API keys are in the `copaw-secrets` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
 
 > **Connecting to Ollama or other services on the host machine**
 >
@@ -284,15 +289,22 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 > ```bash
 > docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
->   -v copaw-data:/app/working agentscope/copaw:latest
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
-> Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434/v1` or your corresponding port.
+> Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434` or your corresponding port.
 >
 > **Option B** — Host networking (Linux only):
 > ```bash
-> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > No port mapping (`-p`) is needed; the container shares the host network directly. Note that all container ports are exposed on the host, which may cause conflicts if the port is already in use.
+>
+> **Note:** If you only mount `/app/working` without a separate volume for `/app/working.secret`, the entrypoint will automatically redirect secrets into `/app/working/.secret` so they persist on the same volume.
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
@@ -352,6 +364,7 @@ copaw app # start the server
 | [Skills](https://copaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [MCP](https://copaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Memory](https://copaw.agentscope.io/docs/memory)                     | Context and long-term memory                     |
+| [Context](https://copaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
 | [Config & working dir](https://copaw.agentscope.io/docs/config) | Working directory and config file                |
@@ -370,31 +383,33 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 ## Roadmap
 
-| Area | Item | Status |
-| --- | --- | --- |
-| Horizontal Expansion | More channels, models, skills, MCPs — **community contributions welcome** | Seeking Contributors |
-| Existing Feature Extension | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| Console Web UI | Expose more info/config in the Console | In Progress |
-| Compatibility & Ease of Use | App-level packaging (.dmg, .exe) | In Progress |
-| Self-healing | Magic commands and daemon capabilities (CLI, status, restart, logs) | In Progress |
-| | DaemonAgent: autonomous diagnostics, self-healing, and recovery | Planned |
-| Multi-agent | Background task support | In Progress |
-| | Multi-agent isolation | Planned |
-| | Inter-agent contention resolution | Planned |
-| | Multi-agent communication | Planned |
-| Multimodal | Voice/video calls and real-time interaction | In Progress |
-| Release & Contributing | Contributing guidance for vibe coding agents | Planned |
-| Bugfixes & Enhancements | Skills and MCP runtime install, hot-reload improvements | Planned |
-| Security | Shell execution confirmation | Planned |
-| | Tool/skills security | Planned |
-| | Configurable security levels (user-configurable) | Planned |
-| Sandbox | Deeper integration with AgentScope Runtime sandboxes | Long-term Planning |
-| CoPaw-optimized local models | LLMs tuned for CoPaw's native skills and common tasks; better local personal-assistant usability | Long-term Planning |
-| Small + large model collaboration | Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability | Long-term Planning |
-| Cloud-native | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling | Long-term Planning |
-| Skills Hub | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planning |
+| Area                                  | Item                                                                                                                                             | Status               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
+| **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
+| **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
+| **Self-healing**                      | Magic commands and daemon capabilities (CLI, status, restart, logs)                                                                              | In Progress          |
+|                                       | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | Planned              |
+| **Multi-agent**                       | Background task support                                                                                                                          | In Progress          |
+|                                       | Multi-agent isolation                                                                                                                            | Planned              |
+|                                       | Inter-agent contention resolution                                                                                                                | Planned              |
+|                                       | Multi-agent communication                                                                                                                        | Planned              |
+| **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
+| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows and sensitive-data use cases                                                                | In Progress          |
+|                                       | Multi-model routing. Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability          | Planned              |
+| **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
+|                                       | Multimodal memory fusion                                                                                                                         | Planned              |
+|                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
+| **Security**                          | Shell execution confirmation                                                                                                                     | Planned              |
+|                                       | Tool/skills security                                                                                                                             | Planned              |
+|                                       | Configurable security levels (user-configurable)                                                                                                 | Planned              |
+| **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
+| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term Planned    |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term Planned    |
+| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planned    |
 
-*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planning* — longer-horizon roadmap.
+
+*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planned* — longer-horizon roadmap.
 
 ### Get involved
 
@@ -425,7 +440,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **Dev** (tests, formatting): `pip install -e ".[dev]"`
+- **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
 - **Then**: Run `copaw init --defaults`, then `copaw app`.
 
 ---

@@ -112,7 +112,6 @@ def setup_logger(level: int | str = logging.INFO):
 
     # Suppress third-party: set root logger level and configure handlers.
     root = logging.getLogger()
-    root.setLevel(logging.WARNING)
     for handler in root.handlers:
         if isinstance(
             handler,

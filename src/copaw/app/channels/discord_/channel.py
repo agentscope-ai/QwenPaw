@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import re
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -31,10 +32,14 @@ from ..base import (
 
 logger = logging.getLogger(__name__)
 
+# Regex that matches a code-fence opening/closing line (``` or ~~~).
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+
 
 class DiscordChannel(BaseChannel):
     channel = "discord"
     uses_manager_queue = True
+    _DISCORD_MAX_LEN: int = 2000
 
     def __init__(
         self,
@@ -52,6 +57,7 @@ class DiscordChannel(BaseChannel):
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -63,6 +69,7 @@ class DiscordChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.token = token
@@ -99,7 +106,18 @@ class DiscordChannel(BaseChannel):
                 text = (message.content or "").strip()
                 attachments = message.attachments
 
-                # Build runtime content parts
+                is_bot_mentioned = False
+                bot_user = self._client.user
+                if getattr(message, "mention_everyone", False):
+                    is_bot_mentioned = True
+                if bot_user and bot_user in message.mentions:
+                    is_bot_mentioned = True
+                    text = re.sub(
+                        rf"<@!?{bot_user.id}>",
+                        "",
+                        text,
+                    ).strip()
+
                 content_parts = []
                 if text:
                     content_parts.append(
@@ -175,6 +193,8 @@ class DiscordChannel(BaseChannel):
                     "is_dm": not is_group,
                     "is_group": is_group,
                 }
+                if is_bot_mentioned:
+                    meta["bot_mentioned"] = True
 
                 allowed, error_msg = self._check_allowlist(
                     str(message.author.id),
@@ -187,6 +207,9 @@ class DiscordChannel(BaseChannel):
                         is_group,
                     )
                     await message.channel.send(error_msg or "")
+                    return
+
+                if not self._check_group_mention(is_group, meta):
                     return
 
                 native = {
@@ -229,6 +252,7 @@ class DiscordChannel(BaseChannel):
             group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("DISCORD_DENY_MESSAGE", ""),
+            require_mention=os.getenv("DISCORD_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -256,6 +280,7 @@ class DiscordChannel(BaseChannel):
             group_policy=config.group_policy or "open",
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
+            require_mention=config.require_mention,
         )
 
     async def _resolve_target(self, to_handle, meta):
@@ -281,6 +306,70 @@ class DiscordChannel(BaseChannel):
             return user.dm_channel or await user.create_dm()
         return None
 
+    @staticmethod
+    def _chunk_text(text: str, max_len: int = 2000) -> list[str]:
+        """Split *text* into chunks that fit Discord's message limit.
+
+        Splits at newline boundaries to preserve formatting.  If a single
+        line exceeds *max_len* it is hard-split at *max_len*.
+
+        Markdown code fences are tracked so that a chunk ending inside an
+        open fence gets a closing fence appended and the next chunk gets
+        a matching opening fence prepended.  This keeps code blocks
+        rendered correctly across split messages.
+        """
+        if len(text) <= max_len:
+            return [text]
+
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+        fence_open: str = ""  # e.g. "```python"
+
+        def _flush() -> None:
+            nonlocal fence_open
+            body = "".join(current).rstrip("\n")
+            if fence_open:
+                body += "\n```"  # close dangling fence
+            chunks.append(body)
+            current.clear()
+
+        for line in text.split("\n"):
+            line_with_nl = line + "\n"
+            stripped = line.strip()
+
+            # Detect fence toggle.
+            if _FENCE_RE.match(stripped):
+                if fence_open:
+                    fence_open = ""
+                else:
+                    fence_open = stripped
+
+            # Flush if adding this line would exceed the limit.
+            if current and current_len + len(line_with_nl) > max_len:
+                saved_fence = fence_open
+                _flush()
+                current_len = 0
+                # Re-open the fence in the next chunk.
+                if saved_fence:
+                    fence_open = saved_fence
+                    reopener = saved_fence + "\n"
+                    current.append(reopener)
+                    current_len += len(reopener)
+
+            # Single line exceeds max_len -> hard-split.
+            if len(line_with_nl) > max_len:
+                for i in range(0, len(line), max_len):
+                    chunks.append(line[i : i + max_len])
+            else:
+                current.append(line_with_nl)
+                current_len += len(line_with_nl)
+
+        if current:
+            chunks.append("".join(current).rstrip("\n"))
+
+        return [c for c in chunks if c.strip()]
+
     async def send(
         self,
         to_handle: str,
@@ -297,6 +386,8 @@ class DiscordChannel(BaseChannel):
             1) meta["channel_id"]  -> send to that channel
             2) meta["user_id"]     -> DM that user (opens/uses DM channel)
         - If neither is provided, this raises ValueError.
+        - Messages exceeding 2000 chars are automatically split into
+            multiple messages preserving markdown code fences.
         """
         if not self.enabled:
             return
@@ -310,7 +401,8 @@ class DiscordChannel(BaseChannel):
                 "DiscordChannel.send requires meta['channel_id']"
                 " or meta['user_id']",
             )
-        await target.send(text)
+        for chunk in self._chunk_text(text, self._DISCORD_MAX_LEN):
+            await target.send(chunk)
 
     async def send_content_parts(
         self,
@@ -473,7 +565,7 @@ class DiscordChannel(BaseChannel):
         return session_id
 
     def _route_from_handle(self, to_handle: str) -> dict:
-        # to_handle: discord:ch:<channel_id> 或 discord:dm:<user_id>
+        # to_handle format: discord:ch:<channel_id> or discord:dm:<user_id>
         parts = (to_handle or "").split(":")
         if len(parts) >= 3 and parts[0] == "discord":
             kind, ident = parts[1], parts[2]

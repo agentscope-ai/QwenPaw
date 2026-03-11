@@ -94,6 +94,7 @@ class DingTalkChannel(BaseChannel):
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
         filter_thinking: bool = False,
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -105,6 +106,7 @@ class DingTalkChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.client_id = client_id
@@ -160,6 +162,7 @@ class DingTalkChannel(BaseChannel):
             group_policy=os.getenv("DINGTALK_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("DINGTALK_DENY_MESSAGE", ""),
+            require_mention=os.getenv("DINGTALK_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -187,6 +190,7 @@ class DingTalkChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             filter_thinking=filter_thinking,
+            require_mention=config.require_mention,
         )
 
     # ---------------------------
@@ -1250,6 +1254,9 @@ class DingTalkChannel(BaseChannel):
                 )
             return
 
+        if not self._check_group_mention(is_group, send_meta):
+            return
+
         logger.info(
             "dingtalk _run_process_loop: send_meta has_sw=%s "
             "req.channel_meta has_sw=%s",
@@ -1542,9 +1549,9 @@ class DingTalkChannel(BaseChannel):
                     await client.websocket.close()
                 except Exception:
                     pass
-            await asyncio.sleep(0.2)
-            if not main_task.done():
+            while not main_task.done():
                 main_task.cancel()
+                await asyncio.sleep(0.1)
 
         watcher_task = asyncio.create_task(stop_watcher())
         try:

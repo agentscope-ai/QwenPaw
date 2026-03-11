@@ -119,7 +119,7 @@ class MemoryCompactionHook:
                 return None
 
             if not is_valid:
-                logger.error(
+                logger.warning(
                     "Please include the output of the /history command when "
                     "reporting the bug to the community. Invalid "
                     "messages=%s",

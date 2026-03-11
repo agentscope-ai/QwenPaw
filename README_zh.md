@@ -54,13 +54,15 @@
 
 ## 新闻
 
-[2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.0.5]** **新增：** Daemon 模式；Twilio 语音频道；DeepSeek Reasoner 支持；智能体中断 API；版本更新提醒；思考/工具调用选择性显示。
-- **[v0.0.5]** **优化：** 记忆系统升级；控制台界面改进；可选频道懒加载；Windows 一键安装脚本。
-- **[v0.0.5]** **修复：** Docker 配置持久化；Ollama base URL；频道修复；Windows 兼容性；MCP 客户端稳定性。
-- **[v0.0.5]** **文档：** 增添更新日志；优化模型、频道配置指南；Docker + Ollama 连接指南。
-- **[v0.0.5]** **贡献者：** 感谢新贡献者：[@qoli](https://github.com/qoli)、[@qbc2016](https://github.com/qbc2016)、[@yunlzheng](https://github.com/yunlzheng)、[@BlueSkyXN](https://github.com/BlueSkyXN)、[@sidonsoft](https://github.com/sidonsoft)、[@lishengzxc](https://github.com/lishengzxc)、[@pikaxinge](https://github.com/pikaxinge)、[@linshengli](https://github.com/linshengli)、[@eltociear](https://github.com/eltociear)、[@liuxiaopai-ai](https://github.com/liuxiaopai-ai)、[@Leirunlin](https://github.com/Leirunlin)、[@pan-x-c](https://github.com/pan-x-c)、[@garyzhang99](https://github.com/garyzhang99)、[@celestialhorse51D](https://github.com/celestialhorse51D)、[@wwx814](https://github.com/wwx814)、[@nszhsl](https://github.com/nszhsl)、[@DavdGao](https://github.com/DavdGao)、[@zhangckcup](https://github.com/zhangckcup)。
+- **[v0.0.6]** **新增：** 原生桌面安装包，一键安装（Windows/macOS）；俄语和日语支持覆盖界面和智能体配置；Telegram 访问控制和白名单；QQ Markdown 和富媒体支持；Discord/飞书/钉钉媒体增强；MQTT 频道支持物联网集成；Gemini 思考模型和 MLX 后端支持；内置工具管理页面；从工作区文件自定义系统提示词；ReMeLight 记忆系统带智能截断。
+- **[v0.0.6]** **优化：** 动态记忆压缩配置；使用 PyPI 时间戳的版本检测；基于 LESS 的样式重构；UTC 时区标准化；模块化 Provider 架构及生命周期管理。
+- **[v0.0.6]** **修复：** Windows 文件路径和 Shell 编码；钉钉 Office 文件检测；技能导入 UTF-8 处理；适配 Docker 的 URL 验证；版本徽章定位；语言感知的文件通知。
+- **[v0.0.6]** **文档：** 新 logo 和社交媒体集成；桌面应用安装指南；记忆压缩和命令文档；更新路线图；增强网站呈现。
+- **[v0.0.6]** **贡献者：** 感谢新贡献者：[@Osier-Yi](https://github.com/Osier-Yi)、[@muchenhen](https://github.com/muchenhen)、[@hongxicheng](https://github.com/hongxicheng)、[@YingchaoX](https://github.com/YingchaoX)、[@seoeaa](https://github.com/seoeaa)、[@Chiytako](https://github.com/Chiytako)、[@eviaaaaa](https://github.com/eviaaaaa)、[@vvv214](https://github.com/vvv214)、[@baijunty](https://github.com/baijunty)、[@p8rtop](https://github.com/p8rtop)、[@yifanli-intel](https://github.com/yifanli-intel)、[@Eduiskss](https://github.com/Eduiskss)、[@snai1557](https://github.com/snai1557)。
+
+[2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-02] 我们发布了 v0.0.4！完整更新说明见 [v0.0.4 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
@@ -271,12 +273,15 @@ copaw uninstall --purge  # 删除所有内容
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
-然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -286,15 +291,22 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 > ```bash
 > docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
->   -v copaw-data:/app/working agentscope/copaw:latest
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
-> 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434/v1` 或对应端口。
+> 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434` 或对应端口。
 >
 > **方式 B** — 使用宿主机网络（仅限 Linux）：
 > ```bash
-> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
+>
+> **提示：** 如果你只挂载了 `/app/working` 而没有单独挂载 `/app/working.secret`，入口脚本会自动将 secrets 重定向到 `/app/working/.secret`，使其也保存在同一个 volume 中。
 
 镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
@@ -358,6 +370,7 @@ copaw app # 启动服务
 | [Skills](https://copaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
 | [MCP](https://copaw.agentscope.io/docs/mcp)               | 管理 MCP 客户端                     |
 | [记忆](https://copaw.agentscope.io/docs/memory)           | 上下文管理与长期记忆                 |
+| [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
 | [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
@@ -376,29 +389,30 @@ copaw app # 启动服务
 
 ## 路线图
 
-| 方向 | 事项 | 状态 |
-| --- | --- | --- |
-| 横向拓展 | 更多频道、模型、Skills、MCP 等 — **欢迎社区贡献** | 征集中 |
-| 已有功能扩展与完善 | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献** | 征集中 |
-| 控制台 Web UI | 在控制台中透出更多信息与配置 | 进行中 |
-| 兼容性与易用性 | 应用级打包（.dmg、.exe） | 进行中 |
-| 自愈 | 魔法命令与 Daemon 能力（CLI、status、restart、logs） | 进行中 |
-| | DaemonAgent：自诊断、自愈与恢复 | 计划中 |
-| 多智能体 | 后台任务支持 | 进行中 |
-| | 多智能体隔离 | 计划中 |
-| | 智能体间竞争与冲突的解决 | 计划中 |
-| | 多智能体通信 | 计划中 |
-| 多模态 | 语音/视频通话与实时交互 | 进行中 |
-| 版本发布与贡献规范 | Vibe Coding 等 Agent 的贡献引导 | 计划中 |
-| Bug 修复与功能增强 | Skills 与 MCP 运行时安装、热加载改进 | 计划中 |
-| 安全 | Shell 执行确认 | 计划中 |
-| | 工具/Skills 安全性 | 计划中 |
-| | 可配置安全等级 | 计划中 |
-| 沙箱 | 与 AgentScope Runtime 沙箱深度集成 | 长期规划 |
-| CoPaw 优化本地模型 | 针对 CoPaw 原生 Skills 与常见任务调优的本地模型，提升个人助理可用性 | 长期规划 |
-| 大小模型协同 | 本地模型处理敏感数据，云端模型负责规划与编码；兼顾隐私、性能与能力 | 长期规划 |
-| 云原生 | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态 | 长期规划 |
-| Skills 生态 | 丰富 [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) 仓库，提升优质 Skill 的发现与使用 | 长期规划 |
+| 方向                   | 事项                                                                                                        | 状态     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- | -------- |
+| **横向拓展**           | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                                             | 征集中   |
+| **已有功能扩展与完善** | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                                   | 征集中   |
+| **控制台 Web UI**      | 在控制台中透出更多信息与配置                                                                                | 进行中   |
+| **自愈**               | 魔法命令与 Daemon 能力（CLI、status、restart、logs）                                                        | 进行中   |
+|                        | DaemonAgent：自诊断、自愈与恢复                                                                             | 计划中   |
+| **多智能体**           | 后台任务支持                                                                                                | 进行中   |
+|                        | 多智能体隔离                                                                                                | 计划中   |
+|                        | 智能体间竞争与冲突的解决                                                                                    | 计划中   |
+|                        | 多智能体通信                                                                                                | 计划中   |
+| **多模态**             | 语音/视频通话与实时交互                                                                                     | 进行中   |
+| **大小模型协同**       | 针对 CoPaw 工作流与敏感数据场景的本地小模型训练与微调                                                       | 进行中   |
+|                        | 多模型路由。本地模型处理敏感数据，云端模型负责规划与编码；兼顾隐私、性能与能力                              | 计划中   |
+| **记忆系统**           | 经验沉淀技能提炼                                                                                            | 进行中   |
+|                        | 多模态记忆融合增强                                                                                          | 计划中   |
+|                        | 场景感知主动推送                                                                                            | 计划中   |
+| **安全**               | Shell 执行确认                                                                                              | 计划中   |
+|                        | 工具/技能安全性                                                                                             | 计划中   |
+|                        | 可配置安全等级                                                                                              | 计划中   |
+| **版本发布与贡献规范** | Vibe Coding 等 Agent 的贡献引导                                                                             | 计划中   |
+| **沙箱**               | 与 AgentScope Runtime 沙箱深度集成                                                                          | 长期规划 |
+| **云原生**             | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态                                            | 长期规划 |
+| **技能生态**           | 丰富 [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) 仓库，提升优质技能的发现与使用 | 长期规划 |
 
 *状态说明：进行中 — 正在推进；计划中 — 已排期或设计中，也**欢迎贡献**；**征集中** — 我们**非常欢迎**社区参与；长期规划 — 中长期路线。*
 
@@ -431,7 +445,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **开发**（测试、格式化）：`pip install -e ".[dev]"`
+- **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
 - **然后**：运行 `copaw init --defaults`，再运行 `copaw app`。
 
 ---

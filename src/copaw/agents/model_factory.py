@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
+from ..providers.retry_chat_model import RetryChatModel
 
 
 def _file_url_to_path(url: str) -> str:
@@ -290,8 +291,11 @@ def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
     # Fetch config if not provided
     model = ProviderManager.get_active_chat_model()
 
-    # Create the formatter based on chat_model_class
+    # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
+
+    # Wrap with retry logic for transient LLM API errors
+    model = RetryChatModel(model)
 
     return model, formatter
 

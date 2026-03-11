@@ -249,6 +249,9 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             conversation_type = conversation_type_from_chatbot_message(
                 incoming_message,
             )
+            is_group = conversation_type == "group"
+            is_bot_mentioned = bool(raw_data.get("isInAtList"))
+
             loop = asyncio.get_running_loop()
             reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
@@ -256,8 +259,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 "reply_future": reply_future,
                 "reply_loop": loop,
                 "conversation_type": conversation_type,
-                "is_group": conversation_type == "group",
+                "is_group": is_group,
             }
+            if is_bot_mentioned:
+                meta["bot_mentioned"] = True
             if conversation_id:
                 meta["conversation_id"] = conversation_id
             if raw_msg_id:

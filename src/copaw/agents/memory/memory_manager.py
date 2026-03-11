@@ -209,6 +209,7 @@ class MemoryManager(ReMeLight):
 
     def prepare_model_formatter(self):
         if self.chat_model is None or self.formatter is None:
+            logger.warning("Model and formatter not initialized.")
             chat_model, formatter = create_model_and_formatter()
             if self.chat_model is None:
                 self.chat_model = chat_model

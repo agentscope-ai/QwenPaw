@@ -29,9 +29,10 @@ async def test_check_connection_success(monkeypatch) -> None:
     fake_client = SimpleNamespace(models=FakeModels())
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok = await provider.check_connection(timeout=2.0)
+    ok, msg = await provider.check_connection(timeout=2.0)
 
     assert ok is True
+    assert msg == ""
     assert called["count"] == 1
 
 
@@ -50,9 +51,10 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
         Exception,
     )
 
-    ok = await provider.check_connection(timeout=1.0)
+    ok, msg = await provider.check_connection(timeout=1.0)
 
     assert ok is False
+    assert msg == "Anthropic API error"
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
@@ -103,9 +105,13 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     fake_client = SimpleNamespace(messages=FakeMessages())
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok = await provider.check_model_connection("claude-3-5-haiku", timeout=4.0)
+    ok, msg = await provider.check_model_connection(
+        "claude-3-5-haiku",
+        timeout=4.0,
+    )
 
     assert ok is True
+    assert msg == ""
     assert len(captured) == 1
     assert captured[0]["model"] == "claude-3-5-haiku"
     assert captured[0]["max_tokens"] == 1
@@ -116,9 +122,10 @@ async def test_check_model_connection_success(monkeypatch) -> None:
 async def test_check_model_connection_empty_model_id_returns_false() -> None:
     provider = _make_provider()
 
-    ok = await provider.check_model_connection("   ", timeout=4.0)
+    ok, msg = await provider.check_model_connection("   ", timeout=4.0)
 
     assert ok is False
+    assert msg == "Empty model ID"
 
 
 async def test_check_model_connection_api_error_returns_false(
@@ -139,9 +146,13 @@ async def test_check_model_connection_api_error_returns_false(
         Exception,
     )
 
-    ok = await provider.check_model_connection("claude-3-5-haiku", timeout=4.0)
+    ok, msg = await provider.check_model_connection(
+        "claude-3-5-haiku",
+        timeout=4.0,
+    )
 
     assert ok is False
+    assert msg == "Model 'claude-3-5-haiku' is not reachable or usable"
 
 
 async def test_update_config_updates_only_non_none_values() -> None:

@@ -13,6 +13,8 @@ from copaw.providers.provider import ModelInfo, Provider
 
 
 class AnthropicProvider(Provider):
+    """Provider implementation for Anthropic API."""
+
     def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
         return anthropic.AsyncAnthropic(
             api_key=self.api_key,
@@ -49,14 +51,19 @@ class AnthropicProvider(Provider):
             deduped.append(model)
         return deduped
 
-    async def check_connection(self, timeout: float = 5) -> bool:
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if Anthropic provider is reachable."""
         try:
             client = self._client(timeout=timeout)
             await client.models.list()
-            return True
+            return True, ""
         except anthropic.APIError:
-            return False
+            return False, "Anthropic API error"
+        except Exception:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`",
+            )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
@@ -69,11 +76,11 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable."""
         target = (model_id or "").strip()
         if not target:
-            return False
+            return False, "Empty model ID"
 
         body = {
             "model": target,
@@ -87,9 +94,14 @@ class AnthropicProvider(Provider):
             # consume the stream to ensure the model is actually responsive
             async for _ in resp:
                 break
-            return True
+            return True, ""
         except anthropic.APIError:
-            return False
+            return False, f"Model '{model_id}' is not reachable or usable"
+        except Exception:
+            return (
+                False,
+                f"Unknown exception when connecting to model '{model_id}'",
+            )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.model import AnthropicChatModel

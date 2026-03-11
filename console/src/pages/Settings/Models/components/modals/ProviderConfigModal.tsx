@@ -94,16 +94,16 @@ export function ProviderConfigModal({
       return "https://<resource>.openai.azure.com/openai/v1";
     }
     if (provider.id === "anthropic") {
-      return "https://api.anthropic.com/v1";
+      return "https://api.anthropic.com";
     }
     if (provider.id === "openai") {
       return "https://api.openai.com/v1";
     }
     if (provider.id === "ollama") {
-      return "http://localhost:11434/v1";
+      return "http://localhost:11434";
     }
     if (provider.is_custom && effectiveChatModel === "AnthropicChatModel") {
-      return "https://api.anthropic.com/v1";
+      return "https://api.anthropic.com";
     }
     return "https://api.example.com";
   }, [canEditBaseUrl, provider.id, provider.is_custom, effectiveChatModel]);
