@@ -8,10 +8,9 @@ on each get_info() call, similar to OllamaProvider."""
 from __future__ import annotations
 
 import logging
-from typing import List
 
 from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider import ModelInfo, ProviderInfo
+from copaw.providers.provider import ProviderInfo
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +19,12 @@ class LMStudioProvider(OpenAIProvider):
     """Provider for LM Studio's OpenAI-compatible local server."""
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
-        models: List[ModelInfo] = []
         try:
             models = await self.fetch_models(timeout=1)
             self.models = models
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("LM Studio model discovery failed: %s", exc)
+            models = self.models
         return ProviderInfo(
             id=self.id,
             name=self.name,
