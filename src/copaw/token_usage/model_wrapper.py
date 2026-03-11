@@ -55,7 +55,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
         if isinstance(result, AsyncGenerator):
             return self._wrap_stream(result)
-        self._record_usage(getattr(result, "usage", None))
+        await self._record_usage(getattr(result, "usage", None))
         return result
 
     async def _wrap_stream(
