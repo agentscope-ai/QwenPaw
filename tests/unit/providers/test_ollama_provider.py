@@ -175,8 +175,17 @@ async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
     assert msg == "Unknown exception when connecting to `qwen2:7b`"
 
 
-async def test_update_config_updates_only_non_none_values() -> None:
+async def test_update_config_updates_non_none_values_and_get_info(
+    monkeypatch,
+) -> None:
     provider = _make_provider()
+
+    async def fake_fetch_models(self, timeout: float = 5):
+        assert self is provider
+        assert timeout == 1
+        return [ModelInfo(id="qwen2:7b", name="Qwen2 7B")]
+
+    monkeypatch.setattr(OllamaProvider, "fetch_models", fake_fetch_models)
 
     provider.update_config(
         {
@@ -184,15 +193,98 @@ async def test_update_config_updates_only_non_none_values() -> None:
             "base_url": "http://127.0.0.1:11434",
             "api_key": "EMPTY-NEW",
             "chat_model": "OllamaChatModel",
-            "api_key_prefix": "",
+            "generate_kwargs": {"temperature": 0.3, "num_ctx": 4096},
         },
     )
+
+    info = await provider.get_info(mock_secret=False)
 
     assert provider.name == "Ollama Local"
     assert provider.base_url == "http://127.0.0.1:11434"
     assert provider.api_key == "EMPTY-NEW"
     assert provider.chat_model == "OllamaChatModel"
-    assert provider.api_key_prefix == ""
+    assert provider.generate_kwargs == {
+        "temperature": 0.3,
+        "num_ctx": 4096,
+    }
+    assert [model.id for model in provider.models] == ["qwen2:7b"]
+    assert info.name == "Ollama Local"
+    assert info.base_url == "http://127.0.0.1:11434"
+    assert info.api_key == "EMPTY-NEW"
+    assert info.chat_model == "OllamaChatModel"
+    assert info.generate_kwargs == {
+        "temperature": 0.3,
+        "num_ctx": 4096,
+    }
+    assert [model.id for model in info.models] == ["qwen2:7b"]
+
+
+async def test_update_config_skips_none_values_and_get_info(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"temperature": 0.1}
+
+    async def fake_fetch_models(self, timeout: float = 5):
+        assert self is provider
+        assert timeout == 1
+        return [ModelInfo(id="llama3:8b", name="llama3:8b")]
+
+    monkeypatch.setattr(OllamaProvider, "fetch_models", fake_fetch_models)
+
+    provider.update_config(
+        {
+            "name": None,
+            "base_url": None,
+            "api_key": None,
+            "chat_model": None,
+            "api_key_prefix": None,
+            "generate_kwargs": None,
+        },
+    )
+
+    info = await provider.get_info()
+
+    assert provider.name == "Ollama"
+    assert provider.base_url == "http://localhost:11434"
+    assert provider.api_key == "EMPTY"
+    assert provider.chat_model == "OllamaChatModel"
+    assert provider.generate_kwargs == {"temperature": 0.1}
+    assert [model.id for model in provider.models] == ["llama3:8b"]
+    assert info.name == "Ollama"
+    assert info.base_url == "http://localhost:11434"
+    assert info.api_key == "******"
+    assert info.chat_model == "OllamaChatModel"
+    assert info.generate_kwargs == {"temperature": 0.1}
+    assert [model.id for model in info.models] == ["llama3:8b"]
+
+
+async def test_update_config_keeps_chat_model_for_non_custom_provider(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    async def fake_fetch_models(self, timeout: float = 5):
+        assert self is provider
+        assert timeout == 1
+        return []
+
+    monkeypatch.setattr(OllamaProvider, "fetch_models", fake_fetch_models)
+
+    provider.update_config(
+        {
+            "chat_model": "AnotherChatModel",
+            "name": "Ollama Updated",
+        },
+    )
+
+    info = await provider.get_info(mock_secret=False)
+
+    assert provider.name == "Ollama Updated"
+    assert provider.chat_model == "OllamaChatModel"
+    assert info.name == "Ollama Updated"
+    assert info.chat_model == "OllamaChatModel"
+    assert info.api_key == "EMPTY"
 
 
 async def test_add_model_calls_pull(monkeypatch) -> None:

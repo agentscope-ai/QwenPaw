@@ -46,17 +46,15 @@ def _execute_subprocess_sync(
             cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            text=False,
             cwd=cwd,
             timeout=timeout,
-            encoding=locale.getpreferredencoding(False) or "utf-8",
-            errors="replace",
             check=True,
         )
         return (
             result.returncode,
-            result.stdout.strip("\n"),
-            result.stderr.strip("\n"),
+            smart_decode(result.stdout),
+            smart_decode(result.stderr),
         )
     except subprocess.TimeoutExpired:
         return (

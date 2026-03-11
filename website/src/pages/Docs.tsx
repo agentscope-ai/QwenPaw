@@ -41,7 +41,6 @@ import {
   ArrowUp,
   Copy,
   Check,
-  Monitor,
   type LucideIcon,
 } from "lucide-react";
 import { Nav } from "../components/Nav";
@@ -180,14 +179,13 @@ function parseFaqContent(md: string): { intro: string; items: FaqItem[] } {
 const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
   intro: Rocket,
   quickstart: Zap,
-  desktop: Monitor,
   console: Terminal,
   models: Cpu,
   channels: MessageSquare,
   skills: Wrench,
   mcp: Plug,
   memory: Brain,
-  compact: Archive,
+  context: Archive,
   commands: Command,
   heartbeat: Activity,
   config: Settings,
@@ -200,21 +198,14 @@ const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
 
 const DOC_SLUGS: DocEntry[] = [
   { slug: "intro", titleKey: "docs.intro" },
-  {
-    slug: "quickstart",
-    titleKey: "docs.quickstart",
-    children: [{ slug: "desktop", titleKey: "docs.desktop" }],
-  },
+  { slug: "quickstart", titleKey: "docs.quickstart" },
   { slug: "console", titleKey: "docs.console" },
   { slug: "models", titleKey: "docs.models" },
   { slug: "channels", titleKey: "docs.channels" },
   { slug: "skills", titleKey: "docs.skills" },
   { slug: "mcp", titleKey: "docs.mcp" },
-  {
-    slug: "memory",
-    titleKey: "docs.memory",
-    children: [{ slug: "compact", titleKey: "docs.compact" }],
-  },
+  { slug: "memory", titleKey: "docs.memory" },
+  { slug: "context", titleKey: "docs.context" },
   { slug: "commands", titleKey: "docs.commands" },
   { slug: "heartbeat", titleKey: "docs.heartbeat" },
   { slug: "config", titleKey: "docs.config" },
@@ -238,7 +229,6 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
   zh: {
     "docs.intro": "项目介绍",
     "docs.quickstart": "快速开始",
-    "docs.desktop": "桌面应用",
     "docs.console": "控制台",
     "docs.models": "模型",
     "docs.channels": "频道配置",
@@ -247,7 +237,7 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.skills": "Skills",
     "docs.mcp": "MCP",
     "docs.memory": "记忆",
-    "docs.compact": "压缩",
+    "docs.context": "上下文",
     "docs.config": "配置与工作目录",
     "docs.commands": "魔法命令",
     "docs.faq": "FAQ 常见问题",
@@ -258,7 +248,6 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
   en: {
     "docs.intro": "Introduction",
     "docs.quickstart": "Quick start",
-    "docs.desktop": "Desktop App",
     "docs.console": "Console",
     "docs.models": "Models",
     "docs.channels": "Channels",
@@ -267,7 +256,7 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.skills": "Skills",
     "docs.mcp": "MCP",
     "docs.memory": "Memory",
-    "docs.compact": "Compaction",
+    "docs.context": "Context",
     "docs.config": "Config & working dir",
     "docs.commands": "Magic commands",
     "docs.faq": "FAQ",

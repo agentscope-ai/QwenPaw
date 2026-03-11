@@ -273,12 +273,15 @@ copaw uninstall --purge  # 删除所有内容
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
-然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -288,15 +291,22 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 > ```bash
 > docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
->   -v copaw-data:/app/working agentscope/copaw:latest
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434` 或对应端口。
 >
 > **方式 B** — 使用宿主机网络（仅限 Linux）：
 > ```bash
-> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
+>
+> **提示：** 如果你只挂载了 `/app/working` 而没有单独挂载 `/app/working.secret`，入口脚本会自动将 secrets 重定向到 `/app/working/.secret`，使其也保存在同一个 volume 中。
 
 镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
@@ -360,6 +370,7 @@ copaw app # 启动服务
 | [Skills](https://copaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
 | [MCP](https://copaw.agentscope.io/docs/mcp)               | 管理 MCP 客户端                     |
 | [记忆](https://copaw.agentscope.io/docs/memory)           | 上下文管理与长期记忆                 |
+| [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
 | [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
@@ -434,7 +445,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **开发**（测试、格式化）：`pip install -e ".[dev]"`
+- **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
 - **然后**：运行 `copaw init --defaults`，再运行 `copaw app`。
 
 ---

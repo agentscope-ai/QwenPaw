@@ -33,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 MODELSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="Qwen/Qwen3-235B-A22B-Instruct-2507",
-        name="Qwen3-235B-A22B-Instruct-2507",
+        id="Qwen/Qwen3.5-122B-A10B",
+        name="Qwen3.5-122B-A10B",
     ),
-    ModelInfo(id="deepseek-ai/DeepSeek-V3.2", name="DeepSeek-V3.2"),
+    ModelInfo(id="ZhipuAI/GLM-5", name="GLM-5"),
 ]
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
@@ -525,6 +525,7 @@ class ProviderManager:
                 builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
+                builtin.generate_kwargs = provider.generate_kwargs
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

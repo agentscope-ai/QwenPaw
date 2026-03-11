@@ -12,6 +12,7 @@ import defaultConfig from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
 import { getApiUrl, getApiToken } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
+import ModelSelector from "./ModelSelector";
 import "./index.module.less";
 
 interface CustomWindow extends Window {
@@ -117,6 +118,7 @@ export default function ChatPage() {
       },
       theme: {
         ...optionsConfig.theme,
+        rightHeader: <ModelSelector />,
       },
       api: {
         ...optionsConfig.api,

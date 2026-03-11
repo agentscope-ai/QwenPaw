@@ -486,6 +486,33 @@ It is recommended to configure the following in `@BotFather`:
 
 ---
 
+## Mattermost
+
+The Mattermost channel uses WebSockets for real-time monitoring and REST APIs for replies. It supports both direct messages and group chats, using **Threads** to isolate conversation contexts in channels.
+
+### Get credentials
+
+1. Create a **Bot Account** in Mattermost (System Console → Integrations → Bot Accounts).
+2. Grant necessary permissions (e.g., `Post all`) and obtain the **Access Token**.
+3. Configure the **URL** and **Token** in the Console or `config.json`.
+
+### Core Config
+
+| Field                             | Description                                                               | Default  |
+| --------------------------------- | ------------------------------------------------------------------------- | -------- |
+| **url**                           | Full URL of your Mattermost instance                                      | -        |
+| **bot_token**                     | Bot Access Token                                                          | -        |
+| **show_typing**                   | Whether to show the "typing..." indicator                                 | `true`   |
+| **thread_follow_without_mention** | Whether to respond without @mention in threads the bot has already joined | `false`  |
+| **dm_policy**                     | DM policy: `open` (allow all) or `allowlist` (whitelist only)             | `"open"` |
+| **group_policy**                  | Group policy: `open` (allow all) or `allowlist` (whitelist only)          | `"open"` |
+| **allow_from**                    | List of allowed User IDs (effective if policy is `allowlist`)             | `[]`     |
+| **deny_message**                  | Automatic reply when access is denied by the whitelist                    | `""`     |
+
+> **Note**: The `session_id` for Mattermost is fixed as `mattermost_dm:{mm_channel_id}` for DMs and isolated by Thread ID for group chats. Recent history is automatically fetched as context supplement only upon the first trigger of a session.
+
+---
+
 ## MQTT
 
 ### About
@@ -550,18 +577,84 @@ JSON message format
 
 ---
 
+## Matrix
+
+The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio](https://github.com/poljar/matrix-nio) library. It supports text messaging in both direct messages and group rooms.
+
+### Create a Matrix bot account and get an access token
+
+1. Create a bot account on any Matrix homeserver (e.g. [matrix.org](https://matrix.org) — register at [app.element.io](https://app.element.io/#/register)).
+
+2. Get the bot's **access token**. The easiest way is via Element:
+
+   - Log in as the bot account at [app.element.io](https://app.element.io)
+   - Go to **Settings → Help & About → Advanced → Access Token**
+   - Copy the token (it starts with `syt_...`)
+
+   Alternatively, use the Matrix Client-Server API directly:
+
+   ```bash
+   curl -X POST "https://matrix.org/_matrix/client/v3/login" \
+     -H "Content-Type: application/json" \
+     -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
+   ```
+
+   The response includes `access_token`.
+
+3. Note your bot's **User ID** (format: `@username:homeserver`, e.g. `@mybot:matrix.org`) and the **Homeserver URL** (e.g. `https://matrix.org`).
+
+### Configure the channel
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Matrix**, enable it, and fill in:
+
+- **Homeserver URL** — e.g. `https://matrix.org`
+- **User ID** — e.g. `@mybot:matrix.org`
+- **Access Token** — the token you copied above (shown as a password field)
+
+**Method 2:** Edit `~/.copaw/config.json`
+
+Find `channels.matrix` in `config.json`:
+
+```json
+"matrix": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "homeserver": "https://matrix.org",
+  "user_id": "@mybot:matrix.org",
+  "access_token": "syt_..."
+}
+```
+
+Save the file; the channel will reload automatically if CoPaw is already running.
+
+### Chat with the bot
+
+Invite the bot to a room or send it a direct message from any Matrix client (e.g. Element). The bot listens for messages in all rooms it has joined.
+
+### Notes
+
+- The Matrix channel is **text-only** (no image/file attachments in the current version).
+- Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
+- For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+
+---
+
 ## Appendix
 
 ### Config overview
 
-| Channel  | Config key | Main fields                                                             |
-| -------- | ---------- | ----------------------------------------------------------------------- |
-| DingTalk | dingtalk   | client_id, client_secret                                                |
-| Feishu   | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
-| iMessage | imessage   | db_path, poll_sec (macOS only)                                          |
-| Discord  | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
-| QQ       | qq         | app_id, client_secret                                                   |
-| Telegram | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
+| Channel    | Config key | Main fields                                                             |
+| ---------- | ---------- | ----------------------------------------------------------------------- |
+| DingTalk   | dingtalk   | client_id, client_secret                                                |
+| Feishu     | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
+| iMessage   | imessage   | db_path, poll_sec (macOS only)                                          |
+| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
+| QQ         | qq         | app_id, client_secret                                                   |
+| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
+| Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
+| Matrix     | matrix     | homeserver, user_id, access_token                                       |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -572,14 +665,16 @@ video, audio, and file varies by channel.
 **✓** = supported. **🚧** = under construction (implementable but not yet
 done). **✗** = not supported (not possible on this channel).
 
-| Channel  | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
-| -------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
-| DingTalk | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Feishu   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Discord  | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| iMessage | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
-| QQ       | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| Telegram | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Channel    | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
+| ---------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
+| DingTalk   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
+| QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
+| Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 
 Notes:
 
@@ -595,6 +690,7 @@ Notes:
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
+- **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 
 ### Changing config via HTTP
 

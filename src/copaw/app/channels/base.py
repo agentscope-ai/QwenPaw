@@ -86,6 +86,7 @@ class BaseChannel(ABC):
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
+        require_mention: bool = False,
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
@@ -96,6 +97,7 @@ class BaseChannel(ABC):
         self.group_policy = group_policy or "open"
         self.allow_from = set(allow_from or [])
         self.deny_message = deny_message or ""
+        self.require_mention = require_mention
         self._enqueue: EnqueueCallback = None
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
@@ -271,6 +273,18 @@ class BaseChannel(ABC):
             "Sorry, you are not authorized to use this bot. "
             "Please contact the administrator to add your ID "
             f"to the allowlist. Your ID: {sender_id}"
+        )
+
+    def _check_group_mention(
+        self,
+        is_group: bool,
+        meta: dict,
+    ) -> bool:
+        """Return True if message should be processed under mention policy."""
+        if not is_group or not self.require_mention:
+            return True
+        return bool(
+            meta.get("bot_mentioned") or meta.get("has_bot_command"),
         )
 
     def set_enqueue(self, cb: EnqueueCallback) -> None:

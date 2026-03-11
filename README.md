@@ -271,12 +271,15 @@ Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable)
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 Also available on Alibaba Cloud Container Registry (ACR) for users in China: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw` (same tags).
 
-Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
+Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume; model provider settings and API keys are in the `copaw-secrets` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
 
 > **Connecting to Ollama or other services on the host machine**
 >
@@ -286,15 +289,22 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 > ```bash
 > docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
->   -v copaw-data:/app/working agentscope/copaw:latest
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > Then in CoPaw **Settings → Models → Ollama**, change the Base URL to `http://host.docker.internal:11434` or your corresponding port.
 >
 > **Option B** — Host networking (Linux only):
 > ```bash
-> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > No port mapping (`-p`) is needed; the container shares the host network directly. Note that all container ports are exposed on the host, which may cause conflicts if the port is already in use.
+>
+> **Note:** If you only mount `/app/working` without a separate volume for `/app/working.secret`, the entrypoint will automatically redirect secrets into `/app/working/.secret` so they persist on the same volume.
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
@@ -354,6 +364,7 @@ copaw app # start the server
 | [Skills](https://copaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [MCP](https://copaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Memory](https://copaw.agentscope.io/docs/memory)                     | Context and long-term memory                     |
+| [Context](https://copaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
 | [Config & working dir](https://copaw.agentscope.io/docs/config) | Working directory and config file                |
@@ -429,7 +440,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **Dev** (tests, formatting): `pip install -e ".[dev]"`
+- **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
 - **Then**: Run `copaw init --defaults`, then `copaw app`.
 
 ---

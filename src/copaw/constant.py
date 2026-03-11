@@ -153,3 +153,22 @@ DASHSCOPE_BASE_URL = EnvVarLoader.get_str(
 # Example: COPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.
 CORS_ORIGINS = EnvVarLoader.get_str("COPAW_CORS_ORIGINS", "").strip()
+
+# LLM API retry configuration
+LLM_MAX_RETRIES = EnvVarLoader.get_int(
+    "COPAW_LLM_MAX_RETRIES",
+    3,
+    min_value=0,
+)
+
+LLM_BACKOFF_BASE = EnvVarLoader.get_float(
+    "COPAW_LLM_BACKOFF_BASE",
+    1.0,
+    min_value=0.1,
+)
+
+LLM_BACKOFF_CAP = EnvVarLoader.get_float(
+    "COPAW_LLM_BACKOFF_CAP",
+    10.0,
+    min_value=0.5,
+)

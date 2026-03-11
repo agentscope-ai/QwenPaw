@@ -21,6 +21,7 @@ class BaseChannelConfig(BaseModel):
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
+    require_mention: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):
@@ -85,10 +86,28 @@ class MQTTConfig(BaseChannelConfig):
     tls_keyfile: Optional[str] = None
 
 
+class MattermostConfig(BaseChannelConfig):
+    """Mattermost channel: WebSocket polling and REST API."""
+
+    url: str = ""
+    bot_token: str = ""
+    media_dir: str = "~/.copaw/media/mattermost"
+    show_typing: Optional[bool] = None
+    thread_follow_without_mention: bool = False
+
+
 class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
+
+
+class MatrixConfig(BaseChannelConfig):
+    """Matrix channel configuration."""
+
+    homeserver: str = ""
+    user_id: str = ""
+    access_token: str = ""
 
 
 class VoiceChannelConfig(BaseChannelConfig):
@@ -116,8 +135,10 @@ class ChannelConfig(BaseModel):
     feishu: FeishuConfig = FeishuConfig()
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
+    mattermost: MattermostConfig = MattermostConfig()
     mqtt: MQTTConfig = MQTTConfig()
     console: ConsoleConfig = ConsoleConfig()
+    matrix: MatrixConfig = MatrixConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
 
 
@@ -434,6 +455,7 @@ ChannelConfigUnion = Union[
     FeishuConfig,
     QQConfig,
     TelegramConfig,
+    MattermostConfig,
     MQTTConfig,
     ConsoleConfig,
     VoiceChannelConfig,

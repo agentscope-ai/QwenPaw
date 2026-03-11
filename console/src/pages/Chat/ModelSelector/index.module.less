@@ -1,0 +1,176 @@
+/* ---- Trigger button ---- */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+  //   border: 1px solid rgba(0, 0, 0, 0.08);
+  //   background: #fff;
+  transition: all 0.15s ease;
+  user-select: none;
+  max-width: 260px;
+
+  &:hover,
+  &.triggerActive {
+    border-color: #615ced;
+    color: #615ced;
+    box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
+  }
+}
+
+.triggerName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.triggerArrow {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #999;
+  transition:
+    transform 0.2s,
+    color 0.15s;
+
+  &.triggerArrowOpen {
+    transform: rotate(180deg);
+    color: #615ced;
+  }
+}
+
+/* ---- Level-1 panel ---- */
+.panel {
+  min-width: 180px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: 4px 0;
+  overflow: visible;
+}
+
+.providerItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  transition: background 0.12s;
+  gap: 8px;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #615ced;
+  }
+
+  &:hover :global(.modelSubmenu) {
+    display: block;
+  }
+
+  &:first-child {
+    border-radius: 8px 8px 0 0;
+  }
+
+  &:last-child {
+    border-radius: 0 0 8px 8px;
+  }
+
+  &.providerItemActive {
+    font-weight: 600;
+  }
+}
+
+.providerName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providerArrow {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: #bbb;
+}
+
+/* ---- Level-2 submenu ---- */
+.submenu {
+  display: none;
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  margin-left: 2px;
+  min-width: 200px;
+  max-height: 360px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: 4px 0;
+  z-index: 1100;
+}
+
+.modelItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  transition: background 0.12s;
+  gap: 8px;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.06);
+    color: #615ced;
+  }
+
+  &:first-child {
+    border-radius: 8px 8px 0 0;
+  }
+
+  &:last-child {
+    border-radius: 0 0 8px 8px;
+  }
+
+  &.modelItemActive {
+    background: rgba(97, 92, 237, 0.08);
+    color: #615ced;
+    font-weight: 500;
+  }
+}
+
+.modelName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.checkIcon {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #615ced;
+}
+
+.emptyTip {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #bbb;
+}
+
+.spinWrapper {
+  padding: 14px 16px;
+  text-align: center;
+}

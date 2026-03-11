@@ -1,0 +1,260 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+  pull_request:
+    branches: [main, master, dev, develop]
+  workflow_dispatch:
+
+jobs:
+  approval-gate:
+    name: Maintainer Approval
+    runs-on: ubuntu-latest
+    environment: maintainer-approved
+    steps:
+      - name: Approval granted
+        run: echo "Approved by maintainer"
+
+  discover-unit-test-dirs:
+    name: Discover Unit Test Directories
+    needs: approval-gate
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover unit test subdirectories
+        id: set-matrix
+        shell: bash
+        run: |
+          cd tests/unit
+          dirs=$(find . -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1]')
+          echo "matrix=$dirs" >> "$GITHUB_OUTPUT"
+          echo "Found unit test directories: $dirs"
+
+  unit-tests:
+    name: Unit Tests - ${{ matrix.subdir }} - py${{ matrix.python-version }} - ${{ matrix.os }}
+    needs: [approval-gate, discover-unit-test-dirs]
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success' &&
+      needs.discover-unit-test-dirs.result == 'success' &&
+      needs.discover-unit-test-dirs.outputs.matrix != '[]'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        subdir: ${{ fromJson(needs.discover-unit-test-dirs.outputs.matrix) }}
+        python-version: ["3.10", "3.13"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/copaw/console/*
+          mkdir -p src/copaw/console
+          cp -R console/dist/* src/copaw/console/
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            pip install -e ".[dev,local,ollama]"
+            pip install 'mlx-lm>=0.10.0' || echo "mlx-lm install skipped"
+            pip install --only-binary=llama-cpp-python 'llama-cpp-python>=0.3.0' || \
+              echo "⚠️ llama-cpp-python prebuilt wheel not available, skipping"
+          else
+            pip install -e ".[dev,full]"
+          fi
+
+      - name: Run unit tests for ${{ matrix.subdir }}
+        shell: bash
+        run: |
+          pytest tests/unit/${{ matrix.subdir }} -v
+
+  integrated-tests:
+    name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    needs: approval-gate
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/copaw/console/*
+          mkdir -p src/copaw/console
+          cp -R console/dist/* src/copaw/console/
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            pip install -e ".[dev,local,ollama]"
+            pip install 'mlx-lm>=0.10.0' || echo "mlx-lm install skipped"
+            pip install --only-binary=llama-cpp-python 'llama-cpp-python>=0.3.0' || \
+              echo "⚠️ llama-cpp-python prebuilt wheel not available, skipping"
+          else
+            pip install -e ".[dev,full]"
+          fi
+
+      - name: Check if integrated tests exist
+        id: check-integrated
+        shell: bash
+        run: |
+          if [ -d "tests/integrated" ] && compgen -G "tests/integrated/*.py" > /dev/null; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run integrated tests
+        if: steps.check-integrated.outputs.has_tests == 'true'
+        shell: bash
+        run: |
+          pytest tests/integrated -v
+
+  coverage-report:
+    name: Coverage Report
+    needs: approval-gate
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/copaw/console/*
+          mkdir -p src/copaw/console
+          cp -R console/dist/* src/copaw/console/
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,full]"
+
+      - name: Run all tests with coverage
+        shell: bash
+        run: |
+          pytest tests/ \
+            -v \
+            --cov=src/copaw \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-report=html
+
+      - name: Generate coverage comment on PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: orgoro/coverage@v3.2
+        with:
+          coverageFile: coverage.xml
+          token: ${{ github.token }}
+          thresholdAll: 0.0
+          thresholdNew: 0.0
+          thresholdModified: 0.0
+
+  test-summary:
+    name: Test Summary
+    needs: [approval-gate, unit-tests, integrated-tests, coverage-report]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        shell: bash
+        run: |
+          echo "Approval gate: ${{ needs.approval-gate.result }}"
+          echo "Unit tests: ${{ needs.unit-tests.result }}"
+          echo "Integrated tests: ${{ needs.integrated-tests.result }}"
+
+          if [ "${{ needs.approval-gate.result }}" != "success" ]; then
+            echo "❌ Approval not granted"
+            exit 1
+          fi
+
+          if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
+             [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
+            echo "❌ Some tests failed"
+            exit 1
+          else
+            echo "✅ All tests passed"
+          fi
