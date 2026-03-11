@@ -198,7 +198,11 @@ const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
 
 const DOC_SLUGS: DocEntry[] = [
   { slug: "intro", titleKey: "docs.intro" },
-  { slug: "quickstart", titleKey: "docs.quickstart" },
+  {
+    slug: "quickstart",
+    titleKey: "docs.quickstart",
+    children: [{ slug: "desktop", titleKey: "docs.desktop" }],
+  },
   { slug: "console", titleKey: "docs.console" },
   { slug: "models", titleKey: "docs.models" },
   { slug: "channels", titleKey: "docs.channels" },
