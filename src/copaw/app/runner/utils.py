@@ -15,7 +15,10 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 from agentscope_runtime.engine.helpers.agent_api_builder import ResponseBuilder
 
-from ...agents.utils.file_handling import is_media_file_url, load_media_as_base64
+from ...agents.utils.file_handling import (
+    is_media_file_url,
+    load_media_as_base64,
+)
 from ...config import load_config
 
 logger = logging.getLogger(__name__)
