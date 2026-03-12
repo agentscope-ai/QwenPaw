@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Dict, List, Type, Any
+from typing import TYPE_CHECKING, Dict, List, Literal, Type, Any
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
@@ -95,6 +95,17 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
     )
+    headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Custom HTTP headers sent with every API request.",
+    )
+    wire_api: Literal["chat_completions", "responses"] = Field(
+        default="chat_completions",
+        description=(
+            "Which OpenAI wire format to use: "
+            "'chat_completions' (default) or 'responses'."
+        ),
+    )
 
 
 class Provider(ProviderInfo, ABC):
@@ -179,6 +190,18 @@ class Provider(ProviderInfo, ABC):
                 else ModelInfo.model_validate(model)
                 for model in config["extra_models"]
             ]
+        if "headers" in config and config["headers"] is not None:
+            if not isinstance(config["headers"], dict):
+                raise ValueError("headers must be a dict[str, str]")
+            self.headers = config["headers"]
+        if "wire_api" in config and config["wire_api"] is not None:
+            valid = ("chat_completions", "responses")
+            if config["wire_api"] not in valid:
+                raise ValueError(
+                    f"wire_api must be one of {valid}, "
+                    f"got {config['wire_api']!r}",
+                )
+            self.wire_api = config["wire_api"]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -221,12 +244,24 @@ class Provider(ProviderInfo, ABC):
 
         return ProbeResult()
 
+    @staticmethod
+    def mask_header_value(value: str) -> str:
+        """Mask a header value for safe display."""
+        if len(value) <= 4:
+            return "*" * len(value)
+        return f"{value[:2]}***{value[-2:]}"
+
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""
         api_key = (
             self.api_key_prefix + "*" * 6
             if mock_secret and self.api_key
             else self.api_key
+        )
+        masked_headers = (
+            {k: self.mask_header_value(v) for k, v in self.headers.items()}
+            if mock_secret
+            else dict(self.headers)
         )
         return ProviderInfo(
             id=self.id,
@@ -246,4 +281,6 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            headers=masked_headers,
+            wire_api=self.wire_api,
         )

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI commands for managing LLM providers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -81,6 +82,26 @@ def _mask_api_key(api_key: str) -> str:
     if len(api_key) <= 8:
         return "*" * len(api_key)
     return f"{api_key[:4]}...{api_key[-2:]}"
+
+
+def _mask_header_value(value: str) -> str:
+    """Mask a header value for safe display."""
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{value[:2]}***{value[-2:]}"
+
+
+def _parse_header_pairs(raw: tuple[str, ...]) -> dict[str, str]:
+    """Parse ``KEY=VALUE`` pairs into a dict."""
+    out: dict[str, str] = {}
+    for item in raw:
+        if "=" not in item:
+            raise click.BadParameter(
+                f"Header must be KEY=VALUE, got: {item!r}",
+            )
+        key, _, value = item.partition("=")
+        out[key.strip()] = value.strip()
+    return out
 
 
 def _is_configured(provider: Provider) -> bool:
@@ -479,9 +500,7 @@ def list_cmd() -> None:
         tag = (
             " [custom]"
             if defn.is_custom
-            else " [local]"
-            if defn.is_local
-            else ""
+            else " [local]" if defn.is_local else ""
         )
         click.echo(f"\n{'─' * 44}")
         click.echo(f"  {defn.name} ({defn.id}){tag}")
@@ -516,6 +535,15 @@ def list_cmd() -> None:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
 
+            if defn.wire_api and defn.wire_api != "chat_completions":
+                click.echo(f"  {'wire_api':16s}: {defn.wire_api}")
+            if defn.headers:
+                click.echo(f"  {'headers':16s}:")
+                for hk, hv in defn.headers.items():
+                    click.echo(
+                        f"    {hk}: {_mask_header_value(hv)}",
+                    )
+
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")
     click.echo(f"{'═' * 44}")
@@ -536,9 +564,64 @@ def config_cmd() -> None:
 
 @models_group.command("config-key")
 @click.argument("provider_id", required=False, default=None)
-def config_key_cmd(provider_id: str | None) -> None:
-    """Configure a provider's API key."""
-    configure_provider_api_key_interactive(provider_id)
+@click.option(
+    "--wire-api",
+    type=click.Choice(["chat_completions", "responses"]),
+    default=None,
+    help="Wire format for OpenAI-compatible providers.",
+)
+@click.option(
+    "--header",
+    multiple=True,
+    help="Custom header as KEY=VALUE (repeatable).",
+)
+@click.option(
+    "--clear-headers",
+    is_flag=True,
+    default=False,
+    help="Remove all custom headers.",
+)
+def config_key_cmd(
+    provider_id: str | None,
+    wire_api: str | None,
+    header: tuple[str, ...],
+    clear_headers: bool,
+) -> None:
+    """Configure a provider's API key (and optionally wire_api / headers)."""
+    pid = configure_provider_api_key_interactive(provider_id)
+
+    manager = _manager()
+    config: dict = {}
+
+    if wire_api is not None:
+        config["wire_api"] = wire_api
+
+    if clear_headers:
+        config["headers"] = {}
+    elif header:
+        config["headers"] = _parse_header_pairs(header)
+
+    if config:
+        try:
+            ok = manager.update_provider(pid, config)
+        except ValueError as exc:
+            click.echo(click.style(f"Error: {exc}", fg="red"))
+            raise SystemExit(1) from exc
+        if not ok:
+            click.echo(
+                click.style(
+                    f"Error: provider '{pid}' not found.",
+                    fg="red",
+                ),
+            )
+            raise SystemExit(1)
+        if wire_api:
+            click.echo(f"  wire_api: {wire_api}")
+        if "headers" in config:
+            n = len(config["headers"])
+            click.echo(
+                f"  headers: {'cleared' if clear_headers else f'{n} set'}",
+            )
 
 
 @models_group.command("set-llm")
@@ -552,13 +635,27 @@ def set_llm_cmd() -> None:
 @click.option("--name", "-n", required=True, help="Human-readable name")
 @click.option("--base-url", "-u", default="", help="Default API base URL")
 @click.option("--api-key-prefix", default="", help="Expected API key prefix")
+@click.option(
+    "--wire-api",
+    type=click.Choice(["chat_completions", "responses"]),
+    default="chat_completions",
+    help="Wire format for OpenAI-compatible providers.",
+)
+@click.option(
+    "--header",
+    multiple=True,
+    help="Custom header as KEY=VALUE (repeatable).",
+)
 def add_provider_cmd(
     provider_id: str,
     name: str,
     base_url: str,
     api_key_prefix: str,
+    wire_api: str,
+    header: tuple[str, ...],
 ) -> None:
     """Add a new custom provider."""
+    headers = _parse_header_pairs(header) if header else {}
     manager = _manager()
     try:
         provider_info = asyncio.run(
@@ -570,6 +667,8 @@ def add_provider_cmd(
                     api_key_prefix=api_key_prefix,
                     is_custom=True,
                     chat_model="OpenAIChatModel",
+                    wire_api=wire_api,
+                    headers=headers,
                 ),
             ),
         )
@@ -584,6 +683,10 @@ def add_provider_cmd(
         click.echo(f"  requested id: {provider_id}")
     if base_url:
         click.echo(f"  base_url: {base_url}")
+    if wire_api != "chat_completions":
+        click.echo(f"  wire_api: {wire_api}")
+    if headers:
+        click.echo(f"  headers: {len(headers)} set")
     click.echo(
         "  Run 'copaw models add-model' to add models, "
         "then 'copaw models config-key' to set the API key.",
