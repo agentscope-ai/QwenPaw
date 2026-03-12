@@ -36,11 +36,8 @@ def test_resolve_session_id_group(feishu_channel):
     
     session_id = feishu_channel.resolve_session_id(sender_id, meta)
     
-    # Should use chat_id for group, not sender_id
-    # session_id logic might truncate to last N chars (e.g. 8)
-    assert "76543210" in session_id or "oc_" in session_id
-    # Ensure session_id is not empty
-    assert len(session_id) > 0
+    # For group chat, session_id is derived from chat_id.
+    assert session_id == "76543210"
 
 def test_build_agent_request_from_native(feishu_channel):
     """Test building AgentRequest from native payload."""
