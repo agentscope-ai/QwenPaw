@@ -76,10 +76,10 @@ irm https://copaw.agentscope.io/install.ps1 | iex
 
 ```bash
 # 安装指定版本
-curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 0.0.2
 
 # 从源码安装（开发/测试用）
-curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --from-source
+curl -fsSL ... | bash -s -- --from-source
 
 # 安装本地模型支持（详见本地模型文档）
 bash install.sh --extras llamacpp    # llama.cpp（跨平台）
