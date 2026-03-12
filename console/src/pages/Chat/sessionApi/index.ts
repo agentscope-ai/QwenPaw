@@ -22,6 +22,7 @@ const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 // const CARD_REQUEST = "AgentScopeRuntimeRequestCard";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+const CHAT_HISTORY_PAGE_SIZE = 80;
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -463,6 +464,62 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.createEmptySession(sessionId);
   }
 
+  private async getAllChatMessages(chatId: string): Promise<Message[]> {
+    const allMessages: Message[] = [];
+    let offset = 0;
+
+    while (true) {
+      const chatHistory = await api.getChat(chatId, {
+        offset,
+        limit: CHAT_HISTORY_PAGE_SIZE,
+      });
+      const pageMessages = chatHistory.messages || [];
+
+      allMessages.push(...pageMessages);
+
+      const hasMoreByFlag = chatHistory.has_more === true;
+      const hasMoreByTotal =
+        typeof chatHistory.total === "number"
+          ? offset + pageMessages.length < chatHistory.total
+          : false;
+      const hasMore = hasMoreByFlag || hasMoreByTotal;
+
+      if (!hasMore || pageMessages.length === 0) {
+        break;
+      }
+      offset += pageMessages.length;
+    }
+
+    return allMessages;
+  }
+
+  private async getCompleteChatData(chatId: string): Promise<{
+    messages: Message[];
+    status: ExtendedSession["status"];
+  }> {
+    const firstPage = await api.getChat(chatId, {
+      offset: 0,
+      limit: CHAT_HISTORY_PAGE_SIZE,
+    });
+    const firstMessages = firstPage.messages || [];
+
+    const hasMoreByFlag = firstPage.has_more === true;
+    const hasMoreByTotal =
+      typeof firstPage.total === "number"
+        ? firstMessages.length < firstPage.total
+        : false;
+
+    const messages =
+      hasMoreByFlag || hasMoreByTotal
+        ? await this.getAllChatMessages(chatId)
+        : firstMessages;
+
+    return {
+      messages,
+      status: firstPage.status ?? "idle",
+    };
+  }
+
   /**
    * Returns the real backend UUID for a session identified by id (which may be
    * a local timestamp). Returns null when not yet resolved or not found.
@@ -578,8 +635,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       // If realId is already resolved, use it directly to fetch history.
       if (fromList?.realId) {
-        const chatHistory = await api.getChat(fromList.realId);
-        const remoteMessages = convertMessages(chatHistory.messages || []);
+        const { messages, status } = await this.getCompleteChatData(
+          fromList.realId,
+        );
+        const remoteMessages = convertMessages(messages);
 
         if (shouldPreferLocalMessages(fromList.messages, remoteMessages)) {
           this.updateWindowVariables(fromList);
@@ -595,7 +654,46 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: remoteMessages,
           meta: fromList.meta || {},
           realId: fromList.realId,
-          status: chatHistory.status ?? "idle",
+          status,
+        };
+        this.cacheSession(session);
+        this.updateWindowVariables(session);
+        return session;
+      }
+
+      // Pure local session (not yet sent to backend): wait until updateSession
+      // resolves the realId, then fetch history with the real UUID.
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          const s = this.sessionList.find((x) => x.id === sessionId) as
+            | ExtendedSession
+            | undefined;
+          if (s?.realId) {
+            resolve();
+          } else {
+            setTimeout(check, 100);
+          }
+        };
+        setTimeout(check, 100);
+      });
+
+      const refreshed = this.sessionList.find((s) => s.id === sessionId) as
+        | ExtendedSession
+        | undefined;
+      if (refreshed?.realId) {
+        const { messages, status } = await this.getCompleteChatData(
+          refreshed.realId,
+        );
+        const session: ExtendedSession = {
+          id: sessionId,
+          name: refreshed.name || DEFAULT_SESSION_NAME,
+          sessionId: refreshed.sessionId || sessionId,
+          userId: refreshed.userId || DEFAULT_USER_ID,
+          channel: refreshed.channel || DEFAULT_CHANNEL,
+          messages: convertMessages(messages),
+          meta: refreshed.meta || {},
+          realId: refreshed.realId,
+          status,
         };
         this.cacheSession(session);
         this.updateWindowVariables(session);
@@ -623,8 +721,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return fromList;
     }
 
-    const chatHistory = await api.getChat(sessionId);
-    const remoteMessages = convertMessages(chatHistory.messages || []);
+    const { messages, status } = await this.getCompleteChatData(sessionId);
+    const remoteMessages = convertMessages(messages);
 
     if (
       fromList &&
@@ -642,7 +740,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       channel: fromList?.channel || DEFAULT_CHANNEL,
       messages: remoteMessages,
       meta: fromList?.meta || {},
-      status: chatHistory.status ?? "idle",
+      status,
     };
 
     this.cacheSession(session);
