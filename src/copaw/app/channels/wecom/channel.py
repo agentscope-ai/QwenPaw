@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""WeCom AI Bot Channel - Based on wecom-aibot-sdk.
+"""企业微信 AI Bot 频道 - 基于 wecom-aibot-sdk
 
-Uses official wecom-aibot-sdk to implement WeCom AI Bot integration:
-- Text/Image/Mixed/Voice/File message receiving
-- Streaming message replies (typewriter effect)
-- Welcome message on enter_chat event
-- Automatic heartbeat keepalive and reconnection
+使用官方 wecom-aibot-sdk 实现企业微信 AI Bot 集成：
+- 接收文本/图片/混合/语音/文件消息
+- 流式消息回复（打字机效果）
+- 进入会话时发送欢迎消息
+- 自动心跳保活和重连
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class WecomChannel(BaseChannel):
-    """WeCom AI Bot Channel."""
+    """企业微信 AI Bot 频道"""
 
     channel = "wecom"
 
@@ -46,12 +47,12 @@ class WecomChannel(BaseChannel):
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ):
-        """Initialize WeCom Channel.
+        """初始化企业微信频道
 
         Args:
-            config: WeCom configuration.
-            process: Message processing function.
-            on_reply_sent: Reply sent callback.
+            config: 企业微信配置
+            process: 消息处理函数
+            on_reply_sent: 回复发送回调
         """
         super().__init__(
             process=process,
@@ -70,13 +71,16 @@ class WecomChannel(BaseChannel):
         self.media_dir = Path(config.media_dir).expanduser()
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
-        # SDK client (created on connect)
+        # SDK 客户端（连接时创建）
         self.client: Optional[WSClient] = None
         self.running = False
         self.active_tasks: set[asyncio.Task] = set()
 
-        # Session locks for message queuing (session_id -> lock)
+        # 会话锁，用于消息排队（session_id -> lock）
+        # 保证同一会话的消息按顺序处理，不同会话可以并发
         self._session_locks: Dict[str, asyncio.Lock] = {}
+        # 记录锁的最后使用时间，用于清理
+        self._lock_last_used: Dict[str, float] = {}
 
     @classmethod
     def from_config(
@@ -88,7 +92,7 @@ class WecomChannel(BaseChannel):
         filter_tool_messages: bool = False,  # noqa: ARG003
         filter_thinking: bool = False,  # noqa: ARG003
     ) -> "WecomChannel":
-        """Create Channel instance from config."""
+        """从配置创建频道实例"""
         return cls(
             config=config,
             process=process,
@@ -101,7 +105,7 @@ class WecomChannel(BaseChannel):
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ) -> "WecomChannel":
-        """Create Channel instance from environment variables."""
+        """从环境变量创建频道实例"""
         config = WecomChannelConfig(
             enabled=True,
             bot_id=os.getenv("WECOM_BOT_ID", ""),
@@ -114,10 +118,10 @@ class WecomChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
         )
 
-    # -- Lifecycle -------------------------------------------------------
+    # -- 生命周期 -------------------------------------------------------
 
     async def start(self) -> None:
-        """Start Channel and establish WebSocket connection."""
+        """启动频道并建立 WebSocket 连接"""
         if self.running:
             logger.warning("WecomChannel is already running")
             return
@@ -134,7 +138,7 @@ class WecomChannel(BaseChannel):
             self.bot_id[:8],
         )
 
-        # Create SDK WSClient - handles WebSocket, heartbeat, reconnection
+        # 创建 SDK WSClient - 处理 WebSocket、心跳、重连
         self.client = WSClient(bot_id=self.bot_id, secret=self.secret)
         self._register_handlers()
 
@@ -146,7 +150,7 @@ class WecomChannel(BaseChannel):
             raise
 
     def _validate_credentials(self) -> None:
-        """Log warnings if credential lengths look suspicious."""
+        """验证凭证长度是否合理"""
         if len(self.bot_id) < 10:
             logger.warning(
                 "bot_id length looks suspicious (%d chars), check config",
@@ -159,17 +163,18 @@ class WecomChannel(BaseChannel):
             )
 
     async def stop(self) -> None:
-        """Stop Channel and close WebSocket connection."""
+        """停止频道并关闭 WebSocket 连接"""
         if not self.running:
             return
 
         logger.info("Stopping WeCom Channel")
         self.running = False
 
-        # Clear session locks
+        # 清理会话锁
         self._session_locks.clear()
+        self._lock_last_used.clear()
 
-        # Cancel and wait for active tasks
+        # 取消并等待活跃任务
         if self.active_tasks:
             for task in self.active_tasks:
                 if not task.done():
@@ -183,14 +188,14 @@ class WecomChannel(BaseChannel):
 
         logger.info("WeCom Channel stopped")
 
-    # -- SDK Event Registration ------------------------------------------
+    # -- SDK 事件注册 ------------------------------------------
 
     def _register_handlers(self) -> None:
-        """Register all SDK event handlers via client.on()."""
+        """注册所有 SDK 事件处理器"""
         if not self.client:
             return
 
-        # Connection status events
+        # 连接状态事件
         self.client.on(
             "connected",
             lambda: logger.info("[WeCom] WebSocket connected"),
@@ -216,14 +221,14 @@ class WecomChannel(BaseChannel):
             lambda err: logger.error("[WeCom] Error: %s", err),
         )
 
-        # Message events
+        # 消息事件
         self.client.on("message.text", self._on_text)
         self.client.on("message.image", self._on_image)
         self.client.on("message.mixed", self._on_mixed)
         self.client.on("message.voice", self._on_voice)
         self.client.on("message.file", self._on_file)
 
-        # Event callbacks
+        # 事件回调
         self.client.on("event.enter_chat", self._on_enter_chat)
         self.client.on(
             "event.template_card_event",
@@ -231,34 +236,34 @@ class WecomChannel(BaseChannel):
         )
         self.client.on("event.feedback_event", self._on_feedback_event)
 
-    # -- Message Event Callbacks (sync, delegate to async handlers) ------
+    # -- 消息事件回调（同步，委托给异步处理器） ------
 
     def _on_text(self, frame: WsFrame) -> None:
-        """Text message callback."""
+        """文本消息回调"""
         self._spawn(handlers.handle_text(self, frame))
 
     def _on_image(self, frame: WsFrame) -> None:
-        """Image message callback."""
+        """图片消息回调"""
         self._spawn(handlers.handle_image(self, frame))
 
     def _on_mixed(self, frame: WsFrame) -> None:
-        """Mixed message callback."""
+        """混合消息回调"""
         self._spawn(handlers.handle_mixed(self, frame))
 
     def _on_voice(self, frame: WsFrame) -> None:
-        """Voice message callback."""
+        """语音消息回调"""
         self._spawn(handlers.handle_voice(self, frame))
 
     def _on_file(self, frame: WsFrame) -> None:
-        """File message callback."""
+        """文件消息回调"""
         self._spawn(handlers.handle_file(self, frame))
 
     def _on_enter_chat(self, frame: WsFrame) -> None:
-        """Enter chat event, send welcome message."""
+        """进入会话事件，发送欢迎���息"""
         self._spawn(handlers.send_welcome(self, frame))
 
     def _on_template_card_event(self, frame: WsFrame) -> None:
-        """Template card interaction event."""
+        """模板卡片交互事件"""
         body = frame.get("body", {})
         event = body.get("event", {})
         logger.info(
@@ -267,7 +272,7 @@ class WecomChannel(BaseChannel):
         )
 
     def _on_feedback_event(self, frame: WsFrame) -> None:
-        """User feedback event."""
+        """用户反馈事件"""
         body = frame.get("body", {})
         event = body.get("event", {})
         logger.info(
@@ -275,26 +280,30 @@ class WecomChannel(BaseChannel):
             event.get("eventtype"),
         )
 
-    # -- Async Task Management -------------------------------------------
+    # -- 异步任务管理 -------------------------------------------
 
     def _spawn(self, coro: Any) -> None:
-        """Create async task and track it (non-blocking)."""
+        """创建异步任务并跟踪（非阻塞）"""
         task = asyncio.create_task(coro)
         self.active_tasks.add(task)
         task.add_done_callback(self.active_tasks.discard)
 
-    # -- Message Dispatch ------------------------------------------------
+    # -- 消息分发 ------------------------------------------------
 
     async def dispatch_message(
         self,
         frame: WsFrame,
         content_parts: list,
     ) -> None:
-        """Build AgentRequest and process with session lock for queuing.
+        """构建 AgentRequest 并使用会话锁处理消息
+
+        使用每个会话独立的锁来保证同一用户的消息按顺序处理，
+        同时允许不同用户的消息并发处理。这种方式在保证消息
+        顺序的同时，保留了流式输出的上下文。
 
         Args:
-            frame: Raw WsFrame from SDK.
-            content_parts: List of content parts (text/image).
+            frame: SDK 原始 WsFrame
+            content_parts: 内容部分列表（文本/图片）
         """
         headers = frame.get("headers", {})
         req_id = headers.get("req_id", "")
@@ -305,37 +314,72 @@ class WecomChannel(BaseChannel):
         chatid = body.get("chatid") or user_id
         session_id = f"{self.channel}:{chatid}"
 
-        # Get or create lock for this session
+        # 获取或创建该会话的锁
         if session_id not in self._session_locks:
             self._session_locks[session_id] = asyncio.Lock()
         lock = self._session_locks[session_id]
 
-        # Acquire lock to ensure messages are processed sequentially
-        async with lock:
-            request = self.build_agent_request_from_user_content(
-                channel_id=self.channel,
-                sender_id=user_id,
-                session_id=session_id,
-                content_parts=content_parts,
+        try:
+            # 使用锁保证消息按顺序处理
+            async with lock:
+                # 更新最后使用时间
+                self._lock_last_used[session_id] = time.time()
+
+                request = self.build_agent_request_from_user_content(
+                    channel_id=self.channel,
+                    sender_id=user_id,
+                    session_id=session_id,
+                    content_parts=content_parts,
+                )
+
+                await stream.dispatch_with_timeout(self, request, frame, req_id)
+
+                # 定期清理旧锁（超过 100 个时）
+                if len(self._session_locks) > 100:
+                    self._cleanup_old_locks()
+
+        except Exception as exc:
+            logger.error(
+                "[WeCom] Error processing message from %s: %s",
+                user_id,
+                exc,
+                exc_info=True,
+            )
+            raise
+
+    def _cleanup_old_locks(self) -> None:
+        """清理 1 小时未使用的会话锁"""
+        now = time.time()
+        cutoff = now - 3600  # 1 小时
+        to_remove = [
+            sid
+            for sid, last_used in self._lock_last_used.items()
+            if last_used < cutoff
+        ]
+        for sid in to_remove:
+            self._session_locks.pop(sid, None)
+            self._lock_last_used.pop(sid, None)
+        if to_remove:
+            logger.debug(
+                "[WeCom] Cleaned up %d old session locks",
+                len(to_remove),
             )
 
-            await stream.dispatch_with_timeout(self, request, frame, req_id)
-
-    # -- Image Download --------------------------------------------------
+    # -- 图片下载 --------------------------------------------------
 
     async def download_image(
         self,
         url: str,
         aes_key: str,
     ) -> Optional[ImageContent]:
-        """Download and decrypt image using SDK, save locally.
+        """使用 SDK 下载并解密图片，保存到本地
 
         Args:
-            url: Image download URL.
-            aes_key: AES key for decryption.
+            url: 图片下载 URL
+            aes_key: AES 解密密钥
 
         Returns:
-            ImageContent with local file path, or None on failure.
+            包含本地文件路径的 ImageContent，失败返回 None
         """
         if not self.client:
             logger.error(
@@ -344,7 +388,7 @@ class WecomChannel(BaseChannel):
             return None
 
         try:
-            # SDK handles download + AES-256-CBC decryption
+            # SDK 处理下载 + AES-256-CBC 解密
             result = await self.client.download_file(url, aes_key)
             data: bytes = result["buffer"]
             return save_image_to_dir(data, self.media_dir)
@@ -356,7 +400,7 @@ class WecomChannel(BaseChannel):
             )
             return None
 
-    # -- Proactive Message Sending ---------------------------------------
+    # -- 主动消息发送 ---------------------------------------
 
     async def send(
         self,
@@ -364,12 +408,12 @@ class WecomChannel(BaseChannel):
         text: str,
         meta: Optional[Dict[str, Any]] = None,  # noqa: ARG002
     ) -> None:
-        """Proactively send Markdown message to specified session.
+        """主动发送 Markdown 消息到指定会话
 
         Args:
-            to_handle: Session identifier (userid or chatid).
-            text: Message text (supports Markdown).
-            meta: Metadata (not yet used).
+            to_handle: 会话标识符（userid 或 chatid）
+            text: 消息文本（支持 Markdown）
+            meta: 元数据（暂未使用）
         """
         if not self.client:
             logger.warning(
@@ -390,7 +434,7 @@ class WecomChannel(BaseChannel):
                 exc_info=True,
             )
 
-    # -- BaseChannel Abstract Method -------------------------------------
+    # -- BaseChannel 抽象方法 -------------------------------------
 
     async def consume_one(self, payload: Any) -> None:  # noqa: ARG002
-        """Not used - WeCom processes messages directly in handlers."""
+        """未使用 - WeCom 在 handler 中直接处理消息"""
