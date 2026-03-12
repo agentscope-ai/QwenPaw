@@ -21,8 +21,19 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (chatId: string) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`),
+  getChat: (chatId: string, params?: { offset?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (typeof params?.offset === "number") {
+      searchParams.append("offset", String(params.offset));
+    }
+    if (typeof params?.limit === "number") {
+      searchParams.append("limit", String(params.limit));
+    }
+    const query = searchParams.toString();
+    return request<ChatHistory>(
+      `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
+    );
+  },
 
   updateChat: (chatId: string, chat: Partial<ChatSpec>) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
@@ -54,8 +65,19 @@ export const sessionApi = {
     return request<Session[]>(`/chats${query ? `?${query}` : ""}`);
   },
 
-  getSession: (sessionId: string) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(sessionId)}`),
+  getSession: (sessionId: string, params?: { offset?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (typeof params?.offset === "number") {
+      searchParams.append("offset", String(params.offset));
+    }
+    if (typeof params?.limit === "number") {
+      searchParams.append("limit", String(params.limit));
+    }
+    const query = searchParams.toString();
+    return request<ChatHistory>(
+      `/chats/${encodeURIComponent(sessionId)}${query ? `?${query}` : ""}`,
+    );
+  },
 
   deleteSession: (sessionId: string) =>
     request<ChatDeleteResponse>(`/chats/${encodeURIComponent(sessionId)}`, {

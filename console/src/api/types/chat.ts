@@ -16,6 +16,10 @@ export interface Message {
 
 export interface ChatHistory {
   messages: Message[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  has_more?: boolean;
 }
 
 export interface ChatDeleteResponse {

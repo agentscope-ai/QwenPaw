@@ -5,6 +5,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import Message
 
 from copaw.app.runner.api import (
     _compact_chat_history_messages,
+    _paginate_chat_history_messages,
     _truncate_chat_history_messages,
 )
 
@@ -78,7 +79,7 @@ def test_truncate_chat_history_messages_keeps_small_plugin_output() -> None:
     assert output == "small output"
 
 
-def test_compact_chat_history_messages_filters_tool_trace_and_caps_count() -> None:
+def test_compact_chat_history_messages_filters_tool_trace_only() -> None:
     messages = []
     for i in range(120):
         messages.append(
@@ -111,10 +112,52 @@ def test_compact_chat_history_messages_filters_tool_trace_and_caps_count() -> No
             ),
         )
 
-    result = _compact_chat_history_messages(messages, max_history_messages=80)
+    result = _compact_chat_history_messages(messages)
 
-    assert len(result) == 80
+    assert len(result) == 120
     result_dump = [msg.model_dump() for msg in result]
     assert all(item["type"] != "plugin_call" for item in result_dump)
-    assert result_dump[0]["id"] == "a-40"
+    assert result_dump[0]["id"] == "a-0"
     assert result_dump[-1]["id"] == "a-119"
+
+
+def test_paginate_chat_history_messages_returns_stable_page_meta() -> None:
+    messages = [
+        Message.model_validate(
+            {
+                "id": f"m-{i}",
+                "role": "assistant",
+                "type": "message",
+                "content": [{"type": "text", "text": f"msg-{i}"}],
+            },
+        )
+        for i in range(10)
+    ]
+
+    page, total, has_more = _paginate_chat_history_messages(messages, offset=3, limit=4)
+    page_dump = [msg.model_dump() for msg in page]
+
+    assert total == 10
+    assert has_more is True
+    assert len(page_dump) == 4
+    assert page_dump[0]["id"] == "m-3"
+    assert page_dump[-1]["id"] == "m-6"
+
+
+def test_paginate_chat_history_messages_offset_overflow_returns_empty_page() -> None:
+    messages = [
+        Message.model_validate(
+            {
+                "id": "m-1",
+                "role": "assistant",
+                "type": "message",
+                "content": [{"type": "text", "text": "hello"}],
+            },
+        ),
+    ]
+
+    page, total, has_more = _paginate_chat_history_messages(messages, offset=5, limit=10)
+
+    assert page == []
+    assert total == 1
+    assert has_more is False

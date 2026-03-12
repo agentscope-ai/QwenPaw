@@ -18,6 +18,7 @@ const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 // const CARD_REQUEST = "AgentScopeRuntimeRequestCard";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+const CHAT_HISTORY_PAGE_SIZE = 80;
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -287,6 +288,35 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.createEmptySession(sessionId);
   }
 
+  private async getAllChatMessages(chatId: string): Promise<Message[]> {
+    const allMessages: Message[] = [];
+    let offset = 0;
+
+    while (true) {
+      const chatHistory = await api.getChat(chatId, {
+        offset,
+        limit: CHAT_HISTORY_PAGE_SIZE,
+      });
+      const pageMessages = chatHistory.messages || [];
+
+      allMessages.push(...pageMessages);
+
+      const hasMoreByFlag = chatHistory.has_more === true;
+      const hasMoreByTotal =
+        typeof chatHistory.total === "number"
+          ? offset + pageMessages.length < chatHistory.total
+          : false;
+      const hasMore = hasMoreByFlag || hasMoreByTotal;
+
+      if (!hasMore || pageMessages.length === 0) {
+        break;
+      }
+      offset += pageMessages.length;
+    }
+
+    return allMessages;
+  }
+
   /**
    * Returns the real backend UUID for a session identified by id (which may be
    * a local timestamp). Returns null when not yet resolved or not found.
@@ -359,14 +389,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       // If realId is already resolved, use it directly to fetch history.
       if (fromList?.realId) {
-        const chatHistory = await api.getChat(fromList.realId);
+        const messages = await this.getAllChatMessages(fromList.realId);
         const session: ExtendedSession = {
           id: sessionId,
           name: fromList.name || DEFAULT_SESSION_NAME,
           sessionId: fromList.sessionId || sessionId,
           userId: fromList.userId || DEFAULT_USER_ID,
           channel: fromList.channel || DEFAULT_CHANNEL,
-          messages: convertMessages(chatHistory.messages || []),
+          messages: convertMessages(messages),
           meta: fromList.meta || {},
           realId: fromList.realId,
         };
@@ -394,14 +424,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         | ExtendedSession
         | undefined;
       if (refreshed?.realId) {
-        const chatHistory = await api.getChat(refreshed.realId);
+        const messages = await this.getAllChatMessages(refreshed.realId);
         const session: ExtendedSession = {
           id: sessionId,
           name: refreshed.name || DEFAULT_SESSION_NAME,
           sessionId: refreshed.sessionId || sessionId,
           userId: refreshed.userId || DEFAULT_USER_ID,
           channel: refreshed.channel || DEFAULT_CHANNEL,
-          messages: convertMessages(chatHistory.messages || []),
+          messages: convertMessages(messages),
           meta: refreshed.meta || {},
           realId: refreshed.realId,
         };
@@ -425,14 +455,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | ExtendedSession
       | undefined;
 
-    const chatHistory = await api.getChat(sessionId);
+    const messages = await this.getAllChatMessages(sessionId);
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
       sessionId: fromList?.sessionId || sessionId,
       userId: fromList?.userId || DEFAULT_USER_ID,
       channel: fromList?.channel || DEFAULT_CHANNEL,
-      messages: convertMessages(chatHistory.messages || []),
+      messages: convertMessages(messages),
       meta: fromList?.meta || {},
     };
 

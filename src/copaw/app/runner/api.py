@@ -22,7 +22,6 @@ from .utils import agentscope_msg_to_message
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 _MAX_PLUGIN_OUTPUT_CHARS = 8000
-_MAX_HISTORY_MESSAGES = 80
 
 
 def _is_tool_trace_message(msg: Message) -> bool:
@@ -31,18 +30,24 @@ def _is_tool_trace_message(msg: Message) -> bool:
 
 def _compact_chat_history_messages(
     messages: list[Message],
-    max_history_messages: int = _MAX_HISTORY_MESSAGES,
 ) -> list[Message]:
-    """Reduce history payload size for UI stability.
+    """Hide low-value tool trace messages for chat history rendering."""
+    return [m for m in messages if not _is_tool_trace_message(m)]
 
-    Strategy:
-    1. Hide low-value tool trace messages.
-    2. Keep only the latest N messages for extremely long chats.
-    """
-    compacted = [m for m in messages if not _is_tool_trace_message(m)]
-    if len(compacted) <= max_history_messages:
-        return compacted
-    return compacted[-max_history_messages:]
+
+def _paginate_chat_history_messages(
+    messages: list[Message],
+    offset: int,
+    limit: int,
+) -> tuple[list[Message], int, bool]:
+    """Slice chat history into a stable page and provide pagination metadata."""
+    total = len(messages)
+    if offset >= total:
+        return [], total, False
+
+    page = messages[offset : offset + limit]
+    has_more = (offset + len(page)) < total
+    return page, total, has_more
 
 
 def _truncate_chat_history_messages(
@@ -212,6 +217,17 @@ async def batch_delete_chats(
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
+    offset: int = Query(
+        0,
+        ge=0,
+        description="History page offset (0-based)",
+    ),
+    limit: int = Query(
+        80,
+        ge=1,
+        le=500,
+        description="History page size",
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     session: SafeJSONSession = Depends(get_session),
 ):
@@ -249,7 +265,14 @@ async def get_chat(
     messages = agentscope_msg_to_message(memories)
     messages = _truncate_chat_history_messages(messages)
     messages = _compact_chat_history_messages(messages)
-    return ChatHistory(messages=messages)
+    page, total, has_more = _paginate_chat_history_messages(messages, offset, limit)
+    return ChatHistory(
+        messages=page,
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+    )
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)
