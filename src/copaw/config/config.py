@@ -21,6 +21,7 @@ class BaseChannelConfig(BaseModel):
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
+    require_mention: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):
@@ -85,10 +86,28 @@ class MQTTConfig(BaseChannelConfig):
     tls_keyfile: Optional[str] = None
 
 
+class MattermostConfig(BaseChannelConfig):
+    """Mattermost channel: WebSocket polling and REST API."""
+
+    url: str = ""
+    bot_token: str = ""
+    media_dir: str = "~/.copaw/media/mattermost"
+    show_typing: Optional[bool] = None
+    thread_follow_without_mention: bool = False
+
+
 class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
+
+
+class MatrixConfig(BaseChannelConfig):
+    """Matrix channel configuration."""
+
+    homeserver: str = ""
+    user_id: str = ""
+    access_token: str = ""
 
 
 class VoiceChannelConfig(BaseChannelConfig):
@@ -116,8 +135,10 @@ class ChannelConfig(BaseModel):
     feishu: FeishuConfig = FeishuConfig()
     qq: QQConfig = QQConfig()
     telegram: TelegramConfig = TelegramConfig()
+    mattermost: MattermostConfig = MattermostConfig()
     mqtt: MQTTConfig = MQTTConfig()
     console: ConsoleConfig = ConsoleConfig()
+    matrix: MatrixConfig = MatrixConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
 
 
@@ -171,14 +192,15 @@ class AgentsRunningConfig(BaseModel):
 
     memory_compact_ratio: float = Field(
         default=0.75,
-        ge=0.01,
-        le=0.99,
+        ge=0.3,
+        le=0.9,
         description="Ratio of memory to compact when memory is full",
     )
 
     memory_reserve_ratio: float = Field(
         default=0.1,
-        ge=0.01,
+        ge=0.05,
+        le=0.3,
         description="Ratio of memory to reserve when compact memory",
     )
 
@@ -190,6 +212,7 @@ class AgentsRunningConfig(BaseModel):
     tool_result_compact_keep_n: int = Field(
         default=5,
         ge=1,
+        le=10,
         description=(
             "Number of tool result messages to keep in memory when compacting"
         ),
@@ -244,7 +267,7 @@ class AgentsConfig(BaseModel):
     )
     language: str = Field(
         default="zh",
-        description="Language for agent MD files (en/zh)",
+        description="Language for agent MD files (zh/en/ru)",
     )
     installed_md_files_language: Optional[str] = Field(
         default=None,
@@ -410,8 +433,47 @@ class ToolsConfig(BaseModel):
                 enabled=True,
                 description="Get current date and time",
             ),
+            "get_token_usage": BuiltinToolConfig(
+                name="get_token_usage",
+                enabled=True,
+                description="Get llm token usage",
+            ),
         },
     )
+
+
+class ToolGuardRuleConfig(BaseModel):
+    """A single user-defined guard rule (stored in config.json)."""
+
+    id: str
+    tools: List[str] = Field(default_factory=list)
+    params: List[str] = Field(default_factory=list)
+    category: str = "command_injection"
+    severity: str = "HIGH"
+    patterns: List[str] = Field(default_factory=list)
+    exclude_patterns: List[str] = Field(default_factory=list)
+    description: str = ""
+    remediation: str = ""
+
+
+class ToolGuardConfig(BaseModel):
+    """Tool guard settings under ``security.tool_guard``.
+
+    ``guarded_tools``: ``None`` → use built-in default set; empty list → guard
+    nothing; non-empty list → guard only those tools.
+    """
+
+    enabled: bool = True
+    guarded_tools: Optional[List[str]] = None
+    denied_tools: List[str] = Field(default_factory=list)
+    custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
+    disabled_rules: List[str] = Field(default_factory=list)
+
+
+class SecurityConfig(BaseModel):
+    """Top-level ``security`` section in config.json."""
+
+    tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
 
 
 class Config(BaseModel):
@@ -423,7 +485,7 @@ class Config(BaseModel):
     last_api: LastApiConfig = LastApiConfig()
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     last_dispatch: Optional[LastDispatchConfig] = None
-    # When False, channel output hides tool call/result details (show "...").
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
     show_tool_details: bool = True
 
 
@@ -434,6 +496,7 @@ ChannelConfigUnion = Union[
     FeishuConfig,
     QQConfig,
     TelegramConfig,
+    MattermostConfig,
     MQTTConfig,
     ConsoleConfig,
     VoiceChannelConfig,

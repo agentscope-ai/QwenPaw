@@ -95,6 +95,7 @@ class DingTalkChannel(BaseChannel):
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
         filter_thinking: bool = False,
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -106,6 +107,7 @@ class DingTalkChannel(BaseChannel):
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.client_id = client_id
@@ -161,6 +163,7 @@ class DingTalkChannel(BaseChannel):
             group_policy=os.getenv("DINGTALK_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("DINGTALK_DENY_MESSAGE", ""),
+            require_mention=os.getenv("DINGTALK_REQUIRE_MENTION", "0") == "1",
         )
 
     @classmethod
@@ -188,6 +191,7 @@ class DingTalkChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             filter_thinking=filter_thinking,
+            require_mention=config.require_mention,
         )
 
     # ---------------------------
@@ -1291,6 +1295,9 @@ class DingTalkChannel(BaseChannel):
                     send_meta,
                     self.bot_prefix + (error_msg or ""),
                 )
+            return
+
+        if not self._check_group_mention(is_group, send_meta):
             return
 
         logger.info(

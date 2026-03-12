@@ -83,6 +83,11 @@ JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
 
+TOKEN_USAGE_FILE = EnvVarLoader.get_str(
+    "COPAW_TOKEN_USAGE_FILE",
+    "token_usage.json",
+)
+
 CONFIG_FILE = EnvVarLoader.get_str("COPAW_CONFIG_FILE", "config.json")
 
 HEARTBEAT_FILE = EnvVarLoader.get_str("COPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
@@ -153,3 +158,33 @@ DASHSCOPE_BASE_URL = EnvVarLoader.get_str(
 # Example: COPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.
 CORS_ORIGINS = EnvVarLoader.get_str("COPAW_CORS_ORIGINS", "").strip()
+
+# LLM API retry configuration
+LLM_MAX_RETRIES = EnvVarLoader.get_int(
+    "COPAW_LLM_MAX_RETRIES",
+    3,
+    min_value=0,
+)
+
+LLM_BACKOFF_BASE = EnvVarLoader.get_float(
+    "COPAW_LLM_BACKOFF_BASE",
+    1.0,
+    min_value=0.1,
+)
+
+LLM_BACKOFF_CAP = EnvVarLoader.get_float(
+    "COPAW_LLM_BACKOFF_CAP",
+    10.0,
+    min_value=0.5,
+)
+
+# Tool guard approval timeout (seconds).
+try:
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(
+        float(
+            os.environ.get("COPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS", "600"),
+        ),
+        1.0,
+    )
+except (TypeError, ValueError):
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0

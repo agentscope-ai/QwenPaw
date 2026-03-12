@@ -6,7 +6,9 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
+import webbrowser
 
 import click
 
@@ -16,6 +18,16 @@ try:
     import webview
 except ImportError:
     webview = None  # type: ignore[assignment]
+
+
+class WebViewAPI:
+    """API exposed to the webview for handling external links."""
+
+    def open_external_link(self, url: str) -> None:
+        """Open URL in system's default browser."""
+        if not url.startswith(("http://", "https://")):
+            return
+        webbrowser.open(url)
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -44,6 +56,27 @@ def _log_desktop(msg: str) -> None:
     """Print to stderr and flush (for desktop.log when launched from .app)."""
     print(msg, file=sys.stderr)
     sys.stderr.flush()
+
+
+def _stream_reader(in_stream, out_stream) -> None:
+    """Read from in_stream line by line and write to out_stream.
+
+    Used on Windows to prevent subprocess buffer blocking. Runs in a
+    background thread to continuously drain the subprocess output.
+    """
+    try:
+        for line in iter(in_stream.readline, ""):
+            if not line:
+                break
+            out_stream.write(line)
+            out_stream.flush()
+    except Exception:
+        pass
+    finally:
+        try:
+            in_stream.close()
+        except Exception:
+            pass
 
 
 @click.command("desktop")
@@ -81,13 +114,27 @@ def desktop_cmd(
 
     env = os.environ.copy()
     env[LOG_LEVEL_ENV] = log_level
+
+    if "SSL_CERT_FILE" in env:
+        cert_file = env["SSL_CERT_FILE"]
+        if os.path.exists(cert_file):
+            _log_desktop(f"[desktop] SSL certificate: {cert_file}")
+        else:
+            _log_desktop(
+                f"[desktop] WARNING: SSL_CERT_FILE set but not found: "
+                f"{cert_file}",
+            )
+    else:
+        _log_desktop("[desktop] WARNING: SSL_CERT_FILE not set")
+
+    is_windows = sys.platform == "win32"
     try:
         with subprocess.Popen(
             [
                 sys.executable,
                 "-m",
-                "uvicorn",
-                "copaw.app._app:app",
+                "copaw",
+                "app",
                 "--host",
                 host,
                 "--port",
@@ -96,26 +143,46 @@ def desktop_cmd(
                 log_level,
             ],
             stdin=subprocess.DEVNULL,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
+            stdout=subprocess.PIPE if is_windows else sys.stdout,
+            stderr=subprocess.PIPE if is_windows else sys.stderr,
             env=env,
+            bufsize=1,
+            universal_newlines=True,
         ) as proc:
+            if is_windows:
+                stdout_thread = threading.Thread(
+                    target=_stream_reader,
+                    args=(proc.stdout, sys.stdout),
+                    daemon=True,
+                )
+                stderr_thread = threading.Thread(
+                    target=_stream_reader,
+                    args=(proc.stderr, sys.stderr),
+                    daemon=True,
+                )
+                stdout_thread.start()
+                stderr_thread.start()
             _log_desktop("[desktop] Waiting for HTTP ready...")
             if _wait_for_http(host, port):
                 _log_desktop(
                     "[desktop] HTTP ready, creating webview window...",
                 )
+                api = WebViewAPI()
                 webview.create_window(
                     "CoPaw Desktop",
                     url,
                     width=1280,
                     height=800,
+                    text_select=True,
+                    js_api=api,
                 )
                 _log_desktop(
                     "[desktop] Calling webview.start() "
                     "(blocks until closed)...",
                 )
-                webview.start()  # blocks until user closes the window
+                webview.start(
+                    private_mode=False,
+                )  # blocks until user closes the window
                 _log_desktop(
                     "[desktop] webview.start() returned (window closed).",
                 )

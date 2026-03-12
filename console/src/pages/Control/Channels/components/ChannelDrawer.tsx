@@ -19,6 +19,8 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "dingtalk",
   "discord",
   "feishu",
+  "mattermost",
+  "matrix",
 ];
 
 interface ChannelDrawerProps {
@@ -44,6 +46,8 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
   qq: "https://copaw.agentscope.io/docs/channels/#QQ",
   telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
   mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
+  mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
+  matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
 };
 const twilioConsoleUrl = "https://console.twilio.com";
 
@@ -90,6 +94,14 @@ export function ChannelDrawer({
         />
       </Form.Item>
       <Form.Item
+        name="require_mention"
+        label={t("channels.requireMention")}
+        valuePropName="checked"
+        tooltip={t("channels.requireMentionTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+      <Form.Item
         name="allow_from"
         label={t("channels.allowFrom")}
         tooltip={t("channels.allowFromTooltip")}
@@ -107,6 +119,32 @@ export function ChannelDrawer({
   // Renders builtin channel-specific fields
   const renderBuiltinExtraFields = (key: ChannelKey) => {
     switch (key) {
+      case "matrix":
+        return (
+          <>
+            <Form.Item
+              name="homeserver"
+              label="Homeserver URL"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="https://matrix.org" />
+            </Form.Item>
+            <Form.Item
+              name="user_id"
+              label="User ID"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="@bot:matrix.org" />
+            </Form.Item>
+            <Form.Item
+              name="access_token"
+              label="Access Token"
+              rules={[{ required: true }]}
+            >
+              <Input.Password placeholder="syt_..." />
+            </Form.Item>
+          </>
+        );
       case "imessage":
         return (
           <>
@@ -310,6 +348,38 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="tls_keyfile" label="TLS Keyfile">
               <Input placeholder="Path to client private key file" />
+            </Form.Item>
+          </>
+        );
+      case "mattermost":
+        return (
+          <>
+            <Form.Item
+              name="url"
+              label="Mattermost URL"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="https://mattermost.example.com" />
+            </Form.Item>
+            <Form.Item name="bot_token" label="Bot Token">
+              <Input.Password placeholder="Mattermost bot token" />
+            </Form.Item>
+            <Form.Item name="media_dir" label="Media Dir">
+              <Input placeholder="~/.copaw/media/mattermost" />
+            </Form.Item>
+            <Form.Item
+              name="show_typing"
+              label="Show Typing"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="thread_follow_without_mention"
+              label="Thread Follow Without Mention"
+              valuePropName="checked"
+            >
+              <Switch />
             </Form.Item>
           </>
         );

@@ -11,6 +11,8 @@ from ...config import (
     ChannelConfig,
     ChannelConfigUnion,
     get_available_channels,
+    ToolGuardConfig,
+    ToolGuardRuleConfig,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.config import AgentsLLMRoutingConfig, HeartbeatConfig
@@ -245,3 +247,64 @@ async def put_agents_llm_routing(
     config.agents.llm_routing = body
     save_config(config)
     return body
+
+
+# ── Security / Tool Guard ────────────────────────────────────────────
+
+
+@router.get(
+    "/security/tool-guard",
+    response_model=ToolGuardConfig,
+    summary="Get tool guard settings",
+)
+async def get_tool_guard() -> ToolGuardConfig:
+    config = load_config()
+    return config.security.tool_guard
+
+
+@router.put(
+    "/security/tool-guard",
+    response_model=ToolGuardConfig,
+    summary="Update tool guard settings",
+)
+async def put_tool_guard(
+    body: ToolGuardConfig = Body(...),
+) -> ToolGuardConfig:
+    config = load_config()
+    config.security.tool_guard = body
+    save_config(config)
+
+    from ...security.tool_guard.engine import get_guard_engine
+
+    engine = get_guard_engine()
+    engine.enabled = body.enabled
+    engine.reload_rules()
+
+    return body
+
+
+@router.get(
+    "/security/tool-guard/builtin-rules",
+    response_model=List[ToolGuardRuleConfig],
+    summary="List built-in guard rules from YAML files",
+)
+async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
+    from ...security.tool_guard.guardians.rule_guardian import (
+        load_rules_from_directory,
+    )
+
+    rules = load_rules_from_directory()
+    return [
+        ToolGuardRuleConfig(
+            id=r.id,
+            tools=r.tools,
+            params=r.params,
+            category=r.category.value,
+            severity=r.severity.value,
+            patterns=r.patterns,
+            exclude_patterns=r.exclude_patterns,
+            description=r.description,
+            remediation=r.remediation,
+        )
+        for r in rules
+    ]

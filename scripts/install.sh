@@ -14,6 +14,25 @@ COPAW_BIN="$COPAW_HOME/bin"
 PYTHON_VERSION="3.12"
 COPAW_REPO="https://github.com/agentscope-ai/CoPaw.git"
 
+# New: Intelligent selection of PyPI source (automatically using Alibaba Cloud mirror for domestic users, and official source for overseas users)
+choose_pypi_mirror() {
+    # Test the connectivity of the official PyPI source (timeout 3 seconds, no output)
+    if curl -s --connect-timeout 3 https://pypi.org/simple/ > /dev/null 2>&1; then
+        echo "https://pypi.org/simple/"
+        info "Using official PyPI source (network is good)" >&2
+    else
+        echo "https://mirrors.aliyun.com/pypi/simple/"
+        info "Using Aliyun PyPI mirror (official source is unreachable)" >&2
+    fi
+}
+PYPI_MIRROR=$(choose_pypi_mirror)
+
+# New: Automatically clear old virtual environments and skip interactive prompts
+export UV_VENV_CLEAR=1
+
+
+
+
 VERSION=""
 FROM_SOURCE=false
 SOURCE_DIR=""
@@ -199,7 +218,7 @@ if [ "$FROM_SOURCE" = true ]; then
         info "Installing CoPaw from local source: $SOURCE_DIR"
         prepare_console "$SOURCE_DIR"
         info "Installing package from source..."
-        uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow
+        uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
         cleanup_console "$SOURCE_DIR"
     else
         info "Installing CoPaw from source (GitHub)..."
@@ -208,7 +227,7 @@ if [ "$FROM_SOURCE" = true ]; then
         git clone --depth 1 "$COPAW_REPO" "$CLONE_DIR"
         prepare_console "$CLONE_DIR"
         info "Installing package from source..."
-        uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow
+        uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
         # CLONE_DIR is cleaned up by trap; no need for cleanup_console
     fi
 else
@@ -218,7 +237,7 @@ else
     fi
 
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
-    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --quiet
+    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
 fi
 
 # Verify the CLI entry point exists

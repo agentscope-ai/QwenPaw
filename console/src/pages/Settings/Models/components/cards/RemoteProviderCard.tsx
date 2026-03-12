@@ -59,10 +59,18 @@ export function RemoteProviderCard({
 
   const totalCount = provider.models.length + provider.extra_models.length;
 
-  const isConfigured =
-    provider.is_local ||
-    (provider.is_custom && provider.base_url) ||
-    provider.api_key;
+  let isConfigured = false;
+
+  if (provider.is_local) {
+    isConfigured = true;
+  } else if (provider.is_custom && provider.base_url) {
+    isConfigured = true;
+  } else if (provider.require_api_key === false) {
+    isConfigured = true;
+  } else if (provider.require_api_key && provider.api_key) {
+    isConfigured = true;
+  }
+
   const hasModels = totalCount > 0;
   const isAvailable = isConfigured && hasModels;
 

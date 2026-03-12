@@ -252,6 +252,9 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             )
             # Extract sender_staff_id for DingTalk OpenAPI sending
             sender_staff_id = callback.data.get("senderStaffId") or ""
+            is_group = conversation_type == "group"
+            is_bot_mentioned = bool(raw_data.get("isInAtList"))
+
             loop = asyncio.get_running_loop()
             reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
@@ -260,7 +263,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 "reply_loop": loop,
                 "conversation_type": conversation_type,
                 "sender_staff_id": sender_staff_id,
+                "is_group": is_group,
             }
+            if is_bot_mentioned:
+                meta["bot_mentioned"] = True
             if conversation_id:
                 meta["conversation_id"] = conversation_id
             if raw_msg_id:
