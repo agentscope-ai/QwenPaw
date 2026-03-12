@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
-import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
@@ -28,14 +26,12 @@ from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
-from ...config import load_config, save_config
 from ...config.config import load_agent_config
 from ...constant import (
     LLM_MAX_RETRIES,
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
 )
-from ...providers.retry_chat_model import _is_retryable
 from ...security.tool_guard.approval import ApprovalDecision
 
 if TYPE_CHECKING:
@@ -43,61 +39,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_RETRYABLE_STATUS_PATTERN = re.compile(r"(?:error\s*code|status)\s*[:=]?\s*(\d{3})", re.IGNORECASE)
+_TRANSIENT_UPSTREAM_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
-def _iter_exception_chain(exc: BaseException) -> Iterable[BaseException]:
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
-        yield current
-        seen.add(id(current))
-        current = current.__cause__ or current.__context__
+def _extract_status_code(exc: Exception) -> int | None:
+    """Best-effort extraction of HTTP status code from provider exceptions."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status
 
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
 
-def _get_exception_status_code(exc: BaseException) -> int | None:
-    for current in _iter_exception_chain(exc):
-        status_code = getattr(current, "status_code", None)
-        if isinstance(status_code, int):
-            return status_code
     return None
 
 
-def _get_status_code_from_message(exc: BaseException) -> int | None:
-    for current in _iter_exception_chain(exc):
-        text = str(current)
-        match = _RETRYABLE_STATUS_PATTERN.search(text)
-        if match:
-            try:
-                return int(match.group(1))
-            except (TypeError, ValueError):
-                continue
-    return None
+def _is_transient_upstream_error(exc: Exception) -> bool:
+    """Whether an exception likely represents a transient model backend failure."""
+    status = _extract_status_code(exc)
+    if status in _TRANSIENT_UPSTREAM_STATUS_CODES:
+        return True
 
-
-def _build_retryable_error_msg(exc: Exception) -> Msg | None:
-    status_code = _get_exception_status_code(exc)
-    if status_code is None:
-        status_code = _get_status_code_from_message(exc)
-
-    retryable = _is_retryable(exc) or status_code in {429, 500, 502, 503, 504}
-    if not retryable:
-        return None
-
-    status_text = f" ({status_code})" if status_code is not None else ""
-    text = (
-        "模型服务暂时不可用"
-        f"{status_text}，自动重试后仍未恢复。请稍后再试；"
-        "如果持续出现，可以检查当前模型提供商配置或切换模型。\n\n"
-        "The upstream model service is temporarily unavailable"
-        f"{status_text}. The request still failed after automatic retries. "
-        "Please try again later."
-    )
-    return Msg(
-        name="Friday",
-        role="assistant",
-        content=[TextBlock(type="text", text=text)],
-    )
+    return exc.__class__.__name__ in {
+        "InternalServerError",
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "ServiceUnavailableError",
+        "OverloadedError",
+    }
 
 
 class AgentRunner(Runner):
@@ -215,7 +187,7 @@ class AgentRunner(Runner):
     async def query_handler(
         self,
         msgs,
-        request=None,
+        request: AgentRequest = None,
         **kwargs,
     ):
         """
@@ -226,11 +198,7 @@ class AgentRunner(Runner):
             f"msgs={msgs}, request={request}",
         )
         query = _get_last_user_text(msgs)
-        session_id = str(getattr(request, "session_id", "") or "")
-        user_id = str(getattr(request, "user_id", "") or "")
-        channel = str(
-            getattr(request, "channel", DEFAULT_CHANNEL) or DEFAULT_CHANNEL,
-        )
+        session_id = getattr(request, "session_id", "") or ""
 
         (
             approval_response,
@@ -265,10 +233,11 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
-        generated_messages = []
-        config = None
-        knowledge_manager = None
         try:
+            session_id = request.session_id
+            user_id = request.user_id
+            channel = getattr(request, "channel", DEFAULT_CHANNEL)
+
             logger.info(
                 "Handle agent query:\n%s",
                 json.dumps(
@@ -300,36 +269,7 @@ class AgentRunner(Runner):
             if self._mcp_manager is not None:
                 mcp_clients = await self._mcp_manager.get_clients()
 
-            config = load_config()
-            running = config.agents.running
-
-            try:
-                should_collect_user_assets = bool(
-                    getattr(running, "knowledge_auto_collect_chat_files", False)
-                    or getattr(running, "knowledge_auto_collect_chat_urls", True)
-                )
-                if should_collect_user_assets:
-                    from ...knowledge import KnowledgeManager
-
-                    knowledge_manager = KnowledgeManager(WORKING_DIR)
-                    user_stage_result = knowledge_manager.auto_collect_user_message_assets(
-                        config.knowledge,
-                        session_id=session_id,
-                        user_id=user_id,
-                        request_messages=list(msgs or []),
-                        running_config=running,
-                    )
-                    if user_stage_result.get("changed"):
-                        save_config(config)
-            except Exception:
-                logger.exception(
-                    "Failed to auto-collect user assets for session %s",
-                    session_id,
-                )
-
-            max_iters = config.agents.running.max_iters
-            max_input_length = config.agents.running.max_input_length
-            effective_msgs = list(msgs or [])
+            # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
 
             agent = CoPawAgent(
@@ -405,23 +345,17 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            async for stream_item in stream_printing_messages(
+            async for msg, last in stream_printing_messages(
                 agents=[agent],
-                coroutine_task=agent(effective_msgs),
+                coroutine_task=agent(msgs),
             ):
-                msg, last = stream_item
-                generated_messages.append(msg)
                 yield msg, last
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
             if agent is not None:
                 await agent.interrupt()
-            # Cancellation can happen when the client disconnects or requests
-            # interruption. Treat it as a graceful stop instead of surfacing
-            # an unknown runtime error to the outer engine.
-            _ = exc
-            return
+            raise RuntimeError("Task has been cancelled!") from exc
         except Exception as e:
             debug_dump_path = write_query_error_dump(
                 request=request,
@@ -431,15 +365,6 @@ class AgentRunner(Runner):
             path_hint = (
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
-            retryable_error_msg = _build_retryable_error_msg(e)
-            if retryable_error_msg is not None:
-                logger.warning(
-                    "Transient upstream model error in query handler: %s%s",
-                    e,
-                    path_hint,
-                )
-                yield retryable_error_msg, True
-                return
             logger.exception(f"Error in query handler: {e}{path_hint}")
             if debug_dump_path:
                 setattr(e, "debug_dump_path", debug_dump_path)
@@ -491,40 +416,6 @@ class AgentRunner(Runner):
                     user_id=user_id,
                     agent=agent,
                 )
-
-            if config is not None and session_id:
-                try:
-                    running = config.agents.running
-                    should_auto_collect = bool(
-                        getattr(running, "knowledge_auto_collect_chat_files", False)
-                        or getattr(running, "knowledge_auto_collect_long_text", False)
-                    )
-
-                    if should_auto_collect:
-                        from ...knowledge import KnowledgeManager
-
-                        manager = knowledge_manager or KnowledgeManager(WORKING_DIR)
-
-                    should_auto_collect_text = bool(
-                        getattr(running, "knowledge_auto_collect_long_text", False),
-                    )
-
-                    if should_auto_collect_text:
-                        text_result = manager.auto_collect_turn_text_pair(
-                            config.knowledge,
-                            running_config=running,
-                            session_id=session_id,
-                            user_id=user_id,
-                            request_messages=list(msgs or []),
-                            response_messages=generated_messages,
-                        )
-                        if text_result.get("changed"):
-                            save_config(config)
-                except Exception:
-                    logger.exception(
-                        "Failed to auto-collect chat knowledge for session %s",
-                        session_id,
-                    )
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.update_chat(chat)
@@ -661,37 +552,7 @@ class AgentRunner(Runner):
         )
         self.session = SafeJSONSession(save_dir=session_dir)
 
-        try:
-            if self.memory_manager is None:
-                self.memory_manager = MemoryManager(
-                    working_dir=str(WORKING_DIR),
-                )
-            start_fn = getattr(self.memory_manager, "start", None)
-            if callable(start_fn):
-                start_result = start_fn()
-                if inspect.isawaitable(start_result):
-                    await start_result
-            else:
-                logger.warning(
-                    "MemoryManager has no start() method; skipping startup",
-                )
-        except Exception as e:
-            logger.exception(f"MemoryManager start failed: {e}")
-
     async def shutdown_handler(self, *args, **kwargs):
         """
         Shutdown handler.
         """
-        try:
-            if self.memory_manager is not None:
-                close_fn = getattr(self.memory_manager, "close", None)
-                if callable(close_fn):
-                    close_result = close_fn()
-                    if inspect.isawaitable(close_result):
-                        await close_result
-                else:
-                    logger.warning(
-                        "MemoryManager has no close() method; skipping close",
-                    )
-        except Exception as e:
-            logger.warning(f"MemoryManager stop failed: {e}")
