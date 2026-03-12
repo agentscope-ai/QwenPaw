@@ -95,7 +95,9 @@ class BinaryManager:
         self,
         bin_dir: Path | None = None,
         *,
-        progress_callback: Callable[[str], None] | Callable[[str], object] | None = None,
+        progress_callback: Callable[[str], None]
+        | Callable[[str], object]
+        | None = None,
     ) -> None:
         self._bin_dir = bin_dir or _BIN_DIR
         self._progress_callback = progress_callback
@@ -160,7 +162,7 @@ class BinaryManager:
 
         await self._notify_progress(
             "CoPaw is downloading cloudflared (first-time setup). "
-            "This may take a minute..."
+            "This may take a minute...",
         )
         logger.info(
             "Downloading cloudflared %s from %s ...",

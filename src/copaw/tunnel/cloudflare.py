@@ -47,12 +47,16 @@ class CloudflareTunnelDriver:
         self,
         binary_manager: BinaryManager | None = None,
         *,
-        progress_callback: Callable[[str], None] | Callable[[str], object] | None = None,
+        progress_callback: Callable[[str], None]
+        | Callable[[str], object]
+        | None = None,
     ) -> None:
         if binary_manager is not None:
             self._binary_mgr = binary_manager
         else:
-            self._binary_mgr = BinaryManager(progress_callback=progress_callback)
+            self._binary_mgr = BinaryManager(
+                progress_callback=progress_callback
+            )
         self._process: Optional[asyncio.subprocess.Process] = None
         self._info: Optional[TunnelInfo] = None
         self._monitor_task: Optional[asyncio.Task] = None
