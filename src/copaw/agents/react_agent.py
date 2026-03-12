@@ -561,6 +561,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
+        # Set workspace_dir in context for tool functions
+        from .tools.context import set_current_workspace_dir
+
+        set_current_workspace_dir(self._workspace_dir)
+
         # Process file and media blocks in messages
         if msg is not None:
             await process_file_and_media_blocks_in_message(msg)
