@@ -348,7 +348,9 @@ def _confirm_source_override(info: InstallInfo, yes: bool) -> bool:
     )
 
     if yes:
-        click.echo(f"Warning: {message} Proceeding because `--yes` was provided.")
+        click.echo(
+            f"Warning: {message} Proceeding because `--yes` was provided.",
+        )
         return True
 
     click.echo(f"Warning: {message}")
