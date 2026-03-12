@@ -288,8 +288,8 @@ class WecomChannel(BaseChannel):
             body = frame.get("body") or {}
             msgtype = body.get("msgtype") or ""
             sender_id = (body.get("from") or {}).get("userid", "")
-            chatid = (body.get("chat_info") or {}).get("chatid", "")
-            chat_type = (body.get("chat_info") or {}).get("chat_type", "single")
+            chatid = body.get("chatid", "")
+            chat_type = body.get("chattype", "single")
 
             # Build unique message id for dedup
             msg_id = (
