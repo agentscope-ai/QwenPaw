@@ -561,6 +561,7 @@ export function ProviderConfigModal({
             extra={t("models.protocolHint")}
           >
             <Select
+              disabled
               options={[
                 {
                   value: "OpenAIChatModel",
