@@ -69,7 +69,7 @@
     "enterSkillUrl": "Введите URL навыка",
     "supportedSkillUrlSources": "Сейчас поддерживаются следующие источники URL навыков:",
     "urlExamples": "Примеры URL:",
-    "invalidSkillUrlSource": "URL навыка должен начинаться с https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/ или https://github.com/",
+    "invalidSkillUrlSource": "URL навыка должен начинаться с https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/ или https://github.com/",
     "source": "Источник",
     "path": "Путь",
     "createSkill": "Создать навык",

@@ -70,6 +70,7 @@ You can import skills from these URL sources in the Console:
 - `https://skills.sh/...`
 - `https://clawhub.ai/...`
 - `https://skillsmp.com/...`
+- `https://lobehub.com/...`
 - `https://github.com/...`
 
 ### Steps
@@ -92,7 +93,7 @@ You can import skills from these URL sources in the Console:
 
 ### URL acquisition examples
 
-1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai` and `skillsmp.com`): open `https://skills.sh/`.
+1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai`, `skillsmp.com`, and `lobehub.com`): open the corresponding marketplace page.
 2. Pick the skill you need (for example, `find-skills`).
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)
@@ -108,7 +109,7 @@ You can import skills from these URL sources in the Console:
 ### Notes
 
 - If a skill with the same name already exists, import does not overwrite by default. Check the existing one in the list first.
-- If import fails, first check URL completeness, supported domains, and outbound network access. If the network is unstable or GitHub rate-limits requests, add `GITHUB_TOKEN` in Console → Settings → Environments. See GitHub docs: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+- If import fails, first check URL completeness, supported domains, and outbound network access. If GitHub rate-limits requests, add `GITHUB_TOKEN` in Console → Settings → Environments. See GitHub docs: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
 ---
 

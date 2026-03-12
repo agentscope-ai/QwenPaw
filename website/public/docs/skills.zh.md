@@ -60,11 +60,12 @@
 
 ## 导入 Skill
 
-当前支持在控制台中导入以下四种来源的 Skills：
+当前支持在控制台中导入以下五种来源的 Skills：
 
 - `https://skills.sh/...`
 - `https://clawhub.ai/...`
 - `https://skillsmp.com/...`
+- `https://lobehub.com/...`
 - `https://github.com/...`
 
 ### 步骤
@@ -87,7 +88,7 @@
 
 ### URL 获取示例
 
-1. 以 `skills.sh` 为例（`clawhub.ai` 和 `skillsmp.com` 获取 Skill URL 的方式相同），进入 `https://skills.sh/`。
+1. 以 `skills.sh` 为例（`clawhub.ai`、`skillsmp.com` 和 `lobehub.com` 获取 Skill URL 的方式相同），进入对应技能市场页面。
 2. 选择你需要的 Skill（以 `find-skills` 为例）。
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)
@@ -103,7 +104,7 @@
 ### 说明
 
 - 若同名 Skill 已存在，默认不会覆盖；建议先在列表中确认现有内容后再处理。
-- 导入失败时优先检查：URL 是否完整、来源域名是否受支持、外网是否可访问。若遇到网络不稳定或 GitHub 限流，建议在 [控制台 → 设置 → 环境变量](./console#环境变量) 中添加 `GITHUB_TOKEN`；获取方式可参考 GitHub 官方文档：[管理个人访问令牌（PAT）](https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)。
+- 导入失败时优先检查：URL 是否完整、来源域名是否受支持、外网是否可访问。若遇到 GitHub 限流，建议在 [控制台 → 设置 → 环境变量](./console#环境变量) 中添加 `GITHUB_TOKEN`；获取方式可参考 GitHub 官方文档：[管理个人访问令牌（PAT）](https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)。
 
 ## 自定义 Skill（在工作目录中）
 

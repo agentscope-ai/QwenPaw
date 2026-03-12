@@ -8,6 +8,8 @@ import os
 import re
 import time
 import base64
+import io
+import zipfile
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode, urlparse, unquote
@@ -123,15 +125,7 @@ def _join_url(base: str, path: str) -> str:
     return f"{base.rstrip('/')}/{path.lstrip('/')}"
 
 
-# pylint: disable-next=too-many-branches,too-many-statements
-def _http_get(
-    url: str,
-    params: dict[str, Any] | None = None,
-    accept: str = "application/json",
-) -> str:
-    full_url = url
-    if params:
-        full_url = f"{url}?{urlencode(params)}"
+def _build_request(full_url: str, accept: str) -> Request:
     req = Request(
         full_url,
         headers={
@@ -144,6 +138,20 @@ def _http_get(
     github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if github_token and "api.github.com" in host:
         req.add_header("Authorization", f"Bearer {github_token}")
+    return req
+
+
+# pylint: disable-next=too-many-branches,too-many-statements
+def _http_fetch(
+    url: str,
+    params: dict[str, Any] | None = None,
+    accept: str = "application/json",
+) -> bytes:
+    full_url = url
+    if params:
+        full_url = f"{url}?{urlencode(params)}"
+    req = _build_request(full_url, accept)
+    host = (urlparse(full_url).netloc or "").lower()
     retries = _hub_http_retries()
     timeout = _hub_http_timeout()
     attempts = retries + 1
@@ -151,7 +159,7 @@ def _http_get(
     for attempt in range(1, attempts + 1):
         try:
             with urlopen(req, timeout=timeout) as resp:
-                return resp.read().decode("utf-8", errors="replace")
+                return resp.read()
         except HTTPError as e:
             last_error = e
             status = getattr(e, "code", 0) or 0
@@ -217,6 +225,26 @@ def _http_get(
     if last_error is not None:
         raise last_error
     raise RuntimeError(f"Failed to request hub URL: {full_url}")
+
+
+def _http_get(
+    url: str,
+    params: dict[str, Any] | None = None,
+    accept: str = "application/json",
+) -> str:
+    return _http_fetch(
+        url,
+        params=params,
+        accept=accept,
+    ).decode("utf-8", errors="replace")
+
+
+def _http_bytes_get(
+    url: str,
+    params: dict[str, Any] | None = None,
+    accept: str = "application/octet-stream, */*",
+) -> bytes:
+    return _http_fetch(url, params=params, accept=accept)
 
 
 def _http_json_get(url: str, params: dict[str, Any] | None = None) -> Any:
@@ -533,6 +561,26 @@ def _extract_skillsmp_slug(url: str) -> str:
         idx = parts.index("skills")
         if idx + 1 < len(parts):
             return parts[idx + 1].strip()
+    return ""
+
+
+def _extract_lobehub_identifier(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if not parts:
+        return ""
+    if host in {"lobehub.com", "www.lobehub.com"}:
+        if "skills" not in parts:
+            return ""
+        idx = parts.index("skills")
+        if idx + 1 < len(parts):
+            return parts[idx + 1].strip()
+        return ""
+    if host == "market.lobehub.com":
+        marker = ["api", "v1", "skills"]
+        if len(parts) >= 5 and parts[:3] == marker and parts[4] == "download":
+            return parts[3].strip()
     return ""
 
 
@@ -1047,6 +1095,72 @@ def _fetch_bundle_from_skillsmp_url(
     )
 
 
+def _lobehub_download_url(identifier: str) -> str:
+    return "https://market.lobehub.com/api/v1/skills/" f"{identifier}/download"
+
+
+def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            files: dict[str, str] = {}
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                parts = _safe_path_parts(info.filename.replace("\\", "/"))
+                if not parts:
+                    continue
+                rel_path = "/".join(parts)
+                files[rel_path] = zf.read(info).decode(
+                    "utf-8",
+                    errors="replace",
+                )
+    except zipfile.BadZipFile as e:
+        text = payload.decode("utf-8", errors="ignore").strip()
+        if text:
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                data = None
+            if isinstance(data, dict) and data.get("error"):
+                raise ValueError(
+                    "LobeHub skill download failed: " f"{data.get('error')}",
+                ) from e
+        raise ValueError(
+            "LobeHub skill download did not return a valid zip",
+        ) from e
+
+    if "SKILL.md" not in files:
+        raise ValueError("LobeHub skill package is missing SKILL.md")
+    try:
+        post = frontmatter.loads(files["SKILL.md"])
+    except Exception:
+        post = None
+    skill_name = post.get("name") if post is not None else None
+    if not isinstance(skill_name, str) or not skill_name.strip():
+        skill_name = identifier
+    return {"name": skill_name.strip(), "files": files}
+
+
+def _fetch_bundle_from_lobehub_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    identifier = _extract_lobehub_identifier(bundle_url)
+    if not identifier:
+        raise ValueError("Invalid LobeHub skill URL format")
+    params = (
+        {"version": requested_version.strip()}
+        if requested_version.strip()
+        else None
+    )
+    payload = _http_bytes_get(
+        _lobehub_download_url(identifier),
+        params=params,
+        accept="application/zip, application/octet-stream, */*",
+    )
+    return _lobehub_zip_to_bundle(identifier, payload), bundle_url
+
+
 def _fetch_bundle_from_clawhub_slug(
     slug: str,
     version: str,
@@ -1135,22 +1249,30 @@ def install_skill_from_hub(
                 requested_version=version,
             )
         else:
-            skillsmp_slug = _extract_skillsmp_slug(bundle_url)
-            if skillsmp_slug:
-                data, source_url = _fetch_bundle_from_skillsmp_url(
+            lobehub_identifier = _extract_lobehub_identifier(bundle_url)
+            if lobehub_identifier:
+                data, source_url = _fetch_bundle_from_lobehub_url(
                     bundle_url,
                     requested_version=version,
                 )
             else:
-                clawhub_slug = _resolve_clawhub_slug(bundle_url)
-                if clawhub_slug:
-                    data, source_url = _fetch_bundle_from_clawhub_slug(
-                        clawhub_slug,
-                        version,
+                skillsmp_slug = _extract_skillsmp_slug(bundle_url)
+                if skillsmp_slug:
+                    data, source_url = _fetch_bundle_from_skillsmp_url(
+                        bundle_url,
+                        requested_version=version,
                     )
                 else:
-                    # Backward-compatible fallback for direct bundle JSON URLs
-                    data = _http_json_get(bundle_url)
+                    clawhub_slug = _resolve_clawhub_slug(bundle_url)
+                    if clawhub_slug:
+                        data, source_url = _fetch_bundle_from_clawhub_slug(
+                            clawhub_slug,
+                            version,
+                        )
+                    else:
+                        # Backward-compatible fallback for direct bundle
+                        # JSON URLs.
+                        data = _http_json_get(bundle_url)
 
     name, content, references, scripts, extra_files = _normalize_bundle(data)
     if not name:

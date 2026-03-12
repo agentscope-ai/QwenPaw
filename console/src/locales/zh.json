@@ -69,7 +69,7 @@
     "enterSkillUrl": "输入技能URL",
     "supportedSkillUrlSources": "当前支持的技能 URL 来源：",
     "urlExamples": "URL 示例：",
-    "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/ 或 https://github.com/ 开头",
+    "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/ 或 https://github.com/ 开头",
     "source": "来源",
     "path": "路径",
     "createSkill": "创建技能",

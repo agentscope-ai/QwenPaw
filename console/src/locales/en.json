@@ -69,7 +69,7 @@
     "enterSkillUrl": "Enter Skill URL",
     "supportedSkillUrlSources": "Currently supported skill URL sources:",
     "urlExamples": "URL examples:",
-    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, or https://github.com/",
+    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, or https://github.com/",
     "source": "Source",
     "path": "Path",
     "createSkill": "Create Skill",
