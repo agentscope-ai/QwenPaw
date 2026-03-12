@@ -368,21 +368,20 @@ export function OllamaModelManageModal({
           </Form>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <Button
             icon={<SyncOutlined />}
             onClick={fetchOllamaModels}
             loading={discovering}
-            style={{ marginTop: 12 }}
+            style={{ flex: 1 }}
           >
             {t("models.discoverModels")}
           </Button>
           <Button
             type="dashed"
-            block
             icon={<DownloadOutlined />}
             onClick={() => setAdding(true)}
-            style={{ marginTop: 12 }}
+            style={{ flex: 1 }}
           >
             {t("models.localDownloadModel")}
           </Button>
