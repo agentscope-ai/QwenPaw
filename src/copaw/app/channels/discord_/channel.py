@@ -9,7 +9,8 @@ import re
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Optional
+import time
+from typing import Any, Optional, Literal
 
 import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -35,6 +36,168 @@ logger = logging.getLogger(__name__)
 # Regex that matches a code-fence opening/closing line (``` or ~~~).
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
+_TYPING_INTERVAL_S = 9.0
+_TYPING_TIMEOUT_S = 300.0
+
+_DRAFT_PLACEHOLDER = "⏳ ..."
+_DRAFT_THROTTLE_S = 1.2
+
+
+class DiscordTypingController:
+    """Manages periodic Discord trigger_typing calls with a timeout.
+
+    Keeps the typing indicator alive while the agent is processing,
+    and ensures it stops to prevent being stuck forever.
+    """
+
+    def __init__(self) -> None:
+        self._task: Optional[asyncio.Task] = None
+        self._stopped: bool = False
+
+    def start(self, channel: Any) -> None:
+        """Begin periodic trigger_typing in the background."""
+        if self._stopped or self._task is not None:
+            return
+        self._task = asyncio.create_task(self._typing_loop(channel))
+
+    def stop(self) -> None:
+        """Cancel the typing loop permanently."""
+        self._stopped = True
+        if self._task and not self._task.done():
+            self._task.cancel()
+        self._task = None
+
+    async def _typing_loop(self, channel: Any) -> None:
+        deadline = asyncio.get_event_loop().time() + _TYPING_TIMEOUT_S
+        try:
+            while not self._stopped:
+                try:
+                    await channel.trigger_typing()
+                except Exception:
+                    logger.debug(
+                        "discord: trigger_typing failed",
+                        exc_info=True,
+                    )
+                await asyncio.sleep(_TYPING_INTERVAL_S)
+                if asyncio.get_event_loop().time() >= deadline:
+                    logger.debug("discord: typing loop timed out")
+                    break
+        except asyncio.CancelledError:
+            pass
+
+
+class DiscordDraftStream:
+    """Edit-based streaming for Discord.
+
+    The first message is sent lazily when the first token arrives,
+    avoiding unnecessary API calls (e.g. when a split happens quickly).
+    """
+
+    def __init__(self, target: Any, max_len: int = 2000) -> None:
+        self._target = target
+        self._max_len = max_len
+        self._buffer: str = ""
+        self._draft_msg: Optional[Any] = None  # discord.Message
+        self._last_edit: float = 0.0
+        self._edit_task: Optional[asyncio.Task] = None
+
+    async def send_placeholder(self) -> None:
+        """Send the initial placeholder message (optional pre-warm)."""
+        if self._draft_msg:
+            return
+        try:
+            self._draft_msg = await self._target.send(_DRAFT_PLACEHOLDER)
+        except Exception:
+            logger.warning(
+                "discord draft: failed to send placeholder",
+                exc_info=True,
+            )
+
+    def append(self, text: str) -> None:
+        """Append *text* to the draft buffer and schedule a throttled edit."""
+        if not text:
+            return
+        self._buffer += text
+        self._schedule_edit()
+
+    def _schedule_edit(self) -> None:
+        """Schedule an edit if one isn't already pending."""
+        if self._edit_task and not self._edit_task.done():
+            return
+        self._edit_task = asyncio.create_task(self._throttled_edit())
+
+    async def _throttled_edit(self) -> None:
+        """Wait until throttle window passes, then edit the draft."""
+        # Lazy-send: create the message the first time we need to edit it.
+        if not self._draft_msg:
+            try:
+                self._draft_msg = await self._target.send(_DRAFT_PLACEHOLDER)
+            except Exception:
+                logger.warning(
+                    "discord draft: lazy send failed",
+                    exc_info=True,
+                )
+                return
+        elapsed = time.monotonic() - self._last_edit
+        wait = _DRAFT_THROTTLE_S - elapsed
+        if wait > 0:
+            await asyncio.sleep(wait)
+        await self._do_edit()
+
+    async def _do_edit(self) -> None:
+        """Edit the draft message with the current buffer contents."""
+        if not self._draft_msg or not self._buffer:
+            return
+        content = self._buffer
+        # Truncate to limit if needed (leave room for ellipsis)
+        if len(content) > self._max_len:
+            content = content[: self._max_len - 3] + "..."
+        try:
+            await self._draft_msg.edit(content=content)
+            self._last_edit = time.monotonic()
+        except Exception:
+            logger.debug("discord draft: edit failed", exc_info=True)
+
+    async def flush(self) -> None:
+        """Cancel pending throttle task and send the final edit immediately."""
+        if self._edit_task and not self._edit_task.done():
+            self._edit_task.cancel()
+            self._edit_task = None
+        if not self._buffer:
+            # If nothing was ever appended, delete the placeholder silently
+            await self.clear()
+            return
+        # Lazy-send if flush is called before any edit task ran
+        if not self._draft_msg:
+            try:
+                self._draft_msg = await self._target.send(_DRAFT_PLACEHOLDER)
+            except Exception:
+                logger.warning(
+                    "discord draft: flush-send failed",
+                    exc_info=True,
+                )
+                return
+        await self._do_edit()
+
+    async def clear(self) -> None:
+        """Delete the draft message (e.g. on error or empty response)."""
+        if self._draft_msg:
+            try:
+                await self._draft_msg.delete()
+            except Exception:
+                logger.debug("discord draft: delete failed", exc_info=True)
+            self._draft_msg = None
+
+    @property
+    def is_empty(self) -> bool:
+        """True if the buffer is empty."""
+        return not self._buffer
+
+    @property
+    def buffer_text(self) -> str:
+        """Current buffer contents."""
+        return self._buffer
+
 
 class DiscordChannel(BaseChannel):
     channel = "discord"
@@ -58,6 +221,7 @@ class DiscordChannel(BaseChannel):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        streaming_mode: Literal["off", "partial"] = "off",
     ):
         super().__init__(
             process,
@@ -76,6 +240,7 @@ class DiscordChannel(BaseChannel):
         self.http_proxy = http_proxy
         self.http_proxy_auth = http_proxy_auth
         self.bot_prefix = bot_prefix
+        self.streaming_mode: Literal["off", "partial"] = streaming_mode
         self._task: Optional[asyncio.Task] = None
         self._client = None
 
@@ -281,9 +446,14 @@ class DiscordChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
+            streaming_mode=getattr(config, "streaming_mode", "off") or "off",
         )
 
-    async def _resolve_target(self, to_handle, meta):
+    async def _resolve_target(
+        self,
+        to_handle: str,
+        meta: Optional[dict],
+    ) -> Any:
         """Resolve a Discord Messageable from meta or to_handle."""
         meta = meta or {}
         if not meta.get("channel_id") and not meta.get("user_id"):
@@ -574,3 +744,143 @@ class DiscordChannel(BaseChannel):
             if kind == "dm":
                 return {"user_id": ident}
         return {}
+
+    def _extract_text_from_event(self, event: Any) -> str:
+        """Extract plain text and refusals from a completed message event."""
+        parts = self._message_to_content_parts(event)
+        text_chunks: list[str] = []
+        for p in parts:
+            ptype = getattr(p, "type", None)
+            if ptype == ContentType.TEXT:
+                t = getattr(p, "text", None) or ""
+                if t:
+                    text_chunks.append(t)
+            elif ptype == ContentType.REFUSAL:
+                r = getattr(p, "refusal", None) or ""
+                if r:
+                    text_chunks.append(r)
+        return "\n".join(text_chunks)
+
+    async def _run_process_loop(
+        self,
+        request: Any,
+        to_handle: str,
+        send_meta: Any,
+    ) -> None:
+        """Override: typing indicator + token-level edit-based streaming."""
+        if getattr(self, "streaming_mode", "off") != "partial":
+            await super()._run_process_loop(request, to_handle, send_meta)
+            return
+
+        target = await self._resolve_target(to_handle, send_meta or {})
+        if not target:
+            await super()._run_process_loop(request, to_handle, send_meta)
+            return
+
+        typing_ctrl = DiscordTypingController()
+        draft = DiscordDraftStream(
+            target,
+            max_len=getattr(self, "_DISCORD_MAX_LEN", 2000),
+        )
+        last_response = None
+        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+
+        try:
+            typing_ctrl.start(target)
+            await draft.send_placeholder()
+
+            async for event in self._process(request):
+                obj = getattr(event, "object", None)
+                status = getattr(event, "status", None)
+
+                if obj == "content" and getattr(event, "delta", False):
+                    if getattr(event, "type", None) == ContentType.TEXT:
+                        token = getattr(event, "text", None) or ""
+                        if token:
+                            _split_threshold = (
+                                getattr(self, "_DISCORD_MAX_LEN", 2000) - 50
+                            )
+                            if (
+                                len(draft.buffer_text) + len(token)
+                                > _split_threshold
+                            ):
+                                await draft.flush()
+                                draft = DiscordDraftStream(
+                                    target,
+                                    max_len=getattr(
+                                        self,
+                                        "_DISCORD_MAX_LEN",
+                                        2000,
+                                    ),
+                                )
+                            if draft.is_empty:
+                                prefix = (send_meta or {}).get(
+                                    "bot_prefix",
+                                    "",
+                                ) or ""
+                                if prefix:
+                                    token = prefix + token
+                            draft.append(token)
+
+                elif obj == "message" and status == RunStatus.Completed:
+                    msg_type = getattr(event, "type", None)
+                    if msg_type in (None, "message"):
+                        # Fallback for non-streaming models
+                        if draft.is_empty:
+                            fallback = self._extract_text_from_event(event)
+                            if fallback:
+                                prefix = (send_meta or {}).get(
+                                    "bot_prefix",
+                                    "",
+                                ) or ""
+                                if prefix:
+                                    fallback = prefix + fallback
+                                draft.append(fallback)
+
+                        await draft.flush()
+                        draft = DiscordDraftStream(
+                            target,
+                            max_len=getattr(self, "_DISCORD_MAX_LEN", 2000),
+                        )
+
+                        parts = self._message_to_content_parts(event)
+                        for p in parts:
+                            ptype = getattr(p, "type", None)
+                            if ptype in (
+                                ContentType.IMAGE,
+                                ContentType.VIDEO,
+                                ContentType.AUDIO,
+                                ContentType.FILE,
+                            ):
+                                await self.send_media(to_handle, p, send_meta)
+
+                elif obj == "response":
+                    last_response = event
+                    await self.on_event_response(request, event)
+
+            await draft.flush()
+
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    f"Error: {err_msg}",
+                )
+            if self._on_reply_sent:
+                args = self.get_on_reply_sent_args(request, to_handle)
+                self._on_reply_sent(self.channel, *args)
+
+        except Exception:
+            logger.exception("discord streaming _run_process_loop failed")
+            try:
+                await draft.clear()
+            except Exception:
+                pass
+            await self._on_consume_error(
+                request,
+                to_handle,
+                "An error occurred while processing your request.",
+            )
+        finally:
+            typing_ctrl.stop()

@@ -37,6 +37,7 @@ class DiscordConfig(BaseChannelConfig):
     bot_token: str = ""
     http_proxy: str = ""
     http_proxy_auth: str = ""
+    streaming_mode: Literal["off", "partial"] = "off"
 
 
 class DingTalkConfig(BaseChannelConfig):
