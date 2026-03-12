@@ -11,7 +11,6 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "test": "tsx --test src/pages/Control/CronJobs/components/parseCron.test.ts",
     "preview": "vite preview",
     "preview:prod": "vite preview --mode production",
     "preview:test": "vite preview --mode test"
@@ -49,7 +48,6 @@
     "globals": "^16.0.0",
     "less": "^4.5.1",
     "prettier": "3.0.0",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5"
