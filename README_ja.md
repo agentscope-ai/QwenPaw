@@ -54,13 +54,14 @@
 
 ## ニュース
 
-[2026-03-09] v0.0.6をリリースしました！詳細は[v0.0.6リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
+[2026-03-12] v0.0.7をリリースしました！詳細は[v0.0.7リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
-- **[v0.0.6] 追加:** ワンクリックセットアップのネイティブデスクトップインストーラー（Windows/macOS）; UIとエージェント設定全体でのロシア語と日本語サポート; 許可リスト付きTelegramアクセス制御; QQ Markdownとリッチメディアサポート; Discord/Feishu/DingTalkメディア機能強化; IoT統合用MQTTチャネル; Gemini思考モデルとMLXバックエンドサポート; 組み込みツール管理ページ; ワークスペースファイルからのカスタムシステムプロンプト; スマート切り詰め機能付きReMeLightメモリシステム。
-- **[v0.0.6] 改善:** 動的メモリ圧縮設定; PyPIタイムスタンプを使用したバージョン検出; LESSベースのスタイルリファクタリング; UTCタイムゾーン標準化; ライフサイクル管理を備えたモジュール型Providerアーキテクチャ。
-- **[v0.0.6] 修正:** Windowsファイルパスとシェルエンコーディング; DingTalk Officeファイル検出; スキルインポートUTF-8処理; Docker対応URL検証; バージョンバッジの配置; 言語対応ファイル通知。
-- **[v0.0.6] ドキュメント:** 新しいロゴとソーシャルメディア統合; デスクトップアプリインストールガイド; メモリ圧縮とコマンドドキュメント; ロードマップ更新; ウェブサイトプレゼンテーション強化。
-- **[v0.0.6] 貢献者:** 新規貢献者の皆さんに感謝します: [@Osier-Yi](https://github.com/Osier-Yi), [@muchenhen](https://github.com/muchenhen), [@hongxicheng](https://github.com/hongxicheng), [@YingchaoX](https://github.com/YingchaoX), [@seoeaa](https://github.com/seoeaa), [@Chiytako](https://github.com/Chiytako), [@eviaaaaa](https://github.com/eviaaaaa), [@vvv214](https://github.com/vvv214), [@baijunty](https://github.com/baijunty), [@p8rtop](https://github.com/p8rtop), [@yifanli-intel](https://github.com/yifanli-intel), [@Eduiskss](https://github.com/Eduiskss), [@snai1557](https://github.com/snai1557)。
+- **[v0.0.7] 追加:** Tool Guardセキュリティレイヤー（危険なツール呼び出しをユーザー承認まで遮断）; MattermostとMatrixチャネル統合; Discord/DingTalk/Feishu/Telegramの@メンションフィルタリング; Telegram Markdownレンダリング; Feishu絵文字リアクションとリッチテキストメディア; QQ画像送信; LLM呼び出し自動リトライ; LM Studioプロバイダー; トークン使用量ダッシュボード; プロバイダー`generate_kwargs`エディタ; ワークスペースファイルのドラッグ＆ドロップ; チャット中のモデル切替; エージェント言語セレクター; コンテキスト管理UI; ページ遷移時のチャット状態保持; AIスキル最適化とストリーミング出力; スキルカード説明表示; 中国ユーザー向け自動PyPIミラー選択。
+- **[v0.0.7] 改善:** プロバイダー接続テストメッセージ; ワークスペースzip・セッション読取の非同期化; プロバイダーID競合の自動解決; モデル検出のオンデマンド化; トークン記録の集約; 組み込みスキルドキュメントとシェルPATH処理; Himalayaメールスキル; メモリドキュメント再構成; 設定・セキュリティページのリファクタリング。
+- **[v0.0.7] 修正:** DingTalk認証失敗時のクリーンアップ; Discord 2000文字超メッセージ分割; Matrix/Mattermost/MQTTチャネル設定の型整合; Windowsシェルエンコーディングとプロセスツリークリーンアップ; デスクトップSSL証明書・IME入力・外部URLナビゲーション; インストールスクリプトの関数定義順序修正; マジックコマンドセッション状態保護; Ollamaモーダル再レンダリング; `get_token_usage`データアクセス; チャットリクエストの重複排除。
+- **[v0.0.7] 貢献者:** 新規貢献者の皆さんに感謝します: [@2catycm](https://github.com/2catycm), [@2niuhe](https://github.com/2niuhe), [@yingdachen](https://github.com/yingdachen), [@Atletico1999](https://github.com/Atletico1999), [@buecker](https://github.com/buecker), [@Cirilla-zmh](https://github.com/Cirilla-zmh), [@gnipping](https://github.com/gnipping), [@Nufe-muzi](https://github.com/Nufe-muzi), [@FuKunZ](https://github.com/FuKunZ), [@JasonBuildAI](https://github.com/JasonBuildAI), [@StarMoonCity](https://github.com/StarMoonCity), [@walker83](https://github.com/walker83), [@lllcy](https://github.com/lllcy)。
+
+[2026-03-09] v0.0.6をリリースしました！詳細は[v0.0.6リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 [2026-03-06] v0.0.5をリリースしました！詳細は[v0.0.5リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
