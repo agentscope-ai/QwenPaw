@@ -249,16 +249,18 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         return toolkit
 
     def _register_skills(self, toolkit: Toolkit) -> None:
-        """Load and register skills from working directory.
+        """Load and register skills from workspace directory.
 
         Args:
             toolkit: Toolkit to register skills to
         """
-        # Check skills initialization
-        ensure_skills_initialized()
+        workspace_dir = self._workspace_dir or WORKING_DIR
 
-        working_skills_dir = get_working_skills_dir()
-        available_skills = list_available_skills()
+        # Check skills initialization
+        ensure_skills_initialized(workspace_dir)
+
+        working_skills_dir = get_working_skills_dir(workspace_dir)
+        available_skills = list_available_skills(workspace_dir)
 
         for skill_name in available_skills:
             skill_dir = working_skills_dir / skill_name

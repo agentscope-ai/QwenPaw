@@ -252,9 +252,11 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
     if use_defaults:
         # Using --defaults: enable all skills, skip existing
         from ..agents.skills_manager import sync_skills_to_working_dir
+        from ..constant import WORKING_DIR
 
         click.echo("Enabling all skills by default (skip existing)...")
         synced, skipped = sync_skills_to_working_dir(
+            workspace_dir=WORKING_DIR,
             skill_names=None,
             force=False,
         )
@@ -274,9 +276,11 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
 
         if skills_choice == "all":
             from ..agents.skills_manager import sync_skills_to_working_dir
+            from ..constant import WORKING_DIR
 
             click.echo("Enabling all skills...")
             synced, skipped = sync_skills_to_working_dir(
+                workspace_dir=WORKING_DIR,
                 skill_names=None,
                 force=False,
             )

@@ -5,18 +5,20 @@ from __future__ import annotations
 import click
 
 from ..agents.skills_manager import SkillService, list_available_skills
+from ..constant import WORKING_DIR
 from .utils import prompt_checkbox, prompt_confirm
 
 
 # pylint: disable=too-many-branches
 def configure_skills_interactive() -> None:
     """Interactively select which skills to enable (multi-select)."""
-    all_skills = SkillService.list_all_skills()
+    skill_service = SkillService(WORKING_DIR)
+    all_skills = skill_service.list_all_skills()
     if not all_skills:
         click.echo("No skills found. Nothing to configure.")
         return
 
-    available = set(list_available_skills())
+    available = set(list_available_skills(WORKING_DIR))
     all_names = {s.name for s in all_skills}
 
     # Default to all skills if nothing is currently active (first time)
@@ -78,7 +80,7 @@ def configure_skills_interactive() -> None:
 
     # Apply changes
     for name in to_enable:
-        result = SkillService.enable_skill(name)
+        result = skill_service.enable_skill(name)
         if result:
             click.echo(f"  ✓ Enabled: {name}")
         else:
@@ -87,7 +89,7 @@ def configure_skills_interactive() -> None:
             )
 
     for name in to_disable:
-        result = SkillService.disable_skill(name)
+        result = skill_service.disable_skill(name)
         if result:
             click.echo(f"  ✓ Disabled: {name}")
         else:
@@ -106,8 +108,9 @@ def skills_group() -> None:
 @skills_group.command("list")
 def list_cmd() -> None:
     """Show all skills and their enabled/disabled status."""
-    all_skills = SkillService.list_all_skills()
-    available = set(list_available_skills())
+    skill_service = SkillService(WORKING_DIR)
+    all_skills = skill_service.list_all_skills()
+    available = set(list_available_skills(WORKING_DIR))
 
     if not all_skills:
         click.echo("No skills found.")

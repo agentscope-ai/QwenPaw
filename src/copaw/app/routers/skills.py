@@ -67,58 +67,35 @@ async def list_skills(
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
-
-    # List skills from agent's workspace
     workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
+    # Get all skills (builtin + customized)
+    all_skills = skill_service.list_all_skills()
+
+    # Get active skills to determine enabled status
     active_skills_dir = workspace_dir / "active_skills"
-    customized_skills_dir = workspace_dir / "customized_skills"
+    active_skill_names = set()
+    if active_skills_dir.exists():
+        active_skill_names = {
+            d.name
+            for d in active_skills_dir.iterdir()
+            if d.is_dir() and (d / "SKILL.md").exists()
+        }
 
-    # Get builtin skills (global)
-    builtin_skills_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "skills"
-    )
-
-    skills_spec = []
-
-    # Collect from builtin
-    if builtin_skills_dir.exists():
-        for skill_dir in builtin_skills_dir.iterdir():
-            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                skill_md = skill_dir / "SKILL.md"
-                is_enabled = (active_skills_dir / skill_dir.name).exists()
-                skills_spec.append(
-                    SkillSpec(
-                        name=skill_dir.name,
-                        content=skill_md.read_text(encoding="utf-8"),
-                        source="builtin",
-                        path=str(skill_dir),
-                        references={},
-                        scripts={},
-                        enabled=is_enabled,
-                    ),
-                )
-
-    # Collect from customized (override builtin)
-    if customized_skills_dir.exists():
-        for skill_dir in customized_skills_dir.iterdir():
-            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                skill_md = skill_dir / "SKILL.md"
-                is_enabled = (active_skills_dir / skill_dir.name).exists()
-                # Remove builtin with same name
-                skills_spec = [
-                    s for s in skills_spec if s.name != skill_dir.name
-                ]
-                skills_spec.append(
-                    SkillSpec(
-                        name=skill_dir.name,
-                        content=skill_md.read_text(encoding="utf-8"),
-                        source="customized",
-                        path=str(skill_dir),
-                        references={},
-                        scripts={},
-                        enabled=is_enabled,
-                    ),
-                )
+    # Convert to SkillSpec with enabled status
+    skills_spec = [
+        SkillSpec(
+            name=skill.name,
+            content=skill.content,
+            source=skill.source,
+            path=skill.path,
+            references=skill.references,
+            scripts=skill.scripts,
+            enabled=skill.name in active_skill_names,
+        )
+        for skill in all_skills
+    ]
 
     return skills_spec
 
@@ -131,26 +108,25 @@ async def get_available_skills(
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
-
     workspace_dir = Path(workspace.workspace_dir)
-    active_skills_dir = workspace_dir / "active_skills"
+    skill_service = SkillService(workspace_dir)
 
-    skills_spec = []
-    if active_skills_dir.exists():
-        for skill_dir in active_skills_dir.iterdir():
-            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                skill_md = skill_dir / "SKILL.md"
-                skills_spec.append(
-                    SkillSpec(
-                        name=skill_dir.name,
-                        content=skill_md.read_text(encoding="utf-8"),
-                        source="active",
-                        path=str(skill_dir),
-                        references={},
-                        scripts={},
-                        enabled=True,
-                    ),
-                )
+    # Get available (active) skills
+    available_skills = skill_service.list_available_skills()
+
+    # Convert to SkillSpec
+    skills_spec = [
+        SkillSpec(
+            name=skill.name,
+            content=skill.content,
+            source=skill.source,
+            path=skill.path,
+            references=skill.references,
+            scripts=skill.scripts,
+            enabled=True,
+        )
+        for skill in available_skills
+    ]
 
     return skills_spec
 
@@ -184,25 +160,34 @@ def _github_token_hint(bundle_url: str) -> str:
 
 
 @router.post("/hub/install")
-async def install_from_hub(request: HubInstallRequest):
+async def install_from_hub(
+    request_body: HubInstallRequest,
+    request: Request,
+):
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+
     try:
         result = install_skill_from_hub(
-            bundle_url=request.bundle_url,
-            version=request.version,
-            enable=request.enable,
-            overwrite=request.overwrite,
+            workspace_dir=workspace_dir,
+            bundle_url=request_body.bundle_url,
+            version=request_body.version,
+            enable=request_body.enable,
+            overwrite=request_body.overwrite,
         )
     except ValueError as e:
         detail = str(e)
         logger.warning(
             "Skill hub install 400: bundle_url=%s detail=%s",
-            (request.bundle_url or "")[:80],
+            (request_body.bundle_url or "")[:80],
             detail,
         )
         raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
         # Upstream hub is flaky/rate-limited sometimes; surface as bad gateway.
-        detail = str(e) + _github_token_hint(request.bundle_url)
+        detail = str(e) + _github_token_hint(request_body.bundle_url)
         logger.exception(
             "Skill hub install failed (upstream/rate limit): %s",
             e,
@@ -210,7 +195,7 @@ async def install_from_hub(request: HubInstallRequest):
         raise HTTPException(status_code=502, detail=detail) from e
     except Exception as e:
         detail = f"Skill hub import failed: {e}" + _github_token_hint(
-            request.bundle_url,
+            request_body.bundle_url,
         )
         logger.exception("Skill hub import failed: %s", e)
         raise HTTPException(status_code=502, detail=detail) from e
@@ -223,24 +208,51 @@ async def install_from_hub(request: HubInstallRequest):
 
 
 @router.post("/batch-disable")
-async def batch_disable_skills(skill_name: list[str]) -> None:
+async def batch_disable_skills(
+    skill_name: list[str],
+    request: Request,
+) -> None:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
     for skill in skill_name:
-        SkillService.disable_skill(skill)
+        skill_service.disable_skill(skill)
 
 
 @router.post("/batch-enable")
-async def batch_enable_skills(skill_name: list[str]) -> None:
+async def batch_enable_skills(
+    skill_name: list[str],
+    request: Request,
+) -> None:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
     for skill in skill_name:
-        SkillService.enable_skill(skill)
+        skill_service.enable_skill(skill)
 
 
 @router.post("")
-async def create_skill(request: CreateSkillRequest):
-    result = SkillService.create_skill(
-        name=request.name,
-        content=request.content,
-        references=request.references,
-        scripts=request.scripts,
+async def create_skill(
+    request_body: CreateSkillRequest,
+    request: Request,
+):
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
+    result = skill_service.create_skill(
+        name=request_body.name,
+        content=request_body.content,
+        references=request_body.references,
+        scripts=request_body.scripts,
     )
     return {"created": result}
 
@@ -253,6 +265,7 @@ async def disable_skill(
     """Disable skill for active agent."""
     from ..agent_context import get_agent_for_request
     import shutil
+    import asyncio
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
@@ -262,14 +275,12 @@ async def disable_skill(
         shutil.rmtree(active_skill_dir)
 
         # Hot reload config (async, non-blocking)
-        import asyncio
-
-    async def reload_in_background():
-        try:
-            manager = request.app.state.multi_agent_manager
-            await manager.reload_agent(workspace.agent_id)
-        except Exception as e:
-            logger.warning(f"Background reload failed: {e}")
+        async def reload_in_background():
+            try:
+                manager = request.app.state.multi_agent_manager
+                await manager.reload_agent(workspace.agent_id)
+            except Exception as e:
+                logger.warning(f"Background reload failed: {e}")
 
         asyncio.create_task(reload_in_background())
 
@@ -332,13 +343,22 @@ async def enable_skill(
 
 
 @router.delete("/{skill_name}")
-async def delete_skill(skill_name: str):
+async def delete_skill(
+    skill_name: str,
+    request: Request,
+):
     """Delete a skill from customized_skills directory permanently.
 
     This only deletes skills from customized_skills directory.
     Built-in skills cannot be deleted.
     """
-    result = SkillService.delete_skill(skill_name)
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
+    result = skill_service.delete_skill(skill_name)
     return {"deleted": result}
 
 
@@ -347,6 +367,7 @@ async def load_skill_file(
     skill_name: str,
     source: str,
     file_path: str,
+    request: Request,
 ):
     """Load a specific file from a skill's references or scripts directory.
 
@@ -363,7 +384,13 @@ async def load_skill_file(
         GET /skills/my_skill/files/customized/references/doc.md
         GET /skills/builtin_skill/files/builtin/scripts/utils/helper.py
     """
-    content = SkillService.load_skill_file(
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
+    content = skill_service.load_skill_file(
         skill_name=skill_name,
         file_path=file_path,
         source=source,

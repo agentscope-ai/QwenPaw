@@ -9,6 +9,7 @@ import re
 import time
 import base64
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse, unquote
 from urllib.error import HTTPError, URLError
@@ -1110,6 +1111,7 @@ def search_hub_skills(query: str, limit: int = 20) -> list[HubSkillResult]:
 # pylint: disable-next=too-many-branches
 def install_skill_from_hub(
     *,
+    workspace_dir: Path,
     bundle_url: str,
     version: str = "",
     enable: bool = True,
@@ -1157,7 +1159,8 @@ def install_skill_from_hub(
         fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
         name = _safe_fallback_name(fallback)
 
-    created = SkillService.create_skill(
+    skill_service = SkillService(workspace_dir)
+    created = skill_service.create_skill(
         name=name,
         content=content,
         overwrite=overwrite,
@@ -1173,7 +1176,7 @@ def install_skill_from_hub(
 
     enabled = False
     if enable:
-        enabled = SkillService.enable_skill(name, force=True)
+        enabled = skill_service.enable_skill(name, force=True)
         if not enabled:
             logger.warning("Skill '%s' imported but enable failed", name)
 
