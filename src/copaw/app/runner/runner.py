@@ -28,6 +28,7 @@ from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config.config import load_agent_config
 from ...constant import (
+    LLM_MAX_RETRIES,
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
 )
@@ -37,6 +38,38 @@ if TYPE_CHECKING:
     from ...agents.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
+
+_TRANSIENT_UPSTREAM_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    """Best-effort extraction of HTTP status code from provider exceptions."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status
+
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+
+    return None
+
+
+def _is_transient_upstream_error(exc: Exception) -> bool:
+    """Whether an exception likely represents a transient model backend failure."""
+    status = _extract_status_code(exc)
+    if status in _TRANSIENT_UPSTREAM_STATUS_CODES:
+        return True
+
+    return exc.__class__.__name__ in {
+        "InternalServerError",
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "ServiceUnavailableError",
+        "OverloadedError",
+    }
 
 
 class AgentRunner(Runner):
@@ -343,6 +376,38 @@ class AgentRunner(Runner):
                 e.args = (
                     (f"{e.args[0]}{suffix}" if e.args else suffix.strip()),
                 ) + e.args[1:]
+
+            if _is_transient_upstream_error(e):
+                status = _extract_status_code(e)
+                status_text = str(status) if status is not None else "unknown"
+                detail_text = (
+                    f"\n(Details:  {debug_dump_path})"
+                    if debug_dump_path
+                    else ""
+                )
+                yield (
+                    Msg(
+                        name="Friday",
+                        role="assistant",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=(
+                                    "⚠️ Model service is temporarily unavailable "
+                                    f"(HTTP {status_text}). "
+                                    f"Retried {LLM_MAX_RETRIES} times but still failed. "
+                                    "Please try again shortly.\n"
+                                    "⚠️ 模型服务暂时不可用"
+                                    f"（HTTP {status_text}）。"
+                                    f"已重试 {LLM_MAX_RETRIES} 次仍失败，"
+                                    f"请稍后重试。{detail_text}"
+                                ),
+                            ),
+                        ],
+                    ),
+                    True,
+                )
+                return
             raise
         finally:
             if agent is not None and session_state_loaded:

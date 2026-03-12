@@ -2,7 +2,12 @@
 """Retry wrapper for ChatModelBase instances.
 
 Transparently retries LLM API calls on transient errors (rate-limit,
-timeout, connection) with configurable exponential back-off.
+timeout, connection, server errors) with configurable exponential back-off.
+
+Supports retry on:
+  - OpenAI: RateLimitError, APITimeoutError, APIConnectionError, InternalServerError
+  - Anthropic: RateLimitError, APITimeoutError, APIConnectionError, InternalServerError
+  - Any exception with status_code in {429, 500, 502, 503, 504}
 
 Configuration via environment variables (or use defaults from constant.py):
     COPAW_LLM_MAX_RETRIES   – max retry attempts (default 3)
@@ -39,6 +44,7 @@ def _get_openai_retryable() -> tuple[type[Exception], ...]:
                 openai.RateLimitError,
                 openai.APITimeoutError,
                 openai.APIConnectionError,
+                openai.InternalServerError,  # 500, 502, 503, 504 errors
             )
         except ImportError:
             _openai_retryable = ()
@@ -55,6 +61,7 @@ def _get_anthropic_retryable() -> tuple[type[Exception], ...]:
                 anthropic.RateLimitError,
                 anthropic.APITimeoutError,
                 anthropic.APIConnectionError,
+                anthropic.InternalServerError,  # 500, 502, 503, 504 errors
             )
         except ImportError:
             _anthropic_retryable = ()
@@ -124,6 +131,12 @@ class RetryChatModel(ChatModelBase):
             except Exception as exc:
                 last_exc = exc
                 if not _is_retryable(exc) or attempt >= attempts:
+                    if _is_retryable(exc) and attempt >= attempts:
+                        logger.error(
+                            "LLM call failed after %d attempts: %s",
+                            attempts,
+                            exc,
+                        )
                     raise
                 delay = _compute_backoff(attempt)
                 logger.warning(
@@ -162,6 +175,12 @@ class RetryChatModel(ChatModelBase):
             return
 
         if not _is_retryable(failed_exc) or current_attempt >= max_attempts:
+            if _is_retryable(failed_exc) and current_attempt >= max_attempts:
+                logger.error(
+                    "LLM stream failed after %d attempts: %s",
+                    max_attempts,
+                    failed_exc,
+                )
             raise failed_exc
         delay = _compute_backoff(current_attempt)
         logger.warning(
@@ -190,6 +209,12 @@ class RetryChatModel(ChatModelBase):
                     await new_stream.aclose()
                     new_stream = None
                 if not _is_retryable(retry_exc) or attempt >= max_attempts:
+                    if _is_retryable(retry_exc) and attempt >= max_attempts:
+                        logger.error(
+                            "LLM stream retry failed after %d attempts: %s",
+                            max_attempts,
+                            retry_exc,
+                        )
                     raise
                 retry_delay = _compute_backoff(attempt)
                 logger.warning(
