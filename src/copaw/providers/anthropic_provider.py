@@ -10,7 +10,6 @@ from agentscope.model import ChatModelBase
 import anthropic
 
 from copaw.providers.provider import ModelInfo, Provider
-from copaw.token_usage import TokenRecordingModelWrapper
 
 
 class AnthropicProvider(Provider):
@@ -126,11 +125,10 @@ class AnthropicProvider(Provider):
                 ),
             }
 
-        model_instance = AnthropicChatModel(
+        return AnthropicChatModel(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
             client_kwargs=client_kwargs,
             generate_kwargs=self.generate_kwargs,
         )
-        return TokenRecordingModelWrapper(self.id, model_instance)
