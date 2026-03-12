@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+
+from copy import deepcopy
 from typing import Optional
 from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agentscope.memory import InMemoryMemory
+from agentscope_runtime.engine.schemas.agent_schemas import Message
 
 from .session import SafeJSONSession
 from .manager import ChatManager
@@ -16,6 +20,89 @@ from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+_MAX_PLUGIN_OUTPUT_CHARS = 8000
+_MAX_HISTORY_MESSAGES = 80
+
+
+def _is_tool_trace_message(msg: Message) -> bool:
+    return msg.type in {"plugin_call", "plugin_call_output"}
+
+
+def _compact_chat_history_messages(
+    messages: list[Message],
+    max_history_messages: int = _MAX_HISTORY_MESSAGES,
+) -> list[Message]:
+    """Reduce history payload size for UI stability.
+
+    Strategy:
+    1. Hide low-value tool trace messages.
+    2. Keep only the latest N messages for extremely long chats.
+    """
+    compacted = [m for m in messages if not _is_tool_trace_message(m)]
+    if len(compacted) <= max_history_messages:
+        return compacted
+    return compacted[-max_history_messages:]
+
+
+def _truncate_chat_history_messages(
+    messages: list[Message],
+    max_plugin_output_chars: int = _MAX_PLUGIN_OUTPUT_CHARS,
+) -> list[Message]:
+    """Truncate oversized plugin call outputs for chat-history rendering.
+
+    Large tool outputs can freeze web UI rendering for old sessions. Keep
+    normal messages untouched while clipping only ``plugin_call_output`` data.
+    """
+    truncated: list[Message] = []
+
+    for msg in messages:
+        raw = msg.model_dump()
+        content = raw.get("content")
+
+        if (
+            raw.get("type") != "plugin_call_output"
+            or not isinstance(content, list)
+        ):
+            truncated.append(msg)
+            continue
+
+        msg_changed = False
+        next_content = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "data":
+                next_content.append(item)
+                continue
+
+            data = item.get("data")
+            if not isinstance(data, dict):
+                next_content.append(item)
+                continue
+
+            output = data.get("output")
+            if not isinstance(output, str) or len(output) <= max_plugin_output_chars:
+                next_content.append(item)
+                continue
+
+            clip_suffix = (
+                "\n\n[truncated by CoPaw chat API: "
+                f"showing first {max_plugin_output_chars} chars, "
+                f"{len(output) - max_plugin_output_chars} chars omitted]"
+            )
+            next_item = deepcopy(item)
+            next_item["data"]["output"] = (
+                output[:max_plugin_output_chars] + clip_suffix
+            )
+            next_content.append(next_item)
+            msg_changed = True
+
+        if msg_changed:
+            raw["content"] = next_content
+            truncated.append(Message.model_validate(raw))
+        else:
+            truncated.append(msg)
+
+    return truncated
 
 
 async def get_workspace(request: Request):
@@ -171,6 +258,8 @@ async def get_chat(
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)
+    messages = _truncate_chat_history_messages(messages)
+    messages = _compact_chat_history_messages(messages)
     return ChatHistory(messages=messages, status=status)
 
 
