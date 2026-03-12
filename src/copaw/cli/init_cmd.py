@@ -300,7 +300,9 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
     from ..agents.utils import copy_md_files
 
     config = load_config(config_path) if config_path.is_file() else Config()
-    current_language = config.agents.language
+    current_language = (
+        config.agents.language or "zh"
+    )  # Default to "zh" if None
     installed_language = config.agents.installed_md_files_language
 
     if use_defaults:

@@ -119,7 +119,10 @@ class Workspace:
             logger.debug(f"Loaded config for agent: {self.agent_id}")
 
             # 2. Create and start Runner (must be first)
-            self._runner = AgentRunner(agent_id=self.agent_id)
+            self._runner = AgentRunner(
+                agent_id=self.agent_id,
+                workspace_dir=self.workspace_dir,
+            )
             await self._runner.start()
             logger.debug(f"Runner started for agent: {self.agent_id}")
 

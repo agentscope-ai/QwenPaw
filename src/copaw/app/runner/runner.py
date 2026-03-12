@@ -37,10 +37,17 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRunner(Runner):
-    def __init__(self, agent_id: str = "default") -> None:
+    def __init__(
+        self,
+        agent_id: str = "default",
+        workspace_dir: Path | None = None,
+    ) -> None:
         super().__init__()
         self.framework_type = "agentscope"
         self.agent_id = agent_id  # Store agent_id for config loading
+        self.workspace_dir = (
+            workspace_dir  # Store workspace_dir for prompt building
+        )
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
         self.memory_manager: MemoryManager | None = None
@@ -243,6 +250,7 @@ class AgentRunner(Runner):
                     running_config.tool_result_compact_keep_n
                 ),
                 language=language,
+                workspace_dir=self.workspace_dir,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)

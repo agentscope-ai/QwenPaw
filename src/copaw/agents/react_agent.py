@@ -7,6 +7,7 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Any, List, Literal, Optional, Type
 
 from agentscope.agent import ReActAgent
@@ -89,6 +90,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         enable_tool_result_compact: bool = False,
         tool_result_compact_keep_n: int = 5,
         language: str = "zh",
+        workspace_dir: Path | None = None,
     ):
         """Initialize CoPawAgent.
 
@@ -112,6 +114,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             enable_tool_result_compact: Enable tool result compaction
             tool_result_compact_keep_n: Number of tool results to keep
             language: Language setting for agent (default: "zh")
+            workspace_dir: Workspace directory for reading prompt files
+                (if None, uses global WORKING_DIR)
         """
         self._env_context = env_context
         self._request_context = dict(request_context or {})
@@ -119,6 +123,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
         self._language = language
+        self._workspace_dir = workspace_dir
 
         # Memory compaction settings: use provided or calculate defaults
         self._memory_compact_threshold = (
@@ -275,7 +280,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Complete system prompt string
         """
-        sys_prompt = build_system_prompt_from_working_dir()
+        sys_prompt = build_system_prompt_from_working_dir(
+            working_dir=self._workspace_dir,
+        )
         if self._env_context is not None:
             sys_prompt = self._env_context + "\n\n" + sys_prompt
         return sys_prompt
