@@ -6,10 +6,12 @@ Windows filenames cannot contain: \\ / : * ? " < > |
 This module wraps agentscope's SessionBase so that session_id and user_id
 are sanitized before being used as filenames.
 """
-import os
-import re
+import asyncio
 import json
 import logging
+import os
+import re
+import uuid
 
 from typing import Union, Sequence
 
@@ -41,6 +43,8 @@ class SafeJSONSession(SessionBase):
     that disk I/O does not block the event loop.
     """
 
+    _file_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(
         self,
         save_dir: str = "./",
@@ -52,6 +56,81 @@ class SafeJSONSession(SessionBase):
                 The directory to save the session state.
         """
         self.save_dir = save_dir
+
+    def _get_file_lock(self, session_save_path: str) -> asyncio.Lock:
+        lock = type(self)._file_locks.get(session_save_path)
+        if lock is None:
+            lock = asyncio.Lock()
+            type(self)._file_locks.setdefault(session_save_path, lock)
+        return type(self)._file_locks[session_save_path]
+
+    async def _read_state_dict_unlocked(
+        self,
+        session_save_path: str,
+    ) -> dict:
+        async with aiofiles.open(
+            session_save_path,
+            "r",
+            encoding="utf-8",
+            errors="surrogatepass",
+        ) as file:
+            content = await file.read()
+
+        if not content.strip():
+            logger.warning(
+                "Session file %s is empty. Treating it as an empty state.",
+                session_save_path,
+            )
+            return {}
+
+        try:
+            states = json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning(
+                "Session file %s contains invalid JSON. Treating it as an "
+                "empty state.",
+                session_save_path,
+                exc_info=True,
+            )
+            return {}
+
+        if not isinstance(states, dict):
+            logger.warning(
+                "Session file %s does not contain a JSON object. Treating "
+                "it as an empty state.",
+                session_save_path,
+            )
+            return {}
+
+        return states
+
+    async def _read_state_dict(
+        self,
+        session_save_path: str,
+    ) -> dict:
+        async with self._get_file_lock(session_save_path):
+            return await self._read_state_dict_unlocked(session_save_path)
+
+    async def _write_state_dict_unlocked(
+        self,
+        session_save_path: str,
+        states: dict,
+    ) -> None:
+        payload = json.dumps(states, ensure_ascii=False)
+        temp_path = f"{session_save_path}.{uuid.uuid4().hex}.tmp"
+        try:
+            async with aiofiles.open(
+                temp_path,
+                "w",
+                encoding="utf-8",
+                errors="surrogatepass",
+            ) as file:
+                await file.write(payload)
+                await file.flush()
+            os.replace(temp_path, session_save_path)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     def _get_save_path(self, session_id: str, user_id: str) -> str:
         """Return a filesystem-safe save path.
@@ -80,12 +159,8 @@ class SafeJSONSession(SessionBase):
             for name, state_module in state_modules_mapping.items()
         }
         session_save_path = self._get_save_path(session_id, user_id=user_id)
-        with open(
-            session_save_path,
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(json.dumps(state_dicts, ensure_ascii=False))
+        async with self._get_file_lock(session_save_path):
+            await self._write_state_dict_unlocked(session_save_path, state_dicts)
 
         logger.info(
             "Saved session state to %s successfully.",
@@ -102,14 +177,7 @@ class SafeJSONSession(SessionBase):
         """Load state modules from a JSON file using async I/O."""
         session_save_path = self._get_save_path(session_id, user_id=user_id)
         if os.path.exists(session_save_path):
-            async with aiofiles.open(
-                session_save_path,
-                "r",
-                encoding="utf-8",
-                errors="surrogatepass",
-            ) as f:
-                content = await f.read()
-                states = json.loads(content)
+            states = await self._read_state_dict(session_save_path)
 
             for name, state_module in state_modules_mapping.items():
                 if name in states:
@@ -140,43 +208,28 @@ class SafeJSONSession(SessionBase):
         create_if_not_exist: bool = True,
     ) -> None:
         session_save_path = self._get_save_path(session_id, user_id=user_id)
-
-        if os.path.exists(session_save_path):
-            async with aiofiles.open(
-                session_save_path,
-                "r",
-                encoding="utf-8",
-                errors="surrogatepass",
-            ) as f:
-                content = await f.read()
-                states = json.loads(content)
-
-        else:
-            if not create_if_not_exist:
-                raise ValueError(
-                    f"Session file {session_save_path} does not exist.",
-                )
-            states = {}
-
         path = key.split(".") if isinstance(key, str) else list(key)
         if not path:
             raise ValueError("key path is empty")
 
-        cur = states
-        for k in path[:-1]:
-            if k not in cur or not isinstance(cur[k], dict):
-                cur[k] = {}
-            cur = cur[k]
+        async with self._get_file_lock(session_save_path):
+            if os.path.exists(session_save_path):
+                states = await self._read_state_dict_unlocked(session_save_path)
+            else:
+                if not create_if_not_exist:
+                    raise ValueError(
+                        f"Session file {session_save_path} does not exist.",
+                    )
+                states = {}
 
-        cur[path[-1]] = value
+            cur = states
+            for k in path[:-1]:
+                if k not in cur or not isinstance(cur[k], dict):
+                    cur[k] = {}
+                cur = cur[k]
 
-        async with aiofiles.open(
-            session_save_path,
-            "w",
-            encoding="utf-8",
-            errors="surrogatepass",
-        ) as f:
-            await f.write(json.dumps(states, ensure_ascii=False))
+            cur[path[-1]] = value
+            await self._write_state_dict_unlocked(session_save_path, states)
 
         logger.info(
             "Updated session state key '%s' in %s successfully.",
@@ -209,14 +262,7 @@ class SafeJSONSession(SessionBase):
         """
         session_save_path = self._get_save_path(session_id, user_id=user_id)
         if os.path.exists(session_save_path):
-            async with aiofiles.open(
-                session_save_path,
-                "r",
-                encoding="utf-8",
-                errors="surrogatepass",
-            ) as file:
-                content = await file.read()
-                states = json.loads(content)
+            states = await self._read_state_dict(session_save_path)
 
             logger.info(
                 "Get session state dict from %s successfully.",
