@@ -44,6 +44,9 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
 
   const isComposingRef = useRef(false);
+  const isChatActiveRef = useRef(false);
+  isChatActiveRef.current =
+    location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const lastSessionIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
@@ -53,16 +56,19 @@ export default function ChatPage() {
 
   useEffect(() => {
     const handleCompositionStart = () => {
+      if (!isChatActiveRef.current) return;
       isComposingRef.current = true;
     };
 
     const handleCompositionEnd = () => {
+      if (!isChatActiveRef.current) return;
       setTimeout(() => {
         isComposingRef.current = false;
       }, 150);
     };
 
     const handleKeyPress = (e: KeyboardEvent) => {
+      if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
         if (isComposingRef.current || (e as any).isComposing) {
@@ -94,6 +100,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     sessionApi.onSessionIdResolved = (tempId, realId) => {
+      if (!isChatActiveRef.current) return;
       if (chatIdRef.current === tempId) {
         lastSessionIdRef.current = realId;
         navigateRef.current(`/chat/${realId}`, { replace: true });
@@ -101,6 +108,7 @@ export default function ChatPage() {
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
+      if (!isChatActiveRef.current) return;
       if (chatIdRef.current === removedId) {
         lastSessionIdRef.current = null;
         navigateRef.current("/chat", { replace: true });
