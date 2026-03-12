@@ -60,6 +60,7 @@ class MCPConfigWatcher:
 
         # Track ongoing reload tasks to prevent blocking
         self._reload_task: Optional[asyncio.Task] = None
+        self._health_task: Optional[asyncio.Task] = None
 
         # Track failed reload attempts per client to prevent infinite retries
         # Format: {client_key: (retry_count, last_config_hash)}
@@ -100,6 +101,21 @@ class MCPConfigWatcher:
                     "MCPConfigWatcher: reload task did not finish in time",
                 )
                 self._reload_task.cancel()
+            except Exception:
+                pass
+
+        if self._health_task and not self._health_task.done():
+            logger.debug(
+                "MCPConfigWatcher: waiting for health check task to complete",
+            )
+            try:
+                await asyncio.wait_for(self._health_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "MCPConfigWatcher: health check task did not finish in "
+                    "time",
+                )
+                self._health_task.cancel()
             except Exception:
                 pass
 
@@ -145,11 +161,22 @@ class MCPConfigWatcher:
             try:
                 await asyncio.sleep(self._poll_interval)
                 await self._check()
-                await self._health_check()
+                self._schedule_health_check()
             except asyncio.CancelledError:
                 break
             except Exception:
                 logger.exception("MCPConfigWatcher: poll iteration failed")
+
+    def _schedule_health_check(self) -> None:
+        """Schedule one health check task without blocking the poll loop."""
+        if self._reload_task and not self._reload_task.done():
+            return
+        if self._health_task and not self._health_task.done():
+            return
+        self._health_task = asyncio.create_task(
+            self._health_check(),
+            name="mcp_health_check_task",
+        )
 
     async def _health_check(self) -> None:
         """Proactively reconnect any disconnected MCP clients.
@@ -162,7 +189,10 @@ class MCPConfigWatcher:
         try:
             await self._mcp_manager.reconnect_disconnected()
         except Exception:
-            logger.debug("MCPConfigWatcher: health check encountered an error")
+            logger.debug(
+                "MCPConfigWatcher: health check encountered an error",
+                exc_info=True,
+            )
 
     async def _check(self) -> None:
         """Check for config changes and reload if needed."""

@@ -185,15 +185,10 @@ class MCPClientManager:
             return
 
         for key, old_client in unhealthy_clients:
-            rebuild_info = getattr(old_client, "_copaw_rebuild_info", None)
-            if not isinstance(rebuild_info, dict):
-                logger.debug(
-                    "Cannot reconnect MCP client '%s': no rebuild info",
-                    key,
-                )
-                continue
-
-            new_client = self._build_client_from_info(rebuild_info)
+            new_client = self._build_replacement_client(
+                key=key,
+                old_client=old_client,
+            )
             if new_client is None:
                 continue
 
@@ -208,26 +203,14 @@ class MCPClientManager:
                     key,
                     e,
                 )
-                try:
-                    await new_client.close()
-                except Exception:
-                    pass
+                await self._close_client_quietly(new_client)
                 continue
 
-            # Swap atomically — only if the slot still holds the broken ref
-            async with self._lock:
-                if self._clients.get(key) is old_client:
-                    self._clients[key] = new_client
-                    logger.info(
-                        "MCP client '%s' reconnected via health check",
-                        key,
-                    )
-                else:
-                    # Another path (watcher, API) already replaced it
-                    try:
-                        await new_client.close()
-                    except Exception:
-                        pass
+            await self._swap_reconnected_client(
+                key=key,
+                old_client=old_client,
+                new_client=new_client,
+            )
 
     @staticmethod
     async def _is_client_healthy(
@@ -260,6 +243,50 @@ class MCPClientManager:
             return False
 
     @staticmethod
+    def _build_replacement_client(key: str, old_client: Any) -> Any | None:
+        """Build a replacement client from the stale client's rebuild info."""
+        rebuild_info = getattr(old_client, "_copaw_rebuild_info", None)
+        if not isinstance(rebuild_info, dict):
+            logger.debug(
+                "Cannot reconnect MCP client '%s': no rebuild info",
+                key,
+            )
+            return None
+
+        return MCPClientManager._build_client_from_info(rebuild_info)
+
+    async def _swap_reconnected_client(
+        self,
+        key: str,
+        old_client: Any,
+        new_client: Any,
+    ) -> None:
+        """Atomically replace a stale client and clean it up afterwards."""
+        async with self._lock:
+            if self._clients.get(key) is not old_client:
+                await self._close_client_quietly(new_client)
+                return
+            self._clients[key] = new_client
+
+        logger.info("MCP client '%s' reconnected via health check", key)
+        try:
+            await old_client.close()
+        except Exception as e:
+            logger.debug(
+                "Health check: failed to close stale MCP client '%s': %s",
+                key,
+                e,
+            )
+
+    @staticmethod
+    async def _close_client_quietly(client: Any) -> None:
+        """Best-effort close helper for clients we no longer keep."""
+        try:
+            await client.close()
+        except Exception:
+            pass
+
+    @staticmethod
     def _build_client_from_info(rebuild_info: dict) -> Any | None:
         """Build a fresh MCP client from stored rebuild metadata.
 
@@ -287,7 +314,14 @@ class MCPClientManager:
                 )
             setattr(client, "_copaw_rebuild_info", rebuild_info)
             return client
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                "Failed to rebuild MCP client '%s' with transport '%s': %s",
+                name,
+                transport,
+                e,
+                exc_info=True,
+            )
             return None
 
     async def close_all(self) -> None:

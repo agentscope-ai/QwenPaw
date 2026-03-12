@@ -22,6 +22,7 @@ import os
 import signal
 import sys
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 from anyio import ClosedResourceError
@@ -63,13 +64,16 @@ def _build_test_client(name: str = "test-ping") -> StdIOStatefulClient:
     return client
 
 
-async def _connect_client(
-    client: StdIOStatefulClient,
-    timeout: float = 15,
-) -> None:
-    """Connect within the current task to avoid anyio cross-task cleanup."""
-    async with asyncio.timeout(timeout):
-        await client.connect()
+async def _connect_client(client: StdIOStatefulClient) -> None:
+    """Connect within the current task.
+
+    AgentScope's stdio client stores anyio cleanup state on the calling task.
+    Wrapping ``connect()`` in ``wait_for()``/timeout scopes moves cancellation
+    into a different task/scope and makes teardown flaky, so the integration
+    test keeps connection setup single-task and relies on the local fixture
+    server to fail fast if startup is broken.
+    """
+    await client.connect()
 
 
 def _get_client_process_pid(client: StdIOStatefulClient) -> int:
@@ -78,18 +82,26 @@ def _get_client_process_pid(client: StdIOStatefulClient) -> int:
     generator = getattr(context_manager, "gen", None)
     frame = getattr(generator, "ag_frame", None)
     if frame is None:
-        raise RuntimeError("MCP stdio generator frame is unavailable")
+        pytest.skip(
+            "Cannot inspect MCP stdio generator frame; "
+            "AgentScope internals may have changed.",
+        )
 
     process = frame.f_locals.get("process")
     pid = getattr(process, "pid", None)
-    if pid is None:
-        raise RuntimeError("MCP stdio process pid is unavailable")
+    if not isinstance(pid, int):
+        pytest.skip(
+            "MCP stdio process pid is unavailable; "
+            "AgentScope internals may have changed.",
+        )
 
-    return pid
+    return cast(int, pid)
 
 
 async def _kill_client_process(client: StdIOStatefulClient) -> None:
     """Simulate a real MCP server crash by killing the child process."""
+    if not hasattr(signal, "SIGKILL"):
+        pytest.skip("SIGKILL is unavailable on this platform")
     os.kill(_get_client_process_pid(client), signal.SIGKILL)
     await asyncio.sleep(0.2)
 
