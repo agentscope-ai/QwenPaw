@@ -488,6 +488,50 @@ def models_group() -> None:
     """Manage LLM models and provider configuration."""
 
 
+def _display_provider(defn) -> None:
+    """Print a single provider's details."""
+    tag = (
+        " [custom]" if defn.is_custom else " [local]" if defn.is_local else ""
+    )
+    click.echo(f"\n{'─' * 44}")
+    click.echo(f"  {defn.name} ({defn.id}){tag}")
+    click.echo(f"{'─' * 44}")
+
+    if defn.is_local:
+        all_models = list(defn.models)
+        if all_models:
+            click.echo(f"  {'models':16s}:")
+            for m in all_models:
+                click.echo(f"    - {m.name}")
+        else:
+            click.echo("  No models downloaded.")
+            click.echo("  Use 'copaw models download' to add models.")
+        return
+
+    click.echo(f"  {'base_url':16s}: {defn.base_url or '(not set)'}")
+    click.echo(
+        f"  {'api_key':16s}: " f"{_mask_api_key(defn.api_key) or '(not set)'}",
+    )
+    if defn.api_key_prefix:
+        click.echo(f"  {'api_key_prefix':16s}: {defn.api_key_prefix}")
+
+    extra = list(defn.extra_models)
+    all_models = list(defn.models) + extra
+    if all_models:
+        click.echo(f"  {'models':16s}:")
+        extra_ids = {m.id for m in extra}
+        for m in all_models:
+            label = " [user-added]" if m.id in extra_ids else ""
+            click.echo(f"    - {m.name} ({m.id}){label}")
+
+    if defn.wire_api and defn.wire_api != "chat_completions":
+        click.echo(f"  {'wire_api':16s}: {defn.wire_api}")
+    if defn.headers:
+        click.echo(f"  {'headers':16s}:")
+        for hk, hv in defn.headers.items():
+            click.echo(f"    {hk}: {_mask_header_value(hv)}")
+
+
 @models_group.command("list")
 def list_cmd() -> None:
     """Show all providers and their current configuration."""
@@ -495,54 +539,7 @@ def list_cmd() -> None:
 
     click.echo("\n=== Providers ===")
     for defn in _all_provider_objects(manager):
-        cur_url, cur_key = defn.base_url, defn.api_key
-
-        tag = (
-            " [custom]"
-            if defn.is_custom
-            else " [local]" if defn.is_local else ""
-        )
-        click.echo(f"\n{'─' * 44}")
-        click.echo(f"  {defn.name} ({defn.id}){tag}")
-        click.echo(f"{'─' * 44}")
-
-        if defn.is_local:
-            all_models = list(defn.models)
-            if all_models:
-                click.echo(f"  {'models':16s}:")
-                for m in all_models:
-                    click.echo(f"    - {m.name}")
-            else:
-                click.echo("  No models downloaded.")
-                click.echo("  Use 'copaw models download' to add models.")
-        else:
-            click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
-            click.echo(
-                f"  {'api_key':16s}: "
-                f"{_mask_api_key(cur_key) or '(not set)'}",
-            )
-            if defn.api_key_prefix:
-                click.echo(
-                    f"  {'api_key_prefix':16s}: {defn.api_key_prefix}",
-                )
-
-            extra = list(defn.extra_models)
-            all_models = list(defn.models) + extra
-            if all_models:
-                click.echo(f"  {'models':16s}:")
-                extra_ids = {m.id for m in extra}
-                for m in all_models:
-                    label = " [user-added]" if m.id in extra_ids else ""
-                    click.echo(f"    - {m.name} ({m.id}){label}")
-
-            if defn.wire_api and defn.wire_api != "chat_completions":
-                click.echo(f"  {'wire_api':16s}: {defn.wire_api}")
-            if defn.headers:
-                click.echo(f"  {'headers':16s}:")
-                for hk, hv in defn.headers.items():
-                    click.echo(
-                        f"    {hk}: {_mask_header_value(hv)}",
-                    )
+        _display_provider(defn)
 
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")
