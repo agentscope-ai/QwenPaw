@@ -4,7 +4,9 @@ import {
   type IAgentScopeRuntimeWebUIMessage,
   type IAgentScopeRuntimeWebUIRef,
   Stream,
+  IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
+import type { ExtendedSession } from "./sessionApi";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
@@ -290,7 +292,7 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
-        if (isComposingRef.current || (e as any).isComposing) {
+        if (isComposingRef.current || (e as KeyboardEvent & { isComposing?: boolean }).isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
           return false;
@@ -417,7 +419,7 @@ export default function ChatPage() {
     return sessionApi.getSession(sessionId);
   }, []);
 
-  const createSessionWrapped = useCallback(async (session: any) => {
+  const createSessionWrapped = useCallback(async (session: Partial<IAgentScopeRuntimeWebUISession>) => {
     const result = await sessionApi.createSession(session);
     const newSessionId = session?.id || result[0]?.id;
     if (isChatActiveRef.current && newSessionId) {
@@ -435,7 +437,7 @@ export default function ChatPage() {
       updateSession: sessionApi.updateSession.bind(sessionApi),
       removeSession: sessionApi.removeSession.bind(sessionApi),
     }),
-    [],
+    [createSessionWrapped, getSessionListWrapped, getSessionWrapped],
   );
 
   const copyResponse = useCallback(
@@ -762,7 +764,7 @@ export default function ChatPage() {
           : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
-        ...(i18nConfig as any)?.sender,
+        ...i18nConfig.sender,
         beforeSubmit: handleBeforeSubmit,
         attachments: {
           trigger: function (props: any) {
@@ -837,6 +839,7 @@ export default function ChatPage() {
         ],
         replace: true,
       },
+      pageSize: 80,
       customToolRenderConfig: {
         "weather search mock": Weather,
       },
