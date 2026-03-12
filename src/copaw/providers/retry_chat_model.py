@@ -27,6 +27,7 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
+_http_retryable: tuple[type[Exception], ...] | None = None
 
 
 def _get_openai_retryable() -> tuple[type[Exception], ...]:
@@ -61,15 +62,66 @@ def _get_anthropic_retryable() -> tuple[type[Exception], ...]:
     return _anthropic_retryable
 
 
+def _get_http_retryable() -> tuple[type[Exception], ...]:
+    global _http_retryable  # noqa: PLW0603
+    if _http_retryable is None:
+        collected: list[type[Exception]] = []
+
+        try:
+            import httpx  # noqa: PLC0415
+
+            collected.extend(
+                [
+                    httpx.TransportError,
+                    httpx.ReadError,
+                    httpx.RemoteProtocolError,
+                ],
+            )
+        except ImportError:
+            pass
+
+        try:
+            import httpcore  # noqa: PLC0415
+
+            collected.extend(
+                [
+                    httpcore.ReadError,
+                    httpcore.RemoteProtocolError,
+                ],
+            )
+        except ImportError:
+            pass
+
+        # Keep stable order and remove duplicates.
+        _http_retryable = tuple(dict.fromkeys(collected))
+
+    return _http_retryable
+
+
+def _iter_exception_chain(exc: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Return *True* if *exc* should trigger a retry."""
-    retryable = _get_openai_retryable() + _get_anthropic_retryable()
-    if retryable and isinstance(exc, retryable):
-        return True
+    retryable = (
+        _get_openai_retryable()
+        + _get_anthropic_retryable()
+        + _get_http_retryable()
+    )
 
-    status = getattr(exc, "status_code", None)
-    if status is not None and status in RETRYABLE_STATUS_CODES:
-        return True
+    for current_exc in _iter_exception_chain(exc):
+        if retryable and isinstance(current_exc, retryable):
+            return True
+
+        status = getattr(current_exc, "status_code", None)
+        if status is not None and status in RETRYABLE_STATUS_CODES:
+            return True
 
     return False
 
