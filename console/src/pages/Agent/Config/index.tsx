@@ -18,6 +18,7 @@ function AgentConfigPage() {
     error,
     language,
     savingLang,
+    hasFivemanageApiKey,
     fetchConfig,
     handleSave,
     handleLanguageChange,
@@ -132,8 +133,16 @@ function AgentConfigPage() {
                   name="fivemanage_api_key"
                   rules={[
                     {
-                      required: true,
-                      message: t("agentConfig.fivemanageApiKeyRequired"),
+                      validator: (_, value) => {
+                        const hasNewValue =
+                          typeof value === "string" && value.trim().length > 0;
+                        if (hasNewValue || hasFivemanageApiKey) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(
+                          new Error(t("agentConfig.fivemanageApiKeyRequired")),
+                        );
+                      },
                     },
                   ]}
                   tooltip={
@@ -151,7 +160,11 @@ function AgentConfigPage() {
                   }
                 >
                   <Input.Password
-                    placeholder={t("agentConfig.fivemanageApiKeyPlaceholder")}
+                    placeholder={
+                      hasFivemanageApiKey
+                        ? t("agentConfig.fivemanageApiKeyMaskedPlaceholder")
+                        : t("agentConfig.fivemanageApiKeyPlaceholder")
+                    }
                   />
                 </Form.Item>
               ) : null

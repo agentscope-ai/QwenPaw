@@ -534,6 +534,7 @@
     "fivemanageApiKeyRequired": "请输入Fivemanage API密钥",
     "fivemanageApiKeyTooltip": "Fivemanage服务的API密钥，可在官网获取",
     "fivemanageApiKeyPlaceholder": "输入您的Fivemanage API密钥",
+    "fivemanageApiKeyMaskedPlaceholder": "******（已设置，留空则保持不变）",
     "officialDocs": "官方文档",
     "language": "智能体语言",
     "languageTooltip": "智能体人设文件（SOUL.md、AGENTS.md 等）使用的语言。切换语言后将自动重新复制对应语言的 MD 文件。",

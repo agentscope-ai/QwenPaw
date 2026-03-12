@@ -15,6 +15,33 @@ from ...agents.memory.agent_md_manager import AGENT_MD_MANAGER
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
+class AgentsRunningConfigResponse(BaseModel):
+    """Public running config payload for frontend (without raw secret)."""
+
+    max_iters: int
+    max_input_length: int
+    memory_compact_ratio: float
+    memory_reserve_ratio: float
+    enable_tool_result_compact: bool
+    tool_result_compact_keep_n: int
+    image_upload_provider: str
+    fivemanage_api_key: str = ""
+    has_fivemanage_api_key: bool = False
+
+
+class AgentsRunningConfigUpdate(BaseModel):
+    """Update payload for running config; api key is optional."""
+
+    max_iters: int
+    max_input_length: int
+    memory_compact_ratio: float
+    memory_reserve_ratio: float
+    enable_tool_result_compact: bool
+    tool_result_compact_keep_n: int
+    image_upload_provider: str
+    fivemanage_api_key: str | None = None
+
+
 class MdFileInfo(BaseModel):
     """Markdown file metadata."""
 
@@ -200,33 +227,58 @@ async def put_agent_language(
 
 @router.get(
     "/running-config",
-    response_model=AgentsRunningConfig,
+    response_model=AgentsRunningConfigResponse,
     summary="Get agent running config",
     description="Retrieve agent runtime behavior configuration",
 )
-async def get_agents_running_config() -> AgentsRunningConfig:
+async def get_agents_running_config() -> AgentsRunningConfigResponse:
     """Get agent running configuration."""
     config = load_config()
-    return config.agents.running
+    running = config.agents.running
+    public_config = running.model_dump(exclude={"fivemanage_api_key"})
+    return AgentsRunningConfigResponse(
+        **public_config,
+        fivemanage_api_key="",
+        has_fivemanage_api_key=bool(running.fivemanage_api_key),
+    )
 
 
 @router.put(
     "/running-config",
-    response_model=AgentsRunningConfig,
+    response_model=AgentsRunningConfigResponse,
     summary="Update agent running config",
     description="Update agent runtime behavior configuration",
 )
 async def put_agents_running_config(
-    running_config: AgentsRunningConfig = Body(
+    running_config: AgentsRunningConfigUpdate = Body(
         ...,
         description="Updated agent running configuration",
     ),
-) -> AgentsRunningConfig:
+) -> AgentsRunningConfigResponse:
     """Update agent running configuration."""
     config = load_config()
-    config.agents.running = running_config
+
+    merged_config = config.agents.running.model_dump()
+    incoming = running_config.model_dump(exclude_unset=True)
+
+    new_api_key = incoming.pop("fivemanage_api_key", None)
+    merged_config.update(incoming)
+
+    # Keep existing key when client leaves api key empty or unset.
+    if isinstance(new_api_key, str) and new_api_key.strip():
+        merged_config["fivemanage_api_key"] = new_api_key
+
+    config.agents.running = AgentsRunningConfig(**merged_config)
     save_config(config)
-    return running_config
+
+    public_config = config.agents.running.model_dump(
+        exclude={"fivemanage_api_key"},
+    )
+    return AgentsRunningConfigResponse(
+        **public_config,
+        fivemanage_api_key="",
+        has_fivemanage_api_key=bool(config.agents.running.fivemanage_api_key),
+    )
 
 
 @router.get(

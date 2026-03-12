@@ -528,6 +528,7 @@
     "fivemanageApiKeyRequired": "Fivemanage APIキーを入力してください",
     "fivemanageApiKeyTooltip": "FivemanageサービスのAPIキー。公式サイトで取得できます。",
     "fivemanageApiKeyPlaceholder": "Fivemanage APIキーを入力",
+    "fivemanageApiKeyMaskedPlaceholder": "******（設定済み、空欄なら変更しません）",
     "officialDocs": "公式ドキュメント",
     "language": "エージェント言語",
     "languageTooltip": "エージェントのペルソナファイル（SOUL.md、AGENTS.md など）の言語。変更すると選択した言語のMDファイルが再コピーされます。",

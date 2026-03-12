@@ -533,6 +533,7 @@
     "fivemanageApiKeyRequired": "Пожалуйста, введите API-ключ Fivemanage",
     "fivemanageApiKeyTooltip": "API-ключ для сервиса Fivemanage, доступный на официальном сайте.",
     "fivemanageApiKeyPlaceholder": "Введите ваш API-ключ Fivemanage",
+    "fivemanageApiKeyMaskedPlaceholder": "****** (уже задан, оставьте пустым чтобы не менять)",
     "officialDocs": "Официальная документация",
     "language": "Язык агента",
     "languageTooltip": "Язык файлов персонажа агента (SOUL.md, AGENTS.md и др.). При смене языка MD-файлы будут скопированы на выбранном языке.",

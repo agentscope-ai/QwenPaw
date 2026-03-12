@@ -12,6 +12,7 @@ export function useAgentConfig() {
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<string>("zh");
   const [savingLang, setSavingLang] = useState(false);
+  const [hasFivemanageApiKey, setHasFivemanageApiKey] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -21,7 +22,11 @@ export function useAgentConfig() {
         api.getAgentRunningConfig(),
         api.getAgentLanguage(),
       ]);
-      form.setFieldsValue(config);
+      setHasFivemanageApiKey(config.has_fivemanage_api_key);
+      form.setFieldsValue({
+        ...config,
+        fivemanage_api_key: undefined,
+      });
       setLanguage(langResp.language);
     } catch (err) {
       const errMsg =
@@ -39,8 +44,20 @@ export function useAgentConfig() {
   const handleSave = useCallback(async () => {
     try {
       const values = await form.validateFields();
+      const apiKey = values.fivemanage_api_key?.trim();
+      const payload: AgentsRunningConfig = {
+        ...values,
+      };
+      if (apiKey) {
+        payload.fivemanage_api_key = apiKey;
+      } else {
+        delete payload.fivemanage_api_key;
+      }
+
       setSaving(true);
-      await api.updateAgentRunningConfig(values as AgentsRunningConfig);
+      const updatedConfig = await api.updateAgentRunningConfig(payload);
+      setHasFivemanageApiKey(updatedConfig.has_fivemanage_api_key);
+      form.setFieldValue("fivemanage_api_key", undefined);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
@@ -100,6 +117,7 @@ export function useAgentConfig() {
     error,
     language,
     savingLang,
+    hasFivemanageApiKey,
     fetchConfig,
     handleSave,
     handleLanguageChange,

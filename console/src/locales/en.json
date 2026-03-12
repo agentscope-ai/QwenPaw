@@ -534,6 +534,7 @@
     "fivemanageApiKeyRequired": "Please enter Fivemanage API key",
     "fivemanageApiKeyTooltip": "API key for Fivemanage service, available on the official website.",
     "fivemanageApiKeyPlaceholder": "Enter your Fivemanage API key",
+    "fivemanageApiKeyMaskedPlaceholder": "****** (already set, leave blank to keep unchanged)",
     "officialDocs": "Official Documentation",
     "language": "Agent Language",
     "languageTooltip": "Language for agent persona files (SOUL.md, AGENTS.md, etc.). Changing this will re-copy MD files in the selected language.",
