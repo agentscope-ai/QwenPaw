@@ -65,9 +65,8 @@ def _truncate_chat_history_messages(
         raw = msg.model_dump()
         content = raw.get("content")
 
-        if (
-            raw.get("type") != "plugin_call_output"
-            or not isinstance(content, list)
+        if raw.get("type") != "plugin_call_output" or not isinstance(
+            content, list
         ):
             truncated.append(msg)
             continue
@@ -85,7 +84,10 @@ def _truncate_chat_history_messages(
                 continue
 
             output = data.get("output")
-            if not isinstance(output, str) or len(output) <= max_plugin_output_chars:
+            if (
+                not isinstance(output, str)
+                or len(output) <= max_plugin_output_chars
+            ):
                 next_content.append(item)
                 continue
 
@@ -265,7 +267,9 @@ async def get_chat(
     messages = agentscope_msg_to_message(memories)
     messages = _truncate_chat_history_messages(messages)
     messages = _compact_chat_history_messages(messages)
-    page, total, has_more = _paginate_chat_history_messages(messages, offset, limit)
+    page, total, has_more = _paginate_chat_history_messages(
+        messages, offset, limit
+    )
     return ChatHistory(
         messages=page,
         total=total,

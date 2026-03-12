@@ -94,7 +94,9 @@ async def test_query_handler_returns_retryable_error_msg(
     cast(Any, runner)._resolve_pending_approval = _no_approval
 
     monkeypatch.setattr(runner_module, "CoPawAgent", _DummyAgent)
-    monkeypatch.setattr(runner_module, "build_env_context", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        runner_module, "build_env_context", lambda **kwargs: kwargs
+    )
     monkeypatch.setattr(
         runner_module,
         "load_config",

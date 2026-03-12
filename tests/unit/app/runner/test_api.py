@@ -40,7 +40,9 @@ def test_truncate_chat_history_messages_only_for_large_plugin_output() -> None:
         ),
     ]
 
-    result = _truncate_chat_history_messages(messages, max_plugin_output_chars=20)
+    result = _truncate_chat_history_messages(
+        messages, max_plugin_output_chars=20
+    )
     result_dump = [msg.model_dump() for msg in result]
 
     assert len(result) == 2
@@ -73,7 +75,9 @@ def test_truncate_chat_history_messages_keeps_small_plugin_output() -> None:
         ),
     ]
 
-    result = _truncate_chat_history_messages(messages, max_plugin_output_chars=50)
+    result = _truncate_chat_history_messages(
+        messages, max_plugin_output_chars=50
+    )
     result_dump = [msg.model_dump() for msg in result]
     output = result_dump[0]["content"][0]["data"]["output"]
     assert output == "small output"
@@ -134,7 +138,9 @@ def test_paginate_chat_history_messages_returns_stable_page_meta() -> None:
         for i in range(10)
     ]
 
-    page, total, has_more = _paginate_chat_history_messages(messages, offset=3, limit=4)
+    page, total, has_more = _paginate_chat_history_messages(
+        messages, offset=3, limit=4
+    )
     page_dump = [msg.model_dump() for msg in page]
 
     assert total == 10
@@ -144,7 +150,9 @@ def test_paginate_chat_history_messages_returns_stable_page_meta() -> None:
     assert page_dump[-1]["id"] == "m-6"
 
 
-def test_paginate_chat_history_messages_offset_overflow_returns_empty_page() -> None:
+def test_paginate_chat_history_messages_offset_overflow_returns_empty_page() -> (
+    None
+):
     messages = [
         Message.model_validate(
             {
@@ -156,7 +164,9 @@ def test_paginate_chat_history_messages_offset_overflow_returns_empty_page() -> 
         ),
     ]
 
-    page, total, has_more = _paginate_chat_history_messages(messages, offset=5, limit=10)
+    page, total, has_more = _paginate_chat_history_messages(
+        messages, offset=5, limit=10
+    )
 
     assert page == []
     assert total == 1

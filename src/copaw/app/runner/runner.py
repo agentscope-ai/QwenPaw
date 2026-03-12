@@ -39,7 +39,9 @@ from ...security.tool_guard.approval import ApprovalDecision
 
 logger = logging.getLogger(__name__)
 
-_RETRYABLE_STATUS_PATTERN = re.compile(r"(?:error\s*code|status)\s*[:=]?\s*(\d{3})", re.IGNORECASE)
+_RETRYABLE_STATUS_PATTERN = re.compile(
+    r"(?:error\s*code|status)\s*[:=]?\s*(\d{3})", re.IGNORECASE
+)
 
 
 def _iter_exception_chain(exc: BaseException) -> Iterable[BaseException]:
