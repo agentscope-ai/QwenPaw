@@ -213,21 +213,6 @@
 
 **飞书专属字段说明：**
 
-| 字段                 | 类型   | 默认值       | 说明                                       |
-| -------------------- | ------ | ------------ | ------------------------------------------ |
-| `app_id`             | string | `""`（必填） | 飞书应用 App ID                            |
-| `app_secret`         | string | `""`（必填） | 飞书应用 App Secret                        |
-| `domain`             | string | `"feishu"`   | `"feishu"`（国内）或 `"lark"`（国际版）    |
-| `encrypt_key`        | string | `""`         | 消息加密密钥（可选，WebSocket 模式可不填） |
-| `verification_token` | string | `""`         | 验证 Token（可选，WebSocket 模式可不填）   |
-| `media_dir`          | string | `null`       | 媒体文件下载目录（留空则不保存）           |
-
-> **提示：** 其他字段（encrypt_key、verification_token、media_dir）可选，WebSocket 模式可不填，有默认值。
-
-**依赖：** `pip install lark-oapi`
-
-如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
-
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 CoPaw 服务，才能继续配置长链接的操作。
 > ![console](https://img.alicdn.com/imgextra/i2/O1CN01k7UVrP1E2hZBAn0oF_!!6000000000294-2-tps-4082-2126.png)
 
