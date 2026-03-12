@@ -577,6 +577,70 @@ JSON message format
 
 ---
 
+## Matrix
+
+The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio](https://github.com/poljar/matrix-nio) library. It supports text messaging in both direct messages and group rooms.
+
+### Create a Matrix bot account and get an access token
+
+1. Create a bot account on any Matrix homeserver (e.g. [matrix.org](https://matrix.org) — register at [app.element.io](https://app.element.io/#/register)).
+
+2. Get the bot's **access token**. The easiest way is via Element:
+
+   - Log in as the bot account at [app.element.io](https://app.element.io)
+   - Go to **Settings → Help & About → Advanced → Access Token**
+   - Copy the token (it starts with `syt_...`)
+
+   Alternatively, use the Matrix Client-Server API directly:
+
+   ```bash
+   curl -X POST "https://matrix.org/_matrix/client/v3/login" \
+     -H "Content-Type: application/json" \
+     -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
+   ```
+
+   The response includes `access_token`.
+
+3. Note your bot's **User ID** (format: `@username:homeserver`, e.g. `@mybot:matrix.org`) and the **Homeserver URL** (e.g. `https://matrix.org`).
+
+### Configure the channel
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Matrix**, enable it, and fill in:
+
+- **Homeserver URL** — e.g. `https://matrix.org`
+- **User ID** — e.g. `@mybot:matrix.org`
+- **Access Token** — the token you copied above (shown as a password field)
+
+**Method 2:** Edit `~/.copaw/config.json`
+
+Find `channels.matrix` in `config.json`:
+
+```json
+"matrix": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "homeserver": "https://matrix.org",
+  "user_id": "@mybot:matrix.org",
+  "access_token": "syt_..."
+}
+```
+
+Save the file; the channel will reload automatically if CoPaw is already running.
+
+### Chat with the bot
+
+Invite the bot to a room or send it a direct message from any Matrix client (e.g. Element). The bot listens for messages in all rooms it has joined.
+
+### Notes
+
+- The Matrix channel is **text-only** (no image/file attachments in the current version).
+- Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
+- For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+
+---
+
 ## Appendix
 
 ### Config overview
@@ -590,6 +654,7 @@ JSON message format
 | QQ         | qq         | app_id, client_secret                                                   |
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
+| Matrix     | matrix     | homeserver, user_id, access_token                                       |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -609,6 +674,7 @@ done). **✗** = not supported (not possible on this channel).
 | QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
+| Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 
 Notes:
 
@@ -624,6 +690,7 @@ Notes:
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
+- **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 
 ### Changing config via HTTP
 

@@ -1,0 +1,96 @@
+.page {
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: #000;
+}
+
+.description {
+  font-size: 14px;
+  color: #666;
+  margin: 0;
+}
+
+.formCard {
+  max-width: 800px;
+  margin-bottom: 32px;
+  border: 1px solid transparent;
+
+  &:hover {
+    border-color: #615ced;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.form {
+  :global {
+    .ant-form-item-label > label {
+      font-weight: 500;
+    }
+  }
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  max-width: 800px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #000;
+}
+
+.tableCard {
+  max-width: 800px;
+  margin-bottom: 24px;
+  border: 1px solid transparent;
+
+  &:hover {
+    border-color: #615ced;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.footerButtons {
+  display: flex;
+  justify-content: flex-end;
+  max-width: 800px;
+  margin-top: 8px;
+}
+
+.centerState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  gap: 16px;
+}
+
+.stateText {
+  font-size: 14px;
+  color: #666;
+}
+
+.stateTextError {
+  font-size: 14px;
+  color: #ff4d4f;
+}

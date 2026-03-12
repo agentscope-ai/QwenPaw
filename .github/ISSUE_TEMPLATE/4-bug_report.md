@@ -6,6 +6,11 @@ labels: ["bug", "triage"]
 assignees: []
 ---
 
+## CoPaw Version
+
+[Provide the version of CoPaw you are using, e.g. 0.x.x or git commit hash.]
+[Using `copaw --version` in your command line or checking the version in the console UI can help.]
+
 ## Description
 
 [Describe the bug clearly and concisely. What happened vs what you expected?]

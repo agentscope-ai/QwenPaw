@@ -17,8 +17,22 @@
 }
 
 /* Move rightHeader to the leftmost position of the right header area */
-:global([class*="chat-anywhere-default-header-right"]) {
+:global([class*="chat-anywhere-default-header-right"]),
+:global([class*="default-header-right"]) {
+  display: flex !important;
   margin: 0 auto 0 0 !important;
+  justify-content: flex-start !important;
+}
+
+:global([class*="copaw-chat-anywhere-default-header-right"]) {
+  margin: 0 auto 0 0 !important;
+}
+
+/* Ensure ModelSelector aligns to left in rightHeader */
+:global([class*="chat-anywhere-default-header-right"]) > *,
+:global([class*="default-header-right"]) > * {
+  margin-right: auto !important;
+  margin-left: 0 !important;
 }
 
 /* Disabled input overlay */

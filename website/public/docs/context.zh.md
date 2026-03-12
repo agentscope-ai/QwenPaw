@@ -11,7 +11,6 @@ graph TB
     A[上下文管理] --> B[结构划分]
     A --> C[Token 监控]
     A --> D[压缩机制]
-    A --> E[长期记忆]
 
     B --> B1[系统提示]
     B --> B2[可压缩区]
@@ -21,7 +20,7 @@ graph TB
     D --> D2[对话压缩]
 ```
 
-> 上下文管理机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。CoPaw 通过继承 `ReMeLight` 实现了长期记忆和上下文的管理。
+> 上下文管理机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
 
 ## 上下文结构
 
@@ -29,10 +28,8 @@ CoPaw 将上下文划分为三个区域：
 
 ```mermaid
 graph LR
-    subgraph 上下文结构
-        A[系统提示<br>System Prompt] --> B[可压缩区<br>Compactable Messages]
-        B --> C[保留区<br>Recent Messages]
-    end
+    A[系统提示<br>System Prompt] -->|始终保留| B[可压缩区<br>Compactable Messages]
+    B -->|超限压缩| C[保留区<br>Recent Messages]
 ```
 
 | 区域         | 说明                      | 处理方式                     |
@@ -74,7 +71,6 @@ graph LR
     Hook --> TC[compact_tool_result<br>压缩工具输出]
     TC --> CC[check_context<br>Token 计数]
     CC -->|超限| CM[compact_memory<br>生成摘要]
-    CM --> SM[summary_memory<br>持久化记忆]
 ```
 
 ### 相关代码
@@ -94,8 +90,7 @@ graph LR
     D -->|否| K[返回原消息 + 原摘要]
     D -->|是| V{is_valid?}
     V -->|否| K
-    V -->|是| CM[compact_memory<br>同步生成摘要]
-    V -->|是| SM[add_async_summary_task<br>异步持久化]
+    V -->|是| CM[compact_memory<br>生成摘要]
     CM --> R[返回 messages_to_keep + 新摘要]
 ```
 
@@ -103,8 +98,7 @@ graph LR
 
 1. `compact_tool_result` — 压缩超长工具输出（如果启用）
 2. `check_context` — 检查上下文是否超限
-3. `compact_memory` — 生成压缩摘要（同步）
-4. `summary_memory` — 持久化记忆（异步后台）
+3. `compact_memory` — 生成压缩摘要
 
 ## 压缩机制
 
@@ -174,14 +168,12 @@ graph LR
 - Messages compacted: 12
 **Compressed Summary:**
 <压缩摘要内容>
-- Summary task started in background
 ```
 
 返回内容说明：
 
 - 📊 **Messages compacted** - 压缩了多少条消息
 - 📝 **Compressed Summary** - 生成的摘要内容
-- ⏳ **Summary task** - 后台还会启动一个任务将摘要存入长期记忆
 
 ## 压缩摘要结构
 

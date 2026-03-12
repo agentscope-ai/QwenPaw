@@ -64,12 +64,43 @@ LOG="$HOME/.copaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
 export COPAW_DESKTOP_APP=1
+
+# Preserve system PATH for accessing system commands (e.g. imsg, brew)
+# Prepend packaged env/bin so packaged Python takes precedence
+export PATH="$ENV_DIR/bin:$PATH"
+
+# Set SSL certificate paths for packaged environment
+# Query certifi path from the packaged Python interpreter
+if [ -x "$ENV_DIR/bin/python" ]; then
+  CERT_FILE=$("$ENV_DIR/bin/python" -c \
+    "import certifi; print(certifi.where())" 2>/dev/null)
+  if [ -n "$CERT_FILE" ] && [ -f "$CERT_FILE" ]; then
+    export SSL_CERT_FILE="$CERT_FILE"
+    export REQUESTS_CA_BUNDLE="$CERT_FILE"
+    export CURL_CA_BUNDLE="$CERT_FILE"
+  fi
+fi
+
 cd "$HOME" || true
+
+# Log level: env var COPAW_LOG_LEVEL or default to "info"
+LOG_LEVEL="${COPAW_LOG_LEVEL:-info}"
+
 if [ ! -t 2 ]; then
   mkdir -p "$HOME/.copaw"
   { echo "=== $(date) CoPaw starting ==="
     echo "ENV_DIR=$ENV_DIR"
     echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
+    echo "PATH=$PATH"
+    echo "LOG_LEVEL=$LOG_LEVEL"
+    echo "SSL_CERT_FILE=${SSL_CERT_FILE:-not set}"
+    if [ -n "$SSL_CERT_FILE" ] && [ -f "$SSL_CERT_FILE" ]; then
+      echo "SSL certificate file found at $SSL_CERT_FILE"
+    elif [ -n "$SSL_CERT_FILE" ]; then
+      echo "WARNING: SSL_CERT_FILE set but file does not exist: $SSL_CERT_FILE"
+    else
+      echo "WARNING: SSL_CERT_FILE not set, SSL connections may fail"
+    fi
   } >> "$LOG"
   exec 2>> "$LOG"
   exec 1>> "$LOG"
@@ -80,8 +111,8 @@ if [ ! -t 2 ]; then
   if [ ! -f "$HOME/.copaw/config.json" ]; then
     "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
   fi
-  echo "Launching python..."
-  "$ENV_DIR/bin/python" -u -m copaw desktop
+  echo "Launching python with log-level=$LOG_LEVEL..."
+  "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
   EXIT=$?
   if [ $EXIT -ge 128 ]; then
     SIG=$((EXIT - 128))
@@ -95,7 +126,7 @@ fi
 if [ ! -f "$HOME/.copaw/config.json" ]; then
   "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
 fi
-exec "$ENV_DIR/bin/python" -u -m copaw desktop
+exec "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 

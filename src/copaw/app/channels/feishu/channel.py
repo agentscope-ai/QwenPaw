@@ -56,6 +56,7 @@ from .utils import (
     build_interactive_content,
     extract_json_key,
     extract_post_image_keys,
+    extract_post_media_file_keys,
     extract_post_text,
     normalize_feishu_md,
     sender_display_string,
@@ -679,6 +680,21 @@ class FeishuChannel(BaseChannel):
                         )
                     else:
                         text_parts.append("[image: download failed]")
+                # Download media files in post message
+                for file_key in extract_post_media_file_keys(content_raw):
+                    url_or_path = await self._download_file_resource(
+                        message_id,
+                        file_key,
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[media: download failed]")
             elif msg_type == "image":
                 image_key = extract_json_key(
                     content_raw,

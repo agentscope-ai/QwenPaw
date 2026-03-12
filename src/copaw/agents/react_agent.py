@@ -21,6 +21,7 @@ from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
 from .prompt import build_system_prompt_from_working_dir
+from .tool_guard_mixin import ToolGuardMixin
 from .skills_manager import (
     ensure_skills_initialized,
     get_working_skills_dir,
@@ -32,6 +33,7 @@ from .tools import (
     edit_file,
     execute_shell_command,
     get_current_time,
+    get_token_usage,
     read_file,
     send_file_to_user,
     write_file,
@@ -51,17 +53,7 @@ logger = logging.getLogger(__name__)
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
 
-def normalize_reasoning_tool_choice(
-    tool_choice: Literal["auto", "none", "required"] | None,
-    has_tools: bool,
-) -> Literal["auto", "none", "required"] | None:
-    """Normalize tool_choice for reasoning to reduce provider variance."""
-    if tool_choice is None and has_tools:
-        return "auto"
-    return tool_choice
-
-
-class CoPawAgent(ReActAgent):
+class CoPawAgent(ToolGuardMixin, ReActAgent):
     """CoPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends ReActAgent with:
@@ -70,6 +62,15 @@ class CoPawAgent(ReActAgent):
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
     - System command handling (/compact, /new, etc.)
+    - Tool-guard security interception (via ToolGuardMixin)
+
+    MRO note
+    ~~~~~~~~
+    ``ToolGuardMixin`` overrides ``_acting`` and ``_reasoning`` via
+    Python's MRO: CoPawAgent → ToolGuardMixin → ReActAgent.  If you
+    add a ``_acting`` or ``_reasoning`` override in this class, you
+    **must** call ``super()._acting(...)`` / ``super()._reasoning(...)``
+    so the guard interception remains active.
     """
 
     def __init__(
@@ -78,6 +79,7 @@ class CoPawAgent(ReActAgent):
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
         memory_manager: MemoryManager | None = None,
+        request_context: Optional[dict[str, str]] = None,
         max_iters: int = 50,
         max_input_length: int = 128 * 1024,  # 128K = 131072 tokens
         namesake_strategy: NamesakeStrategy = "skip",
@@ -100,6 +102,7 @@ class CoPawAgent(ReActAgent):
                 (default: "skip")
         """
         self._env_context = env_context
+        self._request_context = dict(request_context or {})
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
@@ -185,6 +188,7 @@ class CoPawAgent(ReActAgent):
             "desktop_screenshot": desktop_screenshot,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
+            "get_token_usage": get_token_usage,
         }
 
         # Register only enabled tools
@@ -273,7 +277,7 @@ class CoPawAgent(ReActAgent):
             logger.debug("Registered memory_search tool")
 
     def _register_hooks(self) -> None:
-        """Register pre-reasoning hooks for bootstrap and memory compaction."""
+        """Register pre-reasoning and pre-acting hooks."""
         # Bootstrap hook - checks BOOTSTRAP.md on first interaction
         config = load_config()
         bootstrap_hook = BootstrapHook(
@@ -490,18 +494,6 @@ class CoPawAgent(ReActAgent):
             return rebuilt_client
         except Exception:  # pylint: disable=broad-except
             return None
-
-    async def _reasoning(
-        self,
-        tool_choice: Literal["auto", "none", "required"] | None = None,
-    ) -> Msg:
-        """Ensure a stable default tool-choice behavior across providers."""
-        tool_choice = normalize_reasoning_tool_choice(
-            tool_choice=tool_choice,
-            has_tools=bool(self.toolkit.get_json_schemas()),
-        )
-
-        return await super()._reasoning(tool_choice=tool_choice)
 
     async def reply(
         self,

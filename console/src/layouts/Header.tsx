@@ -43,7 +43,15 @@ export default function Header({ selectedKey }: HeaderProps) {
 
   const handleNavClick = (url: string) => {
     if (url) {
-      window.open(url, "_blank");
+      // Check if running in pywebview environment
+      const pywebview = (window as any).pywebview;
+      if (pywebview && pywebview.api) {
+        // Use pywebview API to open external link in system browser
+        pywebview.api.open_external_link(url);
+      } else {
+        // Normal browser environment
+        window.open(url, "_blank");
+      }
     }
   };
 

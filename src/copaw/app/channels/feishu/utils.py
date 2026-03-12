@@ -92,18 +92,20 @@ def extract_post_text(content: Optional[str]) -> Optional[str]:
     return " ".join(parts) if parts else None
 
 
-def extract_post_image_keys(content: Optional[str]) -> list[str]:
-    """Extract image_key list from Feishu post message content."""
+def _extract_post_keys(
+    content: Optional[str],
+    tag: str,
+    key_name: str,
+) -> list[str]:
+    """Extract key_name values from items matching tag in post content."""
     if not content:
         return []
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
         return []
-
     if not isinstance(data, dict):
         return []
-
     keys: list[str] = []
     content_blocks = data.get("content") or []
     if isinstance(content_blocks, list):
@@ -113,12 +115,21 @@ def extract_post_image_keys(content: Optional[str]) -> list[str]:
             for item in block:
                 if not isinstance(item, dict):
                     continue
-                if item.get("tag") == "img":
-                    key = item.get("image_key")
+                if item.get("tag") == tag:
+                    key = item.get(key_name)
                     if isinstance(key, str) and key.strip():
                         keys.append(key.strip())
-
     return keys
+
+
+def extract_post_image_keys(content: Optional[str]) -> list[str]:
+    """Extract image_key list from Feishu post message content."""
+    return _extract_post_keys(content, "img", "image_key")
+
+
+def extract_post_media_file_keys(content: Optional[str]) -> list[str]:
+    """Extract file_key list from ``tag=media`` blocks in post content."""
+    return _extract_post_keys(content, "media", "file_key")
 
 
 def normalize_feishu_md(text: str) -> str:

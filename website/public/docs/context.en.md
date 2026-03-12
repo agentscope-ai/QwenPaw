@@ -11,7 +11,6 @@ graph TB
     A[Context Management] --> B[Structure Division]
     A --> C[Token Monitoring]
     A --> D[Compaction Mechanism]
-    A --> E[Long-term Memory]
 
     B --> B1[System Prompt]
     B --> B2[Compactable Zone]
@@ -21,7 +20,7 @@ graph TB
     D --> D2[Conversation Compaction]
 ```
 
-> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented by [ReMe](https://github.com/agentscope-ai/ReMe). CoPaw implements long-term memory and context management by inheriting from `ReMeLight`.
+> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented by [ReMe](https://github.com/agentscope-ai/ReMe).
 
 ## Context Structure
 
@@ -29,10 +28,8 @@ CoPaw divides the context into three zones:
 
 ```mermaid
 graph LR
-    subgraph Context Structure
-        A[System Prompt] --> B[Compactable Zone<br>Compactable Messages]
-        B --> C[Reserved Zone<br>Recent Messages]
-    end
+    A[System Prompt] -->|Always retained| B[Compactable Zone<br>Compactable Messages]
+    B -->|Compress when exceeded| C[Reserved Zone<br>Recent Messages]
 ```
 
 | Zone                 | Description                                      | Handling                                                      |
@@ -74,7 +71,6 @@ graph LR
     Hook --> TC[compact_tool_result<br>Compress tool output]
     TC --> CC[check_context<br>Token counting]
     CC -->|Exceeds limit| CM[compact_memory<br>Generate summary]
-    CM --> SM[summary_memory<br>Persist memory]
 ```
 
 ### Related Code
@@ -94,8 +90,7 @@ graph LR
     D -->|No| K[Return original messages + original summary]
     D -->|Yes| V{is_valid?}
     V -->|No| K
-    V -->|Yes| CM[compact_memory<br>Sync generate summary]
-    V -->|Yes| SM[add_async_summary_task<br>Async persist]
+    V -->|Yes| CM[compact_memory<br>Generate summary]
     CM --> R[Return messages_to_keep + new summary]
 ```
 
@@ -103,8 +98,7 @@ graph LR
 
 1. `compact_tool_result` — Compress long tool outputs (if enabled)
 2. `check_context` — Check if context exceeds limits
-3. `compact_memory` — Generate compaction summary (synchronous)
-4. `summary_memory` — Persist memory (async background)
+3. `compact_memory` — Generate compaction summary
 
 ## Compaction Mechanism
 
@@ -174,14 +168,12 @@ After execution, you'll see:
 - Messages compacted: 12
 **Compressed Summary:**
 <compacted summary content>
-- Summary task started in background
 ```
 
 Response breakdown:
 
 - 📊 **Messages compacted** - How many messages were compacted
 - 📝 **Compressed Summary** - The generated summary content
-- ⏳ **Summary task** - A background task also starts to store the summary into long-term memory
 
 ## Compaction Summary Structure
 

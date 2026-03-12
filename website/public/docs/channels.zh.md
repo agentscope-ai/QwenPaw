@@ -573,6 +573,70 @@ JSON消息格式
 
 ---
 
+## Matrix
+
+Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 CoPaw 接入任意 Matrix 服务器，支持私聊和群聊房间中的文本消息收发。
+
+### 创建机器人账号并获取 Access Token
+
+1. 在任意 Matrix 服务器上注册机器人账号（例如 [matrix.org](https://matrix.org)，可在 [app.element.io](https://app.element.io/#/register) 注册）。
+
+2. 获取机器人的 **Access Token**，最简便的方式是通过 Element：
+
+   - 以机器人账号登录 [app.element.io](https://app.element.io)
+   - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
+   - 复制 Token（以 `syt_...` 开头）
+
+   也可以直接调用 Matrix Client-Server API：
+
+   ```bash
+   curl -X POST "https://matrix.org/_matrix/client/v3/login" \
+     -H "Content-Type: application/json" \
+     -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
+   ```
+
+   响应中的 `access_token` 即为所需 Token。
+
+3. 记录机器人的 **User ID**（格式：`@用户名:服务器`，例如 `@mybot:matrix.org`）和 **Homeserver URL**（例如 `https://matrix.org`）。
+
+### 配置频道
+
+**方式一：** 在 Console 中配置
+
+前往 **控制 → 频道**，点击 **Matrix**，启用后填写：
+
+- **Homeserver URL** — 例如 `https://matrix.org`
+- **User ID** — 例如 `@mybot:matrix.org`
+- **Access Token** — 上面复制的 Token（以密码框形式显示）
+
+**方式二：** 编辑 `~/.copaw/config.json`
+
+在 `config.json` 中找到 `channels.matrix`：
+
+```json
+"matrix": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "homeserver": "https://matrix.org",
+  "user_id": "@mybot:matrix.org",
+  "access_token": "syt_..."
+}
+```
+
+保存后，若 CoPaw 已在运行，频道会自动重载。
+
+### 开始聊天
+
+从任意 Matrix 客户端（如 Element）邀请机器人进入房间或发起私聊。机器人会监听其已加入的所有房间中的消息。
+
+### 注意事项
+
+- Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
+- 机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
+- 如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
+
+---
+
 ## 附录
 
 ### 配置总览
@@ -586,6 +650,7 @@ JSON消息格式
 | QQ         | qq         | app_id, client_secret                                               |
 | Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from             |
+| Matrix     | matrix     | homeserver, user_id, access_token                                   |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 
@@ -603,6 +668,7 @@ JSON消息格式
 | QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
+| Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 
 说明：
 
@@ -612,6 +678,7 @@ JSON消息格式
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
+- **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 
 ### 通过 HTTP 修改配置
 

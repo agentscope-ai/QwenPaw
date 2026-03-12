@@ -37,6 +37,11 @@ from ..config.utils import read_last_api  # noqa: E402
 _record("..config.utils", time.perf_counter() - _t)
 
 _t = time.perf_counter()
+from ..__version__ import __version__  # noqa: E402
+
+_record("..__version__", time.perf_counter() - _t)
+
+_t = time.perf_counter()
 from .app_cmd import app_cmd  # noqa: E402
 
 _record(".app_cmd", time.perf_counter() - _t)
@@ -108,6 +113,7 @@ def log_init_timings() -> None:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(version=__version__, prog_name="CoPaw")
 @click.option("--host", default=None, help="API Host")
 @click.option(
     "--port",

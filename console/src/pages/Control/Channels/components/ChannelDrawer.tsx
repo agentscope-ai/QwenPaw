@@ -20,6 +20,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "discord",
   "feishu",
   "mattermost",
+  "matrix",
 ];
 
 interface ChannelDrawerProps {
@@ -46,6 +47,7 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
   telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
   mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
   mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
+  matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
 };
 const twilioConsoleUrl = "https://console.twilio.com";
 
@@ -117,6 +119,32 @@ export function ChannelDrawer({
   // Renders builtin channel-specific fields
   const renderBuiltinExtraFields = (key: ChannelKey) => {
     switch (key) {
+      case "matrix":
+        return (
+          <>
+            <Form.Item
+              name="homeserver"
+              label="Homeserver URL"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="https://matrix.org" />
+            </Form.Item>
+            <Form.Item
+              name="user_id"
+              label="User ID"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="@bot:matrix.org" />
+            </Form.Item>
+            <Form.Item
+              name="access_token"
+              label="Access Token"
+              rules={[{ required: true }]}
+            >
+              <Input.Password placeholder="syt_..." />
+            </Form.Item>
+          </>
+        );
       case "imessage":
         return (
           <>

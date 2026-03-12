@@ -2,14 +2,66 @@ import { useState, useEffect } from "react";
 import {
   Form,
   InputNumber,
+  Select,
   Button,
   Card,
+  Modal,
   message,
+  Slider,
+  Switch,
+  Input,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import styles from "./index.module.less";
 import type { AgentsRunningConfig } from "../../../api/types";
+
+// Slider with value display component
+function SliderWithValue({
+  value,
+  min,
+  max,
+  step,
+  marks,
+  onChange,
+}: {
+  value?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  marks?: Record<number, string>;
+  onChange?: (value: number) => void;
+}) {
+  const formatValue = (v: number) => {
+    if (v >= 1) return v.toString();
+    return v.toFixed(2);
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ flex: 1 }}>
+        <Slider
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          marks={marks}
+          onChange={onChange}
+        />
+      </div>
+      <div style={{ minWidth: 50, textAlign: "right", lineHeight: "32px" }}>
+        <span style={{ fontWeight: 500, color: "#1890ff" }}>
+          {value !== undefined ? formatValue(value) : "-"}
+        </span>
+      </div>
+    </div>
+  );
+}
+const LANGUAGE_OPTIONS = [
+  { value: "zh", label: "中文" },
+  { value: "en", label: "English" },
+  { value: "ru", label: "Русский" },
+];
 
 function AgentConfigPage() {
   const { t } = useTranslation();
@@ -17,6 +69,8 @@ function AgentConfigPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [language, setLanguage] = useState<string>("zh");
+  const [savingLang, setSavingLang] = useState(false);
 
   useEffect(() => {
     fetchConfig();
@@ -27,8 +81,12 @@ function AgentConfigPage() {
     setLoading(true);
     setError(null);
     try {
-      const config = await api.getAgentRunningConfig();
+      const [config, langResp] = await Promise.all([
+        api.getAgentRunningConfig(),
+        api.getAgentLanguage(),
+      ]);
       form.setFieldsValue(config);
+      setLanguage(langResp.language);
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.loadFailed");
@@ -56,9 +114,76 @@ function AgentConfigPage() {
     }
   };
 
+  const handleLanguageChange = (value: string) => {
+    if (value === language) return;
+    Modal.confirm({
+      title: t("agentConfig.languageConfirmTitle"),
+      content: (
+        <span style={{ whiteSpace: "pre-line" }}>
+          {t("agentConfig.languageConfirmContent")}
+        </span>
+      ),
+      okText: t("agentConfig.languageConfirmOk"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        setSavingLang(true);
+        try {
+          const resp = await api.updateAgentLanguage(value);
+          setLanguage(resp.language);
+          if (resp.copied_files && resp.copied_files.length > 0) {
+            message.success(
+              t("agentConfig.languageSaveSuccessWithFiles", {
+                count: resp.copied_files.length,
+              }),
+            );
+          } else {
+            message.success(t("agentConfig.languageSaveSuccess"));
+          }
+        } catch (err) {
+          const errMsg =
+            err instanceof Error
+              ? err.message
+              : t("agentConfig.languageSaveFailed");
+          message.error(errMsg);
+        } finally {
+          setSavingLang(false);
+        }
+      },
+    });
+  };
+
   const handleReset = () => {
     fetchConfig();
   };
+
+  // Calculate derived values from form
+  const getCalculatedValues = () => {
+    const values = form.getFieldsValue([
+      "max_input_length",
+      "memory_compact_ratio",
+      "memory_reserve_ratio",
+    ]);
+    const maxInputLength = values.max_input_length ?? 0;
+    const memoryCompactRatio = values.memory_compact_ratio ?? 0;
+    const memoryReserveRatio = values.memory_reserve_ratio ?? 0;
+
+    return {
+      contextCompactReserveThreshold: Math.floor(
+        maxInputLength * memoryReserveRatio,
+      ),
+      contextCompactThreshold: Math.floor(maxInputLength * memoryCompactRatio),
+    };
+  };
+
+  // Force re-render when form values change
+  const [, forceUpdate] = useState({});
+
+  const handleValuesChange = () => {
+    forceUpdate({});
+  };
+
+  const { contextCompactReserveThreshold, contextCompactThreshold } =
+    getCalculatedValues();
 
   return (
     <div className={styles.page}>
@@ -85,8 +210,31 @@ function AgentConfigPage() {
           </div>
         </div>
 
-        <Card className={styles.formCard}>
-          <Form form={form} layout="vertical" className={styles.form}>
+        <Form
+          form={form}
+          layout="vertical"
+          className={styles.form}
+          onValuesChange={handleValuesChange}
+        >
+          {/* ReAct Agent Section */}
+          <Card
+            className={styles.formCard}
+            title={t("agentConfig.reactAgentTitle")}
+          >
+            <Form.Item
+              label={t("agentConfig.language")}
+              tooltip={t("agentConfig.languageTooltip")}
+            >
+              <Select
+                value={language}
+                options={LANGUAGE_OPTIONS}
+                onChange={handleLanguageChange}
+                loading={savingLang}
+                disabled={savingLang}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+
             <Form.Item
               label={t("agentConfig.maxIters")}
               name="max_iters"
@@ -106,7 +254,14 @@ function AgentConfigPage() {
                 placeholder={t("agentConfig.maxItersPlaceholder")}
               />
             </Form.Item>
+          </Card>
 
+          {/* Context Management Section */}
+          <Card
+            className={styles.formCard}
+            title={t("agentConfig.contextManagementTitle")}
+            style={{ marginTop: 16 }}
+          >
             <Form.Item
               label={t("agentConfig.maxInputLength")}
               name="max_input_length"
@@ -131,20 +286,120 @@ function AgentConfigPage() {
               />
             </Form.Item>
 
-            <Form.Item className={styles.buttonGroup}>
-              <Button
-                onClick={handleReset}
-                disabled={saving}
-                style={{ marginRight: 8 }}
-              >
-                {t("common.reset")}
-              </Button>
-              <Button type="primary" onClick={handleSave} loading={saving}>
-                {t("common.save")}
-              </Button>
+            <Form.Item
+              label={t("agentConfig.contextCompactRatio")}
+              name="memory_compact_ratio"
+              rules={[
+                {
+                  required: true,
+                  message: t("agentConfig.contextCompactRatioRequired"),
+                },
+              ]}
+              tooltip={t("agentConfig.contextCompactRatioTooltip")}
+            >
+              <SliderWithValue
+                min={0.3}
+                max={0.9}
+                step={0.01}
+                marks={{ 0.3: "0.3", 0.6: "0.6", 0.9: "0.9" }}
+              />
             </Form.Item>
-          </Form>
-        </Card>
+
+            <Form.Item
+              label={t("agentConfig.contextCompactThreshold")}
+              tooltip={t("agentConfig.contextCompactThresholdTooltip")}
+            >
+              <Input
+                disabled
+                value={
+                  contextCompactThreshold > 0
+                    ? contextCompactThreshold.toLocaleString()
+                    : ""
+                }
+                placeholder={t(
+                  "agentConfig.contextCompactThresholdPlaceholder",
+                )}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label={t("agentConfig.contextCompactReserveRatio")}
+              name="memory_reserve_ratio"
+              rules={[
+                {
+                  required: true,
+                  message: t("agentConfig.contextCompactReserveRatioRequired"),
+                },
+              ]}
+              tooltip={t("agentConfig.contextCompactReserveRatioTooltip")}
+            >
+              <SliderWithValue
+                min={0.05}
+                max={0.3}
+                step={0.01}
+                marks={{ 0.05: "0.05", 0.15: "0.15", 0.3: "0.3" }}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label={t("agentConfig.contextCompactReserveThreshold")}
+              tooltip={t("agentConfig.contextCompactReserveThresholdTooltip")}
+            >
+              <Input
+                disabled
+                value={
+                  contextCompactReserveThreshold > 0
+                    ? contextCompactReserveThreshold.toLocaleString()
+                    : ""
+                }
+                placeholder={t(
+                  "agentConfig.contextCompactReserveThresholdPlaceholder",
+                )}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label={t("agentConfig.enableToolResultCompact")}
+              name="enable_tool_result_compact"
+              valuePropName="checked"
+              tooltip={t("agentConfig.enableToolResultCompactTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+
+            <Form.Item
+              label={t("agentConfig.toolResultCompactKeepN")}
+              name="tool_result_compact_keep_n"
+              rules={[
+                {
+                  required: true,
+                  message: t("agentConfig.toolResultCompactKeepNRequired"),
+                },
+              ]}
+              tooltip={t("agentConfig.toolResultCompactKeepNTooltip")}
+            >
+              <SliderWithValue
+                min={1}
+                max={10}
+                step={1}
+                marks={{ 1: "1", 5: "5", 10: "10" }}
+              />
+            </Form.Item>
+          </Card>
+
+          <Form.Item className={styles.buttonGroup}>
+            <Button
+              onClick={handleReset}
+              disabled={saving}
+              style={{ marginRight: 8 }}
+            >
+              {t("common.reset")}
+            </Button>
+            <Button type="primary" onClick={handleSave} loading={saving}>
+              {t("common.save")}
+            </Button>
+          </Form.Item>
+        </Form>
       </div>
     </div>
   );
