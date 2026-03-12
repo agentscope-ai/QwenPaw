@@ -2,6 +2,17 @@
 
 Run from **repo root**.
 
+## Bootstrap local dev environment
+
+```bash
+bash scripts/bootstrap_dev.sh
+```
+
+- Creates or repairs `.venv` in the repo root using a supported Python version.
+- Installs the project in editable mode with `.[dev]` by default.
+- Pass `--extras dev,full` to include the full optional dependency set.
+- Pass `--recreate` to force rebuilding `.venv` from scratch.
+
 ## Build wheel (with latest console)
 
 ```bash
