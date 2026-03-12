@@ -48,7 +48,7 @@ def test_parse_header_pairs_strips_whitespace():
 
 
 def test_parse_header_pairs_empty_tuple():
-    assert _parse_header_pairs(()) == {}
+    assert not _parse_header_pairs(())
 
 
 def test_parse_header_pairs_value_with_equals():
