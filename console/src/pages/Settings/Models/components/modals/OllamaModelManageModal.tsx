@@ -73,7 +73,7 @@ export function OllamaModelManageModal({
       setDiscovering(false);
       setLoadingOllama(false);
     }
-  }, []);
+  }, [provider.id, onSaved]);
 
   const pollOllamaDownloads = useCallback(async () => {
     try {
