@@ -4,13 +4,21 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from urllib.error import HTTPError
 
 import pytest
 
 from copaw.agents import skills_hub as skills_hub_module
 
+extract_lobehub_identifier = getattr(
+    skills_hub_module,
+    "_extract_lobehub_identifier",
+)
 
-def _build_skill_zip() -> bytes:
+
+def _build_skill_zip(
+    extra_files: dict[str, str | bytes] | None = None,
+) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
@@ -29,18 +37,20 @@ def _build_skill_zip() -> bytes:
             "_meta.json",
             json.dumps({"owner": "openclaw", "slug": "cli-developer"}),
         )
+        for path, content in (extra_files or {}).items():
+            zf.writestr(path, content)
     return buf.getvalue()
 
 
 def test_extract_lobehub_identifier_from_page_and_download_urls() -> None:
     assert (
-        skills_hub_module._extract_lobehub_identifier(
+        extract_lobehub_identifier(
             "https://lobehub.com/zh/skills/openclaw-skills-cli-developer",
         )
         == "openclaw-skills-cli-developer"
     )
     assert (
-        skills_hub_module._extract_lobehub_identifier(
+        extract_lobehub_identifier(
             "https://market.lobehub.com/api/v1/skills/"
             "openclaw-skills-cli-developer/download",
         )
@@ -57,7 +67,13 @@ def test_install_skill_from_lobehub_downloads_and_enables(
         calls["url"] = url
         calls["params"] = params
         calls["accept"] = accept
-        return _build_skill_zip()
+        return _build_skill_zip(
+            extra_files={
+                "references/chart.png": (
+                    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+                ),
+            },
+        )
 
     def fake_create_skill(**kwargs):
         calls["create_skill"] = kwargs
@@ -84,14 +100,15 @@ def test_install_skill_from_lobehub_downloads_and_enables(
     )
 
     result = skills_hub_module.install_skill_from_hub(
-        bundle_url="https://lobehub.com/zh/skills/openclaw-skills-cli-developer",
+        bundle_url=(
+            "https://lobehub.com/zh/skills/" "openclaw-skills-cli-developer"
+        ),
         version="1.0.2",
         enable=True,
     )
 
     assert (
-        calls["url"]
-        == "https://market.lobehub.com/api/v1/skills/"
+        calls["url"] == "https://market.lobehub.com/api/v1/skills/"
         "openclaw-skills-cli-developer/download"
     )
     assert calls["params"] == {"version": "1.0.2"}
@@ -119,13 +136,25 @@ def test_install_skill_from_lobehub_downloads_and_enables(
 def test_lobehub_invalid_version_surfaces_remote_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def fake_http_bytes_get(*args, **kwargs):
+        raise HTTPError(
+            url=str(args[0]),
+            code=404,
+            msg="Not Found",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"Skill not found"}'),
+        )
+
     monkeypatch.setattr(
         skills_hub_module,
         "_http_bytes_get",
-        lambda *args, **kwargs: b'{"error":"Skill not found"}',
+        fake_http_bytes_get,
     )
 
-    with pytest.raises(ValueError, match="LobeHub skill download failed"):
+    with pytest.raises(
+        ValueError,
+        match="LobeHub skill download failed: Skill not found",
+    ):
         skills_hub_module.install_skill_from_hub(
             bundle_url=(
                 "https://lobehub.com/en/skills/"

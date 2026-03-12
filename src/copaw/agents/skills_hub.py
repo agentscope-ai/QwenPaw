@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import frontmatter
+import yaml
 
 from .skills_manager import SkillService
 
@@ -49,6 +50,9 @@ RETRYABLE_HTTP_STATUS = {
     503,
     504,
 }
+
+LOBEHUB_MAX_ZIP_ENTRIES = 256
+LOBEHUB_MAX_ZIP_BYTES = 5 * 1024 * 1024
 
 
 def _hub_http_timeout() -> float:
@@ -505,7 +509,7 @@ def _normalize_bundle(
         try:
             post = frontmatter.loads(content)
             name = post.get("name", "")
-        except Exception:
+        except yaml.YAMLError:
             name = ""
     if not name:
         raise ValueError("Hub bundle missing skill name")
@@ -516,6 +520,57 @@ def _normalize_bundle(
 def _safe_fallback_name(raw: str) -> str:
     out = re.sub(r"[^a-zA-Z0-9_-]", "-", raw).strip("-_")
     return out or "imported-skill"
+
+
+def _extract_error_message_from_payload(payload: bytes) -> str:
+    text = payload.decode("utf-8", errors="ignore").strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(data, dict):
+        for key in ("error", "message"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return text
+
+
+def _lobehub_http_error_message(error: HTTPError) -> str:
+    body_bytes: bytes | None = None
+    try:
+        body_bytes = error.read()
+    except Exception:
+        body_bytes = None
+    if isinstance(body_bytes, (bytes, bytearray)):
+        message = _extract_error_message_from_payload(bytes(body_bytes))
+        if message:
+            return message
+    return str(error)
+
+
+def _is_probably_text_blob(payload: bytes) -> bool:
+    if not payload:
+        return True
+    if b"\x00" in payload:
+        return False
+    sample = payload[:1024]
+    text_chars = bytearray({7, 8, 9, 10, 12, 13, 27})
+    text_chars.extend(range(0x20, 0x100))
+    non_text = sample.translate(None, bytes(text_chars))
+    return len(non_text) <= max(1, len(sample) // 10)
+
+
+def _should_keep_lobehub_file(parts: list[str]) -> bool:
+    if not parts:
+        return False
+    if parts == ["SKILL.md"]:
+        return True
+    if parts[0] in {"references", "scripts"} and len(parts) > 1:
+        return True
+    return len(parts) == 1
 
 
 def _is_http_url(text: str) -> bool:
@@ -1103,28 +1158,41 @@ def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as zf:
             files: dict[str, str] = {}
+            entry_count = 0
+            total_bytes = 0
             for info in zf.infolist():
                 if info.is_dir():
                     continue
+                entry_count += 1
+                if entry_count > LOBEHUB_MAX_ZIP_ENTRIES:
+                    raise ValueError(
+                        "LobeHub skill package has too many files",
+                    )
+                total_bytes += max(0, info.file_size)
+                if total_bytes > LOBEHUB_MAX_ZIP_BYTES:
+                    raise ValueError(
+                        "LobeHub skill package is too large to import",
+                    )
                 parts = _safe_path_parts(info.filename.replace("\\", "/"))
                 if not parts:
                     continue
+                if not _should_keep_lobehub_file(parts):
+                    continue
                 rel_path = "/".join(parts)
-                files[rel_path] = zf.read(info).decode(
-                    "utf-8",
-                    errors="replace",
-                )
+                raw = zf.read(info)
+                if not _is_probably_text_blob(raw):
+                    logger.warning(
+                        "Skipping non-text file from LobeHub package: %s",
+                        rel_path,
+                    )
+                    continue
+                files[rel_path] = raw.decode("utf-8", errors="replace")
     except zipfile.BadZipFile as e:
-        text = payload.decode("utf-8", errors="ignore").strip()
-        if text:
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                data = None
-            if isinstance(data, dict) and data.get("error"):
-                raise ValueError(
-                    "LobeHub skill download failed: " f"{data.get('error')}",
-                ) from e
+        message = _extract_error_message_from_payload(payload)
+        if message:
+            raise ValueError(
+                f"LobeHub skill download failed: {message}",
+            ) from e
         raise ValueError(
             "LobeHub skill download did not return a valid zip",
         ) from e
@@ -1133,7 +1201,7 @@ def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
         raise ValueError("LobeHub skill package is missing SKILL.md")
     try:
         post = frontmatter.loads(files["SKILL.md"])
-    except Exception:
+    except yaml.YAMLError:
         post = None
     skill_name = post.get("name") if post is not None else None
     if not isinstance(skill_name, str) or not skill_name.strip():
@@ -1153,11 +1221,17 @@ def _fetch_bundle_from_lobehub_url(
         if requested_version.strip()
         else None
     )
-    payload = _http_bytes_get(
-        _lobehub_download_url(identifier),
-        params=params,
-        accept="application/zip, application/octet-stream, */*",
-    )
+    try:
+        payload = _http_bytes_get(
+            _lobehub_download_url(identifier),
+            params=params,
+            accept="application/zip, application/octet-stream, */*",
+        )
+    except HTTPError as e:
+        raise ValueError(
+            "LobeHub skill download failed: "
+            f"{_lobehub_http_error_message(e)}",
+        ) from e
     return _lobehub_zip_to_bundle(identifier, payload), bundle_url
 
 
