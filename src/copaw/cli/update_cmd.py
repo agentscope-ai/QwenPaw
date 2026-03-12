@@ -52,12 +52,17 @@ def _version_obj(version: str) -> Any:
         return version
 
 
-def _is_newer_version(latest: str, current: str) -> bool:
-    """Return True when latest is newer than current."""
+def _is_newer_version(latest: str, current: str) -> bool | None:
+    """Return whether latest is newer than current.
+
+    Returns `None` when either version cannot be compared reliably.
+    """
     parsed_latest = _version_obj(latest)
     parsed_current = _version_obj(current)
     if isinstance(parsed_latest, str) or isinstance(parsed_current, str):
-        return latest != current
+        if latest == current:
+            return False
+        return None
     return parsed_latest > parsed_current
 
 
@@ -330,6 +335,30 @@ def _echo_install_summary(info: InstallInfo, latest_version: str) -> None:
     click.echo(f"Installer:       {info.installer}")
 
 
+def _confirm_source_override(info: InstallInfo, yes: bool) -> bool:
+    """Confirm whether a non-PyPI installation should be overwritten."""
+    if info.source_type == "pypi":
+        return True
+
+    detail = f" ({info.source_url})" if info.source_url else ""
+    message = (
+        "Detected a non-PyPI installation source: "
+        f"{info.source_type}{detail}. Updating will overwrite the current "
+        "installation with the PyPI release for this environment."
+    )
+
+    if yes:
+        click.echo(f"Warning: {message} Proceeding because `--yes` was provided.")
+        return True
+
+    click.echo(f"Warning: {message}")
+    return click.confirm(
+        "Continue and replace the current installation with the PyPI "
+        "version?",
+        default=False,
+    )
+
+
 @click.command("update")
 @click.option(
     "--yes",
@@ -344,17 +373,30 @@ def update_cmd(ctx: click.Context, yes: bool) -> None:
 
     _echo_install_summary(info, latest_version)
 
-    if info.source_type in {"editable", "local", "vcs", "direct-url"}:
-        detail = f" ({info.source_url})" if info.source_url else ""
-        raise click.ClickException(
-            "Automatic update only supports PyPI-style installs. "
-            f"Detected {info.source_type} installation{detail}. "
-            "Please update it with the original install command.",
-        )
-
-    if not _is_newer_version(latest_version, __version__):
+    version_check = _is_newer_version(latest_version, __version__)
+    if version_check is False:
         click.echo("CoPaw is already up to date.")
         return
+
+    if not _confirm_source_override(info, yes):
+        click.echo("Cancelled.")
+        return
+
+    if version_check is None:
+        if yes:
+            click.echo(
+                "Warning: unable to compare the current version"
+                f"({__version__}) with the latest version ({latest_version})"
+                " automatically. Proceeding because `--yes` was provided.",
+            )
+        elif not click.confirm(
+            f"Unable to compare the current version ({__version__}) with the "
+            f"latest version ({latest_version}) automatically. Continue with "
+            "update anyway?",
+            default=False,
+        ):
+            click.echo("Cancelled.")
+            return
 
     running = _detect_running_service(
         ctx.obj.get("host") if ctx.obj else None,

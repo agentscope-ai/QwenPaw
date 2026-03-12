@@ -13,6 +13,7 @@ from copaw.cli.update_cmd import (
     InstallInfo,
     RunningServiceInfo,
     _detect_installation,
+    _is_newer_version,
     _detect_source_type,
 )
 
@@ -31,6 +32,27 @@ def _install_info(
         source_type=source_type,
         source_url=None,
     )
+
+
+@pytest.mark.parametrize(
+    ("latest", "current", "expected"),
+    [
+        ("1.2.4", "1.2.3", True),
+        ("1.2.3", "1.2.3", False),
+        ("1.2.2", "1.2.3", False),
+        ("1.2.3", "1.2.3rc1", True),
+        ("1.2.3rc1", "1.2.3", False),
+        ("main", "main", False),
+        ("main", "feature", None),
+        ("main", "1.2.3", None),
+    ],
+)
+def test_is_newer_version(
+    latest: str,
+    current: str,
+    expected: bool | None,
+) -> None:
+    assert _is_newer_version(latest, current) is expected
 
 
 @pytest.mark.parametrize(
@@ -207,7 +229,7 @@ def test_update_blocks_running_service(monkeypatch) -> None:
     assert "Please stop it before running `copaw update`." in result.output
 
 
-def test_update_blocks_editable_install(monkeypatch) -> None:
+def test_update_can_cancel_non_pypi_override(monkeypatch) -> None:
     from copaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info(source_type="editable")
@@ -229,12 +251,65 @@ def test_update_blocks_editable_install(monkeypatch) -> None:
         _fetch_latest_version,
     )
 
+    result = CliRunner().invoke(cli, ["update"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "Detected a non-PyPI installation source: editable" in result.output
+    assert "Continue and replace the current installation" in result.output
+    assert "Cancelled." in result.output
+
+
+def test_update_can_override_non_pypi_install_with_yes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from copaw.cli import update_cmd as update_cmd_module
+
+    spawned: dict[str, object] = {}
+    install_info = _install_info(source_type="editable")
+
+    def _detect_installation() -> InstallInfo:
+        return install_info
+
+    def _fetch_latest_version() -> str:
+        return "9.9.9"
+
+    def _detect_running_service(
+        host: str | None,
+        port: int | None,
+    ) -> RunningServiceInfo:
+        del host, port
+        return RunningServiceInfo(is_running=False)
+
+    monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_installation",
+        _detect_installation,
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_fetch_latest_version",
+        _fetch_latest_version,
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_running_service",
+        _detect_running_service,
+    )
+
+    def _fake_spawn(plan_path: Path) -> None:
+        spawned["path"] = plan_path
+        spawned["plan"] = json.loads(plan_path.read_text(encoding="utf-8"))
+
+    monkeypatch.setattr(update_cmd_module, "_spawn_update_worker", _fake_spawn)
+
     result = CliRunner().invoke(cli, ["update", "--yes"])
 
-    assert result.exit_code != 0
-    assert (
-        "Automatic update only supports PyPI-style installs." in result.output
-    )
+    assert result.exit_code == 0
+    assert "Proceeding because `--yes` was provided." in result.output
+    assert "Update process started in a separate process." in result.output
+    assert isinstance(spawned["path"], Path)
 
 
 def test_update_spawns_worker(monkeypatch, tmp_path: Path) -> None:
@@ -294,3 +369,86 @@ def test_update_spawns_worker(monkeypatch, tmp_path: Path) -> None:
         "install",
         "--upgrade",
     ]
+
+
+def test_update_prompts_when_version_is_not_comparable(
+    monkeypatch,
+) -> None:
+    from copaw.cli import update_cmd as update_cmd_module
+
+    install_info = _install_info()
+
+    def _detect_installation() -> InstallInfo:
+        return install_info
+
+    def _fetch_latest_version() -> str:
+        return "main"
+
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_installation",
+        _detect_installation,
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_fetch_latest_version",
+        _fetch_latest_version,
+    )
+
+    result = CliRunner().invoke(cli, ["update"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "Unable to compare the current version" in result.output
+    assert "Cancelled." in result.output
+
+
+def test_update_can_continue_when_version_is_not_comparable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from copaw.cli import update_cmd as update_cmd_module
+
+    spawned: dict[str, object] = {}
+    install_info = _install_info()
+
+    def _detect_installation() -> InstallInfo:
+        return install_info
+
+    def _fetch_latest_version() -> str:
+        return "main"
+
+    def _detect_running_service(
+        host: str | None,
+        port: int | None,
+    ) -> RunningServiceInfo:
+        del host, port
+        return RunningServiceInfo(is_running=False)
+
+    monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_installation",
+        _detect_installation,
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_fetch_latest_version",
+        _fetch_latest_version,
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_running_service",
+        _detect_running_service,
+    )
+
+    def _fake_spawn(plan_path: Path) -> None:
+        spawned["path"] = plan_path
+        spawned["plan"] = json.loads(plan_path.read_text(encoding="utf-8"))
+
+    monkeypatch.setattr(update_cmd_module, "_spawn_update_worker", _fake_spawn)
+
+    result = CliRunner().invoke(cli, ["update"], input="y\ny\n")
+
+    assert result.exit_code == 0
+    assert isinstance(spawned["path"], Path)
+    assert "Update process started in a separate process." in result.output
