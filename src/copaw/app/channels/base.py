@@ -342,10 +342,24 @@ class BaseChannel(ABC):
             Role,
         )
 
-        if not content_parts:
-            content_parts = [
-                TextContent(type=ContentType.TEXT, text=""),
-            ]
+        # Filter out empty TEXT / REFUSAL blocks that some channels may
+        # produce (e.g. DingTalk richText with whitespace-only items).
+        # Remaining empty list is fine: debounce will buffer it until a
+        # text-bearing message arrives.
+        content_parts = [
+            c
+            for c in content_parts
+            if not (
+                (
+                    getattr(c, "type", None) == ContentType.TEXT
+                    and not (getattr(c, "text", None) or "").strip()
+                )
+                or (
+                    getattr(c, "type", None) == ContentType.REFUSAL
+                    and not (getattr(c, "refusal", None) or "").strip()
+                )
+            )
+        ]
         msg = Message(
             type=MessageType.MESSAGE,
             role=Role.USER,
