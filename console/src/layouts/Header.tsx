@@ -2,10 +2,8 @@ import { Layout, Space } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import { useTranslation } from "react-i18next";
 import {
-  FileTextOutlined,
   BookOutlined,
   QuestionCircleOutlined,
-  GithubOutlined,
 } from "@ant-design/icons";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import styles from "./index.module.less";
@@ -16,8 +14,8 @@ const { Header: AntHeader } = Layout;
 const NAV_URLS = {
   docs: "https://copaw.agentscope.io/docs/intro",
   faq: "https://copaw.agentscope.io/docs/faq",
-  changelog: "https://github.com/agentscope-ai/CoPaw/releases",
-  github: "https://github.com/agentscope-ai/CoPaw",
+  changelog: "https://github.com/aimentorai/boostclaw/releases",
+  github: "https://github.com/aimentorai/boostclaw",
 } as const;
 
 const keyToLabel: Record<string, string> = {
@@ -64,15 +62,6 @@ export default function Header({ selectedKey }: HeaderProps) {
         {t(keyToLabel[selectedKey] || "nav.chat")}
       </span>
       <Space size="middle">
-        <Tooltip title={t("header.changelog")}>
-          <Button
-            icon={<FileTextOutlined />}
-            type="text"
-            onClick={() => handleNavClick(NAV_URLS.changelog)}
-          >
-            {t("header.changelog")}
-          </Button>
-        </Tooltip>
         <Tooltip title={t("header.docs")}>
           <Button
             icon={<BookOutlined />}
@@ -89,15 +78,6 @@ export default function Header({ selectedKey }: HeaderProps) {
             onClick={() => handleNavClick(NAV_URLS.faq)}
           >
             {t("header.faq")}
-          </Button>
-        </Tooltip>
-        <Tooltip title={t("header.github")}>
-          <Button
-            icon={<GithubOutlined />}
-            type="text"
-            onClick={() => handleNavClick(NAV_URLS.github)}
-          >
-            {t("header.github")}
           </Button>
         </Tooltip>
         <LanguageSwitcher />

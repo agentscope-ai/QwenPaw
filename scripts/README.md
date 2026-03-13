@@ -24,8 +24,8 @@ bash scripts/website_build.sh
 bash scripts/docker_build.sh [IMAGE_TAG] [EXTRA_ARGS...]
 ```
 
-- Default tag: `copaw:latest`. Uses `deploy/Dockerfile` (multi-stage: builds console then Python app).
-- Example: `bash scripts/docker_build.sh myreg/copaw:v1 --no-cache`.
+- Default tag: `boostclaw:latest`. Uses `deploy/Dockerfile` (multi-stage: builds console then Python app).
+- Example: `bash scripts/docker_build.sh myreg/boostclaw:v1 --no-cache`.
 
 ## Run Test
 

@@ -1,0 +1,15 @@
+SCENARIO 2: Module references preserved (guardrail check)
+
+Command: sed -n '33p' pyproject.toml
+Output:
+version = {attr = "copaw.__version__.__version__"}
+
+Command: sed -n '41p' pyproject.toml
+Output:
+"copaw" = [
+
+Command: sed -n '53p' pyproject.toml
+Output:
+copaw = "copaw.cli.main:cli"
+
+✅ PASSED: All module references still contain copaw as expected. Internal package structure unchanged.

@@ -59,7 +59,7 @@ class LlamaCppBackend(LocalBackend):
         except ImportError as e:
             raise ImportError(
                 "llama-cpp-python is required for the llamacpp backend. "
-                "Install it with: pip install 'copaw[llamacpp]'",
+                "Install it with: pip install 'boostclaw[llamacpp]'",
             ) from e
 
         logger.info(

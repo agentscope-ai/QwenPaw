@@ -31,7 +31,7 @@ $CopawHome     = if ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME
 $CopawVenv     = Join-Path $CopawHome "venv"
 $CopawBin      = Join-Path $CopawHome "bin"
 $PythonVersion = "3.12"
-$CopawRepo     = "https://github.com/agentscope-ai/CoPaw.git"
+$CopawRepo     = "https://github.com/aimentorai/boostclaw.git"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 function Write-Info { param([string]$Message) Write-Host "[copaw] " -ForegroundColor Green  -NoNewline; Write-Host $Message }
@@ -311,8 +311,8 @@ if ($FromSource) {
         }
     }
 } else {
-    $package = "copaw"
-    if ($Version) { $package = "copaw==$Version" }
+    $package = "boostclaw"
+    if ($Version) { $package = "boostclaw==$Version" }
 
     Write-Info "Installing ${package}${ExtrasSuffix} from PyPI..."
     uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet

@@ -24,11 +24,11 @@ error() { printf "${RED}[copaw]${RESET} %s\n" "$*" >&2; }
 die()   { error "$@"; exit 1; }
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-COPAW_HOME="${COPAW_HOME:-$HOME/.copaw}"
+COPAW_HOME="${COPAW_HOME:-$HOME/.boostclaw}"
 COPAW_VENV="$COPAW_HOME/venv"
 COPAW_BIN="$COPAW_HOME/bin"
-PYTHON_VERSION="3.12"
-COPAW_REPO="https://github.com/agentscope-ai/CoPaw.git"
+PYTHON_VERSION="3.10"
+COPAW_REPO="https://github.com/aimentorai/boostclaw.git"
 
 # New: Intelligent selection of PyPI source (automatically using Alibaba Cloud mirror for domestic users, and official source for overseas users)
 choose_pypi_mirror() {
@@ -215,13 +215,13 @@ cleanup_console() {
 
 if [ "$FROM_SOURCE" = true ]; then
     if [ -n "$SOURCE_DIR" ]; then
-        info "Installing CoPaw from local source: $SOURCE_DIR"
+        info "Installing boostclaw from local source: $SOURCE_DIR"
         prepare_console "$SOURCE_DIR"
         info "Installing package from source..."
         uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
         cleanup_console "$SOURCE_DIR"
     else
-        info "Installing CoPaw from source (GitHub)..."
+        info "Installing boostclaw from source (GitHub)..."
         CLONE_DIR="$(mktemp -d)"
         trap 'rm -rf "$CLONE_DIR"' EXIT
         git clone --depth 1 "$COPAW_REPO" "$CLONE_DIR"
@@ -231,9 +231,9 @@ if [ "$FROM_SOURCE" = true ]; then
         # CLONE_DIR is cleaned up by trap; no need for cleanup_console
     fi
 else
-    PACKAGE="copaw"
+    PACKAGE="boostclaw"
     if [ -n "$VERSION" ]; then
-        PACKAGE="copaw==$VERSION"
+        PACKAGE="boostclaw==$VERSION"
     fi
 
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
@@ -262,7 +262,7 @@ cat > "$COPAW_BIN/copaw" << 'WRAPPER'
 set -euo pipefail
 
 COPAW_HOME="${COPAW_HOME:-$HOME/.copaw}"
-REAL_BIN="$COPAW_HOME/venv/bin/copaw"
+REAL_BIN="$COPAW_HOME/venv/bin/boostclaw"
 
 if [ ! -x "$REAL_BIN" ]; then
     echo "Error: CoPaw environment not found at $COPAW_HOME/venv" >&2
@@ -281,11 +281,11 @@ PATH_ENTRY="export PATH=\"\$HOME/.copaw/bin:\$PATH\""
 
 add_to_profile() {
     local profile="$1"
-    if [ -f "$profile" ] && grep -qF '.copaw/bin' "$profile"; then
+    if [ -f "$profile" ] && grep -qF '.boostclaw/bin' "$profile"; then
         return 0  # already present
     fi
     if [ -f "$profile" ] || [ "$2" = "create" ]; then
-        printf '\n# CoPaw\n%s\n' "$PATH_ENTRY" >> "$profile"
+        printf '\n# boostclaw\n%s\n' "$PATH_ENTRY" >> "$profile"
         info "Updated $profile"
         return 0
     fi
@@ -309,7 +309,7 @@ esac
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-printf "${GREEN}${BOLD}CoPaw installed successfully!${RESET}\n"
+printf "${GREEN}${BOLD}boostclaw installed successfully!${RESET}\n"
 echo ""
 
 # Install summary
@@ -333,7 +333,7 @@ fi
 echo "Then run:"
 echo ""
 printf "  ${BOLD}copaw init${RESET}       # first-time setup\n"
-printf "  ${BOLD}copaw app${RESET}        # start CoPaw\n"
+printf "  ${BOLD}copaw app${RESET}        # start boostclaw\n"
 echo ""
 printf "To upgrade later, re-run this installer.\n"
-printf "To uninstall, run: ${BOLD}copaw uninstall${RESET}\n"
+printf "To uninstall, run: ${BOLD}boostclaw uninstall${RESET}\n"

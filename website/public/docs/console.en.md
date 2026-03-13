@@ -278,7 +278,7 @@ cleared.
 ### Local providers (llama.cpp / MLX)
 
 Local providers show a purple **Local** tag. Install backend dependencies
-first (`pip install 'copaw[llamacpp]'` or `pip install 'copaw[mlx]'`).
+first (`pip install 'boostclaw[llamacpp]'` or `pip install 'boostclaw[mlx]'`).
 
 **Download a model:**
 
@@ -301,7 +301,7 @@ loads models from it.
 **Prerequisites:**
 
 - Install Ollama from [ollama.com](https://ollama.com)
-- Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer with `--extras ollama`)
+- Install the Ollama SDK: `pip install 'boostclaw[ollama]'` (or re-run the installer with `--extras ollama`)
 
 **Download a model:**
 

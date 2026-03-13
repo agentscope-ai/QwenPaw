@@ -681,7 +681,7 @@ def download_cmd(
         click.echo(
             click.style(
                 "Local model dependencies not installed. "
-                "Install with: pip install 'copaw[local]'",
+                "Install with: pip install 'boostclaw[local]'",
                 fg="red",
             ),
         )
@@ -733,7 +733,7 @@ def list_local_cmd(backend: str | None) -> None:
     except ImportError:
         click.echo(
             "Local model support not installed. "
-            "Install with: pip install 'copaw[local]'",
+            "Install with: pip install 'boostclaw[local]'",
         )
         return
 
@@ -769,7 +769,7 @@ def remove_local_cmd(model_id: str, yes: bool) -> None:
         click.echo(
             click.style(
                 "Local model support not installed. "
-                "Install with: pip install 'copaw[local]'",
+                "Install with: pip install 'boostclaw[local]'",
                 fg="red",
             ),
         )

@@ -170,7 +170,7 @@ async def list_ollama_models(
         raise HTTPException(
             status_code=501,
             detail="Ollama Python SDK not installed. Install with: "
-            "pip install 'copaw[ollama]'",
+            "pip install 'boostclaw[ollama]'",
         ) from exc
     except (ValueError, RuntimeError, OSError, ConnectionError) as exc:
         logger.exception("Failed to list Ollama models")
@@ -282,7 +282,7 @@ async def delete_ollama_model(
         raise HTTPException(
             status_code=501,
             detail="Ollama SDK not installed. Install with: "
-            "pip install 'copaw[ollama]'",
+            "pip install 'boostclaw[ollama]'",
         ) from exc
     except (ValueError, RuntimeError, OSError, ConnectionError) as exc:
         logger.exception("Failed to delete Ollama model: %s", exc)

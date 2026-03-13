@@ -33,9 +33,9 @@ _Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or un
 
 ## Get involved
 
-We are building CoPaw in the open and welcome contributions of all kinds! Check the table above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+We are building CoPaw in the open and welcome contributions of all kinds! Check the table above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/aimentorai/boostclaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
 
 - **Horizontal expansion** — new channels, model providers, skills, MCPs.
 - **Existing feature extension** — display and UX improvements, download hints, Windows path compatibility, and the like.
 
-Join the conversation on [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions) to suggest or pick up work.
+Join the conversation on [GitHub Discussions](https://github.com/aimentorai/boostclaw/discussions) to suggest or pick up work.

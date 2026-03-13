@@ -1,0 +1,19 @@
+=== QA Scenario: Build scripts reference boostclaw artifacts ===
+
+Test 1: boostclaw references in build_common.py
+54:        (REPO_ROOT / "dist").glob("boostclaw-*.whl"),
+149:                f"boostclaw[full] @ {wheel_uri}",
+
+Test 2: boostclaw-env in build_win.ps1
+10:$Archive = Join-Path $Dist "boostclaw-env.zip"
+
+Test 3: boostclaw-env in build_macos.sh
+10:ARCHIVE="${DIST}/boostclaw-env.tar.gz"
+
+Test 4: No copaw artifact patterns (should have 0 matches for actual lines)
+Checking for copaw-*.whl, copaw-env.*, copaw[full]
+scripts/pack/build_common.py:92:            "dist/copaw-*.whl."
+scripts/pack/build_win.ps1:42:    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "copaw-*.whl") -ErrorAction SilentlyContinue
+
+Test 5: Module paths preserved (src/copaw should exist)
+16:VERSION_FILE="${REPO_ROOT}/src/copaw/__version__.py"

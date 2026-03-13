@@ -14,7 +14,7 @@
 
 本文档说明如何在 Windows 和 macOS 系统上安装和使用 CoPaw Desktop 桌面应用。
 
-[releases]: https://github.com/agentscope-ai/CoPaw/releases
+[releases]: https://github.com/aimentorai/boostclaw/releases
 
 ## 特别说明
 
@@ -227,7 +227,7 @@ A:
 
 ## 技术支持
 
-- **GitHub Issues**: [提交问题](https://github.com/agentscope-ai/CoPaw/issues)
+- **GitHub Issues**: [提交问题](https://github.com/aimentorai/boostclaw/issues)
 - **打包文档**: `scripts/pack/README.md` - 技术细节和本地构建指南
 - **日志位置**:
   - Windows: Debug 模式终端查看，或 `%USERPROFILE%\.copaw\` 目录

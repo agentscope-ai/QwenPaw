@@ -1,0 +1,17 @@
+=== Scenario 1: Website docs pip install instructions updated ===
+
+Checking: pip install copaw (should be 0 matches)
+✓ No 'pip install copaw' found
+
+Checking: pip install 'copaw[ (should be 0 matches)
+✓ No "pip install 'copaw[" found
+
+Checking: pip install boostclaw (should be >= 1 match)
+website/public/docs/faq.zh.md:30:pip install boostclaw
+website/public/docs/faq.en.md:32:pip install boostclaw
+website/public/docs/quickstart.en.md:145:pip install boostclaw
+website/public/docs/quickstart.zh.md:139:pip install boostclaw
+website/public/docs/comparison.zh.md:8:| • .dmg、.exe 安装包<br>• 一行脚本安装<br>• pip install boostclaw<br>• Docker 安装<br>• 一键云端部署
+website/public/docs/comparison.en.md:8:| • .dmg, .exe installation<br>• One-line script installation<br>• pip install boostclaw<br>• Docker installation<br>• One-click cloud deployment
+
+Total 'pip install boostclaw' matches:       12 files

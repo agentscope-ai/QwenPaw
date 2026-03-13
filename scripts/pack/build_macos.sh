@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-# One-click build: console -> conda-pack -> CoPaw.app. Run from repo root.
+#/usr/bin/env bash
+# One-click build: console -> conda-pack -> boostclaw.app. Run from repo root.
 # Requires: conda, node/npm (for console). Optional: icon.icns in assets/.
 
 set -e
@@ -7,12 +7,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 PACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST="${DIST:-dist}"
-ARCHIVE="${DIST}/copaw-env.tar.gz"
-APP_NAME="CoPaw"
+ARCHIVE="${DIST}/boostclaw-env.tar.gz"
+APP_NAME="boostclaw"
 APP_DIR="${DIST}/${APP_NAME}.app"
 
 echo "== Building wheel (includes console frontend) =="
-# Skip wheel_build if dist already has a wheel for current version
+# Rebuild wheel when source is newer than an existing same-version wheel.
+# You can force rebuild with FORCE_WHEEL_BUILD=1.
 VERSION_FILE="${REPO_ROOT}/src/copaw/__version__.py"
 CURRENT_VERSION=""
 if [[ -f "${VERSION_FILE}" ]]; then
@@ -23,12 +24,42 @@ if [[ -f "${VERSION_FILE}" ]]; then
 fi
 if [[ -n "${CURRENT_VERSION}" ]]; then
   shopt -s nullglob
-  whls=("${REPO_ROOT}/dist/copaw-${CURRENT_VERSION}-"*.whl)
+  whls=("${REPO_ROOT}/dist/boostclaw-${CURRENT_VERSION}-"*.whl)
   if [[ ${#whls[@]} -gt 0 ]]; then
-    echo "dist/ already has wheel for version ${CURRENT_VERSION}, skipping."
+    latest_whl="$(ls -t "${whls[@]}" | head -n 1)"
+    should_rebuild=0
+    rebuild_reason=""
+
+    if [[ -n "${FORCE_WHEEL_BUILD}" ]]; then
+      should_rebuild=1
+      rebuild_reason="FORCE_WHEEL_BUILD is set"
+    elif find \
+      "${REPO_ROOT}/src/copaw" \
+      "${REPO_ROOT}/console/src" \
+      -type f -newer "${latest_whl}" -print -quit | grep -q .; then
+      should_rebuild=1
+      rebuild_reason="source files are newer than ${latest_whl##*/}"
+    elif [[ "${REPO_ROOT}/console/index.html" -nt "${latest_whl}" ]] || \
+      [[ "${REPO_ROOT}/setup.py" -nt "${latest_whl}" ]] || \
+      [[ "${REPO_ROOT}/pyproject.toml" -nt "${latest_whl}" ]]; then
+      should_rebuild=1
+      rebuild_reason="build metadata is newer than ${latest_whl##*/}"
+    fi
+
+    if [[ ${should_rebuild} -eq 0 ]]; then
+      echo "Using existing wheel ${latest_whl##*/} for version ${CURRENT_VERSION}."
+    else
+      echo "Rebuilding wheel: ${rebuild_reason}"
+      old_whls=("${REPO_ROOT}/dist/boostclaw-"*.whl)
+      if [[ ${#old_whls[@]} -gt 0 ]]; then
+        echo "Removing old wheel files: ${old_whls[*]}"
+        rm -f "${old_whls[@]}"
+      fi
+      bash scripts/wheel_build.sh
+    fi
   else
     # Clean up old wheels to avoid confusion
-    old_whls=("${REPO_ROOT}/dist/copaw-"*.whl)
+    old_whls=("${REPO_ROOT}/dist/boostclaw-"*.whl)
     if [[ ${#old_whls[@]} -gt 0 ]]; then
       echo "Removing old wheel files: ${old_whls[*]}"
       rm -f "${old_whls[@]}"
@@ -40,7 +71,7 @@ else
 fi
 
 echo "== Building conda-packed env =="
-python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
+python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz --extras ollama
 
 echo "== Building .app bundle =="
 rm -rf "$APP_DIR"
@@ -60,10 +91,11 @@ fi
 cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
 ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
-LOG="$HOME/.copaw/desktop.log"
+LOG="$HOME/.boostclaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
 export COPAW_DESKTOP_APP=1
+export COPAW_WORKING_DIR="${COPAW_WORKING_DIR:-$HOME/.boostclaw}"
 
 # Preserve system PATH for accessing system commands (e.g. imsg, brew)
 # Prepend packaged env/bin so packaged Python takes precedence
@@ -87,8 +119,8 @@ cd "$HOME" || true
 LOG_LEVEL="${COPAW_LOG_LEVEL:-info}"
 
 if [ ! -t 2 ]; then
-  mkdir -p "$HOME/.copaw"
-  { echo "=== $(date) CoPaw starting ==="
+  mkdir -p "$COPAW_WORKING_DIR"
+  { echo "=== $(date) boostclaw starting ==="
     echo "ENV_DIR=$ENV_DIR"
     echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
     echo "PATH=$PATH"
@@ -108,7 +140,7 @@ if [ ! -t 2 ]; then
     echo "ERROR: python not executable at $ENV_DIR/bin/python"
     exit 1
   fi
-  if [ ! -f "$HOME/.copaw/config.json" ]; then
+  if [ ! -f "$COPAW_WORKING_DIR/config.json" ]; then
     "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
   fi
   echo "Launching python with log-level=$LOG_LEVEL..."
@@ -123,7 +155,7 @@ if [ ! -t 2 ]; then
   echo "--- Full log: $LOG (scroll up for Python traceback if app exited early) ---"
   exit $EXIT
 fi
-if [ ! -f "$HOME/.copaw/config.json" ]; then
+if [ ! -f "$COPAW_WORKING_DIR/config.json" ]; then
   "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
 fi
 exec "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
@@ -144,7 +176,7 @@ VERSION="${CURRENT_VERSION}"
 if [[ -z "${VERSION}" ]]; then
   # Fallback: try to get version from packed env metadata
   VERSION="$("${APP_DIR}/Contents/Resources/env/bin/python" -c \
-    "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null \
+    "from importlib.metadata import version; print(version('boostclaw'))" 2>/dev/null \
     || echo "0.0.0")"
   echo "Using version from packed env metadata: ${VERSION}"
 else
@@ -163,13 +195,13 @@ cat > "${APP_DIR}/Contents/Info.plist" << INFOPLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>${APP_NAME}</string>
-  <key>CFBundleIdentifier</key><string>com.copaw.desktop</string>
+  <key>CFBundleIdentifier</key><string>com.boostclaw.desktop</string>
   <key>CFBundleName</key><string>${APP_NAME}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   ${ICON_PLIST}<key>NSHighResolutionCapable</key><true/>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>NSDesktopFolderUsageDescription</key><string>CoPaw may access files in your Desktop folder if you use file-related features. You can choose Don'\''t Allow; the app will still run with limited file access.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>boostclaw may access files in your Desktop folder if you use file-related features. You can choose Don'\''t Allow; the app will still run with limited file access.</string>
 </dict>
 </plist>
 INFOPLIST
@@ -177,7 +209,7 @@ INFOPLIST
 echo "== Built ${APP_DIR} =="
 # Optional: create zip for distribution (set CREATE_ZIP=1)
 if [[ -n "${CREATE_ZIP}" ]]; then
-  ZIP_NAME="${DIST}/CoPaw-${VERSION}-macOS.zip"
+  ZIP_NAME="${DIST}/boostclaw-${VERSION}-macos.zip"
   ditto -c -k --sequesterRsrc --keepParent "${APP_DIR}" "${ZIP_NAME}"
   echo "== Created ${ZIP_NAME} =="
 fi

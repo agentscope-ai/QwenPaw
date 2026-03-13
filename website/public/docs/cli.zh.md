@@ -117,7 +117,7 @@ copaw models set-llm                 # 只切换模型
 #### 本地模型
 
 CoPaw 也支持通过 llama.cpp 或 MLX 在本地运行模型——无需 API Key。
-先安装后端：`pip install 'copaw[llamacpp]'` 或 `pip install 'copaw[mlx]'`。
+先安装后端：`pip install 'boostclaw[llamacpp]'` 或 `pip install 'boostclaw[mlx]'`。
 
 ```bash
 # 下载模型（自动选择 Q4_K_M GGUF）
@@ -148,7 +148,7 @@ copaw models remove-local <model_id> --yes   # 跳过确认
 
 CoPaw 集成 Ollama 以在本地运行模型。模型从 Ollama 守护进程动态加载——请先从 [ollama.com](https://ollama.com) 安装 Ollama。
 
-安装 Ollama SDK：`pip install 'copaw[ollama]'`（或使用 `--extras ollama` 重新运行安装脚本）
+安装 Ollama SDK：`pip install 'boostclaw[ollama]'`（或使用 `--extras ollama` 重新运行安装脚本）
 
 ```bash
 # 下载 Ollama 模型

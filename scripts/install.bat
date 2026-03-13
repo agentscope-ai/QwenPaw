@@ -21,8 +21,8 @@ if defined COPAW_HOME (
 )
 set "COPAW_VENV=%COPAW_HOME%\venv"
 set "COPAW_BIN=%COPAW_HOME%\bin"
-set "PYTHON_VERSION=3.12"
-set "COPAW_REPO=https://github.com/agentscope-ai/CoPaw.git"
+set "PYTHON_VERSION=3.10"
+set "COPAW_REPO=https://github.com/aimentorai/boostclaw.git"
 
 REM ──── Argument defaults ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 set "ARG_VERSION="
@@ -420,7 +420,7 @@ if %_INST_ERR% neq 0 (
 goto :install_verify
 
 :install_from_pypi
-set "_PACKAGE=copaw"
+set "_PACKAGE=boostclaw"
 
 rem === Secure Validation for ARG_VERSION ===
 if defined ARG_VERSION (
@@ -433,7 +433,7 @@ if defined ARG_VERSION (
         echo [ERROR] Installation aborted.
         exit /b 1
     )
-    set "_PACKAGE=copaw%ARG_VERSION%"
+    set "_PACKAGE=boostclaw%ARG_VERSION%"
 )
 rem === End Version Validation ===
 

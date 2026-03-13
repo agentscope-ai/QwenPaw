@@ -1,0 +1,15 @@
+=== QA SCENARIO 1: Install scripts reference boostclaw package ===
+
+shell script (install.sh):
+$(grep -n 'PACKAGE.*boostclaw' scripts/install.sh)
+
+PowerShell script (install.ps1):
+$(grep -n '\$package = "boostclaw' scripts/install.ps1)
+
+Batch script (install.bat):
+$(grep -n '_PACKAGE=boostclaw' scripts/install.bat)
+
+✓ All 6 PACKAGE variable lines updated successfully
+✓ install.sh: Lines 234, 236
+✓ install.ps1: Lines 314, 315
+✓ install.bat: Lines 423, 436
