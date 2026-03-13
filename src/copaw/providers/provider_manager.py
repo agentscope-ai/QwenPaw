@@ -85,6 +85,11 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
 
+MINIMAX_MODELS: List[ModelInfo] = [
+    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
+    ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
+]
+
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
@@ -142,6 +147,16 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     name="Azure OpenAI",
     api_key_prefix="",
     models=AZURE_OPENAI_MODELS,
+)
+
+PROVIDER_MINIMAX = OpenAIProvider(
+    id="minimax",
+    name="MiniMax",
+    base_url="https://api.minimax.io/v1",
+    api_key_prefix="eyJ",
+    models=MINIMAX_MODELS,
+    freeze_url=True,
+    generate_kwargs={"temperature": 1.0},
 )
 
 PROVIDER_ANTHROPIC = AnthropicProvider(
@@ -225,6 +240,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
+        self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
