@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import signal
-
 from click.testing import CliRunner
 
 from copaw.cli.main import cli
+from copaw.cli import shutdown_cmd as shutdown_cmd_module
 from copaw.cli.shutdown_cmd import _terminate_pid
 
 
@@ -101,7 +100,7 @@ def test_terminate_pid_force_kills_on_windows(monkeypatch) -> None:
 
 
 def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
-    calls: list[tuple[int, signal.Signals]] = []
+    calls: list[tuple[int, object]] = []
     waits = iter([False, True])
 
     monkeypatch.setattr("copaw.cli.shutdown_cmd.sys.platform", "darwin")
@@ -119,4 +118,7 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
     )
 
     assert _terminate_pid(4242) is True
-    assert calls == [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
+    assert calls == [
+        (4242, shutdown_cmd_module._SIGTERM),
+        (4242, shutdown_cmd_module._SIGKILL),
+    ]

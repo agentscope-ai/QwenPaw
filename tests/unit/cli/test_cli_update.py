@@ -293,6 +293,7 @@ def test_update_can_force_shutdown_running_service(
     )
 
     monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(update_cmd_module.sys, "platform", "darwin")
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_installation",
@@ -400,6 +401,7 @@ def test_update_can_override_non_pypi_install_with_yes(
         return RunningServiceInfo(is_running=False)
 
     monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(update_cmd_module.sys, "platform", "darwin")
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_installation",
@@ -455,6 +457,7 @@ def test_update_spawns_worker(monkeypatch, tmp_path: Path) -> None:
         return RunningServiceInfo(is_running=False)
 
     monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(update_cmd_module.sys, "platform", "darwin")
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_installation",
@@ -553,6 +556,7 @@ def test_update_can_continue_when_version_is_not_comparable(
         return RunningServiceInfo(is_running=False)
 
     monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(update_cmd_module.sys, "platform", "darwin")
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_installation",
@@ -593,6 +597,7 @@ def test_update_returns_worker_exit_code(monkeypatch, tmp_path: Path) -> None:
     install_info = _install_info()
 
     monkeypatch.setattr(update_cmd_module, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(update_cmd_module.sys, "platform", "darwin")
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_installation",

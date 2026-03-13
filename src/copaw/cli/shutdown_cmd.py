@@ -14,6 +14,8 @@ import click
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
+_SIGTERM = signal.SIGTERM
+_SIGKILL = getattr(signal, "SIGKILL", _SIGTERM)
 
 
 def _backend_port(ctx: click.Context, port: Optional[int]) -> int:
@@ -267,7 +269,7 @@ def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
     if sys.platform == "win32":
         _terminate_process_tree_windows(pid)
     else:
-        _signal_process_tree_unix(pid, signal.SIGTERM)
+        _signal_process_tree_unix(pid, _SIGTERM)
 
     if _wait_for_pid_exit(pid, timeout_sec, 0.2):
         return True
@@ -275,7 +277,7 @@ def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
     if sys.platform == "win32":
         _terminate_process_tree_windows(pid, force=True)
     else:
-        _signal_process_tree_unix(pid, signal.SIGKILL)
+        _signal_process_tree_unix(pid, _SIGKILL)
 
     return _wait_for_pid_exit(pid, 2.0, 0.1)
 
