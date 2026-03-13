@@ -1,10 +1,21 @@
+
 ---
 
-## 开发模式说明
-数字出版方向开发模式详见 [docs/devops/DEVELOPMENT_MODE.md](docs/devops/DEVELOPMENT_MODE.md)。
-建议所有开发者在贡献、任务梳理、路线图等环节查阅本文件。
+# 🚀 CoPaw（数字出版方向本地特色库）
+
+> **⚡ 本库声明：**
+>
+> - 本仓库专注于数字出版领域智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
+> - 行业相关需求、创新、定制化优先本地处理，框架基础特性和 bug 优先本地修复，积累后再同步到上游。
+> - 开发协作请务必查阅 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
+
+---
+
 <div align="center">
 
+> **本库声明：**
+> 这是 futuremeng/CoPaw 仓库，聚焦数字出版领域的智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
+> 所有开发、协作、贡献请优先参考 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
 # CoPaw
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/CoPaw)
@@ -84,18 +95,33 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 > - **I want to chat in DingTalk / Feishu / QQ**: Configure [channels](https://copaw.agentscope.io/docs/channels) in the Console.
 > - **I don’t want to install Python**: [Script install](#script-install) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud deployment.
 
-- [News](#news)
-- [Quick Start](#quick-start)
-- [API Key](#api-key)
-- [Local Models](#local-models)
-- [Documentation](#documentation)
-- [FAQ](#faq)
-- [Roadmap](#roadmap)
-- [Contributing](#get-involved)
-- [Install from source](#install-from-source)
-- [Why CoPaw?](#why-copaw)
-- [Built by](#built-by)
-- [License](#license)
+- [🚀 CoPaw（数字出版方向本地特色库）](#-copaw数字出版方向本地特色库)
+- [CoPaw](#copaw)
+  - [News](#news)
+  - [Table of Contents](#table-of-contents)
+  - [Quick Start](#quick-start)
+    - [pip install](#pip-install)
+    - [Script install](#script-install)
+    - [Desktop Application (Beta)](#desktop-application-beta)
+      - [Download](#download)
+      - [Features](#features)
+      - [First Launch](#first-launch)
+      - [macOS: Bypass System Security Restrictions](#macos-bypass-system-security-restrictions)
+    - [Using Docker](#using-docker)
+    - [Using ModelScope](#using-modelscope)
+    - [Deploy on Alibaba Cloud ECS](#deploy-on-alibaba-cloud-ecs)
+  - [API Key](#api-key)
+  - [Local Models](#local-models)
+  - [Documentation](#documentation)
+  - [FAQ](#faq)
+  - [Roadmap](#roadmap)
+    - [Get involved](#get-involved)
+  - [Install from source](#install-from-source)
+  - [Why CoPaw?](#why-copaw)
+  - [Built by](#built-by)
+  - [Contact us](#contact-us)
+  - [License](#license)
+  - [Contributors](#contributors)
 
 ---
 
