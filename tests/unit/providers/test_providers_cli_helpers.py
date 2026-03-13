@@ -7,10 +7,11 @@ import click
 import pytest
 
 from copaw.cli.providers_cmd import _mask_header_value, _parse_header_pairs
+from copaw.providers.provider import Provider
 
 
 # ------------------------------------------------------------------
-# _mask_header_value
+# _mask_header_value  (delegates to Provider._mask_header_value)
 # ------------------------------------------------------------------
 
 
@@ -28,6 +29,11 @@ def test_mask_header_value_long():
 
 def test_mask_header_value_empty():
     assert _mask_header_value("") == ""
+
+
+def test_mask_header_value_delegates_to_provider():
+    """Ensure the CLI wrapper delegates to Provider._mask_header_value."""
+    assert _mask_header_value("secret") == Provider._mask_header_value("secret")
 
 
 # ------------------------------------------------------------------

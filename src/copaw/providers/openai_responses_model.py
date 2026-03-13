@@ -284,11 +284,25 @@ class OpenAIResponsesChatModel(ChatModelBase):
             role = original_role
             if role not in {"system", "user", "assistant", "developer"}:
                 role = "user"
-                self._log_role_coercion(
-                    "_messages_to_input",
-                    index,
-                    original_role,
-                )
+                if original_role == "tool":
+                    logger = getattr(self, "_logger", None) or getattr(
+                        self,
+                        "logger",
+                        None,
+                    )
+                    if not hasattr(logger, "debug"):
+                        logger = _MODULE_LOGGER
+                    logger.debug(
+                        "Responses API does not support 'tool' role; "
+                        "coercing to 'user' at index=%d",
+                        index,
+                    )
+                else:
+                    self._log_role_coercion(
+                        "_messages_to_input",
+                        index,
+                        original_role,
+                    )
             out.append(
                 {
                     "role": role,
@@ -321,6 +335,10 @@ class OpenAIResponsesChatModel(ChatModelBase):
                 "role": role,
                 "content": self._extract_text(_get(msg, "content", "")),
             }
+            if role == "assistant":
+                tool_calls = _get(msg, "tool_calls")
+                if tool_calls:
+                    mapped["tool_calls"] = tool_calls
             if role == "tool":
                 tool_call_id = _to_text(_get(msg, "tool_call_id", ""))
                 if tool_call_id:
