@@ -119,6 +119,12 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
 
     assert _terminate_pid(4242) is True
     assert calls == [
-        (4242, shutdown_cmd_module._SIGTERM),
-        (4242, shutdown_cmd_module._SIGKILL),
+        (
+            4242,
+            shutdown_cmd_module._SIGTERM,  # pylint: disable=protected-access
+        ),
+        (
+            4242,
+            shutdown_cmd_module._SIGKILL,  # pylint: disable=protected-access
+        ),
     ]

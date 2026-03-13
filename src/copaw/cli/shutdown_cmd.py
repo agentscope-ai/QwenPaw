@@ -330,7 +330,7 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
     )
 
     stopped = frontend_stopped + desktop_stopped + backend_stopped
-    failed = frontend_failed + desktop_failed + backend_failed
+    failed = list(set(frontend_failed + desktop_failed + backend_failed))
 
     if stopped:
         click.echo(

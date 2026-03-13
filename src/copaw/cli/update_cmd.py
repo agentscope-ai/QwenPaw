@@ -71,13 +71,23 @@ def _is_newer_version(latest: str, current: str) -> bool | None:
 
 def _fetch_latest_version() -> str:
     """Fetch the latest published CoPaw version from PyPI."""
-    resp = httpx.get(
-        _PYPI_JSON_URL,
-        timeout=10.0,
-        headers={"Accept": "application/json"},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = httpx.get(
+            _PYPI_JSON_URL,
+            timeout=10.0,
+            headers={"Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPError as exc:
+        raise click.ClickException(
+            f"Failed to fetch the latest CoPaw version from PyPI: {exc}",
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(
+            "Received an invalid response from PyPI when checking for the "
+            f"latest CoPaw version: {exc}",
+        ) from exc
     version = str(data.get("info", {}).get("version", "")).strip()
     if not version:
         raise click.ClickException(
