@@ -91,3 +91,5 @@ CLAUDE.md
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
 /assets/  
 /console/
+src/copaw/console/
+src/copaw/assets/

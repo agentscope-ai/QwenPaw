@@ -10,6 +10,10 @@ import type {
   TestProviderRequest,
   TestModelRequest,
   DiscoverModelsResponse,
+  SeriesResponse,
+  DiscoverExtendedResponse,
+  FilterModelsRequest,
+  FilterModelsResponse,
 } from "../types";
 
 export const providerApi = {
@@ -87,4 +91,20 @@ export const providerApi = {
         body: body ? JSON.stringify(body) : undefined,
       },
     ),
+
+  /* ---- OpenRouter specific endpoints ---- */
+
+  getOpenRouterSeries: () => request<SeriesResponse>("/models/openrouter/series"),
+
+  discoverOpenRouterExtended: (body?: TestProviderRequest) =>
+    request<DiscoverExtendedResponse>("/models/openrouter/discover-extended", {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  filterOpenRouterModels: (body: FilterModelsRequest) =>
+    request<FilterModelsResponse>("/models/openrouter/models/filter", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

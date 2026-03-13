@@ -6,14 +6,25 @@ import {
   Modal,
   Tag,
   message,
+  Checkbox,
 } from "@agentscope-ai/design";
 import {
   DeleteOutlined,
   PlusOutlined,
   ApiOutlined,
   SyncOutlined,
+  FilterOutlined,
+  ClearOutlined,
 } from "@ant-design/icons";
-import type { ProviderInfo } from "../../../../../api/types";
+import {
+  SparkTextLine,
+  SparkImageuploadLine,
+  SparkAudiouploadLine,
+  SparkVideouploadLine,
+  SparkFilePdfLine,
+  SparkTextImageLine,
+} from "@agentscope-ai/icons";
+import type { ProviderInfo, SeriesResponse } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
@@ -37,12 +48,81 @@ export function RemoteModelManageModal({
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
+
+  // OpenRouter filter state
+  const isOpenRouter = provider.id === "openrouter";
+  const [showFilters, setShowFilters] = useState(false);
+  const [availableSeries, setAvailableSeries] = useState<string[]>([]);
+  const [discoveredModels, setDiscoveredModels] = useState<any[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
+  const [selectedInputModality, setSelectedInputModality] = useState<string | null>(null);
+  const [loadingFilters, setLoadingFilters] = useState(false);
+
   // Enable discover for providers that support it
   // For local providers (ollama, llama.cpp, mlx) - check base_url
   // For built-in providers with frozen URL - check api_key
   const canDiscover = provider.is_local
     ? !!provider.base_url
     : !!provider.api_key;
+
+  // Load available series for OpenRouter
+  useEffect(() => {
+    if (isOpenRouter && canDiscover) {
+      api
+        .getOpenRouterSeries()
+        .then((res: SeriesResponse) => {
+          setAvailableSeries(res.series || []);
+        })
+        .catch(() => {
+          setAvailableSeries([]);
+        });
+    }
+  }, [isOpenRouter, canDiscover]);
+
+  // Fetch models with current filters
+  const handleFetchModels = async () => {
+    if (!isOpenRouter) return;
+
+    setLoadingFilters(true);
+    try {
+      const filterBody: Record<string, any> = {};
+      if (selectedSeries.length > 0) {
+        filterBody.providers = selectedSeries;
+      }
+      if (selectedInputModality) {
+        filterBody.input_modalities = [selectedInputModality];
+      }
+
+      const result = await api.filterOpenRouterModels(filterBody);
+      if (result.success) {
+        setDiscoveredModels(result.models || []);
+        message.success(
+          t("models.filteredModelsLoaded", { count: result.total_count }),
+        );
+      } else {
+        message.error(t("models.filterFailed"));
+      }
+    } catch {
+      message.error(t("models.filterFailed"));
+    } finally {
+      setLoadingFilters(false);
+    }
+  };
+
+  const handleAddFilteredModel = async (model: any) => {
+    setSaving(true);
+    try {
+      await api.addModel(provider.id, { id: model.id, name: model.name });
+      message.success(t("models.modelAdded", { name: model.name }));
+      await onSaved();
+      // Remove from discovered list
+      setDiscoveredModels((prev) => prev.filter((m) => m.id !== model.id));
+    } catch {
+      message.error(t("models.modelAddFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -156,6 +236,39 @@ export function RemoteModelManageModal({
     });
   };
 
+  const handleClearAllModels = () => {
+    const extraModels = provider.extra_models || [];
+    if (extraModels.length === 0) return;
+
+    Modal.confirm({
+      title: t("models.clearAllModels"),
+      content: t("models.clearAllModelsConfirm", {
+        count: extraModels.length,
+      }),
+      okText: t("common.delete"),
+      okButtonProps: { danger: true },
+      cancelText: t("models.cancel"),
+      onOk: async () => {
+        setSaving(true);
+        try {
+          for (const model of extraModels) {
+            await api.removeModel(provider.id, model.id);
+          }
+          message.success(t("models.allModelsCleared", { count: extraModels.length }));
+          await onSaved();
+        } catch (error) {
+          const errMsg =
+            error instanceof Error
+              ? error.message
+              : t("models.modelRemoveFailed");
+          message.error(errMsg);
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
+  };
+
   const handleClose = () => {
     setAdding(false);
     form.resetFields();
@@ -228,66 +341,253 @@ export function RemoteModelManageModal({
         {all_models.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          all_models.map((m) => {
-            const isDeletable = extraModelIds.has(m.id);
-            return (
-              <div key={m.id} className={styles.modelListItem}>
-                <div className={styles.modelListItemInfo}>
-                  <span className={styles.modelListItemName}>{m.name}</span>
-                  <span className={styles.modelListItemId}>{m.id}</span>
+          <>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 8,
+                padding: "0 4px",
+              }}
+            >
+              <span style={{ fontWeight: 500 }}>
+                {t("models.modelList")} ({all_models.length})
+              </span>
+              {(provider.extra_models?.length ?? 0) > 0 && (
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<ClearOutlined />}
+                  onClick={handleClearAllModels}
+                  loading={saving}
+                >
+                  {t("models.clearAll")}
+                </Button>
+              )}
+            </div>
+            {all_models.map((m) => {
+              const isDeletable = extraModelIds.has(m.id);
+              // Check if it's an extended model (has input_modalities)
+              const hasExtendedInfo = (m as any).input_modalities;
+              return (
+                <div key={m.id} className={styles.modelListItem}>
+                  <div className={styles.modelListItemInfo}>
+                    <span className={styles.modelListItemName}>{m.name}</span>
+                    <span className={styles.modelListItemId}>
+                      {m.id}
+                      {/* Show modalities and price for extended models */}
+                      {hasExtendedInfo && (
+                        <span style={{ marginLeft: 8, fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 2 }}>
+                          {(m as any).input_modalities?.includes("text") && <SparkTextLine style={{ fontSize: 12 }} />}
+                          {(m as any).input_modalities?.includes("image") && <SparkImageuploadLine style={{ fontSize: 12 }} />}
+                          {(m as any).input_modalities?.includes("audio") && <SparkAudiouploadLine style={{ fontSize: 12 }} />}
+                          {(m as any).input_modalities?.includes("video") && <SparkVideouploadLine style={{ fontSize: 12 }} />}
+                          {(m as any).input_modalities?.includes("file") && <SparkFilePdfLine style={{ fontSize: 12 }} />}
+                          {(m as any).output_modalities?.includes("image") && <SparkTextImageLine style={{ fontSize: 12, color: "purple" }} />}
+                          {((m as any).pricing?.prompt) && (
+                            <span style={{ color: "green", marginLeft: 4 }}>
+                              ${((m as any).pricing.prompt * 1_000_000).toFixed(2)}/1M in
+                              {((m as any).pricing.completion) && (
+                                <span> · ${((m as any).pricing.completion * 1_000_000).toFixed(2)}/1M out</span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className={styles.modelListItemActions}>
+                    {isDeletable ? (
+                      <>
+                        <Tag
+                          color="blue"
+                          style={{ fontSize: 11, marginRight: 4 }}
+                        >
+                          {t("models.userAdded")}
+                        </Tag>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ApiOutlined />}
+                          onClick={() => handleTestModel(m.id)}
+                          loading={testingModelId === m.id}
+                          style={{ marginRight: 4 }}
+                        >
+                          {t("models.testConnection")}
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => handleRemoveModel(m.id, m.name)}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Tag
+                          color="green"
+                          style={{ fontSize: 11, marginRight: 4 }}
+                        >
+                          {t("models.builtin")}
+                        </Tag>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ApiOutlined />}
+                          onClick={() => handleTestModel(m.id)}
+                          loading={testingModelId === m.id}
+                        >
+                          {t("models.testConnection")}
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className={styles.modelListItemActions}>
-                  {isDeletable ? (
-                    <>
-                      <Tag
-                        color="blue"
-                        style={{ fontSize: 11, marginRight: 4 }}
-                      >
-                        {t("models.userAdded")}
-                      </Tag>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ApiOutlined />}
-                        onClick={() => handleTestModel(m.id)}
-                        loading={testingModelId === m.id}
-                        style={{ marginRight: 4 }}
-                      >
-                        {t("models.testConnection")}
-                      </Button>
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleRemoveModel(m.id, m.name)}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Tag
-                        color="green"
-                        style={{ fontSize: 11, marginRight: 4 }}
-                      >
-                        {t("models.builtin")}
-                      </Tag>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ApiOutlined />}
-                        onClick={() => handleTestModel(m.id)}
-                        loading={testingModelId === m.id}
-                      >
-                        {t("models.testConnection")}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </>
         )}
       </div>
+
+      {/* OpenRouter Filter Section */}
+      {isOpenRouter && (
+        <div style={{ marginTop: 16, marginBottom: 16 }}>
+          <Button
+            type={showFilters ? "primary" : "default"}
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters(!showFilters)}
+            style={{ width: "100%", marginBottom: showFilters ? 8 : 0 }}
+          >
+            {t("models.filterModels") || "Filter Models"}
+          </Button>
+
+          {showFilters && (
+            <div
+              style={{
+                padding: 12,
+                background: "#f5f5f5",
+                borderRadius: 8,
+              }}
+            >
+              {/* Provider/Series Filter */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 4, fontWeight: 500 }}>
+                  {t("models.filterByProvider") || "Provider:"}
+                </div>
+                <Checkbox.Group
+                  options={availableSeries.map((s) => ({ label: s, value: s }))}
+                  value={selectedSeries}
+                  onChange={(vals) => setSelectedSeries(vals as string[])}
+                  style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+                />
+              </div>
+
+              {/* Input Modality Filter */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 4, fontWeight: 500 }}>
+                  {t("models.filterByModality") || "Input Modality:"}
+                </div>
+                <Checkbox.Group
+                  options={[
+                    { label: <><SparkImageuploadLine /> Vision (image)</>, value: "image" },
+                    { label: <><SparkAudiouploadLine /> Audio</>, value: "audio" },
+                    { label: <><SparkVideouploadLine /> Video</>, value: "video" },
+                    { label: <><SparkFilePdfLine /> File</>, value: "file" },
+                    { label: <><SparkTextLine /> Text only</>, value: "text" },
+                  ]}
+                  value={selectedInputModality ? [selectedInputModality] : []}
+                  onChange={(vals) =>
+                    setSelectedInputModality(
+                      vals.length > 0 ? (vals[0] as string) : null,
+                    )
+                  }
+                  style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+                />
+              </div>
+
+              {/* Fetch Button */}
+              <Button
+                type="primary"
+                onClick={handleFetchModels}
+                loading={loadingFilters}
+                disabled={!canDiscover}
+                style={{ width: "100%" }}
+              >
+                {t("models.getModels") || "Get Models"}
+              </Button>
+
+              {/* Discovered Models List */}
+              {discoveredModels.length > 0 && (
+                <div style={{ marginTop: 12, maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                    {t("models.discovered") || "Available Models:"}
+                  </div>
+                  {discoveredModels.map((model: any) => (
+                    <div
+                      key={model.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        background: "white",
+                        marginBottom: 4,
+                        borderRadius: 4,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{model.name}</div>
+                        <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
+                          <span>{model.provider}</span>
+                          {/* Input modalities icons */}
+                          {model.input_modalities?.includes("text") && (
+                            <SparkTextLine style={{ fontSize: 12 }} />
+                          )}
+                          {model.input_modalities?.includes("image") && (
+                            <SparkImageuploadLine style={{ fontSize: 12 }} />
+                          )}
+                          {model.input_modalities?.includes("audio") && (
+                            <SparkAudiouploadLine style={{ fontSize: 12 }} />
+                          )}
+                          {model.input_modalities?.includes("video") && (
+                            <SparkVideouploadLine style={{ fontSize: 12 }} />
+                          )}
+                          {model.input_modalities?.includes("file") && (
+                            <SparkFilePdfLine style={{ fontSize: 12 }} />
+                          )}
+                          {model.output_modalities?.includes("image") && (
+                            <SparkTextImageLine style={{ fontSize: 12, color: "purple" }} />
+                          )}
+                          {/* Price */}
+                          {model.pricing?.prompt && (
+                            <span style={{ color: "green", marginLeft: 4 }}>
+                              ${(parseFloat(model.pricing.prompt) * 1_000_000).toFixed(2)}/1M in
+                              {model.pricing?.completion && (
+                                <span> · ${(parseFloat(model.pricing.completion) * 1_000_000).toFixed(2)}/1M out</span>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={() => handleAddFilteredModel(model)}
+                        disabled={saving}
+                      >
+                        {t("models.add") || "Add"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Add model section */}
       {adding ? (
