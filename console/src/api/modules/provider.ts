@@ -3,40 +3,18 @@ import type {
   ProviderInfo,
   ProviderConfigRequest,
   ActiveModelsInfo,
-  GetActiveModelsRequest,
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
-  ModelConfigRequest,
-  LocalActionResponse,
-  LocalModelConfig,
-  LocalModelConfigRequest,
   TestConnectionResponse,
   TestProviderRequest,
   TestModelRequest,
   DiscoverModelsResponse,
-  ProbeMultimodalResponse,
   SeriesResponse,
   DiscoverExtendedResponse,
   FilterModelsRequest,
   FilterModelsResponse,
 } from "../types";
-
-function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
-  if (!params?.scope && !params?.agent_id) {
-    return "/models/active";
-  }
-
-  const searchParams = new URLSearchParams();
-  if (params.scope) {
-    searchParams.set("scope", params.scope);
-  }
-  if (params.agent_id) {
-    searchParams.set("agent_id", params.agent_id);
-  }
-
-  return `/models/active?${searchParams.toString()}`;
-}
 
 export const providerApi = {
   listProviders: () => request<ProviderInfo[]>("/models"),
@@ -47,8 +25,7 @@ export const providerApi = {
       body: JSON.stringify(body),
     }),
 
-  getActiveModels: (params?: GetActiveModelsRequest) =>
-    request<ActiveModelsInfo>(buildActiveModelQuery(params)),
+  getActiveModels: () => request<ActiveModelsInfo>("/models/active"),
 
   setActiveLlm: (body: ModelSlotRequest) =>
     request<ActiveModelsInfo>("/models/active", {
@@ -86,29 +63,6 @@ export const providerApi = {
       { method: "DELETE" },
     ),
 
-  configureModel: (
-    providerId: string,
-    modelId: string,
-    body: ModelConfigRequest,
-  ) =>
-    request<ProviderInfo>(
-      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
-        modelId,
-      )}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify(body),
-      },
-    ),
-
-  configureLocalModelSettings: (body: LocalModelConfigRequest) =>
-    request<LocalActionResponse>(`/local-models/config`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
-
-  getLocalModelConfig: () => request<LocalModelConfig>("/local-models/config"),
-
   /* ---- Test Connection ---- */
 
   testProviderConnection: (providerId: string, body?: TestProviderRequest) =>
@@ -129,34 +83,18 @@ export const providerApi = {
       },
     ),
 
-  discoverModels: (
-    providerId: string,
-    body?: TestProviderRequest,
-    save: boolean = true,
-  ) => {
-    const url = new URL(
+  discoverModels: (providerId: string, body?: TestProviderRequest) =>
+    request<DiscoverModelsResponse>(
       `/models/${encodeURIComponent(providerId)}/discover`,
-      window.location.origin,
-    );
-    url.searchParams.set("save", save.toString());
-    return request<DiscoverModelsResponse>(url.pathname + url.search, {
-      method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  },
-
-  probeMultimodal: (providerId: string, modelId: string) =>
-    request<ProbeMultimodalResponse>(
-      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
-        modelId,
-      )}/probe-multimodal`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: body ? JSON.stringify(body) : undefined,
+      },
     ),
 
   /* ---- OpenRouter specific endpoints ---- */
 
-  getOpenRouterSeries: () =>
-    request<SeriesResponse>("/models/openrouter/series"),
+  getOpenRouterSeries: () => request<SeriesResponse>("/models/openrouter/series"),
 
   discoverOpenRouterExtended: (body?: TestProviderRequest) =>
     request<DiscoverExtendedResponse>("/models/openrouter/discover-extended", {

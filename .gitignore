@@ -113,3 +113,5 @@ src/.hypothesis/
 .worktrees/
 /assets/  
 /console/
+src/copaw/console/
+src/copaw/assets/

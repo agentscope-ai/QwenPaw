@@ -72,6 +72,26 @@ class ExtendedModelInfo(ModelInfo):
     )
 
 
+class ExtendedModelInfo(ModelInfo):
+    """Extended model info with additional metadata for providers like OpenRouter."""
+    provider: str = Field(
+        default="",
+        description="Provider/series (e.g., 'openai', 'google', 'anthropic')",
+    )
+    input_modalities: List[str] = Field(
+        default_factory=list,
+        description="Supported input modalities: text, image, audio, video, file",
+    )
+    output_modalities: List[str] = Field(
+        default_factory=list,
+        description="Supported output modalities: text, image, audio",
+    )
+    pricing: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Pricing info: {'prompt': '0.000005', 'completion': '0.000015'}",
+    )
+
+
 class ProviderInfo(BaseModel):
     """Provider configuration and metadata."""
 
