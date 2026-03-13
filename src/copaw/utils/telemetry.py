@@ -181,32 +181,80 @@ def _upload_telemetry_sync(data: dict[str, Any]) -> bool:
         return False
 
 
+def _get_current_version() -> str:
+    """Get the current CoPaw version string."""
+    try:
+        from ..__version__ import __version__ as copaw_ver
+
+        return copaw_ver
+    except Exception:
+        return "unknown"
+
+
 def has_telemetry_been_collected(working_dir: Path) -> bool:
-    """Check if telemetry has already been collected for this installation.
+    """Check if telemetry has already been collected for the current version.
+
+    Re-triggers collection when CoPaw is upgraded (or downgraded) to a version
+    that hasn't been collected before.
 
     Args:
         working_dir: Path to CoPaw working directory
 
     Returns:
-        True if telemetry was already collected, False otherwise
+        True if already collected for this version, False otherwise
     """
     marker_file = working_dir / TELEMETRY_MARKER_FILE
-    return marker_file.exists()
+    if not marker_file.exists():
+        return False
+    try:
+        marker_data = json.loads(marker_file.read_text(encoding="utf-8"))
+        current = _get_current_version()
+        # v1.2+: list of all collected versions
+        collected_versions = marker_data.get("collected_versions", [])
+        if collected_versions:
+            return current in collected_versions
+        # v1.1 compat: single copaw_version field
+        return marker_data.get("copaw_version", "") == current
+    except Exception:
+        return False
 
 
 def mark_telemetry_collected(working_dir: Path) -> None:
-    """Mark that telemetry has been collected.
+    """Mark that telemetry has been collected for the current version.
 
-    Creates a marker file with timestamp to prevent duplicate collection.
+    Maintains a list of all versions that have been collected, so switching
+    between previously-collected versions won't re-trigger the prompt.
 
     Args:
         working_dir: Path to CoPaw working directory
     """
     marker_file = working_dir / TELEMETRY_MARKER_FILE
+    current = _get_current_version()
     try:
+        # Preserve existing collected versions
+        collected_versions: list[str] = []
+        if marker_file.exists():
+            try:
+                old_data = json.loads(
+                    marker_file.read_text(encoding="utf-8"),
+                )
+                collected_versions = old_data.get("collected_versions", [])
+                # Migrate from v1.1 single-version format
+                if not collected_versions:
+                    old_ver = old_data.get("copaw_version", "")
+                    if old_ver:
+                        collected_versions = [old_ver]
+            except Exception:
+                pass
+
+        if current not in collected_versions:
+            collected_versions.append(current)
+
         marker_data = {
             "collected_at": time.time(),
-            "version": "1.0",
+            "copaw_version": current,
+            "collected_versions": collected_versions,
+            "version": "1.2",
         }
         marker_file.write_text(json.dumps(marker_data), encoding="utf-8")
     except Exception as e:

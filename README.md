@@ -467,7 +467,7 @@ CoPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a par
 
 ## Telemetry
 
-CoPaw collects **anonymous** usage data during `copaw init` to help us understand our user base and prioritize improvements. This is a **one-time** collection — data is sent only once per installation.
+CoPaw collects **anonymous** usage data during `copaw init` to help us understand our user base and prioritize improvements. Data is sent **once per version** — when you upgrade CoPaw, telemetry is re-collected so we can track version adoption.
 
 **What we collect:**
 
@@ -480,7 +480,7 @@ CoPaw collects **anonymous** usage data during `copaw init` to help us understan
 
 **What we do NOT collect:** No personal data, no files, no credentials, no IP addresses, no identifiable information.
 
-When running `copaw init` interactively, you will be asked whether to opt in. If you choose `--defaults`, telemetry is accepted automatically. Either way, the prompt only appears once and never affects CoPaw's functionality.
+When running `copaw init` interactively, you will be asked whether to opt in. If you choose `--defaults`, telemetry is accepted automatically. The prompt appears once per version and never affects CoPaw's functionality.
 
 ---
 
