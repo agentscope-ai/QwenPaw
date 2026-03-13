@@ -13,7 +13,6 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
-import "./index.module.less";
 
 interface CustomWindow extends Window {
   currentSessionId?: string;
