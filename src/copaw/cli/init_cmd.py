@@ -172,25 +172,10 @@ def init_cmd(
     )
 
     if not has_telemetry_been_collected(working_dir):
-        # Detect whether this is an upgrade (marker exists but version differs)
-        marker_file = working_dir / ".telemetry_collected"
-        is_upgrade = marker_file.exists()
-
         if use_defaults:
-            if is_upgrade:
-                click.echo(
-                    "New CoPaw version detected — collecting anonymous usage data.",
-                )
-            else:
-                click.echo("Collecting anonymous usage data (--defaults).")
             success = collect_and_upload_telemetry(working_dir)
-            if success:
-                click.echo("✓ Thank you!")
+
         else:
-            if is_upgrade:
-                click.echo(
-                    "\nNew CoPaw version detected — we'd like to collect usage data once more.",
-                )
             _echo_telemetry_info_box()
             if prompt_confirm("Share usage data?", default=True):
                 success = collect_and_upload_telemetry(working_dir)
@@ -198,11 +183,6 @@ def init_cmd(
                     click.echo("✓ Thank you!")
             else:
                 mark_telemetry_collected(working_dir)
-                click.echo(
-                    "Telemetry skipped. We won't ask again for this version.",
-                )
-    else:
-        click.echo("\n✓ Usage data already collected for this version.")
 
     # --- config.json ---
     write_config = True
