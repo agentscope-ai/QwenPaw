@@ -1,0 +1,23 @@
+/* Disabled input overlay */
+.chatDisabledOverlay {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.chatDisabledOverlay :global([class*="chat-anywhere-input"]),
+.chatDisabledOverlay :global([class*="chat-input"]),
+.chatDisabledOverlay :global(textarea),
+.chatDisabledOverlay :global(input[type="text"]) {
+  pointer-events: none !important;
+  opacity: 0.5 !important;
+  background-color: #f5f5f5 !important;
+  cursor: not-allowed !important;
+}
+
+.chatDisabledOverlay :global(button[class*="send"]),
+.chatDisabledOverlay :global(button[class*="submit"]) {
+  pointer-events: none !important;
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
+}
