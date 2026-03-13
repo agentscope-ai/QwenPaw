@@ -5,6 +5,7 @@ import sys
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from click.testing import CliRunner
 
@@ -13,8 +14,10 @@ from copaw.cli.main import cli
 from copaw.cli.update_cmd import (
     InstallInfo,
     RunningServiceInfo,
+    _detect_running_service,
     _detect_installation,
     _is_newer_version,
+    _probe_service,
     _detect_source_type,
     _run_update_worker_detached,
     _run_update_worker_foreground,
@@ -194,6 +197,92 @@ def test_update_reports_up_to_date(monkeypatch) -> None:
     assert "CoPaw is already up to date." in result.output
 
 
+def test_probe_service_ignores_proxy_env(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"version": "1.2.3"}
+
+    def _fake_get(url: str, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return _Response()
+
+    monkeypatch.setattr("copaw.cli.update_cmd.httpx.get", _fake_get)
+
+    result = _probe_service("http://127.0.0.1:8088")
+
+    assert result.is_running is True
+    assert result.base_url == "http://127.0.0.1:8088"
+    assert result.version == "1.2.3"
+    assert captured["trust_env"] is False
+
+
+def test_probe_service_returns_not_running_on_http_error(monkeypatch) -> None:
+    def _fake_get(_url: str, **_kwargs):
+        raise httpx.HTTPError("bad gateway")
+
+    monkeypatch.setattr("copaw.cli.update_cmd.httpx.get", _fake_get)
+
+    result = _probe_service("http://127.0.0.1:8088")
+
+    assert result.is_running is False
+
+
+def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
+    from copaw.cli import update_cmd as update_cmd_module
+
+    monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_probe_service",
+        lambda base_url: RunningServiceInfo(
+            is_running=base_url == "http://127.0.0.1:9090",
+            base_url=base_url if base_url == "http://127.0.0.1:9090" else None,
+        ),
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_running_service_from_processes",
+        lambda _hosts: RunningServiceInfo(is_running=False),
+    )
+
+    result = _detect_running_service("0.0.0.0", 9090)
+
+    assert result.is_running is True
+    assert result.base_url == "http://127.0.0.1:9090"
+
+
+def test_detect_running_service_falls_back_to_process_ports(
+    monkeypatch,
+) -> None:
+    from copaw.cli import update_cmd as update_cmd_module
+
+    monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_probe_service",
+        lambda _base_url: RunningServiceInfo(is_running=False),
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_detect_running_service_from_processes",
+        lambda hosts: RunningServiceInfo(
+            is_running=True,
+            base_url=f"http://{hosts[0]}:8088",
+        ),
+    )
+
+    result = _detect_running_service(None, None)
+
+    assert result.is_running is True
+    assert result.base_url == "http://127.0.0.1:8088"
+
+
 def test_update_blocks_running_service(monkeypatch) -> None:
     from copaw.cli import update_cmd as update_cmd_module
 
@@ -310,8 +399,16 @@ def test_update_can_force_shutdown_running_service(
         lambda host, port: next(service_checks),
     )
 
-    def _fake_shutdown(command, stdout, stderr, text, check):
-        del stdout, stderr, text, check
+    def _fake_shutdown(
+        command,
+        stdout,
+        stderr,
+        text,
+        encoding,
+        errors,
+        check,
+    ):
+        del stdout, stderr, text, encoding, errors, check
         assert command == [
             "/tmp/venv/bin/python",
             "-m",

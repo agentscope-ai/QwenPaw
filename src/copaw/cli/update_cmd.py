@@ -21,8 +21,29 @@ from packaging.version import InvalidVersion, Version
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..config.utils import read_last_api
+from .process_utils import (
+    _base_url,
+    _candidate_hosts,
+    _extract_port_from_command,
+    _is_copaw_service_command,
+    _process_table,
+)
 
 _PYPI_JSON_URL = "https://pypi.org/pypi/copaw/json"
+
+
+def _subprocess_text_kwargs() -> dict[str, Any]:
+    """Return robust text-decoding settings for subprocess output.
+
+    Package installers may emit UTF-8 regardless of the active Windows code
+    page. Using replacement for undecodable bytes prevents the update worker
+    from crashing while streaming output.
+    """
+    return {
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
 
 
 @dataclass(frozen=True)
@@ -154,6 +175,7 @@ def _probe_service(base_url: str) -> RunningServiceInfo:
             f"{base_url.rstrip('/')}/api/version",
             timeout=2.0,
             headers={"Accept": "application/json"},
+            trust_env=False,
         )
         resp.raise_for_status()
         payload = resp.json()
@@ -168,6 +190,39 @@ def _probe_service(base_url: str) -> RunningServiceInfo:
     )
 
 
+def _process_candidate_ports() -> list[int]:
+    """Infer candidate local CoPaw service ports from running processes."""
+    ports: list[int] = []
+    for _pid, command in _process_table():
+        if not _is_copaw_service_command(command):
+            continue
+
+        port = _extract_port_from_command(command)
+        if port not in ports:
+            ports.append(port)
+    return ports
+
+
+def _detect_running_service_from_processes(
+    preferred_hosts: list[str],
+) -> RunningServiceInfo:
+    """Best-effort local process fallback for service detection."""
+    for port in _process_candidate_ports():
+        hosts = preferred_hosts or ["127.0.0.1", "localhost"]
+        for host in hosts:
+            result = _probe_service(_base_url(host, port))
+            if result.is_running:
+                return result
+
+        fallback_host = next(iter(hosts), "127.0.0.1")
+        return RunningServiceInfo(
+            is_running=True,
+            base_url=_base_url(fallback_host, port),
+        )
+
+    return RunningServiceInfo(is_running=False)
+
+
 def _detect_running_service(
     host: str | None,
     port: int | None,
@@ -175,6 +230,12 @@ def _detect_running_service(
     """Detect whether a CoPaw HTTP service is currently running."""
     candidates: list[str] = []
     seen: set[str] = set()
+    preferred_hosts: list[str] = []
+
+    def _remember_hosts(candidate_host: str | None) -> None:
+        for item in _candidate_hosts(candidate_host):
+            if item not in preferred_hosts:
+                preferred_hosts.append(item)
 
     def _add_candidate(
         candidate_host: str | None,
@@ -182,11 +243,13 @@ def _detect_running_service(
     ) -> None:
         if not candidate_host or candidate_port is None:
             return
-        base_url = f"http://{candidate_host}:{candidate_port}"
-        if base_url in seen:
-            return
-        seen.add(base_url)
-        candidates.append(base_url)
+        _remember_hosts(candidate_host)
+        for resolved_host in _candidate_hosts(candidate_host):
+            base_url = _base_url(resolved_host, candidate_port)
+            if base_url in seen:
+                continue
+            seen.add(base_url)
+            candidates.append(base_url)
 
     _add_candidate(host, port)
     last = read_last_api()
@@ -198,7 +261,8 @@ def _detect_running_service(
         result = _probe_service(base_url)
         if result.is_running:
             return result
-    return RunningServiceInfo(is_running=False)
+
+    return _detect_running_service_from_processes(preferred_hosts)
 
 
 def _running_service_display(running: RunningServiceInfo) -> str:
@@ -262,7 +326,7 @@ def _run_shutdown_for_update(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            **_subprocess_text_kwargs(),
             check=False,
         )
     except OSError as exc:
@@ -350,7 +414,7 @@ def _spawn_update_worker(
             {
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.STDOUT,
-                "text": True,
+                **_subprocess_text_kwargs(),
                 "bufsize": 1,
             },
         )
@@ -493,7 +557,7 @@ def run_update_worker(plan_path: str | Path) -> int:
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            **_subprocess_text_kwargs(),
             bufsize=1,
         ) as proc:
             if proc.stdout is not None:

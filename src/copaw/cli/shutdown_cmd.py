@@ -11,6 +11,12 @@ from typing import Optional
 
 import click
 
+from .process_utils import (
+    _is_copaw_wrapper_process,
+    _process_table,
+    _windows_process_snapshot,
+)
+
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
@@ -81,69 +87,6 @@ def _listening_pids_for_port(port: int) -> set[int]:
     return set()
 
 
-def _process_table() -> list[tuple[int, str]]:
-    """Return a best-effort process table as (pid, command line)."""
-    if sys.platform == "win32":
-        try:
-            result = subprocess.run(
-                [
-                    "wmic",
-                    "process",
-                    "get",
-                    "ProcessId,CommandLine",
-                    "/FORMAT:LIST",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return []
-
-        rows: list[tuple[int, str]] = []
-        command = ""
-        pid: Optional[int] = None
-        for line in (result.stdout or "").splitlines():
-            if not line.strip():
-                if pid is not None:
-                    rows.append((pid, command))
-                command = ""
-                pid = None
-                continue
-            if line.startswith("CommandLine="):
-                command = line.partition("=")[2]
-            elif line.startswith("ProcessId="):
-                value = line.partition("=")[2].strip()
-                pid = int(value) if value.isdigit() else None
-        if pid is not None:
-            rows.append((pid, command))
-        return rows
-
-    try:
-        result = subprocess.run(
-            ["ps", "-ax", "-o", "pid=", "-o", "command="],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-
-    rows: list[tuple[int, str]] = []
-    for line in (result.stdout or "").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        parts = stripped.split(None, 1)
-        if not parts or not parts[0].isdigit():
-            continue
-        command = parts[1] if len(parts) > 1 else ""
-        rows.append((int(parts[0]), command))
-    return rows
-
-
 def _find_frontend_dev_pids() -> set[int]:
     """Find Vite dev-server processes for this repository's console app."""
     console_dir = str(_CONSOLE_DIR).lower()
@@ -178,6 +121,37 @@ def _find_desktop_wrapper_pids() -> set[int]:
     return matches
 
 
+def _find_windows_wrapper_ancestor_pids(pids: set[int]) -> set[int]:
+    """Find CoPaw wrapper/supervisor ancestors for Windows backend PIDs."""
+    if sys.platform != "win32" or not pids:
+        return set()
+
+    snapshot = _windows_process_snapshot()
+    matches: set[int] = set()
+    for pid in pids:
+        visited: set[int] = set()
+        current_pid = pid
+        while True:
+            info = snapshot.get(current_pid)
+            if info is None:
+                break
+
+            parent_pid = info[0]
+            if parent_pid in (None, 0) or parent_pid in visited:
+                break
+            visited.add(parent_pid)
+
+            parent_info = snapshot.get(parent_pid)
+            if parent_info is None:
+                break
+
+            if _is_copaw_wrapper_process(parent_info[1], parent_info[2]):
+                matches.add(parent_pid)
+
+            current_pid = parent_pid
+    return matches
+
+
 def _child_pids_unix(pid: int) -> set[int]:
     """Recursively collect child PIDs for Unix-like systems."""
     children: set[int] = set()
@@ -209,6 +183,8 @@ def _pid_exists(pid: int) -> bool:
     """Return whether the PID still exists."""
     if pid <= 0:
         return False
+    if sys.platform == "win32":
+        return pid in _windows_process_snapshot()
     try:
         os.kill(pid, 0)
     except OSError:
@@ -261,6 +237,33 @@ def _terminate_process_tree_windows(pid: int, force: bool = False) -> None:
         pass
 
 
+def _force_terminate_windows_process(pid: int) -> None:
+    """Force terminate a Windows process as a fallback."""
+    commands = (
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            (
+                "$ErrorActionPreference='SilentlyContinue'; "
+                f"Stop-Process -Id {pid} -Force"
+            ),
+        ],
+        ["taskkill", "/F", "/PID", str(pid)],
+    )
+    for command in commands:
+        try:
+            subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+
+
 def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
     """Terminate a process tree gracefully, then force kill if needed."""
     if not _pid_exists(pid):
@@ -276,6 +279,9 @@ def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
 
     if sys.platform == "win32":
         _terminate_process_tree_windows(pid, force=True)
+        if _wait_for_pid_exit(pid, 2.0, 0.1):
+            return True
+        _force_terminate_windows_process(pid)
     else:
         _signal_process_tree_unix(pid, _SIGKILL)
 
@@ -314,23 +320,51 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
     backend_pids = _listening_pids_for_port(backend_port)
     frontend_pids = _find_frontend_dev_pids()
     desktop_pids = _find_desktop_wrapper_pids()
+    wrapper_pids = _find_windows_wrapper_ancestor_pids(backend_pids)
 
-    all_targets = backend_pids | frontend_pids | desktop_pids
+    # Build a process table for logging.
+    proc_table = {pid: cmd for pid, cmd in _process_table()}
+
+    def log_pid_set(title, pids):
+        if not pids:
+            click.echo(f"{title}: nothing to stop")
+            return
+        click.echo(f"{title} ({len(pids)} total):")
+        for pid in sorted(pids):
+            cmd = proc_table.get(pid, "<unknown command line>")
+            click.echo(f"  PID {pid}: {cmd}")
+
+    log_pid_set("Backend listener processes", backend_pids)
+    log_pid_set("Frontend development processes", frontend_pids)
+    log_pid_set("Desktop wrapper processes", desktop_pids)
+    log_pid_set("Related wrapper processes", wrapper_pids)
+
+    all_targets = backend_pids | frontend_pids | desktop_pids | wrapper_pids
     if not all_targets:
         raise click.ClickException(
             "No running CoPaw backend/frontend process was found.",
         )
 
+    wrapper_stopped, wrapper_failed = _stop_pid_set(wrapper_pids)
     frontend_stopped, frontend_failed = _stop_pid_set(frontend_pids)
     desktop_stopped, desktop_failed = _stop_pid_set(
-        desktop_pids - set(frontend_stopped),
+        desktop_pids - set(wrapper_stopped) - set(frontend_stopped),
     )
     backend_stopped, backend_failed = _stop_pid_set(
-        backend_pids - set(frontend_stopped) - set(desktop_stopped),
+        backend_pids
+        - set(wrapper_stopped)
+        - set(frontend_stopped)
+        - set(desktop_stopped),
     )
 
-    stopped = frontend_stopped + desktop_stopped + backend_stopped
-    failed = list(set(frontend_failed + desktop_failed + backend_failed))
+    stopped = (
+        wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
+    )
+    failed = list(
+        set(
+            wrapper_failed + frontend_failed + desktop_failed + backend_failed,
+        ),
+    )
 
     if stopped:
         click.echo(
@@ -338,6 +372,10 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
             + ", ".join(str(pid) for pid in sorted(stopped)),
         )
     if failed:
+        click.echo("Failed to stop the following processes:")
+        for pid in sorted(failed):
+            cmd = proc_table.get(pid, "<unknown command line>")
+            click.echo(f"  PID {pid}: {cmd}")
         raise click.ClickException(
             "Failed to shutdown process(es): "
             + ", ".join(str(pid) for pid in sorted(failed)),
