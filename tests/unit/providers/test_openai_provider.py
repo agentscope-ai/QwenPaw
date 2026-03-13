@@ -362,7 +362,7 @@ async def test_get_info_wire_api() -> None:
     assert info.wire_api == "responses"
 
 
-async def test_get_chat_model_instance_returns_responses_model() -> None:
+def test_get_chat_model_instance_returns_responses_model() -> None:
     provider = _make_provider()
     provider.wire_api = "responses"
     provider.api_key = "sk-test"

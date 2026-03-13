@@ -358,6 +358,27 @@ def test_messages_to_input_coerces_unknown_role():
     assert result[0]["role"] == "user"
 
 
+def test_messages_to_input_converts_tool_to_function_call_output():
+    model = _make_model()
+    messages = [{"role": "tool", "content": "42", "tool_call_id": "call_1"}]
+    result = model._messages_to_input(messages)
+
+    assert len(result) == 1
+    assert result[0]["type"] == "function_call_output"
+    assert result[0]["output"] == "42"
+    assert result[0]["call_id"] == "call_1"
+
+
+def test_messages_to_input_tool_without_call_id():
+    model = _make_model()
+    messages = [{"role": "tool", "content": "ok"}]
+    result = model._messages_to_input(messages)
+
+    assert result[0]["type"] == "function_call_output"
+    assert result[0]["output"] == "ok"
+    assert "call_id" not in result[0]
+
+
 # ------------------------------------------------------------------
 # _messages_to_chat
 # ------------------------------------------------------------------

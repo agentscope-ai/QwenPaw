@@ -277,32 +277,36 @@ class OpenAIResponsesChatModel(ChatModelBase):
         )
 
     def _messages_to_input(self, messages: list[dict]) -> list[dict]:
-        """Convert to Responses API ``input`` format."""
+        """Convert to Responses API ``input`` format.
+
+        Tool results are emitted as ``function_call_output`` items (the
+        Responses API wire format) so that multi-turn tool-calling works
+        correctly.  All other roles follow the normal ``{role, content}``
+        shape; unrecognised roles are coerced to ``"user"``.
+        """
         out: list[dict] = []
         for index, msg in enumerate(messages):
             original_role = _to_text(_get(msg, "role", "user")) or "user"
+
+            if original_role == "tool":
+                call_id = _to_text(_get(msg, "tool_call_id", ""))
+                item: dict[str, Any] = {
+                    "type": "function_call_output",
+                    "output": self._extract_text(_get(msg, "content", "")),
+                }
+                if call_id:
+                    item["call_id"] = call_id
+                out.append(item)
+                continue
+
             role = original_role
             if role not in {"system", "user", "assistant", "developer"}:
                 role = "user"
-                if original_role == "tool":
-                    logger = getattr(self, "_logger", None) or getattr(
-                        self,
-                        "logger",
-                        None,
-                    )
-                    if not hasattr(logger, "debug"):
-                        logger = _MODULE_LOGGER
-                    logger.debug(
-                        "Responses API does not support 'tool' role; "
-                        "coercing to 'user' at index=%d",
-                        index,
-                    )
-                else:
-                    self._log_role_coercion(
-                        "_messages_to_input",
-                        index,
-                        original_role,
-                    )
+                self._log_role_coercion(
+                    "_messages_to_input",
+                    index,
+                    original_role,
+                )
             out.append(
                 {
                     "role": role,
