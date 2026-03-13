@@ -296,6 +296,13 @@ export function RemoteModelManageModal({
 
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
 
+  // Enable discover for providers that support it
+  // For local providers (ollama, llama.cpp, mlx) - check base_url
+  // For built-in providers with frozen URL - check api_key
+  const canDiscover = provider.is_local
+    ? !!provider.base_url
+    : !!provider.api_key;
+
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
   const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
