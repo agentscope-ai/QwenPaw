@@ -11,7 +11,7 @@ from copaw.providers.provider import Provider
 
 
 # ------------------------------------------------------------------
-# _mask_header_value  (delegates to Provider._mask_header_value)
+# _mask_header_value  (delegates to Provider.mask_header_value)
 # ------------------------------------------------------------------
 
 
@@ -32,8 +32,8 @@ def test_mask_header_value_empty():
 
 
 def test_mask_header_value_delegates_to_provider():
-    """Ensure the CLI wrapper delegates to Provider._mask_header_value."""
-    assert _mask_header_value("secret") == Provider._mask_header_value("secret")
+    """Ensure the CLI wrapper delegates to Provider.mask_header_value."""
+    assert _mask_header_value("secret") == Provider.mask_header_value("secret")
 
 
 # ------------------------------------------------------------------

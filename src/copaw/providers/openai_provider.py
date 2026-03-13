@@ -126,11 +126,6 @@ class OpenAIProvider(Provider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        dashscope_base_urls = [
-            DASHSCOPE_BASE_URL,
-            CODING_DASHSCOPE_BASE_URL,
-        ]
-
         client_kwargs: dict[str, Any] = {"base_url": self.base_url}
 
         # Start with any user-supplied custom headers.
@@ -150,11 +145,13 @@ class OpenAIProvider(Provider):
 
         if self.base_url == DASHSCOPE_BASE_URL:
             merged_headers.setdefault(
-                "x-dashscope-agentapp", dashscope_app_payload
+                "x-dashscope-agentapp",
+                dashscope_app_payload,
             )
         elif self.base_url == CODING_DASHSCOPE_BASE_URL:
             merged_headers.setdefault(
-                "X-DashScope-Cdpl", dashscope_app_payload
+                "X-DashScope-Cdpl",
+                dashscope_app_payload,
             )
 
         if merged_headers:

@@ -87,10 +87,10 @@ def _mask_api_key(api_key: str) -> str:
 def _mask_header_value(value: str) -> str:
     """Mask a header value for safe display.
 
-    Delegates to :meth:`Provider._mask_header_value` to keep a single
+    Delegates to :meth:`Provider.mask_header_value` to keep a single
     implementation.
     """
-    return Provider._mask_header_value(value)
+    return Provider.mask_header_value(value)
 
 
 def _parse_header_pairs(raw: tuple[str, ...]) -> dict[str, str]:
