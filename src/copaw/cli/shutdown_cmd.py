@@ -323,7 +323,7 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
     wrapper_pids = _find_windows_wrapper_ancestor_pids(backend_pids)
 
     # Build a process table for logging.
-    proc_table = {pid: cmd for pid, cmd in _process_table()}
+    proc_table = dict(_process_table())
 
     def log_pid_set(title, pids):
         if not pids:

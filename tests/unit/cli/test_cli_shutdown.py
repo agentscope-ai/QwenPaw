@@ -160,7 +160,7 @@ def test_terminate_pid_uses_windows_fallback(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "copaw.cli.shutdown_cmd._force_terminate_windows_process",
-        lambda pid: fallback_calls.append(pid),
+        fallback_calls.append,
     )
     monkeypatch.setattr(
         "copaw.cli.shutdown_cmd._wait_for_pid_exit",
@@ -179,8 +179,18 @@ def test_pid_exists_uses_windows_snapshot(monkeypatch) -> None:
         lambda: {29104: (1, "copaw.exe", "copaw app")},
     )
 
-    assert shutdown_cmd_module._pid_exists(29104) is True
-    assert shutdown_cmd_module._pid_exists(99999) is False
+    assert (
+        shutdown_cmd_module._pid_exists(  # pylint: disable=protected-access
+            29104,
+        )
+        is True
+    )
+    assert (
+        shutdown_cmd_module._pid_exists(  # pylint: disable=protected-access
+            99999,
+        )
+        is False
+    )
 
 
 def test_find_windows_wrapper_ancestor_pids(monkeypatch) -> None:
