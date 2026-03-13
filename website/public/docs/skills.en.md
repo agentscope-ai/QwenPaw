@@ -70,6 +70,8 @@ You can import skills from these URL sources in the Console:
 - `https://skills.sh/...`
 - `https://clawhub.ai/...`
 - `https://skillsmp.com/...`
+- `https://lobehub.com/...`
+- `https://market.lobehub.com/...` (LobeHub direct download endpoint)
 - `https://github.com/...`
 
 ### Steps
@@ -92,7 +94,7 @@ You can import skills from these URL sources in the Console:
 
 ### URL acquisition examples
 
-1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai` and `skillsmp.com`): open `https://skills.sh/`.
+1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai`, `skillsmp.com`, and `lobehub.com`): open the corresponding marketplace page.
 2. Pick the skill you need (for example, `find-skills`).
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)
@@ -101,6 +103,8 @@ You can import skills from these URL sources in the Console:
 
    ![url](https://img.alicdn.com/imgextra/i2/O1CN01d1l5kO1wgrODXukNV_!!6000000006338-2-tps-3410-2064.png)
 
+   LobeHub also exposes a direct download endpoint on `https://market.lobehub.com/...`, and that URL is accepted as well.
+
 4. To import Skills from GitHub, open a page that contains `SKILL.md` (for example, `skill-creator` in the anthropics skills repo), then copy the URL from the top address bar.
 
    ![github](https://img.alicdn.com/imgextra/i2/O1CN0117GbZa1lLN24GNpqI_!!6000000004802-2-tps-3410-2064.png)
@@ -108,7 +112,7 @@ You can import skills from these URL sources in the Console:
 ### Notes
 
 - If a skill with the same name already exists, import does not overwrite by default. Check the existing one in the list first.
-- If import fails, first check URL completeness, supported domains, and outbound network access. If the network is unstable or GitHub rate-limits requests, add `GITHUB_TOKEN` in Console → Settings → Environments. See GitHub docs: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+- If import fails, first check URL completeness, supported domains, and outbound network access. If GitHub rate-limits requests, add `GITHUB_TOKEN` in Console → Settings → Environments. See GitHub docs: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
 ---
 

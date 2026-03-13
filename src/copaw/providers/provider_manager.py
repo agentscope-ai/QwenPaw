@@ -3,6 +3,7 @@
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 
+import asyncio
 import os
 from typing import Dict, List
 import logging
@@ -84,6 +85,11 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
 
+MINIMAX_MODELS: List[ModelInfo] = [
+    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
+    ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
+]
+
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
@@ -143,6 +149,16 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     models=AZURE_OPENAI_MODELS,
 )
 
+PROVIDER_MINIMAX = OpenAIProvider(
+    id="minimax",
+    name="MiniMax",
+    base_url="https://api.minimax.io/v1",
+    api_key_prefix="eyJ",
+    models=MINIMAX_MODELS,
+    freeze_url=True,
+    generate_kwargs={"temperature": 1.0},
+)
+
 PROVIDER_ANTHROPIC = AnthropicProvider(
     id="anthropic",
     name="Anthropic",
@@ -157,6 +173,18 @@ PROVIDER_OLLAMA = OllamaProvider(
     id="ollama",
     name="Ollama",
     require_api_key=False,
+    support_model_discovery=True,
+    generate_kwargs={"max_tokens": None},
+)
+
+PROVIDER_LMSTUDIO = OpenAIProvider(
+    id="lmstudio",
+    name="LM Studio",
+    base_url="http://localhost:1234/v1",
+    require_api_key=False,
+    api_key_prefix="",
+    support_model_discovery=True,
+    generate_kwargs={"max_tokens": None},
 )
 
 
@@ -214,8 +242,10 @@ class ProviderManager:
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
+        self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_OLLAMA)
+        self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_LLAMACPP)
         self._add_builtin(PROVIDER_MLX)
 
@@ -223,12 +253,14 @@ class ProviderManager:
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        provider_infos = []
-        for provider in self.builtin_providers.values():
-            provider_infos.append(await provider.get_info())
-        for provider in self.custom_providers.values():
-            provider_infos.append(await provider.get_info())
-        return provider_infos
+        tasks = [
+            provider.get_info() for provider in self.builtin_providers.values()
+        ]
+        tasks += [
+            provider.get_info() for provider in self.custom_providers.values()
+        ]
+        provider_infos = await asyncio.gather(*tasks)
+        return list(provider_infos)
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
@@ -265,20 +297,14 @@ class ProviderManager:
     async def fetch_provider_models(
         self,
         provider_id: str,
-        update_target: str,
     ) -> List[ModelInfo]:
-        """Fetch the list of available models from a provider and optionally
-        update the provider's model list in memory and on disk."""
+        """Fetch the list of available models from a provider and update."""
         provider = self.get_provider(provider_id)
         if not provider:
             return []
         try:
             models = await provider.fetch_models()
-            for model in models:
-                await provider.add_model(
-                    model,
-                    target=update_target,
-                )
+            provider.extra_models = models
             self._save_provider(
                 provider,
                 is_builtin=provider_id in self.builtin_providers,
@@ -292,20 +318,31 @@ class ProviderManager:
             )
             return []
 
+    def _resolve_custom_provider_id(self, provider_id: str) -> str:
+        """Resolve provider ID conflicts for a custom provider."""
+        base_id = provider_id
+        if base_id in self.builtin_providers:
+            base_id = f"{base_id}-custom"
+
+        resolved_id = base_id
+        while (
+            resolved_id in self.builtin_providers
+            or resolved_id in self.custom_providers
+        ):
+            resolved_id = f"{resolved_id}-new"
+
+        return resolved_id
+
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
-        if provider_data.id in self.builtin_providers:
-            raise ValueError(
-                f"'{provider_data.id}' conflicts with a built-in provider.",
-            )
-        if provider_data.id in self.custom_providers:
-            raise ValueError(
-                f"Custom provider '{provider_data.id}' already exists.",
-            )
-        provider_data.is_custom = True
+        provider_payload = provider_data.model_dump()
+        provider_payload["id"] = self._resolve_custom_provider_id(
+            provider_data.id,
+        )
+        provider_payload["is_custom"] = True
         provider = self._provider_from_data(
-            provider_data.model_dump(),
+            provider_payload,
         )  # Validate provider data
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
@@ -417,7 +454,7 @@ class ProviderManager:
 
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
-        if provider_id == "ollama" or chat_model == "OllamaChatModel":
+        if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
         if data.get("is_local", False):
             return DefaultProvider.model_validate(data)
@@ -525,6 +562,7 @@ class ProviderManager:
                 builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
+                builtin.generate_kwargs.update(provider.generate_kwargs)
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

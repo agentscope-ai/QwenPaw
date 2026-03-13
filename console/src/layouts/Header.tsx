@@ -27,11 +27,14 @@ const keyToLabel: Record<string, string> = {
   "cron-jobs": "nav.cronJobs",
   heartbeat: "nav.heartbeat",
   skills: "nav.skills",
+  tools: "nav.tools",
   mcp: "nav.mcp",
   "agent-config": "nav.agentConfig",
   workspace: "nav.workspace",
   models: "nav.models",
   environments: "nav.environments",
+  security: "nav.security",
+  "token-usage": "nav.tokenUsage",
 };
 
 interface HeaderProps {
@@ -43,7 +46,15 @@ export default function Header({ selectedKey }: HeaderProps) {
 
   const handleNavClick = (url: string) => {
     if (url) {
-      window.open(url, "_blank");
+      // Check if running in pywebview environment
+      const pywebview = (window as any).pywebview;
+      if (pywebview && pywebview.api) {
+        // Use pywebview API to open external link in system browser
+        pywebview.api.open_external_link(url);
+      } else {
+        // Normal browser environment
+        window.open(url, "_blank");
+      }
     }
   };
 

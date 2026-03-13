@@ -177,47 +177,50 @@ def build_bootstrap_guidance(
     """Build bootstrap guidance message for first-time setup.
 
     Args:
-        language: Language code (en/zh)
+        language: Language code (zh/en/ru)
 
     Returns:
         Formatted bootstrap guidance message
     """
-    if language == "en":
-        return """# 🌟 BOOTSTRAP MODE ACTIVATED
-
-**IMPORTANT: You are in first-time setup mode.**
-
-A `BOOTSTRAP.md` file exists in your working directory. This means you should guide the user through the bootstrap process to establish your identity and preferences.
-
-**Your task:**
-1. Read the BOOTSTRAP.md file, greet the user warmly as a first meeting, and guide them through the bootstrap process.
-2. Follow the instructions in BOOTSTRAP.md. For example, help the user define your identity, their preferences, and establish the working relationship.
-3. Create and update the necessary files (PROFILE.md, MEMORY.md, etc.) as described in the guide.
-4. After completing the bootstrap process, delete BOOTSTRAP.md as instructed.
-
-**If the user wants to skip:**
-If the user explicitly says they want to skip the bootstrap or just want their question answered directly, then proceed to answer their original question below. You can always help them bootstrap later.
-
-**Original user message:**
-"""
-    else:  # zh
-        return """# 🌟 引导模式已激活
-
-**重要：你正处于首次设置模式。**
-
-你的工作目录中存在 `BOOTSTRAP.md` 文件。这意味着你应该引导用户完成引导流程，以建立你的身份和偏好。
-
-**你的任务：**
-1. 阅读 BOOTSTRAP.md 文件，友好地表示初次见面，引导用户完成引导流程。
-2. 按照BOOTSTRAP.md 里面的指示执行。例如，帮助用户定义你的身份、他们的偏好，并建立工作关系
-3. 按照指南中的描述创建和更新必要的文件（PROFILE.md、MEMORY.md 等）
-4. 完成引导流程后，按照指示删除 BOOTSTRAP.md
-
-**如果用户希望跳过：**
-如果用户明确表示想跳过引导，那就继续回答下面的原始问题。你随时可以帮助他们完成引导。
-
-**用户的原始消息：**
-"""
+    if language == "zh":
+        return (
+            "# 引导模式\n"
+            "\n"
+            "工作目录中存在 `BOOTSTRAP.md` — 首次设置。\n"
+            "\n"
+            "1. 阅读 BOOTSTRAP.md，友好地表示初次见面，"
+            "引导用户完成设置。\n"
+            "2. 按照 BOOTSTRAP.md 的指示，"
+            "帮助用户定义你的身份和偏好。\n"
+            "3. 按指南创建/更新必要文件"
+            "（PROFILE.md、MEMORY.md 等）。\n"
+            "4. 完成后删除 BOOTSTRAP.md。\n"
+            "\n"
+            "如果用户希望跳过，直接回答下面的问题即可。\n"
+            "\n"
+            "---\n"
+            "\n"
+        )
+    # en / ru / other — default to English
+    return (
+        "# BOOTSTRAP MODE\n"
+        "\n"
+        "`BOOTSTRAP.md` exists — first-time setup.\n"
+        "\n"
+        "1. Read BOOTSTRAP.md, greet the user, "
+        "and guide them through setup.\n"
+        "2. Follow BOOTSTRAP.md instructions "
+        "to define identity and preferences.\n"
+        "3. Create/update files "
+        "(PROFILE.md, MEMORY.md, etc.) as described.\n"
+        "4. Delete BOOTSTRAP.md when done.\n"
+        "\n"
+        "If the user wants to skip, answer their "
+        "question directly instead.\n"
+        "\n"
+        "---\n"
+        "\n"
+    )
 
 
 __all__ = [
