@@ -1,4 +1,22 @@
+
+# 🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）
+
+> **⚡ 本库声明 | Repository Statement:**
+>
+> - 本仓库专注于数字出版领域智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
+>   This repository focuses on intelligent agents and tools for digital publishing, based on AgentScope framework, compatible with upstream agentscope-ai/CoPaw.
+> - 行业相关需求、创新、定制化优先本地处理，框架基础特性和 bug 优先本地修复，积累后再同步到上游。
+>   Industry-specific needs, innovation, and customization are handled locally first; framework features and bugs are fixed locally and then synchronized upstream.
+> - 开发协作请务必查阅 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
+>   For development and collaboration, please refer to [Development Mode](docs/devops/DEVELOPMENT_MODE.md).
+
+
+
 <div align="center">
+
+> **本库声明：**
+> 这是 futuremeng/CoPaw 仓库，聚焦数字出版领域的智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
+> 所有开发、协作、贡献请优先参考 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
 
 # CoPaw
 
@@ -77,18 +95,33 @@
 > - **我想在钉钉 / 飞书 / QQ 里聊**：在控制台中进行 [频道配置](https://copaw.agentscope.io/docs/channels)。
 > - **我不想装 Python**：[脚本安装](#脚本安装) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
 
-- [新闻](#新闻)
-- [快速开始](#快速开始)
-- [API Key](#api-key)
-- [本地模型](#本地模型)
-- [文档](#文档)
-- [常见问题](#常见问题)
-- [路线图](#路线图)
-- [参与贡献](#参与贡献)
-- [从源码安装](#从源码安装)
-- [为什么叫 CoPaw？](#为什么叫-copaw)
-- [由谁构建](#由谁构建)
-- [许可证](#许可证)
+- [🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）](#-copaw数字出版方向本地特色库--digital-publishing-local-edition)
+- [CoPaw](#copaw)
+  - [新闻](#新闻)
+  - [目录](#目录)
+  - [快速开始](#快速开始)
+    - [pip 安装](#pip-安装)
+    - [脚本安装](#脚本安装)
+    - [桌面应用（Beta）](#桌面应用beta)
+      - [下载](#下载)
+      - [特点](#特点)
+      - [首次启动](#首次启动)
+      - [macOS：绕过系统安全限制](#macos绕过系统安全限制)
+    - [使用 Docker](#使用-docker)
+    - [使用魔搭创空间](#使用魔搭创空间)
+    - [部署到阿里云 ECS](#部署到阿里云-ecs)
+  - [API Key](#api-key)
+  - [本地模型](#本地模型)
+  - [文档](#文档)
+  - [常见问题](#常见问题)
+  - [路线图](#路线图)
+    - [参与贡献](#参与贡献)
+  - [从源码安装](#从源码安装)
+  - [为什么叫 CoPaw？](#为什么叫-copaw)
+  - [由谁构建](#由谁构建)
+  - [联系我们](#联系我们)
+  - [许可证](#许可证)
+  - [贡献者](#贡献者)
 
 ---
 

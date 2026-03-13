@@ -1,21 +1,23 @@
 
----
+# 🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）
 
-# 🚀 CoPaw（数字出版方向本地特色库）
-
-> **⚡ 本库声明：**
+> **⚡ 本库声明 | Repository Statement:**
 >
 > - 本仓库专注于数字出版领域智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
+>   This repository focuses on intelligent agents and tools for digital publishing, based on AgentScope framework, compatible with upstream agentscope-ai/CoPaw.
 > - 行业相关需求、创新、定制化优先本地处理，框架基础特性和 bug 优先本地修复，积累后再同步到上游。
+>   Industry-specific needs, innovation, and customization are handled locally first; framework features and bugs are fixed locally and then synchronized upstream.
 > - 开发协作请务必查阅 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
+>   For development and collaboration, please refer to [Development Mode](docs/devops/DEVELOPMENT_MODE.md).
 
----
 
 <div align="center">
 
 > **本库声明：**
 > 这是 futuremeng/CoPaw 仓库，聚焦数字出版领域的智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
 > 所有开发、协作、贡献请优先参考 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
+
+
 # CoPaw
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/CoPaw)
@@ -93,13 +95,12 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 > - **I want to chat in DingTalk / Feishu / QQ**: Configure [channels](https://copaw.agentscope.io/docs/channels) in the Console.
 > - **I don’t want to install Python**: [Script install](#script-install) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud deployment.
 
-- [🚀 CoPaw（数字出版方向本地特色库）](#-copaw数字出版方向本地特色库)
+- [🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）](#-copaw数字出版方向本地特色库--digital-publishing-local-edition)
 - [CoPaw](#copaw)
   - [News](#news)
   - [Table of Contents](#table-of-contents)
   - [Quick Start](#quick-start)
     - [pip install](#pip-install)
-    - [Script install](#script-install)
     - [Desktop Application (Beta)](#desktop-application-beta)
       - [Download](#download)
       - [Features](#features)
@@ -133,7 +134,10 @@ If you prefer managing Python yourself:
 pip install copaw
 copaw init --defaults
 copaw app
-```
+# 🌐 多语言入口
+
+| [English](README.md) | [中文](README_zh.md) | [日本語](README_ja.md) |
+
 
 Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
 
@@ -142,7 +146,6 @@ Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with 
 ### Script install
 
 No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
-
 **macOS / Linux:**
 
 ```bash
