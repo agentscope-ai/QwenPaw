@@ -29,6 +29,7 @@ from .mcp import MCPClientManager, MCPConfigWatcher  # MCP hot-reload support
 from .runner.repo.json_repo import JsonChatRepository
 from .crons.repo.json_repo import JsonJobRepository
 from .crons.manager import CronManager
+from .crons.timezone_utils import get_default_timezone
 from .runner.manager import ChatManager
 from .routers import router as api_router
 from .routers.voice import voice_router
@@ -94,7 +95,7 @@ async def lifespan(
         repo=repo,
         runner=runner,
         channel_manager=channel_manager,
-        timezone="UTC",
+        timezone=get_default_timezone(),
     )
     await cron_manager.start()
 
@@ -336,7 +337,7 @@ async def lifespan(
             repo=job_repo,
             runner=runner,
             channel_manager=new_channel_manager,
-            timezone="UTC",
+            timezone=get_default_timezone(),
         )
         try:
             await new_cron_manager.start()

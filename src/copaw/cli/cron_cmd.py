@@ -7,6 +7,7 @@ from typing import Optional
 
 import click
 
+from ..app.crons.timezone_utils import get_default_timezone
 from .http import client, print_json
 from ..app.channels.schema import DEFAULT_CHANNEL
 
@@ -102,12 +103,12 @@ def _build_spec_from_cli(
     target_user: str,
     target_session: str,
     text: Optional[str],
-    timezone: str,
+    timezone: Optional[str],
     enabled: bool,
     mode: str,
 ) -> dict:
     """Build CronJobSpec JSON payload from CLI args (no id)."""
-    schedule = {"type": "cron", "cron": cron, "timezone": timezone}
+    schedule = {"type": "cron", "cron": cron, "timezone": timezone or get_default_timezone()}
     dispatch = {
         "type": "channel",
         "channel": channel,
@@ -237,7 +238,7 @@ def _build_spec_from_cli(
 )
 @click.option(
     "--timezone",
-    default="UTC",
+    default=None,
     help="Timezone for the cron schedule (e.g. UTC, America/New_York).",
 )
 @click.option(
@@ -270,7 +271,7 @@ def create_job(
     target_user: Optional[str],
     target_session: Optional[str],
     text: Optional[str],
-    timezone: str,
+    timezone: Optional[str],
     enabled: bool,
     mode: str,
     base_url: Optional[str],
