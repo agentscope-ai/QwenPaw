@@ -768,8 +768,12 @@ class TelegramChannel(BaseChannel):
         if isinstance(value, str) and value.startswith("file://"):
             raw_path = file_url_to_local_path(value)
             if not raw_path:
+                logger.warning(
+                    "telegram: could not resolve file URL: %s",
+                    value,
+                )
                 raise _MediaFileUnavailableError(
-                    f"Could not resolve file URL: {value}",
+                    "Could not resolve media file from URL.",
                 )
             local_path = Path(raw_path).resolve()
             allowed_root = self._media_dir.resolve()
@@ -782,8 +786,12 @@ class TelegramChannel(BaseChannel):
                     f"Media file outside allowed directory: {local_path.name}",
                 )
             if not local_path.exists():
+                logger.warning(
+                    "telegram: media file not found at path: %s",
+                    local_path,
+                )
                 raise _MediaFileUnavailableError(
-                    f"Media file not found: {local_path}",
+                    f"Media file not found: {local_path.name}",
                 )
             file_size = local_path.stat().st_size
             if file_size > TELEGRAM_MAX_FILE_SIZE_BYTES:
