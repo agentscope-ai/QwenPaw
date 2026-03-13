@@ -1,3 +1,8 @@
+---
+
+## 开发模式说明
+数字出版方向开发模式详见 [docs/devops/DEVELOPMENT_MODE.md](docs/devops/DEVELOPMENT_MODE.md)。
+建议所有开发者在贡献、任务梳理、路线图等环节查阅本文件。
 <div align="center">
 
 # CoPaw

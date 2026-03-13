@@ -1,3 +1,7 @@
+---
+
+## 开发模式说明
+请务必查阅 [docs/devops/DEVELOPMENT_MODE.md](docs/devops/DEVELOPMENT_MODE.md)，了解数字出版方向的开发流程、任务归属与处理标准。
 # 为 CoPaw 贡献代码
 
 ## 欢迎！🐾
