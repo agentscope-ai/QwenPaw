@@ -242,11 +242,14 @@ def _signal_process_tree_unix(pid: int, sig: signal.Signals) -> None:
         pass
 
 
-def _terminate_process_tree_windows(pid: int) -> None:
+def _terminate_process_tree_windows(pid: int, force: bool = False) -> None:
     """Terminate a Windows process tree."""
+    command = ["taskkill", "/T", "/PID", str(pid)]
+    if force:
+        command.insert(1, "/F")
     try:
         subprocess.run(
-            ["taskkill", "/T", "/PID", str(pid)],
+            command,
             capture_output=True,
             text=True,
             timeout=10,
@@ -269,7 +272,9 @@ def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
     if _wait_for_pid_exit(pid, timeout_sec, 0.2):
         return True
 
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        _terminate_process_tree_windows(pid, force=True)
+    else:
         _signal_process_tree_unix(pid, signal.SIGKILL)
 
     return _wait_for_pid_exit(pid, 2.0, 0.1)
