@@ -13,10 +13,6 @@
 
 <div align="center">
 
-> **本库声明：**
-> 这是 futuremeng/CoPaw 仓库，聚焦数字出版领域的智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
-> 所有开发、协作、贡献请优先参考 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
-
 
 # CoPaw
 
