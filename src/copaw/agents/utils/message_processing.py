@@ -6,6 +6,7 @@ This module handles:
 - Message content manipulation
 - Message validation
 """
+import asyncio
 import logging
 import os
 import urllib.parse
@@ -237,7 +238,7 @@ async def _process_audio_block(
     audio_mode = load_config().agents.audio_mode
 
     if audio_mode == "native":
-        converted = _convert_audio_to_wav(local_path)
+        converted = await asyncio.to_thread(_convert_audio_to_wav, local_path)
         audio_path = converted or local_path
         block["source"] = {
             "type": "url",
@@ -265,7 +266,7 @@ async def _process_audio_block(
 
     # "auto" fallback: transcription failed, try native audio with
     # optional ffmpeg conversion.
-    converted = _convert_audio_to_wav(local_path)
+    converted = await asyncio.to_thread(_convert_audio_to_wav, local_path)
     audio_path = converted or local_path
     block["source"] = {
         "type": "url",

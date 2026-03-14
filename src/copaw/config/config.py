@@ -277,7 +277,7 @@ class AgentsConfig(BaseModel):
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
         description="List of markdown files to load into system prompt",
     )
-    audio_mode: str = Field(
+    audio_mode: Literal["auto", "transcribe", "native"] = Field(
         default="auto",
         description=(
             "How to handle incoming audio/voice messages. "
