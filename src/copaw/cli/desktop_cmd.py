@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -79,6 +80,89 @@ def _stream_reader(in_stream, out_stream) -> None:
             pass
 
 
+def _pid_exists(pid: int) -> bool:
+    """Return True if *pid* exists and is accessible."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _cleanup_stale_desktop_backends() -> list[int]:
+    """Terminate stale packaged desktop backend processes.
+
+    We only target packaged app backends (inside ``*.app`` bundle) to avoid
+    affecting source/development processes like ``python -m copaw app --reload``.
+    """
+    if sys.platform == "win32":
+        # Packaged desktop backend process pattern below is macOS/Linux-specific.
+        return []
+
+    stale_pids: list[int] = []
+    try:
+        ps_out = subprocess.check_output(
+            ["ps", "-axo", "pid=,command="],
+            text=True,
+        )
+    except Exception:
+        return []
+
+    current_pid = os.getpid()
+    for raw in ps_out.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        pid_str, cmd = parts
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        if pid == current_pid:
+            continue
+
+        # Only clean stale desktop-packaged backend processes.
+        if (
+            ".app/Contents/Resources/env/bin/python" in cmd
+            and "-m uvicorn" in cmd
+            and "copaw.app._app:app" in cmd
+        ):
+            stale_pids.append(pid)
+
+    cleaned: list[int] = []
+    for pid in stale_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            cleaned.append(pid)
+        except ProcessLookupError:
+            continue
+        except Exception:
+            continue
+
+    if cleaned:
+        # Give processes a short grace period for graceful shutdown.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if all(not _pid_exists(pid) for pid in cleaned):
+                break
+            time.sleep(0.1)
+
+        # Force kill any survivors.
+        for pid in cleaned:
+            if _pid_exists(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except Exception:
+                    pass
+
+    return cleaned
+
+
 @click.command("desktop")
 @click.option(
     "--host",
@@ -108,6 +192,12 @@ def desktop_cmd(
     """
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
+
+    cleaned = _cleanup_stale_desktop_backends()
+    if cleaned:
+        _log_desktop(
+            f"[desktop] Cleaned stale desktop backend process(es): {cleaned}",
+        )
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
