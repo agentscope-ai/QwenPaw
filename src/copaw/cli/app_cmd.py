@@ -60,12 +60,11 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run CoPaw FastAPI app."""
-    # Persist last used host/port for other terminals
     write_last_api(host, port)
+    # Set both prefixes so BOOSTCLAW_* and COPAW_* consumers see the same level
+    os.environ["BOOSTCLAW_LOG_LEVEL"] = log_level
     os.environ[LOG_LEVEL_ENV] = log_level
 
-    # Signal reload mode to browser_control.py for Windows
-    # compatibility: use sync Playwright + ThreadPool only when reload=True
     if reload:
         os.environ["COPAW_RELOAD_MODE"] = "1"
     else:

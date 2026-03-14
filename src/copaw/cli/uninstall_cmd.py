@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""copaw uninstall — remove the CoPaw environment and CLI wrapper."""
+"""boostclaw uninstall — remove the BoostClaw environment and CLI wrapper."""
 from __future__ import annotations
 
 import shutil
@@ -24,17 +24,22 @@ _SHELL_PROFILES = (
 
 def _remove_path_entry(profile: Path) -> bool:
     """
-    Remove CoPaw PATH lines from a shell profile. Returns True if changed.
+    Remove BoostClaw/CoPaw PATH lines from a shell profile. Returns True if changed.
     """
     if not profile.is_file():
         return False
 
     text = profile.read_text()
-    # Remove the "# CoPaw" comment line and the export PATH line
+    # Remove "# boostclaw" or "# CoPaw" comment and the export PATH line
+    cleaned = re.sub(
+        r"\n?# boostclaw\nexport PATH=\"\$HOME/\.boostclaw/bin:\$PATH\"\n?",
+        "\n",
+        text,
+    )
     cleaned = re.sub(
         r"\n?# CoPaw\nexport PATH=\"\$HOME/\.copaw/bin:\$PATH\"\n?",
         "\n",
-        text,
+        cleaned,
     )
     if cleaned == text:
         return False
@@ -51,14 +56,14 @@ def _remove_path_entry(profile: Path) -> bool:
 )
 @click.option("--yes", is_flag=True, help="Do not prompt for confirmation")
 def uninstall_cmd(purge: bool, yes: bool) -> None:
-    """Remove CoPaw environment, CLI wrapper, and shell PATH entries."""
+    """Remove BoostClaw environment, CLI wrapper, and shell PATH entries."""
     wd = WORKING_DIR
 
     if purge:
-        click.echo(f"This will remove ALL CoPaw data in {wd}")
+        click.echo(f"This will remove ALL BoostClaw data in {wd}")
     else:
         click.echo(
-            "This will remove the CoPaw Python environment and CLI wrapper.",
+            "This will remove the BoostClaw Python environment and CLI wrapper.",
         )
         click.echo(f"Your configuration and data in {wd} will be preserved.")
 
