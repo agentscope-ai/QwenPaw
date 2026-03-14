@@ -1,0 +1,13 @@
+SCENARIO 1: Distribution name changed correctly
+
+Command: grep -n '^name = ' pyproject.toml
+Output:
+2:name = "boostclaw"
+
+Command: grep -n 'boostclaw\[' pyproject.toml
+Output:
+66:    "boostclaw[local]",
+70:    "boostclaw[local]",
+77:    "boostclaw[local,ollama,llamacpp]",
+
+✅ PASSED: Distribution name successfully changed from copaw to boostclaw on all 4 lines.

@@ -7,7 +7,7 @@ Set-Location $RepoRoot
 Write-Host "[build_win] REPO_ROOT=$RepoRoot"
 $PackDir = $PSScriptRoot
 $Dist = if ($env:DIST) { $env:DIST } else { "dist" }
-$Archive = Join-Path $Dist "copaw-env.zip"
+$Archive = Join-Path $Dist "boostclaw-env.zip"
 $Unpacked = Join-Path $Dist "win-unpacked"
 $NsiPath = Join-Path $PackDir "copaw_desktop.nsi"
 
@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
 Write-Host "== Building wheel (includes console frontend) =="
 # Skip wheel_build if dist already has a wheel for current version
-$VersionFile = Join-Path $RepoRoot "src\copaw\__version__.py"
+$VersionFile = Join-Path $RepoRoot "src\boostclaw\__version__.py"
 $CurrentVersion = ""
 if (Test-Path $VersionFile) {
   $m = (Get-Content $VersionFile -Raw) -match '__version__\s*=\s*"([^"]+)"'
@@ -32,14 +32,14 @@ if (Test-Path $VersionFile) {
 }
 $RunWheelBuild = $true
 if ($CurrentVersion) {
-  $wheelGlob = Join-Path $Dist "copaw-$CurrentVersion-*.whl"
+  $wheelGlob = Join-Path $Dist "boostclaw-$CurrentVersion-*.whl"
   $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
   if ($existingWheels.Count -gt 0) {
     Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
     $RunWheelBuild = $false
   } else {
     # Clean up old wheels to avoid confusion
-    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "copaw-*.whl") -ErrorAction SilentlyContinue
+    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "boostclaw-*.whl") -ErrorAction SilentlyContinue
     if ($oldWheels.Count -gt 0) {
       Write-Host "Removing old wheel files: $($oldWheels | ForEach-Object { $_.Name })"
       $oldWheels | Remove-Item -Force
@@ -126,7 +126,7 @@ if (Test-Path $CondaUnpack) {
 }
 
 # Main launcher .bat (will be hidden by VBS)
-$LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
+$LauncherBat = Join-Path $EnvRoot "boostclaw desktop.bat"
 @"
 @echo off
 cd /d "%~dp0"
@@ -152,14 +152,14 @@ if defined CERT_FILE (
   )
 )
 
-if not exist "%USERPROFILE%\.copaw\config.json" (
-  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
+if not exist "%USERPROFILE%\.boostclaw\config.json" (
+  "%~dp0python.exe" -u -m boostclaw init --defaults --accept-security
 )
-"%~dp0python.exe" -u -m copaw desktop --log-level %COPAW_LOG_LEVEL%
+"%~dp0python.exe" -u -m boostclaw desktop --log-level %COPAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
-$DebugBat = Join-Path $EnvRoot "CoPaw Desktop (Debug).bat"
+$DebugBat = Join-Path $EnvRoot "boostclaw desktop (Debug).bat"
 @"
 @echo off
 cd /d "%~dp0"
@@ -186,7 +186,7 @@ if defined CERT_FILE (
 )
 
 echo ====================================
-echo CoPaw Desktop - Debug Mode
+echo boostclaw desktop - Debug Mode
 echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
@@ -196,24 +196,24 @@ echo SSL_CERT_FILE: %SSL_CERT_FILE%
 echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
 echo CURL_CA_BUNDLE: %CURL_CA_BUNDLE%
 echo.
-if not exist "%USERPROFILE%\.copaw\config.json" (
+if not exist "%USERPROFILE%\.boostclaw\config.json" (
   echo [Init] Creating config...
-  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
+  "%~dp0python.exe" -u -m boostclaw init --defaults --accept-security
 )
-echo [Launch] Starting CoPaw Desktop with log-level=%COPAW_LOG_LEVEL%...
+echo [Launch] Starting boostclaw desktop with log-level=%COPAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -u -m copaw desktop --log-level %COPAW_LOG_LEVEL%
+"%~dp0python.exe" -u -m boostclaw desktop --log-level %COPAW_LOG_LEVEL%
 echo.
-echo [Exit] CoPaw Desktop closed
+echo [Exit] boostclaw desktop closed
 pause
 "@ | Set-Content -Path $DebugBat -Encoding ASCII
 
 # VBScript launcher (no console window)
-$LauncherVbs = Join-Path $EnvRoot "CoPaw Desktop.vbs"
+$LauncherVbs = Join-Path $EnvRoot "boostclaw desktop.vbs"
 @"
 Set WshShell = CreateObject("WScript.Shell")
-batPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName) & "\CoPaw Desktop.bat"
+batPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName) & "\boostclaw desktop.bat"
 WshShell.Run Chr(34) & batPath & Chr(34), 0, False
 Set WshShell = Nothing
 "@ | Set-Content -Path $LauncherVbs -Encoding ASCII
@@ -239,7 +239,7 @@ $Version = $CurrentVersion
 if (-not $Version) {
   # Fallback: try to get version from packed env metadata
   try {
-    $Version = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
+    $Version = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('boostclaw'))" 2>&1) -replace '\s+$', ''
     Write-Host "[build_win] Using version from packed env metadata: $Version"
   } catch {
     Write-Host "[build_win] version from packed env failed: $_"
@@ -248,7 +248,7 @@ if (-not $Version) {
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
 Write-Host "[build_win] Version determined: $Version"
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
-$OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
+$OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "boostclaw-setup-$Version.exe"
 # Pass absolute paths to NSIS (keep backslashes).
 $UnpackedFull = (Resolve-Path $EnvRoot).Path
 $OutputExeNsi = [System.IO.Path]::GetFullPath($OutInstaller)

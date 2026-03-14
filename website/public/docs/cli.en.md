@@ -126,8 +126,8 @@ copaw models set-llm                 # Change active model only
 #### Local models
 
 CoPaw can also run models locally via llama.cpp or MLX — no API key needed.
-Install the backend first: `pip install 'copaw[llamacpp]'` or
-`pip install 'copaw[mlx]'`.
+Install the backend first: `pip install 'boostclaw[llamacpp]'` or
+`pip install 'boostclaw[mlx]'`.
 
 ```bash
 # Download a model (auto-selects Q4_K_M GGUF)
@@ -158,7 +158,7 @@ copaw models remove-local <model_id> --yes   # skip confirmation
 
 CoPaw integrates with Ollama to run models locally. Models are dynamically loaded from your Ollama daemon — install Ollama first from [ollama.com](https://ollama.com).
 
-Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer with `--extras ollama`)
+Install the Ollama SDK: `pip install 'boostclaw[ollama]'` (or re-run the installer with `--extras ollama`)
 
 ```bash
 # Download an Ollama model

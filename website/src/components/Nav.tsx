@@ -200,7 +200,7 @@ export function Nav({
             <span>{t(lang, "nav.lang")}</span>
           </button>
           <a
-            href="https://github.com/agentscope-ai/CoPaw"
+            href="https://github.com/aimentorai/boostclaw"
             target="_blank"
             rel="noopener noreferrer"
             className={linkClass}
@@ -293,8 +293,8 @@ export function Nav({
         >
           <Globe size={18} /> {t(lang, "nav.lang")}
         </button>
-        <a
-          href="https://github.com/agentscope-ai/CoPaw"
+          <a
+            href="https://github.com/aimentorai/boostclaw"
           target="_blank"
           rel="noopener noreferrer"
           className={linkClass}

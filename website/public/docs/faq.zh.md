@@ -27,7 +27,7 @@ irm https://copaw.agentscope.io/install.ps1 | iex
 Python环境要求版本号 >= 3.10，<3.14
 
 ```
-pip install copaw
+pip install boostclaw
 ```
 
 3. Docker 安装
@@ -78,7 +78,7 @@ docker run -p 127.0.0.1:8088:8088 \
 2. 如果你是通过 pip 安装，在终端中执行以下命令升级：
 
 ```
-pip install --upgrade copaw
+pip install --upgrade boostclaw
 ```
 
 3. 如果你是从源码安装，进入项目目录并拉取最新代码后重新安装：
@@ -120,11 +120,11 @@ copaw app
 ### 开源地址
 
 CoPaw 已开源，官方仓库地址：
-`https://github.com/agentscope-ai/CoPaw`
+`https://github.com/aimentorai/boostclaw`
 
 ### 最新版本升级内容如何查看
 
-具体版本变更可在 CoPaw GitHub 仓库 [Releases](https://github.com/agentscope-ai/CoPaw/releases) 中查看。
+具体版本变更可在 CoPaw GitHub 仓库 [Releases](https://github.com/aimentorai/boostclaw/releases) 中查看。
 
 ### 如何配置模型
 
@@ -204,7 +204,7 @@ https://help.aliyun.com/zh/model-studio/coding-plan-quickstart#2531c37fd64f9
 
 ### 报错如何获取修复帮助
 
-为了加快修复与排查，共建良好社区生态，建议遇到报错时，首选在 CoPaw 的 GitHub 仓库中提 [issue](https://github.com/agentscope-ai/CoPaw/issues)，请附上完整报错信息，并上传错误详情文件。
+为了加快修复与排查，共建良好社区生态，建议遇到报错时，首选在 CoPaw 的 GitHub 仓库中提 [issue](https://github.com/aimentorai/boostclaw/issues)，请附上完整报错信息，并上传错误详情文件。
 
 控制台报错里通常会给出错误文件路径，例如在以下报错中：
 

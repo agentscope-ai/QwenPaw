@@ -136,7 +136,7 @@ copaw app
 如果你更习惯自行管理 Python 环境（需 Python >= 3.10, < 3.14）：
 
 ```bash
-pip install copaw
+pip install boostclaw
 ```
 
 可选：先创建并激活虚拟环境再安装（`python -m venv .venv`，Linux/macOS 下
@@ -160,7 +160,7 @@ pip install copaw
 ### 下载与使用
 
 1. **下载安装包**
-   前往 [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases) 下载对应系统的版本：
+   前往 [GitHub Releases](https://github.com/aimentorai/boostclaw/releases) 下载对应系统的版本：
 
    - Windows: `CoPaw-Setup-<version>.exe`
    - macOS: `CoPaw-<version>-macOS.zip`

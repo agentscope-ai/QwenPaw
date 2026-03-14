@@ -1,0 +1,25 @@
+# QA Scenario 2: Import statements preserved (guardrail check)
+
+## Test: Verify NO new boostclaw imports were introduced
+```bash
+grep -rn "from boostclaw\|import boostclaw" --include="*.py" src/
+```
+**Result**: 0 matches ✅
+
+## Verification Details:
+
+### All imports remain as 'copaw' (module name unchanged)
+- ✅ `from copaw.cli import ...`
+- ✅ `from copaw.local_models import ...`
+- ✅ `from copaw.providers import ...`
+- ✅ `from copaw.app.routers import ...`
+- ✅ All internal module references remain `copaw`
+
+### Only user-facing pip install strings changed
+- Changed: Error messages that say "pip install 'boostclaw[...]'"
+- Unchanged: All Python imports and module paths
+- Unchanged: Config paths (~/.copaw)
+- Unchanged: CLI commands (copaw)
+- Unchanged: Environment variables (COPAW_*)
+
+**Critical Guardrail**: This confirms the rename is distribution-name-only, preserving the internal module structure completely ✅

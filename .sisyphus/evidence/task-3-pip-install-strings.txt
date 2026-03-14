@@ -1,0 +1,30 @@
+# QA Scenario 1: All pip install strings updated
+
+## Test 1: No old copaw[...] strings remain
+```bash
+grep -rn "pip install 'copaw\[" --include="*.py" src/
+```
+**Result**: 0 matches ✅
+
+## Test 2: All 11 new boostclaw[...] strings present
+```bash
+grep -rn "pip install 'boostclaw\[" --include="*.py" src/
+```
+**Result**: 11 matches ✅
+
+### Details of changes:
+```
+src/copaw/cli/providers_cmd.py:684:                "Install with: pip install 'boostclaw[local]'",
+src/copaw/cli/providers_cmd.py:736:            "Install with: pip install 'boostclaw[local]'",
+src/copaw/cli/providers_cmd.py:772:                "Install with: pip install 'boostclaw[local]'",
+src/copaw/local_models/manager.py:135:                "Install it with: pip install 'boostclaw[local]'",
+src/copaw/local_models/backends/llamacpp_backend.py:62:                "Install it with: pip install 'boostclaw[llamacpp]'",
+src/copaw/local_models/backends/mlx_backend.py:71:                "Install it with: pip install 'boostclaw[mlx]'",
+src/copaw/providers/ollama_provider.py:38:                "Please install it with: pip install 'boostclaw[ollama]'",
+src/copaw/providers/ollama_manager.py:56:            "Please install it with: pip install 'boostclaw[ollama]'",
+src/copaw/app/routers/local_models.py:139:                "Install with: pip install 'boostclaw[local]'"
+src/copaw/app/routers/ollama_models.py:173:            "pip install 'boostclaw[ollama]'",
+src/copaw/app/routers/ollama_models.py:285:            "pip install 'boostclaw[ollama]'",
+```
+
+**All 11 changes verified across 8 files** ✅

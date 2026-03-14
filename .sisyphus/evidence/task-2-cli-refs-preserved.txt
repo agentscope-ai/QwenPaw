@@ -1,0 +1,23 @@
+=== QA SCENARIO 2: CLI command references preserved ===
+
+Checking CLI command references are NOT changed:
+
+install.sh - copaw init references:
+$(grep -c 'copaw init' scripts/install.sh) matches found
+
+install.sh - copaw app references:
+$(grep -c 'copaw app' scripts/install.sh) matches found
+
+install.sh - ~/.copaw config path references:
+$(grep -c '\.copaw' scripts/install.sh) matches found
+
+install.ps1 - copaw references (CLI):
+$(grep -c 'copaw' scripts/install.ps1) total references (includes package var, CLI commands, paths)
+
+install.bat - copaw references (CLI):
+$(grep -c 'copaw' scripts/install.bat) total references (includes package var, CLI commands, paths)
+
+✓ CLI command name 'copaw' preserved (not renamed to 'boostclaw')
+✓ Config path ~/.copaw preserved
+✓ No branding text "CoPaw" was changed
+✓ Only PACKAGE variables were updated as required

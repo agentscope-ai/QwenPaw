@@ -169,7 +169,7 @@ def desktop_cmd(
                 )
                 api = WebViewAPI()
                 webview.create_window(
-                    "CoPaw Desktop",
+                    "BoostClaw",
                     url,
                     width=1280,
                     height=800,

@@ -136,7 +136,7 @@ async def download_model(
             status_code=501,
             detail=(
                 "Local model dependencies not installed. "
-                "Install with: pip install 'copaw[local]'"
+                "Install with: pip install 'boostclaw[local]'"
             ),
         ) from exc
 

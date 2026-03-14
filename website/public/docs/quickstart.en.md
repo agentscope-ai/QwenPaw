@@ -142,7 +142,7 @@ this step via [Channels](./channels).
 If you prefer managing Python yourself (requires Python >= 3.10, < 3.14):
 
 ```bash
-pip install copaw
+pip install boostclaw
 ```
 
 Optional: create and activate a virtualenv first (`python -m venv .venv`, then
@@ -166,7 +166,7 @@ If you're not comfortable with command-line tools, you can download and use CoPa
 ### Download and Usage
 
 1. **Download the installer**
-   Go to [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases) to download the version for your system:
+   Go to [GitHub Releases](https://github.com/aimentorai/boostclaw/releases) to download the version for your system:
 
    - Windows: `CoPaw-Setup-<version>.exe`
    - macOS: `CoPaw-<version>-macOS.zip`

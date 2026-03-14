@@ -1,6 +1,6 @@
-; CoPaw Desktop NSIS installer. Run makensis from repo root after
+; boostpaw desktop NSIS installer. Run makensis from repo root after
 ; building dist/win-unpacked (see scripts/pack/build_win.ps1).
-; Usage: makensis /DCOPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\CoPaw-Setup-1.2.3.exe scripts\pack\copaw_desktop.nsi
+; Usage: makensis /DCOPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\boostpaw-Setup-1.2.3.exe scripts\pack\copaw_desktop.nsi
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
@@ -12,13 +12,13 @@
   !define COPAW_VERSION "0.0.0"
 !endif
 !ifndef OUTPUT_EXE
-  !define OUTPUT_EXE "dist\CoPaw-Setup-${COPAW_VERSION}.exe"
+  !define OUTPUT_EXE "dist\boostpaw-Setup-${COPAW_VERSION}.exe"
 !endif
 
-Name "CoPaw Desktop"
+Name "boostpaw desktop"
 OutFile "${OUTPUT_EXE}"
-InstallDir "$LOCALAPPDATA\CoPaw"
-InstallDirRegKey HKCU "Software\CoPaw" "InstallPath"
+InstallDir "$LOCALAPPDATA\boostpaw"
+InstallDirRegKey HKCU "Software\boostpaw" "InstallPath"
 RequestExecutionLevel user
 
 !insertmacro MUI_PAGE_DIRECTORY
@@ -33,24 +33,24 @@ RequestExecutionLevel user
   !define UNPACKED "dist\win-unpacked"
 !endif
 
-Section "CoPaw Desktop" SEC01
+Section "boostpaw desktop" SEC01
   SetOutPath "$INSTDIR"
   File /r /x "*.pyc" /x "__pycache__" "${UNPACKED}\*.*"
-  WriteRegStr HKCU "Software\CoPaw" "InstallPath" "$INSTDIR"
+  WriteRegStr HKCU "Software\boostpaw" "InstallPath" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   ; Main shortcut - uses VBS to hide console window
-  CreateShortcut "$SMPROGRAMS\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" "$INSTDIR\icon.ico" 0
-  CreateShortcut "$DESKTOP\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" "$INSTDIR\icon.ico" 0
+  CreateShortcut "$SMPROGRAMS\boostpaw desktop.lnk" "$INSTDIR\boostpaw desktop.vbs" "" "$INSTDIR\icon.ico" 0
+  CreateShortcut "$DESKTOP\boostpaw desktop.lnk" "$INSTDIR\boostpaw desktop.vbs" "" "$INSTDIR\icon.ico" 0
   
   ; Debug shortcut - shows console window for troubleshooting
-  CreateShortcut "$SMPROGRAMS\CoPaw Desktop (Debug).lnk" "$INSTDIR\CoPaw Desktop (Debug).bat" "" "$INSTDIR\icon.ico" 0
+  CreateShortcut "$SMPROGRAMS\boostpaw desktop (Debug).lnk" "$INSTDIR\boostpaw desktop (Debug).bat" "" "$INSTDIR\icon.ico" 0
 SectionEnd
 
 Section "Uninstall"
-  Delete "$SMPROGRAMS\CoPaw Desktop.lnk"
-  Delete "$SMPROGRAMS\CoPaw Desktop (Debug).lnk"
-  Delete "$DESKTOP\CoPaw Desktop.lnk"
+  Delete "$SMPROGRAMS\boostpaw desktop.lnk"
+  Delete "$SMPROGRAMS\boostpaw desktop (Debug).lnk"
+  Delete "$DESKTOP\boostpaw desktop.lnk"
   RMDir /r "$INSTDIR"
-  DeleteRegKey HKCU "Software\CoPaw"
+  DeleteRegKey HKCU "Software\boostpaw"
 SectionEnd

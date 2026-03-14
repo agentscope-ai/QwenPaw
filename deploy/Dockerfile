@@ -89,8 +89,8 @@ RUN pip install --no-cache-dir .
 # Init working dir with default config.json and HEARTBEAT.md (build time).
 RUN copaw init --defaults --accept-security
 
-# CoPaw app port (default 8088). Override at runtime with -e COPAW_PORT=3000.
-ENV COPAW_PORT=8088
+# CoPaw app port (default 8088). Override at runtime with -e BOOSTCLAW_PORT=3000.
+ENV BOOSTCLAW_PORT=8088
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
 COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh

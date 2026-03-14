@@ -20,7 +20,7 @@ from ..config import (  # pylint: disable=no-name-in-module
     ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
-from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
+from ..constant import DOCS_ENABLED, CORS_ORIGINS, get_app_log_level, WORKING_DIR
 from ..__version__ import __version__
 from ..utils.logging import setup_logger, add_copaw_file_handler
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
@@ -36,7 +36,7 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 
 # Apply log level on load so reload child process gets same level as CLI.
-logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+logger = setup_logger(get_app_log_level())
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).

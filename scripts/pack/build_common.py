@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ENV_PREFIX = "copaw_pack_"
+ENV_PREFIX = "boostclaw_pack_"
 
 # Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
 # conda-unpack modifies Python source files to replace path prefixes, but uses
@@ -51,7 +51,7 @@ def _pick_wheel(wheel_arg: str | None) -> Path:
         return wheel_path
 
     wheels = sorted(
-        (REPO_ROOT / "dist").glob("copaw-*.whl"),
+        (REPO_ROOT / "dist").glob("boostclaw-*.whl"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -81,16 +81,21 @@ def main() -> int:
     )
     parser.add_argument(
         "--python",
-        default="3.10",
-        help="Python version for conda env (default: 3.10)",
+        default="3.12",
+        help="Python version for conda env (default: 3.12)",
     )
     parser.add_argument(
         "--wheel",
         default=None,
         help=(
             "Wheel path to install. If omitted, pick the newest "
-            "dist/copaw-*.whl."
+            "dist/boostclaw-*.whl."
         ),
+    )
+    parser.add_argument(
+        "--extras",
+        default="",
+        help="Optional dependencies to install (e.g., 'local,ollama')",
     )
     parser.add_argument(
         "--cache-wheels",
@@ -146,7 +151,25 @@ def main() -> int:
                 "-m",
                 "pip",
                 "install",
-                f"copaw[full] @ {wheel_uri}",
+                "build",
+            ],
+        )
+
+        install_target = f"boostclaw @ {wheel_uri}"
+        if args.extras:
+            install_target = f"boostclaw[{args.extras}] @ {wheel_uri}"
+
+        _run(
+            [
+                conda,
+                "run",
+                "-n",
+                env_name,
+                "python",
+                "-m",
+                "pip",
+                "install",
+                install_target,
             ],
         )
         print("Verifying certifi is installed (required for SSL)...")
