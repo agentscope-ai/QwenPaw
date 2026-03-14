@@ -39,7 +39,8 @@
     "environments": "環境変数",
     "security": "セキュリティ",
     "tokenUsage": "トークン使用量",
-    "tools": "ツール"
+    "tools": "ツール",
+    "voiceTranscription": "音声文字起こし"
   },
   "workspace": {
     "title": "ワークスペース",
@@ -638,5 +639,20 @@
         "TOOL_CMD_DANGEROUS_MV": "ファイルを意図せず移動・上書きする可能性のある mv コマンドを検出"
       }
     }
+  },
+  "voiceTranscription": {
+    "title": "音声文字起こし",
+    "description": "受信した音声メッセージの処理方法を設定します。",
+    "loadFailed": "音声モード設定の読み込みに失敗しました",
+    "saveSuccess": "音声モードを保存しました",
+    "saveFailed": "音声モードの保存に失敗しました",
+    "audioModeLabel": "音声モード",
+    "audioModeDescription": "チャンネル（Discord、Telegram など）からの音声メッセージをモデルに送信する前にどのように処理するかを選択します。",
+    "modeAuto": "自動",
+    "modeAutoDesc": "まず文字起こしを試み、失敗した場合はネイティブ音声にフォールバック",
+    "modeTranscribe": "文字起こし",
+    "modeTranscribeDesc": "常に音声をテキストに変換（すべてのモデルで動作）",
+    "modeNative": "ネイティブ",
+    "modeNativeDesc": "音声をモデルに直接送信（ffmpeg が必要、音声対応モデルのみ）"
   }
 }

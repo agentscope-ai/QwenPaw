@@ -16,7 +16,8 @@ function VoiceTranscriptionPage() {
     try {
       const res = await api.getAudioMode();
       setAudioMode(res.audio_mode ?? "auto");
-    } catch {
+    } catch (err) {
+      console.error("Failed to load audio mode:", err);
       message.error(t("voiceTranscription.loadFailed"));
     } finally {
       setLoading(false);
@@ -32,7 +33,8 @@ function VoiceTranscriptionPage() {
     try {
       await api.updateAudioMode(audioMode);
       message.success(t("voiceTranscription.saveSuccess"));
-    } catch {
+    } catch (err) {
+      console.error("Failed to save audio mode:", err);
       message.error(t("voiceTranscription.saveFailed"));
     } finally {
       setSaving(false);

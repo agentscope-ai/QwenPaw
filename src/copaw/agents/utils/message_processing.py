@@ -172,7 +172,13 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
         logger.debug("Converted audio %s -> %s", src_path, dst_path)
         return dst_path
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        logger.warning("Audio conversion failed for %s: %s", src_path, e)
+        stderr = getattr(e, "stderr", b"") or b""
+        logger.warning(
+            "Audio conversion failed for %s: %s\nstderr: %s",
+            src_path,
+            e,
+            stderr.decode(errors="replace"),
+        )
         return None
 
 
