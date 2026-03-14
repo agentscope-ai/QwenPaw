@@ -31,6 +31,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import TelegramConfig as TelegramChannelConfig
+from ....constant import WORKING_DIR
 from .format_html import markdown_to_telegram_html
 from ..utils import file_url_to_local_path
 from ..base import (
@@ -776,7 +777,7 @@ class TelegramChannel(BaseChannel):
                     "Could not resolve media file from URL.",
                 )
             local_path = Path(raw_path).resolve()
-            allowed_root = self._media_dir.resolve()
+            allowed_root = (WORKING_DIR / "media").resolve()
             if not local_path.is_relative_to(allowed_root):
                 logger.error(
                     "telegram: blocked media outside allowed directory: %s",
