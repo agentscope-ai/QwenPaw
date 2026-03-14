@@ -2,7 +2,7 @@ import {
   AgentScopeRuntimeWebUI,
   type IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Modal, Button, Result, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
@@ -15,11 +15,19 @@ import { getApiUrl, getApiToken } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
 import "./index.module.less";
-import type {
-  IAgentScopeRuntimeResponse,
-  IAgentScopeRuntimeMessage,
-  IContent,
-} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+
+type CopyableContent =
+  | { type?: string; text?: string }
+  | { type?: string; refusal?: string };
+
+type CopyableMessage = {
+  role?: string;
+  content?: CopyableContent[];
+};
+
+type CopyableResponse = {
+  output?: CopyableMessage[];
+};
 
 interface CustomWindow extends Window {
   currentSessionId?: string;
@@ -29,28 +37,23 @@ interface CustomWindow extends Window {
 
 declare const window: CustomWindow;
 
-function extractCopyableText(response: IAgentScopeRuntimeResponse): string {
+function extractCopyableText(response: CopyableResponse): string {
   const collectText = (assistantOnly: boolean) => {
-    const chunks = (response.output || []).flatMap(
-      (item: IAgentScopeRuntimeMessage) => {
-        if (assistantOnly && item.role !== "assistant") return [];
+    const chunks = (response.output || []).flatMap((item: CopyableMessage) => {
+      if (assistantOnly && item.role !== "assistant") return [];
 
-        return (item.content || []).flatMap((content: IContent) => {
-          if (content.type === "text" && typeof content.text === "string") {
-            return [content.text];
-          }
+      return (item.content || []).flatMap((content: CopyableContent) => {
+        if (content.type === "text" && typeof content.text === "string") {
+          return [content.text];
+        }
 
-          if (
-            content.type === "refusal" &&
-            typeof content.refusal === "string"
-          ) {
-            return [content.refusal];
-          }
+        if (content.type === "refusal" && typeof content.refusal === "string") {
+          return [content.refusal];
+        }
 
-          return [];
-        });
-      },
-    );
+        return [];
+      });
+    });
 
     return chunks.filter(Boolean).join("\n\n").trim();
   };
@@ -70,9 +73,19 @@ async function copyText(text: string) {
   textarea.style.position = "absolute";
   textarea.style.left = "-9999px";
   document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
+
+  let copied = false;
+  try {
+    textarea.focus();
+    textarea.select();
+    copied = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  if (!copied) {
+    throw new Error("Failed to copy text");
+  }
 }
 
 export default function ChatPage() {
@@ -81,14 +94,17 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const optionsConfig = defaultConfig;
 
-  const copyResponse = async (response: IAgentScopeRuntimeResponse) => {
-    try {
-      await copyText(extractCopyableText(response));
-      message.success(t("common.copied"));
-    } catch {
-      message.error(t("common.copyFailed"));
-    }
-  };
+  const copyResponse = useCallback(
+    async (response: CopyableResponse) => {
+      try {
+        await copyText(extractCopyableText(response));
+        message.success(t("common.copied"));
+      } catch {
+        message.error(t("common.copyFailed"));
+      }
+    },
+    [t],
+  );
 
   const handleConfigureModel = () => {
     setShowModelPrompt(false);
@@ -196,7 +212,7 @@ export default function ChatPage() {
                 <SparkCopyLine />
               </span>
             ),
-            onClick: ({ data }: { data: IAgentScopeRuntimeResponse }) => {
+            onClick: ({ data }: { data: CopyableResponse }) => {
               void copyResponse(data);
             },
           },
@@ -207,7 +223,7 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [optionsConfig]);
+  }, [optionsConfig, copyResponse, t]);
 
   return (
     <div style={{ height: "100%", width: "100%" }}>
