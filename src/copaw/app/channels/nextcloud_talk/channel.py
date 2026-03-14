@@ -408,7 +408,7 @@ class NextcloudTalkChannel(BaseChannel):
         if hasattr(request, "channel_meta"):
             request.channel_meta = meta
 
-        # 检查request中的实际内容
+        # Check the actual content in the request
         has_actual_content = False
         if hasattr(request, "input") and request.input:
             first_msg = request.input[0]
