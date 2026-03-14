@@ -38,6 +38,11 @@ from ..base import (
     ProcessHandler,
 )
 
+try:
+    from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+except ImportError:
+    RunStatus = None
+
 from .content_utils import (
     session_param_from_token,
 )
@@ -52,10 +57,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import (
-        AgentRequest,
-        RunStatus,
-    )
+    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +178,11 @@ class NextcloudTalkChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
     ) -> "NextcloudTalkChannel":
+        webhook_secret = getattr(config, "webhook_secret", "")
         return cls(
             process=process,
             enabled=config.enabled,
-            webhook_secret=getattr(config, "webhook_secret", ""),
+            webhook_secret=webhook_secret,
             webhook_host=getattr(config, "webhook_host", "0.0.0.0"),
             webhook_port=getattr(config, "webhook_port", 8765),
             webhook_path=getattr(
@@ -1038,7 +1041,11 @@ class NextcloudTalkChannel(BaseChannel):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
 
-                if obj == "message" and status == RunStatus.Completed:
+                if (
+                    obj == "message"
+                    and RunStatus
+                    and status == RunStatus.Completed
+                ):
                     # Extract content parts from event, applying filters
                     parts = self._message_to_content_parts(event)
                     if parts:
