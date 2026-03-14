@@ -11,6 +11,8 @@ export interface MCPClientInfo {
   description: string;
   /** Whether the client is enabled */
   enabled: boolean;
+  /** Whether the client is currently connected at runtime */
+  active?: boolean;
   /** MCP transport type */
   transport: "stdio" | "streamable_http" | "sse";
   /** Remote MCP endpoint URL for HTTP/SSE transport */

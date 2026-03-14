@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Literal
 
-from fastapi import APIRouter, Body, HTTPException, Path
+from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ...config import load_config, save_config
@@ -21,6 +21,10 @@ class MCPClientInfo(BaseModel):
     name: str = Field(..., description="Client display name")
     description: str = Field(default="", description="Client description")
     enabled: bool = Field(..., description="Whether the client is enabled")
+    active: bool = Field(
+        default=False,
+        description="Whether the client is currently connected (runtime state)",
+    )
     transport: Literal["stdio", "streamable_http", "sse"] = Field(
         ...,
         description="MCP transport type",
@@ -160,7 +164,11 @@ def _mask_env_value(value: str) -> str:
     return f"{prefix}{'*' * masked_len}{suffix}"
 
 
-def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
+def _build_client_info(
+    key: str,
+    client: MCPClientConfig,
+    active: bool = False,
+) -> MCPClientInfo:
     """Build MCPClientInfo from config with masked env values."""
     # Mask environment variable values for security
     masked_env = (
@@ -179,6 +187,7 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         name=client.name,
         description=client.description,
         enabled=client.enabled,
+        active=active,
         transport=client.transport,
         url=client.url,
         headers=masked_headers,
@@ -189,16 +198,22 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
     )
 
 
+def _get_active_keys(request: Request) -> set:
+    mcp_manager = getattr(request.app.state, "mcp_manager", None)
+    return mcp_manager.active_keys() if mcp_manager is not None else set()
+
+
 @router.get(
     "",
     response_model=List[MCPClientInfo],
     summary="List all MCP clients",
 )
-async def list_mcp_clients() -> List[MCPClientInfo]:
+async def list_mcp_clients(request: Request) -> List[MCPClientInfo]:
     """Get list of all configured MCP clients."""
     config = load_config()
+    active_keys = _get_active_keys(request)
     return [
-        _build_client_info(key, client)
+        _build_client_info(key, client, active=key in active_keys)
         for key, client in config.mcp.clients.items()
     ]
 
@@ -208,13 +223,41 @@ async def list_mcp_clients() -> List[MCPClientInfo]:
     response_model=MCPClientInfo,
     summary="Get MCP client details",
 )
-async def get_mcp_client(client_key: str = Path(...)) -> MCPClientInfo:
+async def get_mcp_client(
+    request: Request,
+    client_key: str = Path(...),
+) -> MCPClientInfo:
     """Get details of a specific MCP client."""
     config = load_config()
     client = config.mcp.clients.get(client_key)
     if client is None:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
-    return _build_client_info(client_key, client)
+    active_keys = _get_active_keys(request)
+    return _build_client_info(client_key, client, active=client_key in active_keys)
+
+
+@router.post(
+    "/{client_key}/refresh-status",
+    response_model=MCPClientInfo,
+    summary="Refresh MCP client runtime status",
+)
+async def refresh_mcp_client_status(
+    request: Request,
+    client_key: str = Path(...),
+) -> MCPClientInfo:
+    """Actively probe an MCP client and return its latest runtime status."""
+    config = load_config()
+    client = config.mcp.clients.get(client_key)
+    if client is None:
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    mcp_manager = getattr(request.app.state, "mcp_manager", None)
+    if mcp_manager is None:
+        raise HTTPException(503, detail="MCP manager is unavailable")
+
+    await mcp_manager.refresh_client_status(client_key, client)
+    active_keys = _get_active_keys(request)
+    return _build_client_info(client_key, client, active=client_key in active_keys)
 
 
 @router.post(
