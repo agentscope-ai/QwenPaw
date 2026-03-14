@@ -58,6 +58,11 @@ export function RemoteProviderCard({
   };
 
   const totalCount = provider.models.length + provider.extra_models.length;
+  const isActiveLlmProvider =
+    activeModels?.active_llm?.provider_id === provider.id;
+  const hasActiveModel =
+    isActiveLlmProvider && !!activeModels?.active_llm?.model;
+  const displayCount = totalCount > 0 ? totalCount : hasActiveModel ? 1 : 0;
 
   let isConfigured = false;
 
@@ -71,7 +76,7 @@ export function RemoteProviderCard({
     isConfigured = true;
   }
 
-  const hasModels = totalCount > 0;
+  const hasModels = totalCount > 0 || hasActiveModel;
   const isAvailable = isConfigured && hasModels;
 
   const providerTag = provider.is_custom ? (
@@ -111,7 +116,7 @@ export function RemoteProviderCard({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`${styles.providerCard} ${
-        isAvailable ? styles.enabledCard : ""
+        isActiveLlmProvider ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
       <div style={{ marginBottom: 16 }}>
@@ -166,8 +171,8 @@ export function RemoteProviderCard({
           <div className={styles.infoRow}>
             <span className={styles.infoLabel}>{t("models.model")}:</span>
             <span className={styles.infoValue}>
-              {totalCount > 0
-                ? t("models.modelsCount", { count: totalCount })
+              {displayCount > 0
+                ? t("models.modelsCount", { count: displayCount })
                 : t("models.noModels")}
             </span>
           </div>

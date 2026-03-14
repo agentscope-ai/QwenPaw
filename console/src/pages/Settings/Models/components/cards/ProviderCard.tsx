@@ -23,6 +23,7 @@ export function ProviderCard({
     return (
       <LocalProviderCard
         provider={provider}
+        activeModels={activeModels}
         onSaved={onSaved}
         isHover={isHover}
         onMouseEnter={onMouseEnter}
