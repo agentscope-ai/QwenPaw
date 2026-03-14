@@ -44,6 +44,9 @@ export function LocalProviderCard({
     };
 
     checkWrapped();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
     const resizeObserver = new ResizeObserver(checkWrapped);
     resizeObserver.observe(titleElement);
     return () => {
@@ -60,7 +63,8 @@ export function LocalProviderCard({
   const wrappedTitleLine1 =
     titleWords.length > 1 ? titleWords.slice(0, -1).join(" ") : provider.name;
   const wrappedTitleLine2 =
-    titleWords.length > 1 ? titleWords[titleWords.length - 1] : provider.name;
+    titleWords.length > 1 ? titleWords[titleWords.length - 1] : "";
+  const shouldUseWrappedTitleLayout = isTitleWrapped && titleWords.length > 1;
 
   return (
     <Card
@@ -75,13 +79,13 @@ export function LocalProviderCard({
         <div className={styles.cardHeader}>
           <div
             className={`${styles.cardName} ${
-              isTitleWrapped ? styles.cardNameWrapped : ""
+              shouldUseWrappedTitleLayout ? styles.cardNameWrapped : ""
             }`}
           >
             <span ref={titleRef} className={styles.cardNameMeasure}>
               {provider.name}
             </span>
-            {isTitleWrapped ? (
+            {shouldUseWrappedTitleLayout ? (
               <>
                 <span className={styles.cardNameLine1} title={provider.name}>
                   {wrappedTitleLine1}
@@ -160,7 +164,7 @@ export function LocalProviderCard({
             e.stopPropagation();
             setModelManageOpen(true);
           }}
-          className={styles.configBtn}
+          className={`${styles.configBtn} ${styles.configBtnNeutral}`}
           icon={<AppstoreOutlined />}
         >
           {t("models.manageModels")}

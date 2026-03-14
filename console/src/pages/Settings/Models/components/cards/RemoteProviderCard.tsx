@@ -53,6 +53,9 @@ export function RemoteProviderCard({
     };
 
     checkWrapped();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
     const resizeObserver = new ResizeObserver(checkWrapped);
     resizeObserver.observe(titleElement);
     return () => {
@@ -137,10 +140,13 @@ export function RemoteProviderCard({
     titleWords.length > 1 ? titleWords.slice(0, -1).join(" ") : provider.name;
   const wrappedTitleLine2 =
     titleWords.length > 1 ? titleWords[titleWords.length - 1] : "";
+  const shouldUseWrappedTitleLayout = isTitleWrapped && titleWords.length > 1;
 
-  const statusLabelMatch = statusLabel.match(/^(.+?)\s*[（(](.+)[）)]\s*$/);
+  const statusLabelMatch = statusLabel.match(/^(.+?)\s*([（(])(.+)([）)])\s*$/);
   const statusMainText = statusLabelMatch?.[1]?.trim() ?? statusLabel;
-  const statusMetaText = statusLabelMatch?.[2]?.trim();
+  const statusMetaOpen = statusLabelMatch?.[2] ?? "";
+  const statusMetaText = statusLabelMatch?.[3]?.trim();
+  const statusMetaClose = statusLabelMatch?.[4] ?? "";
 
   return (
     <Card
@@ -155,13 +161,13 @@ export function RemoteProviderCard({
         <div className={styles.cardHeader}>
           <div
             className={`${styles.cardName} ${
-              isTitleWrapped ? styles.cardNameWrapped : ""
+              shouldUseWrappedTitleLayout ? styles.cardNameWrapped : ""
             }`}
           >
             <span ref={titleRef} className={styles.cardNameMeasure}>
               {provider.name}
             </span>
-            {isTitleWrapped ? (
+            {shouldUseWrappedTitleLayout ? (
               <>
                 <span className={styles.cardNameLine1} title={provider.name}>
                   {wrappedTitleLine1}
@@ -204,7 +210,9 @@ export function RemoteProviderCard({
                 />
               </span>
               <span className={styles.statusTextMeta}>
-                {statusMetaText ? `(${statusMetaText})` : "\u00A0"}
+                {statusMetaText
+                  ? `${statusMetaOpen}${statusMetaText}${statusMetaClose}`
+                  : "\u00A0"}
               </span>
             </span>
           </div>
@@ -248,7 +256,7 @@ export function RemoteProviderCard({
             e.stopPropagation();
             setModelManageOpen(true);
           }}
-          className={styles.configBtn}
+          className={`${styles.configBtn} ${styles.configBtnNeutral}`}
           icon={<AppstoreOutlined />}
         >
           {t("models.manageModels")}
@@ -260,7 +268,7 @@ export function RemoteProviderCard({
             e.stopPropagation();
             setModalOpen(true);
           }}
-          className={styles.configBtn}
+          className={`${styles.configBtn} ${styles.configBtnNeutral}`}
           icon={<EditOutlined />}
         >
           {t("models.settings")}
