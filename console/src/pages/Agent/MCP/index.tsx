@@ -53,6 +53,9 @@ function MCPPage() {
   const {
     clients,
     loading,
+    refreshStatuses,
+    queuedRefreshKeys,
+    refreshingKeys,
     toggleEnabled,
     deleteClient,
     createClient,
@@ -175,9 +178,17 @@ function MCPPage() {
             {t("mcp.description")}
           </p>
         </div>
-        <Button type="primary" onClick={() => setCreateModalOpen(true)}>
-          {t("mcp.create")}
-        </Button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button
+            onClick={() => void refreshStatuses()}
+            loading={refreshingKeys.length > 0 || queuedRefreshKeys.length > 0}
+          >
+            {t("mcp.refreshStatus")}
+          </Button>
+          <Button type="primary" onClick={() => setCreateModalOpen(true)}>
+            {t("mcp.create")}
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -201,6 +212,13 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
+              runtimeStateOverride={
+                refreshingKeys.includes(client.key)
+                  ? "checking"
+                  : queuedRefreshKeys.includes(client.key)
+                    ? "queued"
+                    : undefined
+              }
               isHovered={hoverKey === client.key}
               onMouseEnter={() => setHoverKey(client.key)}
               onMouseLeave={() => setHoverKey(null)}

@@ -11,6 +11,7 @@ interface MCPClientCardProps {
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: any) => Promise<boolean>;
+  runtimeStateOverride?: "queued" | "checking";
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -21,6 +22,7 @@ export function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
+  runtimeStateOverride,
   isHovered,
   onMouseEnter,
   onMouseLeave,
@@ -35,6 +37,28 @@ export function MCPClientCard({
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
+  const runtimeStatusKey = runtimeStateOverride === "checking"
+    ? "mcp.runtimeChecking"
+    : runtimeStateOverride === "queued"
+      ? "mcp.runtimeQueued"
+      : !client.enabled
+        ? "mcp.runtimeDisabled"
+        : client.active === undefined
+          ? "mcp.runtimeUnknown"
+          : client.active
+            ? "mcp.runtimeActive"
+            : "mcp.runtimeUnavailable";
+  const runtimeStatusClass = runtimeStateOverride === "checking"
+    ? styles.runtimeChecking
+    : runtimeStateOverride === "queued"
+      ? styles.runtimeQueued
+      : !client.enabled
+        ? styles.runtimeDisabled
+        : client.active === undefined
+          ? styles.runtimeUnknown
+          : client.active
+            ? styles.runtimeActive
+            : styles.runtimeUnavailable;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -61,7 +85,7 @@ export function MCPClientCard({
   const handleSaveJson = async () => {
     try {
       const parsed = JSON.parse(editedJson);
-      const { key, ...updates } = parsed;
+      const { key, active, ...updates } = parsed;
 
       // Send all updates directly to backend, let backend handle env masking check
       const success = await onUpdate(client.key, updates);
@@ -104,17 +128,25 @@ export function MCPClientCard({
             </span>
           </div>
           <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
-              {client.enabled ? t("common.enabled") : t("common.disabled")}
+            <span className={`${styles.statusBadge} ${client.enabled ? styles.enabled : styles.disabled}`}>
+              <span
+                className={`${styles.statusDot} ${
+                  client.enabled ? styles.enabled : styles.disabled
+                }`}
+              />
+              <span
+                className={`${styles.statusText} ${
+                  client.enabled ? styles.enabled : styles.disabled
+                }`}
+              >
+                {client.enabled ? t("common.enabled") : t("common.disabled")}
+              </span>
+            </span>
+            <span className={`${styles.statusBadge} ${runtimeStatusClass}`}>
+              <span className={`${styles.statusDot} ${runtimeStatusClass}`} />
+              <span className={`${styles.statusText} ${runtimeStatusClass}`}>
+                {t(runtimeStatusKey)}
+              </span>
             </span>
           </div>
         </div>
