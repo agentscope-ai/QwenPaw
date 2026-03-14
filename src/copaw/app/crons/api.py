@@ -41,7 +41,10 @@ async def create_job(
     # server generates id; ignore client-provided spec.id
     job_id = str(uuid.uuid4())
     created = spec.model_copy(update={"id": job_id})
-    await mgr.create_or_replace_job(created)
+    try:
+        await mgr.create_or_replace_job(created)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return created
 
 
@@ -53,7 +56,10 @@ async def replace_job(
 ):
     if spec.id != job_id:
         raise HTTPException(status_code=400, detail="job_id mismatch")
-    await mgr.create_or_replace_job(spec)
+    try:
+        await mgr.create_or_replace_job(spec)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return spec
 
 
