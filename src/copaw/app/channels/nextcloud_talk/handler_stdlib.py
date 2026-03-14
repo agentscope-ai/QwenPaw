@@ -251,7 +251,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
             conversation_name,
         ) = NextcloudTalkContentParser.parse_conversation(target)
 
-        # 添加详细日志用于调试
+        # Add detailed logs for debugging
         logger.info(
             f"nextcloud_talk webhook: activity={activity_type} "
             f"actor={actor_id[:20]}... type={actor_type} "
