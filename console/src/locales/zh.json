@@ -40,7 +40,8 @@
     "models": "模型",
     "environments": "环境变量",
     "security": "安全",
-    "tokenUsage": "Token 消耗"
+    "tokenUsage": "Token 消耗",
+    "voiceTranscription": "语音转写"
   },
   "workspace": {
     "title": "工作区",
@@ -644,5 +645,20 @@
         "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令"
       }
     }
+  },
+  "voiceTranscription": {
+    "title": "语音转写",
+    "description": "配置如何处理收到的音频和语音消息。",
+    "loadFailed": "加载音频模式设置失败",
+    "saveSuccess": "音频模式已保存",
+    "saveFailed": "保存音频模式失败",
+    "audioModeLabel": "音频模式",
+    "audioModeDescription": "选择来自频道（Discord、Telegram 等）的语音消息在发送给模型之前如何处理。",
+    "modeAuto": "自动",
+    "modeAutoDesc": "优先转写，失败时回退到原生音频",
+    "modeTranscribe": "转写",
+    "modeTranscribeDesc": "始终将音频转为文字（适用于所有模型）",
+    "modeNative": "原生",
+    "modeNativeDesc": "直接发送音频给模型（需要 ffmpeg，仅支持音频的模型可用）"
   }
 }

@@ -262,6 +262,19 @@ def init_cmd(
             )
             existing.agents.language = language
 
+        # --- audio mode selection ---
+        if not use_defaults:
+            audio_mode = prompt_choice(
+                "Select audio mode for voice messages:\n"
+                "  auto       - transcribe first, fall back to native\n"
+                "  transcribe - always convert audio to text\n"
+                "  native     - send audio directly (needs ffmpeg)\n"
+                "Audio mode:",
+                options=["auto", "transcribe", "native"],
+                default=existing.agents.audio_mode,
+            )
+            existing.agents.audio_mode = audio_mode
+
         # --- channels (interactive when not --defaults) ---
         if not use_defaults and prompt_confirm(
             "Configure channels? "

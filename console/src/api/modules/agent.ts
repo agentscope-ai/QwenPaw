@@ -41,4 +41,12 @@ export const agentApi = {
       method: "PUT",
       body: JSON.stringify({ language }),
     }),
+
+  getAudioMode: () => request<{ audio_mode: string }>("/agent/audio-mode"),
+
+  updateAudioMode: (audio_mode: string) =>
+    request<{ audio_mode: string }>("/agent/audio-mode", {
+      method: "PUT",
+      body: JSON.stringify({ audio_mode }),
+    }),
 };

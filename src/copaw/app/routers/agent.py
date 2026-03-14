@@ -199,6 +199,53 @@ async def put_agent_language(
 
 
 @router.get(
+    "/audio-mode",
+    summary="Get audio mode",
+    description=(
+        "Get the audio handling mode for incoming voice messages. "
+        'Values: "auto", "transcribe", "native".'
+    ),
+)
+async def get_audio_mode() -> dict:
+    """Get audio mode setting."""
+    config = load_config()
+    return {"audio_mode": config.agents.audio_mode}
+
+
+@router.put(
+    "/audio-mode",
+    summary="Update audio mode",
+    description=(
+        "Update how incoming audio/voice messages are handled. "
+        '"auto": try transcription, fall back to native; '
+        '"transcribe": always convert to text; '
+        '"native": send audio directly (may need ffmpeg).'
+    ),
+)
+async def put_audio_mode(
+    body: dict = Body(
+        ...,
+        description='Audio mode, e.g. {"audio_mode": "auto"}',
+    ),
+) -> dict:
+    """Update audio mode setting."""
+    audio_mode = (body.get("audio_mode") or "").strip().lower()
+    valid = {"auto", "transcribe", "native"}
+    if audio_mode not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid audio_mode '{audio_mode}'. "
+                f"Must be one of: {', '.join(sorted(valid))}"
+            ),
+        )
+    config = load_config()
+    config.agents.audio_mode = audio_mode
+    save_config(config)
+    return {"audio_mode": audio_mode}
+
+
+@router.get(
     "/running-config",
     response_model=AgentsRunningConfig,
     summary="Get agent running config",

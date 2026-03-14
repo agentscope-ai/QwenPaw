@@ -40,7 +40,23 @@
     "models": "Models",
     "environments": "Environments",
     "security": "Security",
-    "tokenUsage": "Token Usage"
+    "tokenUsage": "Token Usage",
+    "voiceTranscription": "Voice Transcription"
+  },
+  "voiceTranscription": {
+    "title": "Voice Transcription",
+    "description": "Configure how incoming audio and voice messages are handled.",
+    "loadFailed": "Failed to load audio mode settings",
+    "saveSuccess": "Audio mode saved",
+    "saveFailed": "Failed to save audio mode",
+    "audioModeLabel": "Audio Mode",
+    "audioModeDescription": "Choose how voice messages from channels (Discord, Telegram, etc.) are processed before being sent to the model.",
+    "modeAuto": "Auto",
+    "modeAutoDesc": "Try transcription first, fall back to native audio",
+    "modeTranscribe": "Transcribe",
+    "modeTranscribeDesc": "Always convert audio to text (works with all models)",
+    "modeNative": "Native",
+    "modeNativeDesc": "Send audio directly to the model (requires ffmpeg, only for audio-capable models)"
   },
   "workspace": {
     "title": "WorkSpace",
