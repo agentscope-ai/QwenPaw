@@ -225,9 +225,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
                 )
                 # Try to parse as JSON to see if it contains file data
                 try:
-                    import json as json_lib
-
-                    content_json = json_lib.loads(obj_content)
+                    content_json = json.loads(obj_content)
                     logger.info(
                         f"Activity content parsed: {list(content_json.keys()) if isinstance(content_json, dict) else type(content_json)}",  # noqa: E501
                     )

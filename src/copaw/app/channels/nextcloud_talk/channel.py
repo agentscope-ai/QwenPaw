@@ -18,19 +18,11 @@ API Documentation:
     https://nextcloud-talk.readthedocs.io/en/latest/bots/
 """
 
-# pylint: disable=C0301  # line-too-long
-# pylint: disable=C0413  # wrong-import-position
-# pylint: disable=W1202  # logging-format-interpolation
-# pylint: disable=C0209  # consider-using-f-string
-# pylint: disable=R0912  # too-many-branches
-# pylint: disable=R0915  # too-many-statements
-# pylint: disable=W0621  # redefined-outer-name
-# pylint: disable=W0404  # reimported
-# pylint: disable=W0611  # unused-import
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -281,7 +273,7 @@ class NextcloudTalkChannel(BaseChannel):
         async with self._backend_url_lock:
             self._backend_url_store[key] = backend_url
 
-        logger.debug(f"saved backend_url for token_suffix={key}")
+        logger.debug("saved backend_url for token_suffix=%s", key)
 
     async def _get_backend_url_from_token(
         self,
@@ -330,14 +322,11 @@ class NextcloudTalkChannel(BaseChannel):
                 )
 
                 logger.info(
-                    "Processing file: filename={}, "
-                    "existing_file_url={}, metadata_keys={}, "
-                    "share_link={}".format(
-                        part.get("filename"),
-                        existing_file_url,
-                        list(metadata.keys()),
-                        share_link,
-                    ),
+                    "Processing file: filename=%s, existing_file_url=%s, metadata_keys=%s, share_link=%s",
+                    part.get("filename"),
+                    existing_file_url,
+                    list(metadata.keys()),
+                    share_link,
                 )
 
                 # Build dict with file_url field for FileContent conversion
@@ -366,28 +355,23 @@ class NextcloudTalkChannel(BaseChannel):
                 if existing_file_url:
                     file_part["file_url"] = existing_file_url
                     logger.info(
-                        "Using existing file_url (local path) for "
-                        "file: {} -> {}".format(
-                            file_part.get("filename"),
-                            existing_file_url,
-                        ),
+                        "Using existing file_url (local path) for file: %s -> %s",
+                        file_part.get("filename"),
+                        existing_file_url,
                     )
                 elif webdav_url:
                     file_part["file_url"] = webdav_url
                     logger.info(
-                        "Populated file_url with WebDAV URL for "
-                        "file: {} -> {}".format(
-                            file_part.get("filename"),
-                            webdav_url,
-                        ),
+                        "Populated file_url with WebDAV URL for file: %s -> %s",
+                        file_part.get("filename"),
+                        webdav_url,
                     )
                 elif share_link:
                     file_part["file_url"] = share_link
                     logger.info(
-                        "Populated file_url for file: {} -> {}".format(
-                            file_part.get("filename"),
-                            share_link,
-                        ),
+                        "Populated file_url for file: %s -> %s",
+                        file_part.get("filename"),
+                        share_link,
                     )
                 else:
                     logger.warning(
@@ -401,7 +385,8 @@ class NextcloudTalkChannel(BaseChannel):
 
         content_parts = converted_parts
         logger.info(
-            f"build_agent_request_from_native: final content_parts={content_parts}",  # noqa: E501
+            "build_agent_request_from_native: final content_parts=%s",
+            content_parts,
         )
 
         # Extract and store backend URL for proactive sends
@@ -507,7 +492,7 @@ class NextcloudTalkChannel(BaseChannel):
 
         # Otherwise use default logic (debounce if no text)
         result = super()._apply_no_text_debounce(session_id, content_parts)
-        logger.info(f"_apply_no_text_debounce: result={result}")
+        logger.info("_apply_no_text_debounce: result=%s", result)
         return result
 
     def _setup_webhook_server(self):
@@ -536,7 +521,7 @@ class NextcloudTalkChannel(BaseChannel):
         """
         Process one payload from the manager-owned queue.
         """
-        logger.info(f"consume_one: CALLED with payload type={type(payload)}")
+        logger.info("consume_one: CALLED with payload type=%s", type(payload))
         await super().consume_one(payload)
 
     async def _consume_one_request(self, payload: Any) -> None:
@@ -586,7 +571,7 @@ class NextcloudTalkChannel(BaseChannel):
                         # Skip this payload if download failed
                         return
                 except Exception as e:
-                    logger.exception(f"Error downloading media: {e}")
+                    logger.exception("Error downloading media: %s", e)
                     return
 
         # Call parent implementation
@@ -616,9 +601,6 @@ class NextcloudTalkChannel(BaseChannel):
             return None
 
         try:
-            from pathlib import Path
-            from hashlib import md5
-
             # Prepare local path
             media_dir = Path("~/.copaw/media/nextcloud_talk").expanduser()
             media_dir.mkdir(parents=True, exist_ok=True)
@@ -668,7 +650,7 @@ class NextcloudTalkChannel(BaseChannel):
             # session
 
             if success and local_path.exists():
-                logger.info(f"Downloaded successfully: {local_path}")
+                logger.info("Downloaded successfully: %s", local_path)
                 return str(local_path)
             else:
                 logger.warning(
@@ -677,7 +659,7 @@ class NextcloudTalkChannel(BaseChannel):
                 return None
 
         except Exception as e:
-            logger.exception(f"Error downloading media: {e}")
+            logger.exception("Error downloading media: %s", e)
             return None
 
     async def start(self) -> None:
@@ -965,115 +947,6 @@ class NextcloudTalkChannel(BaseChannel):
         if body.strip():
             await self.send(to_handle, body.strip(), meta)
 
-    async def _build_media_message(
-        self,
-        file_info: Dict[str, Any],
-        backend_url: str,
-    ) -> str:
-        """
-        Build a message for media file sharing.
-
-        Args:
-            file_info: File information from extract_media_file
-            backend_url: Nextcloud backend URL
-
-        Returns:
-            Formatted message string
-        """
-        media_type = file_info.get("type", "file")
-        file_name = file_info.get("name", "unknown")
-        file_size = file_info.get("size", 0)
-        # mime_type not used
-        file_path = file_info.get("path", "")
-        metadata = file_info.get("metadata", {})
-        preview_available = file_info.get("preview_available", False)
-
-        # Format file size
-        if file_size > 1024 * 1024:
-            size_str = f"{file_size / (1024 * 1024):.1f} MB"
-        elif file_size > 1024:
-            size_str = f"{file_size / 1024:.1f} KB"
-        else:
-            size_str = f"{file_size} B"
-
-        # Determine emoji based on type
-        emoji_map = {
-            "image": "🖼️",
-            "video": "🎥",
-            "audio": "🎵",
-        }
-        emoji = emoji_map.get(media_type, "📄")
-
-        # Get additional metadata for better description
-        width = metadata.get("width", "")
-        height = metadata.get("height", "")
-        duration = metadata.get("duration", "")
-
-        # Build dimension/duration info
-        extra_info = []
-        if width and height and media_type == "image":
-            extra_info.append(f"{width}×{height}px")
-        elif duration and media_type in ["video", "audio"]:
-            # Format duration nicely
-            try:
-                dur_seconds = int(float(duration))
-                minutes = dur_seconds // 60
-                seconds = dur_seconds % 60
-                if minutes > 0:
-                    extra_info.append(f"{minutes}m{seconds}s")
-                else:
-                    extra_info.append(f"{seconds}s")
-            except (ValueError, TypeError):
-                pass
-
-        # Try to get share link from metadata
-        share_token = (
-            metadata.get("share-token")
-            or metadata.get("token")
-            or metadata.get("link")
-        )
-        if share_token:
-            # Use public share link
-            try:
-                files_client = NextcloudFilesClient(backend_url)
-                share_link = await files_client.get_public_share_link(
-                    share_token,
-                    file_path,
-                )
-                if share_link:
-                    info_part = f"**{file_name}** ({size_str})"
-                    if extra_info:
-                        info_part += f" [{', '.join(extra_info)}]"
-                    # 修复链接格式问题
-                    clean_link = (
-                        share_link.split("/files?")[0]
-                        if "/files?" in share_link
-                        else share_link
-                    )
-                    # 更友好的文件分享消息格式
-                    return (
-                        f"{emoji} 用户分享了一个文件：{info_part}\n🔗 点击链接查看：{clean_link}"
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to get share link: {e}")
-
-        # Fallback: just describe the file with preview info
-        type_names = {
-            "image": "图片",
-            "video": "视频",
-            "audio": "音频文件",
-        }
-        type_name = type_names.get(media_type, "文件")
-
-        info_part = f"**{file_name}** ({size_str})"
-        if extra_info:
-            info_part += f" [{', '.join(extra_info)}]"
-
-        preview_status = "✅ 可预览" if preview_available else "❌ 无预览"
-
-        # 更友好的文件描述消息
-        return f"{emoji} 用户分享了{type_name}：{info_part} ({preview_status})"
-
     async def _run_process_loop(
         self,
         request: "AgentRequest",
@@ -1088,7 +961,7 @@ class NextcloudTalkChannel(BaseChannel):
         """
         from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
-        logger.info(f"_run_process_loop: STARTED for to_handle={to_handle}")
+        logger.info("_run_process_loop: STARTED for to_handle=%s", to_handle)
 
         bot_prefix = send_meta.get("bot_prefix", "") or getattr(
             self,

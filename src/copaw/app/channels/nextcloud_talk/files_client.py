@@ -8,6 +8,7 @@
 # pylint: disable=R0915  # too-many-statements
 # pylint: disable=W0611  # unused-import
 
+import base64
 import os
 import logging
 from pathlib import Path
@@ -354,8 +355,6 @@ class NextcloudFilesClient:
 
             # For share URLs, we need to add Authorization header manually
             if needs_auth and is_share_url:
-                import base64
-
                 credentials = f"{self.username}:{self.password}"
                 encoded_credentials = base64.b64encode(
                     credentials.encode("utf-8"),

@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -97,8 +98,6 @@ def generate_bot_signature(
     Returns:
         Tuple of (random_value, signature)
     """
-    import secrets
-
     # Generate random value
     random_value = secrets.token_hex(32)
 
