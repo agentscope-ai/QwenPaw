@@ -155,8 +155,14 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", src_path,
-                "-ar", "16000", "-ac", "1",
+                "ffmpeg",
+                "-y",
+                "-i",
+                src_path,
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
                 dst_path,
             ],
             capture_output=True,
@@ -311,7 +317,10 @@ async def _process_single_block(
                 # depending on the configured audio_mode.
                 _update_block_with_local_path(block, block_type, local_path)
                 await _process_audio_block(
-                    message_content, index, local_path, block,
+                    message_content,
+                    index,
+                    local_path,
+                    block,
                 )
             else:
                 message_content[index] = _update_block_with_local_path(
