@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 """Content parsing utilities for Nextcloud Talk channel."""
 
-# pylint: disable=C0301  # line-too-long
-# pylint: disable=W0613  # unused-argument
-# pylint: disable=W0621  # redefined-outer-name
-# pylint: disable=W0404  # reimported
-# pylint: disable=R0912  # too-many-branches
-# pylint: disable=R0915  # too-many-statements
-# pylint: disable=R0911  # too-many-return-statements
-# pylint: disable=W0611  # unused-import
 
 import json
 import logging
@@ -27,10 +19,7 @@ from .constants import (
     ACTIVITY_TYPE_ACTIVITY,
     ACTOR_TYPE_PERSON,
     ACTOR_TYPE_APPLICATION,
-    OBJECT_TYPE_NOTE,
     MESSAGE_NAME_NORMAL,
-    MEDIA_TYPE_MARKDOWN,
-    MEDIA_TYPE_PLAIN,
     SESSION_ID_SUFFIX_LEN,
 )
 
@@ -39,6 +28,267 @@ logger = logging.getLogger(__name__)
 
 class NextcloudTalkContentParser:
     """Parser for Nextcloud Talk Activity Streams 2.0 messages."""
+
+    @classmethod
+    def _find_file_data(
+        cls,
+        payload: Dict[str, Any],
+        obj: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Find file data using multiple approaches."""
+        object_name = obj.get("name", "")
+        file_data = None
+
+        # Approach 1: Direct file_shared event
+        if object_name == "file_shared":
+            parameters = obj.get("parameters", {})
+            file_data = parameters.get("file", {}) or parameters.get(
+                "share",
+                {},
+            )
+            cls._log_file_shared_debug(file_data)
+
+        # Approach 2: File in content.parameters (mixed message)
+        elif object_name == "message":
+            file_data = cls._extract_file_from_message(obj)
+
+        # Approach 3: Embedded file data in object properties
+        if not file_data:
+            file_data = cls._find_embedded_file(obj)
+
+        # Approach 4: Meta fallback
+        if not file_data:
+            file_data = cls._find_file_in_meta(payload)
+
+        # Final fallback: actor parameters
+        if not file_data:
+            file_data = cls._find_file_in_actor(payload)
+
+        return file_data if file_data and isinstance(file_data, dict) else None
+
+    @classmethod
+    def _log_file_shared_debug(cls, file_data: Dict[str, Any]) -> None:
+        """Log debug information for file_shared events."""
+        logger.debug(
+            f"Found file_shared event with file data: {bool(file_data)}",
+        )
+        if file_data:
+            logger.debug(
+                f"file_shared file_data keys: {list(file_data.keys())}",
+            )
+            logger.debug(
+                "file_shared file_data path: %s, name: %s",
+                file_data.get("path"),
+                file_data.get("name"),
+            )
+
+    @classmethod
+    def _extract_file_from_message(
+        cls,
+        obj: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Extract file data from message content parameters."""
+        content_str = obj.get("content", "")
+        if not content_str:
+            return None
+
+        try:
+            content_json = json.loads(content_str)
+            parameters = content_json.get("parameters", {})
+            file_data = (
+                parameters.get("file", {})
+                or parameters.get("attachment", {})
+                or parameters.get("upload", {})
+            )
+            if file_data:
+                logger.debug(
+                    "Found file in content.parameters: %s",
+                    file_data.get("name"),
+                )
+            return file_data
+        except Exception as e:
+            logger.debug(f"Failed to parse content JSON: {e}")
+            return None
+
+    @classmethod
+    def _find_embedded_file(
+        cls,
+        obj: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Look for embedded file data in object properties."""
+        logger.debug("Checking object fields for file data")
+        potential_file_fields = ["file", "attachment", "upload", "media"]
+
+        for field in potential_file_fields:
+            candidate = obj.get(field, {})
+            if isinstance(candidate, dict) and candidate.get("name"):
+                logger.debug(
+                    f"Found file in object.{field}: {candidate.get('name')}",
+                )
+                logger.debug(f"object.{field} keys: {list(candidate.keys())}")
+                logger.debug(
+                    "object.%s path: %s, name: %s",
+                    field,
+                    candidate.get("path"),
+                    candidate.get("name"),
+                )
+                return candidate
+        return None
+
+    @classmethod
+    def _find_file_in_meta(
+        cls,
+        payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Find file data in meta section."""
+        meta = payload.get("meta", {})
+        file_data = meta.get("file", {}) or meta.get("attachment", {})
+        if file_data:
+            logger.debug(f"Found file in meta: {file_data.get('name')}")
+        return file_data
+
+    @classmethod
+    def _find_file_in_actor(
+        cls,
+        payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Find file data in actor parameters."""
+        actor = payload.get("actor", {})
+        actor_params = (
+            actor.get("parameters", {}) if isinstance(actor, dict) else {}
+        )
+        file_data = actor_params.get("file", {})
+        if file_data:
+            logger.debug(
+                f"Found file in actor parameters: {file_data.get('name')}",
+            )
+        return file_data
+
+    @classmethod
+    def _extract_file_metadata(
+        cls,
+        file_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Extract basic file metadata with fallbacks."""
+        file_name = (
+            file_data.get("name")
+            or file_data.get("filename")
+            or file_data.get("displayName")
+            or "unknown_file"
+        )
+
+        file_path = (
+            file_data.get("path")
+            or file_data.get("filepath")
+            or file_data.get("location")
+            or file_name
+        )
+
+        # Handle Talk directory assumption
+        if file_path and "/" not in file_path:
+            logger.debug(
+                f"file_path is just filename: {file_path}, "
+                "assuming Talk/ directory",
+            )
+            file_path = f"Talk/{file_path}"
+
+        # Handle size parsing
+        file_size = cls._parse_file_size(file_data.get("size"))
+
+        mime_type = (
+            file_data.get("mimetype")
+            or file_data.get("mime-type")
+            or file_data.get("contentType")
+            or "application/octet-stream"
+        )
+
+        return {
+            "name": file_name,
+            "path": file_path,
+            "size": file_size,
+            "mime_type": mime_type,
+        }
+
+    @classmethod
+    def _parse_file_size(cls, size_value: Any) -> int:
+        """Parse file size with error handling."""
+        try:
+            if isinstance(size_value, str):
+                return int(size_value)
+            return int(size_value or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    @classmethod
+    def _determine_media_type(
+        cls,
+        mime_type: str,
+        file_name: str,
+    ) -> Optional[str]:
+        """Determine media type from MIME type or file extension."""
+        mime_type_lower = mime_type.lower()
+        media_type = None
+
+        # Check MIME type first
+        if mime_type_lower.startswith("image/"):
+            media_type = "image"
+        elif mime_type_lower.startswith("video/"):
+            media_type = "video"
+        elif mime_type_lower.startswith("audio/"):
+            media_type = "audio"
+        else:
+            # Fallback to file extension
+            _, ext = os.path.splitext(file_name.lower())
+            if ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]:
+                media_type = "image"
+            elif ext in [".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv"]:
+                media_type = "video"
+            elif ext in [".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"]:
+                media_type = "audio"
+            else:
+                logger.debug(
+                    f"Unknown file mime type and extension: {mime_type}, "
+                    f"{ext}",
+                )
+
+        return media_type
+
+    @classmethod
+    def _check_preview_available(
+        cls,
+        file_data: Dict[str, Any],
+        mime_type: str,
+    ) -> bool:
+        """Check if preview is available for the file."""
+        mime_type_lower = mime_type.lower()
+        return bool(
+            file_data.get("preview-available")
+            or file_data.get("has-preview")
+            or file_data.get("preview")
+            or mime_type_lower.startswith("image/")
+            or file_data.get("thumbnail"),
+        )
+
+    @classmethod
+    def _extract_additional_metadata(
+        cls,
+        file_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Extract additional metadata fields."""
+        return {
+            "id": file_data.get("id", ""),
+            "etag": file_data.get("etag", ""),
+            "permissions": file_data.get("permissions", ""),
+            "width": file_data.get("width", ""),
+            "height": file_data.get("height", ""),
+            "duration": file_data.get("duration", ""),
+            "share-token": (
+                file_data.get("share-token")
+                or file_data.get("token")
+                or file_data.get("link", "")
+            ),
+            "hide-download": file_data.get("hide-download", "no"),
+        }
 
     @staticmethod
     def parse_actor(actor: Dict[str, Any]) -> Tuple[str, str, str]:
@@ -83,7 +333,6 @@ class NextcloudTalkContentParser:
     @staticmethod
     def parse_message_content(
         content_str: str,
-        media_type: str = MEDIA_TYPE_PLAIN,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Parse message content string.
@@ -112,8 +361,10 @@ class NextcloudTalkContentParser:
             parameters = {}
 
         logger.debug(
-            f"parsed message content: message_len={len(message)} "
-            f"params_type={type(parameters).__name__} params_keys={list(parameters.keys()) if isinstance(parameters, dict) else 'N/A'}",  # noqa: E501
+            "parsed msg content: msg_len=%s params_type=%s keys=%s",
+            len(message),
+            type(parameters).__name__,
+            list(parameters.keys()) if isinstance(parameters, dict) else "N/A",
         )
 
         return (message, parameters)
@@ -222,11 +473,9 @@ class NextcloudTalkContentParser:
 
         # Extract content
         content_str = obj.get("content", "")
-        media_type = obj.get("mediaType", MEDIA_TYPE_PLAIN)
 
         message, parameters = NextcloudTalkContentParser.parse_message_content(
             content_str,
-            media_type,
         )
 
         # Replace mentions
@@ -238,65 +487,13 @@ class NextcloudTalkContentParser:
         return message if message else None
 
     @staticmethod
-    def extract_media_file(
+    def _extract_file_data_direct(
         payload: Dict[str, Any],
+        object_name: str,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Extract media file information from Activity Streams payload.
-
-        Handles file_shared events for images, videos, and audio files.
-        Supports multiple Nextcloud versions and payload formats.
-
-        Returns:
-            Dictionary with file information or None
-            {
-                "type": "image" | "video" | "audio",
-                "name": str,
-                "path": str,
-                "size": int,
-                "mime_type": str,
-                "preview_available": bool,
-                "metadata": dict,  # All original file metadata
-            }
-        """
-        activity_type = payload.get("type")
-        obj = payload.get("object", {})
-
-        # Log activity type for debugging
-        logger.debug(
-            f"extract_media_file: activity_type={activity_type}, object_name={obj.get('name', '')}",  # noqa: E501
-        )
-
-        # Log full object for debugging file extract
-        logger.debug(
-            f"extract_media_file: object keys={list(obj.keys())}",
-        )
-
-        # Handle various activity types that might contain file sharing
-        # Some Nextcloud versions use 'Activity' instead of 'Create'
-        valid_activity_types = [
-            ACTIVITY_TYPE_CREATE,
-            ACTIVITY_TYPE_SYSTEM,
-            ACTIVITY_TYPE_ACTIVITY,
-        ]
-        if activity_type not in valid_activity_types:
-            logger.debug(
-                f"Skipping unsupported activity type: {activity_type}",
-            )
-            return None
-
-        object_name = obj.get("name", "")
-
-        # Try multiple approaches to find file data:
-        # 1. Direct file_shared event (object.name == "file_shared")
-        # 2. Mixed message with file in parameters (object.name == "message" + content.parameters.file)  # noqa: E501
-        # 3. Embedded file data in object properties
-        # 4. Legacy formats and fallbacks
-
-        file_data = None
-
-        # Approach 1: Check for file_shared system message
+        """Extract file data from direct file_shared event."""
         if object_name == "file_shared":
+            obj = payload.get("object", {})
             parameters = obj.get("parameters", {})
             file_data = parameters.get("file", {}) or parameters.get(
                 "share",
@@ -311,179 +508,93 @@ class NextcloudTalkContentParser:
                     f"file_shared file_data keys: {list(file_data.keys())}",
                 )
                 logger.debug(
-                    f"file_shared file_data path: {file_data.get('path')}, name: {file_data.get('name')}",  # noqa: E501
+                    "file_shared file_data path: %s, name: %s",
+                    file_data.get("path"),
+                    file_data.get("name"),
                 )
+            return file_data
+        return None
 
-        # Approach 2: Check for file in content.parameters (mixed message)
-        elif object_name == "message":
-            content_str = obj.get("content", "")
-            if content_str:
-                try:
-                    content_json = json.loads(content_str)
-                    parameters = content_json.get("parameters", {})
-                    # Look for file in various parameter locations
-                    file_data = (
-                        parameters.get("file", {})
-                        or parameters.get("attachment", {})
-                        or parameters.get("upload", {})
-                    )
-                    if file_data:
-                        logger.debug(
-                            f"Found file in content.parameters: {file_data.get('name')}",  # noqa: E501
-                        )
-                except Exception as e:
-                    logger.debug(f"Failed to parse content JSON: {e}")
+    @staticmethod
+    def extract_media_file(
+        payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract media file information from Activity Streams payload.
 
-        # Approach 3: Check for embedded file data in object properties
-        if not file_data:
-            # Look directly in object for file-like properties
-            logger.debug("Checking object fields for file data")
-            potential_file_fields = ["file", "attachment", "upload", "media"]
-            for field in potential_file_fields:
-                candidate = obj.get(field, {})
-                if isinstance(candidate, dict) and candidate.get("name"):
-                    file_data = candidate
-                    logger.debug(
-                        f"Found file in object.{field}: {file_data.get('name')}",  # noqa: E501
-                    )
-                    logger.debug(
-                        f"object.{field} keys: {list(file_data.keys())}",
-                    )
-                    logger.debug(
-                        f"object.{field} path: {file_data.get('path')}, name: {file_data.get('name')}",  # noqa: E501
-                    )
-                    break
+        Handles file_shared events for images, videos, and audio files.
+        Supports multiple Nextcloud versions and payload formats.
 
-        # Approach 4: Try to find file data in meta as fallback
-        if not file_data:
-            meta = payload.get("meta", {})
-            file_data = meta.get("file", {}) or meta.get("attachment", {})
-            if file_data:
-                logger.debug(
-                    f"Found file in meta: {file_data.get('name')}",
-                )
+        Returns:
+            Dictionary with file information or None
+        """
+        activity_type = payload.get("type")
+        obj = payload.get("object", {})
 
-        # Final fallback: check for file information in actor parameters
-        if not file_data:
-            actor = payload.get("actor", {})
-            actor_params = (
-                actor.get("parameters", {}) if isinstance(actor, dict) else {}
+        # Log activity type for debugging
+        logger.debug(
+            "extract_media_file: activity_type=%s, object_name=%s",
+            activity_type,
+            obj.get("name", ""),
+        )
+        logger.debug(f"extract_media_file: object keys={list(obj.keys())}")
+
+        # Validate activity type
+        valid_activity_types = [
+            ACTIVITY_TYPE_CREATE,
+            ACTIVITY_TYPE_SYSTEM,
+            ACTIVITY_TYPE_ACTIVITY,
+        ]
+        if activity_type not in valid_activity_types:
+            logger.debug(
+                f"Skipping unsupported activity type: {activity_type}",
             )
-            file_data = actor_params.get("file", {})
-            if file_data:
-                logger.debug(
-                    f"Found file in actor parameters: {file_data.get('name')}",
-                )
+            return None
 
-        if not file_data or not isinstance(file_data, dict):
+        # Find file data using multiple approaches
+        file_data = NextcloudTalkContentParser._find_file_data(payload, obj)
+        if not file_data:
             logger.debug("No valid file data found in payload")
             return None
 
-        # Extract file metadata with multiple fallbacks
-        file_name = (
-            file_data.get("name")
-            or file_data.get("filename")
-            or file_data.get("displayName")
-            or "unknown_file"
-        )
+        # Extract basic metadata
+        metadata = NextcloudTalkContentParser._extract_file_metadata(file_data)
 
-        file_path = (
-            file_data.get("path")
-            or file_data.get("filepath")
-            or file_data.get("location")
-            or file_name
+        # Determine media type
+        media_type = NextcloudTalkContentParser._determine_media_type(
+            metadata["mime_type"],
+            metadata["name"],
         )
+        if not media_type:
+            return None
 
-        # Special handling: if file_path doesn't contain a path separator (just filename),  # noqa: E501
-        # assume it's in the Talk directory (Nextcloud Talk default storage
-        # location)
-        if file_path and "/" not in file_path:
-            logger.debug(
-                f"file_path is just filename: {file_path}, assuming Talk/ directory",  # noqa: E501
+        # Check preview availability
+        preview_available = (
+            NextcloudTalkContentParser._check_preview_available(
+                file_data,
+                metadata["mime_type"],
             )
-            file_path = f"Talk/{file_path}"
-
-        # Handle size parsing with fallbacks
-        file_size_raw = file_data.get("size")
-        try:
-            if isinstance(file_size_raw, str):
-                file_size = int(file_size_raw)
-            else:
-                file_size = int(file_size_raw or 0)
-        except (ValueError, TypeError):
-            file_size = 0
-
-        mime_type = (
-            file_data.get("mimetype")
-            or file_data.get("mime-type")
-            or file_data.get("contentType")
-            or "application/octet-stream"
-        )
-
-        # Determine media type from mime type
-        mime_type_lower = mime_type.lower()
-        if mime_type_lower.startswith("image/"):
-            media_type = "image"
-        elif mime_type_lower.startswith("video/"):
-            media_type = "video"
-        elif mime_type_lower.startswith("audio/"):
-            media_type = "audio"
-        else:
-            # Try to guess from file extension
-            _, ext = os.path.splitext(file_name.lower())
-            if ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]:
-                media_type = "image"
-            elif ext in [".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv"]:
-                media_type = "video"
-            elif ext in [".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"]:
-                media_type = "audio"
-            else:
-                # Unknown type, skip
-                logger.debug(
-                    f"Unknown file mime type and extension: {mime_type}, {ext}",  # noqa: E501
-                )
-                return None
-
-        # Check if preview is available with multiple sources
-        preview_available = bool(
-            file_data.get("preview-available")
-            or file_data.get("has-preview")
-            or file_data.get("preview")
-            or mime_type_lower.startswith("image/")
-            or file_data.get("thumbnail"),
         )
 
         # Extract additional metadata
-        additional_metadata = {
-            "id": file_data.get("id", ""),
-            "etag": file_data.get("etag", ""),
-            "permissions": file_data.get("permissions", ""),
-            "width": file_data.get("width", ""),
-            "height": file_data.get("height", ""),
-            "duration": file_data.get("duration", ""),
-            "share-token": (
-                file_data.get("share-token")
-                or file_data.get("token")
-                or file_data.get("link", "")
-            ),
-            "hide-download": file_data.get("hide-download", "no"),
-        }
-
-        # Merge with original metadata
+        additional_metadata = (
+            NextcloudTalkContentParser._extract_additional_metadata(file_data)
+        )
         complete_metadata = {**file_data, **additional_metadata}
 
         result = {
             "type": media_type,
-            "name": file_name,
-            "path": file_path,
-            "size": file_size,
-            "mime_type": mime_type,
+            "name": metadata["name"],
+            "path": metadata["path"],
+            "size": metadata["size"],
+            "mime_type": metadata["mime_type"],
             "preview_available": preview_available,
             "metadata": complete_metadata,
         }
 
         logger.debug(
-            f"Successfully extracted media file: {result['name']} ({result['type']})",  # noqa: E501
+            f"Successfully extracted media file: {result['name']} "
+            f"({result['type']})",
         )
         return result
 
@@ -596,20 +707,24 @@ def guess_suffix_from_content(data: bytes) -> str:
     if not data:
         return ".bin"
 
-    # Check common magic bytes
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png"
-    elif data.startswith(b"\xff\xd8\xff"):
-        return ".jpg"
-    elif data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
-        return ".gif"
-    elif data.startswith(b"RIFF") and len(data) > 8 and data[8:12] == b"WEBP":
-        return ".webp"
-    elif data.startswith(b"%PDF"):
-        return ".pdf"
-    elif data.startswith(b"PK\x03\x04"):
-        return ".zip"
-    elif data.startswith(b"\x1f\x8b"):
-        return ".gz"
+    # Define magic byte patterns and their corresponding suffixes
+    magic_patterns = [
+        (b"\x89PNG\r\n\x1a\n", ".png"),
+        (b"\xff\xd8\xff", ".jpg"),
+        (b"GIF87a", ".gif"),
+        (b"GIF89a", ".gif"),
+        (b"RIFF", ".webp"),  # Special case handled below
+        (b"%PDF", ".pdf"),
+        (b"PK\x03\x04", ".zip"),
+        (b"\x1f\x8b", ".gz"),
+    ]
+
+    # Check standard magic bytes
+    for magic, suffix in magic_patterns:
+        if data.startswith(magic):
+            # Special handling for WebP (RIFF container)
+            if magic == b"RIFF" and len(data) > 8 and data[8:12] == b"WEBP":
+                return ".webp"
+            return suffix
 
     return ".bin"

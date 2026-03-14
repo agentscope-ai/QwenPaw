@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Utility functions for Nextcloud Talk channel."""
 
-# pylint: disable=W0611  # unused-import
 
 import hashlib
 import hmac
@@ -10,12 +9,9 @@ import logging
 import os
 import secrets
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from .constants import (
-    HEADER_SIGNATURE,
-    HEADER_RANDOM,
-    HEADER_BACKEND,
     SIGNATURE_LENGTH,
     RANDOM_LENGTH,
     BOT_HEADER_RANDOM,
@@ -112,18 +108,6 @@ def generate_bot_signature(
     ).hexdigest()
 
     return (random_value, signature)
-
-
-def get_media_url(
-    nextcloud_url: str,
-    media_id: str,
-) -> str:
-    """
-    Build URL to access uploaded media.
-
-    For Nextcloud Talk, media can be shared via the Files app.
-    """
-    return f"{nextcloud_url.rstrip('/')}/index.php/f/{media_id}"
 
 
 def normalize_nextcloud_url(url: str) -> str:

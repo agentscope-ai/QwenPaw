@@ -41,8 +41,9 @@ from ..base import (
 from .content_utils import (
     session_param_from_token,
 )
+from .constants import MAX_MESSAGE_LENGTH
 from .files_client import NextcloudFilesClient
-from .handler_stdlib import StdlibWebhookServer
+from .handler_stdlib import StdlibWebhookServer, NextcloudTalkWebhookHandler
 from .utils import (
     normalize_nextcloud_url,
     build_bot_headers,
@@ -51,7 +52,10 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from agentscope_runtime.engine.schemas.agent_schemas import (
+        AgentRequest,
+        RunStatus,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -498,11 +502,11 @@ class NextcloudTalkChannel(BaseChannel):
         )
 
         # Set callback and config
-        self._webhook_server.set_enqueue_callback(self.consume_one)
-        self._webhook_server.set_webhook_secret(self.webhook_secret)
-        self._webhook_server.set_bot_prefix(self.bot_prefix)
-        self._webhook_server.set_api_user(self.api_user)
-        self._webhook_server.set_credentials(
+        NextcloudTalkWebhookHandler.set_enqueue_callback(self.consume_one)
+        NextcloudTalkWebhookHandler.set_webhook_secret(self.webhook_secret)
+        NextcloudTalkWebhookHandler.set_bot_prefix(self.bot_prefix)
+        NextcloudTalkWebhookHandler.set_api_user(self.api_user)
+        NextcloudTalkWebhookHandler.set_credentials(
             self.nc_username,
             self.nc_password,
         )
@@ -724,12 +728,11 @@ class NextcloudTalkChannel(BaseChannel):
         """
         Truncate message if it exceeds the maximum length.
         """
-        max_length = 4000  # Reasonable limit for chat messages
-        if len(text) > max_length:
-            truncated = text[: max_length - 3] + "..."
+        if len(text) > MAX_MESSAGE_LENGTH:
+            truncated = text[: MAX_MESSAGE_LENGTH - 3] + "..."
             logger.warning(
                 "nextcloud_talk message truncated to %s chars",
-                max_length,
+                MAX_MESSAGE_LENGTH,
             )
             return truncated
         return text
@@ -1018,7 +1021,6 @@ class NextcloudTalkChannel(BaseChannel):
         and send them at the end as a single message.
         Also handles media files (images, videos, audio).
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
         logger.info("_run_process_loop: STARTED for to_handle=%s", to_handle)
 

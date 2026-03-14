@@ -47,3 +47,6 @@ MEDIA_TYPE_PLAIN = "text/plain"
 BOT_HEADER_RANDOM = "X-Nextcloud-Talk-Bot-Random"
 BOT_HEADER_SIGNATURE = "X-Nextcloud-Talk-Bot-Signature"
 OCS_API_REQUEST_HEADER = "OCS-APIRequest"
+
+# Message length limits
+MAX_MESSAGE_LENGTH = 4000  # Maximum characters for chat messages
