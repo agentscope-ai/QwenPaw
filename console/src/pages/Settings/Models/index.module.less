@@ -105,12 +105,44 @@
 
 .statusContainer {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  align-items: flex-start;
+  align-self: flex-start;
+  min-width: 0;
+  max-width: 48%;
+  justify-self: end;
 
   .statusText {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    min-width: 0;
     font-size: 12px;
     font-weight: 500;
+    text-align: right;
+    line-height: 1.2;
+
+    .statusTextMain,
+    .statusTextMeta {
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .statusMainRow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .statusDot {
+      flex-shrink: 0;
+    }
 
     &.enabled {
       color: #52c41a;
@@ -133,8 +165,10 @@
 .cardHeader {
   margin-bottom: 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
 
   :global {
     .ant-badge-status-success .ant-badge-status-text {
@@ -148,9 +182,80 @@
 }
 
 .cardName {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 1;
   font-size: 18px;
   font-weight: 600;
   color: #1a1a1a;
+  min-width: 0;
+}
+
+.cardNameMeasure {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.2em;
+}
+
+.cardNameLine1,
+.cardNameLine2 {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2em;
+}
+
+.cardNameLine2Wrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cardNameLine2 {
+  flex: 1;
+}
+
+.cardNameText {
+  width: 100%;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.2;
+}
+
+.cardTagRow {
+  display: inline-flex;
+  align-items: center;
+
+  :global(.ant-tag) {
+    margin-inline: 0;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+.cardNameWrapped {
+  min-height: calc(2 * 1.2em);
 }
 
 .cardInfo {
@@ -198,9 +303,10 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: clamp(2px, 0.8vw, 8px);
+  gap: 8px;
   flex-wrap: nowrap;
   padding-top: 14px;
+  padding-inline: 2px;
   border-top: 1px solid #f0f0f0;
 }
 
@@ -208,8 +314,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(3px, 0.6vw, 6px);
-  padding: 6px clamp(6px, 1vw, 14px);
+  gap: 6px;
+  padding: 6px 14px;
   color: #555;
   font-size: 13px;
   cursor: pointer;
@@ -222,12 +328,26 @@
   display: none;
 }
 
-@container (max-width: 360px) {
+@container (max-width: 480px) {
   .cardActions {
-    gap: 2px;
+    gap: 4px;
+    padding-inline: 2px;
   }
 
   .configBtn {
+    gap: 4px;
+    padding: 6px 10px;
+  }
+}
+
+@container (max-width: 360px) {
+  .cardActions {
+    gap: 2px;
+    padding-inline: 2px;
+  }
+
+  .configBtn {
+    gap: 3px;
     padding: 6px 6px;
   }
 
@@ -237,16 +357,6 @@
 
   .deleteTextShort {
     display: inline;
-  }
-}
-
-@media (max-width: 1440px) {
-  .cardActions {
-    gap: 4px;
-  }
-
-  .configBtn {
-    padding: 6px 10px;
   }
 }
 
