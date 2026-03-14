@@ -175,9 +175,7 @@ export function RemoteProviderCard({
               </>
             ) : (
               <>
-                <span className={styles.cardNameText}>
-                  {provider.name}
-                </span>
+                <span className={styles.cardNameText}>{provider.name}</span>
                 <span className={styles.cardTagRow}>{providerTag}</span>
               </>
             )}

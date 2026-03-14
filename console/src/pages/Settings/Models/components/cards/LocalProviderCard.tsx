@@ -99,9 +99,7 @@ export function LocalProviderCard({
               </>
             ) : (
               <>
-                <span className={styles.cardNameText}>
-                  {provider.name}
-                </span>
+                <span className={styles.cardNameText}>{provider.name}</span>
                 <span className={styles.cardTagRow}>
                   <Tag color="purple" style={{ fontSize: 11 }}>
                     {t("models.local")}
