@@ -108,6 +108,11 @@ class CronManager:
                             job.id,
                             job.name,
                         )
+                    st = self._states.get(job.id, CronJobState())
+                    st.last_status = "error"
+                    st.last_error = f"invalid schedule: {e}"
+                    self._states[job.id] = st
+                    self._rt.pop(job.id, None)
 
             # Heartbeat: one interval job when enabled in config
             hb = get_heartbeat_config(self._agent_id)

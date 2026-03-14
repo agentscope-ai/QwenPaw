@@ -64,6 +64,9 @@ async def test_start_skips_invalid_cron_and_keeps_valid_job() -> None:
         assert state_valid.last_status is None
 
         assert state_invalid.next_run_at is None
+        assert state_invalid.last_status == "error"
+        assert state_invalid.last_error is not None
+        assert "invalid schedule" in state_invalid.last_error
 
         # Current behavior: startup keeps running and auto-disables
         # invalid jobs persisted in storage.
