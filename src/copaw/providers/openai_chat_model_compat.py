@@ -205,14 +205,15 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             if parsed and isinstance(parsed.content, list):
                 new_content = []
                 for block in parsed.content:
+                    text_val = block.get("text") if isinstance(block, dict) else None
                     if (
                         isinstance(block, dict)
                         and block.get("type") == "text"
-                        and isinstance(block.get("text"), str)
-                        and text_contains_think_tag(block.get("text"))
+                        and isinstance(text_val, str)
+                        and text_contains_think_tag(text_val)
                     ):
                         parsed_thinking = extract_thinking_from_text(
-                            block.get("text") or "",
+                            text_val or "",
                         )
                         if parsed_thinking.thinking:
                             new_content.append(
