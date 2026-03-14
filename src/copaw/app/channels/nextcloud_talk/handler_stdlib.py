@@ -77,29 +77,29 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
     """
 
     # Class-level attributes (set by channel)
-    _enqueue_callback: Optional[Callable[..., Any]] = None
-    _webhook_secret: str = ""
-    _bot_prefix: str = ""
-    _api_user: str = ""  # Same as username (BOT account for WebDAV access)
-    _nc_username: str = ""  # Nextcloud username for authentication
-    _nc_password: str = ""  # Nextcloud password for authentication
+    enqueue_callback: Optional[Callable[..., Any]] = None
+    webhook_secret: str = ""
+    bot_prefix: str = ""
+    api_user: str = ""  # Same as username (BOT account for WebDAV access)
+    nc_username: str = ""  # Nextcloud username for authentication
+    nc_password: str = ""  # Nextcloud password for authentication
 
     def __init__(self, *args, **kwargs):
         """
         Initialize handler.
 
         Class-level attributes (set by channel):
-        - _enqueue_callback: Function to enqueue payloads to channel
-        - _webhook_secret: Shared secret for signature verification
-        - _bot_prefix: Bot message prefix
-        - _api_user: Bot account username for WebDAV access (alias for username)  # noqa: E501
+        - enqueue_callback: Function to enqueue payloads to channel
+        - webhook_secret: Shared secret for signature verification
+        - bot_prefix: Bot message prefix
+        - api_user: Bot account username for WebDAV access (alias for username)  # noqa: E501
         """
-        self._enqueue_callback = self.__class__._enqueue_callback
-        self._webhook_secret = self.__class__._webhook_secret
-        self._bot_prefix = self.__class__._bot_prefix
-        self._api_user = self.__class__._api_user
-        self._nc_username = self.__class__._nc_username
-        self._nc_password = self.__class__._nc_password
+        self.enqueue_callback = self.__class__.enqueue_callback
+        self.webhook_secret = self.__class__.webhook_secret
+        self.bot_prefix = self.__class__.bot_prefix
+        self.api_user = self.__class__.api_user
+        self.nc_username = self.__class__.nc_username
+        self.nc_password = self.__class__.nc_password
         super().__init__(*args, **kwargs)
 
     def log_message(self, format_str, *args):
@@ -138,7 +138,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
                 body,
                 signature,
                 random,
-                self._webhook_secret,
+                self.webhook_secret,
             ):
                 logger.warning(
                     "nextcloud_talk webhook: signature verification failed",
@@ -418,7 +418,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
         backend_url: str,
     ) -> Optional[str]:
         """Build WebDAV URL for media file."""
-        if not self._api_user or not media_info.get("path"):
+        if not self.api_user or not media_info.get("path"):
             return None
 
         try:
@@ -431,7 +431,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
                 "Building WebDAV URL: base_url=%s, api_user=%s, "
                 "file_path=%s, filename=%s",
                 backend_url,
-                self._api_user,
+                self.api_user,
                 file_path,
                 filename,
             )
@@ -439,10 +439,10 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
             # Build WebDAV URL
             client = NextcloudFilesClient(
                 backend_url,
-                self._nc_username,
-                self._nc_password,
+                self.nc_username,
+                self.nc_password,
             )
-            webdav_url = client.build_webdav_url(self._api_user, file_path)
+            webdav_url = client.build_webdav_url(self.api_user, file_path)
 
             if webdav_url:
                 logger.info("Built WebDAV URL: %s", webdav_url)
@@ -450,7 +450,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
                 logger.warning(
                     "Failed to build WebDAV URL for path: %s, api_user: %s",
                     file_path,
-                    self._api_user,
+                    self.api_user,
                 )
             return webdav_url
         except Exception as e:
@@ -482,10 +482,10 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
                 "conversation_name": conversation_name,
                 "message_id": obj.get("id", ""),  # TODO: Pass obj parameter
                 "backend_url": backend_url,
-                "bot_prefix": self._bot_prefix,
+                "bot_prefix": self.bot_prefix,
                 "download_url": download_url,
                 "media_info": media_info,
-                "api_user": self._api_user,
+                "api_user": self.api_user,
             },
         }
 
@@ -539,7 +539,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
                 "conversation_name": conversation_name,
                 "message_id": obj.get("id", ""),  # TODO: Pass obj parameter
                 "backend_url": backend_url,
-                "bot_prefix": self._bot_prefix,
+                "bot_prefix": self.bot_prefix,
             },
         }
 
@@ -551,11 +551,11 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
         """Enqueue payload for processing."""
         logger.info(f"nextcloud_talk webhook: enqueueing {identifier}")
 
-        if self._enqueue_callback and callable(self._enqueue_callback):
+        if self.enqueue_callback and callable(self.enqueue_callback):
             # Use partial to create a callable without arguments
             from functools import partial
 
-            safe_callback = partial(self._enqueue_callback, channel_payload)
+            safe_callback = partial(self.enqueue_callback, channel_payload)
 
             self._schedule_callback_async(safe_callback, identifier)
             return True
@@ -563,7 +563,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
             logger.warning(
                 "nextcloud_talk webhook: no enqueue callback set or "
                 "not callable: %s",
-                type(self._enqueue_callback),
+                type(self.enqueue_callback),
             )
             return False
 
@@ -600,28 +600,28 @@ class StdlibWebhookServer:
     @classmethod
     def set_enqueue_callback(cls, callback: Callable):
         """Set the enqueue callback for the handler."""
-        cls._enqueue_callback = callback
+        NextcloudTalkWebhookHandler.enqueue_callback = callback
 
     @classmethod
     def set_webhook_secret(cls, secret: str):
         """Set the webhook secret for signature verification."""
-        cls._webhook_secret = secret
+        NextcloudTalkWebhookHandler.webhook_secret = secret
 
     @classmethod
     def set_bot_prefix(cls, prefix: str):
         """Set the bot message prefix."""
-        cls._bot_prefix = prefix
+        NextcloudTalkWebhookHandler.bot_prefix = prefix
 
     @classmethod
     def set_api_user(cls, api_user: str):
         """Set the bot API user for WebDAV access."""
-        cls._api_user = api_user
+        NextcloudTalkWebhookHandler.api_user = api_user
 
     @classmethod
     def set_credentials(cls, username: str, password: str):
         """Set Nextcloud credentials for file downloads."""
-        cls._nc_username = username
-        cls._nc_password = password
+        NextcloudTalkWebhookHandler.nc_username = username
+        NextcloudTalkWebhookHandler.nc_password = password
 
     def start(self):
         """Start the webhook server in a background thread."""
