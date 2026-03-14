@@ -39,19 +39,38 @@ async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
 
 
 async def take(session_id: str) -> List[Dict[str, Any]]:
-    """Return and remove all messages for the session."""
+    """Return and remove all non-expired messages for the session.
+
+    Expired messages (older than ``_MAX_AGE_SECONDS``) are silently
+    discarded so callers never receive stale push notifications.
+    """
     if not session_id:
         return []
+    cutoff = time.time() - _MAX_AGE_SECONDS
     async with _lock:
-        out = [m for m in _list if m.get("session_id") == session_id]
-        _list[:] = [m for m in _list if m.get("session_id") != session_id]
+        out = [
+            m
+            for m in _list
+            if m.get("session_id") == session_id and m["ts"] >= cutoff
+        ]
+        # Remove taken messages *and* any expired ones to bound memory.
+        _list[:] = [
+            m
+            for m in _list
+            if m.get("session_id") != session_id and m["ts"] >= cutoff
+        ]
         return _strip_ts(out)
 
 
 async def take_all() -> List[Dict[str, Any]]:
-    """Return and remove all messages."""
+    """Return and remove all non-expired messages.
+
+    Messages older than ``_MAX_AGE_SECONDS`` are dropped instead of
+    being returned.
+    """
+    cutoff = time.time() - _MAX_AGE_SECONDS
     async with _lock:
-        out = list(_list)
+        out = [m for m in _list if m["ts"] >= cutoff]
         _list.clear()
         return _strip_ts(out)
 
