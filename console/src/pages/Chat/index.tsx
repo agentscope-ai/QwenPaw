@@ -247,7 +247,21 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          console.log(data);
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+          const token = getApiToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+
+          fetch(getApiUrl("/agent/cancel"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              session_id: data.session_id,
+            }),
+          }).catch((err) => {
+            console.warn("Failed to cancel agent task:", err);
+          });
         },
       },
       customToolRenderConfig: {

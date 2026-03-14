@@ -147,6 +147,7 @@ async def lifespan(
     app.state.mcp_manager = mcp_manager
     app.state.mcp_watcher = mcp_watcher
     app.state.provider_manager = provider_manager
+    app.state.agent_app = agent_app
 
     _restart_task: asyncio.Task | None = None
 
