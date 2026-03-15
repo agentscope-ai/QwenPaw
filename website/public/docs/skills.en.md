@@ -46,6 +46,21 @@ In the [Console](./console), go to **Agent → Skills** to:
 
 Changes are synced to the working directory and affect the agent. Handy if you prefer not to edit files directly.
 
+### Skills Marketplace (Git repositories)
+
+In **Agent → Skills → Marketplace**, you can aggregate skills from multiple Git repositories.
+
+1. Click **Manage Markets** to add market entries.
+2. Fill in repository URL (`owner/repo`, `.git`, or GitHub tree URL are supported), then validate.
+3. Save the market list and click **Refresh Marketplace**.
+4. Install a marketplace skill with one click.
+
+Notes:
+
+- Market config is persisted in `~/.copaw/config.json` under `skills_market`.
+- `path` supports either `index.json` or a skills directory. If a directory is provided, CoPaw scans `SKILL.md` files and builds the index automatically.
+- Refresh uses cache + failure isolation: if one market fails, other markets can still be listed.
+
 ---
 
 ## Built-in skill: Cron (scheduled tasks)
