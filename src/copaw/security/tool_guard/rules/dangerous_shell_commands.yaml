@@ -75,7 +75,7 @@
   category: code_execution
   severity: CRITICAL
   patterns:
-    - "(curl|wget)\\s+.*\\|\\s*(bash|sh|zsh|ash|dash)"
+    - "\\b(curl|wget)\\b\\s+.*\\|\\s*\\b(bash|sh|zsh|ash|dash)\\b"
   description: "Detects 'curl | bash' patterns used to download and immediately execute remote payloads"
   remediation: "Confirm with user. Agents should inspect scripts before executing them."
 
@@ -126,6 +126,6 @@
   category: code_execution
   severity: HIGH
   patterns:
-    - "\\bbase64\\s+(-d|--decode)\\s*\\|\\s*(bash|sh|zsh)"
+    - "\\bbase64\\s+(-d|--decode)\\s*\\|\\s*\\b(bash|sh|zsh)\\b"
   description: "Detects execution of base64 encoded strings passed directly to a shell interpreter"
   remediation: "Block execution. Agents should use plain text commands."
