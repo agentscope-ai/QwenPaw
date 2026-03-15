@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from .base import BaseJobRepository
@@ -40,4 +41,4 @@ class JsonJobRepository(BaseJobRepository):
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        tmp_path.replace(self._path)
+        shutil.move(str(tmp_path), str(self._path))
