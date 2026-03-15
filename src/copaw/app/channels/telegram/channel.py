@@ -12,10 +12,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from telegram import BotCommand
 from telegram.constants import ParseMode
 from telegram.error import (
     BadRequest,
     Forbidden,
+    InvalidToken,
     NetworkError,
     RetryAfter,
     TimedOut,
@@ -51,6 +53,11 @@ TELEGRAM_MAX_FILE_SIZE_BYTES = (
 
 _DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
 _TYPING_TIMEOUT_S = 180
+
+_RECONNECT_INITIAL_S = 2.0
+_RECONNECT_MAX_S = 30.0
+_RECONNECT_FACTOR = 1.8
+_POLL_WATCHDOG_INTERVAL_S = 30
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -849,80 +856,123 @@ class TelegramChannel(BaseChannel):
             kwargs["message_thread_id"] = message_thread_id
         await getattr(bot, method_name)(**kwargs)
 
-    async def _run_polling(self) -> None:
-        """Run Telegram bot in existing event loop (FastAPI/uvicorn).
-        Do not use run_polling() - it calls run_until_complete() and fails when
-        the event loop is already running.
-        """
-        if not self.enabled or not self._application or not self._bot_token:
-            return
+    async def _polling_cycle(self, app) -> None:
+        """Run one polling lifecycle: init → poll → watchdog."""
+
+        def _on_poll_error(exc) -> None:
+            app.create_task(
+                app.process_error(error=exc, update=None),
+            )
+
+        await app.initialize()
+
+        commands = [
+            BotCommand(
+                command="start",
+                description="Start a new conversation",
+            ),
+            BotCommand(
+                command="new",
+                description="Start a new conversation (clear memory)",
+            ),
+            BotCommand(
+                command="compact",
+                description="Compact conversation memory",
+            ),
+            BotCommand(
+                command="clear",
+                description="Clear conversation history",
+            ),
+            BotCommand(
+                command="history",
+                description="Show conversation history",
+            ),
+        ]
         try:
-            from telegram.error import TelegramError
-            from telegram import BotCommand
-
-            def _on_poll_error(exc: TelegramError) -> None:
-                self._application.create_task(
-                    self._application.process_error(error=exc, update=None),
-                )
-
-            await self._application.initialize()
-
-            commands = [
-                BotCommand(
-                    command="start",
-                    description="Start a new conversation",
-                ),
-                BotCommand(
-                    command="new",
-                    description="Start a new conversation (clear memory)",
-                ),
-                BotCommand(
-                    command="compact",
-                    description="Compact conversation memory",
-                ),
-                BotCommand(
-                    command="clear",
-                    description="Clear conversation history",
-                ),
-                BotCommand(
-                    command="history",
-                    description="Show conversation history",
-                ),
-            ]
-            try:
-                await self._application.bot.set_my_commands(commands)
-                logger.info(
-                    "telegram: registered %d bot commands",
-                    len(commands),
-                )
-            except Exception:
-                logger.warning(
-                    "telegram: failed to register commands (non-fatal)",
-                )
-
-            await self._application.updater.start_polling(
-                allowed_updates=["message", "edited_message"],
-                error_callback=_on_poll_error,
+            await app.bot.set_my_commands(commands)
+            logger.info(
+                "telegram: registered %d bot commands",
+                len(commands),
             )
-            await self._application.start()
-            logger.info("telegram: polling started (receiving updates)")
-            await asyncio.Future()  # never completes until cancelled
-        except asyncio.CancelledError:
-            logger.debug("telegram: polling cancelled")
-            raise
         except Exception:
-            logger.exception(
-                "telegram: polling error (check token, network, proxy; "
-                "in China you may need TELEGRAM_HTTP_PROXY)",
+            logger.warning(
+                "telegram: failed to register commands (non-fatal)",
             )
-            raise
+
+        await app.updater.start_polling(
+            bootstrap_retries=-1,
+            allowed_updates=["message", "edited_message"],
+            error_callback=_on_poll_error,
+        )
+        await app.start()
+        logger.info("telegram: polling started (receiving updates)")
+
+        while getattr(app.updater, "running", False):
+            await asyncio.sleep(_POLL_WATCHDOG_INTERVAL_S)
+
+        logger.warning("telegram: updater stopped unexpectedly")
+
+    @staticmethod
+    async def _teardown_application(app) -> None:
+        """Cleanly shut down a Telegram Application instance."""
+        try:
+            updater = getattr(app, "updater", None)
+            if updater and getattr(updater, "running", False):
+                await updater.stop()
+            if getattr(app, "running", False):
+                await app.stop()
+            await app.shutdown()
+        except Exception as exc:
+            logger.debug("telegram teardown: %s", exc)
+
+    async def _run_polling(self) -> None:
+        """Run Telegram polling with automatic reconnection.
+
+        Do not use run_polling() — it calls run_until_complete() and
+        fails when the event loop is already running (FastAPI/uvicorn).
+        """
+        if not self.enabled or not self._bot_token:
+            return
+
+        delay = _RECONNECT_INITIAL_S
+        while True:
+            try:
+                self._application = self._build_application()
+                await self._polling_cycle(self._application)
+                delay = _RECONNECT_INITIAL_S
+            except asyncio.CancelledError:
+                logger.debug("telegram: polling cancelled")
+                raise
+            except InvalidToken:
+                logger.error(
+                    "telegram: invalid bot token — not retrying",
+                )
+                return
+            except Exception:
+                logger.exception(
+                    "telegram: polling failed (check token, network, "
+                    "proxy; in China you may need TELEGRAM_HTTP_PROXY)",
+                )
+            finally:
+                if self._application:
+                    await self._teardown_application(
+                        self._application,
+                    )
+                    self._application = None
+
+            logger.info(
+                "telegram: reconnecting in %.1fs",
+                delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * _RECONNECT_FACTOR, _RECONNECT_MAX_S)
 
     async def start(self) -> None:
-        if not self.enabled or not self._application:
+        if not self.enabled or not self._bot_token:
             logger.debug(
-                "telegram: start() skipped (enabled=%s, application=%s)",
+                "telegram: start() skipped (enabled=%s, token=%s)",
                 self.enabled,
-                "built" if self._application else "not built",
+                "set" if self._bot_token else "empty",
             )
             return
         self._task = asyncio.create_task(
@@ -944,15 +994,7 @@ class TelegramChannel(BaseChannel):
         for cid in list(self._typing_tasks):
             self._stop_typing(cid)
         if self._application:
-            try:
-                updater = getattr(self._application, "updater", None)
-                if updater and getattr(updater, "running", False):
-                    await updater.stop()
-                if getattr(self._application, "running", False):
-                    await self._application.stop()
-                await self._application.shutdown()
-            except Exception as exc:
-                logger.debug("telegram stop: %s", exc)
+            await self._teardown_application(self._application)
 
     def resolve_session_id(
         self,
