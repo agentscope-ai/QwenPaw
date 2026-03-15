@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint:disable=too-many-branches,too-many-statements
-"""LocalChatModel — ChatModelBase implementation for local backends."""
+"""LocalChatModel - ChatModelBase implementation for local backends."""
 
 from __future__ import annotations
 
@@ -36,11 +36,22 @@ def _json_loads_safe(s: str) -> dict:
         return {}
 
 
+def _stringify_tool_arguments(arguments: Any) -> str:
+    if arguments is None:
+        return ""
+    if isinstance(arguments, str):
+        return arguments
+    try:
+        return json.dumps(arguments, ensure_ascii=False)
+    except TypeError:
+        return ""
+
+
 class LocalChatModel(ChatModelBase):
     """ChatModelBase implementation for local model backends.
 
     Wraps any ``LocalBackend`` (llama.cpp, future MLX) and presents it
-    through the agentscope ``ChatModelBase`` interface.  Since backends are
+    through the agentscope ``ChatModelBase`` interface. Since backends are
     synchronous, inference runs in a thread executor for async compatibility.
     """
 
@@ -158,12 +169,19 @@ class LocalChatModel(ChatModelBase):
                 if idx not in tool_calls:
                     tool_calls[idx] = {
                         "id": tc.get("id", f"call_{idx}"),
-                        "name": (tc.get("function") or {}).get("name", ""),
+                        "name": "",
                         "arguments": "",
                     }
-                tool_calls[idx]["arguments"] += (tc.get("function") or {}).get(
-                    "arguments",
-                ) or ""
+                if tc.get("id"):
+                    tool_calls[idx]["id"] = tc["id"]
+
+                function_data = tc.get("function") or {}
+                if function_data.get("name"):
+                    tool_calls[idx]["name"] = function_data["name"]
+
+                tool_calls[idx]["arguments"] += _stringify_tool_arguments(
+                    function_data.get("arguments"),
+                )
 
             # Build content blocks
             contents: list = []
@@ -231,6 +249,8 @@ class LocalChatModel(ChatModelBase):
                 )
 
             for tc_data in tool_calls.values():
+                if not tc_data["name"]:
+                    continue
                 contents.append(
                     ToolUseBlock(
                         type="tool_use",
