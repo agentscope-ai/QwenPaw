@@ -246,6 +246,78 @@ async def put_audio_mode(
 
 
 @router.get(
+    "/transcription-provider-type",
+    summary="Get transcription provider type",
+    description=(
+        "Get the transcription provider type. "
+        'Values: "whisper_api", "local_whisper".'
+    ),
+)
+async def get_transcription_provider_type() -> dict:
+    """Get transcription provider type setting."""
+    config = load_config()
+    return {
+        "transcription_provider_type": (
+            config.agents.transcription_provider_type
+        ),
+    }
+
+
+@router.put(
+    "/transcription-provider-type",
+    summary="Set transcription provider type",
+    description=(
+        "Set the transcription provider type. "
+        '"whisper_api": use an OpenAI-compatible endpoint; '
+        '"local_whisper": use locally installed openai-whisper.'
+    ),
+)
+async def put_transcription_provider_type(
+    body: dict = Body(
+        ...,
+        description=(
+            'Provider type, e.g. '
+            '{"transcription_provider_type": "whisper_api"}'
+        ),
+    ),
+) -> dict:
+    """Set the transcription provider type."""
+    provider_type = (
+        body.get("transcription_provider_type") or ""
+    ).strip().lower()
+    valid = {"whisper_api", "local_whisper"}
+    if provider_type not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid transcription_provider_type '{provider_type}'. "
+                f"Must be one of: {', '.join(sorted(valid))}"
+            ),
+        )
+    config = load_config()
+    config.agents.transcription_provider_type = provider_type
+    save_config(config)
+    return {"transcription_provider_type": provider_type}
+
+
+@router.get(
+    "/local-whisper-status",
+    summary="Check local whisper availability",
+    description=(
+        "Check whether the local whisper provider can be used. "
+        "Returns availability of ffmpeg and openai-whisper."
+    ),
+)
+async def get_local_whisper_status() -> dict:
+    """Check local whisper dependencies."""
+    from ...agents.utils.audio_transcription import (
+        check_local_whisper_available,
+    )
+
+    return check_local_whisper_available()
+
+
+@router.get(
     "/transcription-providers",
     summary="List transcription providers",
     description=(

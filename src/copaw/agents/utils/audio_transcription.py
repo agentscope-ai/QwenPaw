@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """Audio transcription utility.
 
-Transcribes audio files to text using an OpenAI-compatible
-``/v1/audio/transcriptions`` endpoint.  The endpoint accepts ``.ogg``
-natively, so no format conversion is required for Discord voice messages.
+Transcribes audio files to text using either:
+- An OpenAI-compatible ``/v1/audio/transcriptions`` endpoint (Whisper API), or
+- The locally installed ``openai-whisper`` Python library (Local Whisper).
+
+The Whisper API endpoint accepts ``.ogg`` natively, so no format conversion
+is required for Discord voice messages.
 """
 
 import logging
+import shutil
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -125,11 +129,85 @@ def _find_transcription_provider() -> Optional[Tuple[str, str, str]]:
     return None
 
 
-async def transcribe_audio(file_path: str) -> Optional[str]:
-    """Transcribe an audio file to text.
+def check_local_whisper_available() -> dict:
+    """Check whether the local whisper provider can be used.
 
-    Uses the OpenAI-compatible ``/v1/audio/transcriptions`` endpoint,
-    which accepts ogg, mp3, wav, flac, m4a, and other common formats.
+    Returns a dict with::
+
+        {
+            "available": bool,
+            "ffmpeg_installed": bool,
+            "whisper_installed": bool,
+        }
+    """
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+
+    whisper_ok = False
+    try:
+        import whisper as _whisper  # noqa: F401
+
+        whisper_ok = True
+    except ImportError:
+        pass
+
+    return {
+        "available": ffmpeg_ok and whisper_ok,
+        "ffmpeg_installed": ffmpeg_ok,
+        "whisper_installed": whisper_ok,
+    }
+
+
+async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
+    """Transcribe using the locally installed ``openai-whisper`` library.
+
+    Requires both ``ffmpeg`` and ``openai-whisper`` to be installed.
+    Returns the transcribed text, or ``None`` on failure.
+    """
+    status = check_local_whisper_available()
+    if not status["available"]:
+        missing = []
+        if not status["ffmpeg_installed"]:
+            missing.append("ffmpeg")
+        if not status["whisper_installed"]:
+            missing.append("openai-whisper")
+        logger.warning(
+            "Local Whisper unavailable (missing: %s). "
+            "Install the missing dependencies to use local transcription.",
+            ", ".join(missing),
+        )
+        return None
+
+    import asyncio
+
+    def _run():
+        import whisper
+
+        model = whisper.load_model("base")
+        result = model.transcribe(file_path)
+        return (result.get("text") or "").strip()
+
+    try:
+        text = await asyncio.to_thread(_run)
+        if text:
+            logger.debug(
+                "Local Whisper transcribed %s: %s", file_path, text[:80],
+            )
+            return text
+        logger.warning(
+            "Local Whisper returned empty text for %s", file_path,
+        )
+        return None
+    except Exception:
+        logger.warning(
+            "Local Whisper transcription failed for %s",
+            file_path,
+            exc_info=True,
+        )
+        return None
+
+
+async def _transcribe_whisper_api(file_path: str) -> Optional[str]:
+    """Transcribe using the OpenAI-compatible Whisper API endpoint.
 
     Returns the transcribed text, or ``None`` on failure.
     """
@@ -171,3 +249,20 @@ async def transcribe_audio(file_path: str) -> Optional[str]:
             exc_info=True,
         )
         return None
+
+
+async def transcribe_audio(file_path: str) -> Optional[str]:
+    """Transcribe an audio file to text.
+
+    Dispatches to either the Whisper API or local Whisper based on the
+    ``transcription_provider_type`` config setting.
+
+    Returns the transcribed text, or ``None`` on failure.
+    """
+    from ...config import load_config
+
+    provider_type = load_config().agents.transcription_provider_type
+
+    if provider_type == "local_whisper":
+        return await _transcribe_local_whisper(file_path)
+    return await _transcribe_whisper_api(file_path)

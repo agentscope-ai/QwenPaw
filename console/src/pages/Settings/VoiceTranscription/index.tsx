@@ -11,27 +11,41 @@ interface TranscriptionProvider {
   available: boolean;
 }
 
+interface LocalWhisperStatus {
+  available: boolean;
+  ffmpeg_installed: boolean;
+  whisper_installed: boolean;
+}
+
 function VoiceTranscriptionPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [audioMode, setAudioMode] = useState("auto");
+  const [providerType, setProviderType] = useState("whisper_api");
   const [providers, setProviders] = useState<TranscriptionProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [activeProviderId, setActiveProviderId] = useState("");
+  const [localWhisperStatus, setLocalWhisperStatus] =
+    useState<LocalWhisperStatus | null>(null);
 
   const fetchSettings = async () => {
     setLoading(true);
     try {
-      const [modeRes, provRes] = await Promise.all([
+      const [modeRes, provTypeRes, provRes, lwStatus] = await Promise.all([
         api.getAudioMode(),
+        api.getTranscriptionProviderType(),
         api.getTranscriptionProviders(),
+        api.getLocalWhisperStatus(),
       ]);
       setAudioMode(modeRes.audio_mode ?? "auto");
+      setProviderType(
+        provTypeRes.transcription_provider_type ?? "whisper_api",
+      );
       setProviders(provRes.providers ?? []);
       setActiveProviderId(provRes.active_provider_id ?? "");
+      setLocalWhisperStatus(lwStatus);
       // Find the configured provider (not auto-detected)
-      // If active matches a provider but no explicit config, default to ""
       const configuredId =
         provRes.providers?.some(
           (p: TranscriptionProvider) =>
@@ -55,10 +69,14 @@ function VoiceTranscriptionPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await Promise.all([
+      const promises: Promise<unknown>[] = [
         api.updateAudioMode(audioMode),
-        api.updateTranscriptionProvider(selectedProviderId),
-      ]);
+        api.updateTranscriptionProviderType(providerType),
+      ];
+      if (providerType === "whisper_api") {
+        promises.push(api.updateTranscriptionProvider(selectedProviderId));
+      }
+      await Promise.all(promises);
       // Refresh to get updated active provider
       const provRes = await api.getTranscriptionProviders();
       setActiveProviderId(provRes.active_provider_id ?? "");
@@ -83,6 +101,7 @@ function VoiceTranscriptionPage() {
 
   const availableProviders = providers.filter((p) => p.available);
   const showProviderSection = audioMode !== "native";
+  const isLocalWhisper = providerType === "local_whisper";
 
   return (
     <div className={styles.page}>
@@ -136,57 +155,126 @@ function VoiceTranscriptionPage() {
       </Card>
 
       {showProviderSection && (
-        <Card className={styles.card}>
-          <h3 className={styles.cardTitle}>
-            {t("voiceTranscription.providerLabel")}
-          </h3>
-          <p className={styles.cardDescription}>
-            {t("voiceTranscription.providerDescription")}
-          </p>
-
-          {availableProviders.length === 0 ? (
-            <Alert
-              type="warning"
-              showIcon
-              message={t("voiceTranscription.noProvidersWarning")}
-            />
-          ) : (
-            <>
-              <Select
-                value={selectedProviderId}
-                onChange={setSelectedProviderId}
-                style={{ width: "100%", maxWidth: 400 }}
-              >
-                <Select.Option value="">
-                  {t("voiceTranscription.providerAuto")}
-                </Select.Option>
-                {availableProviders.map((p) => (
-                  <Select.Option key={p.id} value={p.id}>
-                    {p.name}
-                  </Select.Option>
-                ))}
-              </Select>
-              {activeProviderId && (
-                <div style={{ marginTop: 8 }}>
-                  <span style={{ marginRight: 8, opacity: 0.65 }}>
-                    {t("voiceTranscription.activeProvider")}
+        <>
+          <Card className={styles.card}>
+            <h3 className={styles.cardTitle}>
+              {t("voiceTranscription.providerTypeLabel")}
+            </h3>
+            <p className={styles.cardDescription}>
+              {t("voiceTranscription.providerTypeDescription")}
+            </p>
+            <Radio.Group
+              value={providerType}
+              onChange={(e) => setProviderType(e.target.value)}
+            >
+              <Space direction="vertical" size="middle">
+                <Radio value="whisper_api">
+                  <span className={styles.optionLabel}>
+                    {t("voiceTranscription.providerTypeWhisperApi")}
                   </span>
-                  <Tag color="blue">
-                    {providers.find((p) => p.id === activeProviderId)?.name ??
-                      activeProviderId}
-                  </Tag>
-                </div>
+                  <span className={styles.optionDescription}>
+                    {t("voiceTranscription.providerTypeWhisperApiDesc")}
+                  </span>
+                </Radio>
+                <Radio value="local_whisper">
+                  <span className={styles.optionLabel}>
+                    {t("voiceTranscription.providerTypeLocalWhisper")}
+                  </span>
+                  <span className={styles.optionDescription}>
+                    {t("voiceTranscription.providerTypeLocalWhisperDesc")}
+                  </span>
+                </Radio>
+              </Space>
+            </Radio.Group>
+
+            {isLocalWhisper && localWhisperStatus && (
+              <div style={{ marginTop: 12 }}>
+                {localWhisperStatus.available ? (
+                  <Alert
+                    type="success"
+                    showIcon
+                    message={t("voiceTranscription.localWhisperReady")}
+                  />
+                ) : (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={t("voiceTranscription.localWhisperMissing")}
+                    description={t(
+                      "voiceTranscription.localWhisperMissingDesc",
+                      {
+                        ffmpeg: localWhisperStatus.ffmpeg_installed
+                          ? t("common.enabled")
+                          : t("common.disabled"),
+                        whisper: localWhisperStatus.whisper_installed
+                          ? t("common.enabled")
+                          : t("common.disabled"),
+                      },
+                    )}
+                  />
+                )}
+              </div>
+            )}
+          </Card>
+
+          {!isLocalWhisper && (
+            <Card className={styles.card}>
+              <h3 className={styles.cardTitle}>
+                {t("voiceTranscription.providerLabel")}
+              </h3>
+              <p className={styles.cardDescription}>
+                {t("voiceTranscription.providerDescription")}
+              </p>
+
+              {availableProviders.length === 0 ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t("voiceTranscription.noProvidersWarning")}
+                />
+              ) : (
+                <>
+                  <Select
+                    value={selectedProviderId}
+                    onChange={setSelectedProviderId}
+                    style={{ width: "100%", maxWidth: 400 }}
+                  >
+                    <Select.Option value="">
+                      {t("voiceTranscription.providerAuto")}
+                    </Select.Option>
+                    {availableProviders.map((p) => (
+                      <Select.Option key={p.id} value={p.id}>
+                        {p.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                  {activeProviderId && (
+                    <div style={{ marginTop: 8 }}>
+                      <span style={{ marginRight: 8, opacity: 0.65 }}>
+                        {t("voiceTranscription.activeProvider")}
+                      </span>
+                      <Tag color="blue">
+                        {providers.find((p) => p.id === activeProviderId)
+                          ?.name ?? activeProviderId}
+                      </Tag>
+                    </div>
+                  )}
+                </>
               )}
-            </>
+            </Card>
           )}
-        </Card>
+        </>
       )}
 
       <Alert
         type="info"
         showIcon
         message={t("voiceTranscription.transcriptionInfoTitle")}
-        description={t("voiceTranscription.transcriptionInfoDesc")}
+        description={
+          isLocalWhisper
+            ? t("voiceTranscription.transcriptionInfoDescLocal")
+            : t("voiceTranscription.transcriptionInfoDesc")
+        }
         style={{ marginBottom: 16 }}
       />
 

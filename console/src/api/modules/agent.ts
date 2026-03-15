@@ -61,4 +61,25 @@ export const agentApi = {
       method: "PUT",
       body: JSON.stringify({ provider_id }),
     }),
+
+  getTranscriptionProviderType: () =>
+    request<{ transcription_provider_type: string }>(
+      "/agent/transcription-provider-type",
+    ),
+
+  updateTranscriptionProviderType: (transcription_provider_type: string) =>
+    request<{ transcription_provider_type: string }>(
+      "/agent/transcription-provider-type",
+      {
+        method: "PUT",
+        body: JSON.stringify({ transcription_provider_type }),
+      },
+    ),
+
+  getLocalWhisperStatus: () =>
+    request<{
+      available: boolean;
+      ffmpeg_installed: boolean;
+      whisper_installed: boolean;
+    }>("/agent/local-whisper-status"),
 };
