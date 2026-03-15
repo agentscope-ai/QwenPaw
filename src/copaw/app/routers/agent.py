@@ -287,7 +287,7 @@ async def cancel_agent_task(
     # Find and cancel the task whose key contains this session_id
     cancelled = False
     for task_key, task in list(local_tasks.items()):
-        if body.session_id in str(task_key) and not task.done():
+        if str(task_key).split(':')[-1] == body.session_id and not task.done():
             task.cancel()
             cancelled = True
             break
