@@ -45,6 +45,7 @@ except ImportError:
 
 from .content_utils import (
     session_param_from_token,
+    nextcloud_content_from_type,
 )
 from .constants import MAX_MESSAGE_LENGTH
 from .files_client import NextcloudFilesClient
@@ -553,7 +554,6 @@ class NextcloudTalkChannel(BaseChannel):
                     )
                     if local_path:
                         # Update content_parts with local file path
-                        from .handler_stdlib import nextcloud_content_from_type
 
                         file_part = nextcloud_content_from_type(
                             media_info["type"],
