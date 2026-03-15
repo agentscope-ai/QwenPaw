@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -42,7 +43,9 @@ async def test_refresh_client_status_probe_success_without_replace() -> None:
     async def _replace_should_not_be_called(*args, **kwargs):
         raise AssertionError("replace_client should not be called")
 
-    manager.replace_client = _replace_should_not_be_called  # type: ignore[assignment]
+    manager.replace_client = (
+        _replace_should_not_be_called  # type: ignore[assignment]
+    )
 
     cfg = SimpleNamespace(enabled=True)
     result = await manager.refresh_client_status("demo", cfg)
@@ -53,14 +56,14 @@ async def test_refresh_client_status_probe_success_without_replace() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_client_status_probe_failed_then_replace_success() -> None:
+async def test_refresh_status_probe_failed_then_replace_success() -> None:
     manager = MCPClientManager()
     broken = _BrokenClient()
     manager._clients["demo"] = broken
 
     called = {"replace": False}
 
-    async def _replace_success(key, client_config, timeout=15.0):
+    async def _replace_success(_key, _client_config, _timeout=15.0):
         called["replace"] = True
 
     manager.replace_client = _replace_success  # type: ignore[assignment]
@@ -78,7 +81,7 @@ async def test_refresh_client_status_probe_failed_then_replace_success() -> None
 async def test_refresh_client_status_replace_failed_marks_failed_key() -> None:
     manager = MCPClientManager()
 
-    async def _replace_fail(key, client_config, timeout=15.0):
+    async def _replace_fail(_key, _client_config, _timeout=15.0):
         raise RuntimeError("connect failed")
 
     manager.replace_client = _replace_fail  # type: ignore[assignment]

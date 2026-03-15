@@ -37,28 +37,30 @@ export function MCPClientCard({
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
-  const runtimeStatusKey = runtimeStateOverride === "checking"
-    ? "mcp.runtimeChecking"
-    : runtimeStateOverride === "queued"
+  const runtimeStatusKey =
+    runtimeStateOverride === "checking"
+      ? "mcp.runtimeChecking"
+      : runtimeStateOverride === "queued"
       ? "mcp.runtimeQueued"
       : !client.enabled
-        ? "mcp.runtimeDisabled"
-        : client.active === undefined
-          ? "mcp.runtimeUnknown"
-          : client.active
-            ? "mcp.runtimeActive"
-            : "mcp.runtimeUnavailable";
-  const runtimeStatusClass = runtimeStateOverride === "checking"
-    ? styles.runtimeChecking
-    : runtimeStateOverride === "queued"
+      ? "mcp.runtimeDisabled"
+      : client.active === undefined
+      ? "mcp.runtimeUnknown"
+      : client.active
+      ? "mcp.runtimeActive"
+      : "mcp.runtimeUnavailable";
+  const runtimeStatusClass =
+    runtimeStateOverride === "checking"
+      ? styles.runtimeChecking
+      : runtimeStateOverride === "queued"
       ? styles.runtimeQueued
       : !client.enabled
-        ? styles.runtimeDisabled
-        : client.active === undefined
-          ? styles.runtimeUnknown
-          : client.active
-            ? styles.runtimeActive
-            : styles.runtimeUnavailable;
+      ? styles.runtimeDisabled
+      : client.active === undefined
+      ? styles.runtimeUnknown
+      : client.active
+      ? styles.runtimeActive
+      : styles.runtimeUnavailable;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -128,7 +130,11 @@ export function MCPClientCard({
             </span>
           </div>
           <div className={styles.statusContainer}>
-            <span className={`${styles.statusBadge} ${client.enabled ? styles.enabled : styles.disabled}`}>
+            <span
+              className={`${styles.statusBadge} ${
+                client.enabled ? styles.enabled : styles.disabled
+              }`}
+            >
               <span
                 className={`${styles.statusDot} ${
                   client.enabled ? styles.enabled : styles.disabled

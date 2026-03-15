@@ -216,8 +216,8 @@ function MCPPage() {
                 refreshingKeys.includes(client.key)
                   ? "checking"
                   : queuedRefreshKeys.includes(client.key)
-                    ? "queued"
-                    : undefined
+                  ? "queued"
+                  : undefined
               }
               isHovered={hoverKey === client.key}
               onMouseEnter={() => setHoverKey(client.key)}

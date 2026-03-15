@@ -23,7 +23,9 @@ class MCPClientInfo(BaseModel):
     enabled: bool = Field(..., description="Whether the client is enabled")
     active: bool = Field(
         default=False,
-        description="Whether the client is currently connected (runtime state)",
+        description=(
+            "Whether the client is currently connected " "(runtime state)"
+        ),
     )
     transport: Literal["stdio", "streamable_http", "sse"] = Field(
         ...,
@@ -233,7 +235,11 @@ async def get_mcp_client(
     if client is None:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
     active_keys = _get_active_keys(request)
-    return _build_client_info(client_key, client, active=client_key in active_keys)
+    return _build_client_info(
+        client_key,
+        client,
+        active=client_key in active_keys,
+    )
 
 
 @router.post(
@@ -257,7 +263,11 @@ async def refresh_mcp_client_status(
 
     await mcp_manager.refresh_client_status(client_key, client)
     active_keys = _get_active_keys(request)
-    return _build_client_info(client_key, client, active=client_key in active_keys)
+    return _build_client_info(
+        client_key,
+        client,
+        active=client_key in active_keys,
+    )
 
 
 @router.post(

@@ -13,12 +13,11 @@ import time
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING, Dict
 
+from ...constant import MCP_RECONNECT_BASE, MCP_RECONNECT_CAP
 from .manager import MCPClientManager
 
 if TYPE_CHECKING:
     from ...config.config import MCPConfig
-
-from ...constant import MCP_RECONNECT_BASE, MCP_RECONNECT_CAP
 
 logger = logging.getLogger(__name__)
 

@@ -11,25 +11,28 @@ export function useMCP() {
   const [queuedRefreshKeys, setQueuedRefreshKeys] = useState<string[]>([]);
   const [refreshingKeys, setRefreshingKeys] = useState<string[]>([]);
 
-  const loadClients = useCallback(async (options?: { silent?: boolean; showLoading?: boolean }) => {
-    const { silent = false, showLoading = true } = options ?? {};
-    if (showLoading) {
-      setLoading(true);
-    }
-    try {
-      const data = await api.listMCPClients();
-      setClients(data);
-    } catch (error) {
-      console.error("Failed to load MCP clients:", error);
-      if (!silent) {
-        message.error(t("mcp.loadError"));
-      }
-    } finally {
+  const loadClients = useCallback(
+    async (options?: { silent?: boolean; showLoading?: boolean }) => {
+      const { silent = false, showLoading = true } = options ?? {};
       if (showLoading) {
-        setLoading(false);
+        setLoading(true);
       }
-    }
-  }, [t]);
+      try {
+        const data = await api.listMCPClients();
+        setClients(data);
+      } catch (error) {
+        console.error("Failed to load MCP clients:", error);
+        if (!silent) {
+          message.error(t("mcp.loadError"));
+        }
+      } finally {
+        if (showLoading) {
+          setLoading(false);
+        }
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     loadClients();
@@ -165,9 +168,7 @@ export function useMCP() {
       } catch (error) {
         console.error(`Failed to refresh MCP client status for ${key}:`, error);
       } finally {
-        setRefreshingKeys((current) =>
-          current.filter((item) => item !== key),
-        );
+        setRefreshingKeys((current) => current.filter((item) => item !== key));
       }
     }
 
