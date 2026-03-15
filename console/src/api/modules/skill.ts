@@ -1,5 +1,14 @@
 import { request } from "../request";
-import type { HubSkillSpec, SkillSpec } from "../types";
+import type {
+  HubSkillSpec,
+  InstallMarketplacePayload,
+  InstallSkillResult,
+  MarketplaceResponse,
+  SkillSpec,
+  SkillsMarketSpec,
+  SkillsMarketsPayload,
+  ValidateMarketResponse,
+} from "../types";
 
 // Declare BASE_URL as global (injected by Vite)
 declare const BASE_URL: string;
@@ -54,12 +63,32 @@ export const skillApi = {
     enable?: boolean;
     overwrite?: boolean;
   }) =>
-    request<{
-      installed: boolean;
-      name: string;
-      enabled: boolean;
-      source_url: string;
-    }>("/skills/hub/install", {
+    request<InstallSkillResult>("/skills/hub/install", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSkillsMarkets: () => request<SkillsMarketsPayload>("/skills/markets"),
+
+  updateSkillsMarkets: (payload: SkillsMarketsPayload) =>
+    request<SkillsMarketsPayload>("/skills/markets", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  validateSkillsMarket: (payload: SkillsMarketSpec) =>
+    request<ValidateMarketResponse>("/skills/markets/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getMarketplace: (refresh = false) =>
+    request<MarketplaceResponse>(
+      `/skills/marketplace?refresh=${refresh ? "true" : "false"}`,
+    ),
+
+  installMarketplaceSkill: (payload: InstallMarketplacePayload) =>
+    request<InstallSkillResult>("/skills/marketplace/install", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
