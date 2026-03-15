@@ -132,6 +132,28 @@ copaw app
     "language": "zh",
     "installed_md_files_language": "zh"
   },
+  "skills_market": {
+    "version": 1,
+    "cache": {
+      "ttl_sec": 600
+    },
+    "install": {
+      "overwrite_default": false
+    },
+    "markets": [
+      {
+        "id": "community",
+        "name": "社区技能",
+        "type": "git",
+        "url": "https://github.com/futuremeng/editor-skills.git",
+        "branch": "main",
+        "path": "index.json",
+        "enabled": true,
+        "order": 1,
+        "trust": "community"
+      }
+    ]
+  },
   "last_api": {
     "host": "127.0.0.1",
     "port": 8088
@@ -238,6 +260,38 @@ copaw app
 | `end`   | string | `"22:00"` | 结束时间（HH:MM，24 小时制） |
 
 > 详细指南请看 [心跳](./heartbeat)。
+
+---
+
+#### `skills_market` — 技能市场配置
+
+用于配置 **Agent → Skills → 技能市场** 的 Git 仓库来源。
+
+| 字段                                      | 类型   | 默认值         | 说明 |
+| ----------------------------------------- | ------ | -------------- | ---- |
+| `skills_market.version`                   | int    | `1`            | 市场配置版本 |
+| `skills_market.cache.ttl_sec`             | int    | `600`          | 市场聚合缓存 TTL（秒） |
+| `skills_market.install.overwrite_default` | bool   | `false`        | 市场安装时默认是否覆盖同名技能 |
+| `skills_market.markets`                   | list   | `[]`           | 市场列表 |
+
+`markets[]` 每项字段：
+
+| 字段      | 类型   | 默认值         | 说明 |
+| --------- | ------ | -------------- | ---- |
+| `id`      | string | _(必填)_       | 稳定且唯一的市场标识 |
+| `name`    | string | _(必填)_       | 控制台展示名称 |
+| `type`    | string | `"git"`       | 市场类型（当前仅支持 `git`） |
+| `url`     | string | _(必填)_       | Git 仓库地址；支持 `owner/repo`、`.git`、GitHub tree URL |
+| `branch`  | string | `""`          | 可选分支；为空时使用远端默认分支 |
+| `path`    | string | `"index.json"` | 仓库内索引路径；可为 `index.json` 或 skills 目录 |
+| `enabled` | bool   | `true`         | 是否参与市场聚合 |
+| `order`   | int    | `999`          | 排序（越小越靠前） |
+| `trust`   | string | `null`         | 可选信任标签：`official`、`community`、`custom` |
+
+说明：
+
+- 该配置存储在工作目录配置文件中（默认 `~/.copaw/config.json`）。
+- 若 `path` 指向目录（或 `index.json` 不存在但父目录存在），CoPaw 会扫描 `SKILL.md` 自动生成索引。
 
 ---
 
