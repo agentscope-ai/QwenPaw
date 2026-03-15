@@ -200,6 +200,28 @@ copaw app
       }
     ]
   },
+  "skills_market": {
+    "version": 1,
+    "cache": {
+      "ttl_sec": 600
+    },
+    "install": {
+      "overwrite_default": false
+    },
+    "markets": [
+      {
+        "id": "community",
+        "name": "社区技能",
+        "type": "git",
+        "url": "https://github.com/futuremeng/editor-skills.git",
+        "branch": "main",
+        "path": "index.json",
+        "enabled": true,
+        "order": 1,
+        "trust": "community"
+      }
+    ]
+  },
   "last_api": {
     "host": "127.0.0.1",
     "port": 8088
