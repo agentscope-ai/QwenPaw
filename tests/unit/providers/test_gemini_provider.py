@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from google.genai import errors as genai_errors
+
 from copaw.providers.gemini_provider import GeminiProvider
 
 
@@ -58,7 +60,7 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
 
     class FakeModels:
         async def list(self):
-            raise RuntimeError("boom")
+            raise genai_errors.APIError(403, {"error": "forbidden"})
 
     fake_client = SimpleNamespace(
         aio=SimpleNamespace(models=FakeModels()),
@@ -113,7 +115,7 @@ async def test_fetch_models_api_error_returns_empty(monkeypatch) -> None:
 
     class FakeModels:
         async def list(self):
-            raise RuntimeError("failed")
+            raise genai_errors.APIError(500, {"error": "internal"})
 
     fake_client = SimpleNamespace(
         aio=SimpleNamespace(models=FakeModels()),
@@ -170,7 +172,7 @@ async def test_check_model_connection_api_error_returns_false(
 
     class FakeModels:
         def generate_content_stream(self, **kwargs):
-            raise RuntimeError("failed")
+            raise genai_errors.APIError(404, {"error": "not found"})
 
     fake_client = SimpleNamespace(
         aio=SimpleNamespace(models=FakeModels()),

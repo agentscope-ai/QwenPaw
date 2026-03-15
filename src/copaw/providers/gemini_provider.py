@@ -8,6 +8,7 @@ from typing import Any, List
 
 from agentscope.model import ChatModelBase
 from google import genai
+from google.genai import errors as genai_errors
 
 from copaw.providers.provider import ModelInfo, Provider
 
@@ -59,7 +60,7 @@ class GeminiProvider(Provider):
             async for _ in await client.aio.models.list():
                 break
             return True, ""
-        except Exception:
+        except genai_errors.APIError:
             return (
                 False,
                 "Failed to connect to Google Gemini API. "
@@ -75,7 +76,7 @@ class GeminiProvider(Provider):
                 payload.append(model)
             models = self._normalize_models_payload(payload)
             return models
-        except Exception:
+        except genai_errors.APIError:
             return []
 
     async def check_model_connection(
@@ -97,7 +98,7 @@ class GeminiProvider(Provider):
             async for _ in response:
                 break
             return True, ""
-        except Exception:
+        except genai_errors.APIError:
             return (
                 False,
                 f"Model '{model_id}' is not reachable or usable",
