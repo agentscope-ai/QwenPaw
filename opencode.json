@@ -1,0 +1,4 @@
+{
+  "$schema": "https://open-code.ai/config.json",
+  "model": "bailian-coding-plan/kimi-k2.5"
+}

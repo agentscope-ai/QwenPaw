@@ -4,6 +4,7 @@ from typing import Optional, Union, Dict, List, Literal
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 from ..providers.models import ModelSlotConfig
+from ..acp.config import ACPConfig
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
@@ -487,6 +488,7 @@ class Config(BaseModel):
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     show_tool_details: bool = True
+    acp: ACPConfig = Field(default_factory=ACPConfig)
 
 
 ChannelConfigUnion = Union[

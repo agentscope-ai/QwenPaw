@@ -35,6 +35,7 @@ class ConversationCommandHandlerMixin:
             "compact_str",
             "await_summary",
             "message",
+            "acp",
         },
     )
 
@@ -49,7 +50,9 @@ class ConversationCommandHandlerMixin:
         """
         if not isinstance(query, str) or not query.startswith("/"):
             return False
-        return query.strip().lstrip("/") in self.SYSTEM_COMMANDS
+
+        command = query.strip().lstrip("/").split(" ", maxsplit=1)[0]
+        return command in self.SYSTEM_COMMANDS
 
 
 class CommandHandler(ConversationCommandHandlerMixin):
@@ -285,7 +288,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"- **Content:**\n{msg.content}",
         )
 
-    async def handle_conversation_command(self, query: str) -> Msg:
+    async def handle_conversation_command(self, query: str) -> Msg | list[Msg]:
         """Process conversation system commands.
 
         Args:
@@ -307,11 +310,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
         args = parts[1] if len(parts) > 1 else ""
         logger.info(f"Processing command: {command}, args: {args}")
 
+        if command == "acp":
+            return await self._make_system_msg(
+                "`/acp` 现在是普通聊天里的兼容入口。\n\n"
+                "可直接这样用：\n"
+                "- `/acp opencode 简单分析一下 CONTRIBUTING_zh.md`\n"
+                "- `/acp opencode --cwd . --keep-session 分析当前仓库`\n"
+                "- `/acp qwen --session-id my-session-id 继续刚才的问题`\n\n"
+                "也支持自然语言：`用 opencode 分析当前仓库`。\n"
+                "聊天页里的 `External Agent` 选择器仍然是主入口。",
+            )
+
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
             raise RuntimeError(f"Unknown command: {query}")
         return await handler(messages, args)
 
-    async def handle_command(self, query: str) -> Msg:
+    async def handle_command(self, query: str) -> Msg | list[Msg]:
         """Process system commands (alias for handle_conversation_command)."""
         return await self.handle_conversation_command(query)

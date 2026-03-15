@@ -128,6 +128,39 @@ class PromptBuilder:
         return final_prompt
 
 
+def build_acp_intent_guidance(enabled_harnesses: list[str]) -> str:
+    """ACP tool guidance is disabled; ACP now runs through chat runtime."""
+    _ = enabled_harnesses
+    return ""
+
+
+def _should_include_acp_guidance() -> tuple[bool, list[str]]:
+    """Check if ACP guidance should be included and return enabled harnesses.
+
+    Returns:
+        Tuple of (should_include, enabled_harnesses)
+    """
+    try:
+        from ..config import load_config
+        config = load_config()
+
+        if not hasattr(config, 'acp'):
+            return False, []
+
+        if not config.acp.enabled:
+            return False, []
+
+        enabled_harnesses = list(config.acp.get_enabled_harnesses().keys())
+        if not enabled_harnesses:
+            return False, []
+
+        return True, enabled_harnesses
+
+    except Exception as e:
+        logger.warning("Failed to check ACP config: %s", e)
+        return False, []
+
+
 def build_system_prompt_from_working_dir() -> str:
     """
     Build system prompt by reading markdown files from working directory.
@@ -168,7 +201,20 @@ def build_system_prompt_from_working_dir() -> str:
         working_dir=Path(WORKING_DIR),
         enabled_files=enabled_files,
     )
-    return builder.build()
+    sys_prompt = builder.build()
+
+    # Add ACP intent recognition guidance if enabled
+    should_include, enabled_harnesses = _should_include_acp_guidance()
+    if should_include:
+        acp_guidance = build_acp_intent_guidance(enabled_harnesses)
+        if acp_guidance:
+            sys_prompt += "\n\n" + acp_guidance
+            logger.debug(
+                "Added ACP guidance for harnesses: %s",
+                enabled_harnesses,
+            )
+
+    return sys_prompt
 
 
 def build_bootstrap_guidance(
@@ -226,6 +272,7 @@ def build_bootstrap_guidance(
 __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
+    "build_acp_intent_guidance",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

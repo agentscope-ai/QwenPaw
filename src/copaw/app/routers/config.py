@@ -14,6 +14,7 @@ from ...config import (
     ToolGuardConfig,
     ToolGuardRuleConfig,
 )
+from ...acp.config import ACPConfig
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.config import (
     AgentsLLMRoutingConfig,
@@ -307,3 +308,34 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── ACP (Agent Client Protocol) ───────────────────────────────────────
+
+
+@router.get(
+    "/acp",
+    response_model=ACPConfig,
+    summary="Get ACP config",
+    description="Return current ACP configuration including harnesses",
+)
+async def get_acp_config() -> ACPConfig:
+    """Return effective ACP config (from file or default)."""
+    config = load_config()
+    return config.acp
+
+
+@router.put(
+    "/acp",
+    response_model=ACPConfig,
+    summary="Update ACP config",
+    description="Update ACP configuration including harnesses",
+)
+async def put_acp_config(
+    body: ACPConfig = Body(..., description="ACP configuration"),
+) -> ACPConfig:
+    """Update ACP config and save to file."""
+    config = load_config()
+    config.acp = body
+    save_config(config)
+    return body

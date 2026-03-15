@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agentscope.memory import InMemoryMemory
+from agentscope.message import Msg
 
 from .session import SafeJSONSession
 from .manager import ChatManager
@@ -154,12 +155,25 @@ async def get_chat(
     )
     if not state:
         return ChatHistory(messages=[])
-    memories = state.get("agent", {}).get("memory", [])
-    memory = InMemoryMemory()
-    memory.load_state_dict(memories)
 
-    memories = await memory.get_memory()
-    messages = agentscope_msg_to_message(memories)
+    history_messages: list[Msg] = []
+
+    memory_state = state.get("agent", {}).get("memory", {})
+    if isinstance(memory_state, dict):
+        memory = InMemoryMemory()
+        memory.load_state_dict(memory_state, strict=False)
+        history_messages.extend(await memory.get_memory())
+
+    external_agent_memory = state.get("external_agent_memory", {})
+    if isinstance(external_agent_memory, dict):
+        memory = InMemoryMemory()
+        memory.load_state_dict(external_agent_memory, strict=False)
+        history_messages.extend(await memory.get_memory())
+
+    if not history_messages:
+        return ChatHistory(messages=[])
+
+    messages = agentscope_msg_to_message(history_messages)
     return ChatHistory(messages=messages)
 
 

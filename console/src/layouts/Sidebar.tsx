@@ -36,6 +36,7 @@ import {
   Copy,
   Check,
   BarChart3,
+  Bot,
 } from "lucide-react";
 import api from "../api";
 import styles from "./index.module.less";
@@ -60,6 +61,7 @@ const KEY_TO_PATH: Record<string, string> = {
   skills: "/skills",
   tools: "/tools",
   mcp: "/mcp",
+  acp: "/acp",
   workspace: "/workspace",
   models: "/models",
   environments: "/environments",
@@ -325,6 +327,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         { key: "skills", label: t("nav.skills"), icon: <Sparkles size={16} /> },
         { key: "tools", label: t("nav.tools"), icon: <Wrench size={16} /> },
         { key: "mcp", label: t("nav.mcp"), icon: <Plug size={16} /> },
+        { key: "acp", label: t("nav.acp"), icon: <Bot size={16} /> },
         {
           key: "agent-config",
           label: t("nav.agentConfig"),

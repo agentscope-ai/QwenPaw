@@ -43,9 +43,18 @@ interface ContentItem {
 }
 
 /** A backend message after role-normalisation (output of toOutputMessage). */
-interface OutputMessage extends Omit<Message, "role"> {
+interface OutputMessage extends Omit<Message, "role" | "metadata"> {
   role: string;
-  metadata: null;
+  metadata?: {
+    original_id?: string;
+    original_name?: string;
+    metadata?: {
+      source?: string;
+      harness?: string;
+      original_id?: string;
+      [key: string]: unknown;
+    };
+  } | null;
   sequence_number?: number;
 }
 
@@ -60,6 +69,15 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   meta: Record<string, unknown>;
   /** Real backend UUID, used when id is overridden with a local timestamp. */
   realId?: string;
+}
+
+export interface ExternalAgentMeta {
+  enabled?: boolean;
+  harness?: string;
+  keep_session?: boolean;
+  acp_session_id?: string | null;
+  cwd?: string | null;
+  last_active_at?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,14 +147,28 @@ const buildResponseCard = (
     (max, m) => Math.max(max, m.sequence_number || 0),
     0,
   );
+
+  // Try to extract a stable ID from the first message's metadata.
+  // For ACP messages, the original_id is stored in metadata.metadata.original_id
+  // by the agentscope_msg_to_message function in the backend.
+  const firstMsg = outputMessages[0];
+  let stableId = generateId();
+  if (firstMsg?.metadata?.metadata?.original_id) {
+    stableId = String(firstMsg.metadata.metadata.original_id);
+  } else if (firstMsg?.metadata?.original_id) {
+    stableId = String(firstMsg.metadata.original_id);
+  } else if (firstMsg?.id) {
+    stableId = String(firstMsg.id);
+  }
+
   return {
-    id: generateId(),
+    id: stableId,
     role: ROLE_ASSISTANT,
     cards: [
       {
         code: CARD_RESPONSE,
         data: {
-          id: `response_${generateId()}`,
+          id: `response_${stableId}`,
           output: outputMessages,
           object: "response",
           status: "completed",
@@ -228,6 +260,61 @@ const resolveRealId = (
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
 
+  private getFallbackMessages(
+    session?: ExtendedSession,
+  ): IAgentScopeRuntimeWebUIMessage[] {
+    return Array.isArray(session?.messages) ? [...session.messages] : [];
+  }
+
+  /**
+   * Merge locally displayed messages with fetched history.
+   * Preserves local messages that may not have been persisted yet.
+   */
+  private mergeMessages(
+    localMessages: IAgentScopeRuntimeWebUIMessage[],
+    historyMessages: IAgentScopeRuntimeWebUIMessage[],
+  ): IAgentScopeRuntimeWebUIMessage[] {
+    if (!localMessages.length) return historyMessages;
+    if (!historyMessages.length) return localMessages;
+
+    // Create a map of existing message IDs from history
+    const historyIds = new Set<string>();
+    historyMessages.forEach((msg) => {
+      if (msg.id) historyIds.add(msg.id);
+    });
+
+    // Find local messages that are not in history (e.g., streaming messages
+    // that haven't been persisted yet)
+    const localOnlyMessages = localMessages.filter(
+      (msg) => msg.id && !historyIds.has(msg.id),
+    );
+
+    if (!localOnlyMessages.length) return historyMessages;
+
+    // Additional deduplication: check for messages with similar content
+    // This handles cases where message IDs might differ but content is the same
+    const historyContentSigs = new Set<string>();
+    historyMessages.forEach((msg) => {
+      if (msg.role && msg.cards?.length) {
+        // Create a content signature from role and first card data
+        const sig = `${msg.role}:${JSON.stringify(msg.cards[0]?.data || {})}`;
+        historyContentSigs.add(sig);
+      }
+    });
+
+    const trulyLocalOnly = localOnlyMessages.filter((msg) => {
+      if (!msg.role || !msg.cards?.length) return true;
+      const sig = `${msg.role}:${JSON.stringify(msg.cards[0]?.data || {})}`;
+      return !historyContentSigs.has(sig);
+    });
+
+    if (!trulyLocalOnly.length) return historyMessages;
+
+    // Merge: add local-only messages to the end of history
+    // This preserves streaming messages that disappeared after session ID switch
+    return [...historyMessages, ...trulyLocalOnly];
+  }
+
   /**
    * Deduplicates concurrent getSessionList calls so that two parallel
    * invocations share one network request and write sessionList only once,
@@ -287,6 +374,45 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.createEmptySession(sessionId);
   }
 
+  getExternalAgentMeta(sessionId: string): ExternalAgentMeta | null {
+    const session = this.sessionList.find((item) => item.id === sessionId) as
+      | ExtendedSession
+      | undefined;
+    const meta = session?.meta?.external_agent;
+    return meta && typeof meta === "object" ? (meta as ExternalAgentMeta) : null;
+  }
+
+  async setExternalAgentMeta(
+    sessionId: string,
+    meta: ExternalAgentMeta,
+  ): Promise<void> {
+    const session = this.sessionList.find((item) => item.id === sessionId) as
+      | ExtendedSession
+      | undefined;
+    if (!session) return;
+
+    session.meta = {
+      ...(session.meta || {}),
+      external_agent: {
+        ...(this.getExternalAgentMeta(sessionId) || {}),
+        ...meta,
+      },
+    };
+
+    const realId =
+      session.realId ?? (isLocalTimestamp(session.id) ? null : session.id);
+    if (!realId) return;
+
+    await api.updateChat(realId, {
+      id: realId,
+      session_id: session.sessionId,
+      user_id: session.userId,
+      channel: session.channel,
+      name: session.name || DEFAULT_SESSION_NAME,
+      meta: session.meta,
+    });
+  }
+
   /**
    * Returns the real backend UUID for a session identified by id (which may be
    * a local timestamp). Returns null when not yet resolved or not found.
@@ -318,9 +444,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
               (e as ExtendedSession).sessionId ===
               (s as ExtendedSession).sessionId,
           ) as ExtendedSession | undefined;
-          return existing?.realId
-            ? { ...s, id: existing.id, realId: existing.realId }
-            : s;
+          if (!existing) return s;
+          return {
+            ...s,
+            id: existing.realId ? existing.id : s.id,
+            realId: existing.realId,
+            messages: this.getFallbackMessages(existing),
+          };
         });
 
         return [...this.sessionList];
@@ -360,13 +490,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // If realId is already resolved, use it directly to fetch history.
       if (fromList?.realId) {
         const chatHistory = await api.getChat(fromList.realId);
+        const localMessages = this.getFallbackMessages(fromList);
+        const historyMessages =
+          chatHistory.messages?.length > 0
+            ? convertMessages(chatHistory.messages)
+            : [];
+        // Merge: preserve local streaming messages that may not be persisted yet
+        const messages = this.mergeMessages(localMessages, historyMessages);
         const session: ExtendedSession = {
           id: sessionId,
           name: fromList.name || DEFAULT_SESSION_NAME,
           sessionId: fromList.sessionId || sessionId,
           userId: fromList.userId || DEFAULT_USER_ID,
           channel: fromList.channel || DEFAULT_CHANNEL,
-          messages: convertMessages(chatHistory.messages || []),
+          messages,
           meta: fromList.meta || {},
           realId: fromList.realId,
         };
@@ -395,13 +532,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         | undefined;
       if (refreshed?.realId) {
         const chatHistory = await api.getChat(refreshed.realId);
+        const localMessages = this.getFallbackMessages(refreshed);
+        const historyMessages =
+          chatHistory.messages?.length > 0
+            ? convertMessages(chatHistory.messages)
+            : [];
+        // Merge: preserve local streaming messages that may not be persisted yet
+        const messages = this.mergeMessages(localMessages, historyMessages);
         const session: ExtendedSession = {
           id: sessionId,
           name: refreshed.name || DEFAULT_SESSION_NAME,
           sessionId: refreshed.sessionId || sessionId,
           userId: refreshed.userId || DEFAULT_USER_ID,
           channel: refreshed.channel || DEFAULT_CHANNEL,
-          messages: convertMessages(chatHistory.messages || []),
+          messages,
           meta: refreshed.meta || {},
           realId: refreshed.realId,
         };
@@ -426,13 +570,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | undefined;
 
     const chatHistory = await api.getChat(sessionId);
+    const localMessages = this.getFallbackMessages(fromList);
+    const historyMessages =
+      chatHistory.messages?.length > 0
+        ? convertMessages(chatHistory.messages)
+        : [];
+    // Merge: preserve local streaming messages that may not be persisted yet
+    const messages = this.mergeMessages(localMessages, historyMessages);
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
       sessionId: fromList?.sessionId || sessionId,
       userId: fromList?.userId || DEFAULT_USER_ID,
       channel: fromList?.channel || DEFAULT_CHANNEL,
-      messages: convertMessages(chatHistory.messages || []),
+      messages,
       meta: fromList?.meta || {},
     };
 
@@ -441,7 +592,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   async updateSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
-    session.messages = [];
     const index = this.sessionList.findIndex((s) => s.id === session.id);
 
     if (index > -1) {

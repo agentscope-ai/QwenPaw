@@ -16,6 +16,7 @@ from .daemon_commands import (
     DaemonCommandHandlerMixin,
     parse_daemon_query,
 )
+from ...acp import parse_external_agent_text
 from ...agents.command_handler import CommandHandler
 from ...agents.utils.token_counting import _get_token_counter
 from ...config import load_config
@@ -46,6 +47,8 @@ def _is_conversation_command(query: str | None) -> bool:
     if not query or not query.startswith("/"):
         return False
     cmd = query.strip().lstrip("/").split()[0] if query.strip() else ""
+    if cmd == "acp" and parse_external_agent_text(query) is not None:
+        return False
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
@@ -76,6 +79,9 @@ async def run_command_path(
     query = _get_last_user_text(msgs)
     if not query:
         return
+    
+    # DEBUG: Log command execution
+    logger.info("[DEBUG] run_command_path called with query: %r", query[:100] if query else None)
 
     session_id = getattr(request, "session_id", "") or ""
     user_id = getattr(request, "user_id", "") or ""
@@ -124,7 +130,8 @@ async def run_command_path(
         user_id=user_id,
     )
     memory_state = session_state.get("agent", {}).get("memory")
-    memory.load_state_dict(memory_state)
+    if memory_state is not None:
+        memory.load_state_dict(memory_state)
 
     conv_handler = CommandHandler(
         agent_name="Friday",
@@ -140,7 +147,14 @@ async def run_command_path(
             role="assistant",
             content=[TextBlock(type="text", text=str(e))],
         )
-    yield response_msg, True
+    response_msgs = response_msg if isinstance(response_msg, list) else [response_msg]
+    for msg in response_msgs:
+        # Command responses are discrete completed messages rather than
+        # one streaming response, so mark each message as final.
+        yield msg, True
+
+    if response_msgs:
+        await memory.add(response_msgs)
 
     # Update memory key with session_id & user_id to session,
     # but only if identifiers are present
