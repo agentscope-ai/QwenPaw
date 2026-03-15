@@ -17,6 +17,7 @@
     "preview": "预览",
     "content": "内容",
     "loading": "加载中...",
+    "copy": "复制",
     "copied": "已复制到剪贴板",
     "copyFailed": "复制到剪贴板失败",
     "contentPlaceholder": "输入内容...",

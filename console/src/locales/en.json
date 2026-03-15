@@ -17,6 +17,7 @@
     "preview": "Preview",
     "content": "Content",
     "loading": "Loading...",
+    "copy": "Copy",
     "copied": "Copied to clipboard",
     "copyFailed": "Failed to copy to clipboard",
     "contentPlaceholder": "Enter content...",
