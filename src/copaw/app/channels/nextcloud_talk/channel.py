@@ -527,6 +527,7 @@ class NextcloudTalkChannel(BaseChannel):
             self.nc_username,
             self.nc_password,
         )
+        self._webhook_server.set_webhook_path(self.webhook_path)
 
     # ---------------------------
     # Lifecycle

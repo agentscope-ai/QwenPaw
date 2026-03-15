@@ -50,6 +50,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
     api_user: str = ""  # Same as username (BOT account for WebDAV access)
     nc_username: str = ""  # Nextcloud username for authentication
     nc_password: str = ""  # Nextcloud password for authentication
+    webhook_path: str = "/webhook/nextcloud_talk"
 
     def __init__(self, *args, **kwargs):
         """
@@ -67,6 +68,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
         self.api_user = self.__class__.api_user
         self.nc_username = self.__class__.nc_username
         self.nc_password = self.__class__.nc_password
+        self.webhook_path = self.__class__.webhook_path
         super().__init__(*args, **kwargs)
 
     def log_message(self, format_str, *args):
@@ -76,7 +78,7 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Handle POST requests from Nextcloud Talk."""
         # Only handle the webhook path
-        if not self.path.startswith("/webhook/nextcloud_talk"):
+        if not self.path.startswith(self.webhook_path):
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b'{"error":"Not found"}')
@@ -595,6 +597,11 @@ class StdlibWebhookServer:
         """Set Nextcloud credentials for file downloads."""
         NextcloudTalkWebhookHandler.nc_username = username
         NextcloudTalkWebhookHandler.nc_password = password
+
+    @classmethod
+    def set_webhook_path(cls, path: str):
+        """Set the webhook path for the handler."""
+        NextcloudTalkWebhookHandler.webhook_path = path
 
     def start(self):
         """Start the webhook server in a background thread."""
