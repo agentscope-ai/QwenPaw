@@ -48,6 +48,22 @@ pytest
 # paste summary result
 ```
 
+## Release-specific Checklist (if this is a release PR)
+
+Release PR only. Non-release PR can skip this section.
+仅发布类 PR 需要勾选，非发布 PR 可跳过本节。
+
+- [ ] I followed `RELEASE.md` (and `RELEASE_zh.md` if needed)
+- [ ] 我已按 `RELEASE.md`（如需要也参考 `RELEASE_zh.md`）执行发布流程
+- [ ] `src/copaw/__version__.py` is updated with the target version
+- [ ] 我已将目标版本更新到 `src/copaw/__version__.py`
+- [ ] I validated version format (PEP 440)
+- [ ] 我已校验版本格式（PEP 440）
+- [ ] I completed a release checklist issue using `.github/ISSUE_TEMPLATE/6-release_checklist.md`
+- [ ] 我已使用 `.github/ISSUE_TEMPLATE/6-release_checklist.md` 创建并完成发布检查清单 issue
+- [ ] I verified the target release type (stable/prerelease/post) and tag naming
+- [ ] 我已确认发布类型（stable/prerelease/post）与 tag 命名
+
 ## Additional Notes
 
 [Optional: any other context]

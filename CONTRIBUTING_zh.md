@@ -8,7 +8,7 @@
 
 感谢你对 CoPaw 的关注！CoPaw 是一个开源的**个人 AI 助手**，可以在你自己的环境中运行——无论是你的机器还是云端。它可以连接钉钉、飞书、QQ、Discord、iMessage 等聊天应用，支持定时任务和心跳机制，并通过 **Skills** 扩展其能力。我们热烈欢迎能让 CoPaw 对所有人更有用的贡献：无论是添加新的频道、新的模型提供商、Skill，改进文档，还是修复 bug。
 
-**快速链接：** [GitHub](https://github.com/agentscope-ai/CoPaw) · [文档](https://copaw.agentscope.io/) · [许可证：Apache 2.0](LICENSE)
+**快速链接：** [GitHub](https://github.com/agentscope-ai/CoPaw) · [文档](https://copaw.agentscope.io/) · [发布指南](RELEASE_zh.md) · [许可证：Apache 2.0](LICENSE)
 
 ---
 
