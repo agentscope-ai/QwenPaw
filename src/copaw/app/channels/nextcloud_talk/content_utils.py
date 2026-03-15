@@ -376,7 +376,7 @@ class NextcloudTalkContentParser:
 
         Example: "hi {mention-call1}!" -> "hi @world!"
         """
-        # 安全地处理 parameters，确保它是字典类型
+        # Safely handle parameters, ensuring it is a dictionary
         if not isinstance(parameters, dict):
             logger.debug(
                 f"replace_mentions: parameters is not dict, type={type(parameters)}",  # noqa: E501
