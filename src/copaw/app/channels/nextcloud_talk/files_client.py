@@ -3,7 +3,6 @@
 
 
 import base64
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -51,44 +50,6 @@ class NextcloudFilesClient:
         self.base_url = base_url.rstrip("/")
         self.username = username
         self.password = password
-
-        # Load credentials from config if not provided
-        if not username or not password:
-            self._load_credentials_from_config()
-
-    def _load_credentials_from_config(self):
-        """Load Nextcloud credentials from config file."""
-        try:
-            config_path = Path.home() / ".copaw" / "config.json"
-            if config_path.exists():
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-
-                nc_config = config.get("channels", {}).get(
-                    "nextcloud_talk",
-                    {},
-                )
-                if nc_config:
-                    self.username = nc_config.get("username", "")
-                    self.password = nc_config.get("password", "")
-
-                    if self.username and self.password:
-                        logger.info(
-                            "Loaded Nextcloud credentials from config: "
-                            "username=%s...",
-                            self.username[:3],
-                        )
-                    else:
-                        logger.warning(
-                            "Nextcloud credentials not found in config",
-                        )
-            else:
-                logger.warning(f"Config file not found: {config_path}")
-
-        except Exception as e:
-            logger.error(
-                f"Failed to load Nextcloud credentials from config: {e}",
-            )
 
     def build_webdav_url(self, api_user: str, file_path: str) -> Optional[str]:
         """

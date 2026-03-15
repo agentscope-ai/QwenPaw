@@ -8,6 +8,7 @@ import logging
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Callable, Dict, Optional
+from functools import partial
 
 from .content_utils import (
     NextcloudTalkContentParser,
@@ -561,9 +562,6 @@ class NextcloudTalkWebhookHandler(BaseHTTPRequestHandler):
         logger.info(f"nextcloud_talk webhook: enqueueing {identifier}")
 
         if self.enqueue_callback and callable(self.enqueue_callback):
-            # Use partial to create a callable without arguments
-            from functools import partial
-
             safe_callback = partial(self.enqueue_callback, channel_payload)
 
             self._schedule_callback_async(safe_callback, identifier)
