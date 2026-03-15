@@ -479,3 +479,6 @@ All thanks to our contributors:
 <a href="https://github.com/agentscope-ai/CoPaw/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=agentscope-ai/CoPaw" alt="Contributors" />
 </a>
+
+
+<!-- Automated minor fix for issue #649 -->
