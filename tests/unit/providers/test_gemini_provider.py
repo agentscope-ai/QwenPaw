@@ -42,7 +42,9 @@ async def test_check_connection_success(monkeypatch) -> None:
 
     class FakeModels:
         async def list(self):
-            return _AsyncIter([SimpleNamespace(name="models/gemini-2.5-flash")])
+            return _AsyncIter(
+                [SimpleNamespace(name="models/gemini-2.5-flash")],
+            )
 
     fake_client = SimpleNamespace(
         aio=SimpleNamespace(models=FakeModels()),
@@ -71,6 +73,26 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
 
     assert ok is False
     assert "Failed to connect to Google Gemini API" in msg
+
+
+async def test_check_connection_generic_exception_returns_false(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FakeModels:
+        async def list(self):
+            raise ConnectionError("DNS resolution failed")
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, msg = await provider.check_connection(timeout=1.0)
+
+    assert ok is False
+    assert "Unknown exception" in msg
 
 
 # -- fetch_models ------------------------------------------------------------
@@ -116,6 +138,25 @@ async def test_fetch_models_api_error_returns_empty(monkeypatch) -> None:
     class FakeModels:
         async def list(self):
             raise genai_errors.APIError(500, {"error": "internal"})
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models(timeout=3.0)
+
+    assert models == []
+
+
+async def test_fetch_models_generic_exception_returns_empty(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FakeModels:
+        async def list(self):
+            raise OSError("network unreachable")
 
     fake_client = SimpleNamespace(
         aio=SimpleNamespace(models=FakeModels()),
@@ -186,6 +227,29 @@ async def test_check_model_connection_api_error_returns_false(
 
     assert ok is False
     assert "not reachable or usable" in msg
+
+
+async def test_check_model_connection_generic_exception_returns_false(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            raise TimeoutError("connection timed out")
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, msg = await provider.check_model_connection(
+        "gemini-2.5-flash",
+        timeout=4.0,
+    )
+
+    assert ok is False
+    assert "Unknown exception" in msg
 
 
 # -- _normalize_models_payload ------------------------------------------------

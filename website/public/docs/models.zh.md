@@ -37,7 +37,7 @@ CoPaw 支持多种 LLM 提供商：**云提供商**（需 API Key，包括 Googl
 
 ## Google Gemini 提供商
 
-Google Gemini 提供商通过 Google 原生 Gemini API（使用 `google-genai` SDK）访问 Gemini 模型。内置模型包括 Gemini 3.1 Pro、Gemini 3 Flash、Gemini 3.1 Flash Lite、Gemini 2.5 Pro、Gemini 2.5 Flash、Gemini 2.5 Flash Lite 和 Gemini 2.0 Flash。还可通过 API 自动发现更多模型。
+Google Gemini 提供商通过 Google 原生 Gemini API（使用 `google-genai` SDK）访问 Gemini 模型。内置模型包括 Gemini 3.1 Pro Preview、Gemini 3 Flash Preview、Gemini 3.1 Flash Lite Preview、Gemini 2.5 Pro、Gemini 2.5 Flash、Gemini 2.5 Flash Lite 和 Gemini 2.0 Flash。还可通过 API 自动发现更多模型。
 
 **前置条件：**
 

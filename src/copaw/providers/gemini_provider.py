@@ -69,6 +69,11 @@ class GeminiProvider(Provider):
                 "Failed to connect to Google Gemini API. "
                 "Check your API key.",
             )
+        except Exception:
+            return (
+                False,
+                "Unknown exception when connecting to Google Gemini API.",
+            )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models from Gemini API."""
@@ -80,6 +85,8 @@ class GeminiProvider(Provider):
             models = self._normalize_models_payload(payload)
             return models
         except genai_errors.APIError:
+            return []
+        except Exception:
             return []
 
     async def check_model_connection(
@@ -105,6 +112,11 @@ class GeminiProvider(Provider):
             return (
                 False,
                 f"Model '{model_id}' is not reachable or usable",
+            )
+        except Exception:
+            return (
+                False,
+                f"Unknown exception when connecting to model '{model_id}'",
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
