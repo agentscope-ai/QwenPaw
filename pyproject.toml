@@ -27,6 +27,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "paho-mqtt>=2.0.0",
     "matrix-nio>=0.24.0",
+    "google-genai>=1.0.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -73,11 +74,8 @@ mlx = [
 ollama = [
     "ollama>=0.6.1",
 ]
-gemini = [
-    "google-genai>=1.0.0",
-]
 full = [
-    "copaw[local,ollama,llamacpp,gemini]",
+    "copaw[local,ollama,llamacpp]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
 

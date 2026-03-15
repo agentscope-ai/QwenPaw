@@ -41,7 +41,6 @@ Google Gemini 提供商通过 Google 原生 Gemini API（使用 `google-genai` S
 
 **前置条件：**
 
-- 在 CoPaw 所在环境中安装 Google GenAI SDK：`pip install google-genai`。
 - 从 [Google AI Studio](https://aistudio.google.com/apikey) 获取 Gemini API Key。
 
 **在控制台中配置：**

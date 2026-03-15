@@ -41,7 +41,6 @@ Google Gemini プロバイダーは、Google のネイティブ Gemini API（`go
 
 **前提条件：**
 
-- CoPaw の環境に Google GenAI SDK をインストール：`pip install google-genai`
 - [Google AI Studio](https://aistudio.google.com/apikey) から Gemini API キーを取得。
 
 **コンソールでの操作：**

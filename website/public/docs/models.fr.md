@@ -41,7 +41,6 @@ Le fournisseur Google Gemini utilise l'API native Gemini de Google (via le SDK `
 
 **Prérequis :**
 
-- Installez le SDK Google GenAI dans l'environnement de CoPaw : `pip install google-genai`.
 - Obtenez une clé API Gemini depuis [Google AI Studio](https://aistudio.google.com/apikey).
 
 **Dans la console :**

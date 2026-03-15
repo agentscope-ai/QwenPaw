@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
+from google import genai
 
 from copaw.providers.provider import ModelInfo, Provider
 
@@ -15,14 +16,6 @@ class GeminiProvider(Provider):
     """Provider implementation for Google Gemini API."""
 
     def _client(self, timeout: float = 5) -> Any:
-        try:
-            from google import genai
-        except ImportError as e:
-            raise ImportError(
-                "Google GenAI SDK not installed. "
-                "Install with: pip install google-genai",
-            ) from e
-
         return genai.Client(api_key=self.api_key)
 
     @staticmethod
@@ -64,8 +57,6 @@ class GeminiProvider(Provider):
             async for _ in await client.aio.models.list():
                 break
             return True, ""
-        except ImportError as e:
-            return False, str(e)
         except Exception:
             return (
                 False,
@@ -104,8 +95,6 @@ class GeminiProvider(Provider):
             async for _ in response:
                 break
             return True, ""
-        except ImportError as e:
-            return False, str(e)
         except Exception:
             return (
                 False,
