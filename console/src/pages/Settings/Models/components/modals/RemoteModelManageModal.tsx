@@ -62,11 +62,8 @@ export function RemoteModelManageModal({
   const [loadingFilters, setLoadingFilters] = useState(false);
 
   // Enable discover for providers that support it
-  // For local providers (ollama, llama.cpp, mlx) - check base_url
-  // For built-in providers with frozen URL - check api_key
-  const canDiscover = provider.is_local
-    ? !!provider.base_url
-    : !!provider.api_key;
+  // Use support_model_discovery field from ProviderInfo
+  const canDiscover = provider.support_model_discovery;
 
   // Load available series for OpenRouter
   useEffect(() => {
@@ -406,36 +403,36 @@ export function RemoteModelManageModal({
                                 {(m as any).input_modalities?.includes(
                                   "image",
                                 ) && (
-                                  <SparkImageuploadLine
-                                    style={{ fontSize: 12 }}
-                                  />
-                                )}
+                                    <SparkImageuploadLine
+                                      style={{ fontSize: 12 }}
+                                    />
+                                  )}
                                 {(m as any).input_modalities?.includes(
                                   "audio",
                                 ) && (
-                                  <SparkAudiouploadLine
-                                    style={{ fontSize: 12 }}
-                                  />
-                                )}
+                                    <SparkAudiouploadLine
+                                      style={{ fontSize: 12 }}
+                                    />
+                                  )}
                                 {(m as any).input_modalities?.includes(
                                   "video",
                                 ) && (
-                                  <SparkVideouploadLine
-                                    style={{ fontSize: 12 }}
-                                  />
-                                )}
+                                    <SparkVideouploadLine
+                                      style={{ fontSize: 12 }}
+                                    />
+                                  )}
                                 {(m as any).input_modalities?.includes(
                                   "file",
                                 ) && (
-                                  <SparkFilePdfLine style={{ fontSize: 12 }} />
-                                )}
+                                    <SparkFilePdfLine style={{ fontSize: 12 }} />
+                                  )}
                                 {(m as any).output_modalities?.includes(
                                   "image",
                                 ) && (
-                                  <SparkTextImageLine
-                                    style={{ fontSize: 12, color: "purple" }}
-                                  />
-                                )}
+                                    <SparkTextImageLine
+                                      style={{ fontSize: 12, color: "purple" }}
+                                    />
+                                  )}
                                 {(m as any).pricing?.prompt && (
                                   <span
                                     style={{ color: "green", marginLeft: 4 }}
