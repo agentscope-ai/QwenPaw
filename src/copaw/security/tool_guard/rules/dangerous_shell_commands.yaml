@@ -48,7 +48,7 @@
   category: command_injection
   severity: HIGH
   patterns:
-    - "\\bgit\\s+reset\\s+(--hard|-h\\b)"
+    - "\\bgit\\s+reset\\s+(--hard|--merge|--keep)"
     - "\\bgit\\s+checkout\\s+(--\\s+\\.|\\.)"
     - "\\bgit\\s+clean\\s+-[a-zA-Z]*f"
     - "\\bgit\\s+push\\s+.*(--force|-f\\b)"
