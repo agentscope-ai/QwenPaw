@@ -101,6 +101,27 @@ def _get_formatter_for_chat_model(
     )
 
 
+def _assistant_message_survives_format(msg: Msg) -> bool:
+    """Best-effort check for assistant messages kept by AgentScope formatters."""
+    if msg.role != "assistant":
+        return False
+
+    if isinstance(msg.content, str):
+        return bool(msg.content)
+
+    for block in msg.get_content_blocks():
+        block_type = block.get("type")
+        if block_type == "thinking":
+            continue
+        if block_type == "text":
+            if block.get("text"):
+                return True
+            continue
+        return True
+
+    return False
+
+
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
 ) -> Type[FormatterBase]:
@@ -160,26 +181,19 @@ def _create_file_block_support_formatter(
                             tc["extra_content"] = ec
 
             if reasoning_contents:
-                in_assistant = [m for m in msgs if m.role == "assistant"]
+                in_assistant = [
+                    m for m in msgs if _assistant_message_survives_format(m)
+                ]
                 out_assistant = [
                     m for m in messages if m.get("role") == "assistant"
                 ]
-                if len(in_assistant) != len(out_assistant):
-                    logger.warning(
-                        "Assistant message count mismatch after formatting "
-                        "(%d before, %d after). "
-                        "Skipping reasoning_content injection.",
-                        len(in_assistant),
-                        len(out_assistant),
-                    )
-                else:
-                    for in_msg, out_msg in zip(
-                        in_assistant,
-                        out_assistant,
-                    ):
-                        reasoning = reasoning_contents.get(id(in_msg))
-                        if reasoning:
-                            out_msg["reasoning_content"] = reasoning
+                for in_msg, out_msg in zip(
+                    in_assistant,
+                    out_assistant,
+                ):
+                    reasoning = reasoning_contents.get(id(in_msg))
+                    if reasoning:
+                        out_msg["reasoning_content"] = reasoning
 
             return _strip_top_level_message_name(messages)
 
