@@ -246,6 +246,52 @@ async def put_audio_mode(
 
 
 @router.get(
+    "/transcription-providers",
+    summary="List transcription providers",
+    description=(
+        "List providers capable of audio transcription (Whisper API). "
+        "Returns available providers and the currently active one."
+    ),
+)
+async def get_transcription_providers() -> dict:
+    """List transcription-capable providers and active selection."""
+    from ...agents.utils.audio_transcription import (
+        get_active_transcription_provider_id,
+        list_transcription_providers,
+    )
+
+    return {
+        "providers": list_transcription_providers(),
+        "active_provider_id": get_active_transcription_provider_id(),
+    }
+
+
+@router.put(
+    "/transcription-provider",
+    summary="Set transcription provider",
+    description=(
+        "Set the provider to use for audio transcription. "
+        'Use empty string "" for auto-detection.'
+    ),
+)
+async def put_transcription_provider(
+    body: dict = Body(
+        ...,
+        description=(
+            'Provider ID, e.g. {"provider_id": "openai"} '
+            'or {"provider_id": ""} for auto'
+        ),
+    ),
+) -> dict:
+    """Set the transcription provider."""
+    provider_id = (body.get("provider_id") or "").strip()
+    config = load_config()
+    config.agents.transcription_provider_id = provider_id
+    save_config(config)
+    return {"provider_id": provider_id}
+
+
+@router.get(
     "/running-config",
     response_model=AgentsRunningConfig,
     summary="Get agent running config",

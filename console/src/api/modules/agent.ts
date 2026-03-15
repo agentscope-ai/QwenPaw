@@ -49,4 +49,16 @@ export const agentApi = {
       method: "PUT",
       body: JSON.stringify({ audio_mode }),
     }),
+
+  getTranscriptionProviders: () =>
+    request<{
+      providers: { id: string; name: string; available: boolean }[];
+      active_provider_id: string;
+    }>("/agent/transcription-providers"),
+
+  updateTranscriptionProvider: (provider_id: string) =>
+    request<{ provider_id: string }>("/agent/transcription-provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider_id }),
+    }),
 };

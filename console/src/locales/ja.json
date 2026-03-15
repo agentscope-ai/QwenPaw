@@ -655,6 +655,11 @@
     "modeTranscribeDesc": "常に Whisper API で音声をテキストに変換します。文字起こしに失敗した場合、音声の代わりにプレースホルダーメッセージが送信されます。すべてのモデルで動作します。",
     "modeNative": "ネイティブ音声",
     "modeNativeDesc": "文字起こしせずに音声ファイルをモデルに直接送信します。音声対応モデル（例: gpt-4o-audio）でのみ動作します。ほとんどのモデルはこのモードをサポートしていません。",
+    "providerLabel": "文字起こしプロバイダー",
+    "providerDescription": "Whisper API による音声文字起こしに使用するプロバイダーを選択します。有効な API キーと Whisper 対応エンドポイントを持つプロバイダーのみ表示されます。",
+    "providerAuto": "自動検出（最初に利用可能なプロバイダーを使用）",
+    "activeProvider": "現在使用中：",
+    "noProvidersWarning": "文字起こし対応のプロバイダーが見つかりません。音声文字起こしを有効にするには、有効な API キーを持つ OpenAI プロバイダーを設定してください。",
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "音声の文字起こしには OpenAI Whisper API（/v1/audio/transcriptions）を使用します。Whisper 対応エンドポイントを持つプロバイダー（例: 有効な API キーを持つ OpenAI プロバイダー）の設定が必要です。互換性のあるプロバイダーが設定されていない場合、文字起こし機能は利用できません。"
   }

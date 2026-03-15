@@ -58,6 +58,11 @@
     "modeTranscribeDesc": "Always convert audio to text via the Whisper API. If transcription fails, a placeholder message is sent instead of the audio. Works with all models.",
     "modeNative": "Native Audio",
     "modeNativeDesc": "Send the audio file directly to the model without transcription. Only works with specific audio-capable models (e.g. gpt-4o-audio). Most models do not support this and will reject the message.",
+    "providerLabel": "Transcription Provider",
+    "providerDescription": "Select which provider to use for audio transcription via the Whisper API. Only providers with a valid API key and a Whisper-compatible endpoint are shown.",
+    "providerAuto": "Auto-detect (use first available provider)",
+    "activeProvider": "Currently using:",
+    "noProvidersWarning": "No transcription-capable providers found. Configure an OpenAI provider with a valid API key to enable voice transcription.",
     "transcriptionInfoTitle": "How transcription works",
     "transcriptionInfoDesc": "Audio transcription uses the OpenAI Whisper API (/v1/audio/transcriptions). This requires a configured provider with a Whisper-compatible endpoint \u2014 for example, an OpenAI provider with a valid API key. If no compatible provider is configured, transcription will be unavailable."
   },

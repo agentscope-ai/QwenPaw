@@ -286,6 +286,13 @@ class AgentsConfig(BaseModel):
             '"native": send audio blocks directly (may need ffmpeg).'
         ),
     )
+    transcription_provider_id: str = Field(
+        default="",
+        description=(
+            "Provider ID to use for audio transcription (Whisper API). "
+            "Empty string means auto-detect the first compatible provider."
+        ),
+    )
 
 
 class LastDispatchConfig(BaseModel):
