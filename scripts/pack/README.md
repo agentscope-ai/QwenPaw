@@ -41,6 +41,28 @@ CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip
 #   - CoPaw Desktop (Debug).bat (shows console for troubleshooting)
 ```
 
+## Local distribution
+
+After a successful local build, distribute only the final desktop artifact:
+
+- **macOS**: `dist/CoPaw-<version>-macOS.zip`
+- **Windows**: `dist/CoPaw-Setup-<version>.exe`
+
+Do not publish intermediate files such as `dist/copaw-env.tar.gz`, the unpacked
+`dist/CoPaw.app`, or Python build artifacts unless you specifically need them
+for debugging.
+
+Recommended local smoke check before sharing:
+
+1. Build with `CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh` (macOS) or `./scripts/pack/build_win.ps1` (Windows).
+2. Open the packaged app once on the build machine.
+3. Confirm the browser console opens and basic startup completes.
+4. If macOS launch fails, inspect `~/.copaw/desktop.log` or run the app from Terminal as shown below.
+
+For macOS, prefer sharing the generated `.zip` instead of copying the `.app`
+bundle directly. The zip preserves the app bundle structure and matches the
+artifact shape used by the release workflow.
+
 ## Run from terminal and see logs (macOS)
 
 If the .app crashes on double-click, run it from Terminal to see the full error and logs:
