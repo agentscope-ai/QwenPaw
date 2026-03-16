@@ -338,7 +338,9 @@ def _create_routing_model_and_formatter(
 ) -> Tuple[ChatModelBase, FormatterBase] | None:
     from .routing_chat_model import RoutingChatModel
 
-    cloud_slot = routing_cfg.cloud or cloud_fallback_slot or manager.get_active_model()
+    cloud_slot = (
+        routing_cfg.cloud or cloud_fallback_slot or manager.get_active_model()
+    )
     local_resolved = _resolve_routing_slot(
         routing_cfg.local,
         manager=manager,
