@@ -67,7 +67,7 @@ copaw cron create \
 - `--type`：任务类型（text 或 agent）
 - `--name`：任务名称
 - `--cron`：cron 表达式（如 `"0 9 * * *"` 表示每天 9:00）
-- `--channel`：目标频道（imessage / discord / dingtalk / qq / console）
+- `--channel`：目标频道（console / feishu / dingtalk / discord / qq / telegram / imessage / matrix / mattermost 等）。用户未指定时，使用"当前的channel"的值
 - `--target-user`：用户标识
 - `--target-session`：会话标识
 - `--text`：消息内容（text 类型）或提问内容（agent 类型）

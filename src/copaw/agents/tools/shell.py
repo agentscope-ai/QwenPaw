@@ -68,9 +68,14 @@ def _execute_subprocess_sync(
             return code will be -1 and stderr will contain timeout information.
     """
     try:
+        # Disable cmd.exe AutoRun (/D) to prevent spurious stderr
+        # from registry-configured startup scripts (e.g. "The system
+        # cannot find the path specified.").  /S prevents quote stripping
+        # so the inner command is passed through unchanged.
+        wrapped = ["cmd", "/D", "/S", "/C", cmd]
         with subprocess.Popen(
-            cmd,
-            shell=True,
+            wrapped,
+            shell=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,

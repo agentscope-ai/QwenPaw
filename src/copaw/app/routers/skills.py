@@ -68,12 +68,7 @@ async def list_skills() -> list[SkillSpec]:
     for skill in all_skills:
         skills_spec.append(
             SkillSpec(
-                name=skill.name,
-                content=skill.content,
-                source=skill.source,
-                path=skill.path,
-                references=skill.references,
-                scripts=skill.scripts,
+                **skill.model_dump(),
                 enabled=skill.name in available_skills,
             ),
         )
@@ -87,12 +82,7 @@ async def get_available_skills() -> list[SkillSpec]:
     for skill in available_skills:
         skills_spec.append(
             SkillSpec(
-                name=skill.name,
-                content=skill.content,
-                source=skill.source,
-                path=skill.path,
-                references=skill.references,
-                scripts=skill.scripts,
+                **skill.model_dump(),
                 enabled=True,
             ),
         )
@@ -229,9 +219,12 @@ async def load_skill_file(
     Returns:
         File content as string, or None if not found
 
-    Example:
-        GET /skills/my_skill/files/customized/references/doc.md
-        GET /skills/builtin_skill/files/builtin/scripts/utils/helper.py
+        Example:
+
+            GET /skills/my_skill/files/customized/references/doc.md
+
+            GET /skills/builtin_skill/files/builtin/scripts/utils/helper.py
+
     """
     content = SkillService.load_skill_file(
         skill_name=skill_name,

@@ -13,8 +13,7 @@ except ImportError:
 
 from agentscope.model import ChatModelBase
 
-from copaw.providers.provider import ModelInfo, Provider, ProviderInfo
-from copaw.token_usage import TokenRecordingModelWrapper
+from copaw.providers.provider import ModelInfo, Provider
 
 
 class OllamaProvider(Provider):
@@ -23,7 +22,7 @@ class OllamaProvider(Provider):
     def model_post_init(self, __context: Any) -> None:
         if not self.base_url:  # type: ignore
             self.base_url = (
-                os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
+                os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
             )
         if self.base_url.endswith("/v1"):
             # For backwards compatibility, if the URL ends with /v1,
@@ -77,10 +76,10 @@ class OllamaProvider(Provider):
             return False, "Ollama Python SDK is not installed"
         except ConnectionError:
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
-        except Exception:
+        except Exception as exc:
             return (
                 False,
-                f"Unknown exception when connecting to `{self.base_url}`",
+                f"Failed to connect to Ollama at `{self.base_url}`: {exc}",
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
@@ -89,7 +88,6 @@ class OllamaProvider(Provider):
             client = self._client(timeout=timeout)
             payload = await client.list()
             models = self._normalize_models_payload(payload)
-            self.models = models
             return models
         except (ImportError, ConnectionError, OSError, RuntimeError):
             return []
@@ -115,8 +113,8 @@ class OllamaProvider(Provider):
             return False, "Ollama Python SDK is not installed"
         except ConnectionError:
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
-        except Exception:
-            return False, f"Unknown exception when connecting to `{target}`"
+        except Exception as exc:
+            return False, f"Model connection failed for `{target}`: {exc}"
 
     async def add_model(
         self,
@@ -129,7 +127,9 @@ class OllamaProvider(Provider):
         The model_info.id is expected to be in the format of
         "registry/model:tag" or "registry/model".
         """
-        if model_info.id in {model.id for model in self.models}:
+        if model_info.id in {
+            model.id for model in self.extra_models  # type: ignore [has-type]
+        }:
             return False, f"Model '{model_info.id}' already exists"
         client = self._client(timeout=timeout)
         try:
@@ -140,7 +140,7 @@ class OllamaProvider(Provider):
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
         except Exception:
             return False, f"Failed to pull model '{model_info.id}'"
-        self.models = await self.fetch_models()
+        self.extra_models = await self.fetch_models()
         return True, ""
 
     async def delete_model(
@@ -157,7 +157,7 @@ class OllamaProvider(Provider):
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
         except Exception:
             return False, f"Failed to delete model '{model_id}'"
-        self.models = await self.fetch_models()
+        self.extra_models = await self.fetch_models()
         return True, ""
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
@@ -168,7 +168,7 @@ class OllamaProvider(Provider):
         else:
             openai_compatible_url = self.base_url + "/v1"
 
-        model_instance = OpenAIChatModelCompat(
+        return OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
@@ -176,13 +176,3 @@ class OllamaProvider(Provider):
             client_kwargs={"base_url": openai_compatible_url},
             generate_kwargs=self.generate_kwargs,
         )
-
-        return TokenRecordingModelWrapper(self.id, model_instance)
-
-    async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
-        try:
-            models = await self.fetch_models(timeout=1)
-            self.models = models
-        except Exception:
-            models = []
-        return await super().get_info(mock_secret=mock_secret)

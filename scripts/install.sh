@@ -7,6 +7,22 @@
 # Users do NOT need Python pre-installed — uv handles everything.
 set -euo pipefail
 
+# ── Colors ────────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+    BOLD="\033[1m"
+    GREEN="\033[0;32m"
+    YELLOW="\033[0;33m"
+    RED="\033[0;31m"
+    RESET="\033[0m"
+else
+    BOLD="" GREEN="" YELLOW="" RED="" RESET=""
+fi
+
+info()  { printf "${GREEN}[copaw]${RESET} %s\n" "$*"; }
+warn()  { printf "${YELLOW}[copaw]${RESET} %s\n" "$*"; }
+error() { printf "${RED}[copaw]${RESET} %s\n" "$*" >&2; }
+die()   { error "$@"; exit 1; }
+
 # ── Defaults ──────────────────────────────────────────────────────────────────
 COPAW_HOME="${COPAW_HOME:-$HOME/.copaw}"
 COPAW_VENV="$COPAW_HOME/venv"
@@ -37,22 +53,6 @@ VERSION=""
 FROM_SOURCE=false
 SOURCE_DIR=""
 EXTRAS=""
-
-# ── Colors ────────────────────────────────────────────────────────────────────
-if [ -t 1 ]; then
-    BOLD="\033[1m"
-    GREEN="\033[0;32m"
-    YELLOW="\033[0;33m"
-    RED="\033[0;31m"
-    RESET="\033[0m"
-else
-    BOLD="" GREEN="" YELLOW="" RED="" RESET=""
-fi
-
-info()  { printf "${GREEN}[copaw]${RESET} %s\n" "$*"; }
-warn()  { printf "${YELLOW}[copaw]${RESET} %s\n" "$*"; }
-error() { printf "${RED}[copaw]${RESET} %s\n" "$*" >&2; }
-die()   { error "$@"; exit 1; }
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do

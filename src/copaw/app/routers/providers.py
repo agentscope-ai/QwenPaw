@@ -14,7 +14,11 @@ from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
 
 router = APIRouter(prefix="/models", tags=["models"])
 
-ChatModelName = Literal["OpenAIChatModel", "AnthropicChatModel"]
+ChatModelName = Literal[
+    "OpenAIChatModel",
+    "AnthropicChatModel",
+    "GeminiChatModel",
+]
 
 
 def get_provider_manager(request: Request) -> ProviderManager:
@@ -250,7 +254,6 @@ async def discover_models(
         try:
             result = await manager.fetch_provider_models(
                 provider_id,
-                update_target="extra_models",
             )
             success = True
         except Exception:

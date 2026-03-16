@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from .base import BaseChatRepository
@@ -65,5 +66,5 @@ class JsonChatRepository(BaseChatRepository):
             encoding="utf-8",
         )
 
-        # Atomic replace
-        tmp_path.replace(self._path)
+        # Atomic replace (shutil.move handles cross-disk on Windows)
+        shutil.move(str(tmp_path), str(self._path))

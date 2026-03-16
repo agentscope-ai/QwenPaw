@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -36,7 +36,7 @@ class CronManager:
         repo: BaseJobRepository,
         runner: Any,
         channel_manager: Any,
-        timezone: str = "UTC",
+        timezone: str = "UTC",  # pylint: disable=redefined-outer-name
     ):
         self._repo = repo
         self._runner = runner
@@ -294,5 +294,5 @@ class CronManager:
                 )
                 raise
             finally:
-                st.last_run_at = datetime.utcnow()
+                st.last_run_at = datetime.now(timezone.utc)
                 self._states[job.id] = st

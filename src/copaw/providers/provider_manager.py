@@ -3,6 +3,7 @@
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 
+import asyncio
 import os
 from typing import Dict, List
 import logging
@@ -19,8 +20,8 @@ from copaw.providers.provider import (
     ProviderInfo,
 )
 from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.lm_studio_provider import LMStudioProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
 from copaw.local_models import create_local_chat_model
@@ -85,7 +86,30 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
 ]
 
+MINIMAX_MODELS: List[ModelInfo] = [
+    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
+    ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
+]
+
+DEEPSEEK_MODELS: List[ModelInfo] = [
+    ModelInfo(id="deepseek-chat", name="DeepSeek Chat"),
+    ModelInfo(id="deepseek-reasoner", name="DeepSeek Reasoner"),
+]
+
 ANTHROPIC_MODELS: List[ModelInfo] = []
+
+GEMINI_MODELS: List[ModelInfo] = [
+    ModelInfo(id="gemini-3.1-pro-preview", name="Gemini 3.1 Pro Preview"),
+    ModelInfo(id="gemini-3-flash-preview", name="Gemini 3 Flash Preview"),
+    ModelInfo(
+        id="gemini-3.1-flash-lite-preview",
+        name="Gemini 3.1 Flash Lite Preview",
+    ),
+    ModelInfo(id="gemini-2.5-pro", name="Gemini 2.5 Pro"),
+    ModelInfo(id="gemini-2.5-flash", name="Gemini 2.5 Flash"),
+    ModelInfo(id="gemini-2.5-flash-lite", name="Gemini 2.5 Flash Lite"),
+    ModelInfo(id="gemini-2.0-flash", name="Gemini 2.0 Flash"),
+]
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
     id="modelscope",
@@ -144,6 +168,25 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     models=AZURE_OPENAI_MODELS,
 )
 
+PROVIDER_MINIMAX = OpenAIProvider(
+    id="minimax",
+    name="MiniMax",
+    base_url="https://api.minimax.io/v1",
+    api_key_prefix="eyJ",
+    models=MINIMAX_MODELS,
+    freeze_url=True,
+    generate_kwargs={"temperature": 1.0},
+)
+
+PROVIDER_DEEPSEEK = OpenAIProvider(
+    id="deepseek",
+    name="DeepSeek",
+    base_url="https://api.deepseek.com",
+    api_key_prefix="sk-",
+    models=DEEPSEEK_MODELS,
+    freeze_url=True,
+)
+
 PROVIDER_ANTHROPIC = AnthropicProvider(
     id="anthropic",
     name="Anthropic",
@@ -154,19 +197,33 @@ PROVIDER_ANTHROPIC = AnthropicProvider(
     freeze_url=True,
 )
 
+PROVIDER_GEMINI = GeminiProvider(
+    id="gemini",
+    name="Google Gemini",
+    base_url="https://generativelanguage.googleapis.com",
+    api_key_prefix="",
+    models=GEMINI_MODELS,
+    chat_model="GeminiChatModel",
+    freeze_url=True,
+    support_model_discovery=True,
+)
+
 PROVIDER_OLLAMA = OllamaProvider(
     id="ollama",
     name="Ollama",
     require_api_key=False,
+    support_model_discovery=True,
+    generate_kwargs={"max_tokens": None},
 )
 
-PROVIDER_LMSTUDIO = LMStudioProvider(
+PROVIDER_LMSTUDIO = OpenAIProvider(
     id="lmstudio",
     name="LM Studio",
     base_url="http://localhost:1234/v1",
     require_api_key=False,
     api_key_prefix="",
-    models=[],
+    support_model_discovery=True,
+    generate_kwargs={"max_tokens": None},
 )
 
 
@@ -224,7 +281,10 @@ class ProviderManager:
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
+        self._add_builtin(PROVIDER_MINIMAX)
+        self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_ANTHROPIC)
+        self._add_builtin(PROVIDER_GEMINI)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_LLAMACPP)
@@ -234,12 +294,14 @@ class ProviderManager:
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        provider_infos = []
-        for provider in self.builtin_providers.values():
-            provider_infos.append(await provider.get_info())
-        for provider in self.custom_providers.values():
-            provider_infos.append(await provider.get_info())
-        return provider_infos
+        tasks = [
+            provider.get_info() for provider in self.builtin_providers.values()
+        ]
+        tasks += [
+            provider.get_info() for provider in self.custom_providers.values()
+        ]
+        provider_infos = await asyncio.gather(*tasks)
+        return list(provider_infos)
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
@@ -276,20 +338,14 @@ class ProviderManager:
     async def fetch_provider_models(
         self,
         provider_id: str,
-        update_target: str,
     ) -> List[ModelInfo]:
-        """Fetch the list of available models from a provider and optionally
-        update the provider's model list in memory and on disk."""
+        """Fetch the list of available models from a provider and update."""
         provider = self.get_provider(provider_id)
         if not provider:
             return []
         try:
             models = await provider.fetch_models()
-            for model in models:
-                await provider.add_model(
-                    model,
-                    target=update_target,
-                )
+            provider.extra_models = models
             self._save_provider(
                 provider,
                 is_builtin=provider_id in self.builtin_providers,
@@ -439,10 +495,10 @@ class ProviderManager:
 
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
-        if provider_id == "ollama" or chat_model == "OllamaChatModel":
+        if provider_id == "gemini" or chat_model == "GeminiChatModel":
+            return GeminiProvider.model_validate(data)
+        if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
-        if provider_id == "lmstudio":
-            return LMStudioProvider.model_validate(data)
         if data.get("is_local", False):
             return DefaultProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
@@ -549,7 +605,7 @@ class ProviderManager:
                 builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
-                builtin.generate_kwargs = provider.generate_kwargs
+                builtin.generate_kwargs.update(provider.generate_kwargs)
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

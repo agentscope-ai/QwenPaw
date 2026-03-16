@@ -26,9 +26,17 @@ except ImportError:  # pragma: no cover - compatibility fallback
     AnthropicChatFormatter = None
     AnthropicChatModel = None
 
+try:
+    from agentscope.formatter import GeminiChatFormatter
+    from agentscope.model import GeminiChatModel
+except ImportError:  # pragma: no cover - compatibility fallback
+    GeminiChatFormatter = None
+    GeminiChatModel = None
+
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import RetryChatModel
+from ..token_usage import TokenRecordingModelWrapper
 
 
 def _file_url_to_path(url: str) -> str:
@@ -81,6 +89,8 @@ _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
 }
 if AnthropicChatModel is not None and AnthropicChatFormatter is not None:
     _CHAT_MODEL_FORMATTER_MAP[AnthropicChatModel] = AnthropicChatFormatter
+if GeminiChatModel is not None and GeminiChatFormatter is not None:
+    _CHAT_MODEL_FORMATTER_MAP[GeminiChatModel] = GeminiChatFormatter
 
 
 def _get_formatter_for_chat_model(
@@ -295,9 +305,11 @@ def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
     formatter = _create_formatter_instance(model.__class__)
 
     # Wrap with retry logic for transient LLM API errors
-    model = RetryChatModel(model)
+    provider_id = ProviderManager.get_instance().get_active_model().provider_id
+    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    wrapped_model = RetryChatModel(wrapped_model)
 
-    return model, formatter
+    return wrapped_model, formatter
 
 
 def _create_formatter_instance(
@@ -318,7 +330,10 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
-    return formatter_class()
+    kwargs: dict[str, Any] = {}
+    if issubclass(base_formatter_class, OpenAIChatFormatter):
+        kwargs["promote_tool_result_images"] = True
+    return formatter_class(**kwargs)
 
 
 __all__ = [

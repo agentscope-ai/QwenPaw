@@ -237,8 +237,11 @@ def _build_spec_from_cli(
 )
 @click.option(
     "--timezone",
-    default="UTC",
-    help="Timezone for the cron schedule (e.g. UTC, America/New_York).",
+    default=None,
+    help=(
+        "Timezone for the cron schedule (e.g. UTC, America/New_York). "
+        "Defaults to the user timezone from config."
+    ),
 )
 @click.option(
     "--enabled/--no-enabled",
@@ -270,7 +273,7 @@ def create_job(
     target_user: Optional[str],
     target_session: Optional[str],
     text: Optional[str],
-    timezone: str,
+    timezone: Optional[str],
     enabled: bool,
     mode: str,
     base_url: Optional[str],
@@ -281,6 +284,10 @@ def create_job(
     --channel, --target-user, --target-session and --text to define the job
     inline.
     """
+    if timezone is None:
+        from ..config import load_config
+
+        timezone = load_config().user_timezone or "UTC"
     base_url = _base_url(ctx, base_url)
     if file_ is not None:
         payload = json.loads(file_.read_text(encoding="utf-8"))

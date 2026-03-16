@@ -27,11 +27,14 @@ const keyToLabel: Record<string, string> = {
   "cron-jobs": "nav.cronJobs",
   heartbeat: "nav.heartbeat",
   skills: "nav.skills",
+  tools: "nav.tools",
   mcp: "nav.mcp",
   "agent-config": "nav.agentConfig",
   workspace: "nav.workspace",
   models: "nav.models",
   environments: "nav.environments",
+  security: "nav.security",
+  "token-usage": "nav.tokenUsage",
 };
 
 interface HeaderProps {

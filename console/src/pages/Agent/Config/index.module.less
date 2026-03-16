@@ -1,14 +1,22 @@
-.page {
+.configPage {
   padding: 24px;
   height: 100%;
   overflow-y: auto;
+  width: 100%;
 }
 
 .header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 24px;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 34px;
 }
 
 .title {
@@ -25,7 +33,7 @@
 }
 
 .formCard {
-  max-width: 800px;
+  width: 100%;
 
   &:hover {
     border: 1px solid #615ced;
@@ -66,4 +74,11 @@
 .stateTextError {
   font-size: 14px;
   color: #ff4d4f;
+}
+
+.footerActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 16px 24px;
 }

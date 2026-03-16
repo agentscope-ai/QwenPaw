@@ -1,13 +1,12 @@
-.page {
+.securityPage {
   padding: 24px;
   height: 100%;
   overflow-y: auto;
+  width: 100%;
 }
 
+/* ---- Header Section ---- */
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   margin-bottom: 24px;
 }
 
@@ -15,67 +14,112 @@
   font-size: 24px;
   font-weight: 600;
   margin: 0 0 8px 0;
-  color: #000;
+  color: #1a1a1a;
 }
 
 .description {
   font-size: 14px;
-  color: #666;
+  color: #999;
   margin: 0;
 }
 
+/* ---- Content Container ---- */
+.content {
+  width: 100%;
+}
+
+/* ---- Cards ---- */
 .formCard {
-  max-width: 800px;
   margin-bottom: 32px;
-  border: 1px solid transparent;
+  border-radius: 16px;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease-in-out;
 
   &:hover {
-    border-color: #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    border-color: #d9d9d9;
+  }
+
+  :global(.ant-card-body) {
+    padding: 24px;
   }
 }
 
 .form {
   :global {
+    .ant-form-item {
+      margin-bottom: 20px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+
     .ant-form-item-label > label {
       font-weight: 500;
+      color: #333;
     }
   }
 }
 
+/* ---- Section Header ---- */
 .sectionHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  max-width: 800px;
+  margin-bottom: 16px;
 }
 
 .sectionTitle {
   font-size: 18px;
   font-weight: 600;
   margin: 0;
-  color: #000;
+  color: #1a1a1a;
 }
 
+/* ---- Table Card ---- */
 .tableCard {
-  max-width: 800px;
   margin-bottom: 24px;
-  border: 1px solid transparent;
+  border-radius: 16px;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease-in-out;
 
   &:hover {
-    border-color: #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    border-color: #d9d9d9;
+  }
+
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+
+  :global(.ant-table) {
+    border-radius: 16px;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    background: #fafafa;
+    font-weight: 600;
+    color: #333;
+  }
+
+  :global(.ant-table-tbody > tr:hover > td) {
+    background: #f5f5f5;
   }
 }
 
+/* ---- Footer Buttons ---- */
 .footerButtons {
   display: flex;
   justify-content: flex-end;
-  max-width: 800px;
   margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
 }
 
+/* ---- Loading & Error States ---- */
 .centerState {
   display: flex;
   flex-direction: column;
@@ -87,7 +131,7 @@
 
 .stateText {
   font-size: 14px;
-  color: #666;
+  color: #999;
 }
 
 .stateTextError {

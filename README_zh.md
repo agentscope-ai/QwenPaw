@@ -54,13 +54,14 @@
 
 ## 新闻
 
-[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.0.6]** **新增：** 原生桌面安装包，一键安装（Windows/macOS）；俄语和日语支持覆盖界面和智能体配置；Telegram 访问控制和白名单；QQ Markdown 和富媒体支持；Discord/飞书/钉钉媒体增强；MQTT 频道支持物联网集成；Gemini 思考模型和 MLX 后端支持；内置工具管理页面；从工作区文件自定义系统提示词；ReMeLight 记忆系统带智能截断。
-- **[v0.0.6]** **优化：** 动态记忆压缩配置；使用 PyPI 时间戳的版本检测；基于 LESS 的样式重构；UTC 时区标准化；模块化 Provider 架构及生命周期管理。
-- **[v0.0.6]** **修复：** Windows 文件路径和 Shell 编码；钉钉 Office 文件检测；技能导入 UTF-8 处理；适配 Docker 的 URL 验证；版本徽章定位；语言感知的文件通知。
-- **[v0.0.6]** **文档：** 新 logo 和社交媒体集成；桌面应用安装指南；记忆压缩和命令文档；更新路线图；增强网站呈现。
-- **[v0.0.6]** **贡献者：** 感谢新贡献者：[@Osier-Yi](https://github.com/Osier-Yi)、[@muchenhen](https://github.com/muchenhen)、[@hongxicheng](https://github.com/hongxicheng)、[@YingchaoX](https://github.com/YingchaoX)、[@seoeaa](https://github.com/seoeaa)、[@Chiytako](https://github.com/Chiytako)、[@eviaaaaa](https://github.com/eviaaaaa)、[@vvv214](https://github.com/vvv214)、[@baijunty](https://github.com/baijunty)、[@p8rtop](https://github.com/p8rtop)、[@yifanli-intel](https://github.com/yifanli-intel)、[@Eduiskss](https://github.com/Eduiskss)、[@snai1557](https://github.com/snai1557)。
+- **[v0.0.7]** **新增：** Tool Guard 安全守卫——拦截危险工具调用并等待用户审批；Mattermost 和 Matrix 频道集成；Discord/钉钉/飞书/Telegram @提及过滤；Telegram Markdown 渲染；飞书表情回应和富文本媒体解析；QQ 图片发送；LLM 调用自动重试与指数退避；LM Studio 提供商；Token 用量统计面板；提供商 `generate_kwargs` 编辑器；工作区文件拖拽排序；聊天中模型切换；智能体语言选择；上下文管理配置界面；切换页面保留聊天状态；AI 技能优化与流式输出；技能卡片描述展示；中国用户自动选择 PyPI 镜像。
+- **[v0.0.7]** **优化：** 提供商连接测试错误提示；工作区压缩和会话读取异步化；提供商 ID 冲突自动解决；模型发现改为手动触发；Token 记录集中化；内置技能文档和 Shell PATH 处理；Himalaya 邮件技能；记忆文档重组；配置与安全页面重构。
+- **[v0.0.7]** **修复：** 钉钉认证失败清理；Discord 超长消息拆分；频道配置类型对齐（Matrix/Mattermost/MQTT）；Windows Shell 编码和进程树清理；桌面应用 SSL 证书、输入法和外部链接导航；魔术命令会话状态保护；Ollama 弹窗渲染；聊天请求去重。
+- **[v0.0.7]** **贡献者：** 感谢新贡献者：[@2catycm](https://github.com/2catycm)、[@2niuhe](https://github.com/2niuhe)、[@yingdachen](https://github.com/yingdachen)、[@Atletico1999](https://github.com/Atletico1999)、[@buecker](https://github.com/buecker)、[@Cirilla-zmh](https://github.com/Cirilla-zmh)、[@gnipping](https://github.com/gnipping)、[@Nufe-muzi](https://github.com/Nufe-muzi)、[@FuKunZ](https://github.com/FuKunZ)、[@JasonBuildAI](https://github.com/JasonBuildAI)、[@StarMoonCity](https://github.com/StarMoonCity)、[@walker83](https://github.com/walker83)、[@lllcy](https://github.com/lllcy)。
+
+[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
@@ -467,6 +468,25 @@ CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Ag
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [X (Twitter)](https://x.com/agentscope_ai)                   | [钉钉](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white" width="80" height="80" alt="X">](https://x.com/agentscope_ai) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+
+---
+
+## 遥测数据
+
+CoPaw 在执行 `copaw init` 时会收集**匿名**使用数据，帮助我们了解用户环境并优化产品。数据**每个版本收集一次** — 当你升级 CoPaw 后，会重新收集以便我们了解版本分布。
+
+**收集的信息：**
+
+- CoPaw 版本（如 0.0.7）
+- 安装方式（pip、Docker 或桌面应用）
+- 操作系统及版本（如 macOS 14.0、Ubuntu 22.04）
+- Python 版本（如 3.13）
+- CPU 架构（如 x86_64、arm64）
+- GPU 是否可用（是/否）
+
+**不收集：** 不涉及任何个人数据、文件、密钥、IP 地址或可识别信息。
+
+交互式运行 `copaw init` 时，会询问你是否同意。使用 `--defaults` 模式则自动同意。提示每个版本仅出现一次，且不影响 CoPaw 的任何功能。
 
 ---
 

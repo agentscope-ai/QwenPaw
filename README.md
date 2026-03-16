@@ -54,13 +54,14 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 ## News
 
-[2026-03-09] We released v0.0.6! See the [v0.0.6 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+[2026-03-12] We released v0.0.7! See the [v0.0.7 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v0.0.6] Added:** Native desktop installers with one-click setup (Windows/macOS); Russian and Japanese language support across UI and agent configs; Telegram access control with allowlists; QQ Markdown and rich media support; Discord/Feishu/DingTalk media enhancements; MQTT channel for IoT integration; Gemini thinking model and MLX backend support; built-in tool management page; custom system prompts from workspace files; ReMeLight memory system with smart truncation.
-- **[v0.0.6] Improved:** Dynamic memory compaction configuration; version detection using PyPI timestamps; LESS-based style refactoring; UTC timezone standardization; modular provider architecture with lifecycle management.
-- **[v0.0.6] Fixed:** Windows file paths and shell encoding; DingTalk Office file detection; skill import UTF-8 handling; Docker-friendly URL validation; version badge positioning; language-aware file notifications.
-- **[v0.0.6] Docs:** New logo and social media integration; desktop app installation guides; memory compaction and command documentation; updated roadmap; enhanced website presentation.
-- **[v0.0.6] Contributors:** Thanks to new contributors: [@Osier-Yi](https://github.com/Osier-Yi), [@muchenhen](https://github.com/muchenhen), [@hongxicheng](https://github.com/hongxicheng), [@YingchaoX](https://github.com/YingchaoX), [@seoeaa](https://github.com/seoeaa), [@Chiytako](https://github.com/Chiytako), [@eviaaaaa](https://github.com/eviaaaaa), [@vvv214](https://github.com/vvv214), [@baijunty](https://github.com/baijunty), [@p8rtop](https://github.com/p8rtop), [@yifanli-intel](https://github.com/yifanli-intel), [@Eduiskss](https://github.com/Eduiskss), [@snai1557](https://github.com/snai1557).
+- **[v0.0.7] Added:** Tool Guard security layer — blocks risky tool calls until user approval; Mattermost and Matrix channel integrations; @mention-only group filtering for Discord/DingTalk/Feishu/Telegram; Telegram Markdown rendering; Feishu emoji reactions and rich text media; QQ image sending; LLM call auto-retry with exponential backoff; LM Studio provider; token usage tracking with dashboard; provider `generate_kwargs` editor; workspace file drag-and-drop; chat model switching; agent language selector; context management UI; chat state preservation across navigation; AI skill optimization with streaming; skill card description display; auto PyPI mirror for China.
+- **[v0.0.7] Improved:** Provider connection test messages; async workspace zip and session load; provider ID conflict auto-resolution; on-demand model discovery; token recording centralization; built-in skill docs and shell `PATH` handling; Himalaya email skill; memory docs reorganization; Config & Security page refactor.
+- **[v0.0.7] Fixed:** DingTalk auth failure cleanup; Discord 2000-char message splitting; channel config type alignment for Matrix/Mattermost/MQTT; Windows shell encoding and process tree cleanup; desktop SSL certificates, IME input, and external URL navigation; magic command session state protection; Ollama modal re-renders; chat request deduplication.
+- **[v0.0.7] Contributors:** Thanks to new contributors: [@2catycm](https://github.com/2catycm), [@2niuhe](https://github.com/2niuhe), [@yingdachen](https://github.com/yingdachen), [@Atletico1999](https://github.com/Atletico1999), [@buecker](https://github.com/buecker), [@Cirilla-zmh](https://github.com/Cirilla-zmh), [@gnipping](https://github.com/gnipping), [@Nufe-muzi](https://github.com/Nufe-muzi), [@FuKunZ](https://github.com/FuKunZ), [@JasonBuildAI](https://github.com/JasonBuildAI), [@StarMoonCity](https://github.com/StarMoonCity), [@walker83](https://github.com/walker83), [@lllcy](https://github.com/lllcy).
+
+[2026-03-09] We released v0.0.6! See the [v0.0.6 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
 [2026-03-06] We released v0.0.5! See the [v0.0.5 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
@@ -462,6 +463,25 @@ CoPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a par
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [X (Twitter)](https://x.com/agentscope_ai)                   | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white" width="80" height="80" alt="X">](https://x.com/agentscope_ai) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="DingTalk">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+
+---
+
+## Telemetry
+
+CoPaw collects **anonymous** usage data during `copaw init` to help us understand our user base and prioritize improvements. Data is sent **once per version** — when you upgrade CoPaw, telemetry is re-collected so we can track version adoption.
+
+**What we collect:**
+
+- CoPaw version (e.g., 0.0.7)
+- Install method (pip, Docker, or desktop app)
+- OS and version (e.g., macOS 14.0, Ubuntu 22.04)
+- Python version (e.g., 3.13)
+- CPU architecture (e.g., x86_64, arm64)
+- GPU availability (yes/no)
+
+**What we do NOT collect:** No personal data, no files, no credentials, no IP addresses, no identifiable information.
+
+When running `copaw init` interactively, you will be asked whether to opt in. If you choose `--defaults`, telemetry is accepted automatically. The prompt appears once per version and never affects CoPaw's functionality.
 
 ---
 

@@ -263,7 +263,7 @@ function EnvironmentsPage() {
   /* ---- render ---- */
 
   return (
-    <div className={styles.page}>
+    <div className={styles.environmentsPage}>
       {/* ---- Page header ---- */}
       <PageHeader />
 

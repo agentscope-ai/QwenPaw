@@ -8,6 +8,7 @@ from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
 )
+from .timezone import detect_system_timezone
 
 
 class BaseChannelConfig(BaseModel):
@@ -102,6 +103,16 @@ class ConsoleConfig(BaseChannelConfig):
     enabled: bool = True
 
 
+class WecomConfig(BaseChannelConfig):
+    """WeCom (Enterprise WeChat) AI Bot channel config."""
+
+    bot_id: str = ""
+    secret: str = ""
+    media_dir: str = "~/.copaw/media"
+    welcome_text: str = ""
+    max_reconnect_attempts: int = -1
+
+
 class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
@@ -124,6 +135,16 @@ class VoiceChannelConfig(BaseChannelConfig):
     welcome_greeting: str = "Hi! This is CoPaw. How can I help you?"
 
 
+class XiaoYiConfig(BaseChannelConfig):
+    """XiaoYi channel: Huawei A2A protocol via WebSocket."""
+
+    ak: str = ""  # Access Key
+    sk: str = ""  # Secret Key
+    agent_id: str = ""  # Agent ID from XiaoYi platform
+    ws_url: str = "wss://hag.cloud.huawei.com/openclaw/v1/ws/link"
+    task_timeout_ms: int = 3600000  # 1 hour task timeout
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -140,6 +161,8 @@ class ChannelConfig(BaseModel):
     console: ConsoleConfig = ConsoleConfig()
     matrix: MatrixConfig = MatrixConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
+    wecom: WecomConfig = WecomConfig()
+    xiaoyi: XiaoYiConfig = XiaoYiConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -386,60 +409,89 @@ class BuiltinToolConfig(BaseModel):
     name: str = Field(..., description="Tool function name")
     enabled: bool = Field(True, description="Whether the tool is enabled")
     description: str = Field(default="", description="Tool description")
+    display_to_user: bool = Field(
+        True,
+        description="Whether tool output is rendered to user channels",
+    )
+
+
+def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
+    """Return a fresh copy of the canonical built-in tool definitions."""
+    return {
+        "execute_shell_command": BuiltinToolConfig(
+            name="execute_shell_command",
+            enabled=True,
+            description="Execute shell commands",
+        ),
+        "read_file": BuiltinToolConfig(
+            name="read_file",
+            enabled=True,
+            description="Read file contents",
+        ),
+        "write_file": BuiltinToolConfig(
+            name="write_file",
+            enabled=True,
+            description="Write content to file",
+        ),
+        "edit_file": BuiltinToolConfig(
+            name="edit_file",
+            enabled=True,
+            description="Edit file using find-and-replace",
+        ),
+        "browser_use": BuiltinToolConfig(
+            name="browser_use",
+            enabled=True,
+            description="Browser automation and web interaction",
+        ),
+        "desktop_screenshot": BuiltinToolConfig(
+            name="desktop_screenshot",
+            enabled=True,
+            description="Capture desktop screenshots",
+        ),
+        "view_image": BuiltinToolConfig(
+            name="view_image",
+            enabled=True,
+            description="Load an image into LLM context "
+            "for visual analysis",
+            display_to_user=False,
+        ),
+        "send_file_to_user": BuiltinToolConfig(
+            name="send_file_to_user",
+            enabled=True,
+            description="Send files to user",
+        ),
+        "get_current_time": BuiltinToolConfig(
+            name="get_current_time",
+            enabled=True,
+            description="Get current date and time",
+        ),
+        "set_user_timezone": BuiltinToolConfig(
+            name="set_user_timezone",
+            enabled=True,
+            description="Set user timezone",
+        ),
+        "get_token_usage": BuiltinToolConfig(
+            name="get_token_usage",
+            enabled=True,
+            description="Get llm token usage",
+        ),
+    }
 
 
 class ToolsConfig(BaseModel):
     """Built-in tools management configuration."""
 
     builtin_tools: Dict[str, BuiltinToolConfig] = Field(
-        default_factory=lambda: {
-            "execute_shell_command": BuiltinToolConfig(
-                name="execute_shell_command",
-                enabled=True,
-                description="Execute shell commands",
-            ),
-            "read_file": BuiltinToolConfig(
-                name="read_file",
-                enabled=True,
-                description="Read file contents",
-            ),
-            "write_file": BuiltinToolConfig(
-                name="write_file",
-                enabled=True,
-                description="Write content to file",
-            ),
-            "edit_file": BuiltinToolConfig(
-                name="edit_file",
-                enabled=True,
-                description="Edit file using find-and-replace",
-            ),
-            "browser_use": BuiltinToolConfig(
-                name="browser_use",
-                enabled=True,
-                description="Browser automation and web interaction",
-            ),
-            "desktop_screenshot": BuiltinToolConfig(
-                name="desktop_screenshot",
-                enabled=True,
-                description="Capture desktop screenshots",
-            ),
-            "send_file_to_user": BuiltinToolConfig(
-                name="send_file_to_user",
-                enabled=True,
-                description="Send files to user",
-            ),
-            "get_current_time": BuiltinToolConfig(
-                name="get_current_time",
-                enabled=True,
-                description="Get current date and time",
-            ),
-            "get_token_usage": BuiltinToolConfig(
-                name="get_token_usage",
-                enabled=True,
-                description="Get llm token usage",
-            ),
-        },
+        default_factory=_default_builtin_tools,
     )
+
+    @model_validator(mode="after")
+    def _merge_default_tools(self):
+        """Ensure new code-defined tools are present in saved configs."""
+        for name, tc in _default_builtin_tools().items():
+            if name not in self.builtin_tools:
+                self.builtin_tools[name] = tc
+        return self
 
 
 class ToolGuardRuleConfig(BaseModel):
@@ -487,6 +539,11 @@ class Config(BaseModel):
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     show_tool_details: bool = True
+    user_timezone: str = Field(
+        default_factory=detect_system_timezone,
+        description="User IANA timezone (e.g. Asia/Shanghai). "
+        "Defaults to the system timezone.",
+    )
 
 
 ChannelConfigUnion = Union[
@@ -501,4 +558,6 @@ ChannelConfigUnion = Union[
     ConsoleConfig,
     MatrixConfig,
     VoiceChannelConfig,
+    WecomConfig,
+    XiaoYiConfig,
 ]

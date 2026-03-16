@@ -80,13 +80,12 @@ class SafeJSONSession(SessionBase):
             for name, state_module in state_modules_mapping.items()
         }
         session_save_path = self._get_save_path(session_id, user_id=user_id)
-        async with aiofiles.open(
+        with open(
             session_save_path,
             "w",
             encoding="utf-8",
-            errors="surrogatepass",
         ) as f:
-            await f.write(json.dumps(state_dicts, ensure_ascii=False))
+            f.write(json.dumps(state_dicts, ensure_ascii=False))
 
         logger.info(
             "Saved session state to %s successfully.",

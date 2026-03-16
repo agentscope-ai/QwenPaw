@@ -134,7 +134,7 @@ function TokenUsagePage() {
   );
 
   return (
-    <div className={styles.page}>
+    <div className={styles.tokenUsagePage}>
       <PageHeader
         title={t("tokenUsage.title")}
         description={t("tokenUsage.description")}

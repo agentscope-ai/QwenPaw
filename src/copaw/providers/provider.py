@@ -50,6 +50,13 @@ class ProviderInfo(BaseModel):
         default=False,
         description=("Whether this provider is user-created (not built-in)."),
     )
+    support_model_discovery: bool = Field(
+        default=False,
+        description=(
+            "Whether this provider supports fetching available models"
+            " from the provider's API"
+        ),
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
@@ -177,6 +184,7 @@ class Provider(ProviderInfo, ABC):
             api_key_prefix=self.api_key_prefix,
             is_local=self.is_local,
             is_custom=self.is_custom,
+            support_model_discovery=self.support_model_discovery,
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,

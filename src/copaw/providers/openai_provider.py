@@ -10,7 +10,6 @@ from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 
 from copaw.providers.provider import ModelInfo, Provider
-from copaw.token_usage import TokenRecordingModelWrapper
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
@@ -130,7 +129,7 @@ class OpenAIProvider(Provider):
                 ),
             }
 
-        model_instance = OpenAIChatModelCompat(
+        return OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
@@ -138,4 +137,3 @@ class OpenAIProvider(Provider):
             client_kwargs=client_kwargs,
             generate_kwargs=self.generate_kwargs,
         )
-        return TokenRecordingModelWrapper(self.id, model_instance)
