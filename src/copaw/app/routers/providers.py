@@ -14,7 +14,11 @@ from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
 
 router = APIRouter(prefix="/models", tags=["models"])
 
-ChatModelName = Literal["OpenAIChatModel", "AnthropicChatModel"]
+ChatModelName = Literal[
+    "OpenAIChatModel",
+    "AnthropicChatModel",
+    "GeminiChatModel",
+]
 
 
 def get_provider_manager(request: Request) -> ProviderManager:

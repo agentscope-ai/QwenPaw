@@ -352,7 +352,7 @@ class BaseChannel(ABC):
 
         if not content_parts:
             content_parts = [
-                TextContent(type=ContentType.TEXT, text=""),
+                TextContent(type=ContentType.TEXT, text=" "),
             ]
         msg = Message(
             type=MessageType.MESSAGE,
