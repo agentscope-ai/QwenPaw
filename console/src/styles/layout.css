@@ -334,8 +334,12 @@ html.dark-mode .ant-picker-time-panel-cell-inner {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-picker-time-panel-cell-selected .copaw-picker-time-panel-cell-inner,
-html.dark-mode .ant-picker-time-panel-cell-selected .ant-picker-time-panel-cell-inner {
+html.dark-mode
+  .copaw-picker-time-panel-cell-selected
+  .copaw-picker-time-panel-cell-inner,
+html.dark-mode
+  .ant-picker-time-panel-cell-selected
+  .ant-picker-time-panel-cell-inner {
   background: rgba(97, 92, 237, 0.2) !important;
   color: #8b87f0 !important;
 }
@@ -435,9 +439,12 @@ html.dark-mode .ant-picker-cell-in-range .ant-picker-cell-inner {
 /* Range hover preview */
 html.dark-mode .copaw-picker-cell-in-view.copaw-picker-cell-range-hover::before,
 html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover::before,
-html.dark-mode .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-start::after,
-html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-start::after,
-html.dark-mode .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-end::after,
+html.dark-mode
+  .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-start::after,
+html.dark-mode
+  .ant-picker-cell-in-view.ant-picker-cell-range-hover-start::after,
+html.dark-mode
+  .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-end::after,
 html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-end::after {
   border-color: #8b87f0 !important;
 }
@@ -604,7 +611,9 @@ html.dark-mode .ant-tooltip-arrow::before {
 }
 
 /* Disabled chat input overlay in dark mode */
-html.dark-mode [class*="chatDisabledOverlay"] :global([class*="chat-anywhere-input"]),
+html.dark-mode
+  [class*="chatDisabledOverlay"]
+  :global([class*="chat-anywhere-input"]),
 html.dark-mode [class*="chatDisabledOverlay"] :global([class*="chat-input"]),
 html.dark-mode [class*="chatDisabledOverlay"] :global(textarea),
 html.dark-mode [class*="chatDisabledOverlay"] :global(input[type="text"]) {
@@ -616,7 +625,6 @@ html.dark-mode [class*="copaw-sender-content"],
 html.dark-mode [class*="sender-content"] {
   background: #2a2a2a !important;
 }
-
 
 #root {
   height: 100%;
