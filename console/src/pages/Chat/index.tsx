@@ -22,7 +22,6 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
-import { useAgentStore } from "../../stores/agentStore";
 import "./index.module.less";
 
 type CopyableContent = {
@@ -136,8 +135,6 @@ export default function ChatPage() {
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
-  const { selectedAgent } = useAgentStore();
-  const [refreshKey, setRefreshKey] = useState(0);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Store original full-resolution images as array (most recent first)
@@ -154,11 +151,11 @@ export default function ChatPage() {
         [class*="attachment-list-card-type-preview"] {
           position: relative;
           display: block;
-          overflow: hidden;
           border-radius: 8px;
         }
 
         [class*="attachment-list-card-type-preview"] img {
+          border-radius: 8px;
           cursor: pointer;
         }
 
@@ -377,28 +374,6 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Refresh chat when selectedAgent changes
-  const prevSelectedAgentRef = useRef(selectedAgent);
-  useEffect(() => {
-    // Only refresh if selectedAgent actually changed (not initial mount)
-    if (
-      prevSelectedAgentRef.current !== selectedAgent &&
-      prevSelectedAgentRef.current !== undefined
-    ) {
-      console.log(
-        "Selected agent changed from",
-        prevSelectedAgentRef.current,
-        "to",
-        selectedAgent,
-      );
-      // Force re-render by updating refresh key
-      setRefreshKey((prev) => prev + 1);
-      // Navigate to chat root to avoid showing stale session
-      navigate("/chat", { replace: true });
-    }
-    prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent, navigate]);
-
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
     const currentChatId = chatIdRef.current;
@@ -583,7 +558,7 @@ export default function ChatPage() {
 
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
-      <AgentScopeRuntimeWebUI key={refreshKey} options={options} />
+      <AgentScopeRuntimeWebUI options={options} />
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result
