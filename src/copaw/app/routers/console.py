@@ -62,7 +62,8 @@ async def post_console_chat(
             elif isinstance(last_msg, dict) and "content" in last_msg:
                 content_parts = last_msg["content"] or []
 
-    console_channel = await workspace._channel_manager.get_channel("console")
+    #
+    console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
             status_code=503,
