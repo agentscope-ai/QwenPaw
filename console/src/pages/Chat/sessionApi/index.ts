@@ -441,11 +441,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   async updateSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
-    session.messages = [];
-    const index = this.sessionList.findIndex((s) => s.id === session.id);
+    const { messages, ...metadataUpdate } = session;
+    const index = this.sessionList.findIndex((s) => s.id === metadataUpdate.id);
 
     if (index > -1) {
-      this.sessionList[index] = { ...this.sessionList[index], ...session };
+      this.sessionList[index] = {
+        ...this.sessionList[index],
+        ...metadataUpdate,
+      };
 
       // Timestamp session without realId yet — resolve in the background
       const existing = this.sessionList[index] as ExtendedSession;
@@ -461,7 +464,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     } else {
       // Session not found locally — refresh and resolve via session_id
-      const tempId = session.id!;
+      const tempId = metadataUpdate.id!;
       await this.getSessionList().then(() => {
         const { list, realId } = resolveRealId(this.sessionList, tempId);
         this.sessionList = list;
