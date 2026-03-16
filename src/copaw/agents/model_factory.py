@@ -9,8 +9,9 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
-
 import logging
+import re
+from copy import deepcopy
 from typing import Sequence, Tuple, Type, Any
 from functools import wraps
 
@@ -130,6 +131,7 @@ def _create_file_block_support_formatter(
             ``extra_content`` on tool_use blocks (e.g. Gemini
             thought_signature) is carried through to the API request.
             """
+            msgs = _normalize_messages_for_model(msgs)
             msgs = _sanitize_tool_messages(msgs)
 
             reasoning_contents = {}
@@ -216,8 +218,8 @@ def _create_file_block_support_formatter(
                 for block in output:
                     if not isinstance(block, dict) or "type" not in block:
                         raise ValueError(
-                            f"Invalid block: {block}, "
-                            "expected a dict with 'type' key",
+                            "Invalid block for tool result conversion; "
+                            "expected dict with 'type' key",
                         ) from e
 
                     if block["type"] == "file":
@@ -271,6 +273,185 @@ def _strip_top_level_message_name(
     for message in messages:
         message.pop("name", None)
     return messages
+
+
+_WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_WINDOWS_DRIVE_REL_RE = re.compile(r"^[A-Za-z]:[^\\/]")
+
+
+def _extract_local_path_from_url(url: Any) -> str | None:
+    """Return a local filesystem path if url points to local file."""
+    if not isinstance(url, str) or not url:
+        return None
+
+    url = url.strip()
+    lowered = url.lower()
+
+    local_path: str | None = None
+
+    if lowered.startswith("file://"):
+        local_path = _file_url_to_path(url)
+    elif lowered.startswith(("http://", "https://", "data:")):
+        local_path = None
+    elif _WINDOWS_ABS_PATH_RE.match(url):
+        local_path = url
+    elif _WINDOWS_DRIVE_REL_RE.match(url):
+        local_path = url
+    elif url.startswith(("/", "\\")):
+        local_path = url
+    elif url.startswith(("./", "../", ".\\", "..\\", "~/")):
+        local_path = url
+    elif "://" in url:
+        local_path = None
+    else:
+        # Non-URL fallback: treat remaining values as local paths.
+        local_path = url
+
+    return local_path
+
+
+def _sanitize_local_media_block(block: dict) -> tuple[dict, bool]:
+    """Replace local media/file blocks with safe text placeholders."""
+    block_type = block.get("type")
+    if block_type not in {"image", "audio", "video", "file"}:
+        return block, False
+
+    source = block.get("source")
+    local_path = _extract_local_path_from_url(
+        block.get("path") or block.get("url"),
+    )
+    if not local_path and isinstance(source, dict):
+        local_path = _extract_local_path_from_url(
+            source.get("url") or source.get("path"),
+        )
+    elif not local_path and isinstance(source, str):
+        local_path = _extract_local_path_from_url(source)
+    if not local_path:
+        return block, False
+
+    if block_type == "file":
+        text = "[Local file omitted for model call]"
+    else:
+        text = "[Local media omitted for model call]"
+    return {"type": "text", "text": text}, True
+
+
+def _sanitize_local_media_in_value(value: Any) -> tuple[Any, bool]:
+    """Recursively sanitize local media blocks in nested structures."""
+    if isinstance(value, list):
+        new_list = []
+        changed = False
+        for item in value:
+            new_item, item_changed = _sanitize_local_media_in_value(item)
+            new_list.append(new_item)
+            changed = changed or item_changed
+        return new_list, changed
+
+    if isinstance(value, dict):
+        replaced_block, replaced = _sanitize_local_media_block(value)
+        if replaced:
+            return replaced_block, True
+
+        new_dict = {}
+        changed = False
+        for key, item in value.items():
+            if key == "output" and isinstance(item, list):
+                output_list = []
+                output_changed = False
+                for output_item in item:
+                    if isinstance(output_item, dict):
+                        (
+                            new_item,
+                            item_changed,
+                        ) = _sanitize_local_media_in_value(
+                            output_item,
+                        )
+                        output_list.append(new_item)
+                        output_changed = output_changed or item_changed
+                    else:
+                        output_list.append(
+                            {"type": "text", "text": str(output_item)},
+                        )
+                        output_changed = True
+                new_dict[key] = output_list
+                changed = changed or output_changed
+                continue
+
+            if isinstance(item, (list, dict)):
+                new_item, item_changed = _sanitize_local_media_in_value(item)
+                new_dict[key] = new_item
+                changed = changed or item_changed
+            else:
+                new_dict[key] = item
+        return (new_dict, True) if changed else (value, False)
+
+    return value, False
+
+
+_LOCAL_PATH_TEXT_RE = re.compile(
+    r"(?i)("
+    r"file://\S+|"
+    r"(?<!\S)(?:[A-Za-z]:[\\/]|/(?!/)|\./|\.\./|~/)\S+"
+    r")",
+)
+
+
+def _sanitize_local_paths_in_text(text: str) -> str:
+    """Redact local path tokens from free-form text."""
+    return _LOCAL_PATH_TEXT_RE.sub("[LOCAL_PATH]", text)
+
+
+def _normalize_messages_for_model(msgs: list[Msg]) -> list[Msg]:
+    """Normalize messages before formatting for model APIs."""
+    normalized: list[Msg] = []
+
+    for msg in msgs:
+        new_content = None
+        content = msg.content
+
+        if isinstance(content, str):
+            sanitized = _sanitize_local_paths_in_text(content)
+            new_content = [{"type": "text", "text": sanitized}]
+        elif not isinstance(content, list):
+            new_content = [{"type": "text", "text": str(content)}]
+        else:
+            fixed_blocks: list[dict] = []
+            changed = False
+            for block in content:
+                if not isinstance(block, dict):
+                    fixed_blocks.append({"type": "text", "text": str(block)})
+                    changed = True
+                    continue
+
+                sanitized_block, replaced = _sanitize_local_media_in_value(
+                    block,
+                )
+                if replaced:
+                    block = sanitized_block
+                    changed = True
+
+                block_type = (
+                    block.get("type") if isinstance(block, dict) else None
+                )
+
+                if not isinstance(block_type, str):
+                    fixed_blocks.append({"type": "text", "text": str(block)})
+                    changed = True
+                    continue
+
+                fixed_blocks.append(deepcopy(block))
+
+            if changed:
+                new_content = fixed_blocks
+
+        if new_content is None:
+            normalized.append(msg)
+        else:
+            msg_copy = deepcopy(msg)
+            msg_copy.content = new_content
+            normalized.append(msg_copy)
+
+    return normalized
 
 
 def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
