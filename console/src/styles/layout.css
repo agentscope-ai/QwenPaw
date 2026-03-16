@@ -71,3 +71,18 @@ body {
   object-fit: contain !important;
   object-position: center;
 }
+
+/* Move rightHeader to the leftmost position of the right header area (CoPaw chat) */
+[class*="chat-anywhere-default-header-right"],
+[class*="default-header-right"],
+[class*="copaw-chat-anywhere-default-header-right"],
+.copaw-chat-anywhere-default-header-right {
+  display: flex !important;
+  margin: 0 auto 0 0 !important;
+  justify-content: flex-start !important;
+}
+[class*="chat-anywhere-default-header-right"] > *,
+[class*="default-header-right"] > * {
+  margin-right: auto !important;
+  margin-left: 0 !important;
+}

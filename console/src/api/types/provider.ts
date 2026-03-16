@@ -14,16 +14,22 @@ export interface ProviderInfo {
   extra_models: ModelInfo[];
   is_custom: boolean;
   is_local: boolean;
+  /** Whether this provider supports fetching available models from the provider's API. */
+  support_model_discovery: boolean;
   /** True when the base_url should be frozen (not editable). */
   freeze_url: boolean;
+  /** True when an API key is required for this provider. */
+  require_api_key: boolean;
   api_key: string;
   base_url: string;
+  generate_kwargs: Record<string, unknown>;
 }
 
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
   chat_model?: string;
+  generate_kwargs?: Record<string, unknown>;
 }
 
 export interface ModelSlotConfig {
@@ -119,6 +125,7 @@ export interface TestProviderRequest {
   api_key?: string;
   base_url?: string;
   chat_model?: string;
+  generate_kwargs?: Record<string, unknown>;
 }
 
 export interface TestModelRequest {

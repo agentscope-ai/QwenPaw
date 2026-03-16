@@ -83,6 +83,11 @@ JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
 
+TOKEN_USAGE_FILE = EnvVarLoader.get_str(
+    "COPAW_TOKEN_USAGE_FILE",
+    "token_usage.json",
+)
+
 CONFIG_FILE = EnvVarLoader.get_str("COPAW_CONFIG_FILE", "config.json")
 
 HEARTBEAT_FILE = EnvVarLoader.get_str("COPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
@@ -172,3 +177,14 @@ LLM_BACKOFF_CAP = EnvVarLoader.get_float(
     10.0,
     min_value=0.5,
 )
+
+# Tool guard approval timeout (seconds).
+try:
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(
+        float(
+            os.environ.get("COPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS", "600"),
+        ),
+        1.0,
+    )
+except (TypeError, ValueError):
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0

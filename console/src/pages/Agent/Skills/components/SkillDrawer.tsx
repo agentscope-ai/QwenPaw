@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Drawer, Form, Input, Button, message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
+import { api } from "../../../../api";
 
 /**
  * Parse frontmatter from content string.
@@ -48,9 +50,11 @@ export function SkillDrawer({
   onSubmit,
   onContentChange,
 }: SkillDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [showMarkdown, setShowMarkdown] = useState(true);
   const [contentValue, setContentValue] = useState("");
+  const [optimizing, setOptimizing] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -105,10 +109,52 @@ export function SkillDrawer({
   const handleContentChange = (content: string) => {
     setContentValue(content);
     form.setFieldsValue({ content });
-    // Re-validate the content field to give real-time feedback
     form.validateFields(["content"]).catch(() => {});
     if (onContentChange) {
       onContentChange(content);
+    }
+  };
+
+  const handleOptimize = async () => {
+    if (!contentValue.trim()) {
+      message.warning(t("skills.noContentToOptimize"));
+      return;
+    }
+
+    setOptimizing(true);
+    abortControllerRef.current = new AbortController();
+    const originalContent = contentValue;
+    setContentValue(""); // Clear content for streaming output
+
+    try {
+      await api.streamOptimizeSkill(
+        originalContent,
+        (textChunk) => {
+          setContentValue((prev) => {
+            const newContent = prev + textChunk;
+            form.setFieldsValue({ content: newContent });
+            return newContent;
+          });
+        },
+        abortControllerRef.current.signal,
+        i18n.language, // Pass current language to API
+      );
+      message.success(t("skills.optimizeSuccess"));
+    } catch (error: any) {
+      if (error.name !== "AbortError") {
+        message.error(error.message || t("skills.optimizeFailed"));
+      }
+    } finally {
+      setOptimizing(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleStopOptimize = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setOptimizing(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -154,15 +200,37 @@ export function SkillDrawer({
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "flex-end",
-                  gap: 8,
+                  justifyContent: "space-between",
                   marginTop: 16,
                 }}
               >
-                <Button onClick={onClose}>{t("common.cancel")}</Button>
-                <Button type="primary" htmlType="submit">
-                  {t("skills.create")}
-                </Button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {!optimizing ? (
+                    <Button
+                      type="default"
+                      icon={<ThunderboltOutlined />}
+                      onClick={handleOptimize}
+                      disabled={!contentValue.trim()}
+                    >
+                      {t("skills.optimizeWithAI")}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="default"
+                      danger
+                      icon={<StopOutlined />}
+                      onClick={handleStopOptimize}
+                    >
+                      {t("skills.stopOptimize")}
+                    </Button>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button onClick={onClose}>{t("common.cancel")}</Button>
+                  <Button type="primary" htmlType="submit">
+                    {t("skills.create")}
+                  </Button>
+                </div>
               </div>
             </Form.Item>
           </>

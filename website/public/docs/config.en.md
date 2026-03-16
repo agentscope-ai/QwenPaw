@@ -25,6 +25,7 @@ you'll find inside:
 | `HEARTBEAT.md`       | Prompt content used each heartbeat run                             |
 | `jobs.json`          | Cron job list (managed via `copaw cron` or API)                    |
 | `chats.json`         | Chat/session list (file storage mode)                              |
+| `token_usage.json`   | LLM token usage records (by date and model)                        |
 | `active_skills/`     | Skills currently active and used by the agent                      |
 | `customized_skills/` | User-created custom skills                                         |
 | `memory/`            | Agent memory files (auto-managed)                                  |
@@ -34,7 +35,8 @@ you'll find inside:
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
 > generic "You are a helpful assistant" prompt. Run `copaw init` to auto-copy
-> them based on your language choice (`zh` / `en`).
+> them based on your language choice (`zh` / `en` / `ru`). You can also
+> change the language later via the Console (Agent → Configuration).
 
 ---
 
@@ -43,19 +45,21 @@ you'll find inside:
 If you don't want to use `~/.copaw`, you can override the working directory or
 specific file names:
 
-| Variable                           | Default           | Meaning                                                                                                                                                                                 |
-| ---------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COPAW_WORKING_DIR`                | `~/.copaw`        | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here                                                                                                     |
-| `COPAW_SECRET_DIR`                 | `~/.copaw.secret` | Secret directory (sibling of working dir); stores `providers.json` (model provider settings, API keys) and `envs.json` (environment variables). In Docker, set to `/app/working.secret` |
-| `COPAW_CONFIG_FILE`                | `config.json`     | Config file name (relative to working dir)                                                                                                                                              |
-| `COPAW_HEARTBEAT_FILE`             | `HEARTBEAT.md`    | Heartbeat prompt file name (relative to working dir)                                                                                                                                    |
-| `COPAW_JOBS_FILE`                  | `jobs.json`       | Cron jobs file name (relative to working dir)                                                                                                                                           |
-| `COPAW_CHATS_FILE`                 | `chats.json`      | Chats file name (relative to working dir)                                                                                                                                               |
-| `COPAW_LOG_LEVEL`                  | `info`            | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`)                                                                                                                 |
-| `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`          | Character threshold to trigger memory compaction                                                                                                                                        |
-| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`               | Number of recent messages kept after compaction                                                                                                                                         |
-| `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`             | Threshold ratio for triggering compaction (relative to context window)                                                                                                                  |
-| `COPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_   | Path to the console front-end static files                                                                                                                                              |
+| Variable                 | Default            | Meaning                                                                                                                                                                                 |
+| ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COPAW_WORKING_DIR`      | `~/.copaw`         | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here                                                                                                     |
+| `COPAW_SECRET_DIR`       | `~/.copaw.secret`  | Secret directory (sibling of working dir); stores `providers.json` (model provider settings, API keys) and `envs.json` (environment variables). In Docker, set to `/app/working.secret` |
+| `COPAW_CONFIG_FILE`      | `config.json`      | Config file name (relative to working dir)                                                                                                                                              |
+| `COPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`     | Heartbeat prompt file name (relative to working dir)                                                                                                                                    |
+| `COPAW_JOBS_FILE`        | `jobs.json`        | Cron jobs file name (relative to working dir)                                                                                                                                           |
+| `COPAW_CHATS_FILE`       | `chats.json`       | Chats file name (relative to working dir)                                                                                                                                               |
+| `COPAW_TOKEN_USAGE_FILE` | `token_usage.json` | Token usage record file name (relative to working dir)                                                                                                                                  |
+
+| `COPAW_LOG_LEVEL` | `info` | Log level for the app (`debug`, `info`, `warning`, `error`, `critical`) |
+| `COPAW_MEMORY_COMPACT_THRESHOLD` | `100000` | Character threshold to trigger memory compaction |
+| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3` | Number of recent messages kept after compaction |
+| `COPAW_MEMORY_COMPACT_RATIO` | `0.7` | Threshold ratio for triggering compaction (relative to context window) |
+| `COPAW_CONSOLE_STATIC_DIR` | _(auto-detect)_ | Path to the console front-end static files |
 
 Example — use a different working dir for this shell:
 
@@ -215,7 +219,7 @@ Each channel has a common base and channel-specific fields.
 | ------------------------------------ | -------------- | --------- | ----------------------------------------------------------------------- |
 | `agents.defaults.heartbeat`          | object \| null | See below | Heartbeat configuration                                                 |
 | `agents.running`                     | object         | See below | Agent runtime behavior configuration                                    |
-| `agents.language`                    | string         | `"zh"`    | Language for agent MD files (`"en"` or `"zh"`)                          |
+| `agents.language`                    | string         | `"zh"`    | Language for agent MD files (`"zh"` / `"en"` / `"ru"`)                  |
 | `agents.installed_md_files_language` | string \| null | `null`    | Tracks which language's MD files are installed; managed by `copaw init` |
 
 **`agents.running`** — Agent runtime behavior
@@ -288,11 +292,17 @@ CoPaw needs an LLM provider to work. You can set it up in three ways:
 
 ### Built-in providers
 
-| Provider   | ID           | Default Base URL                                    | API Key Prefix |
-| ---------- | ------------ | --------------------------------------------------- | -------------- |
-| ModelScope | `modelscope` | `https://api-inference.modelscope.cn/v1`            | `ms`           |
-| DashScope  | `dashscope`  | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
-| Custom     | `custom`     | _(you set it)_                                      | _(any)_        |
+| Provider           | ID                  | Default Base URL                                    | API Key Prefix |
+| ------------------ | ------------------- | --------------------------------------------------- | -------------- |
+| ModelScope         | `modelscope`        | `https://api-inference.modelscope.cn/v1`            | `ms`           |
+| DashScope          | `dashscope`         | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
+| Aliyun Coding Plan | `aliyun-codingplan` | `https://coding.dashscope.aliyuncs.com/v1`          | `sk-sp`        |
+| OpenAI             | `openai`            | `https://api.openai.com/v1`                         | _(any)_        |
+| Azure OpenAI       | `azure-openai`      | _(you set it)_                                      | _(any)_        |
+| Anthropic          | `anthropic`         | `https://api.anthropic.com`                         | _(any)_        |
+| Ollama             | `ollama`            | `http://localhost:11434`                            | _(none)_       |
+| LM Studio          | `lmstudio`          | `http://localhost:1234/v1`                          | _(none)_       |
+| Custom             | `custom`            | _(you set it)_                                      | _(any)_        |
 
 For each provider you need to set:
 

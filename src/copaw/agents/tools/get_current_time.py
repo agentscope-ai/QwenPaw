@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tool that returns the current local time with timezone info."""
+"""Tool that returns the current UTC time."""
 
 from datetime import datetime, timezone
 
@@ -8,22 +8,18 @@ from agentscope.tool import ToolResponse
 
 
 async def get_current_time() -> ToolResponse:
-    """Get the current system time with timezone information.
+    """Get the current UTC time.
 
-    Returns the local time in a human-readable format, including
-    timezone name and UTC offset. Useful for time-sensitive tasks
-    such as scheduling cron jobs.
+    Returns the current time in UTC in a human-readable format.
+    Useful for time-sensitive tasks such as scheduling cron jobs.
 
     Returns:
         `ToolResponse`:
-            The current local time string,
-            e.g. "2026-02-13 19:30:45 CST (UTC+0800)".
+            The current UTC time string,
+            e.g. "2026-02-13 11:30:45 UTC (Friday)".
     """
-    try:
-        now = datetime.now().astimezone()
-        time_str = now.strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
-    except Exception:
-        time_str = datetime.now(timezone.utc).isoformat() + " (UTC)"
+    now = datetime.now(timezone.utc)
+    time_str = now.strftime("%Y-%m-%d %H:%M:%S UTC (%A)")
 
     return ToolResponse(
         content=[
