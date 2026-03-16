@@ -1,5 +1,6 @@
 import { Layout, Space } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useTranslation } from "react-i18next";
 import {
   FileTextOutlined,
@@ -101,6 +102,7 @@ export default function Header({ selectedKey }: HeaderProps) {
           </Button>
         </Tooltip>
         <LanguageSwitcher />
+        <ThemeToggleButton />
       </Space>
     </AntHeader>
   );
