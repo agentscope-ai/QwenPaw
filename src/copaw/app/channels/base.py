@@ -136,9 +136,9 @@ class BaseChannel(ABC):
         if isinstance(payload, dict):
             sender_id = payload.get("sender_id") or ""
             meta = payload.get("meta") or {}
-            return (
-                payload.get("session_id")
-                or self.resolve_session_id(sender_id, meta)
+            return payload.get("session_id") or self.resolve_session_id(
+                sender_id,
+                meta,
             )
         return getattr(payload, "session_id", "") or ""
 
