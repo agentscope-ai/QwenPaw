@@ -23,6 +23,7 @@ from ...config.config import (
     FeishuConfig,
     HeartbeatConfig,
     IMessageChannelConfig,
+    LocalEmbeddingConfig,
     MatrixConfig,
     MattermostConfig,
     MQTTConfig,
@@ -31,7 +32,7 @@ from ...config.config import (
     VoiceChannelConfig,
 )
 
-from .schemas_config import HeartbeatBody
+from .schemas_config import HeartbeatBody, LocalEmbeddingBody, LocalEmbeddingTestResult, ModelDownloadStatus
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -307,3 +308,132 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── Local Embedding ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/agents/local-embedding",
+    response_model=LocalEmbeddingConfig,
+    summary="Get local embedding config",
+    description="Return current local embedding configuration",
+)
+async def get_local_embedding() -> LocalEmbeddingConfig:
+    """Return current local embedding config."""
+    config = load_config()
+    return config.agents.running.local_embedding
+
+
+@router.put(
+    "/agents/local-embedding",
+    response_model=LocalEmbeddingConfig,
+    summary="Update local embedding config",
+    description="Update local embedding configuration (requires restart to take effect)",
+)
+async def put_local_embedding(
+    body: LocalEmbeddingBody = Body(...),
+) -> LocalEmbeddingConfig:
+    """Update local embedding config.
+    
+    Note: Changes take effect after application restart.
+    """
+    config = load_config()
+    config.agents.running.local_embedding = body
+    save_config(config)
+    return body
+
+
+@router.post(
+    "/agents/local-embedding/test",
+    response_model=LocalEmbeddingTestResult,
+    summary="Test local embedding configuration",
+    description="Test if the configured local embedding model can be loaded and used",
+)
+async def test_local_embedding(
+    body: LocalEmbeddingBody = Body(...),
+) -> LocalEmbeddingTestResult:
+    """Test local embedding configuration by loading model and encoding sample text."""
+    import time
+    from ...agents.memory.local_embedder import LocalEmbedder
+
+    # Temporarily enable for testing
+    test_config = LocalEmbeddingConfig(**body.model_dump())
+    test_config.enabled = True
+
+    try:
+        start_time = time.time()
+        embedder = LocalEmbedder(test_config)
+        
+        # Try to encode a sample text
+        sample_texts = ["This is a test sentence for embedding validation."]
+        embeddings = embedder.encode_text(sample_texts)
+        
+        latency_ms = (time.time() - start_time) * 1000
+        
+        return LocalEmbeddingTestResult(
+            success=True,
+            message=f"Model loaded and encoded successfully. Dimensions: {len(embeddings[0])}",
+            latency_ms=round(latency_ms, 2),
+            model_info=embedder.get_model_info(),
+        )
+    except Exception as e:
+        return LocalEmbeddingTestResult(
+            success=False,
+            message=str(e),
+        )
+
+
+@router.post(
+    "/agents/local-embedding/download",
+    response_model=ModelDownloadStatus,
+    summary="Download local embedding model",
+    description="Download the configured embedding model to local cache",
+)
+async def download_local_embedding_model(
+    body: LocalEmbeddingBody = Body(...),
+) -> ModelDownloadStatus:
+    """Download the configured embedding model."""
+    from ...agents.memory.local_embedder import download_model_for_config
+
+    try:
+        # Temporarily enable for downloading
+        test_config = LocalEmbeddingConfig(**body.model_dump())
+        test_config.enabled = True
+
+        local_path = download_model_for_config(test_config)
+        
+        return ModelDownloadStatus(
+            status="completed",
+            progress=100.0,
+            message="Model downloaded successfully",
+            local_path=local_path,
+        )
+    except Exception as e:
+        return ModelDownloadStatus(
+            status="error",
+            message=str(e),
+        )
+
+
+@router.get(
+    "/agents/local-embedding/preset-models",
+    summary="List preset embedding models",
+    description="Return list of preset embedding models with metadata",
+)
+async def get_preset_embedding_models() -> dict:
+    """Return preset embedding models information."""
+    from ...agents.memory.local_embedder import PRESET_MODELS
+    
+    return {
+        "multimodal": [
+            {"id": k, **v}
+            for k, v in PRESET_MODELS.items()
+            if v.get("type") == "multimodal"
+        ],
+        "text": [
+            {"id": k, **v}
+            for k, v in PRESET_MODELS.items()
+            if v.get("type") == "text"
+        ],
+    }

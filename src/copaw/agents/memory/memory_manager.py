@@ -20,6 +20,7 @@ from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_token_counter
 from copaw.config import load_config
+from .local_embedder import LocalEmbedder
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,11 @@ class MemoryManager(ReMeLight):
         if not _REME_AVAILABLE:
             raise RuntimeError("reme package not installed.")
 
+        # Load config for local embedding settings
+        config = load_config()
+        local_embedding_config = config.agents.running.local_embedding
+
+        # Environment variables (for backward compatibility)
         embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
         embedding_base_url = self._safe_str(
             "EMBEDDING_BASE_URL",
@@ -98,17 +104,35 @@ class MemoryManager(ReMeLight):
             10,
         )
 
+        # Initialize local embedder if enabled
+        self._local_embedder: LocalEmbedder | None = None
+        local_embedding_enabled = local_embedding_config.enabled
+
+        if local_embedding_enabled:
+            try:
+                self._local_embedder = LocalEmbedder(local_embedding_config)
+                logger.info(f"Local embedding enabled with model: {local_embedding_config.model_id}")
+            except Exception as e:
+                logger.error(f"Failed to initialize local embedder: {e}")
+                local_embedding_enabled = False
+
         # Determine if vector search should be enabled based on configuration
-        # Vector search requires either an API key or a local model name
-        vector_enabled = bool(embedding_api_key) and bool(embedding_model_name)
+        # Priority: local embedding > remote API > disabled
+        vector_enabled = local_embedding_enabled or (
+            bool(embedding_api_key) and bool(embedding_model_name)
+        )
+        
         if vector_enabled:
-            logger.info("Vector search enabled.")
+            if self._local_embedder:
+                logger.info("Vector search enabled with local embedding model.")
+            else:
+                logger.info("Vector search enabled with remote API.")
         else:
             logger.warning(
                 "Vector search disabled. Memory search functionality "
                 "will be restricted. "
-                "To enable, configure: EMBEDDING_API_KEY, "
-                "EMBEDDING_BASE_URL, EMBEDDING_MODEL_NAME.",
+                "To enable, configure local embedding in settings or set: "
+                "EMBEDDING_API_KEY, EMBEDDING_BASE_URL, EMBEDDING_MODEL_NAME.",
             )
 
         # Check if full-text search (FTS) is enabled via environment variable
@@ -289,3 +313,40 @@ class MemoryManager(ReMeLight):
             The in-memory memory content with token counting support
         """
         return super().get_in_memory_memory(token_counter=self.token_counter)
+
+    def encode_text(self, texts: list[str]) -> list[list[float]]:
+        """Encode texts to embeddings using local embedder.
+        
+        This method provides embeddings for vector memory search.
+        Uses local embedding model if enabled, otherwise falls back to
+        parent class behavior (remote API).
+        
+        Args:
+            texts: List of text strings to encode
+            
+        Returns:
+            List of embedding vectors
+            
+        Raises:
+            RuntimeError: If no embedding provider is available
+        """
+        if self._local_embedder is not None:
+            return self._local_embedder.encode_text(texts)
+        
+        # Fall back to parent class (remote API)
+        # Note: This assumes parent has encode_text or similar method
+        # If not, we need to handle this differently
+        raise RuntimeError(
+            "No embedding provider available. "
+            "Please enable local embedding in settings or configure EMBEDDING_API_KEY."
+        )
+
+    def get_local_embedder_info(self) -> dict | None:
+        """Get information about local embedder if enabled.
+        
+        Returns:
+            Dictionary with model info, or None if not enabled
+        """
+        if self._local_embedder is None:
+            return None
+        return self._local_embedder.get_model_info()

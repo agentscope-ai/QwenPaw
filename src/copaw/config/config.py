@@ -172,6 +172,43 @@ class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
 
 
+class LocalEmbeddingConfig(BaseModel):
+    """Local embedding model configuration for vector memory search.
+    
+    Supports both multimodal (Qwen3-VL) and text-only (BGE/GTE) models.
+    Default download source is ModelScope for better China mainland access.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable local embedding model for vector memory search",
+    )
+    model_id: str = Field(
+        default="qwen/Qwen3-VL-Embedding-2B",
+        description="Model identifier (ModelScope or HuggingFace format)",
+    )
+    model_path: Optional[str] = Field(
+        default=None,
+        description="Local path to model (None for auto-download to cache)",
+    )
+    device: str = Field(
+        default="auto",
+        description="Device for inference: auto/cuda/cpu",
+    )
+    dtype: Literal["fp16", "bf16", "fp32"] = Field(
+        default="fp16",
+        description="Data type for model weights",
+    )
+    download_source: Literal["modelscope", "huggingface"] = Field(
+        default="modelscope",
+        description="Model download source (ModelScope for China mainland)",
+    )
+
+    # Model metadata (auto-populated, not user-editable)
+    _model_type: Optional[str] = None  # "multimodal" or "text"
+    _dimensions: Optional[int] = None
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -227,6 +264,11 @@ class AgentsRunningConfig(BaseModel):
     def memory_compact_threshold(self) -> int:
         """Memory compact threshold size (tokens)."""
         return int(self.max_input_length * self.memory_compact_ratio)
+
+    local_embedding: LocalEmbeddingConfig = Field(
+        default_factory=LocalEmbeddingConfig,
+        description="Local embedding model configuration for vector memory search",
+    )
 
 
 class AgentsLLMRoutingConfig(BaseModel):
