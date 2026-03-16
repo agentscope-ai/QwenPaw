@@ -325,7 +325,10 @@ class _TextEmbedderImpl:
 
 
 class _MultimodalEmbedderImpl:
-    """Multimodal embedder implementation for Qwen3-VL models."""
+    """Multimodal embedder implementation for Qwen3-VL-Embedding.
+    
+    Uses official Qwen3VLEmbedder from Qwen3-VL-Embedding repository.
+    """
 
     def __init__(
         self,
@@ -334,72 +337,47 @@ class _MultimodalEmbedderImpl:
         torch_dtype: torch.dtype,
         metadata: ModelMetadata,
     ):
-        from transformers import AutoModel, AutoProcessor
+        from .qwen3_vl_embedding import Qwen3VLEmbedder
 
         self.metadata = metadata
         self.device = device
 
-        logger.info(f"Loading multimodal embedder from: {model_path}")
+        logger.info(f"Loading Qwen3-VL-Embedding from: {model_path}")
 
-        # Qwen3-VL uses processor for multimodal inputs
-        self.processor = AutoProcessor.from_pretrained(model_path)
-        
-        # Try to load with trust_remote_code for Qwen models
-        try:
-            self.model = AutoModel.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype,
-                device_map=device,
-                trust_remote_code=True,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to load with trust_remote_code: {e}")
-            self.model = AutoModel.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype,
-                device_map=device,
-            )
-        
-        self.model.eval()
+        self.embedder = Qwen3VLEmbedder(
+            model_name_or_path=model_path,
+            device=device,
+        )
+        # Apply dtype if needed
+        if torch_dtype != torch.float32:
+            self.embedder.model = self.embedder.model.to(torch_dtype)
 
     def encode(
         self,
         texts: List[str],
         images: Optional[List[Image.Image]] = None,
     ) -> List[List[float]]:
-        """Encode texts (and optionally images) to embeddings."""
-        # For now, implement text-only path
-        # TODO: Add proper multimodal support with image inputs
+        """Encode texts (and optionally images) to embeddings.
         
-        if images is not None:
-            logger.warning("Multimodal encode with images not yet fully implemented, using text only")
+        Uses official Qwen3VLEmbedder.process() method which:
+        - Takes List[Dict] input format
+        - Supports text/image/video/instruction per item
+        - Returns L2-normalized embeddings
+        - Uses Last Token pooling
+        """
+        # Format inputs for Qwen3VLEmbedder
+        inputs = []
+        if images is None:
+            images = [None] * len(texts)
+        
+        for text, img in zip(texts, images):
+            item = {"text": text}
+            if img is not None:
+                item["image"] = img
+            inputs.append(item)
 
-        # Use processor for text (same interface for multimodal models)
-        inputs = self.processor(
-            text=texts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512,
-        )
-
-        # Move to device if not using device_map
-        if self.device != "auto":
-            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-
-        # Forward pass
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-
-        # Qwen3-VL uses last token pooling
-        if self.metadata.pooling == "last_token":
-            embeddings = outputs.last_hidden_state[:, -1, :]
-        else:
-            embeddings = outputs.last_hidden_state[:, 0, :]
-
-        # Normalize
-        embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-
+        # Process through official embedder
+        embeddings = self.embedder.process(inputs, normalize=True)
         return embeddings.cpu().tolist()
 
 
