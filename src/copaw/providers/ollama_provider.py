@@ -128,7 +128,7 @@ class OllamaProvider(Provider):
         "registry/model:tag" or "registry/model".
         """
         if model_info.id in {
-            model.id for model in self.models  # type: ignore [has-type]
+            model.id for model in self.extra_models  # type: ignore [has-type]
         }:
             return False, f"Model '{model_info.id}' already exists"
         client = self._client(timeout=timeout)
@@ -140,7 +140,7 @@ class OllamaProvider(Provider):
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
         except Exception:
             return False, f"Failed to pull model '{model_info.id}'"
-        self.models = await self.fetch_models()
+        self.extra_models = await self.fetch_models()
         return True, ""
 
     async def delete_model(
@@ -157,7 +157,7 @@ class OllamaProvider(Provider):
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
         except Exception:
             return False, f"Failed to delete model '{model_id}'"
-        self.models = await self.fetch_models()
+        self.extra_models = await self.fetch_models()
         return True, ""
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
