@@ -33,12 +33,10 @@ async def post_console_chat(
     Accepts AgentRequest or dict, builds native payload, and streams events
     via channel.stream_one().
     """
-    channel_manager = getattr(request.app.state, "channel_manager", None)
-    if channel_manager is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel manager not initialized",
-        )
+
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
 
     # Extract channel info from request
     if isinstance(request_data, AgentRequest):
@@ -64,11 +62,11 @@ async def post_console_chat(
             elif isinstance(last_msg, dict) and "content" in last_msg:
                 content_parts = last_msg["content"] or []
 
-    console_channel = await channel_manager.get_channel("console")
+    console_channel = await workspace._channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
             status_code=503,
-            detail=f"Channel {channel_id} not found",
+            detail="Channel Console not found",
         )
 
     # Build native payload
