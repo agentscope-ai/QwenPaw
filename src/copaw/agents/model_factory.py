@@ -160,23 +160,40 @@ def _create_file_block_support_formatter(
                             tc["extra_content"] = ec
 
             if reasoning_contents:
-                # Collect reasoning values in input order for assistant
-                # messages that have reasoning_content.  The parent
-                # formatter may drop assistant messages that contain
-                # only thinking blocks (no content/tool_calls), so
-                # the output count can be smaller than the input count.
-                # Inject sequentially to avoid the count-mismatch skip.
-                reasoning_values = [
-                    reasoning_contents[id(m)]
-                    for m in msgs
-                    if m.role == "assistant" and id(m) in reasoning_contents
-                ]
+                # Build a list of reasoning values aligned with surviving
+                # assistant messages.  The parent formatter drops
+                # thinking-only messages (no content/tool_calls), so we
+                # predict survivors and collect reasoning only for those.
+                aligned_reasoning = []
+                for m in (msg for msg in msgs if msg.role == "assistant"):
+                    is_thinking_only = (
+                        isinstance(m.content, list)
+                        and m.content
+                        and all(b.get("type") == "thinking" for b in m.content)
+                    )
+                    if not (
+                        is_thinking_only and not getattr(m, "tool_calls", None)
+                    ):
+                        aligned_reasoning.append(
+                            reasoning_contents.get(id(m)),
+                        )
+
                 out_assistant = [
                     m for m in messages if m.get("role") == "assistant"
                 ]
-                for i, out_msg in enumerate(out_assistant):
-                    if i < len(reasoning_values):
-                        out_msg["reasoning_content"] = reasoning_values[i]
+
+                if len(aligned_reasoning) != len(out_assistant):
+                    logger.warning(
+                        "Assistant message count mismatch after formatting "
+                        "(%d expected survivors, %d actual). "
+                        "Skipping reasoning_content injection.",
+                        len(aligned_reasoning),
+                        len(out_assistant),
+                    )
+                else:
+                    for i, out_msg in enumerate(out_assistant):
+                        if aligned_reasoning[i]:
+                            out_msg["reasoning_content"] = aligned_reasoning[i]
 
             return _strip_top_level_message_name(messages)
 
