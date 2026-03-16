@@ -6,6 +6,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   const apiBaseUrl = env.BASE_URL ?? "";
+  const normalizedBasePath = apiBaseUrl
+    ? `/${apiBaseUrl.replace(/^https?:\/\/[^/]+/, "").replace(/^\/+|\/+$/g, "")}/`
+    : "/";
 
   return {
     define: {
@@ -13,6 +16,7 @@ export default defineConfig(({ mode }) => {
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
+    base: normalizedBasePath,
     plugins: [react()],
     css: {
       modules: {

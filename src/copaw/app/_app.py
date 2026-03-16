@@ -31,6 +31,34 @@ from .migration import (
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
 
+# Load persisted env vars into os.environ at module import time
+# so they are available before app and path-prefix initialization.
+load_envs_into_environ()
+
+
+def _normalize_base_url(raw_base_url: str) -> str:
+    """Normalize BASE_URL to an optional path prefix."""
+    if not raw_base_url:
+        return ""
+
+    base_url = raw_base_url.strip()
+    if not base_url:
+        return ""
+
+    if "://" in base_url:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(base_url)
+        base_url = parsed.path
+
+    if not base_url.startswith("/"):
+        base_url = f"/{base_url}"
+
+    return base_url.rstrip("/")
+
+
+_BASE_URL_PREFIX = _normalize_base_url(os.environ.get("BASE_URL", ""))
+
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
 mimetypes.init()
@@ -38,11 +66,6 @@ mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/wasm", ".wasm")
-
-# Load persisted env vars into os.environ at module import time
-# so they are available before the lifespan starts.
-load_envs_into_environ()
-
 
 # Dynamic runner that selects the correct workspace runner based on request
 class DynamicMultiAgentRunner:
@@ -350,3 +373,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     def _console_spa(full_path: str):
         _ = full_path
         return _serve_console_index()
+
+
+if _BASE_URL_PREFIX:
+    prefixed_app = FastAPI()
+    prefixed_app.mount(_BASE_URL_PREFIX, app)
+    app = prefixed_app
+    logger.info("Mounted CoPaw app with BASE_URL prefix: %s", _BASE_URL_PREFIX)
