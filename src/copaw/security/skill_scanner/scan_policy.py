@@ -129,7 +129,6 @@ class FileLimitsPolicy:
     max_name_length: int = 64
     max_description_length: int = 1024
     min_description_length: int = 20
-    max_yara_scan_file_size_bytes: int = 52_428_800  # 50 MB
 
 
 @dataclass
@@ -137,7 +136,6 @@ class AnalysisThresholdsPolicy:
     """Numeric thresholds for analysis tuning."""
 
     min_confidence_pct: int = 80
-    exception_handler_context_lines: int = 20
     max_regex_pattern_length: int = 1000
 
 
@@ -187,11 +185,7 @@ class ScanPolicy:
 
     def is_rule_disabled(self, rule_id: str) -> bool:
         """Return *True* if the rule has been disabled by the policy."""
-        if rule_id in self.disabled_rules:
-            return True
-        # Also check without the YARA_ prefix
-        base_name = rule_id.replace("YARA_", "") if rule_id.startswith("YARA_") else rule_id
-        return base_name in self.disabled_rules
+        return rule_id in self.disabled_rules
 
     def is_doc_path(self, rel_path: str) -> bool:
         """Check if a relative file path belongs to a documentation area."""
@@ -362,11 +356,9 @@ class ScanPolicy:
                 max_name_length=fl.get("max_name_length", 64),
                 max_description_length=fl.get("max_description_length", 1024),
                 min_description_length=fl.get("min_description_length", 20),
-                max_yara_scan_file_size_bytes=fl.get("max_yara_scan_file_size_bytes", 52_428_800),
             ),
             analysis_thresholds=AnalysisThresholdsPolicy(
                 min_confidence_pct=at.get("min_confidence_pct", 80),
-                exception_handler_context_lines=at.get("exception_handler_context_lines", 20),
                 max_regex_pattern_length=at.get("max_regex_pattern_length", 1000),
             ),
             severity_overrides=severity_overrides,
@@ -407,13 +399,9 @@ class ScanPolicy:
                 "max_name_length": self.file_limits.max_name_length,
                 "max_description_length": self.file_limits.max_description_length,
                 "min_description_length": self.file_limits.min_description_length,
-                "max_yara_scan_file_size_bytes": self.file_limits.max_yara_scan_file_size_bytes,
             },
             "analysis_thresholds": {
                 "min_confidence_pct": self.analysis_thresholds.min_confidence_pct,
-                "exception_handler_context_lines": (
-                    self.analysis_thresholds.exception_handler_context_lines
-                ),
                 "max_regex_pattern_length": self.analysis_thresholds.max_regex_pattern_length,
             },
             "severity_overrides": [

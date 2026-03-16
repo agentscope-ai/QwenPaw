@@ -717,7 +717,7 @@ class SkillService:
 
             # --- Security scan (post-write, warning only) -------------------
             try:
-                from ..security import scan_skill_directory
+                from ..security.skill_scanner import scan_skill_directory
 
                 scan_skill_directory(skill_dir, skill_name=name, block=False)
             except Exception as scan_exc:
@@ -790,7 +790,7 @@ class SkillService:
         """
         # --- Security scan (pre-activation, warning only) ------------------
         try:
-            from ..security import scan_skill_directory
+            from ..security.skill_scanner import scan_skill_directory
 
             # Determine the source directory that will be synced.
             source_dir = None

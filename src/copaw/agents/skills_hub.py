@@ -1440,7 +1440,7 @@ def install_skill_from_hub(
 
     # --- Security scan for imported skills (warning only) -----------------
     try:
-        from ..security import scan_skill_directory
+        from ..security.skill_scanner import scan_skill_directory
 
         customized_dir = (
             SkillService._get_customized_skill_dir(name)  # pylint: disable=protected-access

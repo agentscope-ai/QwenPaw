@@ -225,14 +225,12 @@ file_limits:
   max_name_length: 64
   max_description_length: 1024
   min_description_length: 20
-  max_yara_scan_file_size_bytes: 52428800  # 50 MB
 
 # ---------------------------------------------------------------------------
 # Analysis thresholds
 # ---------------------------------------------------------------------------
 analysis_thresholds:
   min_confidence_pct: 80
-  exception_handler_context_lines: 20
   max_regex_pattern_length: 1000
 
 # ---------------------------------------------------------------------------

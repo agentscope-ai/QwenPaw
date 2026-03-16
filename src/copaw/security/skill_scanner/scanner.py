@@ -7,7 +7,7 @@ into a single :class:`ScanResult`.
 
 Usage::
 
-    scanner = SkillScanner()              # default analyzers
+    scanner = SkillScanner()              # default analyzer: pattern
     result = scanner.scan_skill("/path/to/skill")
     if not result.is_safe:
         ...
@@ -22,9 +22,7 @@ import time
 from pathlib import Path
 
 from .analyzers import BaseAnalyzer
-from .analyzers.consistency_analyzer import ConsistencyAnalyzer
 from .analyzers.pattern_analyzer import PatternAnalyzer
-from .analyzers.yara_analyzer import YaraAnalyzer
 from .models import Finding, ScanResult, SkillFile
 from .scan_policy import ScanPolicy
 
@@ -55,8 +53,8 @@ class SkillScanner:
     Parameters
     ----------
     analyzers:
-        Explicit list of analyzers.  If *None* the default set
-        (pattern + yara + consistency) is used.
+        Explicit list of analyzers.  If *None*, only PatternAnalyzer
+        is enabled by default in this branch.
     policy:
         Scan policy for org-specific rule scoping, severity overrides,
         and allowlists.  When *None*, the built-in default policy is used.
@@ -279,25 +277,13 @@ class SkillScanner:
 
     @staticmethod
     def _default_analyzers(policy: ScanPolicy | None = None) -> list[BaseAnalyzer]:
-        """Instantiate the default set of analyzers, sharing the active policy."""
+        """Instantiate default analyzers, sharing the active policy."""
         analyzers: list[BaseAnalyzer] = []
 
-        # YAML regex signatures.
+        # YAML regex signatures (baseline scanner).
         try:
             analyzers.append(PatternAnalyzer(policy=policy))
         except Exception as exc:
             logger.error("Failed to load PatternAnalyzer: %s", exc)
-
-        # YARA rules.
-        try:
-            analyzers.append(YaraAnalyzer(policy=policy))
-        except Exception as exc:
-            logger.debug("YaraAnalyzer unavailable: %s", exc)
-
-        # Consistency / behavioral patterns (file I/O, network, loops).
-        try:
-            analyzers.append(ConsistencyAnalyzer(policy=policy))
-        except Exception as exc:
-            logger.error("Failed to load ConsistencyAnalyzer: %s", exc)
 
         return analyzers
