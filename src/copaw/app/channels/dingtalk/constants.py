@@ -16,4 +16,5 @@ DINGTALK_SESSION_ID_SUFFIX_LEN = 8
 # DingTalk message type to runtime content type
 DINGTALK_TYPE_MAPPING = {
     "picture": "image",
+    "voice": "audio",
 }
