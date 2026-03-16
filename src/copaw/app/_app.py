@@ -312,6 +312,12 @@ app.include_router(voice_router, tags=["voice"])
 if os.path.isdir(_CONSOLE_STATIC_DIR):
     _console_path = Path(_CONSOLE_STATIC_DIR)
 
+    def _serve_console_index():
+        if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
+            return FileResponse(_CONSOLE_INDEX)
+
+        raise HTTPException(status_code=404, detail="Not Found")
+
     @app.get("/logo.png")
     def _console_logo():
         f = _console_path / "logo.png"
@@ -336,9 +342,14 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
             name="assets",
         )
 
+    @app.get("/console")
+    @app.get("/console/")
+    @app.get("/console/{full_path:path}")
+    def _console_spa_alias(full_path: str = ""):
+        _ = full_path
+        return _serve_console_index()
+
     @app.get("/{full_path:path}")
     def _console_spa(full_path: str):
-        if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-            return FileResponse(_CONSOLE_INDEX)
-
-        raise HTTPException(status_code=404, detail="Not Found")
+        _ = full_path
+        return _serve_console_index()

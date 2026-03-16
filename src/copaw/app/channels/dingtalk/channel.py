@@ -1212,10 +1212,6 @@ class DingTalkChannel(BaseChannel):
         else:
             await self.send(to_handle, body.strip() or prefix, meta)
 
-    def get_debounce_key(self, payload: Any) -> str:
-        """Use short conversation_id or channel:sender for time debounce."""
-        return self._debounce_key(payload)
-
     def merge_native_items(self, items: List[Any]) -> Any:
         """Merge payloads (content_parts + meta) for DingTalk."""
         return self._merge_native(items)
@@ -1471,14 +1467,6 @@ class DingTalkChannel(BaseChannel):
                 request.user_id or "",
                 request.session_id or f"{self.channel}:{request.user_id}",
             )
-
-    def _debounce_key(self, native: Any) -> str:
-        payload = native if isinstance(native, dict) else {}
-        meta = payload.get("meta") or {}
-        cid = meta.get("conversation_id") or ""
-        if cid:
-            return short_session_id_from_conversation_id(str(cid))
-        return f"{self.channel}:{payload.get('sender_id', '')}"
 
     def _merge_native(self, items: list) -> dict:
         """Merge multiple native payloads into one (content_parts + meta)."""

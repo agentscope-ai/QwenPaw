@@ -130,15 +130,15 @@ class BaseChannel(ABC):
     def get_debounce_key(self, payload: Any) -> str:
         """
         Key for time debounce (same key = same conversation).
-        Override for channel-specific keys (e.g. short conversation_id).
+        Delegates to ``resolve_session_id`` so every channel gets
+        session-scoped isolation automatically.
         """
         if isinstance(payload, dict):
+            sender_id = payload.get("sender_id") or ""
             meta = payload.get("meta") or {}
-            return (
-                payload.get("session_id")
-                or meta.get("conversation_id")
-                or payload.get("sender_id")
-                or ""
+            return payload.get("session_id") or self.resolve_session_id(
+                sender_id,
+                meta,
             )
         return getattr(payload, "session_id", "") or ""
 
@@ -162,6 +162,7 @@ class BaseChannel(ABC):
                 "reply_loop",
                 "incoming_message",
                 "conversation_id",
+                "message_id",
             ):
                 if k in m:
                     merged_meta[k] = m[k]
