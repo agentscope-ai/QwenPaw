@@ -174,12 +174,13 @@ function CopyButton({ text }: { text: string }) {
     const fallback = () => {
       const textarea = document.createElement("textarea");
       textarea.value = text;
-      textarea.style.cssText = "position:fixed;left:-9999px";
+      textarea.readOnly = true;
+      textarea.style.cssText = "position:fixed;left:-9999px;top:-9999px";
       document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      textarea.setSelectionRange(0, textarea.value.length);
       try {
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
         const successful = document.execCommand("copy");
         if (successful) {
           doCopy();
