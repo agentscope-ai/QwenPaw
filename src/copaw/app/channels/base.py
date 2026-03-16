@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from .renderer import MessageRenderer, RenderStyle
 from .schema import ChannelType
+from ...config.utils import load_config
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -99,10 +100,17 @@ class BaseChannel(ABC):
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
         self._enqueue: EnqueueCallback = None
+        cfg = load_config()
+        internal_tools = frozenset(
+            name
+            for name, tc in cfg.tools.builtin_tools.items()
+            if not tc.display_to_user
+        )
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            internal_tools=internal_tools,
         )
         self._renderer = MessageRenderer(self._render_style)
         self._http: Optional[Any] = None
