@@ -586,8 +586,10 @@
     "prompt2": "あなたのスキルを教えてください。"
   },
   "security": {
-    "title": "ツールガード",
-    "description": "ツール呼び出しのセキュリティスキャンを設定します。危険な操作は実行前に明示的な承認が必要になります。",
+    "title": "セキュリティ",
+    "description": "ツールとスキルのセキュリティ機能を管理します。",
+    "toolGuardTitle": "ツールガード",
+    "toolGuardDescription": "ツール呼び出しのセキュリティスキャンを設定します。危険な操作は実行前に明示的な承認が必要になります。",
     "enabled": "ツールガードを有効にする",
     "enabledTooltip": "有効にすると、ツール呼び出しが実行前に危険なパターンをスキャンされます",
     "guardedTools": "保護対象ツール",
@@ -666,9 +668,7 @@
         "action": "アクション",
         "actionBlocked": "ブロック済み",
         "actionWarned": "警告済み",
-        "severity": "重大度",
         "time": "日時",
-        "findings": "検出結果",
         "actions": "操作",
         "allowSkill": "ホワイトリストに追加",
         "remove": "削除",
@@ -686,11 +686,14 @@
         "addSuccess": "スキルをホワイトリストに追加しました",
         "removeSuccess": "スキルをホワイトリストから削除しました",
         "addFailed": "ホワイトリストへの追加に失敗しました",
-        "removeFailed": "ホワイトリストからの削除に失敗しました"
+        "removeFailed": "ホワイトリストからの削除に失敗しました",
+        "removeWillDisable": "削除後、このスキルも無効化されます。",
+        "removeAndDisabled": "スキルをホワイトリストから削除し、無効化しました"
       },
       "scanError": {
-        "title": "セキュリティスキャン失敗",
+        "title": "セキュリティ問題が検出されました",
         "description": "以下のセキュリティ問題が見つかりました：",
+        "warnDescription": "セキュリティ問題が見つかりましたが、スキルは引き続き有効です（警告モード）：",
         "goToWhitelist": "ホワイトリストへ"
       }
     }

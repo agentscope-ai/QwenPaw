@@ -637,8 +637,10 @@
     "prompt2": "Can you tell me what skills you have?"
   },
   "security": {
-    "title": "Tool Guard",
-    "description": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
+    "title": "Security",
+    "description": "Manage security features for tools and skills.",
+    "toolGuardTitle": "Tool Guard",
+    "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Enable Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
     "guardedTools": "Guarded Tools",
@@ -717,9 +719,7 @@
         "action": "Action",
         "actionBlocked": "Blocked",
         "actionWarned": "Warned",
-        "severity": "Severity",
         "time": "Time",
-        "findings": "Findings",
         "actions": "Actions",
         "allowSkill": "Add to Whitelist",
         "remove": "Remove",
@@ -737,11 +737,14 @@
         "addSuccess": "Skill added to whitelist",
         "removeSuccess": "Skill removed from whitelist",
         "addFailed": "Failed to add skill to whitelist",
-        "removeFailed": "Failed to remove skill from whitelist"
+        "removeFailed": "Failed to remove skill from whitelist",
+        "removeWillDisable": "The skill will also be disabled after removal.",
+        "removeAndDisabled": "Skill removed from whitelist and disabled"
       },
       "scanError": {
-        "title": "Security Scan Failed",
+        "title": "Security Issues Detected",
         "description": "The following security issues were found:",
+        "warnDescription": "Security issues were found but the skill was still enabled (warn mode):",
         "goToWhitelist": "Go to Whitelist"
       }
     }

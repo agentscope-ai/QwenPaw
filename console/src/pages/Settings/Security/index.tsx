@@ -210,6 +210,17 @@ function SecurityPage() {
       <div className={styles.content}>
         <PageHeader />
 
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>
+              {t("security.toolGuardTitle")}
+            </h2>
+            <p className={styles.description} style={{ marginTop: 4 }}>
+              {t("security.toolGuardDescription")}
+            </p>
+          </div>
+        </div>
+
         <Card className={styles.formCard}>
           <Form
             form={form}

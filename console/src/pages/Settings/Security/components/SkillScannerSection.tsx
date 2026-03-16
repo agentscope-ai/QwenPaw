@@ -20,15 +20,8 @@ import type {
   SkillScannerWhitelistEntry,
   SkillScannerMode,
 } from "../../../../api/modules/security";
+import { skillApi } from "../../../../api/modules/skill";
 import styles from "../index.module.less";
-
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: "red",
-  HIGH: "orange",
-  MEDIUM: "gold",
-  LOW: "blue",
-  INFO: "default",
-};
 
 function FindingsModal({
   findings,
@@ -59,15 +52,6 @@ function FindingsModal({
         pagination={false}
         size="small"
         columns={[
-          {
-            title: t("security.skillScanner.scanAlerts.severity"),
-            dataIndex: "severity",
-            key: "severity",
-            width: 100,
-            render: (sev: string) => (
-              <Tag color={SEVERITY_COLORS[sev] ?? "default"}>{sev}</Tag>
-            ),
-          },
           {
             title: "Title",
             dataIndex: "title",
@@ -160,11 +144,21 @@ export function SkillScannerSection() {
     async (skillName: string) => {
       Modal.confirm({
         title: t("security.skillScanner.whitelist.removeConfirm"),
+        content: t("security.skillScanner.whitelist.removeWillDisable"),
         onOk: async () => {
           const ok = await removeFromWhitelist(skillName);
-          if (ok)
+          if (!ok) {
+            message.error(t("security.skillScanner.whitelist.removeFailed"));
+            return;
+          }
+          try {
+            await skillApi.disableSkill(skillName);
+            message.success(
+              t("security.skillScanner.whitelist.removeAndDisabled"),
+            );
+          } catch {
             message.success(t("security.skillScanner.whitelist.removeSuccess"));
-          else message.error(t("security.skillScanner.whitelist.removeFailed"));
+          }
         },
       });
     },
@@ -203,22 +197,6 @@ export function SkillScannerSection() {
             : t("security.skillScanner.scanAlerts.actionWarned")}
         </Tag>
       ),
-    },
-    {
-      title: t("security.skillScanner.scanAlerts.severity"),
-      dataIndex: "max_severity",
-      key: "max_severity",
-      width: 100,
-      render: (sev: string) => (
-        <Tag color={SEVERITY_COLORS[sev] ?? "default"}>{sev}</Tag>
-      ),
-    },
-    {
-      title: t("security.skillScanner.scanAlerts.findings"),
-      key: "findings_count",
-      width: 80,
-      render: (_: unknown, record: BlockedSkillRecord) =>
-        record.findings.length,
     },
     {
       title: t("security.skillScanner.scanAlerts.time"),

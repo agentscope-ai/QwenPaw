@@ -637,8 +637,10 @@
     "prompt2": "能告诉我你有哪些技能吗？"
   },
   "security": {
-    "title": "工具防护",
-    "description": "配置工具调用的安全扫描。危险操作将在执行前需要你的明确批准。",
+    "title": "安全",
+    "description": "管理工具和技能的安全功能。",
+    "toolGuardTitle": "工具防护",
+    "toolGuardDescription": "配置工具调用的安全扫描。危险操作将在执行前需要你的明确批准。",
     "enabled": "启用工具防护",
     "enabledTooltip": "启用后，工具调用在执行前会被扫描是否包含危险模式",
     "guardedTools": "受保护的工具",
@@ -717,9 +719,7 @@
         "action": "动作",
         "actionBlocked": "已拦截",
         "actionWarned": "已提醒",
-        "severity": "严重程度",
         "time": "时间",
-        "findings": "发现",
         "actions": "操作",
         "allowSkill": "加入白名单",
         "remove": "删除",
@@ -737,11 +737,14 @@
         "addSuccess": "技能已加入白名单",
         "removeSuccess": "技能已从白名单移除",
         "addFailed": "加入白名单失败",
-        "removeFailed": "从白名单移除失败"
+        "removeFailed": "从白名单移除失败",
+        "removeWillDisable": "移除后该技能将同时被禁用。",
+        "removeAndDisabled": "技能已从白名单移除并已禁用"
       },
       "scanError": {
-        "title": "安全扫描失败",
+        "title": "检测到安全问题",
         "description": "发现以下安全问题：",
+        "warnDescription": "发现安全问题，但技能仍已启用（仅提醒模式）：",
         "goToWhitelist": "前往白名单"
       }
     }

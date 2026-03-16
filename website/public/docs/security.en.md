@@ -65,11 +65,11 @@ The **Skill Scanner** automatically scans skills for security threats (command i
 
 ### Scanner modes
 
-| Mode                | Behavior                                                                      |
-| ------------------- | ----------------------------------------------------------------------------- |
-| **Block** (default) | Scan and block unsafe skills. The operation fails with a detailed error.      |
-| **Warn**            | Scan and record findings, but allow the skill to proceed. A warning is shown. |
-| **Off**             | Disable scanning entirely.                                                    |
+| Mode               | Behavior                                                                      |
+| ------------------ | ----------------------------------------------------------------------------- |
+| **Block**          | Scan and block unsafe skills. The operation fails with a detailed error.      |
+| **Warn** (default) | Scan and record findings, but allow the skill to proceed. A warning is shown. |
+| **Off**            | Disable scanning entirely.                                                    |
 
 Set the mode in Console (**Settings → Security → Skill Scanner → Scanner Mode**) or via the environment variable `COPAW_SKILL_SCAN_MODE` (`block`, `warn`, or `off`). The environment variable takes precedence over the config file.
 

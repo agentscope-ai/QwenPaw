@@ -1,22 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { message, Modal, Tag } from "@agentscope-ai/design";
+import { message, Modal } from "@agentscope-ai/design";
 import React from "react";
 import api from "../../../api";
 import type { SkillSpec } from "../../../api/types";
-import type {
-  SecurityScanErrorResponse,
-  BlockedSkillRecord,
-} from "../../../api/modules/security";
+import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
-
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: "red",
-  HIGH: "orange",
-  MEDIUM: "gold",
-  LOW: "blue",
-  INFO: "default",
-};
 
 function tryParseScanError(error: unknown): SecurityScanErrorResponse | null {
   if (!(error instanceof Error)) return null;
@@ -78,23 +67,9 @@ export function useSkills() {
                   },
                 },
                 React.createElement(
-                  "div",
-                  {
-                    style: {
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginBottom: 4,
-                    },
-                  },
-                  React.createElement(
-                    Tag,
-                    {
-                      color: SEVERITY_COLORS[f.severity] ?? "default",
-                    },
-                    f.severity,
-                  ),
-                  React.createElement("strong", null, f.title),
+                  "strong",
+                  { style: { marginBottom: 4, display: "block" } },
+                  f.title,
                 ),
                 React.createElement(
                   "div",
@@ -139,19 +114,70 @@ export function useSkills() {
   const checkScanWarnings = useCallback(
     async (skillName: string) => {
       try {
-        const alerts: BlockedSkillRecord[] = await api.getBlockedHistory();
+        const [alerts, scannerCfg] = await Promise.all([
+          api.getBlockedHistory(),
+          api.getSkillScanner(),
+        ]);
         if (!alerts.length) return;
+        if (
+          scannerCfg?.whitelist?.some(
+            (w: { skill_name: string }) => w.skill_name === skillName,
+          )
+        )
+          return;
         const latestForSkill = alerts
           .filter((a) => a.skill_name === skillName && a.action === "warned")
           .pop();
-        if (latestForSkill) {
-          Modal.warning({
-            title: t("security.skillScanner.scanError.title"),
-            content: `${skillName}: ${latestForSkill.findings.length} ${t(
-              "security.skillScanner.scanAlerts.findings",
-            ).toLowerCase()}`,
-          });
-        }
+        if (!latestForSkill) return;
+        const findings = latestForSkill.findings || [];
+        Modal.warning({
+          title: t("security.skillScanner.scanError.title"),
+          width: 640,
+          content: React.createElement(
+            "div",
+            null,
+            React.createElement(
+              "p",
+              null,
+              t("security.skillScanner.scanError.warnDescription"),
+            ),
+            React.createElement(
+              "div",
+              { style: { maxHeight: 300, overflow: "auto", marginTop: 8 } },
+              findings.map((f, i) =>
+                React.createElement(
+                  "div",
+                  {
+                    key: i,
+                    style: {
+                      padding: "8px 12px",
+                      marginBottom: 4,
+                      background: "#fafafa",
+                      borderRadius: 6,
+                      border: "1px solid #f0f0f0",
+                    },
+                  },
+                  React.createElement(
+                    "strong",
+                    { style: { marginBottom: 4, display: "block" } },
+                    f.title,
+                  ),
+                  React.createElement(
+                    "div",
+                    { style: { fontSize: 12, color: "#666" } },
+                    f.file_path + (f.line_number ? `:${f.line_number}` : ""),
+                  ),
+                  f.description &&
+                    React.createElement(
+                      "div",
+                      { style: { fontSize: 12, color: "#999", marginTop: 2 } },
+                      f.description,
+                    ),
+                ),
+              ),
+            ),
+          ),
+        });
       } catch {
         // non-critical
       }

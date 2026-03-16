@@ -632,13 +632,13 @@ class SkillScannerConfig(BaseModel):
     """Skill scanner settings under ``security.skill_scanner``.
 
     ``mode`` controls the scanner behavior:
-    * ``"block"`` – scan and block unsafe skills (default).
-    * ``"warn"``  – scan but only log warnings, do not block.
+    * ``"block"`` – scan and block unsafe skills.
+    * ``"warn"``  – scan but only log warnings, do not block (default).
     * ``"off"``   – disable scanning entirely.
     """
 
     mode: Literal["block", "warn", "off"] = Field(
-        default="block",
+        default="warn",
         description="Scanner mode: block, warn, or off.",
     )
     timeout: int = Field(
