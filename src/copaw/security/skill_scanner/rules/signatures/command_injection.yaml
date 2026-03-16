@@ -1,0 +1,194 @@
+# Command & Code Injection Signatures
+# Detects dangerous code execution, shell injection, path traversal, and SQL injection
+
+- id: COMMAND_INJECTION_EVAL
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "(?<!['\\\"])\\beval\\s*\\("
+    - "(?<!['\\\"\\.])\\bexec\\s*\\("
+    - "\\b__import__\\s*\\(\\s*(?:input\\s*\\(|request\\.|os\\.environ|sys\\.argv|argv|args\\[|user_)"
+    - "(?<!re\\.)(?<!['\\\"])(?<!\\.)\\bcompile\\s*\\("  # compile() but not re.compile() or method calls
+  exclude_patterns:
+    - '(?i)never\s+use\s+eval\s*\('
+    - '(?i)use\s+of\s+eval\s*\('
+    - '(?i)use\s+of\s+exec\s*\('
+    - "r[\\'\\\"].*eval\\\\s\\*\\\\\\("
+    - "r[\\'\\\"].*exec\\\\s\\*\\\\\\("
+  file_types: [python, javascript, typescript]
+  description: "Dangerous code execution functions that can execute arbitrary code"
+  remediation: "Avoid eval(), exec(), and compile(). Use safer alternatives like ast.literal_eval() or operator module"
+
+- id: COMMAND_INJECTION_OS_SYSTEM
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "os\\.system\\s*\\([^)]*[f\"'].*\\{.*\\}"
+    - "subprocess\\.(?:call|run|Popen)\\s*\\([^)]*[f\"'].*\\{.*\\}"
+    - "os\\.popen\\s*\\([^)]*[f\"'].*\\{.*\\}"
+  file_types: [python]
+  description: "Shell command execution with string formatting (potential injection)"
+  remediation: "Use subprocess with argument lists, not shell strings. Never use user input in shell commands"
+
+- id: COMMAND_INJECTION_SHELL_TRUE
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "subprocess\\.(?:call|run|Popen)\\s*\\([^)]*shell\\s*=\\s*True"
+    - "os\\.system\\s*\\("
+  file_types: [python]
+  description: "Shell command execution with shell=True enabled"
+  remediation: "Use shell=False and pass commands as lists"
+
+# Note: Command substitution is very common in shell scripts and usually safe
+# Only flag the most dangerous patterns - eval with untrusted input
+- id: COMMAND_INJECTION_USER_INPUT
+  category: command_injection
+  severity: HIGH
+  patterns:
+    # eval with positional arguments (the most dangerous pattern)
+    # This is the primary vector for shell command injection
+    - "eval\\s+[\"']?\\$[0-9@*]"
+    - "eval\\s+[\"']?\\$\\{[0-9@*]"
+  exclude_patterns:
+    # Testing/example context
+    - "example"
+    - "test"
+    - "#.*eval"
+  file_types: [bash]
+  description: "eval with user-controlled input - command injection risk"
+  remediation: "Never use eval with user input. Use safer alternatives like case statements or parameter validation"
+
+- id: PATH_TRAVERSAL_OPEN
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    # os.path.join with user-controlled path component and open()
+    - "os\\.path\\.join\\s*\\([^)]+,\\s*\\w+\\s*\\).*\\n.*open\\s*\\("
+    # f-string path construction followed by open
+    - "path\\s*=\\s*f[\"'][^\"']*\\{[^}]+\\}[^\"']*[\"']\\s*\\n.*open\\s*\\(path"
+    # Direct open with f-string path containing variable
+    - "open\\s*\\(\\s*f[\"']/[^\"']*\\{[^}]+\\}"
+    # open(path) where path was constructed from user input
+    - "return\\s+open\\s*\\(\\s*path\\s*\\)"
+  exclude_patterns:
+    # Safe file extensions
+    - "\\.json[\"']"
+    - "\\.yaml[\"']"
+    - "\\.yml[\"']"
+    - "\\.txt[\"']"
+    # Tests
+    - "test_"
+    - "_test\\."
+  file_types: [python]
+  description: "Path traversal vulnerability - user-controlled file path"
+  remediation: "Validate and sanitize file paths. Use os.path.realpath() and verify path is within allowed directory"
+
+- id: SQL_INJECTION_STRING_FORMAT
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    # f-string SQL with variables in WHERE clause (likely user input)
+    - "f[\"']SELECT.*WHERE.*\\{[^}]+\\}"
+    # f-string SQL with LIKE clause (almost always user input)
+    - "f[\"'].*LIKE.*\\{[^}]+\\}"
+    # String concatenation in SQL
+    - "[\"']SELECT.*FROM.*[\"']\\s*\\+\\s*\\w+"
+  exclude_patterns:
+    # Parameterized queries (safe)
+    - "%s"
+    - "\\?"
+    # LIMIT/OFFSET clauses (usually safe integers)
+    - "LIMIT\\s+\\{"
+    # Comments showing examples
+    - "^\\s*#"
+    - "^\\s*--"
+    - "example:"
+  file_types: [python]
+  description: "SQL query with f-string variables (SQL injection risk)"
+  remediation: "Use parameterized queries with ? or %s placeholders"
+
+- id: SVG_EMBEDDED_SCRIPT
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "<script[^>]*>[^<]*</script>"
+    - "\\bon\\w+\\s*=\\s*[\"'][^\"']*[\"']"
+    - "javascript\\s*:"
+  file_types: [other]
+  description: "SVG file contains embedded script tags or event handlers that can execute JavaScript"
+  remediation: "Remove all <script> tags, event handlers (onclick, onload, etc.), and javascript: URIs from SVG files"
+
+- id: PDF_EMBEDDED_JAVASCRIPT
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "/JS\\s*\\("
+    - "/JavaScript\\s"
+    - "/OpenAction\\s"
+    - "/AA\\s*<<"
+    - "/Launch\\s"
+  file_types: [binary, other]
+  description: "PDF file contains embedded JavaScript or auto-action triggers"
+  remediation: "Remove JavaScript actions from PDF files. PDF files should contain only static content"
+
+- id: GLOB_HIDDEN_FILE_TARGETING
+  category: command_injection
+  severity: MEDIUM
+  patterns:
+    # Actual hidden-file targeting patterns (removed `ls -la` which is routine)
+    - "glob\\s*\\([^)]*\\.\\*"
+    - "find\\s+[^|]*\\s+-name\\s+[\"']?\\.\\*"
+    - "for\\s+\\w+\\s+in\\s+\\.\\*\\s*;"
+  file_types: [bash, python, markdown]
+  description: "Glob or find pattern targeting hidden (dot) files, which may expose sensitive configurations"
+  remediation: "Avoid targeting hidden files with glob patterns. Be explicit about which files to access"
+
+- id: FIND_EXEC_PATTERN
+  category: command_injection
+  severity: HIGH
+  patterns:
+    # Exclude safe -exec targets: file, stat, grep, ls, basename, dirname, readlink, wc, cat, head
+    - "find\\s+[^|;]*-exec\\s+(?!file\\b|stat\\b|grep\\b|ls\\b|basename\\b|dirname\\b|readlink\\b|wc\\b|cat\\b|head\\b|shellcheck\\b|echo\\b|test\\b|du\\b|md5\\b|md5sum\\b|sha1sum\\b|sha256sum\\b|sed\\b)"
+    - "find\\s+[^|;]*-execdir\\s+(?!file\\b|stat\\b|grep\\b|ls\\b|basename\\b|dirname\\b|readlink\\b|wc\\b|cat\\b|head\\b|shellcheck\\b|echo\\b|test\\b|du\\b|md5\\b|md5sum\\b|sha1sum\\b|sha256sum\\b|sed\\b)"
+    - "find\\s+[^|;]*\\|\\s*xargs\\s+(?:bash|sh|zsh|eval|exec)"
+  exclude_patterns:
+    # Common repository cleanup patterns (low-risk maintenance usage)
+    - "find\\s+[^\\n]*-name\\s+[\"']?(?:__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache|\\.tox|node_modules|dist|build|\\.cache|\\.next|\\.nuxt|\\.egg-info|\\*\\.egg-info)[\"']?[^\\n]*-exec\\s+rm\\b"
+    # Time-based cleanup routines over temp/worktree directories
+    - "find\\s+[^\\n]*-mtime\\s+\\+[0-9]+[^\\n]*-exec\\s+rm\\b"
+  file_types: [bash, markdown]
+  description: "find command with -exec flag can execute arbitrary commands on discovered files"
+  remediation: "Avoid find -exec with untrusted directories. Use explicit file lists instead"
+
+- id: COMMAND_INJECTION_JS_CHILD_PROCESS
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "require\\s*\\(\\s*['\"]child_process['\"]\\s*\\)"
+    - "from\\s+['\"]child_process['\"]"
+    - "child_process\\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork)\\s*\\("
+    - "\\bexecSync\\s*\\("
+    - "\\bspawnSync\\s*\\("
+  exclude_patterns:
+    - "(?i)never\\s+use\\s+child_process"
+    - "(?i)avoid\\s+child_process"
+    - "^\\s*//"
+  file_types: [javascript, typescript]
+  description: "Node.js child_process module usage for shell command execution"
+  remediation: "Avoid child_process. If required, use execFile with explicit arguments instead of exec with shell strings"
+
+- id: COMMAND_INJECTION_JS_FUNCTION_CONSTRUCTOR
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "new\\s+Function\\s*\\("
+    - "(?<!\\.)Function\\s*\\(\\s*['\"]"
+    - "\\bsetTimeout\\s*\\(\\s*['\"]"
+    - "\\bsetInterval\\s*\\(\\s*['\"]"
+  exclude_patterns:
+    - "(?i)never\\s+use\\s+Function"
+    - "(?i)avoid\\s+new\\s+Function"
+  file_types: [javascript, typescript]
+  description: "Dynamic code execution via Function constructor or string-based setTimeout/setInterval"
+  remediation: "Avoid new Function() and string arguments to setTimeout/setInterval. Use direct function references instead"

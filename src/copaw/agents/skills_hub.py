@@ -1423,6 +1423,25 @@ def install_skill_from_hub(
             "Try overwrite=true if it already exists.",
         )
 
+    # --- Security scan for imported skills (warning only) -----------------
+    try:
+        from ..security.skill_scanner import scan_skill_directory
+
+        customized_dir = SkillService.get_customized_skill_dir(name)
+        if customized_dir is not None and customized_dir.exists():
+            scan_skill_directory(
+                customized_dir,
+                skill_name=name,
+                block=False,
+            )
+    except Exception as scan_exc:
+        logger.debug(
+            "Security scan for imported skill '%s' failed (non-fatal): %s",
+            name,
+            scan_exc,
+        )
+    # ----------------------------------------------------------------------
+
     enabled = False
     if enable:
         enabled = SkillService.enable_skill(name, force=True)
