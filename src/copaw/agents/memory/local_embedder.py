@@ -21,8 +21,10 @@ PRESET_MODELS: Dict[str, Dict[str, Any]] = {
     # Multimodal models
     "qwen/Qwen3-VL-Embedding-2B": {
         "type": "multimodal",
-        "dimensions": 1536,
+        "dimensions": 2048,
         "pooling": "last_token",
+        "mrl_enabled": True,
+        "mrl_min_dims": 64,
         "repo_id": {
             "modelscope": "qwen/Qwen3-VL-Embedding-2B",
             "huggingface": "qwen/Qwen3-VL-Embedding-2B",
