@@ -72,6 +72,8 @@ class CoPawAgent(ReActAgent):
     - System command handling (/compact, /new, etc.)
     """
 
+    model: Any  # type: ignore  # defined in parent ReActAgent
+
     def __init__(
         self,
         env_context: Optional[str] = None,
@@ -328,12 +330,21 @@ class CoPawAgent(ReActAgent):
                 self._model = model
                 self._original_call = call_method
                 # Copy all attributes from original model
-                self.__dict__.update({
-                    k: v for k, v in model.__dict__.items()
-                    if k not in ('__call__', '_original_call')
-                })
+                self.__dict__.update(
+                    {
+                        k: v
+                        for k, v in model.__dict__.items()
+                        if k not in ("__call__", "_original_call")
+                    },
+                )
 
-            async def __call__(self, messages, tools=None, tool_choice=None, **kwargs):
+            async def __call__(
+                self,
+                messages,
+                tools=None,
+                tool_choice=None,
+                **kwargs,
+            ):
                 # Deep copy messages to avoid modifying original memory
                 messages_copy = deepcopy(messages)
 
@@ -345,13 +356,14 @@ class CoPawAgent(ReActAgent):
 
                     block_type = block.get("type")
 
-                    # Handle media blocks with source - only image is supported by Claude
+                    # Handle media blocks with source
+                    # only image is supported by Claude
                     if block_type in ("image", "file", "audio", "video"):
                         if _convert_file_url_to_base64_in_block(block):
                             converted += 1
                         return
 
-                    # Handle tool_result which may have nested content with images
+                    # Handle tool_result with nested content
                     if block_type == "tool_result":
                         content = block.get("content")
                         if isinstance(content, list):
@@ -374,14 +386,21 @@ class CoPawAgent(ReActAgent):
                             for block in content:
                                 process_block(block)
 
-                return await self._original_call(messages_copy, tools=tools, tool_choice=tool_choice, **kwargs)
+                return await self._original_call(
+                    messages_copy,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs,
+                )
 
             def __getattr__(self, name):
                 return getattr(self._model, name)
 
         # Replace self.model with our wrapper
         self.model = AnthropicModelWrapper(original_model, original_call)
-        logger.debug("Wrapped model for Anthropic file:// to base64 conversion")
+        logger.debug(
+            "Wrapped model for Anthropic file:// to base64 conversion",
+        )
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.

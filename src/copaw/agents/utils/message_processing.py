@@ -217,36 +217,29 @@ def _convert_file_url_to_base64_in_block(block: dict) -> bool:
     Returns:
         True if conversion was performed, False otherwise.
     """
+    result = False
     block_type = block.get("type")
     # Anthropic doesn't support file:// URLs for any media type
-    if block_type not in ("image", "audio", "video", "file"):
-        return False
-
-    source = block.get("source", {})
-    if not isinstance(source, dict):
-        return False
-
-    if source.get("type") != "url":
-        return False
-
-    url = source.get("url", "")
-    if not url.startswith("file://"):
-        return False
-
-    try:
-        parsed = urllib.parse.urlparse(url)
-        local_path = urllib.request.url2pathname(parsed.path)
-
-        if not os.path.isfile(local_path):
-            logger.warning("File does not exist: %s", local_path)
-            return False
-
-        # Convert to base64
-        block["source"] = _file_to_base64_source(local_path)
-        return True
-    except Exception as e:
-        logger.warning("Failed to convert file:// URL to base64: %s", e)
-        return False
+    if block_type in ("image", "audio", "video", "file"):
+        source = block.get("source", {})
+        if isinstance(source, dict) and source.get("type") == "url":
+            url = source.get("url", "")
+            if url.startswith("file://"):
+                try:
+                    parsed = urllib.parse.urlparse(url)
+                    local_path = urllib.request.url2pathname(parsed.path)
+                    if os.path.isfile(local_path):
+                        # Convert to base64
+                        block["source"] = _file_to_base64_source(local_path)
+                        result = True
+                    else:
+                        logger.warning("File does not exist: %s", local_path)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to convert file:// URL to base64: %s",
+                        e,
+                    )
+    return result
 
 
 def _handle_download_failure(block_type: str) -> Optional[dict]:
