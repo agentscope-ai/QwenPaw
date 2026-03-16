@@ -181,6 +181,7 @@ def _create_file_block_support_formatter(
                         if reasoning:
                             out_msg["reasoning_content"] = reasoning
 
+            messages = _strip_empty_text_blocks(messages)
             return _strip_top_level_message_name(messages)
 
         @staticmethod
@@ -271,6 +272,36 @@ def _strip_top_level_message_name(
     for message in messages:
         message.pop("name", None)
     return messages
+
+
+def _strip_empty_text_blocks(
+    messages: list[dict],
+) -> list[dict]:
+    """Remove empty top-level text blocks before provider invocation."""
+    sanitized: list[dict] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            sanitized.append(message)
+            continue
+
+        filtered = [
+            block
+            for block in content
+            if not (
+                isinstance(block, dict)
+                and block.get("type") == "text"
+                and not str(block.get("text") or "").strip()
+            )
+        ]
+
+        if not filtered and not message.get("tool_calls"):
+            continue
+
+        if len(filtered) != len(content):
+            message = {**message, "content": filtered}
+        sanitized.append(message)
+    return sanitized
 
 
 def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
