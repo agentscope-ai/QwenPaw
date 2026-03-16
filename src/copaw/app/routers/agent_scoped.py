@@ -41,11 +41,6 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         # Priority 2: Check X-Agent-Id header
         if not agent_id:
             agent_id = request.headers.get("X-Agent-Id")
-            if agent_id:
-                logger.debug(
-                    f"AgentContextMiddleware: agent_id={agent_id} "
-                    f"from X-Agent-Id header",
-                )
 
         # Set agent_id in context variable for use by runners
         if agent_id:
