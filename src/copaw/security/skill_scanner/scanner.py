@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .analyzers import BaseAnalyzer
 from .analyzers.pattern_analyzer import PatternAnalyzer
+from .analyzers.yara_analyzer import YaraAnalyzer
 from .models import Finding, ScanResult, SkillFile
 from .scan_policy import ScanPolicy
 
@@ -285,5 +286,11 @@ class SkillScanner:
             analyzers.append(PatternAnalyzer(policy=policy))
         except Exception as exc:
             logger.error("Failed to load PatternAnalyzer: %s", exc)
+
+        # YARA rules (binary-safe, complex conditions).
+        try:
+            analyzers.append(YaraAnalyzer(policy=policy))
+        except Exception as exc:
+            logger.debug("YaraAnalyzer unavailable: %s", exc)
 
         return analyzers
