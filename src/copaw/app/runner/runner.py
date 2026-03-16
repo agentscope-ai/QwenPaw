@@ -300,42 +300,7 @@ class AgentRunner(Runner):
             raise
         finally:
             if agent is not None and session_state_loaded:
-                # Inject the last used model info into the most recent assistant message in memory,
-                # so it can be displayed in the UI and used for better tool-guard decisions.
-                try:
-                    pm = ProviderManager.get_instance()
-                    slot = pm.get_active_model()
-                    if slot is not None:
-                        provider = pm.get_provider(
-                            slot.provider_id,
-                        )
-                        provider_name = (
-                            provider.name if provider is not None else slot.provider_id
-                        )
-                        model_meta = {
-                            "model_id": slot.model,
-                            "provider_id": slot.provider_id,
-                            "provider_name": provider_name,
-                        }
-                        for mem_msg, _ in reversed(
-                            agent.memory.content,
-                        ):
-                            if mem_msg.role == "assistant":
-                                if mem_msg.metadata is None:
-                                    mem_msg.metadata = model_meta
-                                elif isinstance(
-                                    mem_msg.metadata,
-                                    dict,
-                                ):
-                                    mem_msg.metadata.update(
-                                        model_meta,
-                                    )
-                                break
-                except Exception:
-                    logger.debug(
-                        "Failed to inject model info into memory",
-                        exc_info=True,
-                    )
+                self._inject_model_info(agent)
 
                 await self.session.save_session_state(
                     session_id=session_id,
@@ -345,6 +310,36 @@ class AgentRunner(Runner):
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.update_chat(chat)
+
+    @staticmethod
+    def _inject_model_info(agent) -> None:  # noqa: ANN001
+        """Inject active model info into the last assistant message."""
+        try:
+            pm = ProviderManager.get_instance()
+            slot = pm.get_active_model()
+            if slot is None:
+                return
+            provider = pm.get_provider(slot.provider_id)
+            provider_name = (
+                provider.name if provider is not None else slot.provider_id
+            )
+            model_meta = {
+                "model_id": slot.model,
+                "provider_id": slot.provider_id,
+                "provider_name": provider_name,
+            }
+            for mem_msg, _ in reversed(agent.memory.content):
+                if mem_msg.role == "assistant":
+                    if mem_msg.metadata is None:
+                        mem_msg.metadata = model_meta
+                    elif isinstance(mem_msg.metadata, dict):
+                        mem_msg.metadata.update(model_meta)
+                    break
+        except Exception:
+            logger.debug(
+                "Failed to inject model info into memory",
+                exc_info=True,
+            )
 
     async def _cleanup_denied_session_memory(
         self,
