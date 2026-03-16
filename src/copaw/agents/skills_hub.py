@@ -868,7 +868,8 @@ def _github_get_dir_entries(
     path: str,
     ref: str,
 ) -> list[dict[str, Any]]:
-    content_url = _github_api_url(owner, repo, f"contents/{path}")
+    suffix = "contents" if not path else f"contents/{path}"
+    content_url = _github_api_url(owner, repo, suffix)
     data = _http_json_get(content_url, {"ref": ref})
     if isinstance(data, list):
         return [x for x in data if isinstance(x, dict)]
@@ -914,15 +915,15 @@ def _github_collect_tree_files(
     repo: str,
     ref: str,
     root: str,
-    subdir: str,
     max_files: int = 200,
 ) -> dict[str, str]:
     files: dict[str, str] = {}
-    pending = [_join_repo_path(root, subdir)]
+    pending = [root] if root else [""]
     visited = 0
     while pending:
         current_dir = pending.pop()
-        entries = _github_get_dir_entries(owner, repo, current_dir, ref)
+        target_dir = current_dir or ""
+        entries = _github_get_dir_entries(owner, repo, target_dir, ref)
         for entry in entries:
             entry_type = str(entry.get("type") or "")
             entry_path = str(entry.get("path") or "")
@@ -934,10 +935,6 @@ def _github_collect_tree_files(
             if entry_type != "file":
                 continue
             rel = _relative_from_root(entry_path, root)
-            if not (
-                rel.startswith("references/") or rel.startswith("scripts/")
-            ):
-                continue
             files[rel] = _github_read_file(entry)
             visited += 1
             if visited >= max_files:
@@ -1038,20 +1035,14 @@ def _fetch_bundle_from_skills_sh_url(
         )
 
     files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    for subdir in ("references", "scripts"):
-        try:
-            files.update(
-                _github_collect_tree_files(
-                    owner=owner,
-                    repo=repo,
-                    ref=branch,
-                    root=selected_root,
-                    subdir=subdir,
-                ),
-            )
-        except HTTPError as e:
-            if getattr(e, "code", 0) != 404:
-                raise
+    files.update(
+        _github_collect_tree_files(
+            owner=owner,
+            repo=repo,
+            ref=branch,
+            root=selected_root,
+        ),
+    )
 
     source_url = f"https://github.com/{owner}/{repo}"
     return {"name": skill, "files": files}, source_url
@@ -1148,20 +1139,14 @@ def _fetch_bundle_from_repo_and_skill_hint(
         )
 
     files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    for subdir in ("references", "scripts"):
-        try:
-            files.update(
-                _github_collect_tree_files(
-                    owner=owner,
-                    repo=repo,
-                    ref=branch,
-                    root=selected_root,
-                    subdir=subdir,
-                ),
-            )
-        except HTTPError as e:
-            if getattr(e, "code", 0) != 404:
-                raise
+    files.update(
+        _github_collect_tree_files(
+            owner=owner,
+            repo=repo,
+            ref=branch,
+            root=selected_root,
+        ),
+    )
     source_url = f"https://github.com/{owner}/{repo}"
     skill_name = skill.split("/")[-1].strip() if skill else repo
     return {"name": skill_name or repo, "files": files}, source_url
