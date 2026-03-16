@@ -231,6 +231,7 @@ file_limits:
 # ---------------------------------------------------------------------------
 analysis_thresholds:
   min_confidence_pct: 80
+  exception_handler_context_lines: 20
   max_regex_pattern_length: 1000
 
 # ---------------------------------------------------------------------------

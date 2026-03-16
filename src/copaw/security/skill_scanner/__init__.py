@@ -11,12 +11,10 @@ The scanner follows a lightweight, extensible design:
 
 * **BaseAnalyzer** - abstract interface every analyzer must implement.
 * **PatternAnalyzer** - YAML regex-signature matching (fast, line-based).
+* **ConsistencyAnalyzer** - heuristic behavioral-pattern checks
+  (file I/O, network, subprocess, infinite loops).
 * **SkillScanner** - orchestrator that runs registered analyzers and
   aggregates findings into a :class:`ScanResult`.
-
-This branch intentionally ships the baseline pattern analyzer only.
-Additional analyzers can be plugged in later without changing the
-orchestrator.
 
 Quick start::
 
@@ -41,6 +39,7 @@ from .models import (
 )
 from .scan_policy import ScanPolicy
 from .analyzers import BaseAnalyzer
+from .analyzers.consistency_analyzer import ConsistencyAnalyzer
 from .analyzers.pattern_analyzer import PatternAnalyzer
 from .scanner import SkillScanner
 
@@ -48,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseAnalyzer",
+    "ConsistencyAnalyzer",
     "Finding",
     "PatternAnalyzer",
     "ScanPolicy",

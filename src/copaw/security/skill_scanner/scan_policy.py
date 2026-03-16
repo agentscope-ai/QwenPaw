@@ -136,6 +136,7 @@ class AnalysisThresholdsPolicy:
     """Numeric thresholds for analysis tuning."""
 
     min_confidence_pct: int = 80
+    exception_handler_context_lines: int = 20
     max_regex_pattern_length: int = 1000
 
 
@@ -359,6 +360,7 @@ class ScanPolicy:
             ),
             analysis_thresholds=AnalysisThresholdsPolicy(
                 min_confidence_pct=at.get("min_confidence_pct", 80),
+                exception_handler_context_lines=at.get("exception_handler_context_lines", 20),
                 max_regex_pattern_length=at.get("max_regex_pattern_length", 1000),
             ),
             severity_overrides=severity_overrides,
@@ -402,6 +404,9 @@ class ScanPolicy:
             },
             "analysis_thresholds": {
                 "min_confidence_pct": self.analysis_thresholds.min_confidence_pct,
+                "exception_handler_context_lines": (
+                    self.analysis_thresholds.exception_handler_context_lines
+                ),
                 "max_regex_pattern_length": self.analysis_thresholds.max_regex_pattern_length,
             },
             "severity_overrides": [

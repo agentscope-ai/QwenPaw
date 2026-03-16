@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from .analyzers import BaseAnalyzer
+from .analyzers.consistency_analyzer import ConsistencyAnalyzer
 from .analyzers.pattern_analyzer import PatternAnalyzer
 from .models import Finding, ScanResult, SkillFile
 from .scan_policy import ScanPolicy
@@ -285,5 +286,11 @@ class SkillScanner:
             analyzers.append(PatternAnalyzer(policy=policy))
         except Exception as exc:
             logger.error("Failed to load PatternAnalyzer: %s", exc)
+
+        # Consistency / behavioral patterns (file I/O, network, loops).
+        try:
+            analyzers.append(ConsistencyAnalyzer(policy=policy))
+        except Exception as exc:
+            logger.error("Failed to load ConsistencyAnalyzer: %s", exc)
 
         return analyzers
