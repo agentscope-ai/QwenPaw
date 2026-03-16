@@ -276,43 +276,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         call_next,
     ) -> Response:
         """Check Bearer token on protected API routes; skip public paths."""
-        path = request.url.path
-
-        if not is_auth_enabled():
+        if self._should_skip_auth(request):
             return await call_next(request)
 
-        # When auth is enabled but no user registered yet, allow all
-        # requests so the first user can reach the registration page.
-        if not has_registered_users():
-            return await call_next(request)
-
-        # Let CORS preflight through
-        if request.method == "OPTIONS":
-            return await call_next(request)
-
-        if path in _PUBLIC_PATHS:
-            return await call_next(request)
-
-        if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
-            return await call_next(request)
-
-        # Only protect /api/ routes
-        if not path.startswith("/api/"):
-            return await call_next(request)
-
-        # Allow localhost requests without auth (CLI runs locally)
-        client_host = request.client.host if request.client else ""
-        if client_host in ("127.0.0.1", "::1"):
-            return await call_next(request)
-
-        token: Optional[str] = None
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-        elif "upgrade" in request.headers.get("connection", "").lower():
-            # WebSocket connections cannot set custom headers from browser
-            token = request.query_params.get("token")
-
+        token = self._extract_token(request)
         if not token:
             return Response(
                 content=json.dumps({"detail": "Not authenticated"}),
@@ -332,3 +299,37 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         request.state.user = user
         return await call_next(request)
+
+    @staticmethod
+    def _should_skip_auth(request: Request) -> bool:
+        """Return ``True`` when the request does not require auth."""
+        if not is_auth_enabled() or not has_registered_users():
+            return True
+
+        path = request.url.path
+
+        if request.method == "OPTIONS":
+            return True
+
+        if path in _PUBLIC_PATHS or any(
+            path.startswith(p) for p in _PUBLIC_PREFIXES
+        ):
+            return True
+
+        # Only protect /api/ routes
+        if not path.startswith("/api/"):
+            return True
+
+        # Allow localhost requests without auth (CLI runs locally)
+        client_host = request.client.host if request.client else ""
+        return client_host in ("127.0.0.1", "::1")
+
+    @staticmethod
+    def _extract_token(request: Request) -> Optional[str]:
+        """Extract Bearer token from header or WebSocket query param."""
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]
+        if "upgrade" in request.headers.get("connection", "").lower():
+            return request.query_params.get("token")
+        return None

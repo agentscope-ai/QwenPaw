@@ -12,10 +12,7 @@ export interface AuthStatusResponse {
 }
 
 export const authApi = {
-  login: async (
-    username: string,
-    password: string,
-  ): Promise<LoginResponse> => {
+  login: async (username: string, password: string): Promise<LoginResponse> => {
     const res = await fetch(getApiUrl("/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },

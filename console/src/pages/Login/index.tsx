@@ -30,10 +30,7 @@ export default function LoginPage() {
       .catch(() => {});
   }, [navigate]);
 
-  const onFinish = async (values: {
-    username: string;
-    password: string;
-  }) => {
+  const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
       const raw = searchParams.get("redirect") || "/chat";
@@ -41,10 +38,7 @@ export default function LoginPage() {
         raw.startsWith("/") && !raw.startsWith("//") ? raw : "/chat";
 
       if (isRegister) {
-        const res = await authApi.register(
-          values.username,
-          values.password,
-        );
+        const res = await authApi.register(values.username, values.password);
         if (res.token) {
           setAuthToken(res.token);
           message.success(t("login.registerSuccess"));
@@ -63,7 +57,9 @@ export default function LoginPage() {
     } catch (err) {
       message.error(
         isRegister
-          ? (err instanceof Error ? err.message : t("login.registerFailed"))
+          ? err instanceof Error
+            ? err.message
+            : t("login.registerFailed")
           : t("login.failed"),
       );
     } finally {
@@ -118,9 +114,7 @@ export default function LoginPage() {
         >
           <Form.Item
             name="username"
-            rules={[
-              { required: true, message: t("login.usernameRequired") },
-            ]}
+            rules={[{ required: true, message: t("login.usernameRequired") }]}
           >
             <Input
               prefix={<UserOutlined />}
@@ -131,9 +125,7 @@ export default function LoginPage() {
 
           <Form.Item
             name="password"
-            rules={[
-              { required: true, message: t("login.passwordRequired") },
-            ]}
+            rules={[{ required: true, message: t("login.passwordRequired") }]}
           >
             <Input.Password
               prefix={<LockOutlined />}
