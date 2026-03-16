@@ -3,15 +3,7 @@ import {
   IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Button,
-  GetProp,
-  Image,
-  Modal,
-  Result,
-  Upload,
-  message,
-} from "antd";
+import { Button, GetProp, Image, Modal, Result, Upload, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
