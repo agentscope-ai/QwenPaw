@@ -17,7 +17,12 @@ from ..constant import (
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
 )
-from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+from .config import (
+    Config,
+    HeartbeatConfig,
+    LastApiConfig,
+    LastDispatchConfig,
+)
 
 
 def _discover_system_chromium_path() -> Optional[str]:
@@ -343,7 +348,8 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             la["host"] = data.get("last_api_host")
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
-    return Config.model_validate(data)
+    config = Config.model_validate(data)
+    return config
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
