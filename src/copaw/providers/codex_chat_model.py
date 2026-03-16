@@ -7,7 +7,6 @@ import json
 import logging
 import time
 from copy import deepcopy
-from datetime import datetime
 from typing import Any, AsyncGenerator, Literal, Type
 
 import httpx
@@ -71,7 +70,8 @@ class CodexResponsesChatModel(OpenAIChatModel):
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         if structured_model is not None:
             raise NotImplementedError(
-                "Structured output is not supported for Codex browser auth yet.",
+                "Structured output is not supported for Codex browser "
+                "auth yet.",
             )
 
         await self._refresh_auth_if_needed()
@@ -108,7 +108,9 @@ class CodexResponsesChatModel(OpenAIChatModel):
         return payload
 
     @staticmethod
-    def _format_codex_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _format_codex_tools(
+        tools: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """Convert Chat Completions-style tool schemas to Codex Responses."""
         formatted_tools: list[dict[str, Any]] = []
         for tool in tools:
@@ -142,7 +144,7 @@ class CodexResponsesChatModel(OpenAIChatModel):
     def _format_codex_tool_choice(
         tool_choice: Literal["auto", "none", "required"] | str,
     ) -> str | dict[str, Any]:
-        """Codex Responses expects specific-function tool choice at top level."""
+        """Codex Responses expects function tool choice at top level."""
         if tool_choice in {"auto", "none", "required"}:
             return tool_choice
         return {
@@ -229,7 +231,10 @@ class CodexResponsesChatModel(OpenAIChatModel):
                     },
                 )
 
-        return "\n\n".join(part for part in instructions if part).strip(), input_items
+        return (
+            "\n\n".join(part for part in instructions if part).strip(),
+            input_items,
+        )
 
     async def _collect_response(
         self,
@@ -299,8 +304,16 @@ class CodexResponsesChatModel(OpenAIChatModel):
                     data_lines.append(line[len("data: ") :])
 
         if (text or tool_calls) and not completed:
-            yield self._build_chat_response(text, tool_calls, usage, start_time)
+            yield self._build_chat_response(
+                text,
+                tool_calls,
+                usage,
+                start_time,
+            )
 
+    # Codex SSE events are heterogeneous enough that a compact dispatch table
+    # ends up less readable than the explicit branching here.
+    # pylint: disable=too-many-return-statements,too-many-branches
     def _consume_sse_event(
         self,
         event_name: str,
@@ -341,9 +354,10 @@ class CodexResponsesChatModel(OpenAIChatModel):
         if event_name == "response.function_call_arguments.delta":
             item_id = payload.get("item_id")
             if item_id in tool_calls:
-                tool_calls[item_id]["raw_input"] = (
-                    tool_calls[item_id].get("raw_input", "") + (payload.get("delta") or "")
-                )
+                tool_calls[item_id]["raw_input"] = tool_calls[item_id].get(
+                    "raw_input",
+                    "",
+                ) + (payload.get("delta") or "")
             return None
 
         if event_name in {
@@ -361,11 +375,18 @@ class CodexResponsesChatModel(OpenAIChatModel):
                     return (
                         text,
                         usage,
-                        self._build_chat_response(text, tool_calls, usage, start_time),
+                        self._build_chat_response(
+                            text,
+                            tool_calls,
+                            usage,
+                            start_time,
+                        ),
                         False,
                     )
             elif item_id in tool_calls:
-                raw_input = payload.get("arguments") or tool_calls[item_id].get(
+                raw_input = payload.get("arguments") or tool_calls[
+                    item_id
+                ].get(
                     "raw_input",
                     "",
                 )
@@ -374,7 +395,12 @@ class CodexResponsesChatModel(OpenAIChatModel):
                 return (
                     text,
                     usage,
-                    self._build_chat_response(text, tool_calls, usage, start_time),
+                    self._build_chat_response(
+                        text,
+                        tool_calls,
+                        usage,
+                        start_time,
+                    ),
                     False,
                 )
             return None

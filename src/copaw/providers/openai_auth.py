@@ -279,7 +279,8 @@ class OpenAIAuthHelper(BaseAuthHelper):
     ) -> LoginSession:
         if not self.supports(provider):
             raise ValueError(
-                f"Browser sign-in is not supported for provider '{provider.id}'",
+                "Browser sign-in is not supported for provider "
+                f"'{provider.id}'",
             )
 
         session_id = str(uuid.uuid4())
@@ -353,8 +354,8 @@ class OpenAIAuthHelper(BaseAuthHelper):
                 provider.auth.status = "authorized"
                 try:
                     oauth_models = await provider.fetch_models()
-                    if isinstance(provider, OpenAIProvider):
-                        provider.oauth_models = oauth_models
+                    if hasattr(provider, "oauth_models"):
+                        setattr(provider, "oauth_models", oauth_models)
                     if not oauth_models:
                         logger.warning(
                             "OpenAI OAuth login succeeded but no models "
@@ -400,6 +401,7 @@ class OpenAIAuthHelper(BaseAuthHelper):
     async def get_session(self, session_id: str) -> LoginSession | None:
         async with self._lock:
             return self._sessions.get(session_id)
+
 
 OPENAI_AUTH_HELPER = OpenAIAuthHelper()
 AUTH_HELPER_REGISTRY.register(OPENAI_AUTH_HELPER)

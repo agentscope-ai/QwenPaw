@@ -49,9 +49,7 @@ def browser_auth_unavailable_reason(provider: Provider) -> str:
     """Return a provider-specific browser auth availability message."""
     helper = get_auth_helper_for_provider(provider)
     if helper is None:
-        return (
-            f"Provider '{provider.id}' does not support browser sign-in."
-        )
+        return f"Provider '{provider.id}' does not support browser sign-in."
     return helper.unavailable_reason()
 
 
@@ -92,9 +90,7 @@ async def refresh_provider_auth(
     helper = get_auth_helper_for_provider(provider)
     if helper is None:
         auth.status = "error"
-        auth.error = (
-            f"No auth helper registered for provider '{provider.id}'."
-        )
+        auth.error = f"No auth helper registered for provider '{provider.id}'."
         persist(provider)
         raise RuntimeError(auth.error)
 

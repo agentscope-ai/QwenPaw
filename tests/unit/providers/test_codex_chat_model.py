@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +8,28 @@ import copaw.providers.codex_chat_model as codex_chat_model_module
 from copaw.providers.codex_chat_model import CodexResponsesChatModel
 
 pytestmark = pytest.mark.anyio
+
+
+class _FakeAuth:
+    def __init__(self, access_token: str, account_id: str) -> None:
+        self.access_token = access_token
+        self.account_id = account_id
+
+
+class _FakeProvider:
+    def __init__(
+        self,
+        persisted: list[tuple[str, str]],
+        access_token: str = "token",
+        account_id: str = "acct",
+    ) -> None:
+        self.auth = _FakeAuth(access_token=access_token, account_id=account_id)
+        self._persisted = persisted
+
+    def persist(self) -> None:
+        self._persisted.append(
+            (self.auth.access_token, self.auth.account_id),
+        )
 
 
 def _make_model() -> CodexResponsesChatModel:
@@ -138,12 +159,7 @@ def test_build_payload_encodes_assistant_history_as_output_text() -> None:
 
 async def test_refresh_auth_persists_updated_tokens(monkeypatch) -> None:
     persisted: list[tuple[str, str]] = []
-    provider = SimpleNamespace(
-        auth=SimpleNamespace(access_token="token", account_id="acct"),
-        persist=lambda: persisted.append(
-            (provider.auth.access_token, provider.auth.account_id),
-        ),
-    )
+    provider = _FakeProvider(persisted)
     model = CodexResponsesChatModel(
         model_name="gpt-5.3-codex",
         access_token="token",
