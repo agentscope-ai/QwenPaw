@@ -158,10 +158,11 @@ class HealthChecker:
                 details={"config_path": str(config_path)},
             )
         except Exception as e:
+            logger.exception("Unexpected error while checking config files")
             self._add_result(
                 "config_files",
                 HealthStatus.UNHEALTHY,
-                f"Failed to load config.json: {e}",
+                f"Failed to load config.json: {type(e).__name__}: {e}",
                 suggestion=(
                     "Check config.json syntax or run 'copaw init --force'."
                 ),
@@ -248,10 +249,14 @@ class HealthChecker:
             )
 
         except Exception as e:
+            logger.exception("Unexpected error while checking providers")
             self._add_result(
                 "providers",
-                HealthStatus.DEGRADED,
-                f"Failed to check providers: {e}",
+                HealthStatus.UNHEALTHY,
+                f"Failed to check providers: {type(e).__name__}: {e}",
+                suggestion=(
+                    "Run 'copaw health --verbose' and check logs for details."
+                ),
             )
 
     def check_skills(self) -> None:
@@ -381,11 +386,13 @@ class HealthChecker:
                 suggestion=suggestion,
             )
 
-        except Exception as e:
+        except OSError as e:
+            logger.exception("OS error while checking disk space")
             self._add_result(
                 "disk_space",
-                HealthStatus.DEGRADED,
+                HealthStatus.UNHEALTHY,
                 f"Failed to check disk space: {e}",
+                suggestion="Check filesystem mount and permissions.",
             )
 
     async def _async_test_llm_connection(self) -> bool:
@@ -425,7 +432,7 @@ class HealthChecker:
                     asyncio.run,
                     self._async_test_llm_connection(),
                 )
-                return future.result()
+                return future.result(timeout=30)
         except RuntimeError:
             return asyncio.run(self._async_test_llm_connection())
 
@@ -491,10 +498,14 @@ class HealthChecker:
                 )
 
         except Exception as e:
+            logger.exception("Unexpected error while checking channels")
             self._add_result(
                 "channels",
-                HealthStatus.DEGRADED,
-                f"Failed to check channels: {e}",
+                HealthStatus.UNHEALTHY,
+                f"Failed to check channels: {type(e).__name__}: {e}",
+                suggestion=(
+                    "Run 'copaw health --verbose' and check logs for details."
+                ),
             )
 
     def check_mcp_clients(self) -> None:
@@ -546,10 +557,14 @@ class HealthChecker:
                 )
 
         except Exception as e:
+            logger.exception("Unexpected error while checking MCP clients")
             self._add_result(
                 "mcp_clients",
-                HealthStatus.DEGRADED,
-                f"Failed to check MCP clients: {e}",
+                HealthStatus.UNHEALTHY,
+                f"Failed to check MCP clients: {type(e).__name__}: {e}",
+                suggestion=(
+                    "Run 'copaw health --verbose' and check logs for details."
+                ),
             )
 
     def check_required_files(self) -> None:

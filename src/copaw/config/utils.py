@@ -348,8 +348,7 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             la["host"] = data.get("last_api_host")
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
-    config = Config.model_validate(data)
-    return config
+    return Config.model_validate(data)
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:

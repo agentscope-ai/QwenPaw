@@ -38,7 +38,8 @@ def _print_validation(validation) -> None:
         for issue in validation.errors:
             click.secho(f"\n  {issue.path}", fg="red", bold=True)
             click.echo(f"  {issue.message}")
-            click.secho(f"  → {issue.suggestion}", fg="cyan")
+            if issue.suggestion:
+                click.secho(f"  → {issue.suggestion}", fg="cyan")
 
     if validation.warnings:
         n = len(validation.warnings)
@@ -93,8 +94,17 @@ def health_cmd(output_json: bool, verbose: bool) -> None:
     health = checker.check_all()
 
     # Run configuration validation
-    validator = ConfigValidator()
-    validation = validator.validate_all()
+    try:
+        validator = ConfigValidator()
+        validation = validator.validate_all()
+    except Exception as e:
+        if not output_json:
+            click.secho(
+                f"Configuration validation failed: {e}",
+                fg="red",
+            )
+            click.echo("Run 'copaw health' again or check config.json.")
+        return
 
     # JSON output
     if output_json:
