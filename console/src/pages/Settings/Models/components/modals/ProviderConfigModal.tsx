@@ -608,11 +608,7 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {(provider.api_key ||
-              provider.auth?.status === "authorized" ||
-              provider.auth?.status === "authorizing" ||
-              provider.auth?.status === "expired" ||
-              provider.auth?.status === "error") && (
+            {(provider.auth?.status !== "unauthorized") && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
