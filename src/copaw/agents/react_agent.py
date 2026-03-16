@@ -4,9 +4,12 @@
 This module provides the main CoPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
+
 import asyncio
+import functools
 import logging
 import os
+import re
 from typing import Any, List, Literal, Optional, Type
 
 from agentscope.agent import ReActAgent
@@ -153,6 +156,53 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         # Register hooks
         self._register_hooks()
 
+    def _wrap_shell_tool(self, tool_func):
+        """Wrap shell command tool to inject request_context as environment variables.
+
+        Security: COPAW_ prefix + readonly bash variables prevent tampering.
+        """
+
+        @functools.wraps(tool_func)
+        async def wrapper(command: str, **kwargs):
+            # Block dangerous env manipulation commands
+            for pattern in [
+                r"\bexport\s+\w+\s*=",
+                r"\bunset\s+\w+",
+                r"\bdeclare\s+-x\s+\w+",
+                r"\benv\s+\w+=",
+            ]:
+                if re.search(pattern, command):
+                    logger.warning("Blocked env manipulation: %s", command[:100])
+                    from agentscope.tool import ToolResponse
+                    from agentscope.message import TextBlock
+
+                    return ToolResponse(
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=f"❌ Environment manipulation blocked\n工具环境变量篡改已被阻止\nCommand: {command[:80]}",
+                            )
+                        ]
+                    )
+
+            # Inject context as readonly environment variables
+            env = kwargs.pop("env", os.environ.copy())
+            readonly_vars = []
+            for key, value in self._request_context.items():
+                safe_key = f"COPAW_{key.upper().replace('-', '_')}"
+                if value is not None:
+                    env[safe_key] = str(value)
+                    readonly_vars.append(safe_key)
+
+            # Wrap with readonly declarations to prevent tampering
+            if readonly_vars and not command.startswith("bash -c "):
+                escaped_cmd = command.replace('"', '\\"')
+                command = f'bash -c "{"; ".join(f"readonly {v}" for v in readonly_vars)}; {escaped_cmd}"'
+
+            return await tool_func(command, env=env, **kwargs)
+
+        return wrapper
+
     def _create_toolkit(
         self,
         namesake_strategy: NamesakeStrategy = "skip",
@@ -195,8 +245,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         for tool_name, tool_func in tool_functions.items():
             # If tool not in config, enable by default (backward compatibility)
             if enabled_tools.get(tool_name, True):
+                # Wrap shell command tool with context injection
+                if tool_name == "execute_shell_command":
+                    wrapped_func = self._wrap_shell_tool(tool_func)
+                else:
+                    wrapped_func = tool_func
+
                 toolkit.register_tool_function(
-                    tool_func,
+                    wrapped_func,
                     namesake_strategy=namesake_strategy,
                 )
                 logger.debug("Registered tool: %s", tool_name)
@@ -515,9 +571,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Check if message is a system command
         last_msg = msg[-1] if isinstance(msg, list) else msg
-        query = (
-            last_msg.get_text_content() if isinstance(last_msg, Msg) else None
-        )
+        query = last_msg.get_text_content() if isinstance(last_msg, Msg) else None
 
         if self.command_handler.is_command(query):
             logger.info(f"Received command: {query}")

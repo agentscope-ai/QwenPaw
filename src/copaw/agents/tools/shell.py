@@ -110,7 +110,9 @@ def _execute_subprocess_sync(
                     except subprocess.TimeoutExpired:
                         pass
 
-                timeout_msg = f"Command execution exceeded the timeout of {timeout} seconds."
+                timeout_msg = (
+                    f"Command execution exceeded the timeout of {timeout} seconds."
+                )
                 if stderr_str:
                     stderr_str = f"{stderr_str}\n{timeout_msg}"
                 else:
@@ -126,6 +128,7 @@ async def execute_shell_command(
     command: str,
     timeout: int = 60,
     cwd: Optional[Path] = None,
+    env: Optional[dict] = None,
 ) -> ToolResponse:
     """Execute given command and return the return code, standard output and
     error within <returncode></returncode>, <stdout></stdout> and
@@ -140,6 +143,10 @@ async def execute_shell_command(
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
             If None, defaults to WORKING_DIR.
+        env (`Optional[dict]`, defaults to `None`):
+            Environment variables for the subprocess. If provided, these
+            variables will be merged with the current environment. If None,
+            uses the current process environment.
 
     Returns:
         `ToolResponse`:
@@ -153,14 +160,23 @@ async def execute_shell_command(
     # Set working directory
     working_dir = cwd if cwd is not None else WORKING_DIR
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
-    python_bin_dir = str(Path(sys.executable).parent)
-    existing_path = env.get("PATH", "")
-    if existing_path:
-        env["PATH"] = python_bin_dir + os.pathsep + existing_path
+    # Prepare environment variables
+    # If env is provided, merge it with current environment;
+    # otherwise use current process environment
+    if env is not None:
+        # Start with current environment and update with provided vars
+        exec_env = os.environ.copy()
+        exec_env.update(env)
     else:
-        env["PATH"] = python_bin_dir
+        exec_env = os.environ.copy()
+
+    # Ensure the venv Python is on PATH for subprocesses
+    python_bin_dir = str(Path(sys.executable).parent)
+    existing_path = exec_env.get("PATH", "")
+    if existing_path:
+        exec_env["PATH"] = python_bin_dir + os.pathsep + existing_path
+    else:
+        exec_env["PATH"] = python_bin_dir
 
     try:
         if sys.platform == "win32":
@@ -170,7 +186,7 @@ async def execute_shell_command(
                 cmd,
                 str(working_dir),
                 timeout,
-                env,
+                exec_env,
             )
         else:
             proc = await asyncio.create_subprocess_shell(
@@ -179,7 +195,7 @@ async def execute_shell_command(
                 stderr=asyncio.subprocess.PIPE,
                 bufsize=0,
                 cwd=str(working_dir),
-                env=env,
+                env=exec_env,
             )
 
             try:
