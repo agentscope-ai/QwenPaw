@@ -172,7 +172,7 @@ class AgentRunner(Runner):
                 return
 
             file_size = os.path.getsize(session_path)
-            if file_size < self._SESSION_FILE_SIZE_LIMIT:
+            if file_size <= self._SESSION_FILE_SIZE_LIMIT:
                 return
 
             # --- Emergency truncation ---
@@ -189,7 +189,10 @@ class AgentRunner(Runner):
                 return
 
             removed = total_msgs - keep
-            agent.memory.content = agent.memory.content[-keep:]
+            agent.memory.content = self._keep_system_and_recent(
+                agent.memory.content,
+                keep,
+            )
             # Clear the compressed summary (it refers to now-deleted msgs)
             agent.memory._compressed_summary = ""
 
@@ -217,10 +220,10 @@ class AgentRunner(Runner):
         provider-specific error codes) over fragile substring matching.
         """
         try:
-            # 1. Check for known status codes (400 is common for too-long prompts)
+            # 1. Check for known status codes (400 is common for too-long)
             status_code = getattr(exc, "status_code", None)
-            
-            # 2. Inspect provider-specific error/code fields (OpenAI, DashScope, etc.)
+
+            # 2. Inspect provider-specific error/code fields
             error_code = None
             if hasattr(exc, "body") and isinstance(exc.body, dict):
                 # OpenAI / aiohttp common structure
@@ -233,13 +236,13 @@ class AgentRunner(Runner):
                 error_code = str(exc.code)
 
             if error_code in (
-                "context_length_exceeded", 
-                "prompt_too_long", 
+                "context_length_exceeded",
+                "prompt_too_long",
                 "string_too_long",
                 "max_tokens",
             ):
                 return True
-                
+
             # DashScope specific string check on 'code'
             if error_code and "context_length_exceeded" in error_code.lower():
                 return True
@@ -249,15 +252,47 @@ class AgentRunner(Runner):
         # 3. Fallback to substring matching (CodeRabbit: use as last resort)
         msg = str(exc).lower()
         return any(
-            phrase in msg 
+            phrase in msg
             for phrase in (
-                "prompt is too long", 
-                "prompt_too_long", 
-                "context_length_exceeded", 
+                "prompt is too long",
+                "prompt_too_long",
+                "context_length_exceeded",
                 "maximum context length",
                 "tokens is too long",
             )
         )
+
+    @staticmethod
+    def _keep_system_and_recent(content: list, keep_recent: int) -> list:
+        """Helper to truncate memory while preserving the system prompt.
+
+        If the first message is a 'system' message, it is kept.
+        Then, up to *keep_recent* messages from the end are appended.
+        Duplicates are avoided if the system message is already in recent.
+        """
+        if not content:
+            return []
+
+        system_entry = None
+        # In AgentScope, msgs are often Msg objects or tuples
+        # Rebuilder expects the first entry to be the system prompt
+        first_msg = content[0]
+        # Robustly check if it's a system message
+        role = getattr(first_msg, "role", None)
+        if role is None and isinstance(first_msg, dict):
+            role = first_msg.get("role")
+
+        if role == "system":
+            system_entry = first_msg
+
+        recent = content[-keep_recent:] if keep_recent > 0 else []
+
+        if system_entry is not None:
+            # Avoid duplication if system_entry is already at the start
+            if not recent or recent[0] is not system_entry:
+                recent = [system_entry] + recent
+
+        return recent
 
     # -----------------------------------------------------------------------
 
@@ -401,7 +436,7 @@ class AgentRunner(Runner):
                 await agent.interrupt()
             raise RuntimeError("Task has been cancelled!") from exc
         except Exception as e:
-            # --- Layer 2: catch prompt-too-long and retry once with trimmed memory ---
+            # --- Layer 2: catch prompt-too-long and retry ---
             if self._is_prompt_too_long(e) and agent is not None:
                 logger.warning(
                     "Prompt too long detected – trimming session and "
@@ -409,14 +444,11 @@ class AgentRunner(Runner):
                     e,
                 )
                 try:
-                    # Soft reset: trim oldest messages instead of full wipe
-                    keep = self._SESSION_KEEP_RECENT
-                    if len(agent.memory.content) > keep:
-                        agent.memory.content = agent.memory.content[-keep:]
-                    else:
-                        # If already small, clear it to ensure recovery
-                        agent.memory.content = []
-                    
+                    # Soft reset: trim oldest while preserving system prompt
+                    agent.memory.content = self._keep_system_and_recent(
+                        agent.memory.content,
+                        self._SESSION_KEEP_RECENT,
+                    )
                     agent.memory._compressed_summary = ""
                     agent.rebuild_sys_prompt()
 
