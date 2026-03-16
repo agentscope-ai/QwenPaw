@@ -83,7 +83,7 @@ const extractTextFromContent = (content: unknown): string => {
 
 /**
  * Convert a backend message to a response output message.
- * Maps system + plugin_call_output → role "tool" and strips metadata.
+ * Maps system + plugin_call_output → role "tool" and forwards metadata to the UI.
  */
 const toOutputMessage = (msg: Message): OutputMessage => ({
   ...msg,
