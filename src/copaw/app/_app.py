@@ -3,6 +3,7 @@
 import asyncio
 import mimetypes
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -62,6 +63,7 @@ agent_app = AgentApp(
 async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
+    startup_start_time = time.time()
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
     await runner.start()
 
@@ -126,6 +128,12 @@ async def lifespan(
             if isinstance(e, (KeyboardInterrupt, SystemExit)):
                 raise
             logger.exception("Failed to start MCP watcher")
+
+    # Inject channel_manager into approval service so it can
+    # proactively push approval messages to channels like DingTalk.
+    from .approvals import get_approval_service
+
+    get_approval_service().set_channel_manager(channel_manager)
 
     # --- Model provider manager (non-reloadable, in-memory) ---
     provider_manager = ProviderManager.get_instance()
@@ -394,6 +402,11 @@ async def lifespan(
         logger.info("Daemon restart (in-process) completed: managers rebuilt")
 
     setattr(runner, "_restart_callback", _restart_services)
+
+    startup_elapsed = time.time() - startup_start_time
+    logger.debug(
+        f"Application startup completed in {startup_elapsed:.3f} seconds",
+    )
 
     try:
         yield

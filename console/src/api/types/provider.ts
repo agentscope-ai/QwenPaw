@@ -14,6 +14,8 @@ export interface ProviderInfo {
   extra_models: ModelInfo[];
   is_custom: boolean;
   is_local: boolean;
+  /** Whether this provider supports fetching available models from the provider's API. */
+  support_model_discovery: boolean;
   /** True when the base_url should be frozen (not editable). */
   freeze_url: boolean;
   /** True when an API key is required for this provider. */

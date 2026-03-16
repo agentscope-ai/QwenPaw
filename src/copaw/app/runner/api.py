@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
-import json
-
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope.session import JSONSession
 from agentscope.memory import InMemoryMemory
 
+from .session import SafeJSONSession
 from .manager import ChatManager
 from .models import (
     ChatSpec,
@@ -41,14 +39,14 @@ def get_chat_manager(request: Request) -> ChatManager:
     return mgr
 
 
-def get_session(request: Request) -> JSONSession:
+def get_session(request: Request) -> SafeJSONSession:
     """Get the session from app state.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        JSONSession instance
+        SafeJSONSession instance
 
     Raises:
         HTTPException: If session is not initialized
@@ -128,14 +126,14 @@ async def batch_delete_chats(
 async def get_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
-    session: JSONSession = Depends(get_session),
+    session: SafeJSONSession = Depends(get_session),
 ):
     """Get detailed information about a specific chat by UUID.
 
     Args:
         chat_id: Chat UUID
         mgr: Chat manager dependency
-        session: JSONSession  dependency
+        session: SafeJSONSession dependency
 
     Returns:
         ChatHistory with messages
@@ -150,16 +148,11 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
-    # pylint: disable=protected-access
-    session_path = session._get_save_path(
+    state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
     )
-
-    try:
-        with open(session_path, "r", encoding="utf-8") as file:
-            state = json.load(file)
-    except Exception:
+    if not state:
         return ChatHistory(messages=[])
     memories = state.get("agent", {}).get("memory", [])
     memory = InMemoryMemory()

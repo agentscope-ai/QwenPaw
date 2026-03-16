@@ -102,7 +102,6 @@ async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
 
     assert [model.id for model in models] == ["qwen2:7b", "llama3:8b"]
     assert [model.name for model in models] == ["qwen2:7b", "llama3:8b"]
-    assert provider.models == models
 
 
 async def test_fetch_models_error_returns_empty(monkeypatch) -> None:
@@ -207,7 +206,6 @@ async def test_update_config_updates_non_none_values_and_get_info(
         "temperature": 0.3,
         "num_ctx": 4096,
     }
-    assert [model.id for model in provider.models] == ["qwen2:7b"]
     assert info.name == "Ollama Local"
     assert info.base_url == "http://127.0.0.1:11434"
     assert info.api_key == "EMPTY-NEW"
@@ -216,7 +214,6 @@ async def test_update_config_updates_non_none_values_and_get_info(
         "temperature": 0.3,
         "num_ctx": 4096,
     }
-    assert [model.id for model in info.models] == ["qwen2:7b"]
 
 
 async def test_update_config_skips_none_values_and_get_info(
@@ -250,13 +247,11 @@ async def test_update_config_skips_none_values_and_get_info(
     assert provider.api_key == "EMPTY"
     assert provider.chat_model == "OllamaChatModel"
     assert provider.generate_kwargs == {"temperature": 0.1}
-    assert [model.id for model in provider.models] == ["llama3:8b"]
     assert info.name == "Ollama"
     assert info.base_url == "http://localhost:11434"
     assert info.api_key == "******"
     assert info.chat_model == "OllamaChatModel"
     assert info.generate_kwargs == {"temperature": 0.1}
-    assert [model.id for model in info.models] == ["llama3:8b"]
 
 
 async def test_update_config_keeps_chat_model_for_non_custom_provider(

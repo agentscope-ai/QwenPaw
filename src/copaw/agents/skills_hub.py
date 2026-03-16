@@ -490,6 +490,20 @@ def _safe_fallback_name(raw: str) -> str:
     return out or "imported-skill"
 
 
+def _sanitize_skill_dir_name(name: str) -> str:
+    """
+    Sanitize skill name for use as directory name.
+    Display names like "Excel / XLSX" must not be used as-is because "/"
+    can be misinterpreted as a path separator.
+    """
+    if not name or not isinstance(name, str):
+        return "imported-skill"
+    if "/" in name or "\\" in name:
+        sanitized = _normalize_skill_key(name)
+        return sanitized or _safe_fallback_name(name)
+    return name
+
+
 def _is_http_url(text: str) -> bool:
     parsed = urlparse(text.strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -1156,6 +1170,8 @@ def install_skill_from_hub(
     if not name:
         fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
         name = _safe_fallback_name(fallback)
+    # Sanitize: "Excel / XLSX" etc. must not be used as dir name
+    name = _sanitize_skill_dir_name(name)
 
     created = SkillService.create_skill(
         name=name,

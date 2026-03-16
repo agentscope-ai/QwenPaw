@@ -3,6 +3,7 @@
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 
+import asyncio
 import os
 from typing import Dict, List
 import logging
@@ -19,7 +20,6 @@ from copaw.providers.provider import (
     ProviderInfo,
 )
 from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.lm_studio_provider import LMStudioProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
@@ -158,15 +158,16 @@ PROVIDER_OLLAMA = OllamaProvider(
     id="ollama",
     name="Ollama",
     require_api_key=False,
+    support_model_discovery=True,
 )
 
-PROVIDER_LMSTUDIO = LMStudioProvider(
+PROVIDER_LMSTUDIO = OpenAIProvider(
     id="lmstudio",
     name="LM Studio",
     base_url="http://localhost:1234/v1",
     require_api_key=False,
     api_key_prefix="",
-    models=[],
+    support_model_discovery=True,
 )
 
 
@@ -234,12 +235,14 @@ class ProviderManager:
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        provider_infos = []
-        for provider in self.builtin_providers.values():
-            provider_infos.append(await provider.get_info())
-        for provider in self.custom_providers.values():
-            provider_infos.append(await provider.get_info())
-        return provider_infos
+        tasks = [
+            provider.get_info() for provider in self.builtin_providers.values()
+        ]
+        tasks += [
+            provider.get_info() for provider in self.custom_providers.values()
+        ]
+        provider_infos = await asyncio.gather(*tasks)
+        return list(provider_infos)
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
@@ -276,20 +279,14 @@ class ProviderManager:
     async def fetch_provider_models(
         self,
         provider_id: str,
-        update_target: str,
     ) -> List[ModelInfo]:
-        """Fetch the list of available models from a provider and optionally
-        update the provider's model list in memory and on disk."""
+        """Fetch the list of available models from a provider and update."""
         provider = self.get_provider(provider_id)
         if not provider:
             return []
         try:
             models = await provider.fetch_models()
-            for model in models:
-                await provider.add_model(
-                    model,
-                    target=update_target,
-                )
+            provider.models = models
             self._save_provider(
                 provider,
                 is_builtin=provider_id in self.builtin_providers,
@@ -441,8 +438,6 @@ class ProviderManager:
             return AnthropicProvider.model_validate(data)
         if provider_id == "ollama" or chat_model == "OllamaChatModel":
             return OllamaProvider.model_validate(data)
-        if provider_id == "lmstudio":
-            return LMStudioProvider.model_validate(data)
         if data.get("is_local", False):
             return DefaultProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
