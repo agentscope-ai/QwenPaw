@@ -14,6 +14,43 @@ from pydantic import (
 
 from ..channels.schema import DEFAULT_CHANNEL
 
+# ---------------------------------------------------------------------------
+# APScheduler v3 uses ISO 8601 weekday numbering (0=Mon … 6=Sun) for
+# CronTrigger(day_of_week=...), while standard crontab uses 0=Sun … 6=Sat.
+# from_crontab() does NOT convert either.  Three-letter English abbreviations
+# (mon, tue, …, sun) are unambiguous in both systems, so we normalise the
+# 5th cron field to abbreviations at validation time.
+# ---------------------------------------------------------------------------
+
+_CRONTAB_NUM_TO_NAME: dict[str, str] = {
+    "0": "sun",
+    "1": "mon",
+    "2": "tue",
+    "3": "wed",
+    "4": "thu",
+    "5": "fri",
+    "6": "sat",
+    "7": "sun",
+}
+
+
+def _crontab_dow_to_name(field: str) -> str:
+    """Convert the day-of-week field from crontab numbers to abbreviations.
+
+    Handles: ``*``, single values, comma-separated lists, and ranges.
+    Already-named values (``mon``, ``tue``, …) are passed through unchanged.
+    """
+    if field == "*":
+        return field
+
+    def _convert_token(tok: str) -> str:
+        if "-" in tok:
+            parts = tok.split("-", 1)
+            return "-".join(_CRONTAB_NUM_TO_NAME.get(p, p) for p in parts)
+        return _CRONTAB_NUM_TO_NAME.get(tok, tok)
+
+    return ",".join(_convert_token(t) for t in field.split(","))
+
 
 class ScheduleSpec(BaseModel):
     type: Literal["cron"] = "cron"
@@ -25,17 +62,18 @@ class ScheduleSpec(BaseModel):
     def normalize_cron_5_fields(cls, v: str) -> str:
         parts = [p for p in v.split() if p]
         if len(parts) == 5:
+            parts[4] = _crontab_dow_to_name(parts[4])
             return " ".join(parts)
 
         if len(parts) == 4:
             # treat as: hour dom month dow
             hour, dom, month, dow = parts
-            return f"0 {hour} {dom} {month} {dow}"
+            return f"0 {hour} {dom} {month} {_crontab_dow_to_name(dow)}"
 
         if len(parts) == 3:
             # treat as: dom month dow
             dom, month, dow = parts
-            return f"0 0 {dom} {month} {dow}"
+            return f"0 0 {dom} {month} {_crontab_dow_to_name(dow)}"
 
         # 6 fields (seconds) or too short: reject
         raise ValueError(

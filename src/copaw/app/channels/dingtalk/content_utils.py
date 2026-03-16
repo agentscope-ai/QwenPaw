@@ -79,9 +79,13 @@ def sender_from_chatbot_message(incoming_message: Any) -> tuple[str, bool]:
         or ""
     )
     sender_id = str(sender_id).strip() if sender_id else ""
-    suffix = sender_id[-4:] if len(sender_id) >= 4 else (sender_id or "????")
-    sender = f"{(nickname or 'unknown')}#{suffix}"
-    skip = not suffix and not nickname
+    has_sender_id = bool(sender_id)
+    has_nickname = bool(nickname)
+
+    suffix = sender_id[-4:] if len(sender_id) >= 4 else sender_id
+    sender = f"{(nickname or 'unknown')}#{(suffix or '????')}"
+
+    skip = (not has_sender_id) and (not has_nickname)
     return sender, skip
 
 

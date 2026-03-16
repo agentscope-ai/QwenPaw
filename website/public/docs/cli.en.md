@@ -28,7 +28,7 @@ copaw init --force      # Overwrite existing config files
 1. **Heartbeat** — interval (e.g. `30m`), target (`main` / `last`), optional
    active hours.
 2. **Show tool details** — whether tool call details appear in channel messages.
-3. **Language** — `zh` or `en` for agent persona files (SOUL.md, etc.).
+3. **Language** — `zh` / `en` / `ru` for agent persona files (SOUL.md, etc.).
 4. **Channels** — optionally configure iMessage / Discord / DingTalk / Feishu /
    QQ / Console.
 5. **LLM provider** — select provider, enter API key, choose model (**required**).

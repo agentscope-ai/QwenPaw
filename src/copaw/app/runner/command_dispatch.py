@@ -110,6 +110,7 @@ async def run_command_path(
             load_config_fn=load_config,
             memory_manager=runner.memory_manager,
             restart_callback=restart_cb,
+            session_id=session_id,
         )
         msg = await handler.handle_daemon_command(query, context)
         yield msg, True

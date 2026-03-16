@@ -33,4 +33,12 @@ export const agentApi = {
       method: "PUT",
       body: JSON.stringify(config),
     }),
+
+  getAgentLanguage: () => request<{ language: string }>("/agent/language"),
+
+  updateAgentLanguage: (language: string) =>
+    request<{ language: string; copied_files: string[] }>("/agent/language", {
+      method: "PUT",
+      body: JSON.stringify({ language }),
+    }),
 };

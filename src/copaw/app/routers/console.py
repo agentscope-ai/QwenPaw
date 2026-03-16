@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Console API: push messages for cron text bubbles on the frontend."""
+"""Console APIs for push messages."""
 
 from fastapi import APIRouter, Query
 

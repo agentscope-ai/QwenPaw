@@ -30,7 +30,7 @@ def _is_allowed_media_path(path: str) -> bool:
     try:
         resolved = Path(path).expanduser().resolve()
         root = _ALLOWED_MEDIA_ROOT.resolve()
-        return resolved.is_file() and str(resolved).startswith(str(root))
+        return resolved.is_file() and resolved.is_relative_to(root)
     except Exception:
         return False
 
