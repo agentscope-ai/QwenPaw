@@ -70,6 +70,7 @@ MAX_QUICK_DISCONNECT_COUNT = 3
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+_IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
 _DEFAULT_MEDIA_DIR = Path("~/.copaw/media/qq").expanduser()
@@ -299,6 +300,104 @@ async def _send_group_message_async(
         access_token,
         "POST",
         f"/v2/groups/{group_openid}/messages",
+        body,
+    )
+
+
+async def _upload_media_async(
+    session: Any,
+    access_token: str,
+    openid: str,
+    media_type: int,
+    url: str,
+    message_type: str = "c2c",
+) -> Optional[str]:
+    """Upload media to QQ rich media server.
+
+    Args:
+        session: aiohttp session
+        access_token: QQ access token
+        openid: user openid or group openid
+        media_type: 1 image, 2 video, 3 audio, 4 file
+        url: media url
+        message_type: "c2c" or "group"
+
+    Returns:
+        file_info if success, None otherwise
+    """
+    try:
+        if message_type == "c2c":
+            path = f"/v2/users/{openid}/files"
+        elif message_type == "group":
+            path = f"/v2/groups/{openid}/files"
+        else:
+            logger.warning(
+                f"Unsupported message type for media upload: {message_type}",
+            )
+            return None
+
+        body = {
+            "file_type": media_type,
+            "url": url,
+            "srv_send_msg": False,
+        }
+        response = await _api_request_async(
+            session,
+            access_token,
+            "POST",
+            path,
+            body,
+        )
+        return response.get("file_info")
+    except Exception:
+        logger.exception(f"Failed to upload media from url: {url}")
+        return None
+
+
+async def _send_media_message_async(
+    session: Any,
+    access_token: str,
+    openid: str,
+    file_info: str,
+    msg_id: Optional[str] = None,
+    message_type: str = "c2c",
+) -> None:
+    """Send rich media message.
+
+    Args:
+        session: aiohttp session
+        access_token: QQ access token
+        openid: user openid or group openid
+        file_info: file info from upload response
+        msg_id: reply message id
+        message_type: "c2c" or "group"
+    """
+    msg_seq = _get_next_msg_seq(msg_id or f"{message_type}_media")
+    body = {
+        "msg_type": 7,
+        "media": {
+            "file_info": file_info,
+        },
+        "msg_seq": msg_seq,
+    }
+    if msg_id:
+        body["msg_id"] = msg_id
+
+    if message_type == "c2c":
+        path = f"/v2/users/{openid}/messages"
+    elif message_type == "group":
+        path = f"/v2/groups/{openid}/messages"
+    else:
+        logger.warning(
+            f"Unsupported message type for media send: {message_type}",
+        )
+        return
+
+    await _api_request_async(
+        session,
+        access_token,
+        "POST",
+        path,
         body,
     )
 
@@ -576,32 +675,82 @@ class QQChannel(BaseChannel):
                     use_markdown=markdown,
                 )
 
-        try:
-            await _dispatch(text, use_markdown)
-        except Exception as exc:
-            if not use_markdown:
-                logger.exception("send failed")
-                return
-            if not _should_plaintext_fallback_from_markdown(exc):
-                logger.exception(
-                    "send failed with markdown; "
-                    "skip fallback to avoid duplicates",
-                )
-                return
-            logger.exception(
-                "send failed with markdown payload validation; "
-                "fallback to plain text",
-            )
-            fallback_text, had_url = _sanitize_qq_text(text)
-            if had_url:
-                logger.info(
-                    "qq send fallback: stripped URL content "
-                    "for API compatibility",
-                )
+        # Extract and process [Image: ] tags
+        image_urls = _IMAGE_TAG_PATTERN.findall(text)
+        # Remove [Image: ] tags from text
+        clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
+
+        # Send text content if not empty
+        text_sent = False
+        if clean_text:
             try:
-                await _dispatch(fallback_text, False)
-            except Exception:
-                logger.exception("send failed")
+                await _dispatch(clean_text, use_markdown)
+                text_sent = True
+            except Exception as exc:
+                if not use_markdown:
+                    logger.exception("send text failed")
+                elif not _should_plaintext_fallback_from_markdown(exc):
+                    logger.exception(
+                        "send text failed with markdown; "
+                        "skip fallback to avoid duplicates",
+                    )
+                else:
+                    logger.exception(
+                        "send text failed with markdown payload validation; "
+                        "fallback to plain text",
+                    )
+                    fallback_text, had_url = _sanitize_qq_text(clean_text)
+                    if had_url:
+                        logger.info(
+                            "qq send fallback: stripped URL content "
+                            "for API compatibility",
+                        )
+                    try:
+                        await _dispatch(fallback_text, False)
+                        text_sent = True
+                    except Exception:
+                        logger.exception("send text fallback failed")
+
+        # Send images if any
+        if image_urls and message_type in ("c2c", "group"):
+            # Determine target openid
+            target_openid = (
+                sender_id if message_type == "c2c" else group_openid
+            )
+            if target_openid:
+                for image_url in image_urls:
+                    try:
+                        # Upload image to QQ rich media
+                        file_info = await _upload_media_async(
+                            self._http,
+                            token,
+                            target_openid,
+                            media_type=1,  # 1 for image
+                            url=image_url,
+                            message_type=message_type,
+                        )
+                        if file_info:
+                            # Send media message
+                            await _send_media_message_async(
+                                self._http,
+                                token,
+                                target_openid,
+                                file_info,
+                                msg_id if not text_sent
+                                # Only reply with msg_id for first message
+                                else None,
+                                message_type=message_type,
+                            )
+                            logger.info(
+                                f"Successfully sent image: {image_url}",
+                            )
+                        else:
+                            logger.warning(
+                                f"Failed to upload image,"
+                                f" skipping: {image_url}",
+                            )
+                    except Exception:
+                        logger.exception(f"Failed to send image: {image_url}")
 
     def _resolve_attachment_type(self, att_type: str, file_name: str) -> str:
         # pylint: disable=too-many-return-statements
@@ -664,7 +813,7 @@ class QQChannel(BaseChannel):
         'height': 128, 'size': 13588,
           'url': '','width': 198}
 
-        Supports MIME type matching for flexible content type detection.
+        Supports the MIME type matching for flexible content type detection.
         """
         parts: List[OutgoingContentPart] = []
         if not attachments or not self._http:

@@ -15,6 +15,7 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Modify runtime configuration
 - Configure LLM providers and select active models
 - Manage environment variables needed by tools
+- View LLM token usage statistics
 
 The sidebar on the left groups features into **Chat**, **Control**, **Agent**,
 and **Settings**. Click any item to switch pages. The sections below walk
@@ -327,6 +328,14 @@ automatically when models are added/removed via Ollama CLI or Console.
 > `copaw models ollama-list`, `copaw models ollama-remove`. See
 > [CLI](./cli#ollama-models).
 
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> To run CoPaw properly, you must set the model context length to
+> **32K or higher**. Note that this can consume substantial compute resources,
+> so make sure your local machine can handle it.
+>
+> ![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
 ### LM Studio provider
 
 The LM Studio provider connects to the LM Studio desktop application's
@@ -348,6 +357,14 @@ OpenAI-compatible local server to discover and use loaded models.
 
 > LM Studio does not require an API key by default. Models must be loaded
 > in LM Studio before they appear in CoPaw.
+
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> To run CoPaw properly, you must set the model context length to
+> **32K or higher**. Note that this can consume substantial compute resources,
+> so make sure your local machine can handle it.
+>
+> ![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
 
 ### Choose the active model
 
@@ -395,6 +412,26 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ---
 
+## Token Usage
+
+> Sidebar: **Settings → Token Usage**
+
+View LLM token consumption over a time range, aggregated by date and model.
+
+**View usage:**
+
+1. Select a date range (default: last 30 days).
+2. Click **Refresh** to fetch data.
+3. The page shows total tokens, total calls, and breakdowns by model and date.
+
+**Query via chat:**
+
+Ask CoPaw directly, e.g. "How many tokens have I used recently?" or "Show me token usage." The agent will call the `get_token_usage` tool and return the summary.
+
+> Data is stored in `~/.copaw/token_usage.json`. You can override the filename with the `COPAW_TOKEN_USAGE_FILE` environment variable. See [Config — Environment Variables](./config#environment-variables).
+
+---
+
 ## Quick Reference
 
 | Page                  | Sidebar path                     | What you can do                                                |
@@ -409,6 +446,7 @@ Select rows → click **Delete** in the toolbar → confirm.
 | Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                                   |
 | Models                | Settings → Models                | Configure providers, manage local/Ollama/LM Studio, pick model |
 | Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                          |
+| Token Usage           | Settings → Token Usage           | View LLM token usage by date and model                         |
 
 ---
 

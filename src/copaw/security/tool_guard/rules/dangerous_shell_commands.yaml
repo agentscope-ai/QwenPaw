@@ -1,0 +1,29 @@
+# Dangerous Shell Command Detection Rules
+# These rules detect potentially dangerous shell commands (rm, mv) that
+# may cause data loss or unintended file mutations.
+#
+# Unlike the existing TOOL_CMD_DESTRUCTIVE_RM rule (which only catches
+# ``rm -rf /system_path``), these rules catch *any* use of ``rm`` or
+# ``mv`` so the user is always prompted before execution.
+
+# ── rm: file / directory removal ──────────────────────────────────────
+- id: TOOL_CMD_DANGEROUS_RM
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\brm\\b"
+  description: "Shell command contains 'rm' which may cause data loss"
+  remediation: "Confirm with the user before removing files or directories"
+
+# ── mv: file / directory move / rename ────────────────────────────────
+- id: TOOL_CMD_DANGEROUS_MV
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\bmv\\b"
+  description: "Shell command contains 'mv' which may move or overwrite files unexpectedly"
+  remediation: "Confirm with the user before moving or renaming files"

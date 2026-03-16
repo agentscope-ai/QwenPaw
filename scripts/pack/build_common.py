@@ -149,6 +149,18 @@ def main() -> int:
                 f"copaw[full] @ {wheel_uri}",
             ],
         )
+        print("Verifying certifi is installed (required for SSL)...")
+        _run(
+            [
+                conda,
+                "run",
+                "-n",
+                env_name,
+                "python",
+                "-c",
+                "import certifi; print(f'certifi OK: {certifi.where()}')",
+            ],
+        )
         if args.cache_wheels:
             # Store outside dist/ to avoid being deleted by wheel_build cleanup
             wheels_cache = REPO_ROOT / ".cache" / "conda_unpack_wheels"

@@ -11,7 +11,7 @@ import time
 import uuid
 from typing import Any, Dict, List
 
-# Single list: each item has id, text, ts, session_id.
+# Single list: each item has id, text, ts, session_id and optional metadata.
 # Bounded by count and age.
 _list: List[Dict[str, Any]] = []
 _lock = asyncio.Lock()
@@ -19,7 +19,7 @@ _MAX_AGE_SECONDS = 60
 _MAX_MESSAGES = 500
 
 
-async def append(session_id: str, text: str) -> None:
+async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
     """Append a message (bounded: oldest dropped if over _MAX_MESSAGES)."""
     if not session_id or not text:
         return
@@ -28,6 +28,7 @@ async def append(session_id: str, text: str) -> None:
             {
                 "id": str(uuid.uuid4()),
                 "text": text,
+                "sticky": sticky,
                 "ts": time.time(),
                 "session_id": session_id,
             },
@@ -56,7 +57,14 @@ async def take_all() -> List[Dict[str, Any]]:
 
 
 def _strip_ts(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{"id": m["id"], "text": m["text"]} for m in msgs]
+    return [
+        {
+            "id": m["id"],
+            "text": m["text"],
+            "sticky": bool(m.get("sticky", False)),
+        }
+        for m in msgs
+    ]
 
 
 async def get_recent(

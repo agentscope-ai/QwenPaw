@@ -26,6 +26,7 @@ dependencies = [
     "pywebview>=4.0",
     "aiofiles>=24.1.0",
     "paho-mqtt>=2.0.0",
+    "wecom-aibot-sdk @ https://agentscope.oss-cn-zhangjiakou.aliyuncs.com/pre_whl/wecom_aibot_sdk-1.0.0-py3-none-any.whl",
     "matrix-nio>=0.24.0",
 ]
 
@@ -43,6 +44,7 @@ include-package-data = true
     "agents/md_files/**",
     "agents/skills/**",
     "tokenizer/**",
+    "security/tool_guard/rules/**",
 ]
 
 [build-system]

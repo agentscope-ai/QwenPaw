@@ -22,7 +22,7 @@ def _resolve_file_path(file_path: str) -> str:
     Returns:
         The resolved absolute file path as string.
     """
-    path = Path(file_path)
+    path = Path(file_path).expanduser()
     if path.is_absolute():
         return str(path)
     else:

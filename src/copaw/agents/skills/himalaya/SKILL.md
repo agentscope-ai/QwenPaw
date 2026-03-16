@@ -125,17 +125,82 @@ Export raw MIME:
 himalaya message export 42 --full
 ```
 
-### Reply / Forward / Write (Disabled)
+### Send / Compose Emails
 
-**Do not send, reply, forward, or compose emails.** These operations are
-disabled for safety. Avoid using any of the following commands:
+**Recommended approach:** Use `template write | template send` pipeline for simple emails.
 
-- `himalaya message reply`
-- `himalaya message forward`
-- `himalaya message write`
-- `himalaya template send`
+**Send a simple email:**
 
-When the user ask you to do so, just reply you don't have such ability.
+```bash
+export EDITOR=cat
+himalaya template write \
+  -H "To: recipient@example.com" \
+  -H "Subject: Email Subject" \
+  "Email body content" | himalaya template send
+```
+
+**Send with multiple headers:**
+
+```bash
+export EDITOR=cat
+himalaya template write \
+  -H "To: recipient@example.com" \
+  -H "Cc: cc@example.com" \
+  -H "Subject: Email Subject" \
+  "Email body content" | himalaya template send
+```
+
+**Send with attachments (using Python):**
+
+For emails with attachments, use Python's `smtplib` and `email.mime` modules:
+
+```python
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+
+msg = MIMEMultipart()
+msg['From'] = 'sender@163.com'
+msg['To'] = 'recipient@example.com'
+msg['Subject'] = 'Email with attachment'
+
+msg.attach(MIMEText('Email body', 'plain'))
+
+# Add attachment
+with open('/path/to/file.pdf', 'rb') as f:
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(f.read())
+    encoders.encode_base64(part)
+    part.add_header('Content-Disposition', 'attachment; filename="file.pdf"')
+    msg.attach(part)
+
+server = smtplib.SMTP_SSL('smtp.163.com', 465)
+server.login('sender@163.com', 'password')
+server.send_message(msg)
+server.quit()
+```
+
+**⚠️ MML attachment limitations:** The `template send` command with MML format may fail with "cannot parse MML message: empty body" when using multipart/attachments. This is a known issue in himalaya v1.1.0. Use Python approach for attachments.
+
+**⚠️ Avoid `message write` for automation:** The `himalaya message write` command requires interactive TUI selection (Edit/Discard/Quit) and will hang in non-interactive environments.
+
+**⚠️ `message send` limitations:** Direct `himalaya message send <raw_email>` may fail with "cannot send message without a recipient" due to header parsing issues. Use `template send` instead.
+
+**Configuration requirement:** Ensure `message.send.save-to-folder` is set in config.toml to avoid "Folder not exist" errors:
+
+```toml
+[accounts.163]
+# ... other config ...
+message.send.save-to-folder = "Sent"
+```
+
+For 163 mail accounts, create the Sent folder first if it doesn't exist:
+
+```bash
+himalaya folder create Sent
+```
 
 ### Move/Copy Emails
 
@@ -228,3 +293,6 @@ RUST_LOG=trace RUST_BACKTRACE=1 himalaya envelope list
 - Message IDs are relative to the current folder; re-list after folder changes.
 - For composing rich emails with attachments, use MML syntax (see `references/message-composition.md`).
 - Store passwords securely using `pass`, system keyring, or a command that outputs the password.
+- **For automation:** Always use `template write | template send` pipeline with `export EDITOR=cat`.
+- **163 Mail users:** Set `backend.extensions.id.send-after-auth = true` and `message.send.save-to-folder = "Sent"` in config.
+- **Folder names:** Use English folder names (e.g., "Sent" instead of "已发送") for better compatibility.

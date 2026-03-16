@@ -11,13 +11,44 @@ from ...config import (
     ChannelConfig,
     ChannelConfigUnion,
     get_available_channels,
+    ToolGuardConfig,
+    ToolGuardRuleConfig,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
-from ...config.config import AgentsLLMRoutingConfig, HeartbeatConfig
+from ...config.config import (
+    AgentsLLMRoutingConfig,
+    ConsoleConfig,
+    DingTalkConfig,
+    DiscordConfig,
+    FeishuConfig,
+    HeartbeatConfig,
+    IMessageChannelConfig,
+    MatrixConfig,
+    MattermostConfig,
+    MQTTConfig,
+    QQConfig,
+    TelegramConfig,
+    VoiceChannelConfig,
+)
 
 from .schemas_config import HeartbeatBody
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+_CHANNEL_CONFIG_CLASS_MAP = {
+    "telegram": TelegramConfig,
+    "dingtalk": DingTalkConfig,
+    "discord": DiscordConfig,
+    "feishu": FeishuConfig,
+    "qq": QQConfig,
+    "imessage": IMessageChannelConfig,
+    "console": ConsoleConfig,
+    "voice": VoiceChannelConfig,
+    "mattermost": MattermostConfig,
+    "mqtt": MQTTConfig,
+    "matrix": MatrixConfig,
+}
 
 
 @router.get(
@@ -142,39 +173,9 @@ async def put_channel(
         )
     config = load_config()
 
-    # Create the appropriate config object based on channel_name
-    if channel_name == "telegram":
-        from ...config.config import TelegramConfig
-
-        channel_config = TelegramConfig(**single_channel_config)
-    elif channel_name == "dingtalk":
-        from ...config.config import DingTalkConfig
-
-        channel_config = DingTalkConfig(**single_channel_config)
-    elif channel_name == "discord":
-        from ...config.config import DiscordConfig
-
-        channel_config = DiscordConfig(**single_channel_config)
-    elif channel_name == "feishu":
-        from ...config.config import FeishuConfig
-
-        channel_config = FeishuConfig(**single_channel_config)
-    elif channel_name == "qq":
-        from ...config.config import QQConfig
-
-        channel_config = QQConfig(**single_channel_config)
-    elif channel_name == "imessage":
-        from ...config.config import IMessageChannelConfig
-
-        channel_config = IMessageChannelConfig(**single_channel_config)
-    elif channel_name == "console":
-        from ...config.config import ConsoleConfig
-
-        channel_config = ConsoleConfig(**single_channel_config)
-    elif channel_name == "voice":
-        from ...config.config import VoiceChannelConfig
-
-        channel_config = VoiceChannelConfig(**single_channel_config)
+    config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
+    if config_class is not None:
+        channel_config = config_class(**single_channel_config)
     else:
         # For custom channels, just use the dict
         channel_config = single_channel_config
@@ -245,3 +246,64 @@ async def put_agents_llm_routing(
     config.agents.llm_routing = body
     save_config(config)
     return body
+
+
+# ── Security / Tool Guard ────────────────────────────────────────────
+
+
+@router.get(
+    "/security/tool-guard",
+    response_model=ToolGuardConfig,
+    summary="Get tool guard settings",
+)
+async def get_tool_guard() -> ToolGuardConfig:
+    config = load_config()
+    return config.security.tool_guard
+
+
+@router.put(
+    "/security/tool-guard",
+    response_model=ToolGuardConfig,
+    summary="Update tool guard settings",
+)
+async def put_tool_guard(
+    body: ToolGuardConfig = Body(...),
+) -> ToolGuardConfig:
+    config = load_config()
+    config.security.tool_guard = body
+    save_config(config)
+
+    from ...security.tool_guard.engine import get_guard_engine
+
+    engine = get_guard_engine()
+    engine.enabled = body.enabled
+    engine.reload_rules()
+
+    return body
+
+
+@router.get(
+    "/security/tool-guard/builtin-rules",
+    response_model=List[ToolGuardRuleConfig],
+    summary="List built-in guard rules from YAML files",
+)
+async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
+    from ...security.tool_guard.guardians.rule_guardian import (
+        load_rules_from_directory,
+    )
+
+    rules = load_rules_from_directory()
+    return [
+        ToolGuardRuleConfig(
+            id=r.id,
+            tools=r.tools,
+            params=r.params,
+            category=r.category.value,
+            severity=r.severity.value,
+            patterns=r.patterns,
+            exclude_patterns=r.exclude_patterns,
+            description=r.description,
+            remediation=r.remediation,
+        )
+        for r in rules
+    ]

@@ -144,13 +144,13 @@ export function JobDrawer({
                 >
                   <Checkbox.Group
                     options={[
-                      { label: t("cronJobs.cronDayMon"), value: 1 },
-                      { label: t("cronJobs.cronDayTue"), value: 2 },
-                      { label: t("cronJobs.cronDayWed"), value: 3 },
-                      { label: t("cronJobs.cronDayThu"), value: 4 },
-                      { label: t("cronJobs.cronDayFri"), value: 5 },
-                      { label: t("cronJobs.cronDaySat"), value: 6 },
-                      { label: t("cronJobs.cronDaySun"), value: 0 },
+                      { label: t("cronJobs.cronDayMon"), value: "mon" },
+                      { label: t("cronJobs.cronDayTue"), value: "tue" },
+                      { label: t("cronJobs.cronDayWed"), value: "wed" },
+                      { label: t("cronJobs.cronDayThu"), value: "thu" },
+                      { label: t("cronJobs.cronDayFri"), value: "fri" },
+                      { label: t("cronJobs.cronDaySat"), value: "sat" },
+                      { label: t("cronJobs.cronDaySun"), value: "sun" },
                     ]}
                   />
                 </Form.Item>

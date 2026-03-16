@@ -6,6 +6,7 @@ import {
   DownloadOutlined,
   LoadingOutlined,
   ApiOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import type {
   ProviderInfo,
@@ -22,7 +23,7 @@ interface OllamaModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }
 
 function formatFileSize(bytes: number): string {
@@ -41,6 +42,7 @@ export function OllamaModelManageModal({
   const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
+  const [discovering, setDiscovering] = useState(false);
   const [form] = Form.useForm();
   const [ollamaModels, setOllamaModels] = useState<OllamaModelResponse[]>([]);
   const [loadingOllama, setLoadingOllama] = useState(false);
@@ -59,15 +61,19 @@ export function OllamaModelManageModal({
 
   const fetchOllamaModels = useCallback(async () => {
     setLoadingOllama(true);
+    setDiscovering(true);
     try {
+      await api.discoverModels(provider.id);
       const data = await api.listOllamaModels();
       setOllamaModels(Array.isArray(data) ? data : []);
     } catch {
       setOllamaModels([]);
     } finally {
+      onSaved();
+      setDiscovering(false);
       setLoadingOllama(false);
     }
-  }, []);
+  }, [provider.id, onSaved]);
 
   const pollOllamaDownloads = useCallback(async () => {
     try {
@@ -121,7 +127,6 @@ export function OllamaModelManageModal({
   useEffect(() => {
     if (!open) return;
 
-    fetchOllamaModels();
     ollamaNotifiedRef.current.clear();
 
     api
@@ -364,15 +369,24 @@ export function OllamaModelManageModal({
           </Form>
         </div>
       ) : (
-        <Button
-          type="dashed"
-          block
-          icon={<DownloadOutlined />}
-          onClick={() => setAdding(true)}
-          style={{ marginTop: 12 }}
-        >
-          {t("models.localDownloadModel")}
-        </Button>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <Button
+            icon={<SyncOutlined />}
+            onClick={fetchOllamaModels}
+            loading={discovering}
+            style={{ flex: 1 }}
+          >
+            {t("models.discoverModels")}
+          </Button>
+          <Button
+            type="dashed"
+            icon={<DownloadOutlined />}
+            onClick={() => setAdding(true)}
+            style={{ flex: 1 }}
+          >
+            {t("models.localDownloadModel")}
+          </Button>
+        </div>
       )}
     </Modal>
   );

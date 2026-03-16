@@ -237,6 +237,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     null;
 
   /**
+   * Deduplicates concurrent getSession calls for the same sessionId.
+   * Key: sessionId, Value: in-flight promise for getSession.
+   */
+  private sessionRequests: Map<
+    string,
+    Promise<IAgentScopeRuntimeWebUISession>
+  > = new Map();
+
+  /**
    * Called when a temporary timestamp session id is resolved to a real backend
    * UUID. Consumers (e.g. Chat/index.tsx) can register here to update the URL.
    */
@@ -324,6 +333,24 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   async getSession(sessionId: string) {
+    // Deduplicate: reuse the in-flight request if one is already running
+    // for the same sessionId so concurrent calls share one network request.
+    const existingRequest = this.sessionRequests.get(sessionId);
+    if (existingRequest) return existingRequest;
+
+    const requestPromise = this._doGetSession(sessionId);
+    this.sessionRequests.set(sessionId, requestPromise);
+
+    try {
+      return await requestPromise;
+    } finally {
+      this.sessionRequests.delete(sessionId);
+    }
+  }
+
+  private async _doGetSession(
+    sessionId: string,
+  ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- Local timestamp ID (New Chat before first reply) ---
     if (isLocalTimestamp(sessionId)) {
       const fromList = this.sessionList.find((s) => s.id === sessionId) as

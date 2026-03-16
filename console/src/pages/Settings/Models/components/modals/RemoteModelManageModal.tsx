@@ -37,7 +37,7 @@ export function RemoteModelManageModal({
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
-  const canDiscover = false;
+  const canDiscover = provider.support_model_discovery;
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.

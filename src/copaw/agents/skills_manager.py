@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """Skills management: sync skills from code to working_dir."""
+
 import filecmp
 import logging
 import shutil
+from collections.abc import Iterable
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
@@ -11,6 +14,93 @@ import frontmatter
 from ..constant import ACTIVE_SKILLS_DIR, CUSTOMIZED_SKILLS_DIR
 
 logger = logging.getLogger(__name__)
+
+
+IGNORED_RUNTIME_ARTIFACT_NAMES = {
+    "__pycache__",
+    ".DS_Store",
+    "Thumbs.db",
+    ".pytest_cache",
+}
+IGNORED_RUNTIME_ARTIFACT_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+}
+
+
+def _should_ignore_runtime_artifact(path: Path) -> bool:
+    """Return True for generated runtime files that should not sync."""
+    if path.name in IGNORED_RUNTIME_ARTIFACT_NAMES:
+        return True
+    if path.is_file() and path.suffix in IGNORED_RUNTIME_ARTIFACT_SUFFIXES:
+        return True
+    return False
+
+
+def _iter_relevant_directory_entries(
+    directory: Path,
+) -> Iterable[tuple[Path, Path]]:
+    """Yield relative paths for non-generated files and directories."""
+    if not directory.exists():
+        return
+
+    yield from _iter_relevant_directory_entries_from(
+        root_dir=directory,
+        current_dir=directory,
+    )
+
+
+def _iter_relevant_directory_entries_from(
+    root_dir: Path,
+    current_dir: Path,
+) -> Iterable[tuple[Path, Path]]:
+    """Yield sorted non-generated directory entries without buffering."""
+    for item in sorted(current_dir.iterdir(), key=lambda path: path.name):
+        if _should_ignore_runtime_artifact(item):
+            continue
+
+        yield item.relative_to(root_dir), item
+
+        if item.is_dir():
+            yield from _iter_relevant_directory_entries_from(
+                root_dir=root_dir,
+                current_dir=item,
+            )
+
+
+def _directories_match_ignoring_runtime_artifacts(
+    dir1: Path,
+    dir2: Path,
+) -> bool:
+    """Compare two directories while ignoring generated runtime artifacts."""
+    if not dir1.exists() or not dir2.exists():
+        return False
+
+    for entry1, entry2 in zip_longest(
+        _iter_relevant_directory_entries(dir1),
+        _iter_relevant_directory_entries(dir2),
+    ):
+        if entry1 is None or entry2 is None:
+            return False
+
+        relative_path1, left = entry1
+        relative_path2, right = entry2
+        if relative_path1 != relative_path2:
+            return False
+        if left.is_dir() != right.is_dir():
+            return False
+        if left.is_file() and not filecmp.cmp(left, right, shallow=False):
+            return False
+
+    return True
+
+
+def _dedupe_skills_by_name(skills: list["SkillInfo"]) -> list["SkillInfo"]:
+    """Return one skill per name, preferring customized over builtin."""
+    merged: dict[str, SkillInfo] = {}
+    for skill in skills:
+        merged[skill.name] = skill
+    return list(merged.values())
 
 
 class SkillInfo(BaseModel):
@@ -40,6 +130,7 @@ class SkillInfo(BaseModel):
     """
 
     name: str
+    description: str = ""
     content: str
     source: str  # "builtin", "customized", or "active"
     path: str
@@ -160,11 +251,11 @@ def sync_skills_to_working_dir(
 
     # Filter by skill_names if specified
     if skill_names is not None:
-        skills_to_sync = {
-            name: path
-            for name, path in skills_to_sync.items()
-            if name in skill_names
-        }
+        filtered_skills: dict[str, Path] = {}
+        for name, path in skills_to_sync.items():
+            if name in skill_names:
+                filtered_skills[name] = path
+        skills_to_sync = filtered_skills
 
     if not skills_to_sync:
         logger.debug("No skills to sync.")
@@ -204,50 +295,6 @@ def sync_skills_to_working_dir(
     return synced_count, skipped_count
 
 
-def _is_directory_same(dir1: Path, dir2: Path) -> bool:
-    """
-    Check if two directories have the same content.
-
-    Args:
-        dir1: First directory path.
-        dir2: Second directory path.
-
-    Returns:
-        True if directories have the same structure and file contents.
-    """
-    if not dir1.exists() or not dir2.exists():
-        return False
-
-    dcmp = filecmp.dircmp(dir1, dir2)
-
-    if dcmp.left_only or dcmp.right_only or dcmp.funny_files:
-        return False
-
-    if dcmp.diff_files:
-        return False
-
-    for sub_dcmp in dcmp.subdirs.values():
-        if not _compare_dircmp(sub_dcmp):
-            return False
-
-    return True
-
-
-def _compare_dircmp(dcmp: "filecmp.dircmp") -> bool:
-    """Helper to recursively compare dircmp objects."""
-    if (
-        dcmp.left_only
-        or dcmp.right_only
-        or dcmp.funny_files
-        or dcmp.diff_files
-    ):
-        return False
-    for sub_dcmp in dcmp.subdirs.values():
-        if not _compare_dircmp(sub_dcmp):
-            return False
-    return True
-
-
 def sync_skills_from_active_to_customized(
     skill_names: list[str] | None = None,
 ) -> tuple[int, int]:
@@ -282,7 +329,10 @@ def sync_skills_from_active_to_customized(
 
         if skill_name in builtin_skills_dict:
             builtin_skill_dir = builtin_skills_dict[skill_name]
-            if _is_directory_same(skill_dir, builtin_skill_dir):
+            if _directories_match_ignoring_runtime_artifacts(
+                skill_dir,
+                builtin_skill_dir,
+            ):
                 skipped_count += 1
                 continue
 
@@ -299,8 +349,7 @@ def sync_skills_from_active_to_customized(
             synced_count += 1
         except Exception as e:
             logger.debug(
-                "Failed to sync skill '%s' from active_skills to "
-                "customized_skills: %s",
+                "Failed to sync skill '%s' to customized_skills: %s",
                 skill_name,
                 e,
             )
@@ -381,6 +430,22 @@ def _read_skills_from_dir(
 
         try:
             content = skill_md.read_text(encoding="utf-8")
+            description = ""
+            try:
+                post = frontmatter.loads(content)
+                description = str(post.get("description", "") or "")
+            except Exception as e:
+                logger.warning(
+                    "Failed to parse SKILL.md frontmatter for skill '%s': %s",
+                    skill_dir.name,
+                    e,
+                )
+                logger.debug(
+                    "Invalid SKILL.md frontmatter/content in '%s': %r",
+                    skill_md,
+                    e,
+                )
+                description = ""
 
             # Build references directory tree
             references = {}
@@ -397,6 +462,7 @@ def _read_skills_from_dir(
             skills.append(
                 SkillInfo(
                     name=skill_dir.name,
+                    description=description,
                     content=content,
                     source=source,
                     path=str(skill_dir),
@@ -481,20 +547,19 @@ class SkillService:
             synced, _ = sync_skills_from_active_to_customized()
             if synced > 0:
                 logger.debug(
-                    "Synced %d skill(s) from active_skills to "
-                    "customized_skills",
+                    "Synced %d skill(s) from active_skills",
                     synced,
                 )
         except Exception as e:
             logger.debug(
-                "Failed to sync skills from active_skills to "
-                "customized_skills: %s",
+                "Failed to sync skills from active_skills: %s",
                 e,
             )
 
         skills: list[SkillInfo] = []
 
-        # Collect from builtin and customized skills
+        # Collect from builtin and customized skills. Customized skills
+        # override built-in skills with the same name in the UI/API listing.
         skills.extend(
             _read_skills_from_dir(get_builtin_skills_dir(), "builtin"),
         )
@@ -502,7 +567,7 @@ class SkillService:
             _read_skills_from_dir(get_customized_skills_dir(), "customized"),
         )
 
-        return skills
+        return _dedupe_skills_by_name(skills)
 
     @staticmethod
     def list_available_skills() -> list[SkillInfo]:
@@ -808,13 +873,11 @@ class SkillService:
         normalized = file_path.replace("\\", "/")
 
         # Validate file_path starts with references/ or scripts/
-        if not (
-            normalized.startswith("references/")
-            or normalized.startswith("scripts/")
-        ):
+        is_references = normalized.startswith("references/")
+        is_scripts = normalized.startswith("scripts/")
+        if not (is_references or is_scripts):
             logger.error(
-                "Invalid file_path '%s'. "
-                "Must start with 'references/' or 'scripts/'.",
+                "Invalid file_path '%s'. Must start with refs or scripts.",
                 file_path,
             )
             return None
@@ -834,7 +897,7 @@ class SkillService:
             base_dir = get_builtin_skills_dir()
 
         skill_dir = base_dir / skill_name
-        full_path = skill_dir / file_path
+        full_path = skill_dir / normalized
 
         # Check if skill exists
         if not skill_dir.exists():
