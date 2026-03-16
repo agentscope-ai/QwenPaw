@@ -14,6 +14,8 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
+import { useAgentStore } from "../../stores/agentStore";
+import "./index.module.less";
 
 type CopyableContent = {
   type?: string;
@@ -116,6 +118,8 @@ export default function ChatPage() {
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
+  const { selectedAgent } = useAgentStore();
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -194,6 +198,28 @@ export default function ChatPage() {
       sessionApi.onSessionRemoved = null;
     };
   }, []);
+
+  // Refresh chat when selectedAgent changes
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  useEffect(() => {
+    // Only refresh if selectedAgent actually changed (not initial mount)
+    if (
+      prevSelectedAgentRef.current !== selectedAgent &&
+      prevSelectedAgentRef.current !== undefined
+    ) {
+      console.log(
+        "Selected agent changed from",
+        prevSelectedAgentRef.current,
+        "to",
+        selectedAgent,
+      );
+      // Force re-render by updating refresh key
+      setRefreshKey((prev) => prev + 1);
+      // Navigate to chat root to avoid showing stale session
+      navigate("/chat", { replace: true });
+    }
+    prevSelectedAgentRef.current = selectedAgent;
+  }, [selectedAgent, navigate]);
 
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
@@ -301,6 +327,20 @@ export default function ChatPage() {
       const token = getApiToken();
       if (token) headers.Authorization = `Bearer ${token}`;
 
+      // Add selected agent ID for multi-agent support
+      try {
+        const agentStorage = localStorage.getItem("copaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          const selectedAgent = parsed?.state?.selectedAgent;
+          if (selectedAgent) {
+            headers["X-Agent-Id"] = selectedAgent;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to get selected agent from storage:", error);
+      }
+
       return fetch(defaultConfig?.api?.baseURL || getApiUrl("/agent/process"), {
         method: "POST",
         headers,
@@ -360,7 +400,7 @@ export default function ChatPage() {
 
   return (
     <div style={{ height: "100%", width: "100%" }}>
-      <AgentScopeRuntimeWebUI options={options} />
+      <AgentScopeRuntimeWebUI key={refreshKey} options={options} />
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result

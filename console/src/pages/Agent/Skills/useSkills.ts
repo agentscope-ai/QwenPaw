@@ -8,6 +8,7 @@ import type {
   BlockedSkillRecord,
 } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
+import { useAgentStore } from "../../../stores/agentStore";
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: "red",
@@ -35,6 +36,7 @@ function tryParseScanError(error: unknown): SecurityScanErrorResponse | null {
 
 export function useSkills() {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -184,7 +186,7 @@ export function useSkills() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [selectedAgent]);
 
   const createSkill = async (name: string, content: string) => {
     try {

@@ -121,12 +121,14 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 # Text may be under "text" or "content" (API variation).
                 item_text = item.get("text") or item.get("content")
                 if item_text is not None:
-                    content.append(
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=(item_text or "").strip(),
-                        ),
-                    )
+                    stripped = (item_text or "").strip()
+                    if stripped:
+                        content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=stripped,
+                            ),
+                        )
                 # Picture items may use pictureDownloadCode or downloadCode.
                 dl_code = (
                     item.get("downloadCode")
