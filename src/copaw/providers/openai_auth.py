@@ -353,8 +353,8 @@ class OpenAIAuthHelper(BaseAuthHelper):
                 provider.auth.status = "authorized"
                 try:
                     oauth_models = await provider.fetch_models()
-                    if hasattr(provider, "oauth_models"):
-                        setattr(provider, "oauth_models", oauth_models)
+                    if isinstance(provider, OpenAIProvider):
+                        provider.oauth_models = oauth_models
                     if not oauth_models:
                         logger.warning(
                             "OpenAI OAuth login succeeded but no models "
