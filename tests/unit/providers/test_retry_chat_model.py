@@ -7,6 +7,7 @@ Verifies that the retryable-error detection covers:
 - Python built-in network exceptions (new)
 - Non-retryable exceptions are rejected
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -14,7 +15,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from copaw.providers.retry_chat_model import _is_retryable
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,16 +64,20 @@ class TestHttpxExceptions:
                 "peer closed connection without sending complete message body",
             ),
             lambda httpx: httpx.ReadTimeout(
-                "timed out", request=MagicMock()
+                "timed out",
+                request=MagicMock(),
             ),
             lambda httpx: httpx.ConnectTimeout(
-                "timed out", request=MagicMock()
+                "timed out",
+                request=MagicMock(),
             ),
             lambda httpx: httpx.ConnectError(
-                "connection refused", request=MagicMock()
+                "connection refused",
+                request=MagicMock(),
             ),
             lambda httpx: httpx.ReadError(
-                "connection reset by peer", request=MagicMock()
+                "connection reset by peer",
+                request=MagicMock(),
             ),
         ],
         ids=[

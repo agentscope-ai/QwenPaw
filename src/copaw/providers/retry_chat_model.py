@@ -33,9 +33,9 @@ _httpx_retryable: tuple[type[Exception], ...] | None = None
 # These cover cases where the SDK does not wrap the underlying error
 # (e.g. a VPN/proxy disconnect during streaming).
 _BUILTIN_NETWORK_ERRORS: tuple[type[Exception], ...] = (
-    ConnectionError,          # includes ConnectionResetError
+    ConnectionError,  # includes ConnectionResetError
     TimeoutError,
-    OSError,                  # network unreachable, broken pipe, etc.
+    OSError,  # network unreachable, broken pipe, etc.
 )
 
 
