@@ -608,7 +608,7 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {(provider.auth?.status !== "unauthorized") && (
+            {provider.auth?.status !== "unauthorized" && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
