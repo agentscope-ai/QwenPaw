@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ...config import (
@@ -29,6 +29,13 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str = Field(..., description="File content")
+
+
+class CancelRequest(BaseModel):
+    """Cancel request body."""
+
+    session_id: str = Field(..., description="Session ID to cancel")
+
 
 
 @router.get(
@@ -258,3 +265,32 @@ async def put_system_prompt_files(
     config.agents.system_prompt_files = files
     save_config(config)
     return files
+
+
+@router.post(
+    "/cancel",
+    response_model=dict,
+    summary="Cancel an active agent task",
+    description="Cancel the running agent task for a given session",
+)
+async def cancel_agent_task(
+    request: Request,
+    body: CancelRequest,
+) -> dict:
+    """Cancel an active agent task by session_id."""
+    agent_app = getattr(request.app.state, "agent_app", None)
+    # AgentApp stores tasks in _local_tasks dict keyed by "user_id:session_id"
+    local_tasks = getattr(agent_app, "_local_tasks", None) if agent_app else None
+    if not local_tasks:
+        return {"cancelled": False}
+
+    # Find and cancel the task whose key contains this session_id
+    cancelled = False
+    for task_key, task in list(local_tasks.items()):
+        if str(task_key).split(':')[-1] == body.session_id and not task.done():
+            task.cancel()
+            cancelled = True
+            break
+
+    return {"cancelled": cancelled}
+
