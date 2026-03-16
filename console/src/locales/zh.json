@@ -538,6 +538,12 @@
     "languageSaveSuccess": "语言更新成功",
     "languageSaveSuccessWithFiles": "语言已更新，已复制 {{count}} 个 MD 文件",
     "languageSaveFailed": "语言更新失败",
+    "timezone": "用户时区",
+    "timezoneTooltip": "用于定时任务、时间显示和 Agent 上下文，默认使用系统时区。",
+    "timezoneRequired": "请选择时区",
+    "selectTimezone": "选择时区",
+    "timezoneSaveSuccess": "时区更新成功",
+    "timezoneSaveFailed": "时区更新失败",
     "saveSuccess": "配置保存成功",
     "saveFailed": "配置保存失败",
     "loadFailed": "配置加载失败"

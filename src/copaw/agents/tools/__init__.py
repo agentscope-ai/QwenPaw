@@ -20,7 +20,7 @@ from .send_file import send_file_to_user
 from .browser_control import browser_use
 from .desktop_screenshot import desktop_screenshot
 from .memory_search import create_memory_search_tool
-from .get_current_time import get_current_time
+from .get_current_time import get_current_time, set_user_timezone
 from .get_token_usage import get_token_usage
 
 __all__ = [
@@ -39,5 +39,6 @@ __all__ = [
     "browser_use",
     "create_memory_search_tool",
     "get_current_time",
+    "set_user_timezone",
     "get_token_usage",
 ]

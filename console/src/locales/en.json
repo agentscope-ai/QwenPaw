@@ -540,6 +540,12 @@
     "languageSaveFailed": "Failed to update language",
     "saveSuccess": "Configuration saved successfully",
     "saveFailed": "Failed to save configuration",
+    "timezone": "User Timezone",
+    "timezoneTooltip": "Used for scheduled tasks, time display, and agent context. Defaults to your system timezone.",
+    "timezoneRequired": "Please select a timezone",
+    "selectTimezone": "Select timezone",
+    "timezoneSaveSuccess": "Timezone updated successfully",
+    "timezoneSaveFailed": "Failed to update timezone",
     "loadFailed": "Failed to load configuration"
   },
   "tools": {
