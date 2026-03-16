@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from ..channels.schema import DEFAULT_CHANNEL
+from .timezone_utils import get_default_timezone
 
 # ---------------------------------------------------------------------------
 # APScheduler v3 uses ISO 8601 weekday numbering (0=Mon … 6=Sun) for
@@ -55,7 +56,7 @@ def _crontab_dow_to_name(field: str) -> str:
 class ScheduleSpec(BaseModel):
     type: Literal["cron"] = "cron"
     cron: str = Field(...)
-    timezone: str = "UTC"
+    timezone: str = Field(default_factory=get_default_timezone)
 
     @field_validator("cron")
     @classmethod

@@ -18,6 +18,7 @@ from .executor import CronExecutor
 from .heartbeat import parse_heartbeat_every, run_heartbeat_once
 from .models import CronJobSpec, CronJobState
 from .repo.base import BaseJobRepository
+from .timezone_utils import get_default_timezone
 
 HEARTBEAT_JOB_ID = "_heartbeat"
 
@@ -36,12 +37,13 @@ class CronManager:
         repo: BaseJobRepository,
         runner: Any,
         channel_manager: Any,
-        timezone: str = "UTC",
+        timezone: str | None = None,
     ):
         self._repo = repo
         self._runner = runner
         self._channel_manager = channel_manager
-        self._scheduler = AsyncIOScheduler(timezone=timezone)
+        resolved_timezone = timezone or get_default_timezone()
+        self._scheduler = AsyncIOScheduler(timezone=resolved_timezone)
         self._executor = CronExecutor(
             runner=runner,
             channel_manager=channel_manager,
