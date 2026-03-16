@@ -34,6 +34,7 @@ from .routers import router as api_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
+from .auth_middleware import BasicAuthMiddleware
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -462,6 +463,24 @@ if CORS_ORIGINS:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+# Apply Basic Auth middleware if configured
+BASIC_AUTH_USERNAME = os.environ.get("BASIC_AUTH_USERNAME", "")
+BASIC_AUTH_PASSWORD = os.environ.get("BASIC_AUTH_PASSWORD", "")
+BASIC_AUTH_EXCLUDED = os.environ.get("BASIC_AUTH_EXCLUDED", "")
+if BASIC_AUTH_PASSWORD:
+    excluded_paths = [
+        p.strip() for p in BASIC_AUTH_EXCLUDED.split(",") if p.strip()
+    ]
+    app.add_middleware(
+        BasicAuthMiddleware,
+        username=BASIC_AUTH_USERNAME,
+        password=BASIC_AUTH_PASSWORD,
+        excluded_paths=excluded_paths,
+    )
+    logger.info(
+        f"Basic Auth middleware enabled (excluded: {excluded_paths})"
     )
 
 
