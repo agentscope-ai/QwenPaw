@@ -214,7 +214,7 @@ export default function ChatPage() {
       const token = getApiToken();
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/agent/process"), {
+      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
