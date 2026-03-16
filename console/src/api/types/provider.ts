@@ -156,7 +156,7 @@ export interface DiscoverModelsResponse {
 export interface ProviderAuthSessionResponse {
   session_id: string;
   provider_id: string;
-  status: string;
+  status: "authorizing" | "authorized" | "error";
   auth_url: string;
   error: string;
   created_at: string;
