@@ -3,6 +3,7 @@
 from typing import Any, List
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
+from pydantic import BaseModel
 
 from ...config import (
     load_config,
@@ -15,6 +16,7 @@ from ...config import (
     ToolGuardRuleConfig,
 )
 from ...acp.config import ACPConfig
+from ...acp.types import parse_external_agent_text
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.config import (
     AgentsLLMRoutingConfig,
@@ -35,6 +37,23 @@ from ...config.config import (
 from .schemas_config import HeartbeatBody
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+class ParseExternalAgentRequest(BaseModel):
+    """Request to parse external agent text."""
+
+    text: str
+
+
+class ParseExternalAgentResponse(BaseModel):
+    """Response containing parsed external agent config."""
+
+    enabled: bool = False
+    harness: str | None = None
+    keep_session: bool = False
+    cwd: str | None = None
+    existing_session_id: str | None = None
+    prompt: str | None = None
 
 
 _CHANNEL_CONFIG_CLASS_MAP = {
@@ -339,3 +358,30 @@ async def put_acp_config(
     config.acp = body
     save_config(config)
     return body
+
+
+@router.post(
+    "/acp/parse-text",
+    response_model=ParseExternalAgentResponse,
+    summary="Parse external agent text",
+    description="Parse external agent command or natural language text to extract configuration",
+)
+async def parse_external_agent(
+    body: ParseExternalAgentRequest = Body(..., description="Text to parse"),
+) -> ParseExternalAgentResponse:
+    """Parse external agent text and return structured config.
+
+    This endpoint centralizes the parsing logic that was previously duplicated
+    between frontend and backend, ensuring consistent behavior.
+    """
+    parsed = parse_external_agent_text(body.text)
+    if parsed is None:
+        return ParseExternalAgentResponse(enabled=False)
+    return ParseExternalAgentResponse(
+        enabled=parsed.enabled,
+        harness=parsed.harness,
+        keep_session=parsed.keep_session,
+        cwd=parsed.cwd,
+        existing_session_id=parsed.existing_session_id,
+        prompt=parsed.prompt,
+    )

@@ -257,8 +257,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     const lang = i18n.language?.startsWith("zh")
       ? "zh"
       : i18n.language?.startsWith("ru")
-      ? "ru"
-      : "en";
+        ? "ru"
+        : "en";
     const faqLang = lang === "zh" ? "zh" : "en";
     const url = `https://copaw.agentscope.io/docs/faq.${faqLang}.md`;
     fetch(url, { cache: "no-cache" })
@@ -270,7 +270,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         setUpdateMarkdown(
           match && lang !== "ru"
             ? match[0].trim()
-            : UPDATE_MD[lang] ?? UPDATE_MD.en,
+            : (UPDATE_MD[lang] ?? UPDATE_MD.en),
         );
       })
       .catch(() => {

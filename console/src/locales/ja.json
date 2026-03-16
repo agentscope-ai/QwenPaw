@@ -149,7 +149,16 @@
     "disableSuccess": "Harnessを無効化しました",
     "deleteSuccess": "Harnessを削除しました",
     "deleteConfirm": "このHarnessを削除してもよろしいですか？",
-    "keyExists": "このHarness識別子は既に存在します"
+    "keyExists": "このHarness識別子は既に存在します",
+    "approval": {
+      "title": "外部エージェントの承認待ち",
+      "defaultMessage": "外部エージェントが承認を待っています。",
+      "harness": "Harness",
+      "tool": "ツール",
+      "kind": "種類",
+      "target": "ターゲット",
+      "instruction": "/approve と入力して許可するか、他のメッセージを送信して拒否してください。"
+    }
   },
   "heartbeat": {
     "title": "ハートビート",

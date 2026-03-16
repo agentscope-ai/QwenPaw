@@ -16,6 +16,30 @@ from ..security.tool_guard.models import (
     ToolGuardResult,
 )
 
+
+@dataclass
+class ACPApprovalSummary:
+    """Structured approval summary for i18n rendering on frontend.
+
+    Contains all data needed for the frontend to construct localized
+    approval messages, avoiding hardcoded text in the backend.
+    """
+
+    harness: str
+    tool_name: str
+    tool_kind: str
+    target: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "type": "acp_approval_summary",
+            "harness": self.harness,
+            "tool_name": self.tool_name,
+            "tool_kind": self.tool_kind,
+            "target": self.target,
+        }
+
 logger = logging.getLogger(__name__)
 
 AUTO_ALLOW_KINDS = {
@@ -37,7 +61,7 @@ class ACPPermissionDecision:
     approved: bool
     result: dict[str, Any]
     pending_request_id: str | None = None
-    summary: str = ""
+    summary: dict[str, Any] | str = ""
 
 
 class ACPPermissionAdapter:
@@ -169,7 +193,12 @@ class ACPPermissionAdapter:
         tool_call: dict[str, Any],
         tool_name: str,
         tool_kind: str,
-    ) -> str:
+    ) -> dict[str, Any]:
+        """Build structured summary for frontend i18n rendering.
+
+        Returns a dictionary with all data needed for the frontend to
+        construct localized approval messages, avoiding hardcoded text.
+        """
         target = (
             tool_call.get("path")
             or tool_call.get("target")
@@ -182,23 +211,15 @@ class ACPPermissionAdapter:
         if len(target_text) > 240:
             target_text = target_text[:240] + "..."
 
-        lines = [
-            f"等待外部 Agent 权限确认 / Waiting for external agent approval",
-            "",
-            f"- Harness: `{tool_call.get('harness') or 'external-agent'}`",
-            f"- Tool: `{tool_name}`",
-            f"- Kind: `{tool_kind or 'unknown'}`",
-        ]
-        if target_text:
-            lines.append(f"- Target: `{target_text}`")
-        lines.extend(
-            [
-                "",
-                "可以在聊天里输入 `/approve` 批准，或发送任意消息拒绝。",
-                "You can type `/approve` to allow it, or send any other message to deny it.",
-            ],
+        harness = tool_call.get("harness") or "external-agent"
+
+        summary = ACPApprovalSummary(
+            harness=str(harness),
+            tool_name=tool_name,
+            tool_kind=tool_kind or "unknown",
+            target=target_text or None,
         )
-        return "\n".join(lines)
+        return summary.to_dict()
 
     def _build_tool_guard_result(
         self,

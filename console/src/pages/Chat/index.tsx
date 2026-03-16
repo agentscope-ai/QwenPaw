@@ -3,13 +3,24 @@ import {
   IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, Modal, Result, Select, Space, Switch, Typography, message } from "antd";
+import {
+  Button,
+  Card,
+  Modal,
+  Result,
+  Select,
+  Space,
+  Switch,
+  Typography,
+  message,
+} from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import api from "../../api";
+import api, { acpApi } from "../../api";
 import type { PendingApproval } from "../../api/modules/approval";
+import type { ParsedExternalAgent } from "../../api/types";
 import sessionApi from "./sessionApi";
 import type { ExternalAgentMeta } from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
@@ -71,16 +82,66 @@ function stripQuotedValue(value?: string): string | undefined {
 }
 
 /**
- * Parse external agent config from natural language or command-line style input.
- * Supported patterns:
- * - ACP slash: "/acp opencode ...", "/acp qwen --cwd . --keep-session ..."
- * - Agent slash: "/opencode 分析...", "/qwen --session 分析..."
- * - Command: "--harness=opencode 分析...", "--harness opencode --cwd . 分析..."
- * - Natural: "用 opencode 分析...", "使用 qwen 在 /tmp 下分析..."
- * 
- * Returns null if no external agent trigger found.
+ * Structured ACP approval summary from backend.
  */
-function parseExternalAgentFromText(text: string): {
+interface ACPApprovalSummary {
+  type: "acp_approval_summary";
+  harness: string;
+  tool_name: string;
+  tool_kind: string;
+  target?: string;
+}
+
+/**
+ * Render ACP approval summary from structured data.
+ * Supports both new structured format and legacy string format.
+ */
+function renderApprovalSummary(
+  summary: string | ACPApprovalSummary | undefined,
+  t: (key: string) => string,
+): string {
+  if (!summary) {
+    return (
+      t("acp.approval.defaultMessage") ||
+      "External agent is waiting for approval."
+    );
+  }
+
+  // Handle legacy string format for backward compatibility
+  if (typeof summary === "string") {
+    return summary;
+  }
+
+  // Handle new structured format
+  if (summary.type === "acp_approval_summary") {
+    const lines: string[] = [
+      t("acp.approval.title") || "Waiting for external agent approval",
+      "",
+      `${t("acp.approval.harness") || "Harness"}: ${summary.harness}`,
+      `${t("acp.approval.tool") || "Tool"}: ${summary.tool_name}`,
+      `${t("acp.approval.kind") || "Kind"}: ${summary.tool_kind}`,
+    ];
+
+    if (summary.target) {
+      lines.push(`${t("acp.approval.target") || "Target"}: ${summary.target}`);
+    }
+
+    lines.push(
+      "",
+      t("acp.approval.instruction") ||
+        "Type /approve to allow, or send any other message to deny.",
+    );
+
+    return lines.join("\n");
+  }
+
+  return String(summary);
+}
+
+/**
+ * Convert ParsedExternalAgent from API to UI state format.
+ */
+function parsedAgentToState(parsed: ParsedExternalAgent): {
   harness: "opencode" | "qwen";
   keepSession: boolean;
   keepSessionSpecified: boolean;
@@ -88,129 +149,16 @@ function parseExternalAgentFromText(text: string): {
   existingSessionId?: string;
   cleanText: string;
 } | null {
-  if (!text || typeof text !== "string") return null;
-  
-  const trimmed = text.trim();
+  if (!parsed.enabled || !parsed.harness) return null;
 
-  let harness: "opencode" | "qwen" | null = null;
-  let working = trimmed;
-
-  const normalizeHarness = (raw?: string): "opencode" | "qwen" | null => {
-    const value = raw?.trim().toLowerCase().replace(/\s+/g, " ");
-    if (!value) return null;
-    if (["opencode", "open-code", "open code"].includes(value)) return "opencode";
-    if (["qwen", "qwen-code", "qwen code", "qwencode"].includes(value)) return "qwen";
-    return null;
-  };
-
-  if (/^\/acp\b/i.test(trimmed)) {
-    working = trimmed.replace(/^\/acp\b/i, "").trim();
-    const leadingHarness = working.match(
-      /^(opencode|open(?:\s|-)?code|qwen(?:\s*code|-code)?|qwencode)\b\s*(.*)$/i,
-    );
-    if (leadingHarness) {
-      harness = normalizeHarness(leadingHarness[1]);
-      working = leadingHarness[2]?.trim() || "";
-    } else {
-      const harnessOption = working.match(
-        /(?:^|\s)--harness(?:=|\s+)(".*?"|'.*?'|\S+)/i,
-      );
-      harness = normalizeHarness(stripQuotedValue(harnessOption?.[1]));
-      if (harnessOption) {
-        working = `${working.slice(0, harnessOption.index)} ${working.slice((harnessOption.index || 0) + harnessOption[0].length)}`.trim();
-      }
-    }
-    if (!harness) return null;
-  } else {
-    const slashMatch = trimmed.match(
-      /^\/(opencode|open(?:\s|-)?code|qwen(?:\s*code|-code)?|qwencode)\b\s*(.*)$/i,
-    );
-    const cmdMatch = trimmed.match(
-      /^(?:--harness)(?:=|\s+)(opencode|open(?:\s|-)?code|qwen(?:\s*code|-code)?|qwencode)\b\s*(.*)$/i,
-    );
-    const naturalMatch = trimmed.match(
-      /^(?:用|使用|让|通过|调用)\s+(opencode|open(?:\s|-)?code|qwen(?:\s*code|-code)?|qwencode)\b(?:\s*(?:来|去|帮忙|帮助))?\s*(.*)$/i,
-    );
-    const englishMatch = trimmed.match(
-      /^(?:use|with|via|call)\s+(opencode|open(?:\s|-)?code|qwen(?:\s*code|-code)?|qwencode)\b(?:\s+to)?\s*(.*)$/i,
-    );
-    const match = slashMatch || cmdMatch || naturalMatch || englishMatch;
-    if (!match) return null;
-    harness = normalizeHarness(match[1]) as "opencode" | "qwen";
-    working = match[2]?.trim() || "";
-  }
-
-  let keepSession = false;
-  let keepSessionSpecified = false;
-
-  const keepFlag = working.match(/(?:^|\s)(--keep-session|--session)\b/i);
-  if (keepFlag) {
-    keepSession = true;
-    keepSessionSpecified = true;
-    working = `${working.slice(0, keepFlag.index)} ${working.slice((keepFlag.index || 0) + keepFlag[0].length)}`.trim();
-  }
-
-  const sessionMatch = working.match(
-    /(?:^|\s)(?:--session-id|--resume-session|--load-session)(?:=|\s+)(".*?"|'.*?'|\S+)/i,
-  );
-  const naturalSessionMatch =
-    sessionMatch ||
-    working.match(/(?:继续|复用|加载)\s*(?:session|会话)\s+(".*?"|'.*?'|\S+)/i);
-  const existingSessionId = stripQuotedValue(naturalSessionMatch?.[1]);
-  if (naturalSessionMatch) {
-    keepSession = true;
-    keepSessionSpecified = true;
-    working = `${working.slice(0, naturalSessionMatch.index)} ${working.slice((naturalSessionMatch.index || 0) + naturalSessionMatch[0].length)}`.trim();
-  }
-
-  let cwd = stripQuotedValue(
-    working.match(
-      /(?:^|\s)(?:--cwd|--workdir|--working-dir|--work-path)(?:=|\s+)(".*?"|'.*?'|\S+)/i,
-    )?.[1],
-  );
-  if (cwd) {
-    working = working.replace(
-      /(?:^|\s)(?:--cwd|--workdir|--working-dir|--work-path)(?:=|\s+)(".*?"|'.*?'|\S+)/i,
-      " ",
-    );
-  } else {
-    const naturalCwd =
-      working.match(/(?:工作路径|工作目录|workdir|cwd)\s*(?:是|为|=|:|：)?\s*(".*?"|'.*?'|\S+)/i) ||
-      working.match(/在\s+(".*?"|'.*?'|\S+)\s+(?:下|目录下|工作目录下)/i);
-    const candidate = stripQuotedValue(naturalCwd?.[1]);
-    if (candidate && /[./~\\:]/.test(candidate)) {
-      cwd = candidate;
-      working = `${working.slice(0, naturalCwd?.index || 0)} ${working.slice((naturalCwd?.index || 0) + (naturalCwd?.[0].length || 0))}`.trim();
-    }
-  }
-
-  if (/(保持会话|keep session)/i.test(working)) {
-    keepSession = true;
-    keepSessionSpecified = true;
-    working = working.replace(/(保持会话|keep session)/gi, " ");
-  }
-
-  if (
-    /(?:之前的|上一个|上次的|刚才的|当前的?|现在的?)\s*(?:acp\s*)?(?:session|会话)|(?:previous|last|current)\s+(?:acp\s+)?session/i.test(
-      working,
-    )
-  ) {
-    keepSession = true;
-    keepSessionSpecified = true;
-    working = working.replace(
-      /(?:请)?\s*(?:使用|复用|继续用|沿用|在)?\s*(?:之前的|上一个|上次的|刚才的|当前的?|现在的?)\s*(?:acp\s*)?(?:session|会话)(?:\s*用)?|(?:use|reuse|continue with)\s+(?:the\s+)?(?:previous|last|current)\s+(?:acp\s+)?session/gi,
-      " ",
-    );
-  }
-
-  const cleanText = working.trim().replace(/^[,，:：;；。.、\s]+/, "") || "请帮我处理";
+  const harness = parsed.harness === "qwen" ? "qwen" : "opencode";
   return {
     harness,
-    keepSession,
-    keepSessionSpecified,
-    cwd,
-    existingSessionId,
-    cleanText,
+    keepSession: parsed.keep_session,
+    keepSessionSpecified: true,
+    cwd: parsed.cwd || undefined,
+    existingSessionId: parsed.existing_session_id || undefined,
+    cleanText: parsed.prompt || "请帮我处理",
   };
 }
 
@@ -344,11 +292,11 @@ export default function ChatPage() {
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
-  const [externalAgent, setExternalAgent] =
-    useState<ExternalAgentState>(DEFAULT_EXTERNAL_AGENT);
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(
-    null,
+  const [externalAgent, setExternalAgent] = useState<ExternalAgentState>(
+    DEFAULT_EXTERNAL_AGENT,
   );
+  const [pendingApproval, setPendingApproval] =
+    useState<PendingApproval | null>(null);
   const [approvalLoading, setApprovalLoading] = useState(false);
 
   const isComposingRef = useRef(false);
@@ -557,13 +505,23 @@ export default function ChatPage() {
       signal?: AbortSignal;
     }): Promise<Response> => {
       const { input, biz_params } = data;
-      
-      // Try to parse external agent from user input text
+
+      // Try to parse external agent from user input text via API
       const lastInput = input[input.length - 1];
-      const userText = lastInput?.content?.find((c: any) => c.type === "text")?.text || "";
-      const parsedAgent = parseExternalAgentFromText(userText);
+      const userText =
+        lastInput?.content?.find((c: any) => c.type === "text")?.text || "";
       const isSlashCommand = /^\s*\/\S+/.test(userText);
-      
+
+      // Call backend API to parse external agent text
+      let parsedAgent: ReturnType<typeof parsedAgentToState> = null;
+      try {
+        const parsed = await acpApi.parseExternalAgentText(userText);
+        parsedAgent = parsedAgentToState(parsed);
+      } catch {
+        // If API fails, fall back to UI state only
+        parsedAgent = null;
+      }
+
       // Use parsed agent (from text) or fallback to UI state
       const useExternalAgent = parsedAgent ? true : externalAgent.enabled;
       const harness = parsedAgent?.harness || externalAgent.harness;
@@ -572,7 +530,7 @@ export default function ChatPage() {
           ? parsedAgent.keepSession
           : externalAgent.keepSession
         : externalAgent.keepSession;
-      
+
       // If parsed from text, clean the input
       let cleanedInput = input;
       if (parsedAgent && lastInput) {
@@ -590,7 +548,7 @@ export default function ChatPage() {
           }
           return item;
         });
-        
+
         // Also update UI state for consistency (optional)
         setExternalAgent({
           enabled: true,
@@ -803,13 +761,21 @@ export default function ChatPage() {
             boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
           }}
           title="Pending Approval"
-          extra={<Typography.Text type="secondary">{pendingApproval.tool_name}</Typography.Text>}
+          extra={
+            <Typography.Text type="secondary">
+              {pendingApproval.tool_name}
+            </Typography.Text>
+          }
         >
-          <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 12 }}>
-            {String(
-              pendingApproval.extra?.approval_message ||
-                pendingApproval.result_summary ||
-                "External agent is waiting for approval.",
+          <Typography.Paragraph
+            style={{ whiteSpace: "pre-wrap", marginBottom: 12 }}
+          >
+            {renderApprovalSummary(
+              pendingApproval.extra?.approval_message as
+                | string
+                | ACPApprovalSummary
+                | undefined,
+              t,
             )}
           </Typography.Paragraph>
           <Space>

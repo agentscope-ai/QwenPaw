@@ -20,12 +20,18 @@ export const approvalApi = {
     ),
 
   approveRequest: (requestId: string) =>
-    request<PendingApproval>(`/approvals/${encodeURIComponent(requestId)}/approve`, {
-      method: "POST",
-    }),
+    request<PendingApproval>(
+      `/approvals/${encodeURIComponent(requestId)}/approve`,
+      {
+        method: "POST",
+      },
+    ),
 
   denyRequest: (requestId: string) =>
-    request<PendingApproval>(`/approvals/${encodeURIComponent(requestId)}/deny`, {
-      method: "POST",
-    }),
+    request<PendingApproval>(
+      `/approvals/${encodeURIComponent(requestId)}/deny`,
+      {
+        method: "POST",
+      },
+    ),
 };

@@ -154,7 +154,16 @@
     "disableSuccess": "Harness успешно отключён",
     "deleteSuccess": "Harness успешно удалён",
     "deleteConfirm": "Вы уверены, что хотите удалить этот Harness?",
-    "keyExists": "Этот идентификатор Harness уже существует"
+    "keyExists": "Этот идентификатор Harness уже существует",
+    "approval": {
+      "title": "Ожидание подтверждения внешнего агента",
+      "defaultMessage": "Внешний агент ожидает подтверждения.",
+      "harness": "Harness",
+      "tool": "Инструмент",
+      "kind": "Тип",
+      "target": "Цель",
+      "instruction": "Введите /approve для разрешения или отправьте любое другое сообщение для отклонения."
+    }
   },
   "heartbeat": {
     "title": "Пульс",
