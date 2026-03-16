@@ -155,7 +155,16 @@
     "disableSuccess": "Harness 禁用成功",
     "deleteSuccess": "Harness 删除成功",
     "deleteConfirm": "确定要删除此 Harness 吗？",
-    "keyExists": "该 Harness 标识已存在"
+    "keyExists": "该 Harness 标识已存在",
+    "approval": {
+      "title": "等待外部 Agent 权限确认",
+      "defaultMessage": "外部 Agent 等待审批中。",
+      "harness": "Harness",
+      "tool": "工具",
+      "kind": "类型",
+      "target": "目标",
+      "instruction": "输入 /approve 批准，或发送任意消息拒绝。"
+    }
   },
   "heartbeat": {
     "title": "心跳",

@@ -155,7 +155,16 @@
     "disableSuccess": "Harness disabled successfully",
     "deleteSuccess": "Harness deleted successfully",
     "deleteConfirm": "Are you sure you want to delete this harness?",
-    "keyExists": "This harness key already exists"
+    "keyExists": "This harness key already exists",
+    "approval": {
+      "title": "Waiting for external agent approval",
+      "defaultMessage": "External agent is waiting for approval.",
+      "harness": "Harness",
+      "tool": "Tool",
+      "kind": "Kind",
+      "target": "Target",
+      "instruction": "Type /approve to allow, or send any other message to deny."
+    }
   },
   "heartbeat": {
     "title": "Heartbeat",

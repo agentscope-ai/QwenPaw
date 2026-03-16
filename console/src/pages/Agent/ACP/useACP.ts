@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { message } from "@agentscope-ai/design";
 import api from "../../../api";
-import type { ACPConfig, ACPHarnessInfo, ACPHarnessConfig } from "../../../api/types";
+import type {
+  ACPConfig,
+  ACPHarnessInfo,
+  ACPHarnessConfig,
+} from "../../../api/types";
 import { useTranslation } from "react-i18next";
 
 export function useACP() {
@@ -149,7 +153,11 @@ export function useACP() {
   );
 
   const updateGlobalSettings = useCallback(
-    async (settings: { enabled?: boolean; require_approval?: boolean; save_dir?: string }) => {
+    async (settings: {
+      enabled?: boolean;
+      require_approval?: boolean;
+      save_dir?: string;
+    }) => {
       if (!config) return false;
 
       const newConfig = {

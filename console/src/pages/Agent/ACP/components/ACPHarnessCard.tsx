@@ -86,9 +86,7 @@ export function ACPHarnessCard({
         <div className={styles.harnessDetails}>
           <div className={styles.detailRow}>
             <span className={styles.detailLabel}>{t("acp.command")}:</span>
-            <span className={styles.detailValue}>
-              {harness.command || "-"}
-            </span>
+            <span className={styles.detailValue}>{harness.command || "-"}</span>
           </div>
           <div className={styles.detailRow}>
             <span className={styles.detailLabel}>{t("acp.args")}:</span>

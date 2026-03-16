@@ -70,15 +70,9 @@ export function ACPGlobalSettings({
   };
 
   return (
-    <Card
-      title={t("acp.globalSettings")}
-      className={styles.globalSettingsCard}
-    >
+    <Card title={t("acp.globalSettings")} className={styles.globalSettingsCard}>
       <Form layout="vertical">
-        <Form.Item
-          label={t("acp.enabled")}
-          extra={t("acp.enabledDescription")}
-        >
+        <Form.Item label={t("acp.enabled")} extra={t("acp.enabledDescription")}>
           <Switch
             checked={localEnabled}
             onChange={handleEnabledChange}
@@ -97,10 +91,7 @@ export function ACPGlobalSettings({
           />
         </Form.Item>
 
-        <Form.Item
-          label={t("acp.saveDir")}
-          extra={t("acp.saveDirDescription")}
-        >
+        <Form.Item label={t("acp.saveDir")} extra={t("acp.saveDirDescription")}>
           <Input
             value={localSaveDir}
             onChange={handleSaveDirChange}
@@ -112,11 +103,7 @@ export function ACPGlobalSettings({
         {hasChanges && (
           <Form.Item>
             <div style={{ display: "flex", gap: 8 }}>
-              <Button
-                type="primary"
-                onClick={handleSave}
-                loading={saving}
-              >
+              <Button type="primary" onClick={handleSave} loading={saving}>
                 {t("common.save")}
               </Button>
               <Button onClick={handleReset} disabled={saving}>

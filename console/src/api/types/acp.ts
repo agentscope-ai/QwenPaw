@@ -33,3 +33,19 @@ export interface ACPHarnessInfo extends ACPHarnessConfig {
   /** Harness display name */
   name: string;
 }
+
+/** Parsed external agent configuration from text */
+export interface ParsedExternalAgent {
+  /** Whether external agent is enabled */
+  enabled: boolean;
+  /** Harness identifier (e.g., 'opencode', 'qwen') */
+  harness: string | null;
+  /** Whether to keep session alive */
+  keep_session: boolean;
+  /** Working directory for the agent */
+  cwd: string | null;
+  /** Existing session ID to resume */
+  existing_session_id: string | null;
+  /** Cleaned prompt text */
+  prompt: string | null;
+}

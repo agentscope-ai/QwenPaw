@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { Button, Empty } from "@agentscope-ai/design";
 import { useACP } from "./useACP";
-import { ACPHarnessCard, ACPGlobalSettings, HarnessEditDrawer } from "./components";
+import {
+  ACPHarnessCard,
+  ACPGlobalSettings,
+  HarnessEditDrawer,
+} from "./components";
 import { useTranslation } from "react-i18next";
 import type { ACPHarnessInfo } from "../../../api/types";
 
@@ -20,7 +24,9 @@ function ACPPage() {
   } = useACP();
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editingHarness, setEditingHarness] = useState<ACPHarnessInfo | null>(null);
+  const [editingHarness, setEditingHarness] = useState<ACPHarnessInfo | null>(
+    null,
+  );
   const [isCreating, setIsCreating] = useState(false);
 
   const handleToggleEnabled = async (key: string) => {

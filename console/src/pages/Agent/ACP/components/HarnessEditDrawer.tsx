@@ -1,4 +1,11 @@
-import { Drawer, Form, Input, Switch, Button, Tag } from "@agentscope-ai/design";
+import {
+  Drawer,
+  Form,
+  Input,
+  Switch,
+  Button,
+  Tag,
+} from "@agentscope-ai/design";
 import type { ACPHarnessInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
@@ -99,7 +106,14 @@ export function HarnessEditDrawer({
       open={open}
       width={600}
       footer={
-        <div style={{ textAlign: "right", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div
+          style={{
+            textAlign: "right",
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
           <Button onClick={onClose} disabled={submitting}>
             {t("common.cancel")}
           </Button>
@@ -138,10 +152,7 @@ export function HarnessEditDrawer({
           />
         </Form.Item>
 
-        <Form.Item
-          label={t("acp.args")}
-          extra={t("acp.argsHelp")}
-        >
+        <Form.Item label={t("acp.args")} extra={t("acp.argsHelp")}>
           <Input
             value={args}
             onChange={(e) => setArgs(e.target.value)}
@@ -150,10 +161,7 @@ export function HarnessEditDrawer({
           />
         </Form.Item>
 
-        <Form.Item
-          label={t("acp.enabled")}
-          valuePropName="checked"
-        >
+        <Form.Item label={t("acp.enabled")} valuePropName="checked">
           <Switch
             checked={enabled}
             onChange={setEnabled}
@@ -181,7 +189,7 @@ export function HarnessEditDrawer({
                 </Button>
               </div>
             ))}
-            
+
             {showNewEnv ? (
               <div className={styles.newEnvRow}>
                 <Input

@@ -379,7 +379,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | ExtendedSession
       | undefined;
     const meta = session?.meta?.external_agent;
-    return meta && typeof meta === "object" ? (meta as ExternalAgentMeta) : null;
+    return meta && typeof meta === "object"
+      ? (meta as ExternalAgentMeta)
+      : null;
   }
 
   async setExternalAgentMeta(
