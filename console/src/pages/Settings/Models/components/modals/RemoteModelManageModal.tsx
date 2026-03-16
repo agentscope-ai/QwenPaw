@@ -61,6 +61,7 @@ export function RemoteModelManageModal({
       setSaving(true);
       const testResult = await api.testModelConnection(provider.id, {
         model_id: id,
+        default_headers: provider.default_headers,
       });
 
       if (!testResult.success) {
@@ -108,6 +109,7 @@ export function RemoteModelManageModal({
     try {
       const result = await api.testModelConnection(provider.id, {
         model_id: modelId,
+        default_headers: provider.default_headers,
       });
       if (result.success) {
         message.success(result.message || t("models.testConnectionSuccess"));

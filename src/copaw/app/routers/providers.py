@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from copy import deepcopy
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
@@ -44,6 +44,10 @@ class ProviderConfigRequest(BaseModel):
             "(e.g., openai.chat.completions, anthropic.messages)."
         ),
     )
+    default_headers: Optional[dict] = Field(
+        default_factory=dict,
+        description="Custom headers for API requests",
+    )
 
 
 class ModelSlotRequest(BaseModel):
@@ -58,6 +62,10 @@ class CreateCustomProviderRequest(BaseModel):
     api_key_prefix: str = Field(default="")
     chat_model: ChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
+    default_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Custom headers for API requests",
+    )
 
 
 class AddModelRequest(BaseModel):
@@ -93,6 +101,7 @@ async def configure_provider(
             "base_url": body.base_url,
             "chat_model": body.chat_model,
             "generate_kwargs": body.generate_kwargs,
+            "default_headers": body.default_headers,
         },
     )
     if not ok:
@@ -129,6 +138,7 @@ async def create_custom_provider_endpoint(
                 api_key_prefix=body.api_key_prefix,
                 chat_model=body.chat_model,
                 extra_models=body.models,
+                default_headers=body.default_headers,
             ),
         )
     except ValueError as exc:
@@ -159,6 +169,10 @@ class TestProviderRequest(BaseModel):
 
 class TestModelRequest(BaseModel):
     model_id: str = Field(..., description="Model ID to test")
+    default_headers: Optional[Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Custom headers for API requests",
+    )
 
 
 class DiscoverModelsRequest(BaseModel):
@@ -213,6 +227,8 @@ async def test_provider(
             tmp_provider.api_key = body.api_key
         if body and body.base_url:
             tmp_provider.base_url = body.base_url
+        if body and body.default_headers:
+            tmp_provider.default_headers = body.default_headers
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
@@ -275,7 +291,11 @@ async def test_model(
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found")
-        ok, msg = await provider.check_model_connection(model_id=body.model_id)
+        # Ensure we don't accidentally modify provider config during test
+        tmp_provider = deepcopy(provider)
+        if body.default_headers:
+            tmp_provider.default_headers = body.default_headers
+        ok, msg = await tmp_provider.check_model_connection(model_id=body.model_id)
         return TestConnectionResponse(
             success=ok,
             message=(
