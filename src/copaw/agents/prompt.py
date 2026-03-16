@@ -128,22 +128,33 @@ class PromptBuilder:
         return final_prompt
 
 
-def build_system_prompt_from_working_dir() -> str:
+def build_system_prompt_from_working_dir(
+    working_dir: Path | None = None,
+    enabled_files: list[str] | None = None,
+    agent_id: str | None = None,
+) -> str:
     """
     Build system prompt by reading markdown files from working directory.
 
     This function constructs the system prompt by loading markdown files from
-    WORKING_DIR (~/.copaw by default). These files define the agent's behavior,
-    personality, and operational guidelines.
+    the specified working directory (workspace_dir for multi-agent setup).
+    These files define the agent's behavior, personality, and operational guidelines.
 
-    The files to load are determined by the agents.system_prompt_files configuration.
-    If not configured, falls back to default files:
+    The files to load are determined by the enabled_files parameter or
+    agents.system_prompt_files configuration. If not configured, falls back to
+    default files:
     - AGENTS.md - Detailed workflows, rules, and guidelines
     - SOUL.md - Core identity and behavioral principles
     - PROFILE.md - Agent identity and user profile
 
     All files are optional. If a file doesn't exist or can't be read, it will be
     skipped. If no files can be loaded, returns the default prompt.
+
+    Args:
+        working_dir: Directory to read markdown files from (if None, uses
+            global WORKING_DIR for backward compatibility)
+        enabled_files: List of filenames to load (if None, uses config or defaults)
+        agent_id: Agent identifier to include in system prompt (optional)
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -156,19 +167,44 @@ def build_system_prompt_from_working_dir() -> str:
     from ..constant import WORKING_DIR
     from ..config import load_config
 
-    # Load enabled files from config
-    config = load_config()
-    enabled_files = (
-        config.agents.system_prompt_files
-        if config.agents.system_prompt_files is not None
-        else None
-    )
+    # Use provided working_dir or fallback to global WORKING_DIR
+    if working_dir is None:
+        working_dir = Path(WORKING_DIR)
+
+    # Load enabled files from parameter or config
+    if enabled_files is None:
+        # Use agent-specific config if agent_id provided
+        if agent_id:
+            from ..config.config import load_agent_config
+
+            try:
+                agent_config = load_agent_config(agent_id)
+                enabled_files = agent_config.system_prompt_files
+            except (ValueError, FileNotFoundError):
+                # Agent not found in config, fallback to global config
+                config = load_config()
+                enabled_files = config.agents.system_prompt_files
+        else:
+            # Fallback to global config for backward compatibility
+            config = load_config()
+            enabled_files = config.agents.system_prompt_files
 
     builder = PromptBuilder(
-        working_dir=Path(WORKING_DIR),
+        working_dir=working_dir,
         enabled_files=enabled_files,
     )
-    return builder.build()
+    prompt = builder.build()
+
+    # Add agent identity information at the beginning of the prompt
+    if agent_id and agent_id != "default":
+        identity_header = (
+            f"# Agent Identity\n\n"
+            f"Your agent id is `{agent_id}`. "
+            f"This is your unique identifier in the multi-agent system.\n\n"
+        )
+        prompt = identity_header + prompt
+
+    return prompt
 
 
 def build_bootstrap_guidance(

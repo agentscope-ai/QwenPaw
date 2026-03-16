@@ -17,7 +17,9 @@ class JsonJobRepository(BaseJobRepository):
     - Atomic write: write tmp then replace.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path | str):
+        if isinstance(path, str):
+            path = Path(path)
         self._path = path.expanduser()
 
     @property

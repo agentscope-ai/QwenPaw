@@ -9,7 +9,7 @@ import re
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -283,26 +283,22 @@ class DiscordChannel(BaseChannel):
             require_mention=config.require_mention,
         )
 
-    async def _resolve_target(self, to_handle, meta):
+    async def _resolve_target(self, to_handle, _meta):
         """Resolve a Discord Messageable from meta or to_handle."""
-        meta = meta or {}
-        if not meta.get("channel_id") and not meta.get("user_id"):
-            meta.update(self._route_from_handle(to_handle))
-        channel_id = meta.get("channel_id")
-        user_id = meta.get("user_id")
+        route = self._route_from_handle(to_handle)
+        channel_id = route.get("channel_id")
+        user_id = route.get("user_id")
         if channel_id:
-            ch = self._client.get_channel(int(channel_id))
+            cid = int(channel_id)
+            ch = self._client.get_channel(cid)
             if ch is None:
-                ch = await self._client.fetch_channel(
-                    int(channel_id),
-                )
+                ch = await self._client.fetch_channel(cid)
             return ch
         if user_id:
-            user = self._client.get_user(int(user_id))
+            uid = int(user_id)
+            user = self._client.get_user(uid)
             if user is None:
-                user = await self._client.fetch_user(
-                    int(user_id),
-                )
+                user = await self._client.fetch_user(uid)
             return user.dm_channel or await user.create_dm()
         return None
 
@@ -518,6 +514,60 @@ class DiscordChannel(BaseChannel):
                 pass
         if self._client:
             await self._client.close()
+
+    # ------------------------------------------------------------------
+    # Debounce: use per-channel keys so concurrent messages from the same
+    # user in different channels/threads are NOT merged together.
+    # ------------------------------------------------------------------
+
+    def get_debounce_key(self, payload: Any) -> str:
+        """Return a debounce key scoped to the Discord channel or DM.
+
+        The base class falls back to ``sender_id``, which causes
+        ``ChannelManager._drain_same_key()`` to incorrectly merge
+        messages when the same user sends to multiple channels at the
+        same time.  This override uses ``resolve_session_id`` so each
+        channel/thread gets its own isolated debounce bucket.
+        """
+        if isinstance(payload, dict):
+            meta = payload.get("meta") or {}
+            sender_id = payload.get("sender_id") or ""
+            return self.resolve_session_id(sender_id, meta)
+        return getattr(payload, "session_id", "") or ""
+
+    def merge_native_items(self, items: List[Any]) -> Any:
+        """Merge native payloads while preserving Discord metadata.
+
+        Extends the base implementation to also carry over
+        Discord-specific meta keys (``channel_id``, ``message_id``,
+        ``guild_id``, ``is_dm``, ``is_group``) from the first item.
+        """
+        if not items:
+            return None
+        first = items[0] if isinstance(items[0], dict) else {}
+        merged_parts: List[Any] = []
+        merged_meta: Dict[str, Any] = dict(first.get("meta") or {})
+        for it in items:
+            p = it if isinstance(it, dict) else {}
+            merged_parts.extend(p.get("content_parts") or [])
+            m = p.get("meta") or {}
+            for k in (
+                "reply_future",
+                "reply_loop",
+                "incoming_message",
+                "conversation_id",
+                "message_id",
+            ):
+                if k in m:
+                    merged_meta[k] = m[k]
+        return {
+            "channel_id": first.get("channel_id") or self.channel,
+            "sender_id": first.get("sender_id") or "",
+            "content_parts": merged_parts,
+            "meta": merged_meta,
+        }
+
+    # ------------------------------------------------------------------
 
     def resolve_session_id(
         self,

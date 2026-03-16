@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ...config import (
@@ -10,7 +10,8 @@ from ...config import (
     AgentsRunningConfig,
 )
 
-from ...agents.memory.agent_md_manager import AGENT_MD_MANAGER
+from ...agents.memory.agent_md_manager import AgentMdManager
+from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -35,14 +36,20 @@ class MdFileContent(BaseModel):
     "/files",
     response_model=list[MdFileInfo],
     summary="List working files",
-    description="List all working files",
+    description="List all working files (uses active agent)",
 )
-async def list_working_files() -> list[MdFileInfo]:
+async def list_working_files(
+    request: Request,
+) -> list[MdFileInfo]:
     """List working directory markdown files."""
     try:
+        workspace = await get_agent_for_request(request)
+        workspace_manager = AgentMdManager(
+            str(workspace.workspace_dir),
+        )
         files = [
             MdFileInfo.model_validate(file)
-            for file in AGENT_MD_MANAGER.list_working_mds()
+            for file in workspace_manager.list_working_mds()
         ]
         return files
     except Exception as exc:
@@ -53,14 +60,19 @@ async def list_working_files() -> list[MdFileInfo]:
     "/files/{md_name}",
     response_model=MdFileContent,
     summary="Read a working file",
-    description="Read a working markdown file",
+    description="Read a working markdown file (uses active agent)",
 )
 async def read_working_file(
     md_name: str,
+    request: Request,
 ) -> MdFileContent:
     """Read a working directory markdown file."""
     try:
-        content = AGENT_MD_MANAGER.read_working_md(md_name)
+        workspace = await get_agent_for_request(request)
+        workspace_manager = AgentMdManager(
+            str(workspace.workspace_dir),
+        )
+        content = workspace_manager.read_working_md(md_name)
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -72,15 +84,20 @@ async def read_working_file(
     "/files/{md_name}",
     response_model=dict,
     summary="Write a working file",
-    description="Create or update a working file",
+    description="Create or update a working file (uses active agent)",
 )
 async def write_working_file(
     md_name: str,
-    request: MdFileContent,
+    body: MdFileContent,
+    request: Request,
 ) -> dict:
     """Write a working directory markdown file."""
     try:
-        AGENT_MD_MANAGER.write_working_md(md_name, request.content)
+        workspace = await get_agent_for_request(request)
+        workspace_manager = AgentMdManager(
+            str(workspace.workspace_dir),
+        )
+        workspace_manager.write_working_md(md_name, body.content)
         return {"written": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -90,14 +107,20 @@ async def write_working_file(
     "/memory",
     response_model=list[MdFileInfo],
     summary="List memory files",
-    description="List all memory files",
+    description="List all memory files (uses active agent)",
 )
-async def list_memory_files() -> list[MdFileInfo]:
+async def list_memory_files(
+    request: Request,
+) -> list[MdFileInfo]:
     """List memory directory markdown files."""
     try:
+        workspace = await get_agent_for_request(request)
+        workspace_manager = AgentMdManager(
+            str(workspace.workspace_dir),
+        )
         files = [
             MdFileInfo.model_validate(file)
-            for file in AGENT_MD_MANAGER.list_memory_mds()
+            for file in workspace_manager.list_memory_mds()
         ]
         return files
     except Exception as exc:
@@ -108,14 +131,19 @@ async def list_memory_files() -> list[MdFileInfo]:
     "/memory/{md_name}",
     response_model=MdFileContent,
     summary="Read a memory file",
-    description="Read a memory markdown file",
+    description="Read a memory markdown file (uses active agent)",
 )
 async def read_memory_file(
     md_name: str,
+    request: Request,
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
     try:
-        content = AGENT_MD_MANAGER.read_memory_md(md_name)
+        workspace = await get_agent_for_request(request)
+        workspace_manager = AgentMdManager(
+            str(workspace.workspace_dir),
+        )
+        content = workspace_manager.read_memory_md(md_name)
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -127,15 +155,20 @@ async def read_memory_file(
     "/memory/{md_name}",
     response_model=dict,
     summary="Write a memory file",
-    description="Create or update a memory file",
+    description="Create or update a memory file (uses active agent)",
 )
 async def write_memory_file(
     md_name: str,
-    request: MdFileContent,
+    body: MdFileContent,
+    request: Request,
 ) -> dict:
     """Write a memory directory markdown file."""
     try:
-        AGENT_MD_MANAGER.write_memory_md(md_name, request.content)
+        workspace = await get_agent_for_request(request)
+        workspace_manager = AgentMdManager(
+            str(workspace.workspace_dir),
+        )
+        workspace_manager.write_memory_md(md_name, body.content)
         return {"written": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -202,30 +235,56 @@ async def put_agent_language(
     "/running-config",
     response_model=AgentsRunningConfig,
     summary="Get agent running config",
-    description="Retrieve agent runtime behavior configuration",
+    description="Get running configuration for active agent",
 )
-async def get_agents_running_config() -> AgentsRunningConfig:
+async def get_agents_running_config(
+    request: Request,
+) -> AgentsRunningConfig:
     """Get agent running configuration."""
-    config = load_config()
-    return config.agents.running
+    workspace = await get_agent_for_request(request)
+    from ...config.config import load_agent_config
+
+    agent_config = load_agent_config(workspace.agent_id)
+    return agent_config.running or AgentsRunningConfig()
 
 
 @router.put(
     "/running-config",
     response_model=AgentsRunningConfig,
     summary="Update agent running config",
-    description="Update agent runtime behavior configuration",
+    description="Update running configuration for active agent",
 )
 async def put_agents_running_config(
     running_config: AgentsRunningConfig = Body(
         ...,
         description="Updated agent running configuration",
     ),
+    request: Request = None,
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
-    config = load_config()
-    config.agents.running = running_config
-    save_config(config)
+    workspace = await get_agent_for_request(request)
+    from ...config.config import load_agent_config, save_agent_config
+
+    agent_config = load_agent_config(workspace.agent_id)
+    agent_config.running = running_config
+    save_agent_config(workspace.agent_id, agent_config)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            manager = request.app.state.multi_agent_manager
+            await manager.reload_agent(workspace.agent_id)
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
     return running_config
 
 
@@ -233,28 +292,54 @@ async def put_agents_running_config(
     "/system-prompt-files",
     response_model=list[str],
     summary="Get system prompt files",
-    description="Get list of markdown files enabled for system prompt",
+    description="Get system prompt files for active agent",
 )
-async def get_system_prompt_files() -> list[str]:
+async def get_system_prompt_files(
+    request: Request,
+) -> list[str]:
     """Get list of enabled system prompt files."""
-    config = load_config()
-    return config.agents.system_prompt_files
+    workspace = await get_agent_for_request(request)
+    from ...config.config import load_agent_config
+
+    agent_config = load_agent_config(workspace.agent_id)
+    return agent_config.system_prompt_files or []
 
 
 @router.put(
     "/system-prompt-files",
     response_model=list[str],
     summary="Update system prompt files",
-    description="Update list of markdown files enabled for system prompt",
+    description="Update system prompt files for active agent",
 )
 async def put_system_prompt_files(
     files: list[str] = Body(
         ...,
-        description="List of markdown filenames to load into system prompt",
+        description="Markdown filenames to load into system prompt",
     ),
+    request: Request = None,
 ) -> list[str]:
     """Update list of enabled system prompt files."""
-    config = load_config()
-    config.agents.system_prompt_files = files
-    save_config(config)
+    workspace = await get_agent_for_request(request)
+    from ...config.config import load_agent_config, save_agent_config
+
+    agent_config = load_agent_config(workspace.agent_id)
+    agent_config.system_prompt_files = files
+    save_agent_config(workspace.agent_id, agent_config)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            manager = request.app.state.multi_agent_manager
+            await manager.reload_agent(workspace.agent_id)
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
     return files

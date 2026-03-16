@@ -11,10 +11,9 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Request
 from fastapi.responses import StreamingResponse
 
-from ...constant import WORKING_DIR
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -54,7 +53,7 @@ def _zip_directory(root: Path) -> io.BytesIO:
 # ---------------------------------------------------------------------------
 
 
-def _validate_zip_data(data: bytes) -> None:
+def _validate_zip_data(data: bytes, workspace_dir: Path) -> None:
     """Ensure *data* is a valid zip without path-traversal entries."""
     if not zipfile.is_zipfile(io.BytesIO(data)):
         raise HTTPException(
@@ -63,16 +62,16 @@ def _validate_zip_data(data: bytes) -> None:
         )
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for name in zf.namelist():
-            resolved = (WORKING_DIR / name).resolve()
-            if not str(resolved).startswith(str(WORKING_DIR)):
+            resolved = (workspace_dir / name).resolve()
+            if not str(resolved).startswith(str(workspace_dir)):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Zip contains unsafe path: {name}",
                 )
 
 
-def _extract_and_merge_zip(data: bytes) -> None:
-    """Extract zip data and merge into WORKING_DIR (blocking operation)."""
+def _extract_and_merge_zip(data: bytes, workspace_dir: Path) -> None:
+    """Extract zip data and merge into workspace_dir (blocking operation)."""
     tmp_dir = None
     try:
         tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_upload_"))
@@ -84,10 +83,10 @@ def _extract_and_merge_zip(data: bytes) -> None:
         if len(top_entries) == 1 and top_entries[0].is_dir():
             extract_root = top_entries[0]
 
-        WORKING_DIR.mkdir(parents=True, exist_ok=True)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
 
         for item in extract_root.iterdir():
-            dest = WORKING_DIR / item.name
+            dest = workspace_dir / item.name
             if item.is_file():
                 shutil.copy2(item, dest)
             else:
@@ -99,10 +98,10 @@ def _extract_and_merge_zip(data: bytes) -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _validate_and_extract_zip(data: bytes) -> None:
+def _validate_and_extract_zip(data: bytes, workspace_dir: Path) -> None:
     """Validate and extract zip data (blocking operation)."""
-    _validate_zip_data(data)
-    _extract_and_merge_zip(data)
+    _validate_zip_data(data, workspace_dir)
+    _extract_and_merge_zip(data, workspace_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -114,28 +113,33 @@ def _validate_and_extract_zip(data: bytes) -> None:
     "/download",
     summary="Download workspace as zip",
     description=(
-        "Package the entire WORKING_DIR into a zip archive and stream it "
-        "back as a downloadable file."
+        "Package the entire agent workspace into a zip archive and stream "
+        "it back as a downloadable file."
     ),
     responses={
         200: {
             "content": {"application/zip": {}},
-            "description": "Zip archive of WORKING_DIR",
+            "description": "Zip archive of agent workspace",
         },
     },
 )
-async def download_workspace():
-    """Stream WORKING_DIR as a zip file."""
-    if not WORKING_DIR.is_dir():
+async def download_workspace(request: Request):
+    """Stream agent workspace as a zip file."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    workspace_dir = agent.workspace_dir
+
+    if not workspace_dir.is_dir():
         raise HTTPException(
             status_code=404,
-            detail=f"WORKING_DIR does not exist: {WORKING_DIR}",
+            detail=f"Workspace does not exist: {workspace_dir}",
         )
 
-    buf = await asyncio.to_thread(_zip_directory, WORKING_DIR)
+    buf = await asyncio.to_thread(_zip_directory, workspace_dir)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"copaw_workspace_{timestamp}.zip"
+    filename = f"copaw_workspace_{agent.agent_id}_{timestamp}.zip"
 
     return StreamingResponse(
         buf,
@@ -152,20 +156,24 @@ async def download_workspace():
     summary="Upload zip and merge into workspace",
     description=(
         "Upload a zip archive.  Paths present in the zip are merged into "
-        "WORKING_DIR (files overwritten, dirs merged).  Paths not in the zip "
-        "are left unchanged (e.g. copaw.db, runtime dirs).  Download packs "
-        "the entire WORKING_DIR; upload only overwrites/merges zip contents."
+        "agent workspace (files overwritten, dirs merged).  Paths not in "
+        "the zip are left unchanged (e.g. copaw.db, runtime dirs). "
+        "Download packs the entire workspace; upload only "
+        "overwrites/merges zip contents."
     ),
 )
 async def upload_workspace(
+    request: Request,
     file: UploadFile = File(
         ...,
-        description="Zip archive to merge into WORKING_DIR",
+        description="Zip archive to merge into agent workspace",
     ),
 ) -> dict:
     """
-    Merge uploaded zip contents into WORKING_DIR (overwrite, do not clear).
+    Merge uploaded zip contents into agent workspace (overwrite, not clear).
     """
+    from ..agent_context import get_agent_for_request
+
     if file.content_type and file.content_type not in (
         "application/zip",
         "application/x-zip-compressed",
@@ -178,10 +186,12 @@ async def upload_workspace(
             ),
         )
 
+    agent = await get_agent_for_request(request)
+    workspace_dir = agent.workspace_dir
     data = await file.read()
 
     try:
-        await asyncio.to_thread(_validate_and_extract_zip, data)
+        await asyncio.to_thread(_validate_and_extract_zip, data, workspace_dir)
         return {"success": True}
     except HTTPException:
         raise

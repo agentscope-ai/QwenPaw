@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import datetime, time
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict
 
 from ...config import (
@@ -47,7 +48,9 @@ def parse_heartbeat_every(every: str) -> int:
 
 
 def _in_active_hours(active_hours: Any) -> bool:
-    """Return True if current local time is within [start, end]."""
+    """Return True if the current time in user timezone is within
+    [start, end].
+    """
     if (
         not active_hours
         or not hasattr(active_hours, "start")
@@ -67,7 +70,16 @@ def _in_active_hours(active_hours: Any) -> bool:
         )
     except (ValueError, IndexError, AttributeError):
         return True
-    now = datetime.now().time()
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz)).time()
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning(
+            "Invalid timezone %r in config, falling back to UTC"
+            " for heartbeat active hours check.",
+            user_tz,
+        )
+        now = datetime.now(timezone.utc).time()
     if start_t <= end_t:
         return start_t <= now <= end_t
     return now >= start_t or now <= end_t

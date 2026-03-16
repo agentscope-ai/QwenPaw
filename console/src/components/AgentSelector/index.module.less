@@ -1,0 +1,244 @@
+// ─── Wrapper ──────────────────────────────────────────────────────────────────
+.agentSelectorWrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+// ─── Label ────────────────────────────────────────────────────────────────────
+.agentSelectorLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  user-select: none;
+
+  svg {
+    opacity: 0.6;
+  }
+}
+
+// ─── Select Component ─────────────────────────────────────────────────────────
+.agentSelector {
+  min-width: 180px;
+
+  :global {
+    .ant-select-selector {
+      border: 1px solid rgba(0, 0, 0, 0.06) !important;
+      background: rgba(0, 0, 0, 0.02) !important;
+      box-shadow: none !important;
+      padding: 4px 8px !important;
+      height: 32px !important;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+
+      &:hover {
+        border-color: rgba(0, 0, 0, 0.1) !important;
+        background: rgba(0, 0, 0, 0.04) !important;
+      }
+
+      &:focus {
+        border-color: #1890ff !important;
+        background: #ffffff !important;
+        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+      }
+    }
+
+    .ant-select-selection-item {
+      padding: 0 !important;
+      line-height: 22px;
+    }
+
+    .ant-select-arrow {
+      color: rgba(0, 0, 0, 0.45);
+      right: 8px;
+
+      .ant-select-suffix {
+        display: flex;
+        align-items: center;
+      }
+    }
+
+    .ant-select-focused {
+      .ant-select-selector {
+        border-color: #1890ff !important;
+        background: #ffffff !important;
+        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+      }
+    }
+  }
+}
+
+// ─── Selected Agent Label ─────────────────────────────────────────────────────
+.selectedAgentLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(0, 0, 0, 0.85);
+
+  svg {
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  span {
+    font-weight: 500;
+    font-size: 13px;
+  }
+}
+
+// ─── Agent Badge ──────────────────────────────────────────────────────────────
+.agentSelectorSuffix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 0;
+
+  .agentBadge {
+    :global {
+      .ant-badge-count {
+        background: rgba(0, 0, 0, 0.06);
+        color: rgba(0, 0, 0, 0.65);
+        font-size: 10px;
+        font-weight: 600;
+        min-width: 18px;
+        height: 18px;
+        line-height: 18px;
+        border-radius: 9px;
+        box-shadow: none;
+      }
+    }
+  }
+}
+
+// ─── Dropdown ─────────────────────────────────────────────────────────────────
+.agentSelectorDropdown {
+  :global {
+    .ant-select-item {
+      padding: 0 !important;
+      border-radius: 8px;
+      margin: 4px 8px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+      &:hover {
+        background: #fafafa !important;
+      }
+
+      &.ant-select-item-option-selected {
+        background: linear-gradient(
+          135deg,
+          #f0efff 0%,
+          #fafafa 100%
+        ) !important;
+        border-left: 3px solid #615ced;
+      }
+    }
+
+    .rc-virtual-list {
+      padding: 8px 0;
+    }
+  }
+}
+
+// ─── Agent Option ─────────────────────────────────────────────────────────────
+.agentOption {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agentOptionHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.agentOptionIcon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  color: #595959;
+  transition: all 0.2s ease;
+
+  .agentOption:hover & {
+    background: linear-gradient(135deg, #f0efff 0%, #fafafa 100%);
+    border-color: #d9d9f7;
+    color: #615ced;
+  }
+}
+
+.agentOptionContent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agentOptionName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #262626;
+  line-height: 1.4;
+
+  span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.activeIndicator {
+  flex-shrink: 0;
+  color: #52c41a;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.agentOptionDescription {
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentOptionId {
+  font-size: 11px;
+  font-family: "SF Mono", "Consolas", "Monaco", monospace;
+  color: #bfbfbf;
+  letter-spacing: 0.5px;
+  padding-top: 4px;
+  border-top: 1px solid #f5f5f5;
+}
