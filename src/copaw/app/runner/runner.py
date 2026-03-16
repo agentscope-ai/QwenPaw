@@ -188,6 +188,12 @@ class AgentRunner(Runner):
             f"AgentRunner.stream_query: request={request}, "
             f"agent_id={self.agent_id}",
         )
+
+        # Set agent context for model creation
+        from ..agent_context import set_current_agent_id
+
+        set_current_agent_id(self.agent_id)
+
         agent = None
         chat = None
         session_state_loaded = False

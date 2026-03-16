@@ -9,8 +9,11 @@ from copy import deepcopy
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
+from ..agent_context import get_agent_for_request
+from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
+from ...providers.models import ModelSlotConfig
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -357,8 +360,20 @@ async def remove_model_endpoint(
     summary="Get active LLM",
 )
 async def get_active_models(
+    request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
 ) -> ActiveModelsInfo:
+    """Get active model (agent-specific or global fallback)."""
+    # Try to get agent-specific active model
+    try:
+        workspace = await get_agent_for_request(request)
+        agent_config = load_agent_config(workspace.agent_id)
+        if agent_config.active_model:
+            return ActiveModelsInfo(active_llm=agent_config.active_model)
+    except Exception:
+        pass
+
+    # Fallback to global active model
     return ActiveModelsInfo(active_llm=manager.get_active_model())
 
 
@@ -368,17 +383,36 @@ async def get_active_models(
     summary="Set active LLM",
 )
 async def set_active_model(
+    request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
+    """Set active model for current agent."""
+    # Validate provider and model exist
     try:
         await manager.activate_model(body.provider_id, body.model)
     except ValueError as exc:
         message = str(exc)
         lower_msg = message.lower()
         if "provider" in lower_msg and "not found" in lower_msg:
-            # Missing provider
             raise HTTPException(status_code=404, detail=message) from exc
-        # Invalid model, unreachable provider, or other configuration error
         raise HTTPException(status_code=400, detail=message) from exc
+
+    # Save to agent config
+    try:
+        workspace = await get_agent_for_request(request)
+        agent_config = load_agent_config(workspace.agent_id)
+        agent_config.active_model = ModelSlotConfig(
+            provider_id=body.provider_id,
+            model=body.model,
+        )
+        save_agent_config(workspace.agent_id, agent_config)
+    except Exception as e:
+        # Log warning but don't fail the request
+        import logging
+
+        logging.getLogger(__name__).warning(
+            f"Failed to save active model to agent config: {e}",
+        )
+
     return ActiveModelsInfo(active_llm=manager.get_active_model())

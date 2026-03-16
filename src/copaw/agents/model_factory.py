@@ -11,7 +11,7 @@ Example:
 
 
 import logging
-from typing import Sequence, Tuple, Type, Any
+from typing import Any, Optional, Sequence, Tuple, Type
 from functools import wraps
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
@@ -282,15 +282,17 @@ def _strip_top_level_message_name(
     return messages
 
 
-def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
+def create_model_and_formatter(
+    agent_id: Optional[str] = None,
+) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
     This method handles both local and remote models, selecting the
     appropriate chat model class and formatter based on configuration.
 
     Args:
-        llm_cfg: Resolved model configuration. If None, will call
-            get_active_llm_config() to fetch the active configuration.
+        agent_id: Optional agent ID to load agent-specific model config.
+            If None, tries to get from context, then falls back to global.
 
     Returns:
         Tuple of (model_instance, formatter_instance)
@@ -298,14 +300,56 @@ def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
     Example:
         >>> model, formatter = create_model_and_formatter()
     """
-    # Fetch config if not provided
-    model = ProviderManager.get_active_chat_model()
+    from ..app.agent_context import get_current_agent_id
+    from ..config.config import load_agent_config
+
+    # Determine agent_id (parameter > context > None)
+    if agent_id is None:
+        try:
+            agent_id = get_current_agent_id()
+        except Exception:
+            pass
+
+    # Try to get agent-specific model first
+    model_slot = None
+    if agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+            model_slot = agent_config.active_model
+        except Exception:
+            pass
+
+    # Create chat model from agent-specific or global config
+    if model_slot and model_slot.provider_id and model_slot.model:
+        # Use agent-specific model
+        manager = ProviderManager.get_instance()
+        provider = manager.get_provider(model_slot.provider_id)
+        if provider is None:
+            raise ValueError(
+                f"Provider '{model_slot.provider_id}' not found.",
+            )
+        if provider.is_local:
+            from agentscope.model import create_local_chat_model
+
+            model = create_local_chat_model(
+                model_id=model_slot.model,
+                stream=True,
+                generate_kwargs={"max_tokens": None},
+            )
+        else:
+            model = provider.get_chat_model_instance(model_slot.model)
+        provider_id = model_slot.provider_id
+    else:
+        # Fallback to global active model
+        model = ProviderManager.get_active_chat_model()
+        provider_id = (
+            ProviderManager.get_instance().get_active_model().provider_id
+        )
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
     # Wrap with retry logic for transient LLM API errors
-    provider_id = ProviderManager.get_instance().get_active_model().provider_id
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
     wrapped_model = RetryChatModel(wrapped_model)
 
