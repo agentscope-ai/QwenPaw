@@ -4,6 +4,8 @@
 import filecmp
 import logging
 import shutil
+from collections.abc import Iterable
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
@@ -12,6 +14,93 @@ import frontmatter
 from ..constant import ACTIVE_SKILLS_DIR, CUSTOMIZED_SKILLS_DIR
 
 logger = logging.getLogger(__name__)
+
+
+IGNORED_RUNTIME_ARTIFACT_NAMES = {
+    "__pycache__",
+    ".DS_Store",
+    "Thumbs.db",
+    ".pytest_cache",
+}
+IGNORED_RUNTIME_ARTIFACT_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+}
+
+
+def _should_ignore_runtime_artifact(path: Path) -> bool:
+    """Return True for generated runtime files that should not sync."""
+    if path.name in IGNORED_RUNTIME_ARTIFACT_NAMES:
+        return True
+    if path.is_file() and path.suffix in IGNORED_RUNTIME_ARTIFACT_SUFFIXES:
+        return True
+    return False
+
+
+def _iter_relevant_directory_entries(
+    directory: Path,
+) -> Iterable[tuple[Path, Path]]:
+    """Yield relative paths for non-generated files and directories."""
+    if not directory.exists():
+        return
+
+    yield from _iter_relevant_directory_entries_from(
+        root_dir=directory,
+        current_dir=directory,
+    )
+
+
+def _iter_relevant_directory_entries_from(
+    root_dir: Path,
+    current_dir: Path,
+) -> Iterable[tuple[Path, Path]]:
+    """Yield sorted non-generated directory entries without buffering."""
+    for item in sorted(current_dir.iterdir(), key=lambda path: path.name):
+        if _should_ignore_runtime_artifact(item):
+            continue
+
+        yield item.relative_to(root_dir), item
+
+        if item.is_dir():
+            yield from _iter_relevant_directory_entries_from(
+                root_dir=root_dir,
+                current_dir=item,
+            )
+
+
+def _directories_match_ignoring_runtime_artifacts(
+    dir1: Path,
+    dir2: Path,
+) -> bool:
+    """Compare two directories while ignoring generated runtime artifacts."""
+    if not dir1.exists() or not dir2.exists():
+        return False
+
+    for entry1, entry2 in zip_longest(
+        _iter_relevant_directory_entries(dir1),
+        _iter_relevant_directory_entries(dir2),
+    ):
+        if entry1 is None or entry2 is None:
+            return False
+
+        relative_path1, left = entry1
+        relative_path2, right = entry2
+        if relative_path1 != relative_path2:
+            return False
+        if left.is_dir() != right.is_dir():
+            return False
+        if left.is_file() and not filecmp.cmp(left, right, shallow=False):
+            return False
+
+    return True
+
+
+def _dedupe_skills_by_name(skills: list["SkillInfo"]) -> list["SkillInfo"]:
+    """Return one skill per name, preferring customized over builtin."""
+    merged: dict[str, SkillInfo] = {}
+    for skill in skills:
+        merged[skill.name] = skill
+    return list(merged.values())
 
 
 class SkillInfo(BaseModel):
@@ -206,53 +295,6 @@ def sync_skills_to_working_dir(
     return synced_count, skipped_count
 
 
-def _is_directory_same(dir1: Path, dir2: Path) -> bool:
-    """
-    Check if two directories have the same content.
-
-    Args:
-        dir1: First directory path.
-        dir2: Second directory path.
-
-    Returns:
-        True if directories have the same structure and file contents.
-    """
-    if not dir1.exists() or not dir2.exists():
-        return False
-
-    dcmp = filecmp.dircmp(dir1, dir2)
-
-    if dcmp.left_only or dcmp.right_only or dcmp.funny_files:
-        return False
-
-    if dcmp.diff_files:
-        return False
-
-    for sub_dcmp in dcmp.subdirs.values():
-        if not _compare_dircmp(sub_dcmp):
-            return False
-
-    return True
-
-
-def _compare_dircmp(dcmp: "filecmp.dircmp") -> bool:
-    """Helper to recursively compare dircmp objects."""
-    has_diff = any(
-        [
-            dcmp.left_only,
-            dcmp.right_only,
-            dcmp.funny_files,
-            dcmp.diff_files,
-        ],
-    )
-    if has_diff:
-        return False
-    for sub_dcmp in dcmp.subdirs.values():
-        if not _compare_dircmp(sub_dcmp):
-            return False
-    return True
-
-
 def sync_skills_from_active_to_customized(
     skill_names: list[str] | None = None,
 ) -> tuple[int, int]:
@@ -287,7 +329,10 @@ def sync_skills_from_active_to_customized(
 
         if skill_name in builtin_skills_dict:
             builtin_skill_dir = builtin_skills_dict[skill_name]
-            if _is_directory_same(skill_dir, builtin_skill_dir):
+            if _directories_match_ignoring_runtime_artifacts(
+                skill_dir,
+                builtin_skill_dir,
+            ):
                 skipped_count += 1
                 continue
 
@@ -513,7 +558,8 @@ class SkillService:
 
         skills: list[SkillInfo] = []
 
-        # Collect from builtin and customized skills
+        # Collect from builtin and customized skills. Customized skills
+        # override built-in skills with the same name in the UI/API listing.
         skills.extend(
             _read_skills_from_dir(get_builtin_skills_dir(), "builtin"),
         )
@@ -521,7 +567,7 @@ class SkillService:
             _read_skills_from_dir(get_customized_skills_dir(), "customized"),
         )
 
-        return skills
+        return _dedupe_skills_by_name(skills)
 
     @staticmethod
     def list_available_skills() -> list[SkillInfo]:
