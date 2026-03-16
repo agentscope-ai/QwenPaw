@@ -76,6 +76,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     so the guard interception remains active.
     """
 
+    model: Any  # type: ignore  # defined in parent ReActAgent
+
     def __init__(
         self,
         env_context: Optional[str] = None,
@@ -163,6 +165,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             formatter=formatter,
             max_iters=max_iters,
         )
+
+        # Wrap model to convert file:// URLs before sending to Anthropic API
+        # This ensures file:// stays in memory, but base64 goes to API
+        self._wrap_model_for_anthropic()
 
         # Setup memory manager
         self._setup_memory_manager(
@@ -368,6 +374,103 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 hook=memory_compact_hook.__call__,
             )
             logger.debug("Registered memory compaction hook")
+
+    def _wrap_model_for_anthropic(self) -> None:
+        """Wrap model __call__ to convert file:// URLs to base64 for Anthropic.
+
+        This ensures file:// URLs remain in memory (efficient), but are
+        converted to base64 only when sending to Anthropic API.
+        """
+        from copy import deepcopy
+        from .utils.message_processing import (
+            _convert_file_url_to_base64_in_block,
+        )
+
+        # Only wrap for Anthropic models
+        if type(self.model).__name__ != "AnthropicChatModel":
+            return
+
+        # Get the original model instance (bypassing any descriptors/wrappers)
+        original_model = self.model
+        original_call = original_model.__call__
+
+        # Create a wrapper class that will be callable
+        class AnthropicModelWrapper:
+            def __init__(self, model, call_method):
+                self._model = model
+                self._original_call = call_method
+                # Copy all attributes from original model
+                self.__dict__.update(
+                    {
+                        k: v
+                        for k, v in model.__dict__.items()
+                        if k not in ("__call__", "_original_call")
+                    },
+                )
+
+            async def __call__(
+                self,
+                messages,
+                tools=None,
+                tool_choice=None,
+                **kwargs,
+            ):
+                # Deep copy messages to avoid modifying original memory
+                messages_copy = deepcopy(messages)
+
+                def process_block(block):
+                    """Recursively process a block and its nested content."""
+                    nonlocal converted
+                    if not isinstance(block, dict):
+                        return
+
+                    block_type = block.get("type")
+
+                    # Handle media blocks with source
+                    # only image is supported by Claude
+                    if block_type in ("image", "file", "audio", "video"):
+                        if _convert_file_url_to_base64_in_block(block):
+                            converted += 1
+                        return
+
+                    # Handle tool_result with nested content
+                    if block_type == "tool_result":
+                        content = block.get("content")
+                        if isinstance(content, list):
+                            for nested in content:
+                                process_block(nested)
+                        return
+
+                # Convert file:// URLs to base64 in the copy
+                converted = 0
+                if isinstance(messages_copy, list):
+                    for msg in messages_copy:
+                        # Handle both dict format and Msg objects
+                        content = None
+                        if isinstance(msg, dict):
+                            content = msg.get("content")
+                        elif hasattr(msg, "content"):
+                            content = msg.content
+
+                        if isinstance(content, list):
+                            for block in content:
+                                process_block(block)
+
+                return await self._original_call(
+                    messages_copy,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs,
+                )
+
+            def __getattr__(self, name):
+                return getattr(self._model, name)
+
+        # Replace self.model with our wrapper
+        self.model = AnthropicModelWrapper(original_model, original_call)
+        logger.debug(
+            "Wrapped model for Anthropic file:// to base64 conversion",
+        )
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.

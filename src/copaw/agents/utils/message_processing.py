@@ -6,7 +6,9 @@ This module handles:
 - Message content manipulation
 - Message validation
 """
+import base64
 import logging
+import mimetypes
 import os
 import urllib.parse
 import urllib.request
@@ -121,6 +123,40 @@ def _media_type_from_path(path: str) -> str:
     }.get(ext, "audio/octet-stream")
 
 
+def _file_to_base64_source(file_path: str) -> dict:
+    """Convert local file to base64 source dict for AgentScope.
+
+    Args:
+        file_path: Path to the local file.
+
+    Returns:
+        Dict with type, media_type, and data (pure base64 without prefix).
+    """
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        ext = (os.path.splitext(file_path)[1] or "").lower()
+        mime_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".svg": "image/svg+xml",
+            ".bmp": "image/bmp",
+            ".tiff": "image/tiff",
+            ".tif": "image/tiff",
+        }.get(ext, "application/octet-stream")
+
+    with open(file_path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("utf-8")
+
+    return {
+        "type": "base64",
+        "media_type": mime_type,
+        "data": encoded,
+    }
+
+
 def _update_block_with_local_path(
     block: dict,
     block_type: str,
@@ -144,6 +180,66 @@ def _update_block_with_local_path(
                 "url": Path(local_path).as_uri(),
             }
     return block
+
+
+def _should_use_base64_for_media() -> bool:
+    """Check if current provider requires base64 media instead of file URLs.
+
+    Anthropic/Claude API does not support file:// URLs for images.
+    """
+    try:
+        # Import here to avoid circular imports
+        from ...providers import load_providers_json, get_provider_chat_model
+
+        data = load_providers_json()
+        provider_id = data.active_llm.provider_id if data.active_llm else ""
+
+        # Get the actual chat model class name for this provider
+        chat_model = get_provider_chat_model(provider_id, data)
+
+        # AnthropicChatModel does not support file:// URLs
+        return chat_model == "AnthropicChatModel"
+    except Exception:
+        # Default to file URLs if we can't determine
+        return False
+
+
+def _convert_file_url_to_base64_in_block(block: dict) -> bool:
+    """Convert file:// URL to base64 in a media block (for Anthropic API).
+
+    This function modifies the block in place, converting file:// URLs
+    to base64 format which Anthropic API requires.
+    Handles all media types: image, audio, video, file.
+
+    Args:
+        block: The content block to process.
+
+    Returns:
+        True if conversion was performed, False otherwise.
+    """
+    result = False
+    block_type = block.get("type")
+    # Anthropic doesn't support file:// URLs for any media type
+    if block_type in ("image", "audio", "video", "file"):
+        source = block.get("source", {})
+        if isinstance(source, dict) and source.get("type") == "url":
+            url = source.get("url", "")
+            if url.startswith("file://"):
+                try:
+                    parsed = urllib.parse.urlparse(url)
+                    local_path = urllib.request.url2pathname(parsed.path)
+                    if os.path.isfile(local_path):
+                        # Convert to base64
+                        block["source"] = _file_to_base64_source(local_path)
+                        result = True
+                    else:
+                        logger.warning("File does not exist: %s", local_path)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to convert file:// URL to base64: %s",
+                        e,
+                    )
+    return result
 
 
 def _handle_download_failure(block_type: str) -> Optional[dict]:
