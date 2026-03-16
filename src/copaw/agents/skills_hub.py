@@ -1442,9 +1442,9 @@ def install_skill_from_hub(
     try:
         from ..security.skill_scanner import scan_skill_directory
 
-        customized_dir = (
-            SkillService._get_customized_skill_dir(name)  # pylint: disable=protected-access
-        )
+        customized_dir = SkillService._get_customized_skill_dir(
+            name
+        )  # pylint: disable=protected-access
         if customized_dir is not None and customized_dir.exists():
             scan_skill_directory(
                 customized_dir,

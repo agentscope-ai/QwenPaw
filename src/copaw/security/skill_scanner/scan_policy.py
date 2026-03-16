@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Scan policy: org-customisable allowlists, severity overrides, and rule scoping.
+"""Scan policy: org-customisable allowlists and rule scoping.
 
-Every organisation has a different security bar.  A ``ScanPolicy`` captures what
-counts as benign, which rules fire on which file types, which credentials are
-test-only, and so on.
+Every organisation has a different security bar.  A ``ScanPolicy``
+captures what counts as benign, which rules fire on which file
+types, which credentials are test-only, and so on.
 
 Usage
 -----
@@ -155,7 +155,7 @@ class SeverityOverride:
 
 @dataclass
 class ScanPolicy:
-    """Organisational scan policy – everything that should be customisable."""
+    """Organisational scan policy."""
 
     # Metadata
     policy_name: str = "default"
@@ -166,9 +166,13 @@ class ScanPolicy:
     hidden_files: HiddenFilePolicy = field(default_factory=HiddenFilePolicy)
     rule_scoping: RuleScopingPolicy = field(default_factory=RuleScopingPolicy)
     credentials: CredentialPolicy = field(default_factory=CredentialPolicy)
-    file_classification: FileClassificationPolicy = field(default_factory=FileClassificationPolicy)
+    file_classification: FileClassificationPolicy = field(
+        default_factory=FileClassificationPolicy
+    )
     file_limits: FileLimitsPolicy = field(default_factory=FileLimitsPolicy)
-    analysis_thresholds: AnalysisThresholdsPolicy = field(default_factory=AnalysisThresholdsPolicy)
+    analysis_thresholds: AnalysisThresholdsPolicy = field(
+        default_factory=AnalysisThresholdsPolicy
+    )
     severity_overrides: list[SeverityOverride] = field(default_factory=list)
     disabled_rules: set[str] = field(default_factory=set)
 
@@ -214,13 +218,16 @@ class ScanPolicy:
                     combined = "|".join(f"(?:{c.pattern})" for c in valid)
                     limit = max_pat_len * max(len(valid), 1) + len(valid) * 4
                     self._doc_fn_re_cache = _safe_compile(
-                        combined, re.IGNORECASE, max_length=limit
+                        combined,
+                        re.IGNORECASE,
+                        max_length=limit,
                     )
                 else:
                     self._doc_fn_re_cache = None
             else:
                 self._doc_fn_re_cache = None
-        return self._doc_fn_re_cache  # type: ignore[attr-defined, no-any-return]
+        # type: ignore[attr-defined, no-any-return]
+        return self._doc_fn_re_cache  # type: ignore
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -236,11 +243,12 @@ class ScanPolicy:
 
     @classmethod
     def from_preset(cls, name: str) -> ScanPolicy:
-        """Load a named preset policy: ``strict``, ``balanced``, or ``permissive``."""
+        """Load a named preset policy."""
         name_lower = name.lower()
         if name_lower not in _PRESET_POLICIES:
             raise ValueError(
-                f"Unknown preset '{name}'. Available: {', '.join(sorted(_PRESET_POLICIES))}"
+                f"Unknown preset '{name}'. "
+                f"Available: {', '.join(sorted(_PRESET_POLICIES))}",
             )
         return cls.from_yaml(_PRESET_POLICIES[name_lower])
 
@@ -277,10 +285,18 @@ class ScanPolicy:
         data = self._to_dict()
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("# CoPaw Skill Scanner – Scan Policy\n")
-            fh.write("# Customise this file to match your organisation's security bar.\n")
-            fh.write("# Only include sections you want to override; omitted sections\n")
+            fh.write(
+                "# Customise this file to match your"
+                " organisation's security bar.\n"
+            )
+            fh.write(
+                "# Only include sections you want to"
+                " override; omitted sections\n"
+            )
             fh.write("# will use the built-in defaults.\n\n")
-            yaml.dump(data, fh, default_flow_style=False, sort_keys=False, width=120)
+            yaml.dump(
+                data, fh, default_flow_style=False, sort_keys=False, width=120
+            )
 
     # ------------------------------------------------------------------
     # Internal parsing
@@ -303,7 +319,11 @@ class ScanPolicy:
         """
         result = dict(base)
         for key, val in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(val, dict)
+            ):
                 result[key] = ScanPolicy._deep_merge(result[key], val)
             else:
                 result[key] = val
@@ -319,8 +339,7 @@ class ScanPolicy:
         at = d.get("analysis_thresholds", {})
 
         severity_overrides = [
-            SeverityOverride(**ovr)
-            for ovr in d.get("severity_overrides", [])
+            SeverityOverride(**ovr) for ovr in d.get("severity_overrides", [])
         ]
 
         return cls(
@@ -332,12 +351,16 @@ class ScanPolicy:
                 benign_dotdirs=set(hf.get("benign_dotdirs", [])),
             ),
             rule_scoping=RuleScopingPolicy(
-                skillmd_and_scripts_only=set(rs.get("skillmd_and_scripts_only", [])),
+                skillmd_and_scripts_only=set(
+                    rs.get("skillmd_and_scripts_only", [])
+                ),
                 skip_in_docs=set(rs.get("skip_in_docs", [])),
                 code_only=set(rs.get("code_only", [])),
                 doc_path_indicators=set(rs.get("doc_path_indicators", [])),
                 doc_filename_patterns=rs.get("doc_filename_patterns", []),
-                dedupe_duplicate_findings=rs.get("dedupe_duplicate_findings", True),
+                dedupe_duplicate_findings=rs.get(
+                    "dedupe_duplicate_findings", True
+                ),
             ),
             credentials=CredentialPolicy(
                 known_test_values=set(cr.get("known_test_values", [])),
@@ -359,7 +382,9 @@ class ScanPolicy:
             ),
             analysis_thresholds=AnalysisThresholdsPolicy(
                 min_confidence_pct=at.get("min_confidence_pct", 80),
-                max_regex_pattern_length=at.get("max_regex_pattern_length", 1000),
+                max_regex_pattern_length=at.get(
+                    "max_regex_pattern_length", 1000
+                ),
             ),
             severity_overrides=severity_overrides,
             disabled_rules=set(d.get("disabled_rules", [])),
@@ -375,37 +400,75 @@ class ScanPolicy:
                 "benign_dotdirs": sorted(self.hidden_files.benign_dotdirs),
             },
             "rule_scoping": {
-                "skillmd_and_scripts_only": sorted(self.rule_scoping.skillmd_and_scripts_only),
+                "skillmd_and_scripts_only": sorted(
+                    self.rule_scoping.skillmd_and_scripts_only
+                ),
                 "skip_in_docs": sorted(self.rule_scoping.skip_in_docs),
                 "code_only": sorted(self.rule_scoping.code_only),
-                "doc_path_indicators": sorted(self.rule_scoping.doc_path_indicators),
-                "doc_filename_patterns": self.rule_scoping.doc_filename_patterns,
-                "dedupe_duplicate_findings": self.rule_scoping.dedupe_duplicate_findings,
+                "doc_path_indicators": sorted(
+                    self.rule_scoping.doc_path_indicators
+                ),
+                "doc_filename_patterns": (
+                    self.rule_scoping.doc_filename_patterns
+                ),
+                "dedupe_duplicate_findings": (
+                    self.rule_scoping.dedupe_duplicate_findings
+                ),
             },
             "credentials": {
-                "known_test_values": sorted(self.credentials.known_test_values),
-                "placeholder_markers": sorted(self.credentials.placeholder_markers),
+                "known_test_values": sorted(
+                    self.credentials.known_test_values
+                ),
+                "placeholder_markers": sorted(
+                    self.credentials.placeholder_markers
+                ),
             },
             "file_classification": {
-                "inert_extensions": sorted(self.file_classification.inert_extensions),
-                "structured_extensions": sorted(self.file_classification.structured_extensions),
-                "archive_extensions": sorted(self.file_classification.archive_extensions),
-                "code_extensions": sorted(self.file_classification.code_extensions),
+                "inert_extensions": sorted(
+                    self.file_classification.inert_extensions
+                ),
+                "structured_extensions": sorted(
+                    self.file_classification.structured_extensions
+                ),
+                "archive_extensions": sorted(
+                    self.file_classification.archive_extensions
+                ),
+                "code_extensions": sorted(
+                    self.file_classification.code_extensions
+                ),
             },
             "file_limits": {
                 "max_file_count": self.file_limits.max_file_count,
-                "max_file_size_bytes": self.file_limits.max_file_size_bytes,
-                "max_reference_depth": self.file_limits.max_reference_depth,
-                "max_name_length": self.file_limits.max_name_length,
-                "max_description_length": self.file_limits.max_description_length,
-                "min_description_length": self.file_limits.min_description_length,
+                "max_file_size_bytes": (
+                    self.file_limits.max_file_size_bytes
+                ),
+                "max_reference_depth": (
+                    self.file_limits.max_reference_depth
+                ),
+                "max_name_length": (
+                    self.file_limits.max_name_length
+                ),
+                "max_description_length": (
+                    self.file_limits.max_description_length
+                ),
+                "min_description_length": (
+                    self.file_limits.min_description_length
+                ),
             },
             "analysis_thresholds": {
-                "min_confidence_pct": self.analysis_thresholds.min_confidence_pct,
-                "max_regex_pattern_length": self.analysis_thresholds.max_regex_pattern_length,
+                "min_confidence_pct": (
+                    self.analysis_thresholds.min_confidence_pct
+                ),
+                "max_regex_pattern_length": (
+                    self.analysis_thresholds.max_regex_pattern_length
+                ),
             },
             "severity_overrides": [
-                {"rule_id": o.rule_id, "severity": o.severity, "reason": o.reason}
+                {
+                    "rule_id": o.rule_id,
+                    "severity": o.severity,
+                    "reason": o.reason,
+                }
                 for o in self.severity_overrides
             ],
             "disabled_rules": sorted(self.disabled_rules),

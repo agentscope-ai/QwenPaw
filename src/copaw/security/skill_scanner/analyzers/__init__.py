@@ -31,11 +31,14 @@ class BaseAnalyzer(ABC):
         use their own built-in defaults.
     """
 
-    def __init__(self, name: str, *, policy: "ScanPolicy | None" = None) -> None:
+    def __init__(
+        self, name: str, *, policy: "ScanPolicy | None" = None
+    ) -> None:
         self.name = name
         # Lazily import to avoid circular dependencies
         if policy is None:
             from ..scan_policy import ScanPolicy
+
             policy = ScanPolicy.default()
         self._policy = policy
 

@@ -73,11 +73,17 @@ _TRUE_STRINGS = {"true", "1", "yes"}
 
 
 def _scan_enabled() -> bool:
-    return os.environ.get("COPAW_SKILL_SCAN_ENABLED", "true").lower() in _TRUE_STRINGS
+    return (
+        os.environ.get("COPAW_SKILL_SCAN_ENABLED", "true").lower()
+        in _TRUE_STRINGS
+    )
 
 
 def _scan_blocks() -> bool:
-    return os.environ.get("COPAW_SKILL_SCAN_BLOCK", "true").lower() in _TRUE_STRINGS
+    return (
+        os.environ.get("COPAW_SKILL_SCAN_BLOCK", "true").lower()
+        in _TRUE_STRINGS
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,12 +115,16 @@ class SkillScanError(Exception):
             f"[{f.severity.value}] {f.title} ({f.file_path}:{f.line_number})"
             for f in result.findings[:5]
         )
-        truncated = f" (and {len(result.findings) - 5} more)" if len(result.findings) > 5 else ""
+        truncated = (
+            f" (and {len(result.findings) - 5} more)"
+            if len(result.findings) > 5
+            else ""
+        )
         super().__init__(
             f"Security scan of skill '{result.skill_name}' found "
             f"{len(result.findings)} issue(s) "
             f"(max severity: {result.max_severity.value}): "
-            f"{findings_summary}{truncated}"
+            f"{findings_summary}{truncated}",
         )
 
 

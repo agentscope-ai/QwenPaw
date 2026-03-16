@@ -32,12 +32,38 @@ logger = logging.getLogger(__name__)
 # section has no inert/archive entries.  Kept as a safety net only;
 # prefer configuring extensions via the ScanPolicy YAML.
 _FALLBACK_SKIP_EXTENSIONS: set[str] = {
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp",
-    ".woff", ".woff2", ".eot", ".ttf", ".otf",
-    ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
-    ".exe", ".dll", ".so", ".dylib", ".o", ".a",
-    ".pyc", ".pyo", ".class",
-    ".db", ".sqlite", ".sqlite3",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".svg",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".eot",
+    ".ttf",
+    ".otf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".7z",
+    ".rar",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".o",
+    ".a",
+    ".pyc",
+    ".pyo",
+    ".class",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
     ".lock",
 }
 
@@ -182,7 +208,7 @@ class SkillScanner:
                     exc_info=True,
                 )
                 analyzers_failed.append(
-                    {"analyzer": analyzer.get_name(), "error": str(exc)}
+                    {"analyzer": analyzer.get_name(), "error": str(exc)},
                 )
 
         # 3. De-duplicate by finding id (if policy permits) ----------------
@@ -246,7 +272,8 @@ class SkillScanner:
             if not real.is_relative_to(skill_dir):
                 logger.warning(
                     "Skipping file outside skill directory: %s -> %s",
-                    p, real,
+                    p,
+                    real,
                 )
                 continue
             if p.suffix.lower() in self._skip_ext:
@@ -276,7 +303,9 @@ class SkillScanner:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _default_analyzers(policy: ScanPolicy | None = None) -> list[BaseAnalyzer]:
+    def _default_analyzers(
+        policy: ScanPolicy | None = None,
+    ) -> list[BaseAnalyzer]:
         """Instantiate default analyzers, sharing the active policy."""
         analyzers: list[BaseAnalyzer] = []
 

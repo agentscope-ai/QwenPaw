@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 _CHAR_CLASS_RE = re.compile(r"\[[^\]]*\]")
 
 # Default signatures directory (shipped with the package).
-_DEFAULT_SIGNATURES_DIR = Path(__file__).resolve().parent.parent / "rules" / "signatures"
+_DEFAULT_SIGNATURES_DIR = (
+    Path(__file__).resolve().parent.parent / "rules" / "signatures"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +56,9 @@ class SecurityRule:
         self.category = ThreatCategory(rule_data["category"])
         self.severity = Severity(rule_data["severity"])
         self.patterns: list[str] = rule_data["patterns"]
-        self.exclude_patterns: list[str] = rule_data.get("exclude_patterns", [])
+        self.exclude_patterns: list[str] = rule_data.get(
+            "exclude_patterns", []
+        )
         self.file_types: list[str] = rule_data.get("file_types", [])
         self.description: str = rule_data["description"]
         self.remediation: str = rule_data.get("remediation", "")
@@ -71,7 +75,9 @@ class SecurityRule:
             try:
                 self.compiled_exclude_patterns.append(re.compile(pat))
             except re.error as exc:
-                logger.warning("Bad exclude regex in rule %s: %s", self.id, exc)
+                logger.warning(
+                    "Bad exclude regex in rule %s: %s", self.id, exc
+                )
 
     # ------------------------------------------------------------------
 
@@ -96,7 +102,9 @@ class SecurityRule:
 
         # --- Pass 1: line-based matching (fast) --------------------------
         for line_num, line in enumerate(lines, start=1):
-            excluded = any(ep.search(line) for ep in self.compiled_exclude_patterns)
+            excluded = any(
+                ep.search(line) for ep in self.compiled_exclude_patterns
+            )
             if excluded:
                 continue
             for pattern in self.compiled_patterns:
@@ -109,7 +117,7 @@ class SecurityRule:
                             "matched_pattern": pattern.pattern,
                             "matched_text": m.group(0),
                             "file_path": file_path,
-                        }
+                        },
                     )
 
         # --- Pass 2: multiline patterns ----------------------------------
@@ -119,11 +127,18 @@ class SecurityRule:
                 continue
             for m in pattern.finditer(content):
                 matched_text = m.group(0)
-                excluded = any(ep.search(matched_text) for ep in self.compiled_exclude_patterns)
+                excluded = any(
+                    ep.search(matched_text)
+                    for ep in self.compiled_exclude_patterns
+                )
                 if excluded:
                     continue
                 start_line = content.count("\n", 0, m.start()) + 1
-                snippet = lines[start_line - 1].strip() if 0 <= start_line - 1 < len(lines) else ""
+                snippet = (
+                    lines[start_line - 1].strip()
+                    if 0 <= start_line - 1 < len(lines)
+                    else ""
+                )
                 matches.append(
                     {
                         "line_number": start_line,
@@ -131,7 +146,7 @@ class SecurityRule:
                         "matched_pattern": pattern.pattern,
                         "matched_text": matched_text[:200],
                         "file_path": file_path,
-                    }
+                    },
                 )
 
         return matches
@@ -161,7 +176,9 @@ class RuleLoader:
                     with open(yaml_file, encoding="utf-8") as fh:
                         data = yaml.safe_load(fh)
                 except Exception as exc:
-                    raise RuntimeError(f"Failed to load {yaml_file}: {exc}") from exc
+                    raise RuntimeError(
+                        f"Failed to load {yaml_file}: {exc}"
+                    ) from exc
                 if not isinstance(data, list):
                     raise RuntimeError(f"Expected list in {yaml_file}")
                 raw.extend(data)
@@ -183,9 +200,13 @@ class RuleLoader:
                 rule = SecurityRule(entry)
                 self.rules.append(rule)
                 self.rules_by_id[rule.id] = rule
-                self.rules_by_category.setdefault(rule.category, []).append(rule)
+                self.rules_by_category.setdefault(rule.category, []).append(
+                    rule
+                )
             except Exception as exc:
-                logger.warning("Skipping rule %s: %s", entry.get("id", "?"), exc)
+                logger.warning(
+                    "Skipping rule %s: %s", entry.get("id", "?"), exc
+                )
 
         return self.rules
 
@@ -195,7 +216,9 @@ class RuleLoader:
     def get_rules_for_file_type(self, file_type: str) -> list[SecurityRule]:
         return [r for r in self.rules if r.matches_file_type(file_type)]
 
-    def get_rules_for_category(self, category: ThreatCategory) -> list[SecurityRule]:
+    def get_rules_for_category(
+        self, category: ThreatCategory
+    ) -> list[SecurityRule]:
         return self.rules_by_category.get(category, [])
 
 
@@ -261,10 +284,17 @@ class PatternAnalyzer(BaseAnalyzer):
                     continue
                 # Code-only rules should not fire on non-code files
                 if rule.id in self.policy.rule_scoping.code_only:
-                    if sf.file_type not in ("python", "bash", "javascript", "typescript"):
+                    if sf.file_type not in (
+                        "python",
+                        "bash",
+                        "javascript",
+                        "typescript",
+                    ):
                         continue
 
-                matches = rule.scan_content(content, file_path=sf.relative_path)
+                matches = rule.scan_content(
+                    content, file_path=sf.relative_path
+                )
                 for match in matches:
                     # Apply severity override if configured
                     severity = rule.severity
@@ -277,7 +307,10 @@ class PatternAnalyzer(BaseAnalyzer):
 
                     findings.append(
                         Finding(
-                            id=f"{rule.id}:{sf.relative_path}:{match['line_number']}",
+                            id=(
+                                f"{rule.id}:{sf.relative_path}"
+                                f":{match['line_number']}"
+                            ),
                             rule_id=rule.id,
                             category=rule.category,
                             severity=severity,
@@ -292,11 +325,13 @@ class PatternAnalyzer(BaseAnalyzer):
                                 "matched_pattern": match["matched_pattern"],
                                 "matched_text": match["matched_text"],
                             },
-                        )
+                        ),
                     )
 
         # Filter well-known test credentials
-        findings = [f for f in findings if not self._is_known_test_credential(f)]
+        findings = [
+            f for f in findings if not self._is_known_test_credential(f)
+        ]
 
         # De-duplicate if enabled in policy
         if self.policy.rule_scoping.dedupe_duplicate_findings:

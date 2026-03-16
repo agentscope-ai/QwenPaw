@@ -95,7 +95,7 @@ class SkillFile:
 
     @property
     def is_hidden(self) -> bool:
-        """Check if this file is a hidden file (dotfile) or inside a hidden directory."""
+        """Check if file is a dotfile or inside a hidden dir."""
         parts = Path(self.relative_path).parts
         return any(part.startswith(".") and part != "." for part in parts)
 
@@ -175,7 +175,9 @@ class ScanResult:
     scan_duration_seconds: float = 0.0
     analyzers_used: list[str] = field(default_factory=list)
     analyzers_failed: list[dict[str, str]] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     # ------------------------------------------------------------------
     # Convenience properties
@@ -209,7 +211,9 @@ class ScanResult:
     def get_findings_by_severity(self, severity: Severity) -> list[Finding]:
         return [f for f in self.findings if f.severity == severity]
 
-    def get_findings_by_category(self, category: ThreatCategory) -> list[Finding]:
+    def get_findings_by_category(
+        self, category: ThreatCategory
+    ) -> list[Finding]:
         return [f for f in self.findings if f.category == category]
 
     def to_dict(self) -> dict[str, Any]:
