@@ -70,7 +70,7 @@ def _execute_subprocess_sync(
     try:
         # Disable cmd.exe AutoRun (/D) to prevent spurious stderr
         # from registry-configured startup scripts (e.g. "The system
-        # cannot find the path specified.").  /S strips outer quotes
+        # cannot find the path specified.").  /S prevents quote stripping
         # so the inner command is passed through unchanged.
         wrapped = ["cmd", "/D", "/S", "/C", cmd]
         with subprocess.Popen(
