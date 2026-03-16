@@ -4,11 +4,9 @@ import path from "path";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  // Empty = same-origin; frontend and backend served together, no hardcoded host.
+  // BASE_URL is optional. Build assets with relative paths so one bundle can
+  // run under arbitrary prefixes (e.g. /copaw/<userid>) without rebuild.
   const apiBaseUrl = env.BASE_URL ?? "";
-  const normalizedBasePath = apiBaseUrl
-    ? `/${apiBaseUrl.replace(/^https?:\/\/[^/]+/, "").replace(/^\/+|\/+$/g, "")}/`
-    : "/";
 
   return {
     define: {
@@ -16,7 +14,7 @@ export default defineConfig(({ mode }) => {
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
-    base: normalizedBasePath,
+    base: "./",
     plugins: [react()],
     css: {
       modules: {

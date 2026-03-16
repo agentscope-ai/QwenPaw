@@ -49,6 +49,11 @@ function getRouterBasename(pathname: string): string | undefined {
       : `/${configuredBase}`;
   }
 
+  const copawPrefix = pathname.match(/^\/(copaw\/[^/]+)(?:\/|$)/);
+  if (copawPrefix) {
+    return `/${copawPrefix[1]}`;
+  }
+
   return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
 }
 
