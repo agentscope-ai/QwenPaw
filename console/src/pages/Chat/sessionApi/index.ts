@@ -127,9 +127,7 @@ const extractModelInfo = (
   for (let i = msgs.length - 1; i >= 0; i--) {
     const inner = (
       msgs[i].metadata as { metadata?: Record<string, unknown> } | null
-    )?.metadata as
-      | { provider_id?: string; model_id?: string }
-      | undefined;
+    )?.metadata as { provider_id?: string; model_id?: string } | undefined;
     if (inner?.provider_id && inner?.model_id) {
       return {
         provider_id: inner.provider_id,
