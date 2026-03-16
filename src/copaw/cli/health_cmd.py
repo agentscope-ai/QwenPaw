@@ -3,11 +3,16 @@
 import json
 import click
 
-from ..config.validator import ConfigValidator
-from ..config.health import HealthChecker, HealthStatus
+from ..config.validator import ConfigValidator, ValidationResult
+from ..config.health import HealthChecker, HealthStatus, SystemHealth
 
 
-def _print_checks(health, verbose, status_icons, status_colors) -> None:
+def _print_checks(
+    health: SystemHealth,
+    verbose: bool,
+    status_icons: dict[HealthStatus, str],
+    status_colors: dict[HealthStatus, str],
+) -> None:
     """Print individual health check results."""
     for check in health.checks:
         icon = status_icons[check.status]
@@ -23,7 +28,7 @@ def _print_checks(health, verbose, status_icons, status_colors) -> None:
             click.secho(f"  → {check.suggestion}", fg="cyan")
 
 
-def _print_validation(validation) -> None:
+def _print_validation(validation: ValidationResult) -> None:
     """Print configuration validation errors and warnings."""
     if not (validation.errors or validation.warnings):
         return
