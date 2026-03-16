@@ -6,15 +6,14 @@ These tests cover:
 - _fuzzy_repair_json: five individual repair strategies + edge cases
 - _repair_empty_tool_inputs: strict parse → fuzzy repair → error injection
 """
+
 import importlib.util
-import sys
 from pathlib import Path
-
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
+
 
 def _load_module():
     """Load tool_message_utils without importing the full copaw package."""
@@ -166,7 +165,10 @@ class TestRepairEmptyToolInputs:
     def test_strict_parse_success(self):
         """Valid JSON in raw_input is parsed and used as input."""
         msg = _make_tool_use_msg(
-            "c1", "run_cmd", {}, '{"command": "echo hello"}',
+            "c1",
+            "run_cmd",
+            {},
+            '{"command": "echo hello"}',
         )
         result = _repair_empty_tool_inputs([msg])
         assert result[0].content[0]["input"] == {"command": "echo hello"}
@@ -174,7 +176,10 @@ class TestRepairEmptyToolInputs:
     def test_no_change_when_input_already_set(self):
         """A block whose input is already populated is left unchanged."""
         msg = _make_tool_use_msg(
-            "c1", "run_cmd", {"command": "ls"}, '{"command": "echo"}',
+            "c1",
+            "run_cmd",
+            {"command": "ls"},
+            '{"command": "echo"}',
         )
         result = _repair_empty_tool_inputs([msg])
         assert result[0].content[0]["input"] == {"command": "ls"}
@@ -196,7 +201,10 @@ class TestRepairEmptyToolInputs:
     def test_fuzzy_repair_single_quotes(self):
         """Fuzzy repair handles single-quoted JSON."""
         msg = _make_tool_use_msg(
-            "c2", "run_cmd", {}, "{'command': 'ls -la'}",
+            "c2",
+            "run_cmd",
+            {},
+            "{'command': 'ls -la'}",
         )
         result = _repair_empty_tool_inputs([msg])
         assert result[0].content[0]["input"] == {"command": "ls -la"}
@@ -204,7 +212,10 @@ class TestRepairEmptyToolInputs:
     def test_fuzzy_repair_trailing_comma(self):
         """Fuzzy repair handles trailing commas."""
         msg = _make_tool_use_msg(
-            "c3", "run_cmd", {}, '{"command": "ls",}',
+            "c3",
+            "run_cmd",
+            {},
+            '{"command": "ls",}',
         )
         result = _repair_empty_tool_inputs([msg])
         assert result[0].content[0]["input"] == {"command": "ls"}
@@ -212,7 +223,10 @@ class TestRepairEmptyToolInputs:
     def test_fuzzy_repair_unquoted_keys(self):
         """Fuzzy repair handles unquoted keys."""
         msg = _make_tool_use_msg(
-            "c4", "run_cmd", {}, '{command: "ls"}',
+            "c4",
+            "run_cmd",
+            {},
+            '{command: "ls"}',
         )
         result = _repair_empty_tool_inputs([msg])
         assert result[0].content[0]["input"] == {"command": "ls"}
@@ -222,7 +236,10 @@ class TestRepairEmptyToolInputs:
     def test_error_feedback_injected_for_broken_json(self):
         """Completely unparseable raw_input triggers error feedback."""
         msg = _make_tool_use_msg(
-            "c5", "run_cmd", {}, "{totally broken json!!!}",
+            "c5",
+            "run_cmd",
+            {},
+            "{totally broken json!!!}",
         )
         result = _repair_empty_tool_inputs([msg])
         block_input = result[0].content[0]["input"]
@@ -245,7 +262,6 @@ class TestRepairEmptyToolInputs:
         result = _repair_empty_tool_inputs([msg])
         error_msg = result[0].content[0]["input"]["_error_message"]
         # preview should be truncated to 200+3 = 203 chars
-        preview_start = error_msg.find("raw_input was: ") + len("raw_input was: ")
         assert len(error_msg) < len(raw) + 500  # not storing the full raw
 
     # ---- Non-tool_use messages are untouched ----
@@ -266,13 +282,22 @@ class TestRepairEmptyToolInputs:
     def test_multiple_messages_mixed(self):
         """Mix of repairable and non-repairable messages in one batch."""
         msg_good = _make_tool_use_msg(
-            "m1", "a", {}, '{"x": 1}',
+            "m1",
+            "a",
+            {},
+            '{"x": 1}',
         )
         msg_fuzzy = _make_tool_use_msg(
-            "m2", "b", {}, "{'y': 2}",
+            "m2",
+            "b",
+            {},
+            "{'y': 2}",
         )
         msg_broken = _make_tool_use_msg(
-            "m3", "c", {}, "{totally broken}",
+            "m3",
+            "c",
+            {},
+            "{totally broken}",
         )
 
         results = _repair_empty_tool_inputs([msg_good, msg_fuzzy, msg_broken])
