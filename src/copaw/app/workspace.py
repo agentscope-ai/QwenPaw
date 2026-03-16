@@ -203,6 +203,7 @@ class Workspace:
                     process=make_process_from_runner(self._runner),
                     config=temp_config,
                     on_last_dispatch=update_last_dispatch,
+                    workspace_dir=self.workspace_dir,
                 )
                 await self._channel_manager.start_all()
                 logger.debug(

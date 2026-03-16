@@ -40,7 +40,7 @@ class BaseChannelConfig(BaseModel):
 class IMessageChannelConfig(BaseChannelConfig):
     db_path: str = "~/Library/Messages/chat.db"
     poll_sec: float = 1.0
-    media_dir: str = "~/.copaw/media"
+    media_dir: Optional[str] = None
     max_decoded_size: int = (
         10 * 1024 * 1024
     )  # 10MB default limit for Base64 data
@@ -55,7 +55,7 @@ class DiscordConfig(BaseChannelConfig):
 class DingTalkConfig(BaseChannelConfig):
     client_id: str = ""
     client_secret: str = ""
-    media_dir: str = "~/.copaw/media"
+    media_dir: Optional[str] = None
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -67,7 +67,7 @@ class FeishuConfig(BaseChannelConfig):
     app_secret: str = ""
     encrypt_key: str = ""
     verification_token: str = ""
-    media_dir: str = "~/.copaw/media"
+    media_dir: Optional[str] = None
 
 
 class QQConfig(BaseChannelConfig):
@@ -104,7 +104,7 @@ class MattermostConfig(BaseChannelConfig):
 
     url: str = ""
     bot_token: str = ""
-    media_dir: str = "~/.copaw/media/mattermost"
+    media_dir: Optional[str] = None
     show_typing: Optional[bool] = None
     thread_follow_without_mention: bool = False
 
@@ -120,7 +120,7 @@ class WecomConfig(BaseChannelConfig):
 
     bot_id: str = ""
     secret: str = ""
-    media_dir: str = "~/.copaw/media"
+    media_dir: Optional[str] = None
     welcome_text: str = ""
     max_reconnect_attempts: int = -1
 

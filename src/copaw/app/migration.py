@@ -164,6 +164,21 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
             migrated_items,
         )
 
+    # Migrate channel-specific configuration files
+    _migrate_workspace_item(
+        old_workspace / "feishu_receive_ids.json",
+        default_workspace / "feishu_receive_ids.json",
+        "feishu_receive_ids.json",
+        migrated_items,
+    )
+
+    _migrate_workspace_item(
+        old_workspace / "dingtalk_session_webhooks.json",
+        default_workspace / "dingtalk_session_webhooks.json",
+        "dingtalk_session_webhooks.json",
+        migrated_items,
+    )
+
     if migrated_items:
         logger.info(f"Migrated workspace items: {', '.join(migrated_items)}")
 

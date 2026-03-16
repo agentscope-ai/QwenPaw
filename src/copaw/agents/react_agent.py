@@ -214,8 +214,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 "builtin_tools",
             ):
                 enabled_tools = {
-                    tool.name: tool.enabled
-                    for tool in agent_config.tools.builtin_tools
+                    name: tool.enabled
+                    for name, tool in agent_config.tools.builtin_tools.items()
                 }
         except Exception as e:
             logger.warning(
