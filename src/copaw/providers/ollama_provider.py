@@ -22,7 +22,7 @@ class OllamaProvider(Provider):
     def model_post_init(self, __context: Any) -> None:
         if not self.base_url:  # type: ignore
             self.base_url = (
-                os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
+                os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
             )
         if self.base_url.endswith("/v1"):
             # For backwards compatibility, if the URL ends with /v1,
@@ -76,10 +76,10 @@ class OllamaProvider(Provider):
             return False, "Ollama Python SDK is not installed"
         except ConnectionError:
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
-        except Exception:
+        except Exception as exc:
             return (
                 False,
-                f"Unknown exception when connecting to `{self.base_url}`",
+                f"Failed to connect to Ollama at `{self.base_url}`: {exc}",
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
@@ -113,8 +113,8 @@ class OllamaProvider(Provider):
             return False, "Ollama Python SDK is not installed"
         except ConnectionError:
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
-        except Exception:
-            return False, f"Unknown exception when connecting to `{target}`"
+        except Exception as exc:
+            return False, f"Model connection failed for `{target}`: {exc}"
 
     async def add_model(
         self,
@@ -128,7 +128,7 @@ class OllamaProvider(Provider):
         "registry/model:tag" or "registry/model".
         """
         if model_info.id in {
-            model.id for model in self.models  # type: ignore [has-type]
+            model.id for model in self.extra_models  # type: ignore [has-type]
         }:
             return False, f"Model '{model_info.id}' already exists"
         client = self._client(timeout=timeout)
@@ -140,7 +140,7 @@ class OllamaProvider(Provider):
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
         except Exception:
             return False, f"Failed to pull model '{model_info.id}'"
-        self.models = await self.fetch_models()
+        self.extra_models = await self.fetch_models()
         return True, ""
 
     async def delete_model(
@@ -157,7 +157,7 @@ class OllamaProvider(Provider):
             return False, f"Failed to connect to Ollama at `{self.base_url}`"
         except Exception:
             return False, f"Failed to delete model '{model_id}'"
-        self.models = await self.fetch_models()
+        self.extra_models = await self.fetch_models()
         return True, ""
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:

@@ -102,6 +102,16 @@ class ConsoleConfig(BaseChannelConfig):
     enabled: bool = True
 
 
+class WecomConfig(BaseChannelConfig):
+    """WeCom (Enterprise WeChat) AI Bot channel config."""
+
+    bot_id: str = ""
+    secret: str = ""
+    media_dir: str = "~/.copaw/media"
+    welcome_text: str = ""
+    max_reconnect_attempts: int = -1
+
+
 class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
@@ -124,6 +134,16 @@ class VoiceChannelConfig(BaseChannelConfig):
     welcome_greeting: str = "Hi! This is CoPaw. How can I help you?"
 
 
+class XiaoYiConfig(BaseChannelConfig):
+    """XiaoYi channel: Huawei A2A protocol via WebSocket."""
+
+    ak: str = ""  # Access Key
+    sk: str = ""  # Secret Key
+    agent_id: str = ""  # Agent ID from XiaoYi platform
+    ws_url: str = "wss://hag.cloud.huawei.com/openclaw/v1/ws/link"
+    task_timeout_ms: int = 3600000  # 1 hour task timeout
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -140,6 +160,8 @@ class ChannelConfig(BaseModel):
     console: ConsoleConfig = ConsoleConfig()
     matrix: MatrixConfig = MatrixConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
+    wecom: WecomConfig = WecomConfig()
+    xiaoyi: XiaoYiConfig = XiaoYiConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -501,4 +523,6 @@ ChannelConfigUnion = Union[
     ConsoleConfig,
     MatrixConfig,
     VoiceChannelConfig,
+    WecomConfig,
+    XiaoYiConfig,
 ]

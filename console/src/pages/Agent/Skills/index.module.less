@@ -206,7 +206,8 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  min-height: 54px;
+  min-height: 64px;
+  max-height: 64px;
 }
 
 .metaStack {
@@ -225,6 +226,24 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.builtinTag {
+  font-size: 12px;
+  color: #615ced;
+  background: rgba(97, 92, 237, 0.1);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.customizedTag {
+  font-size: 12px;
+  color: #fa8c16;
+  background: rgba(250, 140, 22, 0.1);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
 }
 
 .pathValue {

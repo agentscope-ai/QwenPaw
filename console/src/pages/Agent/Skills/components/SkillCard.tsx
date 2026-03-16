@@ -1,4 +1,4 @@
-import { Card, Button } from "@agentscope-ai/design";
+import { Card, Button, Tooltip } from "@agentscope-ai/design";
 import {
   DeleteOutlined,
   FileTextFilled,
@@ -127,22 +127,28 @@ export function SkillCard({
 
         <div className={styles.descriptionSection}>
           <div className={styles.infoLabel}>{t("skills.skillDescription")}</div>
-          <div
-            className={`${styles.infoBlock} ${styles.descriptionContent}`}
+          <Tooltip
             title={skill.description || "-"}
+            placement="top"
+            overlayStyle={{ maxWidth: 360 }}
           >
-            {skill.description || "-"}
-          </div>
+            <div className={`${styles.infoBlock} ${styles.descriptionContent}`}>
+              {skill.description || "-"}
+            </div>
+          </Tooltip>
         </div>
 
         <div className={styles.metaStack}>
           <div className={styles.infoSection}>
             <div className={styles.infoLabel}>{t("skills.source")}</div>
-            <div
-              className={`${styles.infoBlock} ${styles.singleLineValue}`}
-              title={skill.source}
-            >
-              {skill.source}
+            <div>
+              <span
+                className={
+                  isCustomized ? styles.customizedTag : styles.builtinTag
+                }
+              >
+                {skill.source}
+              </span>
             </div>
           </div>
 

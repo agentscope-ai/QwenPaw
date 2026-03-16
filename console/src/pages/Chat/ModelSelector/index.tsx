@@ -5,6 +5,7 @@ import {
   CheckOutlined,
   LoadingOutlined,
 } from "@ant-design/icons";
+import { useLocation } from "react-router-dom";
 import { providerApi } from "../../../api/modules/provider";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import styles from "./index.module.less";
@@ -25,6 +26,7 @@ export default function ModelSelector() {
   const [open, setOpen] = useState(false);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const savingRef = useRef(false);
+  const location = useLocation();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -45,6 +47,23 @@ export default function ModelSelector() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Re-sync active model whenever the route switches back to /chat
+  const prevPathRef = useRef(location.pathname);
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    const curr = location.pathname;
+    prevPathRef.current = curr;
+    const comingToChat = curr.startsWith("/chat") && !prev.startsWith("/chat");
+    if (comingToChat) {
+      providerApi
+        .getActiveModels()
+        .then((activeData) => {
+          if (activeData) setActiveModels(activeData);
+        })
+        .catch(() => {});
+    }
+  }, [location.pathname]);
 
   // Eligible providers: configured + has models
   const eligibleProviders: EligibleProvider[] = providers
@@ -77,6 +96,20 @@ export default function ModelSelector() {
     }
     return activeModelId;
   })();
+
+  const handleOpenChange = useCallback(async (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      try {
+        const activeData = await providerApi.getActiveModels();
+        if (activeData) setActiveModels(activeData);
+      } catch {
+        // ignore
+      }
+    } else {
+      setExpandedProvider(null);
+    }
+  }, []);
 
   const handleSelect = async (providerId: string, modelId: string) => {
     if (savingRef.current) return;
@@ -187,10 +220,7 @@ export default function ModelSelector() {
   return (
     <Dropdown
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setExpandedProvider(null);
-      }}
+      onOpenChange={handleOpenChange}
       dropdownRender={() => dropdownContent}
       trigger={["click"]}
       placement="bottomLeft"
