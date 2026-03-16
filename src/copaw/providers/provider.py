@@ -2,7 +2,7 @@
 """Definition of Provider."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any
+from typing import Any, Dict, List, Type
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
@@ -60,6 +60,10 @@ class ProviderInfo(BaseModel):
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
+    )
+    default_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Custom headers for API requests",
     )
 
 
@@ -138,6 +142,12 @@ class Provider(ProviderInfo, ABC):
             and isinstance(config["generate_kwargs"], dict)
         ):
             self.generate_kwargs = config["generate_kwargs"]
+        if (
+            "default_headers" in config
+            and config["default_headers"] is not None
+            and isinstance(config["default_headers"], dict)
+        ):
+            self.default_headers = config["default_headers"]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -188,6 +198,7 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            default_headers=self.default_headers,
         )
 
 

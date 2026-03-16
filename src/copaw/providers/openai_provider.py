@@ -19,11 +19,14 @@ class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
 
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=self.base_url,
-            api_key=self.api_key,
-            timeout=timeout,
-        )
+        client_kwargs = {
+            "base_url": self.base_url,
+            "api_key": self.api_key,
+            "timeout": timeout,
+        }
+        if self.default_headers:
+            client_kwargs["default_headers"] = self.default_headers
+        return AsyncOpenAI(**client_kwargs)
 
     @staticmethod
     def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
@@ -115,19 +118,25 @@ class OpenAIProvider(Provider):
         ]
 
         client_kwargs = {"base_url": self.base_url}
+        headers = {}
 
         if self.base_url in dashscope_base_urls:
-            client_kwargs["default_headers"] = {
-                "x-dashscope-agentapp": json.dumps(
-                    {
-                        "agentType": "CoPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
+            headers["x-dashscope-agentapp"] = json.dumps(
+                {
+                    "agentType": "CoPaw",
+                    "deployType": "UnKnown",
+                    "moduleCode": "model",
+                    "agentCode": "UnKnown",
+                },
+                ensure_ascii=False,
+            )
+
+        # Merge custom default_headers
+        if self.default_headers:
+            headers.update(self.default_headers)
+
+        if headers:
+            client_kwargs["default_headers"] = headers
 
         return OpenAIChatModelCompat(
             model_name=model_id,

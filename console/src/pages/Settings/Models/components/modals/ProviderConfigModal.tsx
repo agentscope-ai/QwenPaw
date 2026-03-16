@@ -8,7 +8,14 @@ import {
   Button,
   Select,
 } from "@agentscope-ai/design";
-import { ApiOutlined, DownOutlined, RightOutlined } from "@ant-design/icons";
+import { Space } from "antd";
+import {
+  ApiOutlined,
+  DownOutlined,
+  RightOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+} from "@ant-design/icons";
 import type { ProviderConfigRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -241,6 +248,12 @@ function JsonCodeEditor({
   );
 }
 
+interface HeaderItem {
+  id: string;
+  key: string;
+  value: string;
+}
+
 interface ProviderConfigModalProps {
   provider: {
     id: string;
@@ -252,6 +265,7 @@ interface ProviderConfigModalProps {
     freeze_url: boolean;
     chat_model: string;
     generate_kwargs: Record<string, unknown>;
+    default_headers?: Record<string, string>;
   };
   activeModels: any;
   open: boolean;
@@ -272,8 +286,68 @@ export function ProviderConfigModal({
   const [formDirty, setFormDirty] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form] = Form.useForm<ProviderConfigFormValues>();
+  const [headers, setHeaders] = useState<HeaderItem[]>([]);
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
+
+  // Convert default_headers object to array for UI
+  useEffect(() => {
+    if (
+      provider.default_headers &&
+      Object.keys(provider.default_headers).length > 0
+    ) {
+      const headerArray = Object.entries(provider.default_headers).map(
+        ([key, value]) => ({
+          id: crypto.randomUUID(),
+          key,
+          value: String(value),
+        }),
+      );
+      setHeaders(headerArray);
+    } else {
+      setHeaders([]);
+    }
+  }, [provider.default_headers, open]);
+
+  const addHeader = () => {
+    // Pre-fill User-Agent for the first header (common for Kimi Coding Plan)
+    const newHeader: HeaderItem = {
+      id: crypto.randomUUID(),
+      key: headers.length === 0 ? "User-Agent" : "",
+      value: "",
+    };
+    setHeaders([...headers, newHeader]);
+    setFormDirty(true);
+  };
+
+  const removeHeader = (index: number) => {
+    setHeaders(headers.filter((_, i) => i !== index));
+    setFormDirty(true);
+  };
+
+  const updateHeader = (
+    index: number,
+    field: keyof Omit<HeaderItem, "id">,
+    value: string,
+  ) => {
+    const newHeaders = [...headers];
+    newHeaders[index][field] = value;
+    setHeaders(newHeaders);
+    setFormDirty(true);
+  };
+
+  // Helper function to convert headers array to object
+  const headersToObject = (
+    headersArray: HeaderItem[],
+  ): Record<string, string> => {
+    const result: Record<string, string> = {};
+    headersArray.forEach(({ key, value }) => {
+      if (key.trim()) {
+        result[key.trim()] = value;
+      }
+    });
+    return result;
+  };
 
   const parseGenerateConfig = (value?: string) => {
     const trimmed = value?.trim();
@@ -391,6 +465,8 @@ export function ProviderConfigModal({
         values.generate_kwargs_text?.trim(),
       );
 
+      const defaultHeaders = headersToObject(headers);
+
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
       if (!provider.is_custom) {
@@ -398,6 +474,7 @@ export function ProviderConfigModal({
           api_key: values.api_key,
           base_url: values.base_url,
           chat_model: values.chat_model,
+          default_headers: defaultHeaders,
         });
 
         if (!result.success) {
@@ -412,6 +489,7 @@ export function ProviderConfigModal({
         base_url: values.base_url,
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
+        default_headers: defaultHeaders,
       });
 
       await onSaved();
@@ -436,10 +514,14 @@ export function ProviderConfigModal({
         "base_url",
         "chat_model",
       ]);
+
+      const defaultHeaders = headersToObject(headers);
+
       const result = await api.testProviderConnection(provider.id, {
         api_key: values.api_key,
         base_url: values.base_url,
         chat_model: values.chat_model,
+        default_headers: defaultHeaders,
       });
       if (result.success) {
         message.success(result.message || t("models.testConnectionSuccess"));
@@ -656,6 +738,65 @@ export function ProviderConfigModal({
               {t("models.advancedConfig")}
             </span>
           </button>
+
+          {/* Custom Headers Section */}
+          {advancedOpen && (
+            <div style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  marginBottom: 8,
+                  fontSize: 14,
+                  color: "#333",
+                  fontWeight: 500,
+                }}
+              >
+                {t("models.customHeaders", "Custom Headers")}
+              </div>
+              {headers.map((header, index) => (
+                <Space
+                  key={header.id}
+                  style={{ display: "flex", marginBottom: 8 }}
+                  align="baseline"
+                >
+                  <Input
+                    placeholder="Header Key (e.g. User-Agent)"
+                    value={header.key}
+                    onChange={(e) => updateHeader(index, "key", e.target.value)}
+                    style={{ width: 220 }}
+                  />
+                  <Input
+                    placeholder="Header Value"
+                    value={header.value}
+                    onChange={(e) =>
+                      updateHeader(index, "value", e.target.value)
+                    }
+                    style={{ width: 220 }}
+                  />
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => removeHeader(index)}
+                  />
+                </Space>
+              ))}
+              <Button
+                type="dashed"
+                onClick={addHeader}
+                icon={<PlusOutlined />}
+                size="small"
+                style={{ marginBottom: 8 }}
+              >
+                {t("models.addHeader", "Add Header")}
+              </Button>
+              <div style={{ fontSize: 12, color: "#888" }}>
+                {t(
+                  "models.headersHint",
+                  "Optional: Add custom HTTP headers for API requests. Example: User-Agent: KimiCLI/0.77",
+                )}
+              </div>
+            </div>
+          )}
 
           <Form.Item
             hidden={!advancedOpen}

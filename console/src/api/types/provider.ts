@@ -23,6 +23,8 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  /** Custom headers for API requests. */
+  default_headers: Record<string, string>;
 }
 
 export interface ProviderConfigRequest {
@@ -30,6 +32,7 @@ export interface ProviderConfigRequest {
   base_url?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  default_headers?: Record<string, string>;
 }
 
 export interface ModelSlotConfig {
@@ -55,6 +58,7 @@ export interface CreateCustomProviderRequest {
   api_key_prefix?: string;
   chat_model?: string;
   models?: ModelInfo[];
+  default_headers?: Record<string, string>;
 }
 
 export interface AddModelRequest {
@@ -126,10 +130,12 @@ export interface TestProviderRequest {
   base_url?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  default_headers?: Record<string, string>;
 }
 
 export interface TestModelRequest {
   model_id: string;
+  default_headers?: Record<string, string>;
 }
 
 export interface DiscoverModelsResponse {
