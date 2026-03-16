@@ -434,6 +434,11 @@ class ToolsConfig(BaseModel):
                 enabled=True,
                 description="Get current date and time",
             ),
+            "set_user_timezone": BuiltinToolConfig(
+                name="set_user_timezone",
+                enabled=True,
+                description="Set user timezone",
+            ),
             "get_token_usage": BuiltinToolConfig(
                 name="get_token_usage",
                 enabled=True,

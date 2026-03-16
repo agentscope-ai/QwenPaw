@@ -133,7 +133,7 @@ Alternatively, you can create tasks directly via the Console interface:
 2. Fill in each section:
    - **Basic Info** — Job ID (e.g. `job-001`) and job name (e.g. "Daily Summary").
    - **Schedule** — Cron expression (e.g. `0 9 * * *` = 9:00 AM daily) and
-     timezone
+     timezone (defaults to your configured user timezone)
    - **Task Type & Content** — **Text** (fixed message) or **Agent** (ask
      CoPaw and forward reply), then the content
    - **Delivery** — Target channel (Console, DingTalk, etc.), target user & session id, and

@@ -36,6 +36,7 @@ from .tools import (
     get_token_usage,
     read_file,
     send_file_to_user,
+    set_user_timezone,
     write_file,
     create_memory_search_tool,
 )
@@ -188,6 +189,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "desktop_screenshot": desktop_screenshot,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
+            "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
         }
 
