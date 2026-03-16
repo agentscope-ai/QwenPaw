@@ -162,7 +162,16 @@ class ConsoleChannel(BaseChannel):
         return request
 
     async def consume_one(self, payload: Any) -> None:
-        """Process one payload (AgentRequest or native dict) from queue."""
+        """Process one payload (AgentRequest or native dict) from queue.
+
+        Handles event stream processing with resilience against interruptions
+        (memory compaction, network issues, etc.) by catching stream
+        exceptions and logging partial results.
+
+        Args:
+            payload: The payload to process - either an AgentRequest object
+                or a native dict with "content_parts" key.
+        """
         if isinstance(payload, dict) and "content_parts" in payload:
             session_id = self.resolve_session_id(
                 payload.get("sender_id") or "",
@@ -192,12 +201,14 @@ class ConsoleChannel(BaseChannel):
                     return
                 if merged and hasattr(request.input[0], "content"):
                     request.input[0].content = merged
-        try:
-            send_meta = getattr(request, "channel_meta", None) or {}
-            send_meta.setdefault("bot_prefix", self.bot_prefix)
-            last_response = None
-            event_count = 0
 
+        send_meta = getattr(request, "channel_meta", None) or {}
+        send_meta.setdefault("bot_prefix", self.bot_prefix)
+        last_response = None
+        event_count = 0
+        stream_error = None
+
+        try:
             async for event in self._process(request):
                 event_count += 1
                 obj = getattr(event, "object", None)
@@ -219,16 +230,50 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
+        except StopAsyncIteration:
+            # Normal end of stream
+            pass
+        except Exception as e:
+            # Stream interrupted (memory compaction, etc.)
+            stream_error = e
+            logger.warning(
+                "console event stream interrupted after %s events: %s",
+                event_count,
+                e,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
+
+        # Log stream completion status regardless of success/failure
+        if stream_error:
+            has_response = bool(last_response)
+            logger.warning(
+                "console stream incomplete: event_count=%s has_response=%s "
+                "error=%s",
+                event_count,
+                has_response,
+                type(stream_error).__name__,
+            )
+            # Inform user of interruption
+            self._print_error(
+                f"Response stream interrupted after {event_count} events. "
+                "Some content may be missing.",
+            )
+        else:
+            has_response = bool(last_response)
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
                 event_count,
-                last_response is not None,
+                has_response,
             )
 
+        # Process any error from the response (even if stream was partial)
+        if last_response is not None:
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
                 self._print_error(err_msg)
 
+        # Always notify completion callback if registered
+        try:
             to_handle = request.user_id or ""
             if self._on_reply_sent:
                 self._on_reply_sent(
@@ -236,11 +281,11 @@ class ConsoleChannel(BaseChannel):
                     to_handle,
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
-
-        except Exception as e:
-            logger.exception("console process/reply failed")
-            err_msg = str(e).strip() or "An error occurred while processing."
-            self._print_error(err_msg)
+        except Exception:
+            logger.exception("console on_reply_sent callback failed")
+            self._print_error(
+                "An error occurred while processing the reply.",
+            )
 
     # ── pretty-print helpers ────────────────────────────────────────
 
