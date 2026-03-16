@@ -654,6 +654,55 @@
         "TOOL_CMD_DANGEROUS_RM": "Detects 'rm' command that may cause data loss",
         "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly"
       }
+    },
+    "skillScanner": {
+      "title": "Skill Scanner",
+      "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
+      "mode": "Scanner Mode",
+      "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
+      "modeBlock": "Block",
+      "modeWarn": "Warn Only",
+      "modeOff": "Off",
+      "timeout": "Scan Timeout (seconds)",
+      "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
+      "saveSuccess": "Skill scanner settings saved",
+      "saveFailed": "Failed to save skill scanner settings",
+      "scanAlerts": {
+        "title": "Scan Alerts",
+        "empty": "No security alerts",
+        "clearAll": "Clear All",
+        "clearConfirm": "Clear all scan alerts?",
+        "skillName": "Skill",
+        "action": "Action",
+        "actionBlocked": "Blocked",
+        "actionWarned": "Warned",
+        "severity": "Severity",
+        "time": "Time",
+        "findings": "Findings",
+        "actions": "Actions",
+        "allowSkill": "Add to Whitelist",
+        "remove": "Remove",
+        "viewFindings": "View Details"
+      },
+      "whitelist": {
+        "title": "Whitelist",
+        "empty": "No skills are whitelisted",
+        "skillName": "Skill",
+        "addedAt": "Added At",
+        "contentHash": "Content Hash",
+        "actions": "Actions",
+        "remove": "Remove",
+        "removeConfirm": "Remove this skill from the whitelist?",
+        "addSuccess": "Skill added to whitelist",
+        "removeSuccess": "Skill removed from whitelist",
+        "addFailed": "Failed to add skill to whitelist",
+        "removeFailed": "Failed to remove skill from whitelist"
+      },
+      "scanError": {
+        "title": "Security Scan Failed",
+        "description": "The following security issues were found:",
+        "goToWhitelist": "Go to Whitelist"
+      }
     }
   }
 }

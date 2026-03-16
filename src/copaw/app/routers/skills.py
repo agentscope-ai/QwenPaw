@@ -2,6 +2,7 @@
 import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from ...agents.skills_manager import (
     SkillService,
@@ -12,9 +13,35 @@ from ...agents.skills_hub import (
     search_hub_skills,
     install_skill_from_hub,
 )
+from ...security.skill_scanner import SkillScanError
 
 
 logger = logging.getLogger(__name__)
+
+
+def _scan_error_response(exc: SkillScanError) -> JSONResponse:
+    """Build a 422 response with structured scan findings."""
+    result = exc.result
+    return JSONResponse(
+        status_code=422,
+        content={
+            "type": "security_scan_failed",
+            "detail": str(exc),
+            "skill_name": result.skill_name,
+            "max_severity": result.max_severity.value,
+            "findings": [
+                {
+                    "severity": f.severity.value,
+                    "title": f.title,
+                    "description": f.description,
+                    "file_path": f.file_path,
+                    "line_number": f.line_number,
+                    "rule_id": f.rule_id,
+                }
+                for f in result.findings
+            ],
+        },
+    )
 
 
 class SkillSpec(SkillInfo):
@@ -126,6 +153,8 @@ async def install_from_hub(request: HubInstallRequest):
             enable=request.enable,
             overwrite=request.overwrite,
         )
+    except SkillScanError as e:
+        return _scan_error_response(e)
     except ValueError as e:
         detail = str(e)
         logger.warning(
@@ -135,7 +164,6 @@ async def install_from_hub(request: HubInstallRequest):
         )
         raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
-        # Upstream hub is flaky/rate-limited sometimes; surface as bad gateway.
         detail = str(e) + _github_token_hint(request.bundle_url)
         logger.exception(
             "Skill hub install failed (upstream/rate limit): %s",
@@ -163,19 +191,41 @@ async def batch_disable_skills(skill_name: list[str]) -> None:
 
 
 @router.post("/batch-enable")
-async def batch_enable_skills(skill_name: list[str]) -> None:
+async def batch_enable_skills(skill_name: list[str]):
+    blocked: list[dict] = []
     for skill in skill_name:
-        SkillService.enable_skill(skill)
+        try:
+            SkillService.enable_skill(skill)
+        except SkillScanError as e:
+            blocked.append(
+                {
+                    "skill_name": skill,
+                    "max_severity": e.result.max_severity.value,
+                    "detail": str(e),
+                },
+            )
+    if blocked:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "type": "security_scan_failed",
+                "detail": f"{len(blocked)} skill(s) blocked by security scan",
+                "blocked_skills": blocked,
+            },
+        )
 
 
 @router.post("")
 async def create_skill(request: CreateSkillRequest):
-    result = SkillService.create_skill(
-        name=request.name,
-        content=request.content,
-        references=request.references,
-        scripts=request.scripts,
-    )
+    try:
+        result = SkillService.create_skill(
+            name=request.name,
+            content=request.content,
+            references=request.references,
+            scripts=request.scripts,
+        )
+    except SkillScanError as e:
+        return _scan_error_response(e)
     return {"created": result}
 
 
@@ -187,7 +237,10 @@ async def disable_skill(skill_name: str):
 
 @router.post("/{skill_name}/enable")
 async def enable_skill(skill_name: str):
-    result = SkillService.enable_skill(skill_name)
+    try:
+        result = SkillService.enable_skill(skill_name)
+    except SkillScanError as e:
+        return _scan_error_response(e)
     return {"enabled": result}
 
 

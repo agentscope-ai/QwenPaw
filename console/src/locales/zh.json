@@ -654,6 +654,55 @@
         "TOOL_CMD_DANGEROUS_RM": "检测可能导致数据丢失的 rm 命令",
         "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令"
       }
+    },
+    "skillScanner": {
+      "title": "技能扫描器",
+      "description": "在启用或安装技能前，自动扫描安全威胁。不安全的技能可以被拦截或加入白名单。",
+      "mode": "扫描模式",
+      "modeTooltip": "控制扫描器如何处理不安全的技能：拦截、仅提醒或关闭",
+      "modeBlock": "拦截",
+      "modeWarn": "仅提醒",
+      "modeOff": "关闭",
+      "timeout": "扫描超时（秒）",
+      "timeoutTooltip": "等待扫描完成的最长时间（5-300秒）",
+      "saveSuccess": "技能扫描器设置已保存",
+      "saveFailed": "保存技能扫描器设置失败",
+      "scanAlerts": {
+        "title": "扫描告警",
+        "empty": "暂无安全告警",
+        "clearAll": "清除全部",
+        "clearConfirm": "确定清除所有扫描告警吗？",
+        "skillName": "技能",
+        "action": "动作",
+        "actionBlocked": "已拦截",
+        "actionWarned": "已提醒",
+        "severity": "严重程度",
+        "time": "时间",
+        "findings": "发现",
+        "actions": "操作",
+        "allowSkill": "加入白名单",
+        "remove": "删除",
+        "viewFindings": "查看详情"
+      },
+      "whitelist": {
+        "title": "白名单",
+        "empty": "暂无白名单技能",
+        "skillName": "技能",
+        "addedAt": "添加时间",
+        "contentHash": "内容哈希",
+        "actions": "操作",
+        "remove": "移除",
+        "removeConfirm": "确定将此技能从白名单中移除？",
+        "addSuccess": "技能已加入白名单",
+        "removeSuccess": "技能已从白名单移除",
+        "addFailed": "加入白名单失败",
+        "removeFailed": "从白名单移除失败"
+      },
+      "scanError": {
+        "title": "安全扫描失败",
+        "description": "发现以下安全问题：",
+        "goToWhitelist": "前往白名单"
+      }
     }
   }
 }

@@ -644,6 +644,55 @@
         "TOOL_CMD_DANGEROUS_RM": "データ損失を引き起こす可能性のある rm コマンドを検出",
         "TOOL_CMD_DANGEROUS_MV": "ファイルを意図せず移動・上書きする可能性のある mv コマンドを検出"
       }
+    },
+    "skillScanner": {
+      "title": "スキルスキャナー",
+      "description": "スキルを有効化・インストールする前にセキュリティ脅威を自動スキャンします。",
+      "mode": "スキャンモード",
+      "modeTooltip": "スキャナーが安全でないスキルをどう処理するかを制御: ブロック、警告のみ、オフ",
+      "modeBlock": "ブロック",
+      "modeWarn": "警告のみ",
+      "modeOff": "オフ",
+      "timeout": "スキャンタイムアウト（秒）",
+      "timeoutTooltip": "スキャン完了を待つ最大時間（5-300秒）",
+      "saveSuccess": "スキルスキャナー設定を保存しました",
+      "saveFailed": "スキルスキャナー設定の保存に失敗しました",
+      "scanAlerts": {
+        "title": "スキャンアラート",
+        "empty": "セキュリティアラートはありません",
+        "clearAll": "すべてクリア",
+        "clearConfirm": "すべてのスキャンアラートをクリアしますか？",
+        "skillName": "スキル",
+        "action": "アクション",
+        "actionBlocked": "ブロック済み",
+        "actionWarned": "警告済み",
+        "severity": "重大度",
+        "time": "日時",
+        "findings": "検出結果",
+        "actions": "操作",
+        "allowSkill": "ホワイトリストに追加",
+        "remove": "削除",
+        "viewFindings": "詳細を表示"
+      },
+      "whitelist": {
+        "title": "ホワイトリスト",
+        "empty": "ホワイトリストにスキルがありません",
+        "skillName": "スキル",
+        "addedAt": "追加日時",
+        "contentHash": "コンテンツハッシュ",
+        "actions": "操作",
+        "remove": "削除",
+        "removeConfirm": "このスキルをホワイトリストから削除しますか？",
+        "addSuccess": "スキルをホワイトリストに追加しました",
+        "removeSuccess": "スキルをホワイトリストから削除しました",
+        "addFailed": "ホワイトリストへの追加に失敗しました",
+        "removeFailed": "ホワイトリストからの削除に失敗しました"
+      },
+      "scanError": {
+        "title": "セキュリティスキャン失敗",
+        "description": "以下のセキュリティ問題が見つかりました：",
+        "goToWhitelist": "ホワイトリストへ"
+      }
     }
   }
 }

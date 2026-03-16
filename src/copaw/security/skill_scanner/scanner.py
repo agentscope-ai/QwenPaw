@@ -249,7 +249,7 @@ class SkillScanner:
         """Walk *skill_dir* and return scannable :class:`SkillFile` objects."""
         result: list[SkillFile] = []
         try:
-            candidates = sorted(skill_dir.rglob("*"))
+            candidates = skill_dir.rglob("*")
         except OSError as exc:
             logger.warning("Cannot walk %s: %s", skill_dir, exc)
             return result
