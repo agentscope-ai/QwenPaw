@@ -22,16 +22,23 @@ from .file_handling import download_file_from_base64, download_file_from_url
 
 logger = logging.getLogger(__name__)
 
-# Only allow local paths under this dir (channels save media here).
-_ALLOWED_MEDIA_ROOT = WORKING_DIR / "media"
+# Trusted directories where channels save downloaded media.
+_ALLOWED_MEDIA_ROOTS = [
+    WORKING_DIR / "media",
+    Path("downloads").resolve(),
+]
 
 
 def _is_allowed_media_path(path: str) -> bool:
-    """True if path is a file under _ALLOWED_MEDIA_ROOT."""
+    """True if *path* is a file under one of the allowed media directories."""
     try:
         resolved = Path(path).expanduser().resolve()
-        root = _ALLOWED_MEDIA_ROOT.resolve()
-        return resolved.is_file() and resolved.is_relative_to(root)
+        if not resolved.is_file():
+            return False
+        return any(
+            resolved.is_relative_to(root.resolve())
+            for root in _ALLOWED_MEDIA_ROOTS
+        )
     except Exception:
         return False
 
