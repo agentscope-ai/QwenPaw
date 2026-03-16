@@ -2,6 +2,7 @@
 # pylint: disable=unused-argument too-many-branches too-many-statements
 from __future__ import annotations
 
+import os
 import asyncio
 import json
 import logging
@@ -220,9 +221,6 @@ class AgentRunner(Runner):
         provider-specific error codes) over fragile substring matching.
         """
         try:
-            # 1. Check for known status codes (400 is common for too-long)
-            status_code = getattr(exc, "status_code", None)
-
             # 2. Inspect provider-specific error/code fields
             error_code = None
             if hasattr(exc, "body") and isinstance(exc.body, dict):
@@ -437,6 +435,7 @@ class AgentRunner(Runner):
             raise RuntimeError("Task has been cancelled!") from exc
         except Exception as e:
             # --- Layer 2: catch prompt-too-long and retry ---
+            final_exc = e
             if self._is_prompt_too_long(e) and agent is not None:
                 logger.warning(
                     "Prompt too long detected – trimming session and "
@@ -454,7 +453,7 @@ class AgentRunner(Runner):
 
                     async for msg, last in stream_printing_messages(
                         agents=[agent],
-                        coroutine_task=agent(msgs),
+                        coroutine_task=agent.reply(msgs),
                     ):
                         yield msg, last
                     # Retry succeeded – skip the original raise
@@ -464,20 +463,20 @@ class AgentRunner(Runner):
                         "Retry after session trim also failed: %s",
                         retry_exc,
                     )
-                    e = retry_exc  # fall through to normal error path
+                    final_exc = retry_exc  # fall through to normal error path
 
             debug_dump_path = write_query_error_dump(
                 request=request,
-                exc=e,
+                exc=final_exc,
                 locals_=locals(),
             )
             path_hint = (
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
-            logger.exception(f"Error in query handler: {e}{path_hint}")
+            logger.exception(f"Error in query handler: {final_exc}{path_hint}")
             if debug_dump_path:
-                setattr(e, "debug_dump_path", debug_dump_path)
-                if hasattr(e, "add_note"):
+                setattr(final_exc, "debug_dump_path", debug_dump_path)
+                if hasattr(final_exc, "add_note"):
                     e.add_note(
                         f"(Details:  {debug_dump_path})",
                     )
