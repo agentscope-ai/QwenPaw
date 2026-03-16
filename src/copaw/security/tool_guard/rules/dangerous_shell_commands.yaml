@@ -4,9 +4,9 @@
 # Scans execute_shell_command parameters for destructive, evasive,
 # or privilege-escalating patterns before the agent executes them.
 #
-# Severity tiers: MEDIUM = broad catch-all (confirm with user),
-#                 HIGH / CRITICAL = targeted destructive patterns (block).
-#
+# Severity tiers: MEDIUM = broad catch-all (typically requires user review/confirmation),
+#                 HIGH / CRITICAL = targeted destructive patterns (mark result as unsafe; blocking/approval is
+#                                   enforced by the surrounding ToolGuard/approval workflow when available).
 # See GuardThreatCategory for the full threat taxonomy.
 
 # ── rm: file / directory removal ──────────────────────────────────────
