@@ -803,11 +803,13 @@ class QQChannel(BaseChannel):
                     error_info = (
                         exc.data if isinstance(exc, QQApiError) else {"error": str(exc)}
                     )
+                    if isinstance(error_info, dict):
+                        err_code = error_info.get("err_code") or error_info.get("code", "unknown")
+                    else:
+                        err_code = str(exc)[:50]
                     logger.warning(
                         "QQ send failed (%s), trying LLM to fix",
-                        error_info.get("err_code") or error_info.get("code", "unknown")
-                        if isinstance(error_info, dict)
-                        else str(exc)[:50],
+                        err_code,
                     )
                     
                     # Try LLM-based fixing
