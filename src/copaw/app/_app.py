@@ -156,6 +156,49 @@ class DynamicMultiAgentRunner:
         return None
 
 
+class BaseURLPrefixMiddleware:
+    """Strip configured BASE_URL prefix from incoming request paths."""
+
+    def __init__(self, app, prefix: str):
+        self.app = app
+        self.prefix = prefix
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path == self.prefix or path.startswith(f"{self.prefix}/"):
+            child_path = path[len(self.prefix) :] or "/"
+            child_root = f"{scope.get('root_path', '')}{self.prefix}"
+            forwarded_scope = {
+                **scope,
+                "path": child_path,
+                "root_path": child_root,
+            }
+            await self.app(forwarded_scope, receive, send)
+            return
+
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008})
+            return
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 404,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"detail":"Not Found"}',
+            }
+        )
+
+
 # Use dynamic runner for AgentApp
 runner = DynamicMultiAgentRunner()
 
@@ -243,6 +286,10 @@ app = FastAPI(
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
+
+if _BASE_URL_PREFIX:
+    app.add_middleware(BaseURLPrefixMiddleware, prefix=_BASE_URL_PREFIX)
+    logger.info("Enabled BASE_URL path prefix: %s", _BASE_URL_PREFIX)
 
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)
@@ -374,9 +421,3 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         _ = full_path
         return _serve_console_index()
 
-
-if _BASE_URL_PREFIX:
-    prefixed_app = FastAPI()
-    prefixed_app.mount(_BASE_URL_PREFIX, app)
-    app = prefixed_app
-    logger.info("Mounted CoPaw app with BASE_URL prefix: %s", _BASE_URL_PREFIX)
