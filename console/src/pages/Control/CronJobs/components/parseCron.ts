@@ -24,7 +24,10 @@ const INTEGER_RE = /^\d+$/;
  * Mapping from crontab numeric day to three-letter abbreviation.
  * Supports both crontab (0=Sun) and the common 7=Sun alias.
  */
-const NUM_TO_NAME: Record<string, string> = {
+const ORDERED_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+type DayName = (typeof ORDERED_DAYS)[number];
+
+const NUM_TO_NAME: Record<string, DayName> = {
   "0": "sun",
   "1": "mon",
   "2": "tue",
@@ -35,7 +38,11 @@ const NUM_TO_NAME: Record<string, string> = {
   "7": "sun",
 };
 
-const VALID_NAMES = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+const VALID_NAMES = new Set<DayName>(ORDERED_DAYS);
+
+function isDayName(value: string): value is DayName {
+  return VALID_NAMES.has(value as DayName);
+}
 
 /**
  * Parse cron expression to CronParts
@@ -128,10 +135,7 @@ export function serializeCron(parts: CronParts): string {
     case "weekly": {
       const h = parts.hour ?? 9;
       const m = parts.minute ?? 0;
-      const days =
-        parts.daysOfWeek && parts.daysOfWeek.length > 0
-          ? parts.daysOfWeek.join(",")
-          : "mon";
+      const days = serializeDaysOfWeek(parts.daysOfWeek);
       return `${m} ${h} * * ${days}`;
     }
 
@@ -152,9 +156,8 @@ export function serializeCron(parts: CronParts): string {
  * fall back to `custom`.
  */
 function parseDaysOfWeek(dayOfWeek: string): string[] {
-  const days: string[] = [];
+  const days: DayName[] = [];
   const parts = dayOfWeek.split(",");
-  const ordered = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
   for (const part of parts) {
     const trimmed = part.trim().toLowerCase();
@@ -163,7 +166,7 @@ function parseDaysOfWeek(dayOfWeek: string): string[] {
       return [];
     }
 
-    if (VALID_NAMES.has(trimmed)) {
+    if (isDayName(trimmed)) {
       if (!days.includes(trimmed)) {
         days.push(trimmed);
       }
@@ -184,19 +187,19 @@ function parseDaysOfWeek(dayOfWeek: string): string[] {
       const startName = NUM_TO_NAME[startStr] || startStr;
       const endName = NUM_TO_NAME[endStr] || endStr;
 
-      if (!VALID_NAMES.has(startName) || !VALID_NAMES.has(endName)) {
+      if (!isDayName(startName) || !isDayName(endName)) {
         return [];
       }
 
-      const si = ordered.indexOf(startName);
-      const ei = ordered.indexOf(endName);
+      const si = ORDERED_DAYS.indexOf(startName);
+      const ei = ORDERED_DAYS.indexOf(endName);
       if (si === -1 || ei === -1 || si > ei) {
         return [];
       }
 
       for (let i = si; i <= ei; i++) {
-        if (!days.includes(ordered[i])) {
-          days.push(ordered[i]);
+        if (!days.includes(ORDERED_DAYS[i])) {
+          days.push(ORDERED_DAYS[i]);
         }
       }
       continue;
@@ -213,4 +216,43 @@ function parseDaysOfWeek(dayOfWeek: string): string[] {
   }
 
   return days;
+}
+
+function serializeDaysOfWeek(daysOfWeek?: string[]): string {
+  if (!daysOfWeek || daysOfWeek.length === 0) {
+    return "mon";
+  }
+
+  const selectedDays = ORDERED_DAYS.filter((day) => daysOfWeek.includes(day));
+  if (selectedDays.length === 0) {
+    return "mon";
+  }
+
+  const segments: string[] = [];
+  let rangeStart = selectedDays[0];
+  let previousDay = selectedDays[0];
+
+  for (let i = 1; i <= selectedDays.length; i++) {
+    const currentDay = selectedDays[i];
+    const isContiguous =
+      currentDay !== undefined &&
+      ORDERED_DAYS.indexOf(currentDay) ===
+        ORDERED_DAYS.indexOf(previousDay) + 1;
+
+    if (isContiguous) {
+      previousDay = currentDay;
+      continue;
+    }
+
+    if (rangeStart === previousDay) {
+      segments.push(rangeStart);
+    } else {
+      segments.push(`${rangeStart}-${previousDay}`);
+    }
+
+    rangeStart = currentDay;
+    previousDay = currentDay ?? previousDay;
+  }
+
+  return segments.join(",");
 }
