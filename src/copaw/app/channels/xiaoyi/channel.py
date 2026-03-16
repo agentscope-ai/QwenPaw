@@ -366,7 +366,6 @@ class XiaoYiChannel(BaseChannel):
                 self.ws_url,
                 headers=headers,
                 timeout=ws_timeout,
-                ssl=not self._is_wss_ip_url(),  # Skip SSL for IP URLs
             )
 
             self._connected = True
@@ -386,30 +385,6 @@ class XiaoYiChannel(BaseChannel):
             logger.error(f"XiaoYi: WebSocket connection error: {e}")
             self._connected = False
             raise
-
-    def _is_wss_ip_url(self) -> bool:
-        """Check if URL is wss://IP format (skip cert verification)."""
-        import re
-        from urllib.parse import urlparse
-
-        try:
-            parsed = urlparse(self.ws_url)
-            if parsed.scheme != "wss":
-                return False
-
-            hostname = parsed.hostname or ""
-            # Check for IPv4
-            ipv4_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-            if re.match(ipv4_pattern, hostname):
-                return True
-
-            # Check for IPv6
-            if ":" in hostname:
-                return True
-
-            return False
-        except Exception:
-            return False
 
     async def _send_init_message(self) -> None:
         """Send init message to server."""
