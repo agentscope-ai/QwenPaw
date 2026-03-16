@@ -1825,7 +1825,13 @@ class DingTalkChannel(BaseChannel):
                 ext = filename.rsplit(".", 1)[-1].lower().strip()
                 if ext:
                     suffix = "." + ext
-            elif content_type:
+            # If hint/provided filename is generic (.bin/.file), prefer
+            # response Content-Type to recover real media suffix.
+            if suffix in (".bin", ".file") and content_type:
+                guessed = mimetypes.guess_extension(content_type)
+                if guessed:
+                    suffix = guessed
+            elif suffix == ".file" and content_type:
                 suffix = mimetypes.guess_extension(content_type) or ".file"
             self._media_dir.mkdir(parents=True, exist_ok=True)
             path = self._media_dir / f"{safe_key}{suffix}"

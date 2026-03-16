@@ -5,23 +5,29 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
+import os
 import re
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    # AudioContent,
+    AudioContent,
     FileContent,
     ImageContent,
     VideoContent,
 )
 
 from ..base import ContentType
+from ..utils import convert_audio_file_path, file_url_to_local_path
 
 from .constants import (
     DINGTALK_SESSION_ID_SUFFIX_LEN,
     DINGTALK_TYPE_MAPPING,
 )
+
+logger = logging.getLogger(__name__)
 
 
 _DATA_URL_RE = re.compile(
@@ -37,15 +43,63 @@ def dingtalk_content_from_type(mapped: str, url: str) -> Any:
     if mapped == "video":
         return VideoContent(type=ContentType.VIDEO, video_url=url)
     if mapped == "audio":
-        # Use subtype only: runtime prefixes with "audio/" -> "audio/amr".
-        # TODO: change to audio block when as support amr
-        return FileContent(
-            type=ContentType.FILE,
-            file_url=url,
-            # data=url,
-            # format="amr",
-        )
+        audio_content = _dingtalk_audio_content_from_local_path(url)
+        if audio_content is not None:
+            return audio_content
+        # Fallback to file when conversion/runtime audio cannot be built.
+        return FileContent(type=ContentType.FILE, file_url=url)
     return FileContent(type=ContentType.FILE, file_url=url)
+
+
+def _normalize_local_path(path_or_url: str) -> Optional[str]:
+    """Normalize a local filesystem path from plain path or file:// URL."""
+    if not isinstance(path_or_url, str):
+        return None
+    raw = path_or_url.strip()
+    if not raw:
+        return None
+    local_path = file_url_to_local_path(raw)
+    if not local_path:
+        return None
+    return str(Path(local_path).expanduser())
+
+
+def _audio_media_type_from_path(path: str) -> str:
+    ext = (os.path.splitext(path)[1] or "").lower()
+    return {
+        ".mp3": "mp3",
+        ".wav": "wav",
+    }.get(ext, "mp3")
+
+
+def _dingtalk_audio_content_from_local_path(path_or_url: str) -> Optional[Any]:
+    """Build AudioContent from DingTalk audio by normalizing to mp3/wav."""
+    local_path = _normalize_local_path(path_or_url)
+    if not local_path or not os.path.isfile(local_path):
+        return None
+
+    ext = (os.path.splitext(local_path)[1] or "").lower()
+    final_path = local_path
+    if ext not in (".mp3", ".wav"):
+        converted_path, error = convert_audio_file_path(
+            file_path=local_path,
+            output_format="mp3",
+        )
+        if error:
+            logger.info(
+                "dingtalk audio conversion fallback to file: %s",
+                error,
+            )
+            return None
+        if not converted_path or not os.path.isfile(converted_path):
+            return None
+        final_path = converted_path
+
+    return AudioContent(
+        type=ContentType.AUDIO,
+        data=Path(final_path).resolve().as_uri(),
+        format=_audio_media_type_from_path(final_path),
+    )
 
 
 def parse_data_url(data_url: str) -> tuple[bytes, Optional[str]]:
