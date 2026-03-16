@@ -18,6 +18,7 @@ from copaw.providers.provider import (
     DefaultProvider,
     Provider,
     ProviderInfo,
+    ProviderAuth,
 )
 from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
@@ -160,6 +161,8 @@ PROVIDER_OPENAI = OpenAIProvider(
     api_key_prefix="sk-",
     models=OPENAI_MODELS,
     freeze_url=True,
+    auth_modes=["api_key", "oauth_browser"],
+    auth_helper="openai",
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -281,7 +284,17 @@ class ProviderManager:
         self._add_builtin(PROVIDER_MLX)
 
     def _add_builtin(self, provider: Provider):
+        self._bind_provider(provider, is_builtin=True)
         self.builtin_providers[provider.id] = provider
+
+    def _bind_provider(self, provider: Provider, is_builtin: bool) -> Provider:
+        provider.set_persist_callback(
+            lambda current: self._save_provider(
+                current,
+                is_builtin=is_builtin,
+            ),
+        )
+        return provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
         tasks = [
@@ -325,6 +338,37 @@ class ProviderManager:
         )
         return True
 
+    def revoke_provider_auth(self, provider_id: str) -> Provider | None:
+        """Revoke a provider's saved authentication state."""
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            return None
+
+        keep_api_key = provider.auth.mode == "oauth_browser"
+        if not keep_api_key:
+            provider.api_key = ""
+
+        provider.auth = ProviderAuth(
+            mode="api_key",
+            status=(
+                "authorized"
+                if (not provider.require_api_key or bool(provider.api_key))
+                else "unauthorized"
+            ),
+        )
+
+        provider.on_auth_reset()
+
+        self._save_provider(
+            provider,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        return provider
+
+    def save_provider(self, provider: Provider, is_builtin: bool) -> None:
+        """Persist a provider through the manager's storage rules."""
+        self._save_provider(provider, is_builtin=is_builtin)
+
     async def fetch_provider_models(
         self,
         provider_id: str,
@@ -335,11 +379,21 @@ class ProviderManager:
             return []
         try:
             models = await provider.fetch_models()
-            provider.extra_models = models
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
-            )
+            # Browser-auth providers may manage discovered models internally.
+            if provider.auth.mode != "oauth_browser":
+                provider.extra_models = models
+            # Only save if we got valid models, to avoid clearing existing ones
+            if models:
+                self._save_provider(
+                    provider,
+                    is_builtin=provider_id in self.builtin_providers,
+                )
+            else:
+                logger.warning(
+                    "fetch_provider_models: no models returned for '%s', "
+                    "keeping existing model list",
+                    provider_id,
+                )
             return models
         except Exception as e:
             logger.warning(
@@ -375,6 +429,7 @@ class ProviderManager:
         provider = self._provider_from_data(
             provider_payload,
         )  # Validate provider data
+        self._bind_provider(provider, is_builtin=False)
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
         return await provider.get_info()
@@ -468,7 +523,10 @@ class ProviderManager:
         try:
             with open(provider_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return self._provider_from_data(data)
+            return self._bind_provider(
+                self._provider_from_data(data),
+                is_builtin=is_builtin,
+            )
         except Exception as e:
             logger.warning(
                 "Failed to load provider '%s' from %s: %s",
@@ -566,6 +624,7 @@ class ProviderManager:
                     ]
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
+                self._bind_provider(custom_provider, is_builtin=False)
                 self._save_provider(custom_provider, is_builtin=False)
             # Migrate active model
             if active_model:
@@ -595,7 +654,14 @@ class ProviderManager:
                 builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
+                builtin.chat_model = provider.chat_model
                 builtin.generate_kwargs.update(provider.generate_kwargs)
+                builtin.auth = provider.auth
+                if isinstance(builtin, OpenAIProvider) and isinstance(
+                    provider,
+                    OpenAIProvider,
+                ):
+                    builtin.oauth_models = provider.oauth_models
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

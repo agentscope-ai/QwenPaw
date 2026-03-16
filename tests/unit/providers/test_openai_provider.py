@@ -3,8 +3,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 import copaw.providers.openai_provider as openai_provider_module
 from copaw.providers.openai_provider import OpenAIProvider
+from copaw.providers.provider import ModelInfo
+
+pytestmark = pytest.mark.anyio
 
 
 def _make_provider() -> OpenAIProvider:
@@ -74,7 +79,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
 
     assert [m.id for m in models] == ["gpt-4o-mini", "gpt-4.1"]
     assert [m.name for m in models] == ["GPT-4o Mini", "gpt-4.1"]
-    assert provider.models == []  # should not update provider state
+    assert not provider.models  # should not update provider state
 
 
 async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
@@ -263,3 +268,84 @@ async def test_update_config_does_not_update_base_url_when_frozen() -> None:
     assert provider.api_key == "sk-frozen"
     assert info.base_url == "https://mock-openai.local/v1"
     assert info.api_key == "sk-frozen"
+
+
+async def test_get_info_hides_manual_models_for_oauth_mode() -> None:
+    provider = _make_provider()
+    provider.auth.mode = "oauth_browser"
+    provider.auth.status = "authorized"
+    provider.models = [ModelInfo(id="gpt-5", name="GPT-5")]
+    provider.extra_models = [ModelInfo(id="gpt-5.2", name="GPT-5.2")]
+    provider.oauth_models = [ModelInfo(id="o4-mini", name="o4-mini")]
+
+    info = await provider.get_info(mock_secret=False)
+
+    assert [model.id for model in info.models] == ["o4-mini"]
+    assert info.extra_models == []
+    assert info.support_model_discovery is True
+
+
+async def test_has_model_uses_oauth_models_only() -> None:
+    provider = _make_provider()
+    provider.auth.mode = "oauth_browser"
+    provider.auth.status = "authorized"
+    provider.extra_models = [ModelInfo(id="gpt-5.2", name="GPT-5.2")]
+    provider.oauth_models = [ModelInfo(id="o3", name="o3")]
+
+    assert provider.has_model("o3") is True
+    assert provider.has_model("gpt-5.2") is False
+
+
+async def test_check_model_connection_rejects_model_missing_from_oauth_list(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.auth.mode = "oauth_browser"
+    provider.auth.status = "authorized"
+    provider.auth.access_token = "token"
+    provider.auth.account_id = "acct"
+    provider.oauth_models = [ModelInfo(id="o4-mini", name="o4-mini")]
+
+    monkeypatch.setattr(
+        openai_provider_module,
+        "is_oauth_authorized",
+        lambda current: current is provider,
+    )
+
+    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+
+    assert ok is False
+    assert "ChatGPT Sign In" in msg
+
+
+async def test_refresh_oauth_persists_updated_tokens(monkeypatch) -> None:
+    # pylint: disable=protected-access
+    provider = _make_provider()
+    provider.auth.mode = "oauth_browser"
+    provider.auth.status = "authorized"
+    provider.auth.refresh_token = "refresh-1"
+
+    persisted: list[tuple[str, str]] = []
+
+    def persist(current: OpenAIProvider) -> None:
+        persisted.append(
+            (current.auth.access_token, current.auth.refresh_token),
+        )
+
+    provider.set_persist_callback(persist)
+
+    async def fake_refresh(current, save_callback):
+        current.auth.access_token = "access-2"
+        current.auth.refresh_token = "refresh-2"
+        save_callback(current)
+        return current.auth
+
+    monkeypatch.setattr(
+        openai_provider_module,
+        "refresh_provider_auth",
+        fake_refresh,
+    )
+
+    await provider._refresh_oauth()
+
+    assert persisted == [("access-2", "refresh-2")]

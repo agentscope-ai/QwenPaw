@@ -11,8 +11,15 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
+from ...constant import SECRET_DIR
 from ...config.config import load_agent_config, save_agent_config
-from ...providers.provider import ProviderInfo, ModelInfo
+from ...providers.auth_helper_registry import (
+    browser_auth_unavailable_reason,
+    get_provider_auth_session as get_auth_session_for_provider,
+    get_auth_helper_for_provider,
+    start_provider_browser_login,
+)
+from ...providers.provider import ModelInfo, ProviderAuth, ProviderInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
 from ...providers.models import ModelSlotConfig
 
@@ -43,6 +50,9 @@ def get_provider_manager(request: Request) -> ProviderManager:
 class ProviderConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+    auth_mode: Optional[Literal["api_key", "oauth_browser"]] = Field(
+        default=None,
+    )
     chat_model: Optional[ChatModelName] = Field(
         default=None,
         description="Chat model class name for protocol selection",
@@ -97,11 +107,28 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+
+    if body.auth_mode == "oauth_browser" and not (
+        provider.auth.mode == "oauth_browser"
+        and provider.auth.status == "authorized"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Complete browser sign-in before saving browser auth mode",
+        )
+
     ok = manager.update_provider(
         provider_id,
         {
             "api_key": body.api_key,
             "base_url": body.base_url,
+            "auth_mode": body.auth_mode,
             "chat_model": body.chat_model,
             "generate_kwargs": body.generate_kwargs,
         },
@@ -162,6 +189,10 @@ class TestProviderRequest(BaseModel):
         default=None,
         description="Optional Base URL to test",
     )
+    auth_mode: Optional[Literal["api_key", "oauth_browser"]] = Field(
+        default=None,
+        description="Optional auth mode to test",
+    )
     chat_model: Optional[ChatModelName] = Field(
         default=None,
         description="Optional chat model class to test protocol behavior",
@@ -180,6 +211,10 @@ class DiscoverModelsRequest(BaseModel):
     base_url: Optional[str] = Field(
         default=None,
         description="Optional Base URL to use for discovery",
+    )
+    auth_mode: Optional[Literal["api_key", "oauth_browser"]] = Field(
+        default=None,
+        description="Optional auth mode to use for discovery",
     )
     chat_model: Optional[ChatModelName] = Field(
         default=None,
@@ -200,6 +235,19 @@ class DiscoverModelsResponse(BaseModel):
     added_count: int = Field(
         default=0,
         description="How many new models were added into provider config",
+    )
+
+
+class ProviderAuthSessionResponse(BaseModel):
+    session_id: str = Field(..., description="Browser auth session id")
+    provider_id: str = Field(..., description="Provider identifier")
+    status: str = Field(..., description="Auth session status")
+    auth_url: str = Field(default="", description="Browser auth URL")
+    error: str = Field(default="", description="Auth error message")
+    created_at: str = Field(default="", description="Session creation time")
+    auth: Optional[ProviderAuth] = Field(
+        default=None,
+        description="Sanitized provider auth state",
     )
 
 
@@ -224,6 +272,8 @@ async def test_provider(
             tmp_provider.api_key = body.api_key
         if body and body.base_url:
             tmp_provider.base_url = body.base_url
+        if body and body.auth_mode:
+            tmp_provider.auth.mode = body.auth_mode
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
@@ -251,6 +301,7 @@ async def discover_models(
             {
                 "api_key": body.api_key if body else None,
                 "base_url": body.base_url if body else None,
+                "auth_mode": body.auth_mode if body else None,
             },
         )
         if not ok:
@@ -269,6 +320,111 @@ async def discover_models(
         return DiscoverModelsResponse(success=success, models=result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{provider_id}/auth/start",
+    response_model=ProviderAuthSessionResponse,
+    summary="Start browser auth for a provider",
+)
+async def start_provider_auth(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> ProviderAuthSessionResponse:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+    helper = get_auth_helper_for_provider(provider)
+    if helper is None:
+        raise HTTPException(
+            status_code=400,
+            detail=browser_auth_unavailable_reason(provider),
+        )
+    if not helper.is_available():
+        raise HTTPException(
+            status_code=400,
+            detail=helper.unavailable_reason(),
+        )
+
+    try:
+        session = await start_provider_browser_login(
+            provider,
+            SECRET_DIR / "providers" / "auth" / provider_id,
+            lambda current: manager.save_provider(
+                current,
+                is_builtin=provider_id in manager.builtin_providers,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=helper.unavailable_reason(),
+        ) from exc
+    except Exception as exc:
+        logger.exception("Failed to start provider auth for %s", provider_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return ProviderAuthSessionResponse(
+        **session.to_dict(),
+        auth=provider.auth.public_copy(),
+    )
+
+
+@router.get(
+    "/{provider_id}/auth/session/{session_id}",
+    response_model=ProviderAuthSessionResponse,
+    summary="Get browser auth session status",
+)
+async def get_provider_auth_session(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    session_id: str = Path(...),
+) -> ProviderAuthSessionResponse:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+
+    session = await get_auth_session_for_provider(provider, session_id)
+    if session is None or session.provider_id != provider_id:
+        raise HTTPException(status_code=404, detail="Auth session not found")
+
+    return ProviderAuthSessionResponse(
+        **session.to_dict(),
+        auth=provider.auth.public_copy() if provider else None,
+    )
+
+
+@router.post(
+    "/{provider_id}/auth/revoke",
+    response_model=ProviderInfo,
+    summary="Revoke provider auth",
+)
+async def revoke_provider_auth(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> ProviderInfo:
+    provider = manager.revoke_provider_auth(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+
+    provider_info = await manager.get_provider_info(provider_id)
+    if provider_info is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found after revoke",
+        )
+    return provider_info
 
 
 @router.post(

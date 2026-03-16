@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import {
   Form,
@@ -7,9 +7,15 @@ import {
   message,
   Button,
   Select,
+  Tag,
 } from "@agentscope-ai/design";
 import { ApiOutlined, DownOutlined, RightOutlined } from "@ant-design/icons";
-import type { ProviderConfigRequest } from "../../../../../api/types";
+import type {
+  ActiveModelsInfo,
+  ProviderAuthSessionResponse,
+  ProviderConfigRequest,
+  ProviderInfo,
+} from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
@@ -242,18 +248,8 @@ function JsonCodeEditor({
 }
 
 interface ProviderConfigModalProps {
-  provider: {
-    id: string;
-    name: string;
-    api_key?: string;
-    api_key_prefix?: string;
-    base_url?: string;
-    is_custom: boolean;
-    freeze_url: boolean;
-    chat_model: string;
-    generate_kwargs: Record<string, unknown>;
-  };
-  activeModels: any;
+  provider: ProviderInfo;
+  activeModels: ActiveModelsInfo | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -269,11 +265,22 @@ export function ProviderConfigModal({
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authSession, setAuthSession] =
+    useState<ProviderAuthSessionResponse | null>(null);
   const [formDirty, setFormDirty] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form] = Form.useForm<ProviderConfigFormValues>();
   const selectedChatModel = Form.useWatch("chat_model", form);
+  const selectedAuthMode = Form.useWatch("auth_mode", form);
+  const authPollRef = useRef<number | null>(null);
   const canEditBaseUrl = !provider.freeze_url;
+  const supportsBrowserAuth =
+    provider.id === "openai" && provider.auth_modes.includes("oauth_browser");
+  const effectiveAuthMode =
+    selectedAuthMode || provider.auth?.mode || "api_key";
+  const isOauthMode =
+    supportsBrowserAuth && effectiveAuthMode === "oauth_browser";
 
   const parseGenerateConfig = (value?: string) => {
     const trimmed = value?.trim();
@@ -364,12 +371,20 @@ export function ProviderConfigModal({
     return "https://api.example.com";
   }, [canEditBaseUrl, provider.id, provider.is_custom, effectiveChatModel]);
 
+  const stopAuthPolling = useCallback(() => {
+    if (authPollRef.current !== null) {
+      window.clearInterval(authPollRef.current);
+      authPollRef.current = null;
+    }
+  }, []);
+
   // Sync form when modal opens or provider data changes
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
         api_key: undefined,
         base_url: provider.base_url || undefined,
+        auth_mode: provider.auth?.mode || "api_key",
         chat_model: provider.chat_model || "OpenAIChatModel",
         generate_kwargs_text:
           provider.generate_kwargs &&
@@ -378,9 +393,16 @@ export function ProviderConfigModal({
             : undefined,
       });
       setAdvancedOpen(false);
+      setAuthSession(null);
       setFormDirty(false);
     }
-  }, [provider, form, open]);
+    if (!open) {
+      stopAuthPolling();
+      setAuthSession(null);
+    }
+  }, [provider, form, open, stopAuthPolling]);
+
+  useEffect(() => stopAuthPolling, [stopAuthPolling]);
 
   const handleSubmit = async () => {
     try {
@@ -391,12 +413,21 @@ export function ProviderConfigModal({
         values.generate_kwargs_text?.trim(),
       );
 
+      if (
+        values.auth_mode === "oauth_browser" &&
+        currentAuthStatus !== "authorized"
+      ) {
+        message.warning(t("models.completeSignInBeforeSaving"));
+        return;
+      }
+
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
-      if (!provider.is_custom) {
+      if (!provider.is_custom && values.auth_mode !== "oauth_browser") {
         const result = await api.testProviderConnection(provider.id, {
           api_key: values.api_key,
           base_url: values.base_url,
+          auth_mode: values.auth_mode,
           chat_model: values.chat_model,
         });
 
@@ -410,6 +441,7 @@ export function ProviderConfigModal({
       await api.configureProvider(provider.id, {
         api_key: values.api_key,
         base_url: values.base_url,
+        auth_mode: values.auth_mode,
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
       });
@@ -439,6 +471,7 @@ export function ProviderConfigModal({
       const result = await api.testProviderConnection(provider.id, {
         api_key: values.api_key,
         base_url: values.base_url,
+        auth_mode: form.getFieldValue("auth_mode"),
         chat_model: values.chat_model,
       });
       if (result.success) {
@@ -461,6 +494,77 @@ export function ProviderConfigModal({
   const isActiveLlmProvider =
     activeModels?.active_llm?.provider_id === provider.id;
 
+  const currentAuthStatus = authSession?.auth?.status || provider.auth?.status;
+  const currentAuthIdentity =
+    authSession?.auth?.identity || provider.auth?.identity || "";
+  const currentAuthError = authSession?.auth?.error || provider.auth?.error;
+  const authStatusColor =
+    currentAuthStatus === "authorized"
+      ? "green"
+      : currentAuthStatus === "authorizing"
+      ? "blue"
+      : currentAuthStatus === "expired" || currentAuthStatus === "error"
+      ? "red"
+      : "default";
+  const authStatusLabel =
+    currentAuthStatus === "authorized"
+      ? t("models.authorized")
+      : currentAuthStatus === "authorizing"
+      ? t("models.authorizing")
+      : currentAuthStatus === "expired"
+      ? t("models.authorizationExpired")
+      : currentAuthStatus === "error"
+      ? t("models.authorizationError")
+      : t("models.authorizationPending");
+
+  const startAuthPolling = useCallback(
+    (sessionId: string) => {
+      stopAuthPolling();
+      authPollRef.current = window.setInterval(async () => {
+        try {
+          const nextSession = await api.getProviderAuthSession(
+            provider.id,
+            sessionId,
+          );
+          setAuthSession(nextSession);
+          if (nextSession.status === "authorized") {
+            stopAuthPolling();
+            await onSaved();
+            message.success(t("models.signInSuccess", { name: provider.name }));
+          } else if (nextSession.status === "error") {
+            stopAuthPolling();
+            message.error(nextSession.error || t("models.signInFailed"));
+          }
+        } catch (error) {
+          stopAuthPolling();
+          const errMsg =
+            error instanceof Error ? error.message : t("models.signInFailed");
+          message.error(errMsg);
+        }
+      }, 1000);
+    },
+    [onSaved, provider.id, provider.name, stopAuthPolling, t],
+  );
+
+  const handleStartAuth = async () => {
+    setAuthLoading(true);
+    try {
+      const session = await api.startProviderAuth(provider.id);
+      setAuthSession(session);
+      if (session.auth_url) {
+        window.open(session.auth_url, "_blank", "noopener,noreferrer");
+      }
+      startAuthPolling(session.session_id);
+      message.success(t("models.signInStarted"));
+    } catch (error) {
+      const errMsg =
+        error instanceof Error ? error.message : t("models.signInFailed");
+      message.error(errMsg);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleRevoke = () => {
     const confirmContent = isActiveLlmProvider
       ? t("models.revokeConfirmContent", { name: provider.name })
@@ -474,7 +578,8 @@ export function ProviderConfigModal({
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {
-          await api.configureProvider(provider.id, { api_key: "" });
+          stopAuthPolling();
+          await api.revokeProviderAuth(provider.id);
           await onSaved();
           onClose();
           if (isActiveLlmProvider) {
@@ -503,7 +608,11 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.api_key && (
+            {(provider.api_key ||
+              provider.auth?.status === "authorized" ||
+              provider.auth?.status === "authorizing" ||
+              provider.auth?.status === "expired" ||
+              provider.auth?.status === "error") && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
@@ -539,6 +648,7 @@ export function ProviderConfigModal({
         layout="vertical"
         initialValues={{
           base_url: provider.base_url || undefined,
+          auth_mode: provider.auth?.mode || "api_key",
           chat_model: provider.chat_model || "OpenAIChatModel",
           generate_kwargs_text:
             provider.generate_kwargs &&
@@ -570,6 +680,27 @@ export function ProviderConfigModal({
                 {
                   value: "AnthropicChatModel",
                   label: t("models.protocolAnthropic"),
+                },
+              ]}
+            />
+          </Form.Item>
+        )}
+
+        {supportsBrowserAuth && (
+          <Form.Item
+            name="auth_mode"
+            label={t("models.authentication")}
+            extra={t("models.authModeHint")}
+          >
+            <Select
+              options={[
+                {
+                  value: "api_key",
+                  label: t("models.authModeApiKey"),
+                },
+                {
+                  value: "oauth_browser",
+                  label: t("models.authModeBrowser"),
                 },
               ]}
             />
@@ -617,33 +748,83 @@ export function ProviderConfigModal({
           <Input placeholder={baseUrlPlaceholder} disabled={!canEditBaseUrl} />
         </Form.Item>
 
-        {/* API Key */}
-        <Form.Item
-          name="api_key"
-          label={t("models.apiKey")}
-          rules={[
-            {
-              validator: (_, value) => {
-                if (
-                  value &&
-                  provider.api_key_prefix &&
-                  !value.startsWith(provider.api_key_prefix)
-                ) {
-                  return Promise.reject(
-                    new Error(
-                      t("models.apiKeyShouldStart", {
-                        prefix: provider.api_key_prefix,
-                      }),
-                    ),
-                  );
-                }
-                return Promise.resolve();
+        {isOauthMode ? (
+          <div className={styles.authPanel}>
+            <div className={styles.authPanelHeader}>
+              <span className={styles.authPanelTitle}>
+                {t("models.currentAuthorization")}
+              </span>
+              <Tag color={authStatusColor}>{authStatusLabel}</Tag>
+            </div>
+            <div className={styles.infoRow}>
+              <span className={styles.infoLabel}>
+                {t("models.authorizationIdentity")}:
+              </span>
+              <span className={styles.authPanelValue}>
+                {currentAuthIdentity || t("models.authorizationNotSignedIn")}
+              </span>
+            </div>
+            {currentAuthError ? (
+              <div className={styles.authPanelError}>
+                {t("models.authorizationErrorLabel")}: {currentAuthError}
+              </div>
+            ) : null}
+            <div className={styles.authPanelHint}>
+              {t("models.codexCliRequired")}
+            </div>
+            {authSession?.auth_url ? (
+              <div className={styles.authPanelHint}>
+                {t("models.completeSignInInBrowser")}{" "}
+                <a
+                  href={authSession.auth_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.authPanelLink}
+                >
+                  {t("models.openSignInPage")}
+                </a>
+              </div>
+            ) : null}
+            <div className={styles.authPanelActions}>
+              <Button
+                type="primary"
+                onClick={handleStartAuth}
+                loading={authLoading}
+              >
+                {currentAuthStatus === "authorized"
+                  ? t("models.reauthorize")
+                  : t("models.signInWithChatGPT")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Form.Item
+            name="api_key"
+            label={t("models.apiKey")}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (
+                    value &&
+                    provider.api_key_prefix &&
+                    !value.startsWith(provider.api_key_prefix)
+                  ) {
+                    return Promise.reject(
+                      new Error(
+                        t("models.apiKeyShouldStart", {
+                          prefix: provider.api_key_prefix,
+                        }),
+                      ),
+                    );
+                  }
+                  return Promise.resolve();
+                },
               },
-            },
-          ]}
-        >
-          <Input.Password placeholder={apiKeyPlaceholder} />
-        </Form.Item>
+            ]}
+          >
+            <Input.Password placeholder={apiKeyPlaceholder} />
+          </Form.Item>
+        )}
 
         <div className={styles.advancedConfigSection}>
           <button

@@ -35,6 +35,18 @@ Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, Az
 >
 > ![cancel](https://img.alicdn.com/imgextra/i2/O1CN01A8j1IR1n8fHGnio0q_!!6000000005045-2-tps-3802-1968.png)
 
+### OpenAI browser sign-in
+
+The OpenAI provider also supports **ChatGPT Sign In** in addition to API keys.
+In **Settings → Models → OpenAI → Settings**, switch **Authentication** to
+**ChatGPT Sign In**, click **Sign in with ChatGPT**, finish the browser flow,
+then save the provider. After authorization succeeds, use **Models** to
+discover the models available to that ChatGPT account.
+
+This flow requires the **Codex CLI**. Install it first and make sure the
+`codex` command is available in your shell `PATH`, otherwise browser sign-in
+cannot start.
+
 ## Google Gemini provider
 
 The Google Gemini provider uses Google's native Gemini API (via the `google-genai` SDK) to access Gemini models. Pre-configured models include Gemini 3.1 Pro Preview, Gemini 3 Flash Preview, Gemini 3.1 Flash Lite Preview, Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite, and Gemini 2.0 Flash. Additional models can be auto-discovered from the API.

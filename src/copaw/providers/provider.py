@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Definition of Provider."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any
-from pydantic import BaseModel, Field
+from typing import Any, Callable, Dict, List, Literal, Type
+from pydantic import BaseModel, Field, PrivateAttr
 
 from agentscope.model import ChatModelBase
 
@@ -11,6 +13,40 @@ from agentscope.model import ChatModelBase
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+
+
+class ProviderAuth(BaseModel):
+    """Provider auth state persisted inside provider secret files."""
+
+    mode: Literal["api_key", "oauth_browser"] = Field(default="api_key")
+    status: Literal[
+        "unauthorized",
+        "authorizing",
+        "authorized",
+        "expired",
+        "error",
+    ] = Field(default="unauthorized")
+    identity: str = Field(default="", description="Human-readable identity")
+    account_id: str = Field(
+        default="",
+        description="ChatGPT account/workspace identifier when applicable",
+    )
+    access_token: str = Field(default="")
+    refresh_token: str = Field(default="")
+    id_token: str = Field(default="")
+    expires_at: str = Field(default="")
+    last_refresh: str = Field(default="")
+    error: str = Field(default="")
+
+    def public_copy(self) -> "ProviderAuth":
+        """Return a sanitized copy for API responses."""
+        return self.model_copy(
+            update={
+                "access_token": "",
+                "refresh_token": "",
+                "id_token": "",
+            },
+        )
 
 
 class ProviderInfo(BaseModel):
@@ -61,10 +97,26 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
     )
+    auth_modes: List[Literal["api_key", "oauth_browser"]] = Field(
+        default_factory=lambda: ["api_key"],
+        description="Supported authentication modes for this provider",
+    )
+    auth_helper: str = Field(
+        default="",
+        description="Auth helper id used for browser-based auth flows",
+    )
+    auth: ProviderAuth = Field(
+        default_factory=ProviderAuth,
+        description="Current provider auth state",
+    )
 
 
 class Provider(ProviderInfo, ABC):
     """Represents a provider instance with its configuration."""
+
+    _persist_callback: Callable[["Provider"], None] | None = PrivateAttr(
+        default=None,
+    )
 
     @abstractmethod
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
@@ -138,6 +190,23 @@ class Provider(ProviderInfo, ABC):
             and isinstance(config["generate_kwargs"], dict)
         ):
             self.generate_kwargs = config["generate_kwargs"]
+        if "auth_mode" in config and config["auth_mode"] is not None:
+            self.auth.mode = str(config["auth_mode"])
+
+    def set_persist_callback(
+        self,
+        callback: Callable[["Provider"], None] | None,
+    ) -> None:
+        """Bind a persistence callback for in-place auth/model updates."""
+        self._persist_callback = callback
+
+    def persist(self) -> None:
+        """Persist the provider if a callback has been bound."""
+        if self._persist_callback is not None:
+            self._persist_callback(self)
+
+    def on_auth_reset(self) -> None:
+        """Clear provider-specific auth artifacts after a revoke/reset."""
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -173,6 +242,13 @@ class Provider(ProviderInfo, ABC):
             if mock_secret and self.api_key
             else self.api_key
         )
+        auth = self.auth.public_copy() if mock_secret else self.auth
+        if auth.mode == "api_key":
+            auth.status = (
+                "authorized"
+                if (not self.require_api_key or bool(self.api_key))
+                else "unauthorized"
+            )
         return ProviderInfo(
             id=self.id,
             name=self.name,
@@ -188,6 +264,9 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            auth_modes=self.auth_modes,
+            auth_helper=self.auth_helper,
+            auth=auth,
         )
 
 

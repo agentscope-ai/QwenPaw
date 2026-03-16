@@ -38,6 +38,8 @@ export function RemoteModelManageModal({
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
   const canDiscover = provider.support_model_discovery;
+  const isOpenAIOauthMode =
+    provider.id === "openai" && provider.auth?.mode === "oauth_browser";
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -285,7 +287,7 @@ export function RemoteModelManageModal({
       </div>
 
       {/* Add model section */}
-      {adding ? (
+      {adding && !isOpenAIOauthMode ? (
         <div className={styles.modelAddForm}>
           <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
             <Form.Item
@@ -337,14 +339,16 @@ export function RemoteModelManageModal({
           >
             {t("models.discoverModels")}
           </Button>
-          <Button
-            type="dashed"
-            icon={<PlusOutlined />}
-            onClick={() => setAdding(true)}
-            style={{ flex: 1 }}
-          >
-            {t("models.addModel")}
-          </Button>
+          {!isOpenAIOauthMode && (
+            <Button
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={() => setAdding(true)}
+              style={{ flex: 1 }}
+            >
+              {t("models.addModel")}
+            </Button>
+          )}
         </div>
       )}
     </Modal>

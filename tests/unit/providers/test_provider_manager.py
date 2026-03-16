@@ -10,8 +10,10 @@ import pytest
 import copaw.providers.provider_manager as provider_manager_module
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider import DefaultProvider, ModelInfo
+from copaw.providers.provider import DefaultProvider, ModelInfo, ProviderAuth
 from copaw.providers.provider_manager import ProviderManager
+
+pytestmark = pytest.mark.anyio
 
 
 LEGACY_PROVIDER = {
@@ -381,3 +383,46 @@ def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:
     )
 
     assert isinstance(provider, OpenAIProvider)
+
+
+def test_revoke_provider_auth_clears_oauth_tokens_in_api_key_mode(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+
+    provider.api_key = "sk-test"
+    provider.auth = ProviderAuth(
+        mode="api_key",
+        status="authorized",
+        identity="user@example.com",
+        account_id="acct-1",
+        access_token="access-1",
+        refresh_token="refresh-1",
+        id_token="id-1",
+        expires_at="2026-01-01T00:00:00Z",
+        last_refresh="2026-01-01T00:00:00Z",
+    )
+    if isinstance(provider, OpenAIProvider):
+        provider.oauth_models = [ModelInfo(id="o4-mini", name="o4-mini")]
+    manager._save_provider(provider, is_builtin=True)
+
+    revoked = manager.revoke_provider_auth("openai")
+
+    assert revoked is not None
+    assert revoked.api_key == ""
+    assert revoked.auth.mode == "api_key"
+    assert revoked.auth.status == "unauthorized"
+    assert revoked.auth.access_token == ""
+    assert revoked.auth.refresh_token == ""
+    assert revoked.auth.account_id == ""
+    if isinstance(revoked, OpenAIProvider):
+        assert revoked.oauth_models == []
+
+    persisted = manager.load_provider("openai", is_builtin=True)
+    assert persisted is not None
+    assert persisted.api_key == ""
+    assert persisted.auth.access_token == ""
+    assert persisted.auth.refresh_token == ""
+    assert persisted.auth.account_id == ""

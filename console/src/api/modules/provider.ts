@@ -10,6 +10,7 @@ import type {
   TestProviderRequest,
   TestModelRequest,
   DiscoverModelsResponse,
+  ProviderAuthSessionResponse,
 } from "../types";
 
 export const providerApi = {
@@ -20,6 +21,29 @@ export const providerApi = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+
+  startProviderAuth: (providerId: string) =>
+    request<ProviderAuthSessionResponse>(
+      `/models/${encodeURIComponent(providerId)}/auth/start`,
+      {
+        method: "POST",
+      },
+    ),
+
+  getProviderAuthSession: (providerId: string, sessionId: string) =>
+    request<ProviderAuthSessionResponse>(
+      `/models/${encodeURIComponent(
+        providerId,
+      )}/auth/session/${encodeURIComponent(sessionId)}`,
+    ),
+
+  revokeProviderAuth: (providerId: string) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/auth/revoke`,
+      {
+        method: "POST",
+      },
+    ),
 
   getActiveModels: () => request<ActiveModelsInfo>("/models/active"),
 
