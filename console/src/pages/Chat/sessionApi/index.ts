@@ -45,7 +45,7 @@ interface ContentItem {
 /** A backend message after role-normalisation (output of toOutputMessage). */
 interface OutputMessage extends Omit<Message, "role"> {
   role: string;
-  metadata: null;
+  metadata: Record<string, unknown> | null;
   sequence_number?: number;
 }
 
@@ -91,7 +91,7 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
     msg.type === TYPE_PLUGIN_CALL_OUTPUT && msg.role === "system"
       ? ROLE_TOOL
       : msg.role,
-  metadata: null,
+  metadata: (msg.metadata as Record<string, unknown>) ?? null,
 });
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
@@ -121,6 +121,25 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
  * Build an assistant response card (AgentScopeRuntimeResponseCard)
  * wrapping a group of consecutive non-user output messages.
  */
+const extractModelInfo = (
+  msgs: OutputMessage[],
+): { provider_id: string; model_id: string } | null => {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const inner = (
+      msgs[i].metadata as { metadata?: Record<string, unknown> } | null
+    )?.metadata as
+      | { provider_id?: string; model_id?: string }
+      | undefined;
+    if (inner?.provider_id && inner?.model_id) {
+      return {
+        provider_id: inner.provider_id,
+        model_id: inner.model_id,
+      };
+    }
+  }
+  return null;
+};
+
 const buildResponseCard = (
   outputMessages: OutputMessage[],
 ): IAgentScopeRuntimeWebUIMessage => {
@@ -145,6 +164,7 @@ const buildResponseCard = (
           error: null,
           completed_at: now,
           usage: null,
+          model_info: extractModelInfo(outputMessages),
         },
       },
     ],

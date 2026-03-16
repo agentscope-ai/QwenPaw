@@ -27,6 +27,7 @@ from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config import load_config
+from ...providers.provider_manager import ProviderManager
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -299,6 +300,43 @@ class AgentRunner(Runner):
             raise
         finally:
             if agent is not None and session_state_loaded:
+                # Inject the last used model info into the most recent assistant message in memory,
+                # so it can be displayed in the UI and used for better tool-guard decisions.
+                try:
+                    pm = ProviderManager.get_instance()
+                    slot = pm.get_active_model()
+                    if slot is not None:
+                        provider = pm.get_provider(
+                            slot.provider_id,
+                        )
+                        provider_name = (
+                            provider.name if provider is not None else slot.provider_id
+                        )
+                        model_meta = {
+                            "model_id": slot.model,
+                            "provider_id": slot.provider_id,
+                            "provider_name": provider_name,
+                        }
+                        for mem_msg, _ in reversed(
+                            agent.memory.content,
+                        ):
+                            if mem_msg.role == "assistant":
+                                if mem_msg.metadata is None:
+                                    mem_msg.metadata = model_meta
+                                elif isinstance(
+                                    mem_msg.metadata,
+                                    dict,
+                                ):
+                                    mem_msg.metadata.update(
+                                        model_meta,
+                                    )
+                                break
+                except Exception:
+                    logger.debug(
+                        "Failed to inject model info into memory",
+                        exc_info=True,
+                    )
+
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,

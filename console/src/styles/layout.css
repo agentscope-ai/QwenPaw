@@ -86,3 +86,12 @@ body {
   margin-right: auto !important;
   margin-left: 0 !important;
 }
+
+/* Model info: hidden by default, shown on bubble hover */
+.copaw-model-info {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+[class*="bubble-content-wrapper"]:hover .copaw-model-info {
+  opacity: 1;
+}
