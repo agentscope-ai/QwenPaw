@@ -49,7 +49,8 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
   mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
   mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
-  xiaoyi: "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  xiaoyi:
+    "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
 const twilioConsoleUrl = "https://console.twilio.com";
 
