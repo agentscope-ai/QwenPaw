@@ -53,7 +53,7 @@ export const agentApi = {
   getTranscriptionProviders: () =>
     request<{
       providers: { id: string; name: string; available: boolean }[];
-      active_provider_id: string;
+      configured_provider_id: string;
     }>("/agent/transcription-providers"),
 
   updateTranscriptionProvider: (provider_id: string) =>

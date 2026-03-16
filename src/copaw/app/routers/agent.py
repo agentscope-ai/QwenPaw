@@ -228,7 +228,8 @@ async def put_audio_mode(
     ),
 ) -> dict:
     """Update audio mode setting."""
-    audio_mode = (body.get("audio_mode") or "").strip().lower()
+    raw = body.get("audio_mode")
+    audio_mode = (str(raw) if raw is not None else "").strip().lower()
     valid = {"auto", "native"}
     if audio_mode not in valid:
         raise HTTPException(
@@ -267,8 +268,9 @@ async def get_transcription_provider_type() -> dict:
     summary="Set transcription provider type",
     description=(
         "Set the transcription provider type. "
-        '"whisper_api": use an OpenAI-compatible endpoint; '
-        '"local_whisper": use locally installed openai-whisper.'
+        '"disabled": no transcription; '
+        '"whisper_api": remote Whisper endpoint; '
+        '"local_whisper": locally installed openai-whisper.'
     ),
 )
 async def put_transcription_provider_type(
@@ -281,10 +283,9 @@ async def put_transcription_provider_type(
     ),
 ) -> dict:
     """Set the transcription provider type."""
-    provider_type = (
-        (body.get("transcription_provider_type") or "").strip().lower()
-    )
-    valid = {"whisper_api", "local_whisper"}
+    raw = body.get("transcription_provider_type")
+    provider_type = (str(raw) if raw is not None else "").strip().lower()
+    valid = {"disabled", "whisper_api", "local_whisper"}
     if provider_type not in valid:
         raise HTTPException(
             status_code=400,
@@ -321,19 +322,19 @@ async def get_local_whisper_status() -> dict:
     summary="List transcription providers",
     description=(
         "List providers capable of audio transcription (Whisper API). "
-        "Returns available providers and the currently active one."
+        "Returns available providers and the configured selection."
     ),
 )
 async def get_transcription_providers() -> dict:
-    """List transcription-capable providers and active selection."""
+    """List transcription-capable providers and configured selection."""
     from ...agents.utils.audio_transcription import (
-        get_active_transcription_provider_id,
+        get_configured_transcription_provider_id,
         list_transcription_providers,
     )
 
     return {
         "providers": list_transcription_providers(),
-        "active_provider_id": get_active_transcription_provider_id(),
+        "configured_provider_id": (get_configured_transcription_provider_id()),
     }
 
 
@@ -342,7 +343,7 @@ async def get_transcription_providers() -> dict:
     summary="Set transcription provider",
     description=(
         "Set the provider to use for audio transcription. "
-        'Use empty string "" for auto-detection.'
+        'Use empty string "" to unset.'
     ),
 )
 async def put_transcription_provider(
@@ -350,7 +351,7 @@ async def put_transcription_provider(
         ...,
         description=(
             'Provider ID, e.g. {"provider_id": "openai"} '
-            'or {"provider_id": ""} for auto'
+            'or {"provider_id": ""} to unset'
         ),
     ),
 ) -> dict:

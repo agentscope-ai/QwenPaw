@@ -5,27 +5,61 @@ Transcribes audio files to text using either:
 - An OpenAI-compatible ``/v1/audio/transcriptions`` endpoint (Whisper API), or
 - The locally installed ``openai-whisper`` Python library (Local Whisper).
 
-The Whisper API endpoint accepts ``.ogg`` natively, so no format conversion
-is required for Discord voice messages.
+Transcription is only attempted when explicitly enabled via the
+``transcription_provider_type`` config setting.  The default is ``"disabled"``.
 """
 
+import asyncio
 import logging
 import shutil
+import threading
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# Cached local-whisper model (lazy singleton)
+# ------------------------------------------------------------------
+_local_whisper_model = None
+_local_whisper_lock = threading.Lock()
+
+
+def _get_local_whisper_model():
+    """Return a cached whisper model, loading it on first call."""
+    global _local_whisper_model  # noqa: PLW0603
+    if _local_whisper_model is not None:
+        return _local_whisper_model
+    with _local_whisper_lock:
+        if _local_whisper_model is not None:
+            return _local_whisper_model
+        import whisper
+
+        _local_whisper_model = whisper.load_model("base")
+        return _local_whisper_model
+
+
+# ------------------------------------------------------------------
+# Provider helpers
+# ------------------------------------------------------------------
+
 
 def _url_for_provider(provider) -> Optional[Tuple[str, str]]:
-    """Return ``(base_url, api_key)`` if provider supports transcription."""
+    """Return ``(base_url, api_key)`` if *provider* can serve transcription.
+
+    Supports providers that do not require an API key (e.g. local Ollama).
+    """
     from ...providers.openai_provider import OpenAIProvider
     from ...providers.ollama_provider import OllamaProvider
 
-    if isinstance(provider, OpenAIProvider) and provider.api_key:
-        return (provider.base_url, provider.api_key)
+    if isinstance(provider, OpenAIProvider):
+        requires_key = getattr(provider, "require_api_key", True)
+        key = provider.api_key or ""
+        if requires_key and not key:
+            return None
+        return (provider.base_url, key or "")
     if isinstance(provider, OllamaProvider):
         base = provider.base_url.rstrip("/")
-        return (base + "/v1", provider.api_key or "ollama")
+        return (base + "/v1", provider.api_key or "")
     return None
 
 
@@ -40,10 +74,16 @@ def _get_manager():
         return None
 
 
+# ------------------------------------------------------------------
+# Public helpers for API / Console UI
+# ------------------------------------------------------------------
+
+
 def list_transcription_providers() -> List[dict]:
-    """Return a list of providers capable of audio transcription.
+    """Return providers capable of audio transcription.
 
     Each entry is ``{"id": ..., "name": ..., "available": bool}``.
+    Availability is based on whether the provider has usable credentials.
     """
     manager = _get_manager()
     if manager is None:
@@ -61,72 +101,17 @@ def list_transcription_providers() -> List[dict]:
                 {
                     "id": provider.id,
                     "name": provider.name,
-                    "available": bool(creds[1]),
+                    "available": True,
                 },
             )
     return results
 
 
-def get_active_transcription_provider_id() -> str:
-    """Return the provider ID currently used for transcription.
-
-    If a provider is explicitly configured, returns that.
-    Otherwise returns the auto-detected provider ID, or empty string.
-    """
+def get_configured_transcription_provider_id() -> str:
+    """Return the explicitly configured provider ID (raw config value)."""
     from ...config import load_config
 
-    configured = load_config().agents.transcription_provider_id
-    if configured:
-        return configured
-
-    # Auto-detect
-    creds = _find_transcription_provider()
-    if creds and len(creds) == 3:
-        return creds[2]
-    return ""
-
-
-def _find_transcription_provider() -> Optional[Tuple[str, str, str]]:
-    """Find an OpenAI-compatible provider that can serve transcription.
-
-    Returns ``(base_url, api_key, provider_id)`` or ``None``.
-    Checks configured provider first, then active, then scans all.
-    """
-    manager = _get_manager()
-    if manager is None:
-        return None
-
-    # 0. Check explicitly configured transcription provider.
-    from ...config import load_config
-
-    configured_id = load_config().agents.transcription_provider_id
-    if configured_id:
-        provider = manager.get_provider(configured_id)
-        if provider:
-            result = _url_for_provider(provider)
-            if result:
-                return (*result, provider.id)
-
-    # 1. Try active provider.
-    active = manager.get_active_model()
-    if active:
-        provider = manager.get_provider(active.provider_id)
-        if provider:
-            result = _url_for_provider(provider)
-            if result:
-                return (*result, provider.id)
-
-    # 2. Scan all providers for any compatible one.
-    all_providers = {
-        **getattr(manager, "builtin_providers", {}),
-        **getattr(manager, "custom_providers", {}),
-    }
-    for provider in all_providers.values():
-        result = _url_for_provider(provider)
-        if result:
-            return (*result, provider.id)
-
-    return None
+    return load_config().agents.transcription_provider_id
 
 
 def check_local_whisper_available() -> dict:
@@ -157,6 +142,11 @@ def check_local_whisper_available() -> dict:
     }
 
 
+# ------------------------------------------------------------------
+# Transcription backends
+# ------------------------------------------------------------------
+
+
 async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
     """Transcribe using the locally installed ``openai-whisper`` library.
 
@@ -177,12 +167,8 @@ async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
         )
         return None
 
-    import asyncio
-
     def _run():
-        import whisper
-
-        model = whisper.load_model("base")
+        model = _get_local_whisper_model()
         result = model.transcribe(file_path)
         return (result.get("text") or "").strip()
 
@@ -209,34 +195,76 @@ async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
         return None
 
 
-async def _transcribe_whisper_api(file_path: str) -> Optional[str]:
-    """Transcribe using the OpenAI-compatible Whisper API endpoint.
+def _get_configured_provider_creds() -> Optional[Tuple[str, str]]:
+    """Return ``(base_url, api_key)`` for the explicitly configured provider.
 
-    Returns the transcribed text, or ``None`` on failure.
+    Returns ``None`` when no provider is configured or the configured
+    provider is not found / has no usable credentials.
     """
-    creds = _find_transcription_provider()
-    if creds is None:
+    from ...config import load_config
+
+    configured_id = load_config().agents.transcription_provider_id
+    if not configured_id:
+        return None
+
+    manager = _get_manager()
+    if manager is None:
+        return None
+
+    provider = manager.get_provider(configured_id)
+    if provider is None:
         logger.warning(
-            "No OpenAI-compatible provider found for audio transcription. "
-            "Audio block will be kept as-is.",
+            "Configured transcription provider '%s' not found",
+            configured_id,
         )
         return None
 
-    base_url, api_key, provider_id = creds
-    logger.debug("Using provider '%s' for transcription", provider_id)
+    creds = _url_for_provider(provider)
+    if creds is None:
+        logger.warning(
+            "Configured transcription provider '%s' has no usable credentials",
+            configured_id,
+        )
+    return creds
+
+
+async def _transcribe_whisper_api(file_path: str) -> Optional[str]:
+    """Transcribe using the OpenAI-compatible Whisper API endpoint.
+
+    Only uses the explicitly configured provider — no auto-detection.
+    Returns the transcribed text, or ``None`` on failure.
+    """
+    creds = _get_configured_provider_creds()
+    if creds is None:
+        logger.warning(
+            "No transcription provider configured; skipping transcription",
+        )
+        return None
+
+    base_url, api_key = creds
 
     try:
         from openai import AsyncOpenAI
     except ImportError:
-        logger.warning("openai package not installed; cannot transcribe audio")
+        logger.warning(
+            "openai package not installed; cannot transcribe audio",
+        )
         return None
 
-    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=60)
+    from ...config import load_config
+
+    model_name = load_config().agents.transcription_model or "whisper-1"
+
+    client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key or "none",
+        timeout=60,
+    )
 
     try:
         with open(file_path, "rb") as f:
             transcript = await client.audio.transcriptions.create(
-                model="whisper-1",
+                model=model_name,
                 file=f,
             )
         text = transcript.text.strip()
@@ -254,11 +282,17 @@ async def _transcribe_whisper_api(file_path: str) -> Optional[str]:
         return None
 
 
+# ------------------------------------------------------------------
+# Public entry point
+# ------------------------------------------------------------------
+
+
 async def transcribe_audio(file_path: str) -> Optional[str]:
     """Transcribe an audio file to text.
 
     Dispatches to either the Whisper API or local Whisper based on the
-    ``transcription_provider_type`` config setting.
+    ``transcription_provider_type`` config setting.  When the setting is
+    ``"disabled"`` (the default), returns ``None`` immediately.
 
     Returns the transcribed text, or ``None`` on failure.
     """
@@ -266,6 +300,13 @@ async def transcribe_audio(file_path: str) -> Optional[str]:
 
     provider_type = load_config().agents.transcription_provider_type
 
+    if provider_type == "disabled":
+        logger.debug("Transcription is disabled; skipping")
+        return None
     if provider_type == "local_whisper":
         return await _transcribe_local_whisper(file_path)
-    return await _transcribe_whisper_api(file_path)
+    if provider_type == "whisper_api":
+        return await _transcribe_whisper_api(file_path)
+
+    logger.warning("Unknown transcription_provider_type: %s", provider_type)
+    return None

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Card, message } from "@agentscope-ai/design";
-import { Radio, Select, Space, Spin, Alert, Tag } from "antd";
+import { Radio, Select, Space, Spin, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import styles from "./index.module.less";
@@ -22,10 +22,9 @@ function VoiceTranscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [audioMode, setAudioMode] = useState("auto");
-  const [providerType, setProviderType] = useState("whisper_api");
+  const [providerType, setProviderType] = useState("disabled");
   const [providers, setProviders] = useState<TranscriptionProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
-  const [activeProviderId, setActiveProviderId] = useState("");
   const [localWhisperStatus, setLocalWhisperStatus] =
     useState<LocalWhisperStatus | null>(null);
 
@@ -39,20 +38,12 @@ function VoiceTranscriptionPage() {
         api.getLocalWhisperStatus(),
       ]);
       setAudioMode(modeRes.audio_mode ?? "auto");
-      setProviderType(provTypeRes.transcription_provider_type ?? "whisper_api");
+      setProviderType(provTypeRes.transcription_provider_type ?? "disabled");
       setProviders(provRes.providers ?? []);
-      setActiveProviderId(provRes.active_provider_id ?? "");
+      setSelectedProviderId(provRes.configured_provider_id ?? "");
       setLocalWhisperStatus(lwStatus);
-      // Find the configured provider (not auto-detected)
-      const configuredId = provRes.providers?.some(
-        (p: TranscriptionProvider) =>
-          p.id === provRes.active_provider_id && p.available,
-      )
-        ? provRes.active_provider_id
-        : "";
-      setSelectedProviderId(configuredId);
     } catch (err) {
-      console.error("Failed to load settings:", err);
+      console.error("Failed to load voice transcription settings:", err);
       message.error(t("voiceTranscription.loadFailed"));
     } finally {
       setLoading(false);
@@ -74,12 +65,9 @@ function VoiceTranscriptionPage() {
         promises.push(api.updateTranscriptionProvider(selectedProviderId));
       }
       await Promise.all(promises);
-      // Refresh to get updated active provider
-      const provRes = await api.getTranscriptionProviders();
-      setActiveProviderId(provRes.active_provider_id ?? "");
       message.success(t("voiceTranscription.saveSuccess"));
     } catch (err) {
-      console.error("Failed to save settings:", err);
+      console.error("Failed to save voice transcription settings:", err);
       message.error(t("voiceTranscription.saveFailed"));
     } finally {
       setSaving(false);
@@ -99,6 +87,7 @@ function VoiceTranscriptionPage() {
   const availableProviders = providers.filter((p) => p.available);
   const showProviderSection = audioMode !== "native";
   const isLocalWhisper = providerType === "local_whisper";
+  const isWhisperApi = providerType === "whisper_api";
 
   return (
     <div className={styles.page}>
@@ -157,6 +146,14 @@ function VoiceTranscriptionPage() {
               onChange={(e) => setProviderType(e.target.value)}
             >
               <Space direction="vertical" size="middle">
+                <Radio value="disabled">
+                  <span className={styles.optionLabel}>
+                    {t("voiceTranscription.providerTypeDisabled")}
+                  </span>
+                  <span className={styles.optionDescription}>
+                    {t("voiceTranscription.providerTypeDisabledDesc")}
+                  </span>
+                </Radio>
                 <Radio value="whisper_api">
                   <span className={styles.optionLabel}>
                     {t("voiceTranscription.providerTypeWhisperApi")}
@@ -206,7 +203,7 @@ function VoiceTranscriptionPage() {
             )}
           </Card>
 
-          {!isLocalWhisper && (
+          {isWhisperApi && (
             <Card className={styles.card}>
               <h3 className={styles.cardTitle}>
                 {t("voiceTranscription.providerLabel")}
@@ -222,33 +219,18 @@ function VoiceTranscriptionPage() {
                   message={t("voiceTranscription.noProvidersWarning")}
                 />
               ) : (
-                <>
-                  <Select
-                    value={selectedProviderId}
-                    onChange={setSelectedProviderId}
-                    style={{ width: "100%", maxWidth: 400 }}
-                  >
-                    <Select.Option value="">
-                      {t("voiceTranscription.providerAuto")}
+                <Select
+                  value={selectedProviderId || undefined}
+                  onChange={setSelectedProviderId}
+                  placeholder={t("voiceTranscription.providerPlaceholder")}
+                  style={{ width: "100%", maxWidth: 400 }}
+                >
+                  {availableProviders.map((p) => (
+                    <Select.Option key={p.id} value={p.id}>
+                      {p.name}
                     </Select.Option>
-                    {availableProviders.map((p) => (
-                      <Select.Option key={p.id} value={p.id}>
-                        {p.name}
-                      </Select.Option>
-                    ))}
-                  </Select>
-                  {activeProviderId && (
-                    <div style={{ marginTop: 8 }}>
-                      <span style={{ marginRight: 8, opacity: 0.65 }}>
-                        {t("voiceTranscription.activeProvider")}
-                      </span>
-                      <Tag color="blue">
-                        {providers.find((p) => p.id === activeProviderId)
-                          ?.name ?? activeProviderId}
-                      </Tag>
-                    </div>
-                  )}
-                </>
+                  ))}
+                </Select>
               )}
             </Card>
           )}

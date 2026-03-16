@@ -134,6 +134,8 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
     """Convert an audio file to .wav using ffmpeg if the extension is not
     natively supported by the LLM formatter.
 
+    Uses a unique temporary file name to avoid overwriting existing files.
+
     Returns the path to the converted .wav file, or None if conversion
     failed or was not needed.
     """
@@ -143,6 +145,7 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
 
     import subprocess
     import shutil
+    import tempfile
 
     if not shutil.which("ffmpeg"):
         logger.warning(
@@ -152,12 +155,17 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
         )
         return None
 
-    dst_path = os.path.splitext(src_path)[0] + ".wav"
+    # Use a temp file in the same directory to avoid clobbering.
+    src_dir = os.path.dirname(src_path) or "."
+    fd, dst_path = tempfile.mkstemp(suffix=".wav", dir=src_dir)
+    os.close(fd)
     try:
         subprocess.run(
             [
                 "ffmpeg",
                 "-y",
+                "-loglevel",
+                "error",
                 "-i",
                 src_path,
                 "-ar",
@@ -166,7 +174,8 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
                 "1",
                 dst_path,
             ],
-            capture_output=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             timeout=30,
             check=True,
         )
@@ -175,11 +184,16 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         stderr = getattr(e, "stderr", b"") or b""
         logger.warning(
-            "Audio conversion failed for %s: %s\nstderr: %s",
+            "Audio conversion failed for %s: %s\nffmpeg stderr: %s",
             src_path,
             e,
             stderr.decode(errors="replace"),
         )
+        # Clean up the temp file on failure.
+        try:
+            os.unlink(dst_path)
+        except OSError:
+            pass
         return None
 
 
@@ -235,6 +249,8 @@ async def _process_audio_block(
         never sent directly to the model in this mode.
       - ``"native"``: send the audio block directly to the model
         (convert via ffmpeg if needed).  No transcription is attempted.
+        If the file format is unsupported and conversion fails, a text
+        placeholder is shown instead.
 
     Returns:
         True if the audio was fully handled (transcribed or sent natively)
@@ -242,13 +258,44 @@ async def _process_audio_block(
         False if transcription failed — the notification is kept so the
         LLM knows the file path.
     """
+    # Security: reject paths outside the allowed media directory.
+    if not _is_allowed_media_path(local_path):
+        logger.warning(
+            "Audio path outside allowed media dir, rejecting: %s",
+            local_path,
+        )
+        message_content[index] = {
+            "type": "text",
+            "text": "[Voice message]: (audio file rejected)",
+        }
+        return True
+
     from .audio_transcription import transcribe_audio
 
     audio_mode = load_config().agents.audio_mode
 
     if audio_mode == "native":
-        converted = await asyncio.to_thread(_convert_audio_to_wav, local_path)
-        audio_path = converted or local_path
+        converted = await asyncio.to_thread(
+            _convert_audio_to_wav,
+            local_path,
+        )
+        ext = (os.path.splitext(local_path)[1] or "").lower()
+        if converted:
+            audio_path = converted
+        elif ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
+            # Already a supported format, no conversion needed.
+            audio_path = local_path
+        else:
+            # Unsupported format and conversion failed — show placeholder
+            # instead of sending an unsupported audio block to the model.
+            message_content[index] = {
+                "type": "text",
+                "text": (
+                    "[Voice message]: (audio conversion failed, "
+                    "install ffmpeg to enable native audio)"
+                ),
+            }
+            return True
         block["source"] = {
             "type": "url",
             "url": Path(audio_path).as_uri(),

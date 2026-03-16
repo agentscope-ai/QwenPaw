@@ -289,23 +289,31 @@ class AgentsConfig(BaseModel):
     )
 
     transcription_provider_type: Literal[
+        "disabled",
         "whisper_api",
         "local_whisper",
     ] = Field(
-        default="whisper_api",
+        default="disabled",
         description=(
-            "Type of transcription provider. "
-            '"whisper_api": use an OpenAI-compatible Whisper API endpoint; '
-            '"local_whisper": use the locally installed '
-            "openai-whisper library."
+            "Transcription backend. "
+            '"disabled": no transcription; '
+            '"whisper_api": remote OpenAI-compatible endpoint; '
+            '"local_whisper": locally installed openai-whisper.'
         ),
     )
     transcription_provider_id: str = Field(
         default="",
         description=(
-            "Provider ID to use for audio transcription (Whisper API). "
-            "Empty string means auto-detect the first compatible provider. "
+            "Provider ID for Whisper API transcription. "
+            "Empty = no provider selected. "
             'Only used when transcription_provider_type is "whisper_api".'
+        ),
+    )
+    transcription_model: str = Field(
+        default="whisper-1",
+        description=(
+            "Model name for Whisper API transcription. "
+            'e.g. "whisper-1", "whisper-large-v3".'
         ),
     )
 
