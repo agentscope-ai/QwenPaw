@@ -1,5 +1,6 @@
 import { Form, InputNumber, Select, Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { TIMEZONE_OPTIONS } from "../../../../constants/timezone";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
@@ -12,12 +13,18 @@ interface ReactAgentCardProps {
   language: string;
   savingLang: boolean;
   onLanguageChange: (value: string) => void;
+  timezone: string;
+  savingTimezone: boolean;
+  onTimezoneChange: (value: string) => void;
 }
 
 export function ReactAgentCard({
   language,
   savingLang,
   onLanguageChange,
+  timezone,
+  savingTimezone,
+  onTimezoneChange,
 }: ReactAgentCardProps) {
   const { t } = useTranslation();
   return (
@@ -32,6 +39,27 @@ export function ReactAgentCard({
           onChange={onLanguageChange}
           loading={savingLang}
           disabled={savingLang}
+          style={{ width: "100%" }}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.timezone")}
+        tooltip={t("agentConfig.timezoneTooltip")}
+      >
+        <Select
+          showSearch
+          value={timezone}
+          placeholder={t("agentConfig.selectTimezone")}
+          filterOption={(input, option) =>
+            (option?.label?.toString() || "")
+              .toLowerCase()
+              .includes(input.toLowerCase())
+          }
+          options={TIMEZONE_OPTIONS}
+          onChange={onTimezoneChange}
+          loading={savingTimezone}
+          disabled={savingTimezone}
           style={{ width: "100%" }}
         />
       </Form.Item>

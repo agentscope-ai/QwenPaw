@@ -321,7 +321,10 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
-    return formatter_class()
+    kwargs: dict[str, Any] = {}
+    if issubclass(base_formatter_class, OpenAIChatFormatter):
+        kwargs["promote_tool_result_images"] = True
+    return formatter_class(**kwargs)
 
 
 __all__ = [

@@ -42,6 +42,7 @@ export function useChannels() {
       "telegram",
       "qq",
       "matrix",
+      "xiaoyi",
     ],
     [],
   );

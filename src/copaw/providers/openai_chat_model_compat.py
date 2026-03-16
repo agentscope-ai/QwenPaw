@@ -165,7 +165,8 @@ class _SanitizedStream:
     def _capture_extra_content(self, item: Any) -> None:
         """Store ``extra_content`` keyed by tool-call id."""
         chunk = getattr(item, "chunk", item)
-        for choice in getattr(chunk, "choices", []):
+        choices = getattr(chunk, "choices", None) or []
+        for choice in choices:
             delta = getattr(choice, "delta", None)
             if not delta:
                 continue

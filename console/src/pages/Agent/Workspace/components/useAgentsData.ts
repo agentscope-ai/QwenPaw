@@ -86,7 +86,8 @@ export const useAgentsData = () => {
 
   const fetchEnabledFiles = async () => {
     try {
-      const enabled = await workspaceApi.getSystemPromptFiles();
+      const result = await workspaceApi.getSystemPromptFiles();
+      const enabled = Array.isArray(result) ? result : [];
       setEnabledFiles(enabled);
       return enabled;
     } catch (error) {
@@ -99,9 +100,12 @@ export const useAgentsData = () => {
     fileList: MarkdownFile[],
     currentEnabledFiles: string[],
   ) => {
+    const safeEnabled = Array.isArray(currentEnabledFiles)
+      ? currentEnabledFiles
+      : [];
     return [...fileList].sort((a, b) => {
-      const aIndex = currentEnabledFiles.indexOf(a.filename);
-      const bIndex = currentEnabledFiles.indexOf(b.filename);
+      const aIndex = safeEnabled.indexOf(a.filename);
+      const bIndex = safeEnabled.indexOf(b.filename);
       const aEnabled = aIndex !== -1;
       const bEnabled = bIndex !== -1;
 
@@ -116,11 +120,15 @@ export const useAgentsData = () => {
 
   const fetchFiles = async (latestEnabledFiles?: string[]) => {
     try {
+      // Validate with Array.isArray: onClick handlers may pass a MouseEvent as the first argument
+      const enabled = Array.isArray(latestEnabledFiles)
+        ? latestEnabledFiles
+        : await fetchEnabledFiles();
       // Use agent-specific API
       const fileList = await agentsApi.listAgentFiles(selectedAgent);
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
-        latestEnabledFiles ?? enabledFiles,
+        enabled,
       );
       setFiles(sortedFiles);
       if (fileList.length > 0) {
