@@ -26,6 +26,7 @@ const keyToLabel: Record<string, string> = {
   sessions: "nav.sessions",
   "cron-jobs": "nav.cronJobs",
   heartbeat: "nav.heartbeat",
+  knowledge: "nav.knowledge",
   skills: "nav.skills",
   tools: "nav.tools",
   mcp: "nav.mcp",

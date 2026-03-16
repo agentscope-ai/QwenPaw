@@ -26,7 +26,7 @@ from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
-from ...config import load_config
+from ...config import load_config, save_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -175,6 +175,9 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        generated_messages = []
+        config = None
+        knowledge_manager = None
         try:
             session_id = request.session_id
             user_id = request.user_id
@@ -208,8 +211,35 @@ class AgentRunner(Runner):
                 mcp_clients = await self._mcp_manager.get_clients()
 
             config = load_config()
+            running = config.agents.running
+
+            try:
+                should_collect_user_assets = bool(
+                    getattr(running, "auto_collect_chat_files", False)
+                    or getattr(running, "auto_collect_chat_urls", True)
+                )
+                if should_collect_user_assets:
+                    from ...knowledge import KnowledgeManager
+
+                    knowledge_manager = KnowledgeManager(WORKING_DIR)
+                    user_stage_result = knowledge_manager.auto_collect_user_message_assets(
+                        config.knowledge,
+                        session_id=session_id,
+                        user_id=user_id,
+                        request_messages=list(msgs or []),
+                        running_config=running,
+                    )
+                    if user_stage_result.get("changed"):
+                        save_config(config)
+            except Exception:
+                logger.exception(
+                    "Failed to auto-collect user assets for session %s",
+                    session_id,
+                )
+
             max_iters = config.agents.running.max_iters
             max_input_length = config.agents.running.max_input_length
+            effective_msgs = list(msgs or [])
 
             agent = CoPawAgent(
                 env_context=env_context,
@@ -267,8 +297,9 @@ class AgentRunner(Runner):
 
             async for msg, last in stream_printing_messages(
                 agents=[agent],
-                coroutine_task=agent(msgs),
+                coroutine_task=agent(effective_msgs),
             ):
+                generated_messages.append(msg)
                 yield msg, last
 
         except asyncio.CancelledError as exc:
@@ -304,6 +335,40 @@ class AgentRunner(Runner):
                     user_id=user_id,
                     agent=agent,
                 )
+
+            if config is not None and session_id:
+                try:
+                    running = config.agents.running
+                    should_auto_collect = bool(
+                        getattr(running, "auto_collect_chat_files", False)
+                        or getattr(running, "auto_collect_long_text", False)
+                    )
+
+                    if should_auto_collect:
+                        from ...knowledge import KnowledgeManager
+
+                        manager = knowledge_manager or KnowledgeManager(WORKING_DIR)
+
+                    should_auto_collect_text = bool(
+                        getattr(running, "auto_collect_long_text", False),
+                    )
+
+                    if should_auto_collect_text:
+                        text_result = manager.auto_collect_turn_text_pair(
+                            config.knowledge,
+                            running_config=running,
+                            session_id=session_id,
+                            user_id=user_id,
+                            request_messages=list(msgs or []),
+                            response_messages=generated_messages,
+                        )
+                        if text_result.get("changed"):
+                            save_config(config)
+                except Exception:
+                    logger.exception(
+                        "Failed to auto-collect chat knowledge for session %s",
+                        session_id,
+                    )
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.update_chat(chat)

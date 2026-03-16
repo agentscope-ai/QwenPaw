@@ -6,6 +6,7 @@ import os
 import plistlib
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -343,6 +344,12 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             la["host"] = data.get("last_api_host")
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
+    # Backward compat: knowledge.engine object -> literal enum string
+    knowledge = data.get("knowledge")
+    if isinstance(knowledge, dict) and isinstance(knowledge.get("engine"), dict):
+        legacy_engine = knowledge.get("engine") or {}
+        provider = str(legacy_engine.get("provider", "")).strip().lower()
+        knowledge["engine"] = "cognee" if provider == "cognee" else "local_lexical"
     return Config.model_validate(data)
 
 
@@ -374,6 +381,7 @@ def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:
         channel=channel,
         user_id=user_id,
         session_id=session_id,
+        dispatched_at=datetime.now(UTC).isoformat(),
     )
     save_config(config)
 

@@ -15,6 +15,68 @@ from ...agents.memory.agent_md_manager import AGENT_MD_MANAGER
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
+def _migrate_knowledge_automation_to_running(config) -> bool:
+    """Compat: migrate deprecated knowledge.automation to agents.running."""
+    changed = False
+    defaults = AgentsRunningConfig()
+    running = config.agents.running
+    legacy = getattr(config.knowledge, "automation", None)
+    if legacy is None:
+        return False
+
+    if (
+        running.auto_collect_chat_files == defaults.auto_collect_chat_files
+        and legacy.auto_collect_chat_files != defaults.auto_collect_chat_files
+    ):
+        running.auto_collect_chat_files = legacy.auto_collect_chat_files
+        changed = True
+
+    if (
+        running.auto_collect_chat_urls == defaults.auto_collect_chat_urls
+        and legacy.auto_collect_chat_urls != defaults.auto_collect_chat_urls
+    ):
+        running.auto_collect_chat_urls = legacy.auto_collect_chat_urls
+        changed = True
+
+    if (
+        running.auto_collect_long_text == defaults.auto_collect_long_text
+        and legacy.auto_collect_long_text != defaults.auto_collect_long_text
+    ):
+        running.auto_collect_long_text = legacy.auto_collect_long_text
+        changed = True
+
+    if (
+        running.long_text_min_chars == defaults.long_text_min_chars
+        and legacy.long_text_min_chars != defaults.long_text_min_chars
+    ):
+        running.long_text_min_chars = legacy.long_text_min_chars
+        changed = True
+
+    knowledge_index = getattr(config.knowledge, "index", None)
+    if (
+        knowledge_index is not None
+        and running.knowledge_chunk_size == defaults.knowledge_chunk_size
+        and knowledge_index.chunk_size != defaults.knowledge_chunk_size
+    ):
+        running.knowledge_chunk_size = knowledge_index.chunk_size
+        changed = True
+
+    return changed
+
+
+def _sync_running_to_knowledge_automation(config) -> None:
+    """Compat: keep deprecated knowledge.automation in sync."""
+    legacy = getattr(config.knowledge, "automation", None)
+    if legacy is None:
+        return
+    running = config.agents.running
+    legacy.auto_collect_chat_files = running.auto_collect_chat_files
+    legacy.auto_collect_chat_urls = running.auto_collect_chat_urls
+    legacy.auto_collect_long_text = running.auto_collect_long_text
+    legacy.long_text_min_chars = running.long_text_min_chars
+    config.knowledge.index.chunk_size = running.knowledge_chunk_size
+
+
 class MdFileInfo(BaseModel):
     """Markdown file metadata."""
 
@@ -207,6 +269,9 @@ async def put_agent_language(
 async def get_agents_running_config() -> AgentsRunningConfig:
     """Get agent running configuration."""
     config = load_config()
+    if _migrate_knowledge_automation_to_running(config):
+        _sync_running_to_knowledge_automation(config)
+        save_config(config)
     return config.agents.running
 
 
@@ -225,6 +290,7 @@ async def put_agents_running_config(
     """Update agent running configuration."""
     config = load_config()
     config.agents.running = running_config
+    _sync_running_to_knowledge_automation(config)
     save_config(config)
     return running_config
 

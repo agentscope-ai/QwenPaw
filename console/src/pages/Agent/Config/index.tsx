@@ -6,6 +6,7 @@ import {
   PageHeader,
   ReactAgentCard,
   ContextManagementCard,
+  KnowledgeMaintenanceCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -90,6 +91,8 @@ function AgentConfigPage() {
           contextCompactThreshold={contextCompactThreshold}
           contextCompactReserveThreshold={contextCompactReserveThreshold}
         />
+
+        <KnowledgeMaintenanceCard />
       </Form>
 
       <div className={styles.footerActions}>

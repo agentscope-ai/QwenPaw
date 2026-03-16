@@ -60,7 +60,19 @@ class CronManager:
 
             self._scheduler.start()
             for job in jobs_file.jobs:
-                await self._register_or_update(job)
+                try:
+                    await self._register_or_update(job)
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.exception(
+                        "cron startup skipped invalid job: id=%s name=%s cron=%s",
+                        job.id,
+                        job.name,
+                        job.schedule.cron,
+                    )
+                    self._states[job.id] = CronJobState(
+                        last_status="error",
+                        last_error=str(exc),
+                    )
 
             # Heartbeat: one interval job when enabled in config
             hb = get_heartbeat_config()

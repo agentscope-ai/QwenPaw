@@ -32,10 +32,15 @@ from .tools import (
     desktop_screenshot,
     edit_file,
     execute_shell_command,
+    graph_query,
     get_current_time,
     get_token_usage,
+    knowledge_search,
+    memify_run,
+    memify_status,
     read_file,
     send_file_to_user,
+    triplet_focus_search,
     write_file,
     create_memory_search_tool,
 )
@@ -189,12 +194,49 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
             "get_token_usage": get_token_usage,
+            "knowledge_search": knowledge_search,
+            "graph_query": graph_query,
+            "memify_run": memify_run,
+            "memify_status": memify_status,
+            "triplet_focus_search": triplet_focus_search,
         }
 
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
+            tool_enabled = enabled_tools.get(tool_name, True)
+            if tool_name == "knowledge_search":
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(
+                        getattr(
+                            config.agents.running,
+                            "knowledge_retrieval_enabled",
+                            True,
+                        )
+                    )
+                )
+            elif tool_name == "graph_query":
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.knowledge, "graph_query_enabled", False))
+                )
+            elif tool_name in {"memify_run", "memify_status"}:
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.knowledge, "memify_enabled", False))
+                )
+            elif tool_name == "triplet_focus_search":
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.knowledge, "triplet_search_enabled", False))
+                )
+
             # If tool not in config, enable by default (backward compatibility)
-            if enabled_tools.get(tool_name, True):
+            if tool_enabled:
                 toolkit.register_tool_function(
                     tool_func,
                     namesake_strategy=namesake_strategy,

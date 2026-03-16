@@ -22,6 +22,7 @@ import logging
 import mimetypes
 import os
 import threading
+import types
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -60,6 +61,23 @@ if TYPE_CHECKING:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
+
+
+def _make_safe_dingtalk_stream_logger(base: logging.Logger) -> logging.Logger:
+    """Patch logger.exception to tolerate malformed msg/args usage."""
+    if getattr(base, "_copaw_safe_exception_patched", False):
+        return base
+
+    def _safe_exception(self: logging.Logger, msg, *args, **kwargs):
+        if args and "%" not in str(msg):
+            msg = f"{msg}: " + " ".join(str(item) for item in args)
+            args = ()
+        kwargs.setdefault("exc_info", True)
+        self.error(msg, *args, **kwargs)
+
+    base.exception = types.MethodType(_safe_exception, base)  # type: ignore[assignment]
+    setattr(base, "_copaw_safe_exception_patched", True)
+    return base
 
 
 class DingTalkChannel(BaseChannel):
@@ -1600,7 +1618,12 @@ class DingTalkChannel(BaseChannel):
             self.client_id,
             self.client_secret,
         )
-        self._client = dingtalk_stream.DingTalkStreamClient(credential)
+        self._client = dingtalk_stream.DingTalkStreamClient(
+            credential,
+            logger=_make_safe_dingtalk_stream_logger(
+                logging.getLogger("copaw.dingtalk.stream")
+            ),
+        )
         enqueue_cb = getattr(self, "_enqueue", None)
         internal_handler = DingTalkChannelHandler(
             main_loop=self._loop,
