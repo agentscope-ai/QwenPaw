@@ -363,6 +363,8 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
 def get_heartbeat_config() -> HeartbeatConfig:
     """Return effective heartbeat config (from file or default 30m/main)."""
     config = load_config()
+    if config.agents.defaults is None:
+        return HeartbeatConfig()
     hb = config.agents.defaults.heartbeat
     return hb if hb is not None else HeartbeatConfig()
 
