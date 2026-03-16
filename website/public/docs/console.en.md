@@ -328,6 +328,14 @@ automatically when models are added/removed via Ollama CLI or Console.
 > `copaw models ollama-list`, `copaw models ollama-remove`. See
 > [CLI](./cli#ollama-models).
 
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> To run CoPaw properly, you must set the model context length to
+> **32K or higher**. Note that this can consume substantial compute resources,
+> so make sure your local machine can handle it.
+>
+> ![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
 ### LM Studio provider
 
 The LM Studio provider connects to the LM Studio desktop application's
@@ -349,6 +357,14 @@ OpenAI-compatible local server to discover and use loaded models.
 
 > LM Studio does not require an API key by default. Models must be loaded
 > in LM Studio before they appear in CoPaw.
+
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> To run CoPaw properly, you must set the model context length to
+> **32K or higher**. Note that this can consume substantial compute resources,
+> so make sure your local machine can handle it.
+>
+> ![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
 
 ### Choose the active model
 
