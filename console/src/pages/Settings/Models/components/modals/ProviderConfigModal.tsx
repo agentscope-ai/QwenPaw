@@ -249,6 +249,7 @@ function JsonCodeEditor({
 }
 
 interface HeaderItem {
+  id: string;
   key: string;
   value: string;
 }
@@ -297,6 +298,7 @@ export function ProviderConfigModal({
     ) {
       const headerArray = Object.entries(provider.default_headers).map(
         ([key, value]) => ({
+          id: crypto.randomUUID(),
           key,
           value: String(value),
         }),
@@ -309,10 +311,11 @@ export function ProviderConfigModal({
 
   const addHeader = () => {
     // Pre-fill User-Agent for the first header (common for Kimi Coding Plan)
-    const newHeader =
-      headers.length === 0
-        ? { key: "User-Agent", value: "" }
-        : { key: "", value: "" };
+    const newHeader: HeaderItem = {
+      id: crypto.randomUUID(),
+      key: headers.length === 0 ? "User-Agent" : "",
+      value: "",
+    };
     setHeaders([...headers, newHeader]);
     setFormDirty(true);
   };
@@ -324,13 +327,26 @@ export function ProviderConfigModal({
 
   const updateHeader = (
     index: number,
-    field: keyof HeaderItem,
+    field: keyof Omit<HeaderItem, "id">,
     value: string,
   ) => {
     const newHeaders = [...headers];
     newHeaders[index][field] = value;
     setHeaders(newHeaders);
     setFormDirty(true);
+  };
+
+  // Helper function to convert headers array to object
+  const headersToObject = (
+    headersArray: HeaderItem[],
+  ): Record<string, string> => {
+    const result: Record<string, string> = {};
+    headersArray.forEach(({ key, value }) => {
+      if (key.trim()) {
+        result[key.trim()] = value;
+      }
+    });
+    return result;
   };
 
   const parseGenerateConfig = (value?: string) => {
@@ -449,13 +465,7 @@ export function ProviderConfigModal({
         values.generate_kwargs_text?.trim(),
       );
 
-      // Convert headers array to object
-      const defaultHeaders: Record<string, string> = {};
-      headers.forEach(({ key, value }) => {
-        if (key.trim()) {
-          defaultHeaders[key.trim()] = value;
-        }
-      });
+      const defaultHeaders = headersToObject(headers);
 
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
@@ -505,13 +515,7 @@ export function ProviderConfigModal({
         "chat_model",
       ]);
 
-      // Convert headers array to object
-      const defaultHeaders: Record<string, string> = {};
-      headers.forEach(({ key, value }) => {
-        if (key.trim()) {
-          defaultHeaders[key.trim()] = value;
-        }
-      });
+      const defaultHeaders = headersToObject(headers);
 
       const result = await api.testProviderConnection(provider.id, {
         api_key: values.api_key,
@@ -750,7 +754,7 @@ export function ProviderConfigModal({
               </div>
               {headers.map((header, index) => (
                 <Space
-                  key={index}
+                  key={header.id}
                   style={{ display: "flex", marginBottom: 8 }}
                   align="baseline"
                 >

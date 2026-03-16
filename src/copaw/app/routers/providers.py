@@ -295,7 +295,9 @@ async def test_model(
         tmp_provider = deepcopy(provider)
         if body.default_headers:
             tmp_provider.default_headers = body.default_headers
-        ok, msg = await tmp_provider.check_model_connection(model_id=body.model_id)
+        ok, msg = await tmp_provider.check_model_connection(
+            model_id=body.model_id,
+        )
         return TestConnectionResponse(
             success=ok,
             message=(

@@ -18,6 +18,7 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 
 interface HeaderItem {
+  id: string;
   key: string;
   value: string;
 }
@@ -49,10 +50,11 @@ export function CustomProviderModal({
 
   const addHeader = () => {
     // Pre-fill User-Agent for the first header (common for Kimi Coding Plan)
-    const newHeader =
-      headers.length === 0
-        ? { key: "User-Agent", value: "" }
-        : { key: "", value: "" };
+    const newHeader: HeaderItem = {
+      id: crypto.randomUUID(),
+      key: headers.length === 0 ? "User-Agent" : "",
+      value: "",
+    };
     setHeaders([...headers, newHeader]);
   };
 
@@ -62,7 +64,7 @@ export function CustomProviderModal({
 
   const updateHeader = (
     index: number,
-    field: keyof HeaderItem,
+    field: keyof Omit<HeaderItem, "id">,
     value: string,
   ) => {
     const newHeaders = [...headers];
@@ -208,7 +210,7 @@ export function CustomProviderModal({
               </div>
               {headers.map((header, index) => (
                 <Space
-                  key={index}
+                  key={header.id}
                   style={{ display: "flex", marginBottom: 8 }}
                   align="baseline"
                 >
