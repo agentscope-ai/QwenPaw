@@ -195,9 +195,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     readonly_vars.append(safe_key)
 
             # Wrap with readonly declarations to prevent tampering
-            if readonly_vars and not command.startswith("bash -c "):
+            if readonly_vars and not command.startswith("bash -c ") and sys.platform != "win32":
                 escaped_cmd = command.replace('"', '\\"')
-                command = f'bash -c "{"; ".join(f"readonly {v}" for v in readonly_vars)}; {escaped_cmd}"'
+                command = f'bash -c "{'; '.join(f'readonly {v}' for v in readonly_vars)}; {escaped_cmd}"'
 
             return await tool_func(command, env=env, **kwargs)
 
