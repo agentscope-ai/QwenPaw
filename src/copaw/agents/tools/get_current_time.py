@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def get_current_time() -> ToolResponse:
     """Get the current time.
-
-    Returns the current time in the user-configured timezone.
-    Useful for time-sensitive tasks such as scheduling cron jobs.
+    Only call this tool when the user explicitly asks for the time.
 
     Returns:
         `ToolResponse`:
@@ -49,9 +47,7 @@ async def get_current_time() -> ToolResponse:
 
 async def set_user_timezone(timezone_name: str) -> ToolResponse:
     """Set the user timezone.
-
-    Updates the user timezone used by the system prompt, get_current_time,
-    cron job defaults, and heartbeat active hours.
+    Only call this tool when the user explicitly asks to change their timezone.
 
     Args:
         timezone_name: IANA timezone name (e.g. "Asia/Shanghai",
