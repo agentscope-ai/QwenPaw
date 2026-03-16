@@ -11,12 +11,25 @@ import asyncio
 import logging
 from typing import Any, Dict, List, TYPE_CHECKING
 
+import httpx
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 
 if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig
 
 logger = logging.getLogger(__name__)
+
+
+class MCPAuthRequiredError(Exception):
+    """Raised when MCP server returns 401 Unauthorized."""
+
+    def __init__(
+        self,
+        client_key: str,
+        message: str = "OAuth authorization required",
+    ):
+        self.client_key = client_key
+        super().__init__(message)
 
 
 class MCPClientManager:
@@ -35,13 +48,21 @@ class MCPClientManager:
         self._clients: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
 
-    async def init_from_config(self, config: "MCPConfig") -> None:
+    async def init_from_config(
+        self,
+        config: "MCPConfig",
+        save_config_fn=None,
+    ) -> None:
         """Initialize clients from configuration.
 
         Args:
             config: MCP configuration containing client definitions
+            save_config_fn: Optional callback to save config
+                when requires_auth is set
         """
         logger.debug("Initializing MCP clients from config")
+        auth_required_clients = []
+
         for key, client_config in config.clients.items():
             if not client_config.enabled:
                 logger.debug(f"MCP client '{key}' is disabled, skipping")
@@ -50,6 +71,18 @@ class MCPClientManager:
             try:
                 await self._add_client(key, client_config)
                 logger.debug(f"MCP client '{key}' initialized successfully")
+                # Clear requires_auth flag on successful connection
+                if client_config.requires_auth:
+                    client_config.requires_auth = False
+                    auth_required_clients.append(key)
+            except MCPAuthRequiredError:
+                # Mark client as requiring OAuth
+                client_config.requires_auth = True
+                auth_required_clients.append(key)
+                logger.info(
+                    f"MCP client '{key}' marked as requiring "
+                    "OAuth authorization",
+                )
             except BaseException as e:
                 if isinstance(e, (KeyboardInterrupt, SystemExit)):
                     raise
@@ -57,6 +90,17 @@ class MCPClientManager:
                     f"Failed to initialize MCP client '{key}': {e}",
                     exc_info=True,
                 )
+
+        # Save config if any auth states changed
+        if auth_required_clients and save_config_fn:
+            try:
+                save_config_fn()
+                logger.debug(
+                    "Saved config with auth state changes for: "
+                    f"{auth_required_clients}",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save config: {e}")
 
     async def get_clients(self) -> List[Any]:
         """Get list of all active MCP clients.
@@ -163,6 +207,54 @@ class MCPClientManager:
                 except Exception as e:
                     logger.warning(f"Error closing MCP client '{key}': {e}")
 
+    async def _check_auth_required(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+    ) -> bool:
+        """Pre-check if MCP server requires OAuth by sending a probe request.
+
+        Returns:
+            True if server returns 401 (auth required), False otherwise
+        """
+        if client_config.transport == "stdio":
+            return False
+
+        if not client_config.url:
+            return False
+
+        # Skip check if we already have a valid token
+        if (
+            client_config.oauth_token
+            and client_config.oauth_token.access_token
+        ):
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http_client:
+                # Send MCP initialize request to check auth
+                response = await http_client.post(
+                    client_config.url,
+                    json={
+                        "jsonrpc": "2.0",
+                        "method": "initialize",
+                        "params": {"capabilities": {}},
+                        "id": 1,
+                    },
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code == 401:
+                    logger.info(
+                        f"MCP client '{key}' requires "
+                        "OAuth authorization (401)",
+                    )
+                    return True
+        except Exception as e:
+            # Log but don't fail - let the actual connection handle errors
+            logger.debug(f"Auth pre-check failed for '{key}': {e}")
+
+        return False
+
     async def _add_client(
         self,
         key: str,
@@ -175,23 +267,74 @@ class MCPClientManager:
             key: Client identifier
             client_config: Client configuration
             timeout: Connection timeout in seconds (default 60s)
+
+        Raises:
+            MCPAuthRequiredError: If server returns 401 Unauthorized
         """
+        # Pre-check for OAuth requirement before attempting MCP connection
+        if await self._check_auth_required(key, client_config):
+            raise MCPAuthRequiredError(key)
+
         client = self._build_client(client_config)
 
-        # Add timeout to prevent indefinite blocking
-        await asyncio.wait_for(client.connect(), timeout=timeout)
+        try:
+            # Add timeout to prevent indefinite blocking
+            await asyncio.wait_for(client.connect(), timeout=timeout)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                logger.info(
+                    f"MCP client '{key}' requires OAuth authorization (401)",
+                )
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+                raise MCPAuthRequiredError(key) from e
+            raise
+        except Exception as e:
+            # Check if the error message indicates 401
+            error_str = str(e).lower()
+            if "401" in error_str or "unauthorized" in error_str:
+                logger.info(
+                    f"MCP client '{key}' requires OAuth authorization",
+                )
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+                raise MCPAuthRequiredError(key) from e
+            raise
 
         async with self._lock:
             self._clients[key] = client
 
     @staticmethod
     def _build_client(client_config: "MCPClientConfig") -> Any:
-        """Build MCP client instance by configured transport."""
+        """Build MCP client instance by configured transport.
+
+        If OAuth token is present, it will be injected as Authorization header.
+        """
+        # Start with configured headers
+        headers = dict(client_config.headers) if client_config.headers else {}
+
+        # Inject OAuth token if available
+        if (
+            client_config.oauth_token
+            and client_config.oauth_token.access_token
+        ):
+            token_type = client_config.oauth_token.token_type or "Bearer"
+            headers[
+                "Authorization"
+            ] = f"{token_type} {client_config.oauth_token.access_token}"
+            logger.debug(
+                f"Injected OAuth token for client '{client_config.name}'",
+            )
+
         rebuild_info = {
             "name": client_config.name,
             "transport": client_config.transport,
             "url": client_config.url,
-            "headers": client_config.headers or None,
+            "headers": headers or None,
             "command": client_config.command,
             "args": list(client_config.args),
             "env": dict(client_config.env),
@@ -213,7 +356,7 @@ class MCPClientManager:
             name=client_config.name,
             transport=client_config.transport,
             url=client_config.url,
-            headers=client_config.headers or None,
+            headers=headers or None,
         )
         setattr(client, "_copaw_rebuild_info", rebuild_info)
         return client

@@ -3,6 +3,8 @@ import type {
   MCPClientInfo,
   MCPClientCreateRequest,
   MCPClientUpdateRequest,
+  MCPOAuthStartResponse,
+  MCPOAuthStatusResponse,
 } from "../types";
 
 export const mcpApi = {
@@ -50,4 +52,41 @@ export const mcpApi = {
     request<{ message: string }>(`/mcp/${encodeURIComponent(clientKey)}`, {
       method: "DELETE",
     }),
+
+  // --- OAuth APIs ---
+
+  /**
+   * Start OAuth authorization flow
+   */
+  startMCPOAuth: (clientKey: string) =>
+    request<MCPOAuthStartResponse>(
+      `/mcp/oauth/${encodeURIComponent(clientKey)}/authorize`,
+      { method: "POST" },
+    ),
+
+  /**
+   * Get OAuth authorization status
+   */
+  getMCPOAuthStatus: (clientKey: string) =>
+    request<MCPOAuthStatusResponse>(
+      `/mcp/oauth/${encodeURIComponent(clientKey)}/status`,
+    ),
+
+  /**
+   * Revoke OAuth authorization
+   */
+  revokeMCPOAuth: (clientKey: string) =>
+    request<{ message: string }>(
+      `/mcp/oauth/${encodeURIComponent(clientKey)}/revoke`,
+      { method: "POST" },
+    ),
+
+  /**
+   * Manually refresh OAuth token
+   */
+  refreshMCPOAuth: (clientKey: string) =>
+    request<{ message: string; expires_at: number }>(
+      `/mcp/oauth/${encodeURIComponent(clientKey)}/refresh`,
+      { method: "POST" },
+    ),
 };

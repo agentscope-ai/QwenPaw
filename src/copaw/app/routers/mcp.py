@@ -49,6 +49,14 @@ class MCPClientInfo(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    requires_auth: bool = Field(
+        default=False,
+        description="Whether server requires OAuth (returned 401)",
+    )
+    oauth_authorized: bool = Field(
+        default=False,
+        description="Whether OAuth is currently authorized",
+    )
 
 
 class MCPClientCreateRequest(BaseModel):
@@ -174,6 +182,11 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         else {}
     )
 
+    # Check OAuth status
+    oauth_authorized = bool(
+        client.oauth_token and client.oauth_token.access_token,
+    )
+
     return MCPClientInfo(
         key=key,
         name=client.name,
@@ -186,6 +199,8 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         args=client.args,
         env=masked_env,
         cwd=client.cwd,
+        requires_auth=client.requires_auth,
+        oauth_authorized=oauth_authorized,
     )
 
 

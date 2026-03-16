@@ -119,7 +119,12 @@
     "toggleError": "Failed to toggle MCP client status",
     "deleteConfirm": "Are you sure you want to delete this MCP client?",
     "deleteSuccess": "MCP client deleted successfully",
-    "deleteError": "Failed to delete MCP client"
+    "deleteError": "Failed to delete MCP client",
+    "oauthAuthorize": "Authorize OAuth",
+    "oauthRevoke": "Revoke Authorization",
+    "oauthRevoked": "OAuth authorization revoked",
+    "oauthStartError": "Failed to start OAuth authorization",
+    "oauthRevokeError": "Failed to revoke OAuth authorization"
   },
   "heartbeat": {
     "title": "Heartbeat",

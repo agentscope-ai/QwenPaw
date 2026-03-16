@@ -287,6 +287,39 @@ class LastDispatchConfig(BaseModel):
     session_id: str = ""
 
 
+class MCPOAuthDiscovery(BaseModel):
+    """Auto-discovered OAuth metadata from MCP server.
+
+    Populated automatically when server returns 401 and
+    metadata is fetched from /.well-known/oauth-authorization-server
+    """
+
+    # Discovered endpoints
+    authorization_endpoint: str = ""
+    token_endpoint: str = ""
+    registration_endpoint: str = ""
+
+    # Dynamically registered client credentials
+    client_id: str = ""
+    client_secret: str = ""  # Optional for public clients
+
+    # Server-provided scopes
+    scopes_supported: List[str] = Field(default_factory=list)
+
+    # Protected resource identifier (RFC 8707)
+    resource: str = ""
+
+
+class MCPOAuthToken(BaseModel):
+    """Stored OAuth tokens for MCP client."""
+
+    access_token: str = ""
+    refresh_token: str = ""
+    token_type: str = "Bearer"
+    scope: str = ""
+    expires_at: float = 0.0  # Unix timestamp
+
+
 class MCPClientConfig(BaseModel):
     """Configuration for a single MCP client."""
 
@@ -302,6 +335,11 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    # Auto-discovered OAuth (populated when 401 received)
+    oauth_discovery: Optional[MCPOAuthDiscovery] = None
+    oauth_token: Optional[MCPOAuthToken] = None
+    # Status flags
+    requires_auth: bool = False  # True when server returned 401
 
     @model_validator(mode="before")
     @classmethod

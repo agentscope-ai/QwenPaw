@@ -25,6 +25,10 @@ export interface MCPClientInfo {
   env: Record<string, string>;
   /** Working directory for stdio command */
   cwd: string;
+  /** Whether server requires OAuth authorization (returned 401) */
+  requires_auth?: boolean;
+  /** Whether OAuth is authorized */
+  oauth_authorized?: boolean;
 }
 
 export interface MCPClientCreateRequest {
@@ -76,4 +80,20 @@ export interface MCPClientUpdateRequest {
   env?: Record<string, string>;
   /** Working directory for stdio command */
   cwd?: string;
+}
+
+/** OAuth start response */
+export interface MCPOAuthStartResponse {
+  /** Authorization URL to redirect user */
+  auth_url: string;
+}
+
+/** OAuth status response */
+export interface MCPOAuthStatusResponse {
+  /** Whether OAuth is authorized */
+  authorized: boolean;
+  /** Whether server requires OAuth (returned 401) */
+  requires_auth?: boolean;
+  /** Token expiration timestamp */
+  expires_at?: number;
 }

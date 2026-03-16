@@ -53,6 +53,7 @@ function MCPPage() {
   const {
     clients,
     loading,
+    loadClients,
     toggleEnabled,
     deleteClient,
     createClient,
@@ -201,6 +202,7 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
+              onRefresh={loadClients}
               isHovered={hoverKey === client.key}
               onMouseEnter={() => setHoverKey(client.key)}
               onMouseLeave={() => setHoverKey(null)}

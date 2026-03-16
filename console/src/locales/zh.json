@@ -119,7 +119,12 @@
     "toggleError": "切换 MCP 客户端状态失败",
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
-    "deleteError": "MCP 客户端删除失败"
+    "deleteError": "MCP 客户端删除失败",
+    "oauthAuthorize": "OAuth 授权",
+    "oauthRevoke": "撤销授权",
+    "oauthRevoked": "OAuth 授权已撤销",
+    "oauthStartError": "启动 OAuth 授权失败",
+    "oauthRevokeError": "撤销 OAuth 授权失败"
   },
   "heartbeat": {
     "title": "心跳",

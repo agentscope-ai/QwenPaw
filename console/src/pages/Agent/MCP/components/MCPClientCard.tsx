@@ -1,16 +1,18 @@
-import { Card, Button, Modal, Tooltip } from "@agentscope-ai/design";
-import { DeleteOutlined } from "@ant-design/icons";
+import { Card, Button, Modal, Tooltip, message } from "@agentscope-ai/design";
+import { DeleteOutlined, KeyOutlined, DisconnectOutlined } from "@ant-design/icons";
 import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import styles from "../index.module.less";
+import api from "../../../../api";
 
 interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: any) => Promise<boolean>;
+  onRefresh?: () => void;
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -21,6 +23,7 @@ export function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
+  onRefresh,
   isHovered,
   onMouseEnter,
   onMouseLeave,
@@ -30,6 +33,47 @@ export function MCPClientCard({
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editedJson, setEditedJson] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  // Initialize from backend-provided value
+  const [oauthAuthorized, setOauthAuthorized] = useState(
+    client.oauth_authorized ?? false
+  );
+  const [oauthLoading, setOauthLoading] = useState(false);
+
+  // Check OAuth status on mount and when client changes
+  const checkOAuthStatus = useCallback(async () => {
+    // Only check for HTTP-based transports
+    if (client.transport === "stdio") return;
+    try {
+      const status = await api.getMCPOAuthStatus(client.key);
+      setOauthAuthorized(status.authorized);
+    } catch (error) {
+      // Silently ignore - OAuth status check is optional
+    }
+  }, [client.key, client.transport]);
+
+  useEffect(() => {
+    checkOAuthStatus();
+  }, [checkOAuthStatus]);
+
+  // Listen for OAuth callback messages
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Validate origin to prevent cross-site message spoofing
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      if (event.data?.type === "mcp-oauth-callback") {
+        checkOAuthStatus();
+        onRefresh?.();
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [checkOAuthStatus, onRefresh]);
+
+  // Show OAuth controls for HTTP transports that require auth or are authorized
+  const showOAuthControls =
+    client.transport !== "stdio" && (client.requires_auth || oauthAuthorized);
 
   // Determine if MCP client is remote or local based on command
   const isRemote =
@@ -75,6 +119,37 @@ export function MCPClientCard({
   };
 
   const clientJson = JSON.stringify(client, null, 2);
+
+  // OAuth handlers
+  const handleStartOAuth = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    setOauthLoading(true);
+    try {
+      const response = await api.startMCPOAuth(client.key);
+      // Open authorization URL in new window
+      window.open(response.auth_url, "mcp-oauth", "width=600,height=700");
+    } catch (error: any) {
+      message.error(error?.message || t("mcp.oauthStartError"));
+    } finally {
+      setOauthLoading(false);
+    }
+  };
+
+  const handleRevokeOAuth = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOauthLoading(true);
+    try {
+      await api.revokeMCPOAuth(client.key);
+      setOauthAuthorized(false);
+      message.success(t("mcp.oauthRevoked"));
+      onRefresh?.();
+    } catch (error: any) {
+      message.error(error?.message || t("mcp.oauthRevokeError"));
+    } finally {
+      setOauthLoading(false);
+    }
+  };
 
   return (
     <>
@@ -132,6 +207,32 @@ export function MCPClientCard({
           >
             {client.enabled ? t("common.disable") : t("common.enable")}
           </Button>
+
+          {showOAuthControls && (
+            oauthAuthorized ? (
+              <Tooltip title={t("mcp.oauthRevoke")}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DisconnectOutlined />}
+                  onClick={handleRevokeOAuth}
+                  loading={oauthLoading}
+                  className={styles.oauthAuthorizedButton}
+                />
+              </Tooltip>
+            ) : (
+              <Tooltip title={t("mcp.oauthAuthorize")}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<KeyOutlined />}
+                  onClick={handleStartOAuth}
+                  loading={oauthLoading}
+                  className={styles.oauthPendingButton}
+                />
+              </Tooltip>
+            )
+          )}
 
           <Button
             type="text"
