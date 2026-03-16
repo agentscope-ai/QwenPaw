@@ -54,7 +54,10 @@ from .content_utils import (
 )
 from .handler import DingTalkChannelHandler
 from . import markdown as dingtalk_markdown
-from .utils import guess_suffix_from_file_content
+from .utils import (
+    guess_suffix_from_bytes,
+    sanitize_download_filename,
+)
 
 if TYPE_CHECKING:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
@@ -1788,10 +1791,11 @@ class DingTalkChannel(BaseChannel):
         self,
         url: str,
         safe_key: str,
+        filename: Optional[str] = None,
         filename_hint: str = "file.bin",
     ) -> Optional[str]:
         """Download media to media_dir; return local path or None.
-        Suffix from Content-Type then magic bytes.
+        Prefer original filename; only fall back to inferred suffixes.
         """
         if not url or not url.strip().startswith(("http://", "https://")):
             return None
@@ -1813,45 +1817,120 @@ class DingTalkChannel(BaseChannel):
                     "Content-Disposition",
                     "",
                 )
-            filename = filename_hint
-            if "filename=" in disposition:
+            resolved_filename = filename or ""
+            if not resolved_filename and "filename=" in disposition:
                 part = (
                     disposition.split("filename=", 1)[-1].strip().strip("'\"")
                 )
                 if part:
-                    filename = part
-            suffix = ".file"
-            if "." in filename:
-                ext = filename.rsplit(".", 1)[-1].lower().strip()
-                if ext:
-                    suffix = "." + ext
-            elif content_type:
-                suffix = mimetypes.guess_extension(content_type) or ".file"
+                    resolved_filename = part
+            local_filename = self._build_download_filename(
+                filename=resolved_filename,
+                filename_hint=filename_hint,
+                content_type=content_type,
+                data=data,
+            )
             self._media_dir.mkdir(parents=True, exist_ok=True)
-            path = self._media_dir / f"{safe_key}{suffix}"
+            path = self._build_download_path(
+                local_filename=local_filename,
+                safe_key=safe_key,
+                data=data,
+            )
             path.write_bytes(data)
-            # Fix .file/.bin with magic bytes so images get .png/.jpg etc.
-            if path.suffix in (".file", ".bin"):
-                real_suffix = guess_suffix_from_file_content(path)
-                if real_suffix:
-                    new_path = path.with_suffix(real_suffix)
-                    path.rename(new_path)
-                    path = new_path
-                    logger.debug(
-                        "dingtalk replaced suffix with %s for %s",
-                        real_suffix,
-                        path,
-                    )
             return str(path)
         except Exception:
             logger.exception("dingtalk _download_media_to_local failed")
             return None
+
+    def _build_download_filename(
+        self,
+        *,
+        filename: str,
+        filename_hint: str,
+        content_type: str,
+        data: bytes,
+    ) -> str:
+        """Resolve the final local filename before writing to disk."""
+        chosen = sanitize_download_filename(
+            filename or filename_hint,
+            fallback="file",
+        )
+        hint = sanitize_download_filename(filename_hint, fallback="file.bin")
+        stem = Path(chosen).stem or "file"
+        suffix = Path(chosen).suffix.lower()
+        if suffix in ("", ".bin", ".file"):
+            suffix = (
+                guess_suffix_from_bytes(data)
+                or mimetypes.guess_extension(content_type or "")
+                or (
+                    Path(hint).suffix.lower()
+                    if Path(hint).suffix.lower() not in ("", ".bin", ".file")
+                    else ""
+                )
+                or ".bin"
+            )
+        if suffix == ".jpeg":
+            suffix = ".jpg"
+        return sanitize_download_filename(
+            f"{stem}{suffix}",
+            fallback="file.bin",
+        )
+
+    def _build_download_path(
+        self,
+        *,
+        local_filename: str,
+        safe_key: str,
+        data: bytes,
+    ) -> Path:
+        """Prefer readable filenames and add a short suffix only on clashes."""
+        candidate = self._media_dir / local_filename
+        if not candidate.exists():
+            return candidate
+        try:
+            if self._existing_file_matches_data(candidate, data):
+                return candidate
+        except Exception:
+            logger.debug(
+                "dingtalk failed to compare existing file %s",
+                candidate,
+                exc_info=True,
+            )
+        stem = Path(local_filename).stem or "file"
+        suffix = Path(local_filename).suffix
+        dedup_name = sanitize_download_filename(
+            f"{stem}_{safe_key[:8]}{suffix}",
+            fallback=f"file_{safe_key[:8]}.bin",
+        )
+        return self._media_dir / dedup_name
+
+    def _existing_file_matches_data(
+        self,
+        path: Path,
+        data: bytes,
+    ) -> bool:
+        """Compare an existing file with downloaded bytes in chunks."""
+        if not path.is_file():
+            return False
+        if path.stat().st_size != len(data):
+            return False
+        chunk_size = 64 * 1024
+        offset = 0
+        with open(path, "rb") as existing:
+            while True:
+                chunk = existing.read(chunk_size)
+                if not chunk:
+                    return offset == len(data)
+                if chunk != data[offset : offset + len(chunk)]:
+                    return False
+                offset += len(chunk)
 
     async def _fetch_and_download_media(
         self,
         *,
         download_code: str,
         robot_code: str,
+        filename: Optional[str] = None,
         filename_hint: str = "file.bin",
     ) -> Optional[str]:
         """Get download URL from API, save to local, return path."""
@@ -1867,6 +1946,7 @@ class DingTalkChannel(BaseChannel):
         return await self._download_media_to_local(
             url,
             key,
+            filename,
             filename_hint,
         )
 

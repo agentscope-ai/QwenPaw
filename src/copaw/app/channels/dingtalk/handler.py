@@ -62,11 +62,21 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 native,
             )
 
+    @staticmethod
+    def _get_filename_from_payload(payload: dict) -> Optional[str]:
+        """Extract original filename from DingTalk payload variants."""
+        for key in ("fileName", "file_name", "filename", "name", "title"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        return None
+
     def _fetch_download_url_and_content(
         self,
         download_code: str,
         robot_code: str,
         mapped: str,
+        filename: Optional[str] = None,
         filename_hint: Optional[str] = None,
     ) -> Optional[Any]:
         """Fetch media by download_code; return Content to append or None."""
@@ -79,23 +89,19 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 self._download_url_fetcher(
                     download_code=download_code,
                     robot_code=robot_code,
+                    filename=filename,
                     filename_hint=hint,
                 ),
                 self._main_loop,
             )
             download_url = fut.result(timeout=15)
-            return dingtalk_content_from_type(mapped, download_url)
+            return dingtalk_content_from_type(
+                mapped,
+                download_url,
+                filename=filename,
+            )
         except Exception:
             return None
-
-    @staticmethod
-    def _extract_filename_hint(payload: Dict[str, Any]) -> Optional[str]:
-        """Extract filename hint from DingTalk payload variants."""
-        for key in ("fileName", "file_name", "filename", "name", "title"):
-            val = payload.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-        return None
 
     def _parse_rich_content(
         self,
@@ -136,16 +142,17 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 )
                 if not dl_code or not robot_code:
                     continue
+                item_filename = self._get_filename_from_payload(item)
                 mapped = type_mapping.get(
                     item.get("type", "file"),
                     item.get("type", "file"),
                 )
-                filename_hint = self._extract_filename_hint(item)
                 part_content = self._fetch_download_url_and_content(
                     dl_code,
                     robot_code,
                     mapped,
-                    filename_hint=filename_hint,
+                    item_filename,
+                    item_filename,
                 )
                 if part_content is not None:
                     content.append(part_content)
@@ -154,6 +161,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             if not content:
                 dl_code = c.get("downloadCode") or c.get("download_code")
                 if dl_code and robot_code:
+                    item_filename = self._get_filename_from_payload(c)
                     msgtype = (
                         (
                             msg_dict.get(
@@ -170,12 +178,12 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     )
                     if mapped not in ("image", "file", "video", "audio"):
                         mapped = "file"
-                    filename_hint = self._extract_filename_hint(c)
                     part_content = self._fetch_download_url_and_content(
                         dl_code,
                         robot_code,
                         mapped,
-                        filename_hint=filename_hint,
+                        item_filename,
+                        item_filename,
                     )
                     if part_content is not None:
                         content.append(part_content)

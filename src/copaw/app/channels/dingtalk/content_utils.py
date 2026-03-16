@@ -30,7 +30,11 @@ _DATA_URL_RE = re.compile(
 )
 
 
-def dingtalk_content_from_type(mapped: str, url: str) -> Any:
+def dingtalk_content_from_type(
+    mapped: str,
+    url: str,
+    filename: Optional[str] = None,
+) -> Any:
     """Build runtime Content from DingTalk type and download URL."""
     if mapped == "image":
         return ImageContent(type=ContentType.IMAGE, image_url=url)
@@ -42,10 +46,15 @@ def dingtalk_content_from_type(mapped: str, url: str) -> Any:
         return FileContent(
             type=ContentType.FILE,
             file_url=url,
+            filename=filename,
             # data=url,
             # format="amr",
         )
-    return FileContent(type=ContentType.FILE, file_url=url)
+    return FileContent(
+        type=ContentType.FILE,
+        file_url=url,
+        filename=filename,
+    )
 
 
 def parse_data_url(data_url: str) -> tuple[bytes, Optional[str]]:
