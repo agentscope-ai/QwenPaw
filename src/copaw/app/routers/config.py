@@ -7,7 +7,6 @@ from fastapi import APIRouter, Body, HTTPException, Path, Request
 from ...config import (
     load_config,
     save_config,
-    get_heartbeat_config,
     ChannelConfig,
     ChannelConfigUnion,
     get_available_channels,
@@ -56,15 +55,23 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     summary="List all channels",
     description="Retrieve configuration for all available channels",
 )
-async def list_channels() -> dict:
+async def list_channels(request: Request) -> dict:
     """List all channel configs (filtered by available channels)."""
-    config = load_config()
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    agent_config = agent.config
     available = get_available_channels()
 
-    # Get all channel configs from model_dump and __pydantic_extra__
-    all_configs = config.channels.model_dump()
-    extra = getattr(config.channels, "__pydantic_extra__", None) or {}
-    all_configs.update(extra)
+    # Get channel configs from agent's config (with fallback to empty)
+    channels_config = agent_config.channels
+    if channels_config is None:
+        # No channels config yet, use empty defaults
+        all_configs = {}
+    else:
+        all_configs = channels_config.model_dump()
+        extra = getattr(channels_config, "__pydantic_extra__", None) or {}
+        all_configs.update(extra)
 
     # Return all available channels (use default config if not saved)
     result = {}
@@ -102,15 +109,35 @@ async def list_channel_types() -> List[str]:
     description="Update configuration for all channels at once",
 )
 async def put_channels(
+    request: Request,
     channels_config: ChannelConfig = Body(
         ...,
         description="Complete channel configuration",
     ),
 ) -> ChannelConfig:
     """Update all channel configs."""
-    config = load_config()
-    config.channels = channels_config
-    save_config(config)
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    agent = await get_agent_for_request(request)
+    agent.config.channels = channels_config
+    save_agent_config(agent.agent_id, agent.config)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            await agent.reload()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
     return channels_config
 
 
@@ -121,6 +148,7 @@ async def put_channels(
     description="Retrieve configuration for a specific channel by name",
 )
 async def get_channel(
+    request: Request,
     channel_name: str = Path(
         ...,
         description="Name of the channel to retrieve",
@@ -128,16 +156,26 @@ async def get_channel(
     ),
 ) -> ChannelConfigUnion:
     """Get a specific channel config by name."""
+    from ..agent_context import get_agent_for_request
+
     available = get_available_channels()
     if channel_name not in available:
         raise HTTPException(
             status_code=404,
             detail=f"Channel '{channel_name}' not found",
         )
-    config = load_config()
-    single_channel_config = getattr(config.channels, channel_name, None)
+
+    agent = await get_agent_for_request(request)
+    channels = agent.config.channels
+    if channels is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Channel '{channel_name}' not configured",
+        )
+
+    single_channel_config = getattr(channels, channel_name, None)
     if single_channel_config is None:
-        extra = getattr(config.channels, "__pydantic_extra__", None) or {}
+        extra = getattr(channels, "__pydantic_extra__", None) or {}
         single_channel_config = extra.get(channel_name)
     if single_channel_config is None:
         raise HTTPException(
@@ -154,6 +192,7 @@ async def get_channel(
     description="Update configuration for a specific channel by name",
 )
 async def put_channel(
+    request: Request,
     channel_name: str = Path(
         ...,
         description="Name of the channel to update",
@@ -165,13 +204,21 @@ async def put_channel(
     ),
 ) -> ChannelConfigUnion:
     """Update a specific channel config by name."""
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
     available = get_available_channels()
     if channel_name not in available:
         raise HTTPException(
             status_code=404,
             detail=f"Channel '{channel_name}' not found",
         )
-    config = load_config()
+
+    agent = await get_agent_for_request(request)
+
+    # Initialize channels if not exists
+    if agent.config.channels is None:
+        agent.config.channels = ChannelConfig()
 
     config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
     if config_class is not None:
@@ -180,9 +227,25 @@ async def put_channel(
         # For custom channels, just use the dict
         channel_config = single_channel_config
 
-    # Allow setting extra (plugin) channel config
-    setattr(config.channels, channel_name, channel_config)
-    save_config(config)
+    # Set channel config in agent's config
+    setattr(agent.config.channels, channel_name, channel_config)
+    save_agent_config(agent.agent_id, agent.config)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            await agent.reload()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
     return channel_config
 
 
@@ -191,9 +254,16 @@ async def put_channel(
     summary="Get heartbeat config",
     description="Return current heartbeat config (interval, target, etc.)",
 )
-async def get_heartbeat() -> Any:
+async def get_heartbeat(request: Request) -> Any:
     """Return effective heartbeat config (from file or default)."""
-    hb = get_heartbeat_config()
+    from ..agent_context import get_agent_for_request
+    from ...config.config import HeartbeatConfig as HeartbeatConfigModel
+
+    agent = await get_agent_for_request(request)
+    hb = agent.config.heartbeat
+    if hb is None:
+        # Use default if not configured
+        hb = HeartbeatConfigModel()
     return hb.model_dump(mode="json", by_alias=True)
 
 
@@ -207,19 +277,34 @@ async def put_heartbeat(
     body: HeartbeatBody = Body(..., description="Heartbeat configuration"),
 ) -> Any:
     """Update heartbeat config and reschedule the heartbeat job."""
-    config = load_config()
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    agent = await get_agent_for_request(request)
     hb = HeartbeatConfig(
         enabled=body.enabled,
         every=body.every,
         target=body.target,
         active_hours=body.active_hours,
     )
-    config.agents.defaults.heartbeat = hb
-    save_config(config)
+    agent.config.heartbeat = hb
+    save_agent_config(agent.agent_id, agent.config)
 
-    cron_manager = getattr(request.app.state, "cron_manager", None)
-    if cron_manager is not None:
-        await cron_manager.reschedule_heartbeat()
+    # Reschedule heartbeat (async, non-blocking)
+    import asyncio
+
+    async def reschedule_in_background():
+        try:
+            if agent.cron_manager is not None:
+                await agent.cron_manager.reschedule_heartbeat()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reschedule failed: {e}",
+            )
+
+    asyncio.create_task(reschedule_in_background())
 
     return hb.model_dump(mode="json", by_alias=True)
 

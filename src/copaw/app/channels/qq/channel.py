@@ -35,6 +35,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import QQConfig as QQChannelConfig
+from ....constant import WORKING_DIR
 
 from ..base import (
     BaseChannel,
@@ -73,7 +74,7 @@ _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 _IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
-_DEFAULT_MEDIA_DIR = Path("~/.copaw/media/qq").expanduser()
+_DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "qq"
 
 
 class QQApiError(RuntimeError):

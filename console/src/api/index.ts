@@ -13,6 +13,7 @@ import { envApi } from "./modules/env";
 import { providerApi } from "./modules/provider";
 import { skillApi } from "./modules/skill";
 import { agentApi } from "./modules/agent";
+import { agentsApi } from "./modules/agents";
 import { workspaceApi } from "./modules/workspace";
 import { localModelApi } from "./modules/localModel";
 import { ollamaModelApi } from "./modules/ollamaModel";
@@ -78,3 +79,6 @@ export const api = {
 };
 
 export default api;
+
+// Export individual APIs for direct access
+export { agentsApi };

@@ -14,7 +14,8 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from copaw.constant import WORKING_DIR
+from ...constant import WORKING_DIR
+from ...config.context import get_current_workspace_dir
 from .utils import truncate_shell_output
 
 
@@ -156,7 +157,11 @@ async def execute_shell_command(
     cmd = (command or "").strip()
 
     # Set working directory
-    working_dir = cwd if cwd is not None else WORKING_DIR
+    # Use current workspace_dir from context, fallback to WORKING_DIR
+    if cwd is not None:
+        working_dir = cwd
+    else:
+        working_dir = get_current_workspace_dir() or WORKING_DIR
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()

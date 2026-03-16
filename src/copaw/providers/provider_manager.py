@@ -9,7 +9,7 @@ from typing import Dict, List
 import logging
 import json
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
 
@@ -19,6 +19,7 @@ from copaw.providers.provider import (
     Provider,
     ProviderInfo,
 )
+from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
@@ -225,17 +226,6 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     support_model_discovery=True,
     generate_kwargs={"max_tokens": None},
 )
-
-
-class ModelSlotConfig(BaseModel):
-    provider_id: str = Field(
-        ...,
-        description="ID of the provider to use for this model slot",
-    )
-    model: str = Field(
-        ...,
-        description="ID of the model to use for this model slot",
-    )
 
 
 class ActiveModelsInfo(BaseModel):

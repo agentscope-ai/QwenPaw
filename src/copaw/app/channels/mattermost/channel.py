@@ -20,6 +20,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import MattermostConfig as MattermostChannelConfig
+from ....constant import WORKING_DIR
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 MATTERMOST_POST_CHUNK_SIZE = 4000  # chars per post (hard limit ~16383)
 
-_DEFAULT_MEDIA_DIR = Path("~/.copaw/media/mattermost").expanduser()
+_DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "mattermost"
 _TYPING_TIMEOUT_S = 180
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}

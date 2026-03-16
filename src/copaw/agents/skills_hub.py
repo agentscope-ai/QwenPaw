@@ -11,6 +11,7 @@ import base64
 import io
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse, unquote
 from urllib.error import HTTPError, URLError
@@ -1352,6 +1353,7 @@ def search_hub_skills(query: str, limit: int = 20) -> list[HubSkillResult]:
 # pylint: disable-next=too-many-branches
 def install_skill_from_hub(
     *,
+    workspace_dir: Path,
     bundle_url: str,
     version: str = "",
     enable: bool = True,
@@ -1409,7 +1411,8 @@ def install_skill_from_hub(
     # Sanitize: "Excel / XLSX" etc. must not be used as dir name
     name = _sanitize_skill_dir_name(name)
 
-    created = SkillService.create_skill(
+    skill_service = SkillService(workspace_dir)
+    created = skill_service.create_skill(
         name=name,
         content=content,
         overwrite=overwrite,
@@ -1425,7 +1428,7 @@ def install_skill_from_hub(
 
     enabled = False
     if enable:
-        enabled = SkillService.enable_skill(name, force=True)
+        enabled = skill_service.enable_skill(name, force=True)
         if not enabled:
             logger.warning("Skill '%s' imported but enable failed", name)
 

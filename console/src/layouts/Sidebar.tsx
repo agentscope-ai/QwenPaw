@@ -36,6 +36,7 @@ import {
   Copy,
   Check,
   BarChart3,
+  Bot,
   LogOut,
 } from "lucide-react";
 import api from "../api";
@@ -64,6 +65,7 @@ const KEY_TO_PATH: Record<string, string> = {
   tools: "/tools",
   mcp: "/mcp",
   workspace: "/workspace",
+  agents: "/agents",
   models: "/models",
   environments: "/environments",
   "agent-config": "/agent-config",
@@ -348,6 +350,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.settings"),
       icon: <Cpu size={16} />,
       children: [
+        { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
         { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
         {
           key: "environments",

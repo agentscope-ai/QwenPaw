@@ -94,7 +94,7 @@ function MCPPage() {
       // Format 2: { "key": { "command": "...", ... } }
       // Format 3: { "key": "...", "name": "...", "command": "...", ... } (direct)
 
-      let clientsToCreate: Array<{ key: string; data: any }> = [];
+      const clientsToCreate: Array<{ key: string; data: any }> = [];
 
       if (parsed.mcpServers) {
         // Format 1: nested mcpServers

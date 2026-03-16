@@ -29,6 +29,7 @@ dependencies = [
     "paho-mqtt>=2.0.0",
     "wecom-aibot-sdk @ https://agentscope.oss-cn-zhangjiakou.aliyuncs.com/pre_whl/wecom_aibot_sdk-1.0.0-py3-none-any.whl",
     "matrix-nio>=0.24.0",
+    "shortuuid>=1.0.0",
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
 ]
