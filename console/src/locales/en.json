@@ -278,8 +278,12 @@
     "sttProvider": "STT Provider",
     "language": "Language",
     "welcomeGreeting": "Welcome Greeting",
+    "welcomeText": "Welcome Message",
+    "welcomeTextTooltip": "Message automatically sent when a user enters a single chat session with the bot for the first time that day",
+    "welcomeTextPlaceholder": "e.g. Hello! I'm CoPaw. How can I help you?",
     "voiceSetupGuide": "Set up a Twilio account, purchase a phone number, then enter your credentials below. Find your Account SID and Auth Token on the Twilio Console dashboard. The Phone Number SID is listed under Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Open Twilio Console",
+    "xiaoyiSetupGuide": "Please create an agent on Huawei Developer Platform and get AK/SK and Agent ID. AK/SK can be found in the credential management page.",
     "filterAll": "All",
     "builtin": "Built-in",
     "custom": "Custom"
@@ -536,6 +540,12 @@
     "languageSaveFailed": "Failed to update language",
     "saveSuccess": "Configuration saved successfully",
     "saveFailed": "Failed to save configuration",
+    "timezone": "User Timezone",
+    "timezoneTooltip": "Used for scheduled tasks, time display, and agent context. Defaults to your system timezone.",
+    "timezoneRequired": "Please select a timezone",
+    "selectTimezone": "Select timezone",
+    "timezoneSaveSuccess": "Timezone updated successfully",
+    "timezoneSaveFailed": "Failed to update timezone",
     "loadFailed": "Failed to load configuration"
   },
   "tools": {

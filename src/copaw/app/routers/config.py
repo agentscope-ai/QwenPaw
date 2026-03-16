@@ -248,6 +248,36 @@ async def put_agents_llm_routing(
     return body
 
 
+# ── User Timezone ────────────────────────────────────────────────────
+
+
+@router.get(
+    "/user-timezone",
+    summary="Get user timezone",
+    description="Return the configured user IANA timezone",
+)
+async def get_user_timezone() -> dict:
+    config = load_config()
+    return {"timezone": config.user_timezone}
+
+
+@router.put(
+    "/user-timezone",
+    summary="Update user timezone",
+    description="Set the user IANA timezone",
+)
+async def put_user_timezone(
+    body: dict = Body(..., description="Body with 'timezone' key"),
+) -> dict:
+    tz = body.get("timezone", "").strip()
+    if not tz:
+        raise HTTPException(status_code=400, detail="timezone is required")
+    config = load_config()
+    config.user_timezone = tz
+    save_config(config)
+    return {"timezone": tz}
+
+
 # ── Security / Tool Guard ────────────────────────────────────────────
 
 

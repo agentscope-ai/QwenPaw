@@ -78,7 +78,7 @@
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
-  "client_secret": "你的 Client Secret"
+  "client_secret": "你的 Client Secret",
   "filter_tool_messages": false
 }
 ```
@@ -169,7 +169,7 @@
 
 7. 在「事件与回调」中，点击「事件配置」，选择订阅方式为**长连接（WebSocket）** 模式（无需公网 IP）
 
-> 注：**操作顺序**为先配置 App ID/Secret → 启动 `copaw app` → 再在开放平台配置长连接，如果此处仍显示错误，尝试先暂停copaw服务并重新启动 `copaw app`。
+> 注：**操作顺序**为先配置 App ID/Secret → 启动 `copaw app` → 再在开放平台配置长连接，如果此处仍显示错误，尝试先暂停 CoPaw 服务并重新启动 `copaw app`。
 
 ![websocket](https://img.alicdn.com/imgextra/i2/O1CN01LQwKON1x7QMNP41kC_!!6000000006396-2-tps-4082-2126.png)
 
@@ -204,7 +204,7 @@
 
 其他字段（encrypt_key、verification_token、media_dir）可选，WebSocket 模式可不填，有默认值。依赖：`pip install lark-oapi`，然后 `copaw app`。如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
-> 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启copaw服务，才能继续配置长链接的操作。
+> 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 CoPaw 服务，才能继续配置长链接的操作。
 > ![console](https://img.alicdn.com/imgextra/i2/O1CN01k7UVrP1E2hZBAn0oF_!!6000000000294-2-tps-4082-2126.png)
 
 ### 机器人权限建议
@@ -427,6 +427,51 @@
 
 ---
 
+## 企业微信
+
+### 创建新企业
+
+个人使用者可先注册账号，创建新企业，成为企业管理员。
+![创建企业](https://img.alicdn.com/imgextra/i2/O1CN01Xg8B3i1EQWAKt5xj0_!!6000000000346-2-tps-2938-1588.png)
+![新建账号](https://img.alicdn.com/imgextra/i2/O1CN01QzuScv26w6je9Yypg_!!6000000007725-2-tps-2938-1592.png)
+
+若已经有企业微信账号或是企业普通员工，可以直接在当前企业创建API模式机器人。
+
+### 创建机器人
+
+可在管理后台点击管理工具-智能机器人-创建机器人，选择API模式创建-通过长链接配置
+![创建机器人1](https://img.alicdn.com/imgextra/i2/O1CN01n4qAEI1deajLveo2B_!!6000000003761-2-tps-2938-1590.png)
+![新建机器人2](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
+![新建机器人3](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
+
+### 绑定bot
+
+可以在Console或是`config.json`填写Bot ID和Secret绑定bot
+
+**方法一**在console填写
+![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
+
+**方法二**在`config.json`填写(默认文件路径为`~/.copaw/config.json`)
+找到`wecom`，填写对应信息，例如：
+
+```json
+"wecom": {
+      "enabled": true,
+      "dm_policy": "open",
+      "group_policy": "open",
+      "bot_id": "your bot_id",
+      "secret": "your secret",
+      "media_dir": "~/.copaw/media",
+      "max_reconnect_attempts": -1
+    }
+```
+
+### 在企业微信开始与机器人聊天
+
+![开始使用](https://img.alicdn.com/imgextra/i3/O1CN01ZsmpYr1tq4ViIbO80_!!6000000005952-2-tps-1308-1130.png)
+
+---
+
 ## Telegram
 
 ### 获取 Telegram 机器人凭证
@@ -637,6 +682,26 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ---
 
+## 小艺（XiaoYi）
+
+小艺通道通过 **A2A (Agent-to-Agent) 协议** 基于 WebSocket 连接华为小艺平台。
+
+### 获取凭证
+
+1. 在小艺开放平台创建Agent。
+2. 获取 **AK** (Access Key)、**SK** (Secret Key) 和 **Agent ID**。
+
+### 核心配置
+
+| 字段         | 说明           | 默认值                                           |
+| ------------ | -------------- | ------------------------------------------------ |
+| **ak**       | 访问密钥       | -                                                |
+| **sk**       | 密钥           | -                                                |
+| **agent_id** | 代理唯一标识   | -                                                |
+| **ws_url**   | WebSocket 地址 | `wss://hag.cloud.huawei.com/openclaw/v1/ws/link` |
+
+---
+
 ## 附录
 
 ### 配置总览
@@ -648,9 +713,11 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                       |
 | Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                         |
 | QQ         | qq         | app_id, client_secret                                               |
+| 企业微信   | wecom      | bot_id, secret；可选 media_dir, max_reconnect_attempts              |
 | Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                   |
+| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                       |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 
@@ -666,9 +733,11 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
 | Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| 小艺       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 
 说明：
 
@@ -678,7 +747,9 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
+- **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
+- **小艺**：当前仅支持文本。
 
 ### 通过 HTTP 修改配置
 

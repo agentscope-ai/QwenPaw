@@ -91,6 +91,11 @@ MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
 ]
 
+DEEPSEEK_MODELS: List[ModelInfo] = [
+    ModelInfo(id="deepseek-chat", name="DeepSeek Chat"),
+    ModelInfo(id="deepseek-reasoner", name="DeepSeek Reasoner"),
+]
+
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 GEMINI_MODELS: List[ModelInfo] = [
@@ -171,6 +176,15 @@ PROVIDER_MINIMAX = OpenAIProvider(
     models=MINIMAX_MODELS,
     freeze_url=True,
     generate_kwargs={"temperature": 1.0},
+)
+
+PROVIDER_DEEPSEEK = OpenAIProvider(
+    id="deepseek",
+    name="DeepSeek",
+    base_url="https://api.deepseek.com",
+    api_key_prefix="sk-",
+    models=DEEPSEEK_MODELS,
+    freeze_url=True,
 )
 
 PROVIDER_ANTHROPIC = AnthropicProvider(
@@ -268,6 +282,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_MINIMAX)
+        self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
         self._add_builtin(PROVIDER_OLLAMA)

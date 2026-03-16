@@ -528,6 +528,12 @@
     "languageSaveSuccess": "言語を更新しました",
     "languageSaveSuccessWithFiles": "言語を更新し、{{count}} 個のMDファイルをコピーしました",
     "languageSaveFailed": "言語の更新に失敗しました",
+    "timezone": "ユーザータイムゾーン",
+    "timezoneTooltip": "スケジュールタスク、時刻表示、エージェントコンテキストに使用されます。デフォルトはシステムのタイムゾーンです。",
+    "timezoneRequired": "タイムゾーンを選択してください",
+    "selectTimezone": "タイムゾーンを選択",
+    "timezoneSaveSuccess": "タイムゾーンを更新しました",
+    "timezoneSaveFailed": "タイムゾーンの更新に失敗しました",
     "saveSuccess": "設定を保存しました",
     "saveFailed": "設定の保存に失敗しました",
     "loadFailed": "設定の読み込みに失敗しました"

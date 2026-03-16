@@ -36,6 +36,7 @@ from .tools import (
     get_token_usage,
     read_file,
     send_file_to_user,
+    set_user_timezone,
     write_file,
     create_memory_search_tool,
 )
@@ -188,6 +189,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "desktop_screenshot": desktop_screenshot,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
+            "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
         }
 
@@ -238,7 +240,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         sys_prompt = build_system_prompt_from_working_dir()
         if self._env_context is not None:
-            sys_prompt = self._env_context + "\n\n" + sys_prompt
+            sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
 
     def _setup_memory_manager(

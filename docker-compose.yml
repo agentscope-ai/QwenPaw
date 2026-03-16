@@ -1,0 +1,18 @@
+version: '3.8'
+
+volumes:
+  copaw-data:
+    name: copaw-data
+  copaw-secrets:
+    name: copaw-secrets
+
+services:
+  copaw:
+    image: agentscope/copaw:latest
+    container_name: copaw
+    restart: always
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - copaw-data:/app/working
+      - copaw-secrets:/app/working.secret
