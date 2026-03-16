@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Trusted directories where channels save downloaded media.
 _ALLOWED_MEDIA_ROOTS = [
     WORKING_DIR / "media",
-    Path("downloads").resolve(),
+    WORKING_DIR / "downloads",
 ]
 
 

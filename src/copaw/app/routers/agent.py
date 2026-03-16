@@ -250,7 +250,7 @@ async def put_audio_mode(
     summary="Get transcription provider type",
     description=(
         "Get the transcription provider type. "
-        'Values: "whisper_api", "local_whisper".'
+        'Values: "disabled", "whisper_api", "local_whisper".'
     ),
 )
 async def get_transcription_provider_type() -> dict:
