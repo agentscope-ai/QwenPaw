@@ -16,7 +16,6 @@ from .runner import AgentRunner
 from ..config import (  # pylint: disable=no-name-in-module
     load_config,
     update_last_dispatch,
-    ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
 from ..constant import DOCS_ENABLED, CORS_ORIGINS, get_app_log_level, WORKING_DIR
@@ -135,6 +134,18 @@ class DynamicMultiAgentRunner:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """No-op context manager exit (workspaces manage their own runners)."""
+        return None
+
+    async def start(self):
+        """Lifecycle hook expected by app startup.
+
+        Individual agent runners are started by MultiAgentManager, so this
+        wrapper only needs to satisfy AgentApp/lifespan lifecycle contracts.
+        """
+        return None
+
+    async def stop(self):
+        """Lifecycle hook for compatibility with runner-like interfaces."""
         return None
 
 

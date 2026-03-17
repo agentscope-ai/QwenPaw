@@ -409,7 +409,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             key="releases"
             type="primary"
             onClick={() => {
-              const websiteLang = i18n.language?.startsWith("zh") ? "zh" : "en";
               window.open(
                 "https://github.com/aimentorai/boostclaw/releases",
                 "_blank",

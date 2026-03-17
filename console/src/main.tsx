@@ -6,7 +6,7 @@ if (typeof window !== "undefined") {
   const originalError = console.error;
   const originalWarn = console.warn;
 
-  console.error = function (...args: any[]) {
+  console.error = function (...args: unknown[]) {
     const msg = args[0]?.toString() || "";
     if (msg.includes(":first-child") || msg.includes("pseudo class")) {
       return;
@@ -14,7 +14,7 @@ if (typeof window !== "undefined") {
     originalError.apply(console, args);
   };
 
-  console.warn = function (...args: any[]) {
+  console.warn = function (...args: unknown[]) {
     const msg = args[0]?.toString() || "";
     if (
       msg.includes(":first-child") ||

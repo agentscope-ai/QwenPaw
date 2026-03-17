@@ -12,6 +12,7 @@ import MainLayout from "./layouts/MainLayout";
 import LoginPage from "./pages/Auth/Login";
 import { AuthProvider } from "./auth/context";
 import RequireAuth from "./auth/RequireAuth";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 import dayjs from "dayjs";
@@ -44,10 +45,10 @@ function getRouterBasename(pathname: string): string | undefined {
 function AppInner() {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
-  const { isDark } = useTheme();
   const lang = i18n.resolvedLanguage || i18n.language || "en";
+  const shortLang = lang.split("-")[0];
   const [antdLocale, setAntdLocale] = useState<Locale>(
-    antdLocaleMap[lang] ?? enUS,
+    antdLocaleMap[shortLang] ?? enUS,
   );
 
   useEffect(() => {
@@ -57,14 +58,15 @@ function AppInner() {
       dayjs.locale(dayjsLocaleMap[shortLng] ?? "en");
     };
 
-    // Set initial dayjs locale
-    dayjs.locale(dayjsLocaleMap[lang.split("-")[0]] ?? "en");
+    // Sync both date and Ant Design locale with current language.
+    setAntdLocale(antdLocaleMap[shortLang] ?? enUS);
+    dayjs.locale(dayjsLocaleMap[shortLang] ?? "en");
 
     i18n.on("languageChanged", handleLanguageChanged);
     return () => {
       i18n.off("languageChanged", handleLanguageChanged);
     };
-  }, [i18n]);
+  }, [i18n, shortLang]);
 
   return (
     <BrowserRouter basename={basename}>
