@@ -41,7 +41,7 @@
     "security": "セキュリティ",
     "tokenUsage": "トークン使用量",
     "tools": "ツール",
-    "voiceTranscription": "音声文字起こし"
+    "voiceTranscription": "音声文字起こし",
     "agents": "エージェント管理"
   },
   "agent": {

@@ -41,7 +41,7 @@
     "environments": "Окружения",
     "security": "Безопасность",
     "tokenUsage": "Использование токенов",
-    "voiceTranscription": "Транскрипция голоса"
+    "voiceTranscription": "Транскрипция голоса",
     "agents": "Управление агентами"
   },
   "agent": {
