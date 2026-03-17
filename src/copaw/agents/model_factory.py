@@ -11,13 +11,10 @@ Example:
 
 
 import logging
-from typing import Any, Optional, Sequence, Tuple, Type
-from functools import wraps
+from typing import Optional, Sequence, Tuple, Type, Any
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
-from agentscope.message import Msg
-import agentscope
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
@@ -48,36 +45,6 @@ def _file_url_to_path(url: str) -> str:
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
     return s
-
-
-def _monkey_patch(func):
-    """A monkey patch wrapper for agentscope <= 1.0.16dev"""
-
-    @wraps(func)
-    async def wrapper(
-        self,
-        msgs: list[Msg],
-        **kwargs: Any,
-    ) -> list[dict[str, Any]]:
-        for msg in msgs:
-            if isinstance(msg.content, str):
-                continue
-            if isinstance(msg.content, list):
-                for block in msg.content:
-                    if (
-                        block["type"] in ["audio", "image", "video"]
-                        and block.get("source", {}).get("type") == "url"
-                    ):
-                        url = block["source"]["url"]
-                        if url.startswith("file://"):
-                            block["source"]["url"] = _file_url_to_path(url)
-        return await func(self, msgs, **kwargs)
-
-    return wrapper
-
-
-if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
-    OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
 
 
 logger = logging.getLogger(__name__)
