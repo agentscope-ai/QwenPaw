@@ -22,7 +22,6 @@ import TokenUsagePage from "../../pages/Settings/TokenUsage";
 import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
 import AgentsPage from "../../pages/Settings/Agents";
 
-
 const { Content } = Layout;
 
 const pathToKey: Record<string, string> = {
