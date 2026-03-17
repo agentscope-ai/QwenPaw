@@ -90,7 +90,6 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/agent/local-whisper-status"),
-<<<<<<< HEAD
 
   // Local Embedding APIs
   getLocalEmbeddingConfig: () =>
