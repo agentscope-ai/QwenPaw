@@ -30,21 +30,6 @@
   --note-block-border: #e8ecf5;
 }
 
-.noteStyleSticky {
-  --note-page-bg: linear-gradient(160deg, #fffbe9 0%, #fffef8 52%, #f8fff8 100%);
-  --note-card-bg: #fffdf0;
-  --note-card-border: #ecd68d;
-  --note-card-shadow: 0 9px 22px rgba(159, 121, 0, 0.14);
-  --note-hover-border: #daaf0f;
-  --note-hover-shadow: 0 15px 30px rgba(218, 175, 15, 0.26);
-  --note-block-bg: #fff8d9;
-  --note-block-border: #ebd58d;
-  --note-title-color: #4f3c00;
-  --note-body-color: #5a4a1f;
-  --note-label-color: #7f6b2a;
-  --note-title-font: "Palatino Linotype", "Book Antiqua", serif;
-}
-
 .noteStyleObsidian {
   --note-page-bg: radial-gradient(circle at top right, #202734 0%, #1a202b 60%, #151b25 100%);
   --note-card-bg: #1f2633;
@@ -94,7 +79,21 @@
 }
 
 .noteStyleSegment {
-  min-width: 280px;
+  min-width: 220px;
+}
+
+.noteStyleLabel {
+  color: var(--note-label-color);
+}
+
+.noteStyleOptionLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.noteStyleOptionText {
+  white-space: nowrap;
 }
 
 .unifiedProgressRow {
@@ -271,6 +270,107 @@
 .documentMarkdownViewer {
   border: none !important;
   background: transparent !important;
+}
+
+.documentMarkdownViewer :global(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.documentMarkdownViewer :global(th),
+.documentMarkdownViewer :global(td) {
+  border: 1px solid var(--note-block-border);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.documentMarkdownViewer :global(th) {
+  background: rgba(76, 111, 255, 0.08);
+  color: var(--note-title-color);
+  font-weight: 600;
+}
+
+.documentMarkdownViewer :global(code) {
+  background: rgba(76, 111, 255, 0.08);
+  color: #274690;
+  border-radius: 6px;
+  padding: 0.15em 0.4em;
+}
+
+.documentMarkdownViewer :global(pre) {
+  margin: 12px 0;
+  border-radius: 12px;
+  border: 1px solid var(--note-block-border);
+  background: rgba(248, 249, 253, 0.92);
+  overflow: auto;
+}
+
+.documentMarkdownViewer :global(pre code) {
+  display: block;
+  background: transparent;
+  color: var(--note-body-color);
+  padding: 14px 16px;
+}
+
+.documentMarkdownViewer :global(blockquote) {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-left: 3px solid rgba(76, 111, 255, 0.35);
+  background: rgba(76, 111, 255, 0.06);
+  color: var(--note-body-color);
+}
+
+.documentMarkdownViewer :global(a) {
+  color: #2f67d8;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(table) {
+  background: #1b2432;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(th),
+.noteStyleObsidian .documentMarkdownViewer :global(td) {
+  border-color: #42526b;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(th) {
+  background: #243247;
+  color: #f8fafc;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(tr:nth-child(even) td) {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(tr:nth-child(odd) td) {
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(code) {
+  background: #283548;
+  color: #ffd580;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(pre) {
+  border-color: #42526b;
+  background: linear-gradient(180deg, #101924 0%, #182334 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(pre code) {
+  color: #e5edf8;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(blockquote) {
+  border-left-color: #63b3ed;
+  background: rgba(99, 179, 237, 0.08);
+  color: #d7e4f5;
+}
+
+.noteStyleObsidian .documentMarkdownViewer :global(a) {
+  color: #8ec5ff;
 }
 
 .documentText {
@@ -676,8 +776,16 @@
   }
 
   .noteStyleSegment {
-    width: 100%;
-    min-width: 0;
+    min-width: auto;
+  }
+
+  .noteStyleLabel,
+  .noteStyleOptionText {
+    display: none;
+  }
+
+  .noteStyleOptionLabel {
+    gap: 0;
   }
 
   .sourceCards {

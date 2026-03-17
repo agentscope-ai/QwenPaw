@@ -16,8 +16,10 @@ import {
 import { Divider, Progress, Segmented, Space, Spin, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 import {
+  BookOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  MoonOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -41,7 +43,7 @@ import styles from "./index.module.less";
 
 const KNOWLEDGE_NOTE_STYLE_STORAGE_KEY = "copaw_knowledge_note_style";
 
-type KnowledgeNoteStyle = "notion" | "sticky" | "obsidian";
+type KnowledgeNoteStyle = "notion" | "obsidian";
 
 const SOURCE_TYPE_OPTIONS: Array<{
   label: string;
@@ -158,7 +160,7 @@ function KnowledgePage() {
       return "notion";
     }
     const saved = window.localStorage.getItem(KNOWLEDGE_NOTE_STYLE_STORAGE_KEY);
-    if (saved === "sticky" || saved === "obsidian" || saved === "notion") {
+    if (saved === "obsidian" || saved === "notion") {
       return saved;
     }
     return "notion";
@@ -847,15 +849,25 @@ function KnowledgePage() {
   const noteStyleOptions = useMemo(
     () => [
       {
-        label: t("knowledge.noteStyleNotion"),
+        label: (
+          <span className={styles.noteStyleOptionLabel}>
+            <BookOutlined />
+            <span className={styles.noteStyleOptionText}>
+              {t("knowledge.noteStyleNotion")}
+            </span>
+          </span>
+        ),
         value: "notion",
       },
       {
-        label: t("knowledge.noteStyleSticky"),
-        value: "sticky",
-      },
-      {
-        label: t("knowledge.noteStyleObsidian"),
+        label: (
+          <span className={styles.noteStyleOptionLabel}>
+            <MoonOutlined />
+            <span className={styles.noteStyleOptionText}>
+              {t("knowledge.noteStyleObsidian")}
+            </span>
+          </span>
+        ),
         value: "obsidian",
       },
     ],
@@ -863,9 +875,6 @@ function KnowledgePage() {
   );
 
   const noteStyleClassName = useMemo(() => {
-    if (noteStyle === "sticky") {
-      return styles.noteStyleSticky;
-    }
     if (noteStyle === "obsidian") {
       return styles.noteStyleObsidian;
     }
@@ -887,7 +896,9 @@ function KnowledgePage() {
           </Typography.Paragraph>
         </div>
         <div className={styles.headerActions}>
-          <Typography.Text>{t("knowledge.noteStyle")}</Typography.Text>
+          <Typography.Text className={styles.noteStyleLabel}>
+            {t("knowledge.noteStyle")}
+          </Typography.Text>
           <Segmented
             options={noteStyleOptions}
             value={noteStyle}
@@ -1627,7 +1638,10 @@ function KnowledgePage() {
                           markdownViewerProps={{
                             className: styles.documentMarkdownViewer,
                             style: {
+                              backgroundColor: "transparent",
+                              border: "none",
                               maxHeight: 360,
+                              padding: 12,
                             },
                           }}
                         />
