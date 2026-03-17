@@ -1073,6 +1073,10 @@ function KnowledgePage() {
               const isActiveCard = indexingId === record.id;
               const cardTitle = record.name?.trim() || "";
               const descriptionText = record.description?.trim() || "";
+              const hideDescriptionBlock =
+                cardTitle.length > 0 &&
+                descriptionText.length > 0 &&
+                cardTitle === descriptionText;
               const indexedCountText = record.status.indexed
                 ? t("knowledge.indexedCount", {
                     documents: record.status.document_count,
@@ -1121,28 +1125,30 @@ function KnowledgePage() {
                             </div>
                           ) : null}
 
-                          <div className={styles.infoSection}>
-                            <div className={styles.infoLabel}>
-                              {t("knowledge.table.source")}
-                            </div>
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => openDetailDrawer(record)}
-                              onKeyDown={(event) =>
-                                handleDetailDrawerValueKeyDown(event, record)
-                              }
-                              className={`${styles.infoBlock} ${styles.clickableBlock}`}
-                              title={descriptionText || t("knowledge.inlineText")}
-                            >
-                              <Typography.Text
-                                className={styles.cardTitle}
+                          {!hideDescriptionBlock ? (
+                            <div className={styles.infoSection}>
+                              <div className={styles.infoLabel}>
+                                {t("knowledge.table.source")}
+                              </div>
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openDetailDrawer(record)}
+                                onKeyDown={(event) =>
+                                  handleDetailDrawerValueKeyDown(event, record)
+                                }
+                                className={`${styles.infoBlock} ${styles.clickableBlock}`}
                                 title={descriptionText || t("knowledge.inlineText")}
                               >
-                                {descriptionText || t("knowledge.inlineText")}
-                              </Typography.Text>
+                                <Typography.Text
+                                  className={styles.cardTitle}
+                                  title={descriptionText || t("knowledge.inlineText")}
+                                >
+                                  {descriptionText || t("knowledge.inlineText")}
+                                </Typography.Text>
+                              </div>
                             </div>
-                          </div>
+                          ) : null}
 
                           {record.location ? (
                             <div className={styles.infoSection}>
