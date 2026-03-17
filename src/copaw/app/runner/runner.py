@@ -12,6 +12,17 @@ from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+    ModelContextLengthExceededException,
+    ModelExecutionException,
+    ModelNotFoundException,
+    ModelQuotaExceededException,
+    ModelTimeoutException,
+    NetworkException,
+    UnauthorizedModelAccessException,
+    UnknownAgentException,
+)
 from dotenv import load_dotenv
 
 from .command_dispatch import (
@@ -34,6 +45,152 @@ from ...constant import (
 from ...security.tool_guard.approval import ApprovalDecision
 
 logger = logging.getLogger(__name__)
+
+
+def _classify_exception(  # pylint: disable=too-many-return-statements
+    exc: Exception,
+) -> AppBaseException:
+    """Map a raw exception to an ``AppBaseException`` with a specific error
+    code so that agentscope-runtime can propagate a meaningful code instead
+    of the catch-all ``AGENT_UNKNOWN_ERROR``.
+
+    The matching is intentionally based on *features* (type name strings,
+    ``status_code`` attribute, message keywords) rather than ``isinstance``
+    checks against concrete SDK classes, so it works across providers
+    (OpenAI, Anthropic, Google Gemini, httpx, …) without importing them.
+    """
+    if isinstance(exc, AppBaseException):
+        return exc
+
+    exc_type = type(exc).__name__
+    exc_msg = str(exc).lower()
+    status = getattr(exc, "status_code", None) or getattr(
+        exc,
+        "status",
+        None,
+    )
+    details = {"original_type": exc_type, "original_message": str(exc)}
+
+    def _msg_has(*keywords: str) -> bool:
+        return any(k in exc_msg for k in keywords)
+
+    def _type_has(*keywords: str) -> bool:
+        return any(k in exc_type for k in keywords)
+
+    # Auth / API-key errors (HTTP 401)
+    if (
+        status == 401
+        or _type_has("AuthenticationError")
+        or _msg_has(
+            "api_key",
+            "api key",
+            "unauthorized",
+            "invalid x-api-key",
+        )
+    ):
+        return UnauthorizedModelAccessException(
+            model_name="",
+            details=details,
+        )
+
+    # Rate-limit / quota (HTTP 429, Anthropic 529 overloaded)
+    if (
+        status == 429
+        or _type_has(
+            "RateLimitError",
+            "OverloadedError",
+        )
+        or _msg_has("rate_limit", "rate limit", "quota")
+    ):
+        return ModelQuotaExceededException(model_name="", details=details)
+
+    # Context-length / request-too-large
+    if (
+        status == 413
+        or _type_has(
+            "LengthFinishReasonError",
+            "RequestTooLargeError",
+        )
+        or _msg_has(
+            "context_length",
+            "maximum context length",
+            "too many tokens",
+        )
+    ):
+        return ModelContextLengthExceededException(
+            model_name="",
+            details=details,
+        )
+
+    # Timeout (HTTP 504 / SDK timeouts / Python builtins)
+    if (
+        isinstance(exc, (TimeoutError, asyncio.TimeoutError))
+        or _type_has("Timeout", "DeadlineExceeded")
+        or status == 504
+    ):
+        return ModelTimeoutException(
+            model_name="",
+            timeout=0,
+            details=details,
+        )
+
+    # Connection / network (HTTP 503 / SDK connection errors)
+    if (
+        isinstance(exc, ConnectionError)
+        or _type_has("ConnectionError", "ConnectError")
+        or status == 503
+    ):
+        return NetworkException(message=str(exc), details=details)
+
+    matched = _match_remaining(exc, exc_type, exc_msg, status, details)
+    if matched is not None:
+        return matched
+
+    return UnknownAgentException(original_exception=exc, details=details)
+
+
+def _match_remaining(
+    exc: Exception,
+    exc_type: str,
+    exc_msg: str,
+    status: int | None,
+    details: dict,
+) -> AppBaseException | None:
+    """Secondary matching rules split out to keep the main function concise."""
+    # Content filter / safety
+    if (
+        "ContentFilterFinishReasonError" in exc_type
+        or "content_filter" in exc_msg
+        or "content management policy" in exc_msg
+    ):
+        return ModelExecutionException(model_name="", details=details)
+
+    # Model not found (HTTP 404 or config miss)
+    if (
+        status == 404
+        or "NotFoundError" in exc_type
+        or "model not found" in exc_msg
+        or "does not exist" in exc_msg
+    ):
+        return ModelNotFoundException(model_name="", details=details)
+
+    # Bad request (HTTP 400)
+    if status == 400 or "BadRequestError" in exc_type:
+        return ModelExecutionException(model_name="", details=details)
+
+    # Generic server errors (5xx)
+    if isinstance(status, int) and 500 <= status < 600:
+        return ModelExecutionException(model_name="", details=details)
+
+    # Provider / model not configured (ValueError from provider_manager)
+    if isinstance(exc, (ValueError, NotImplementedError)) and (
+        "not found" in exc_msg
+        or "not configured" in exc_msg
+        or "no active model" in exc_msg
+    ):
+        return ModelNotFoundException(model_name="", details=details)
+
+    return None
 
 
 class AgentRunner(Runner):
@@ -351,17 +508,16 @@ class AgentRunner(Runner):
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
             logger.exception(f"Error in query handler: {e}{path_hint}")
+
+            classified = _classify_exception(e)
             if debug_dump_path:
-                setattr(e, "debug_dump_path", debug_dump_path)
-                if hasattr(e, "add_note"):
-                    e.add_note(
+                setattr(classified, "debug_dump_path", debug_dump_path)
+                if hasattr(classified, "add_note"):
+                    classified.add_note(
                         f"(Details:  {debug_dump_path})",
                     )
-                suffix = f"\n(Details:  {debug_dump_path})"
-                e.args = (
-                    (f"{e.args[0]}{suffix}" if e.args else suffix.strip()),
-                ) + e.args[1:]
-            raise
+                classified.details["debug_dump_path"] = debug_dump_path
+            raise classified from e
         finally:
             if agent is not None and session_state_loaded:
                 await self.session.save_session_state(

@@ -108,9 +108,18 @@ class DynamicMultiAgentRunner:
                 f"Error in stream_query: {e}",
                 exc_info=True,
             )
-            # Yield error message to client
+            from agentscope_runtime.engine.schemas.exception import (
+                AppBaseException,
+            )
+
+            error_code = (
+                e.code
+                if isinstance(e, AppBaseException)
+                else "AGENT_ROUTING_ERROR"
+            )
             yield {
                 "error": str(e),
+                "error_code": error_code,
                 "type": "error",
             }
 
