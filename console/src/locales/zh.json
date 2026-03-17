@@ -777,6 +777,7 @@
     "logoutSuccess": "已成功退出",
     "sessionExpired": "会话已过期，请重新登录",
     "unauthorized": "未授权，请登录"
+  },
   "voiceTranscription": {
     "title": "语音转写",
     "description": "配置如何处理收到的音频和语音消息。",

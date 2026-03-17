@@ -763,6 +763,7 @@
     "logoutSuccess": "正常にログアウトしました",
     "sessionExpired": "セッションが期限切れです。再度ログインしてください",
     "unauthorized": "未認証です。ログインしてください"
+  },
   "voiceTranscription": {
     "title": "音声文字起こし",
     "description": "受信した音声メッセージの処理方法を設定します。",
