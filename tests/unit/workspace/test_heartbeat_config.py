@@ -77,12 +77,12 @@ def workspace_with_heartbeat(tmp_path, monkeypatch):
 
 
 def test_legacy_get_heartbeat_config_null_defaults(
-    workspace_with_heartbeat,
+    workspace_with_heartbeat,  # pylint: disable=unused-argument
 ):  # pylint: disable=redefined-outer-name
-    """Issue #1597: get_heartbeat_config() must not crash when
-    agents.defaults is null in root config.
+    """Issue #1597: get_heartbeat_config() must not crash
+    when agents.defaults is null in root config.
     """
-    # This used to raise: AttributeError: 'NoneType' has no attribute 'heartbeat'
+    # Previously raised: AttributeError: 'NoneType' ...
     hb = get_heartbeat_config()
     assert isinstance(hb, HeartbeatConfig)
     # Should return default (enabled=False) since root defaults is null
@@ -130,10 +130,10 @@ def test_load_heartbeat_for_agent_fallback(tmp_path, monkeypatch):
     assert hb.enabled is False
 
 
-def test_cron_manager_reads_agent_config(
+def test_cron_manager_accepts_agent_id(
     workspace_with_heartbeat,
 ):  # pylint: disable=redefined-outer-name
-    """CronManager._load_heartbeat_config should read from agent.json."""
+    """CronManager should accept agent_id parameter."""
     from unittest.mock import MagicMock
 
     from copaw.app.crons.manager import CronManager
@@ -148,44 +148,8 @@ def test_cron_manager_reads_agent_config(
         channel_manager=MagicMock(),
         agent_id=agent_id,
     )
-
-    hb = mgr._load_heartbeat_config()
-    assert hb.enabled is True
-    assert hb.every == "15m"
-    assert hb.target == "main"
-
-
-def test_cron_manager_fallback_on_missing_agent(tmp_path, monkeypatch):
-    """CronManager should fall back to defaults if agent config is missing."""
-    from unittest.mock import MagicMock
-
-    from copaw.app.crons.manager import CronManager
-    from copaw.app.crons.repo.base import BaseJobRepository
-
-    monkeypatch.setenv(
-        "COPAW_CONFIG_PATH",
-        str(tmp_path / "config.json"),
-    )
-
-    # Root config with no agents
-    root_config = Config()
-    config_path = Path(get_config_path())
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(root_config.model_dump(mode="json", by_alias=True), f)
-
-    mock_repo = MagicMock(spec=BaseJobRepository)
-    mgr = CronManager(
-        repo=mock_repo,
-        runner=MagicMock(),
-        channel_manager=MagicMock(),
-        agent_id="nonexistent_agent",
-    )
-
-    # Should not crash, should return default config
-    hb = mgr._load_heartbeat_config()
-    assert isinstance(hb, HeartbeatConfig)
-    assert hb.enabled is False
+    # Verify CronManager was created with agent_id
+    assert mgr._agent_id == agent_id  # pylint: disable=protected-access
 
 
 def test_heartbeat_config_independence_between_agents(tmp_path, monkeypatch):
@@ -238,28 +202,8 @@ def test_heartbeat_config_independence_between_agents(tmp_path, monkeypatch):
         ),
     )
 
-    from unittest.mock import MagicMock
-
-    from copaw.app.crons.manager import CronManager
-    from copaw.app.crons.repo.base import BaseJobRepository
-
-    mock_repo = MagicMock(spec=BaseJobRepository)
-
-    mgr1 = CronManager(
-        repo=mock_repo,
-        runner=MagicMock(),
-        channel_manager=MagicMock(),
-        agent_id="agent1",
-    )
-    mgr2 = CronManager(
-        repo=mock_repo,
-        runner=MagicMock(),
-        channel_manager=MagicMock(),
-        agent_id="agent2",
-    )
-
-    hb1 = mgr1._load_heartbeat_config()
-    hb2 = mgr2._load_heartbeat_config()
+    hb1 = load_heartbeat_for_agent("agent1")
+    hb2 = load_heartbeat_for_agent("agent2")
 
     assert hb1.enabled is True
     assert hb1.every == "10m"
