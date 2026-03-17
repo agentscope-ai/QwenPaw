@@ -562,7 +562,7 @@
       "downloadSuccess": "下载完成: %(path)s",
       "noticeTitle": "使用提示",
       "notice1": "启用后需要重启应用才能生效",
-      "notice2": "首次使用会自动下载模型（约 1-2GB），请耐心等待",
+      "notice2": "首次使用需手动下载模型（约 1-2GB），请耐心等待",
       "notice3": "Qwen3-VL-Embedding 支持图文混合检索，BGE 系列仅支持文本"
     }
   },

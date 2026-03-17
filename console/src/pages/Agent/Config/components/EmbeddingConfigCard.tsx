@@ -100,20 +100,22 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
     setLoadError(null);
     try {
       const data = await api.getPresetEmbeddingModels();
-      // Validate data structure
-      if (data && Array.isArray(data.multimodal) && Array.isArray(data.text)) {
-        setPresetModels(data);
+      console.log("Preset models API response:", data);
+      // Validate data structure - API returns {multimodal: [...], text: [...]}
+      if (data) {
+        const multimodal = Array.isArray(data.multimodal) ? data.multimodal : [];
+        const text = Array.isArray(data.text) ? data.text : [];
+        setPresetModels({ multimodal, text });
+        console.log("Loaded models - multimodal:", multimodal.length, "text:", text.length);
       } else {
-        console.error("Invalid preset models data:", data);
-        setLoadError("Invalid data structure from API");
-        // Set default empty structure
+        console.error("Empty preset models data");
+        setLoadError("API 返回空数据");
         setPresetModels({ multimodal: [], text: [] });
       }
     } catch (err) {
       console.error("Failed to load preset models:", err);
       setLoadError(err instanceof Error ? err.message : String(err));
       message.error("加载模型列表失败");
-      // Set default empty structure to prevent crashes
       setPresetModels({ multimodal: [], text: [] });
     } finally {
       setLoadingPresets(false);
