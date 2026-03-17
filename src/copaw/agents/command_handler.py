@@ -3,11 +3,16 @@
 
 This module handles system commands like /compact, /new, /clear, etc.
 """
+import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
+
+from ..config import load_config
+from ..constant import DEBUG_HISTORY_FILE, WORKING_DIR
 
 if TYPE_CHECKING:
     from .memory import MemoryManager
@@ -33,6 +38,8 @@ class ConversationCommandHandlerMixin:
             "compact_str",
             "await_summary",
             "message",
+            "dump_history",
+            "load_history",
         },
     )
 
@@ -201,9 +208,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /history command."""
+        config = load_config()
+        max_input_length = config.agents.running.max_input_length
+        history_max_length = config.agents.running.history_max_length
         history_str = await self.memory.get_history_str(
             max_input_length=self.max_input_length,
         )
+
+        # Truncate if too long
+        if len(history_str) > history_max_length:
+            half = history_max_length // 2
+            history_str = f"{history_str[:half]}\n...\n{history_str[-half:]}"
+
         return await self._make_system_msg(history_str)
 
     async def _process_await_summary(
@@ -284,6 +300,91 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"- **Role:** {msg.role}\n"
             f"- **Content:**\n{msg.content}",
         )
+
+    async def _process_dump_history(
+        self,
+        messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /dump_history command to save messages to a jsonl file.
+
+        Args:
+            messages: List of messages in memory
+            _args: Command arguments (unused)
+
+        Returns:
+            System message with dump result
+        """
+        history_file = WORKING_DIR / DEBUG_HISTORY_FILE
+
+        try:
+            with open(history_file, "w", encoding="utf-8") as f:
+                for msg in messages:
+                    f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
+
+            logger.info(f"Dumped {len(messages)} messages to {history_file}")
+            return await self._make_system_msg(
+                f"**History Dumped!**\n\n"
+                f"- Messages saved: {len(messages)}\n"
+                f"- File: `{history_file}`",
+            )
+        except Exception as e:
+            logger.error(f"Failed to dump history: {e}")
+            return await self._make_system_msg(
+                f"**Dump Failed**\n\n"
+                f"- Error: {e}",
+            )
+
+    async def _process_load_history(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /load_history command to load messages from a jsonl file.
+
+        Args:
+            _messages: List of messages in memory (unused)
+            _args: Command arguments (unused)
+
+        Returns:
+            System message with load result
+        """
+        history_file = WORKING_DIR / DEBUG_HISTORY_FILE
+
+        if not history_file.exists():
+            return await self._make_system_msg(
+                f"**Load Failed**\n\n"
+                f"- File not found: `{history_file}`\n"
+                f"- Use /dump_history first to create the file",
+            )
+
+        try:
+            loaded_messages: list[Msg] = []
+            with open(history_file, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        msg_dict = json.loads(line)
+                        loaded_messages.append(Msg.from_dict(msg_dict))
+
+            # Clear existing memory and add loaded messages
+            self.memory.clear_content()
+            for msg in loaded_messages:
+                self.memory.add(msg)
+
+            logger.info(f"Loaded {len(loaded_messages)} messages from {history_file}")
+            return await self._make_system_msg(
+                f"**History Loaded!**\n\n"
+                f"- Messages loaded: {len(loaded_messages)}\n"
+                f"- File: `{history_file}`\n"
+                f"- Memory cleared before loading",
+            )
+        except Exception as e:
+            logger.error(f"Failed to load history: {e}")
+            return await self._make_system_msg(
+                f"**Load Failed**\n\n"
+                f"- Error: {e}",
+            )
 
     async def handle_conversation_command(self, query: str) -> Msg:
         """Process conversation system commands.

@@ -171,10 +171,7 @@ class MemoryCompactionHook:
             )
 
             await agent.memory.update_compressed_summary(compact_content)
-            updated_count = await memory.update_messages_mark(
-                new_mark=_MemoryMark.COMPRESSED,
-                msg_ids=[msg.id for msg in messages_to_compact],
-            )
+            updated_count = await memory.mark_messages_compressed(messages_to_compact)
             logger.info(f"Marked {updated_count} messages as compacted")
 
         except Exception as e:

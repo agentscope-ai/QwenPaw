@@ -18,7 +18,8 @@ from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
-from copaw.agents.utils import _get_token_counter
+from copaw.agents.utils import _get_copaw_token_counter
+from copaw.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class MemoryManager(ReMeLight):
 
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
-        self.token_counter = _get_token_counter()
+        self.token_counter = _get_copaw_token_counter()
 
     @staticmethod
     def _safe_str(key: str, default: str) -> str:
@@ -263,7 +264,7 @@ class MemoryManager(ReMeLight):
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            token_counter=self.token_counter,
+            as_token_counter=self.token_counter,
             language=self._language,
             max_input_length=self._max_input_length,
             compact_ratio=self._memory_compact_ratio,
@@ -287,7 +288,7 @@ class MemoryManager(ReMeLight):
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            token_counter=self.token_counter,
+            as_token_counter=self.token_counter,
             toolkit=self.summary_toolkit,
             language=self._language,
             max_input_length=self._max_input_length,
@@ -303,4 +304,4 @@ class MemoryManager(ReMeLight):
         Returns:
             The in-memory memory content with token counting support
         """
-        return super().get_in_memory_memory(token_counter=self.token_counter)
+        return super().get_in_memory_memory(as_token_counter=self.token_counter)

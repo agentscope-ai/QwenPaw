@@ -514,7 +514,8 @@ class AgentRunner(Runner):
                         else str(WORKING_DIR)
                     ),
                 )
-                await self.memory_manager.start()
+            await self.memory_manager.start()
+            logger.info("MemoryManager started")
         except Exception as e:
             logger.exception(f"MemoryManager start failed: {e}")
 
@@ -525,5 +526,6 @@ class AgentRunner(Runner):
         try:
             if self.memory_manager is not None:
                 await self.memory_manager.close()
+                logger.info("MemoryManager stopped")
         except Exception as e:
-            logger.warning(f"MemoryManager stop failed: {e}")
+            logger.exception(f"MemoryManager stop failed: {e}")

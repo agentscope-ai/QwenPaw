@@ -3,15 +3,16 @@ import os
 import json
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal
+
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
 
-from ..providers.models import ModelSlotConfig
+from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
 )
-from .timezone import detect_system_timezone
+from ..providers.models import ModelSlotConfig
 
 
 def generate_short_agent_id() -> str:
@@ -42,7 +43,7 @@ class IMessageChannelConfig(BaseChannelConfig):
     poll_sec: float = 1.0
     media_dir: Optional[str] = None
     max_decoded_size: int = (
-        10 * 1024 * 1024
+            10 * 1024 * 1024
     )  # 10MB default limit for Base64 data
 
 
@@ -217,6 +218,23 @@ class AgentsRunningConfig(BaseModel):
             "Maximum number of reasoning-acting iterations for ReAct agent"
         ),
     )
+
+    token_count_model: str = Field(
+        default="default",
+        description="Model to use for token counting",
+    )
+
+    token_count_estimate_divisor: float = Field(
+        default=3.75,
+        gt=1,
+        description="Divisor for character-based token estimation (len / divisor)",
+    )
+
+    token_count_use_mirror: bool = Field(
+        default=False,
+        description="Whether to use mirror token counting",
+    )
+
     max_input_length: int = Field(
         default=128 * 1024,  # 128K = 131072 tokens
         ge=1000,
@@ -240,17 +258,23 @@ class AgentsRunningConfig(BaseModel):
     )
 
     enable_tool_result_compact: bool = Field(
-        default=False,
+        default=True,
         description="Whether to compact tool result messages in memory",
     )
 
     tool_result_compact_keep_n: int = Field(
-        default=5,
+        default=3,
         ge=1,
         le=10,
         description=(
             "Number of tool result messages to keep in memory when compacting"
         ),
+    )
+
+    history_max_length: int = Field(
+        default=10000,
+        ge=1000,
+        description="Maximum length for /history command output",
     )
 
     @property
@@ -436,9 +460,9 @@ class MCPClientConfig(BaseModel):
             payload["transport"] = payload["type"]
 
         if (
-            "transport" not in payload
-            and (payload.get("url") or payload.get("baseUrl"))
-            and not payload.get("command")
+                "transport" not in payload
+                and (payload.get("url") or payload.get("baseUrl"))
+                and not payload.get("command")
         ):
             payload["transport"] = "streamable_http"
 
@@ -543,7 +567,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="view_image",
             enabled=True,
             description="Load an image into LLM context "
-            "for visual analysis",
+                        "for visual analysis",
             display_to_user=False,
         ),
         "send_file_to_user": BuiltinToolConfig(
@@ -676,7 +700,7 @@ class Config(BaseModel):
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
-        "Defaults to the system timezone.",
+                    "Defaults to the system timezone.",
     )
 
 
