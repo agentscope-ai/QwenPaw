@@ -308,7 +308,7 @@ class MemoryManager(ReMeLight):
     ) -> ToolResponse:
         if not self._started:
             logger.warning(
-                "Application has not been started, report issue to github!",
+                "ReMe is not started, report github issue!",
             )
             await self.start()
 
