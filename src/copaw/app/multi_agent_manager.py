@@ -99,10 +99,15 @@ class MultiAgentManager:
             return True
 
     async def reload_agent(self, agent_id: str) -> bool:
-        """Reload a specific agent instance.
+        """Reload a specific agent instance with zero-downtime.
 
-        This stops the agent, removes it from cache, so it will be
-        recreated with fresh configuration on next access.
+        This method performs a seamless reload by:
+        1. Creating and fully starting a new workspace instance
+        2. Atomically replacing the old instance with the new one
+        3. Stopping the old instance after the new one is serving
+
+        This ensures that any ongoing chat requests can still be handled
+        by the old instance until the new one is ready.
 
         Args:
             agent_id: Agent ID to reload
@@ -118,15 +123,53 @@ class MultiAgentManager:
                 )
                 return False
 
-            logger.info(f"Reloading agent: {agent_id}")
-            instance = self.agents[agent_id]
-            await instance.stop()
-            del self.agents[agent_id]
-            logger.info(
-                f"Agent stopped and removed from cache "
-                f"(will be reloaded on next request): {agent_id}",
-            )
-            return True
+            logger.info(f"Reloading agent (zero-downtime): {agent_id}")
+            old_instance = self.agents[agent_id]
+
+            try:
+                # 1. Load configuration to get agent reference
+                config = load_config()
+                if agent_id not in config.agents.profiles:
+                    logger.error(
+                        f"Agent '{agent_id}' not found in configuration "
+                        f"during reload",
+                    )
+                    return False
+
+                agent_ref = config.agents.profiles[agent_id]
+
+                # 2. Create and start new workspace instance
+                logger.info(f"Creating new workspace instance: {agent_id}")
+                new_instance = Workspace(
+                    agent_id=agent_id,
+                    workspace_dir=agent_ref.workspace_dir,
+                )
+
+                await new_instance.start()
+                logger.info(f"New workspace instance started: {agent_id}")
+
+                # 3. Atomic swap: replace old instance with new one
+                # From this point, all new requests will use new instance
+                self.agents[agent_id] = new_instance
+                logger.info(f"Workspace instance replaced: {agent_id}")
+
+                # 4. Stop old instance (new instance is already serving)
+                # Any ongoing requests in old instance will complete gracefully
+                await old_instance.stop()
+                logger.info(
+                    f"Old workspace instance stopped: {agent_id}. "
+                    f"Zero-downtime reload completed.",
+                )
+
+                return True
+
+            except Exception as e:
+                logger.exception(
+                    f"Failed to reload agent {agent_id}, "
+                    f"keeping old instance: {e}",
+                )
+                # Keep old instance running if reload fails
+                return False
 
     async def stop_all(self):
         """Stop all agent instances.
