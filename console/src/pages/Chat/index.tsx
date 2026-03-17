@@ -209,19 +209,11 @@ export default function ChatPage() {
       prevSelectedAgentRef.current !== selectedAgent &&
       prevSelectedAgentRef.current !== undefined
     ) {
-      console.log(
-        "Selected agent changed from",
-        prevSelectedAgentRef.current,
-        "to",
-        selectedAgent,
-      );
       // Force re-render by updating refresh key
       setRefreshKey((prev) => prev + 1);
-      // Navigate to chat root to avoid showing stale session
-      navigate("/chat", { replace: true });
     }
     prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent, navigate]);
+  }, [selectedAgent]);
 
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();

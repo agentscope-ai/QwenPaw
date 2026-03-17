@@ -7,13 +7,13 @@
 
 /* ---- Header Section ---- */
 .header {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .title {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
   color: #1a1a1a;
 }
 
@@ -28,12 +28,159 @@
   width: 100%;
 }
 
+/* ---- Main Tabs (Tool Guard / Skill Scanner) ---- */
+.mainTabs {
+  :global(.copaw-tabs-nav) {
+    margin-bottom: 20px;
+
+    &::before {
+      border-bottom: 1px solid #f0f0f0;
+    }
+  }
+
+  :global(.copaw-tabs-tab) {
+    padding: 10px 4px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666 !important;
+
+    &:hover {
+      color: #615ced !important;
+    }
+  }
+
+  :global(.copaw-tabs-tab-active .copaw-tabs-tab-btn) {
+    color: #615ced !important;
+    font-weight: 600;
+  }
+
+  :global(.copaw-tabs-ink-bar) {
+    background: #615ced !important;
+    height: 3px;
+    border-radius: 2px 2px 0 0;
+  }
+}
+
+:global(.dark-mode) {
+  .mainTabs {
+    :global(.copaw-tabs-tab .copaw-tabs-tab-btn) {
+      color: #ffffff !important;
+    }
+
+    :global(.copaw-tabs-tab-active .copaw-tabs-tab-btn) {
+      color: #8b87f5 !important;
+      font-weight: 600;
+    }
+
+    :global(.copaw-tabs-ink-bar) {
+      background: #8b87f5 !important;
+    }
+  }
+
+  .innerTabs {
+    :global(.copaw-tabs-tab .copaw-tabs-tab-btn) {
+      color: #ffffff !important;
+    }
+
+    :global(.copaw-tabs-tab-active .copaw-tabs-tab-btn) {
+      color: #8b87f5 !important;
+    }
+
+    :global(.copaw-tabs-ink-bar) {
+      background: #8b87f5 !important;
+    }
+  }
+
+  .tabDescription {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .footerButtons {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.tabContent {
+  padding-top: 4px;
+}
+
+.tabDescription {
+  font-size: 14px;
+  color: #888;
+  margin: 0 0 20px 0;
+  line-height: 1.6;
+}
+
+/* ---- Inner Tabs (Scan Alerts / Whitelist) ---- */
+.innerTabs {
+  margin-top: 20px;
+
+  :global(.copaw-tabs-nav) {
+    margin-bottom: 16px;
+
+    &::before {
+      border-bottom: 1px solid #f0f0f0;
+    }
+  }
+
+  :global(.copaw-tabs-tab) {
+    font-size: 13px;
+    font-weight: 500;
+    color: #666 !important;
+
+    &:hover {
+      color: #615ced !important;
+    }
+  }
+
+  :global(.copaw-tabs-tab-active .copaw-tabs-tab-btn) {
+    color: #615ced !important;
+  }
+
+  :global(.copaw-tabs-ink-bar) {
+    background: #615ced !important;
+  }
+}
+
+.tabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  padding: 0 5px;
+  margin-left: 6px;
+  line-height: 18px;
+}
+
+.tabPanelContent {
+  padding-top: 4px;
+}
+
+.tabPanelHeader {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
 /* ---- Cards ---- */
 .formCard {
-  margin-bottom: 32px;
-  border-radius: 16px;
+  margin-bottom: 20px;
+  border-radius: 12px;
   border: 1px solid #e8e8e8;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   transition: all 0.2s ease-in-out;
 
   &:hover {
@@ -42,7 +189,7 @@
   }
 
   :global(.ant-card-body) {
-    padding: 24px;
+    padding: 20px 24px;
   }
 }
 
@@ -72,7 +219,7 @@
 }
 
 .sectionTitle {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: #1a1a1a;
@@ -80,10 +227,10 @@
 
 /* ---- Table Card ---- */
 .tableCard {
-  margin-bottom: 24px;
-  border-radius: 16px;
+  margin-bottom: 0;
+  border-radius: 12px;
   border: 1px solid #e8e8e8;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   transition: all 0.2s ease-in-out;
 
   &:hover {
@@ -96,7 +243,7 @@
   }
 
   :global(.ant-table) {
-    border-radius: 16px;
+    border-radius: 12px;
   }
 
   :global(.ant-table-thead > tr > th) {
@@ -110,7 +257,42 @@
   }
 }
 
-/* ---- Footer Buttons ---- */
+/* ---- Skill Scanner Config ---- */
+.skillScannerConfig {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0;
+}
+
+.skillScannerConfigItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 24px;
+}
+
+.skillScannerConfigItem + .skillScannerConfigItem {
+  padding-right: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--ant-color-border, #f0f0f0);
+}
+
+.skillScannerLabel {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.emptyState {
+  padding: 40px 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.codeHash {
+  font-size: 12px;
+}
+
 .footerButtons {
   display: flex;
   justify-content: flex-end;

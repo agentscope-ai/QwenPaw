@@ -44,7 +44,8 @@
     "models": "模型",
     "environments": "环境变量",
     "security": "安全",
-    "tokenUsage": "Token 消耗"
+    "tokenUsage": "Token 消耗",
+    "voiceTranscription": "语音转写"
   },
   "workspace": {
     "title": "工作区",
@@ -71,6 +72,7 @@
   },
   "agent": {
     "management": "智能体管理",
+    "pageDescription": "创建、配置和管理多个 AI 智能体，支持自定义工作空间和身份。",
     "name": "名称",
     "id": "ID",
     "description": "描述",
@@ -621,6 +623,14 @@
     "faq": "常见问题",
     "github": "GitHub"
   },
+  "theme": {
+    "dark": "深色",
+    "light": "浅色",
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "switchToDark": "切换到深色模式",
+    "switchToLight": "切换到浅色模式"
+  },
   "sidebar": {
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
     "updateModal": {
@@ -748,5 +758,39 @@
         "goToWhitelist": "前往白名单"
       }
     }
+  },
+  "voiceTranscription": {
+    "title": "语音转写",
+    "description": "配置如何处理收到的音频和语音消息。",
+    "loadFailed": "加载音频模式设置失败",
+    "saveSuccess": "音频模式已保存",
+    "saveFailed": "保存音频模式失败",
+    "audioModeLabel": "音频模式",
+    "audioModeDescription": "选择来自频道（Discord、Telegram 等）的语音消息在发送给模型之前如何处理。",
+    "modeAuto": "自动（推荐）",
+    "modeAutoDesc": "使用所选转写提供商将音频转写为文字后发送给模型。如果转写未启用或不可用，则显示文件上传占位消息。此模式下音频不会直接发送给模型。适用于所有模型。",
+    "modeNative": "原生音频",
+    "modeNativeDesc": "直接将音频文件发送给模型，不进行转写。这是唯一会将音频发送给模型的模式。仅适用于特定的音频模型（如 gpt-4o-audio），大多数模型不支持此模式。",
+    "ffmpegReady": "ffmpeg 已安装。原生模式音频格式转换可用。",
+    "ffmpegMissing": "ffmpeg 未安装。",
+    "ffmpegMissingDesc": "原生音频模式需要 ffmpeg 来转换音频格式（如 .ogg 转 .wav）。请安装 ffmpeg 系统包以启用此模式。",
+    "providerTypeLabel": "转写提供商",
+    "providerTypeDescription": "选择转写后端。如果不需要语音转写，请选择「已禁用」。",
+    "providerTypeDisabled": "已禁用",
+    "providerTypeDisabledDesc": "不进行转写。语音消息将显示为文件上传占位消息。",
+    "providerTypeWhisperApi": "Whisper API",
+    "providerTypeWhisperApiDesc": "使用已配置提供商（如 OpenAI、Ollama）的 OpenAI 兼容 Whisper API 端点。",
+    "providerTypeLocalWhisper": "本地 Whisper",
+    "providerTypeLocalWhisperDesc": "使用本地安装的 openai-whisper Python 库进行转写。需要同时安装 ffmpeg 和 openai-whisper。",
+    "localWhisperReady": "本地 Whisper 已就绪。ffmpeg 和 openai-whisper 均已安装。",
+    "localWhisperMissing": "本地 Whisper 未就绪，缺少必要依赖。",
+    "localWhisperMissingDesc": "ffmpeg: {{ffmpeg}} | openai-whisper: {{whisper}}。请安装缺少的依赖：ffmpeg（系统包）和 openai-whisper（uv pip install openai-whisper，或使用 [whisper] 额外依赖安装 CoPaw）。",
+    "providerLabel": "Whisper API 提供商",
+    "providerDescription": "选择用于 Whisper API 音频转写的提供商。仅显示支持 Whisper 端点的提供商。",
+    "providerPlaceholder": "选择提供商...",
+    "noProvidersWarning": "未找到支持转写的提供商。请配置一个 OpenAI 提供商以启用语音转写。",
+    "transcriptionInfoTitle": "转写工作原理",
+    "transcriptionInfoDesc": "Whisper API 转写使用 OpenAI 兼容的 /v1/audio/transcriptions 端点。需要配置一个支持 Whisper 端点的提供商（如 OpenAI）。请在上方选择具体的提供商以启用转写。",
+    "transcriptionInfoDescLocal": "本地 Whisper 转写直接在您的设备上运行 openai-whisper 库。需要同时安装 ffmpeg（用于音频解码）和 openai-whisper Python 包。无需 API Key 或网络连接。安装命令：uv pip install 'copaw[whisper]'。"
   }
 }
