@@ -60,6 +60,24 @@ class MemoryCompactionHook:
             running_config.tool_result_compact_keep_n
         )
 
+    @staticmethod
+    async def _print_status_message(
+        agent: ReActAgent,
+        text: str,
+    ) -> None:
+        """Print a status message to the agent's output.
+
+        Args:
+            agent: The agent instance to print the message for.
+            text: The text content of the status message.
+        """
+        msg = Msg(
+            name=agent.name,
+            role="assistant",
+            content=[TextBlock(type="text", text=text)],
+        )
+        await agent.print(msg)
+
     async def __call__(
         self,
         agent: ReActAgent,
@@ -160,37 +178,20 @@ class MemoryCompactionHook:
             self.memory_manager.add_async_summary_task(
                 messages=messages_to_compact,
             )
-
-            # Print start message
-            start_msg = Msg(
-                name=agent.name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="🔄 Context compaction started...",
-                    ),
-                ],
+            await self._print_status_message(
+                agent,
+                "🔄 Context compaction started...",
             )
-            await agent.print(start_msg)
 
             compact_content = await self.memory_manager.compact_memory(
                 messages=messages_to_compact,
                 previous_summary=memory.get_compressed_summary(),
             )
 
-            # Print result message
-            result_msg = Msg(
-                name=agent.name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="✅ Context compaction completed",
-                    ),
-                ],
+            await self._print_status_message(
+                agent,
+                "✅ Context compaction completed",
             )
-            await agent.print(result_msg)
 
             await agent.memory.update_compressed_summary(compact_content)
             updated_count = await memory.mark_messages_compressed(

@@ -8,6 +8,7 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+import asyncio
 import logging
 import os
 import platform
@@ -187,6 +188,7 @@ class MemoryManager(ReMeLight):
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
         self.token_counter = _get_copaw_token_counter(agent_config)
+        self._start_lock = asyncio.Lock()
 
     @staticmethod
     def _safe_str(key: str, default: str) -> str:
@@ -310,10 +312,12 @@ class MemoryManager(ReMeLight):
         min_score: float = 0.1,
     ) -> ToolResponse:
         if not self._started:
-            logger.warning(
-                "ReMe is not started, report github issue!",
-            )
-            await self.start()
+            async with self._start_lock:
+                if not self._started:
+                    logger.warning(
+                        "ReMe is not started, report github issue!",
+                    )
+                    await self.start()
 
         return await super().memory_search(
             query=query,
