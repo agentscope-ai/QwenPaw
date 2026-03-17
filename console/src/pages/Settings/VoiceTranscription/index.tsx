@@ -130,6 +130,25 @@ function VoiceTranscriptionPage() {
             </Radio>
           </Space>
         </Radio.Group>
+
+        {audioMode === "native" && localWhisperStatus && (
+          <div style={{ marginTop: 12 }}>
+            {localWhisperStatus.ffmpeg_installed ? (
+              <Alert
+                type="success"
+                showIcon
+                message={t("voiceTranscription.ffmpegReady")}
+              />
+            ) : (
+              <Alert
+                type="warning"
+                showIcon
+                message={t("voiceTranscription.ffmpegMissing")}
+                description={t("voiceTranscription.ffmpegMissingDesc")}
+              />
+            )}
+          </div>
+        )}
       </Card>
 
       {showProviderSection && (
