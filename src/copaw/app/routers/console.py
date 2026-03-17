@@ -88,8 +88,6 @@ async def post_console_chat(
         except Exception as e:
             logger.exception("Console chat stream error")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        finally:
-            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),
