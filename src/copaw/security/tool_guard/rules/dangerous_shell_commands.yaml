@@ -53,7 +53,7 @@
   severity: CRITICAL
   patterns:
     - ":\\s*\\(\\s*\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:"
-    - "\\bkill\\s+-9\\s+(-1|1\\b)"
+    - "\\bkill\\s+-9\\s+(-1\\b|1\\b)"
   description: "Detects classic Bash fork bombs and mass process termination"
   remediation: "Block immediately. These commands will crash the host system."
 
