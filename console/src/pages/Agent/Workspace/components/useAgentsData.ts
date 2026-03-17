@@ -41,10 +41,10 @@ export const useAgentsData = () => {
       // Set workspace path
       if (fileList.length > 0) {
         const path = fileList[0].path;
-        const workspace = path.substring(
-          0,
-          path.lastIndexOf("/") || path.lastIndexOf("\\"),
-        );
+        const lastSlashIndex = path.lastIndexOf("/");
+        const lastBackslashIndex = path.lastIndexOf("\\");
+        const separatorIndex = Math.max(lastSlashIndex, lastBackslashIndex);
+        const workspace = separatorIndex > 0 ? path.substring(0, separatorIndex) : path;
         setWorkspacePath(workspace);
       }
 
