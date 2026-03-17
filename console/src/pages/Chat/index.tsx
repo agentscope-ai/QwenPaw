@@ -3,6 +3,7 @@ import {
   IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button, Modal, Result, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
@@ -40,6 +41,52 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+function ModelInfoLabel({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [target, setTarget] = useState<Element | null>(null);
+
+  useEffect(() => {
+    let el: HTMLElement | null = ref.current;
+    if (!el) return;
+    // Walk up to the top-level footer container (class matches
+    // "bubble-footer" but not "bubble-footer-actions"/"-left"/"-right").
+    while (el) {
+      if (
+        el.className &&
+        /\bbubble-footer\b/.test(el.className) &&
+        !/bubble-footer-/.test(el.className)
+      ) {
+        break;
+      }
+      el = el.parentElement;
+    }
+    if (!el) return;
+    const right = el.querySelector('[class*="bubble-footer-right"]');
+    if (right) setTarget(right);
+  }, []);
+
+  const label = (
+    <span
+      className="copaw-model-info"
+      style={{
+        color: "#999",
+        fontSize: 12,
+        userSelect: "text",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+
+  return (
+    <>
+      <span ref={ref} style={{ display: "none" }} />
+      {target ? createPortal(label, target) : label}
+    </>
+  );
+}
 
 function extractCopyableText(response: CopyableResponse): string {
   const collectText = (assistantOnly: boolean) => {
@@ -122,6 +169,11 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const activeModelRef = useRef<{
+    provider_id: string;
+    model_id: string;
+  } | null>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -306,6 +358,10 @@ export default function ChatPage() {
           setShowModelPrompt(true);
           return buildModelError();
         }
+        activeModelRef.current = {
+          provider_id: activeModels.active_llm.provider_id,
+          model_id: activeModels.active_llm.model,
+        };
       } catch {
         setShowModelPrompt(true);
         return buildModelError();
@@ -385,6 +441,17 @@ export default function ChatPage() {
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
+        responseParser: (raw: string) => {
+          const parsed = JSON.parse(raw);
+          if (
+            parsed.object === "response" &&
+            parsed.status === "completed" &&
+            activeModelRef.current
+          ) {
+            parsed.model_info = activeModelRef.current;
+          }
+          return parsed;
+        },
         cancel(data: { session_id: string }) {
           console.log(data);
         },
@@ -399,6 +466,26 @@ export default function ChatPage() {
             ),
             onClick: ({ data }: { data: CopyableResponse }) => {
               void copyResponse(data);
+            },
+          },
+          {
+            icon: null,
+            render: ({
+              data,
+            }: {
+              data: {
+                data: CopyableResponse & {
+                  model_info?: { provider_id: string; model_id: string };
+                };
+              };
+            }) => {
+              const info = data?.data?.model_info;
+              if (!info) return null;
+              return (
+                <ModelInfoLabel>
+                  {info.provider_id}/{info.model_id}
+                </ModelInfoLabel>
+              );
             },
           },
         ],

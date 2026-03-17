@@ -27,6 +27,7 @@ from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config.config import load_agent_config, AgentsRunningConfig
+from ...providers.provider_manager import ProviderManager
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -364,6 +365,8 @@ class AgentRunner(Runner):
             raise
         finally:
             if agent is not None and session_state_loaded:
+                self._inject_model_info(agent)
+
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,
@@ -372,6 +375,36 @@ class AgentRunner(Runner):
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.update_chat(chat)
+
+    @staticmethod
+    def _inject_model_info(agent) -> None:  # noqa: ANN001
+        """Inject active model info into the last assistant message."""
+        try:
+            pm = ProviderManager.get_instance()
+            slot = pm.get_active_model()
+            if slot is None:
+                return
+            provider = pm.get_provider(slot.provider_id)
+            provider_name = (
+                provider.name if provider is not None else slot.provider_id
+            )
+            model_meta = {
+                "model_id": slot.model,
+                "provider_id": slot.provider_id,
+                "provider_name": provider_name,
+            }
+            for mem_msg, _ in reversed(agent.memory.content):
+                if mem_msg.role == "assistant":
+                    if mem_msg.metadata is None:
+                        mem_msg.metadata = model_meta
+                    elif isinstance(mem_msg.metadata, dict):
+                        mem_msg.metadata.update(model_meta)
+                    break
+        except Exception:
+            logger.debug(
+                "Failed to inject model info into memory",
+                exc_info=True,
+            )
 
     async def _cleanup_denied_session_memory(
         self,
