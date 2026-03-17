@@ -1,5 +1,6 @@
 ---
 name: cron
+builtin_skill_version: 1.0
 description: 通过 copaw 命令管理定时任务 - 创建、查询、暂停、恢复、删除任务
 metadata: { "copaw": { "emoji": "⏰" } }
 ---

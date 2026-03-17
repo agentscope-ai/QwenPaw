@@ -1,5 +1,6 @@
 ---
 name: file_reader
+builtin_skill_version: 1.0
 description: "Read and summarize text-based file types only. Prefer read_file for text formats; use execute_shell_command for type detection when needed. PDF/Office/images/archives are handled by other skills."
 metadata:
   {
