@@ -103,6 +103,7 @@ DEBUG_HISTORY_FILE = EnvVarLoader.get_str(
     "COPAW_DEBUG_HISTORY_FILE",
     "debug_history.jsonl",
 )
+MAX_LOAD_HISTORY_COUNT = 10000
 
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"

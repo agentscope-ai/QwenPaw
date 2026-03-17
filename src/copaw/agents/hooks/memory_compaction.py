@@ -172,7 +172,7 @@ class MemoryCompactionHook:
             logger.info(f"Marked {updated_count} messages as compacted")
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Failed to compact memory in pre_reasoning hook: %s",
                 e,
                 exc_info=True,

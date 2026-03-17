@@ -5,12 +5,13 @@ This module handles system commands like /compact, /new, /clear, etc.
 """
 import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
-from ..constant import DEBUG_HISTORY_FILE, WORKING_DIR
+from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 
 if TYPE_CHECKING:
     from .memory import MemoryManager
@@ -83,6 +84,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._enable_memory_manager = enable_memory_manager
 
         # Extract configuration from agent_config
+        self.agent_config = agent_config
         self._max_input_length = agent_config.running.max_input_length
         self._history_max_length = agent_config.running.history_max_length
 
@@ -305,7 +307,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /dump_history command to save messages to a jsonl file.
+        """Process /dump_history command to save messages to a JSONL file.
 
         Args:
             messages: List of messages in memory
@@ -314,7 +316,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Returns:
             System message with dump result
         """
-        history_file = WORKING_DIR / DEBUG_HISTORY_FILE
+        history_file = (
+            Path(self.agent_config.workspace_dir) / DEBUG_HISTORY_FILE
+        )
 
         try:
             with open(history_file, "w", encoding="utf-8") as f:
@@ -330,7 +334,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- File: `{history_file}`",
             )
         except Exception as e:
-            logger.error(f"Failed to dump history: {e}")
+            logger.exception(f"Failed to dump history: {e}")
             return await self._make_system_msg(
                 f"**Dump Failed**\n\n" f"- Error: {e}",
             )
@@ -340,7 +344,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /load_history command to load messages from a jsonl file.
+        """Process /load_history command to load messages from a JSONL file.
 
         Args:
             _messages: List of messages in memory (unused)
@@ -349,7 +353,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Returns:
             System message with load result
         """
-        history_file = WORKING_DIR / DEBUG_HISTORY_FILE
+        history_file = (
+            Path(self.agent_config.workspace_dir) / DEBUG_HISTORY_FILE
+        )
 
         if not history_file.exists():
             return await self._make_system_msg(
@@ -366,11 +372,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     if line:
                         msg_dict = json.loads(line)
                         loaded_messages.append(Msg.from_dict(msg_dict))
+                        if len(loaded_messages) >= MAX_LOAD_HISTORY_COUNT:
+                            break
 
             # Clear existing memory and add loaded messages
             self.memory.content.clear()
+            self.memory.clear_compressed_summary()
             for msg in loaded_messages:
-                self.memory.add(msg)
+                await self.memory.add(msg)
 
             logger.info(
                 f"Loaded {len(loaded_messages)} messages from {history_file}",
@@ -382,7 +391,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- Memory cleared before loading",
             )
         except Exception as e:
-            logger.error(f"Failed to load history: {e}")
+            logger.exception(f"Failed to load history: {e}")
             return await self._make_system_msg(
                 f"**Load Failed**\n\n" f"- Error: {e}",
             )
