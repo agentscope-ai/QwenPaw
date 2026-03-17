@@ -52,6 +52,40 @@ const DOWNLOAD_SOURCE_OPTIONS = [
   { value: "huggingface", label: "HuggingFace" },
 ];
 
+// Hardcoded preset models as fallback when API fails
+const FALLBACK_PRESET_MODELS: EmbeddingPresetModels = {
+  multimodal: [
+    {
+      id: "qwen/Qwen3-VL-Embedding-2B",
+      type: "multimodal",
+      dimensions: 2048,
+      pooling: "last_token",
+      mrl_enabled: true,
+      mrl_min_dims: 64,
+    },
+  ],
+  text: [
+    {
+      id: "BAAI/bge-small-zh",
+      type: "text",
+      dimensions: 512,
+      pooling: "cls",
+    },
+    {
+      id: "BAAI/bge-large-zh-v1.5",
+      type: "text",
+      dimensions: 1024,
+      pooling: "cls",
+    },
+    {
+      id: "BAAI/bge-m3",
+      type: "text",
+      dimensions: 1024,
+      pooling: "cls",
+    },
+  ],
+};
+
 export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(false);
@@ -106,17 +140,16 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         const multimodal = Array.isArray(data.multimodal) ? data.multimodal : [];
         const text = Array.isArray(data.text) ? data.text : [];
         setPresetModels({ multimodal, text });
-        console.log("Loaded models - multimodal:", multimodal.length, "text:", text.length);
+        console.log("Loaded models from API - multimodal:", multimodal.length, "text:", text.length);
       } else {
-        console.error("Empty preset models data");
-        setLoadError("API 返回空数据");
-        setPresetModels({ multimodal: [], text: [] });
+        console.warn("Empty preset models data, using fallback");
+        setPresetModels(FALLBACK_PRESET_MODELS);
       }
     } catch (err) {
-      console.error("Failed to load preset models:", err);
-      setLoadError(err instanceof Error ? err.message : String(err));
-      message.error("加载模型列表失败");
-      setPresetModels({ multimodal: [], text: [] });
+      console.error("Failed to load preset models from API, using fallback:", err);
+      // Use fallback data when API fails (e.g., backend not updated)
+      setPresetModels(FALLBACK_PRESET_MODELS);
+      setLoadError("后端 API 尚未更新，使用内置模型列表（建议重启服务到 feature 分支）");
     } finally {
       setLoadingPresets(false);
     }
