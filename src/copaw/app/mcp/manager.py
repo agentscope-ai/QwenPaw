@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -17,6 +19,9 @@ if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig
 
 logger = logging.getLogger(__name__)
+
+# Pattern for ${VAR_NAME} placeholders in config values.
+_ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 
 
 class MCPClientManager:
@@ -185,8 +190,68 @@ class MCPClientManager:
             self._clients[key] = client
 
     @staticmethod
-    def _build_client(client_config: "MCPClientConfig") -> Any:
+    def _expand_env_vars(value: str) -> str:
+        """Expand ``${VAR_NAME}`` placeholders in *value* from environment.
+
+        Unresolved placeholders (env var not set) are left as-is and a
+        warning is logged so the user can diagnose missing variables.
+        """
+
+        def _replacer(match: re.Match) -> str:
+            var_name = match.group(1)
+            env_value = os.environ.get(var_name)
+            if env_value is None:
+                logger.warning(
+                    "Environment variable '%s' used in MCP config is not set; "
+                    "placeholder will be sent as-is. "
+                    "Set it via `copaw env set %s <value>` or system env.",
+                    var_name,
+                    var_name,
+                )
+                return match.group(0)
+            return env_value
+
+        return _ENV_VAR_RE.sub(_replacer, value)
+
+    @classmethod
+    def _expand_config_strings(
+        cls,
+        client_config: "MCPClientConfig",
+    ) -> Dict[str, Any]:
+        """Return a dict of resolved config values with env vars expanded.
+
+        Only string-typed fields that may contain ``${VAR}`` are expanded.
+        The original *client_config* is **not** mutated.
+        """
+        expand = cls._expand_env_vars
+        return {
+            "name": client_config.name,
+            "transport": client_config.transport,
+            "url": expand(client_config.url) if client_config.url else "",
+            "headers": (
+                {k: expand(v) for k, v in client_config.headers.items()}
+                if client_config.headers
+                else None
+            ),
+            "command": (
+                expand(client_config.command) if client_config.command else ""
+            ),
+            "args": [expand(a) for a in client_config.args],
+            "env": (
+                {k: expand(v) for k, v in client_config.env.items()}
+                if client_config.env
+                else {}
+            ),
+            "cwd": (expand(client_config.cwd) if client_config.cwd else None),
+        }
+
+    @classmethod
+    def _build_client(cls, client_config: "MCPClientConfig") -> Any:
         """Build MCP client instance by configured transport."""
+        resolved = cls._expand_config_strings(client_config)
+
+        # rebuild_info stores the *raw* (unexpanded) template so that the
+        # config watcher can still detect changes to the template itself.
         rebuild_info = {
             "name": client_config.name,
             "transport": client_config.transport,
@@ -200,20 +265,20 @@ class MCPClientManager:
 
         if client_config.transport == "stdio":
             client = StdIOStatefulClient(
-                name=client_config.name,
-                command=client_config.command,
-                args=client_config.args,
-                env=client_config.env,
-                cwd=client_config.cwd or None,
+                name=resolved["name"],
+                command=resolved["command"],
+                args=resolved["args"],
+                env=resolved["env"],
+                cwd=resolved["cwd"],
             )
             setattr(client, "_copaw_rebuild_info", rebuild_info)
             return client
 
         client = HttpStatefulClient(
-            name=client_config.name,
-            transport=client_config.transport,
-            url=client_config.url,
-            headers=client_config.headers or None,
+            name=resolved["name"],
+            transport=resolved["transport"],
+            url=resolved["url"],
+            headers=resolved["headers"],
         )
         setattr(client, "_copaw_rebuild_info", rebuild_info)
         return client
