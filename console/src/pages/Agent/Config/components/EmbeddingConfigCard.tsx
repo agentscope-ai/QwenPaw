@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   Form,
   Card,
@@ -6,9 +6,7 @@ import {
   Select,
   Input,
   Button,
-  Space,
   Alert,
-  Spin,
   Tag,
   Tooltip,
   message,
@@ -168,34 +166,34 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
   const renderModelOption = (model: EmbeddingModelInfo) => (
     <Option key={model.id} value={model.id}>
-      <Space>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span>{model.id}</span>
-        <Tag size="small" color={model.type === "multimodal" ? "blue" : "green"}>
+        <Tag color={model.type === "multimodal" ? "blue" : "green"}>
           {model.type === "multimodal" ? "多模态" : "纯文本"}
         </Tag>
-        <Tag size="small">{model.dimensions}维</Tag>
+        <Tag>{model.dimensions}维</Tag>
         {model.mrl_enabled && (
           <Tooltip title="支持动态维度裁剪 (MRL)">
-            <Tag size="small" color="purple">
-              MRL
-            </Tag>
+            <Tag color="purple">MRL</Tag>
           </Tooltip>
         )}
-      </Space>
+      </div>
     </Option>
+  );
+
+  const titleContent = (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span>{t("agentConfig.embedding.title")}</span>
+      <Tooltip title={t("agentConfig.embedding.helpTooltip")}>
+        <span style={{ cursor: "help", color: "#999" }}>ⓘ</span>
+      </Tooltip>
+    </div>
   );
 
   return (
     <Card
       className={styles.formCard}
-      title={
-        <Space>
-          <span>{t("agentConfig.embedding.title")}</span>
-          <Tooltip title={t("agentConfig.embedding.helpTooltip")}>
-            <span style={{ cursor: "help", color: "#999" }}>ⓘ</span>
-          </Tooltip>
-        </Space>
-      }
+      title={titleContent}
       style={{ marginTop: 16 }}
     >
       <Form.Item
@@ -231,12 +229,12 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
               showSearch
               optionFilterProp="children"
             >
-              {presetModels?.multimodal.length > 0 && (
+              {presetModels && presetModels.multimodal.length > 0 && (
                 <Select.OptGroup label="多模态模型">
                   {presetModels.multimodal.map(renderModelOption)}
                 </Select.OptGroup>
               )}
-              {presetModels?.text.length > 0 && (
+              {presetModels && presetModels.text.length > 0 && (
                 <Select.OptGroup label="纯文本模型">
                   {presetModels.text.map(renderModelOption)}
                 </Select.OptGroup>
@@ -249,14 +247,14 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
               type="info"
               showIcon={false}
               message={
-                <Space direction="vertical" size="small" style={{ width: "100%" }}>
-                  <Space>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span>类型:</span>
                     <Tag color={selectedModel.type === "multimodal" ? "blue" : "green"}>
                       {selectedModel.type === "multimodal" ? "多模态" : "纯文本"}
                     </Tag>
-                  </Space>
-                  <Space>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span>维度:</span>
                     <Tag>{selectedModel.dimensions}</Tag>
                     {selectedModel.mrl_enabled && (
@@ -264,8 +262,8 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
                         (支持 MRL 裁剪至 {selectedModel.mrl_min_dims}D)
                       </span>
                     )}
-                  </Space>
-                </Space>
+                  </div>
+                </div>
               }
               style={{ marginBottom: 16 }}
             />
@@ -324,14 +322,14 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
             />
           </Form.Item>
 
-          <Space style={{ marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <Button
               onClick={handleTest}
               loading={testing}
               disabled={testing}
               type="default"
             >
-              {testing ? <Spin size="small" /> : t("agentConfig.embedding.test")}
+              {testing ? "测试中..." : t("agentConfig.embedding.test")}
             </Button>
             <Button
               onClick={handleDownload}
@@ -343,7 +341,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
                 ? t("agentConfig.embedding.downloading")
                 : t("agentConfig.embedding.download")}
             </Button>
-          </Space>
+          </div>
 
           <Alert
             type="info"
