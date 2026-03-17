@@ -520,6 +520,36 @@ class SkillService:
         Returns:
             List of SkillInfo with name, content, source, and path.
         """
+        try:
+            synced, _ = sync_skills_to_working_dir(
+                self.workspace_dir,
+            )
+            if synced > 0:
+                logger.debug(
+                    "Forward-synced %d skill(s) to active_skills",
+                    synced,
+                )
+        except Exception as e:
+            logger.debug(
+                "Failed to forward-sync skills: %s",
+                e,
+            )
+
+        try:
+            synced, _ = sync_skills_from_active_to_customized(
+                self.workspace_dir,
+            )
+            if synced > 0:
+                logger.debug(
+                    "Back-synced %d skill(s) from active_skills",
+                    synced,
+                )
+        except Exception as e:
+            logger.debug(
+                "Failed to back-sync skills: %s",
+                e,
+            )
+
         skills: list[SkillInfo] = []
 
         # Collect from builtin and customized skills. Customized skills
