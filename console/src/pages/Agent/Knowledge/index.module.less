@@ -66,7 +66,7 @@
 }
 
 .description {
-  margin: 0 !important;
+  margin: 0;
   color: var(--note-label-color);
   font-size: 14px;
 }
@@ -111,118 +111,6 @@
   width: 100%;
 }
 
-.queueBanner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: #e6f4ff;
-  border: 1px solid #91caff;
-}
-
-.queueBannerWaiting {
-  background: #fffbe6;
-  border-color: #ffe58f;
-}
-
-.queueBannerDone {
-  background: #f6ffed;
-  border-color: #b7eb8f;
-}
-
-.queueBannerLeft {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.queueBannerIcon {
-  font-size: 18px;
-  color: #1677ff;
-
-  .queueBannerWaiting & {
-    color: #faad14;
-  }
-
-  .queueBannerDone & {
-    color: #52c41a;
-  }
-}
-
-.queueBannerText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.queueBannerSub {
-  color: #667085;
-  font-size: 12px;
-}
-
-.queueBannerMeta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.queueBannerMetaAction {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.queueBannerActionButton {
-  padding: 0;
-  height: auto;
-  line-height: 1.2;
-}
-
-.queueLogsBox {
-  font-family: "SF Mono", "Menlo", monospace;
-  font-size: 12px;
-}
-
-.policyCard {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.policyHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.policyDescription {
-  margin: 4px 0 0 !important;
-  color: #667085;
-}
-
-.policyGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
-}
-
-.policyItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid #eceff6;
-  border-radius: 10px;
-  background: #fafbff;
-}
-
 .fullWidth {
   width: 100%;
 }
@@ -263,8 +151,8 @@
 }
 
 .documentMarkdownViewer {
-  border: none !important;
-  background: transparent !important;
+  border: none;
+  background: transparent;
 }
 
 .documentMarkdownViewer :global(table) {
@@ -403,7 +291,7 @@
 }
 
 .searchHitSnippet {
-  margin: 8px 0 0 !important;
+  margin: 8px 0 0;
   color: #475467;
 }
 
@@ -440,11 +328,7 @@
   align-items: stretch;
 }
 
-.copawCard {
-  height: 100%;
-}
-
-.copawSparkContent {
+.cardContainer {
   background: var(--note-card-bg);
   border: 1px solid var(--note-card-border);
   border-radius: var(--note-radius);
@@ -463,7 +347,7 @@
   }
 }
 
-.copawSparkContentActive {
+.cardContainerActive {
   border-color: var(--note-hover-border);
   box-shadow: var(--note-hover-shadow);
 }
@@ -471,9 +355,7 @@
 .cardHeader {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: 6px;
-  margin-bottom: 0;
 }
 
 .originTag,
@@ -514,29 +396,27 @@
   text-overflow: ellipsis;
 }
 
-.indexedTag {
+.indexedTag,
+.notIndexedTag {
   font-size: 12px;
-  color: #389e0d;
-  background: rgba(82, 196, 26, 0.12);
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
   line-height: 18px;
 }
 
+.indexedTag {
+  color: #389e0d;
+  background: rgba(82, 196, 26, 0.12);
+}
+
 .notIndexedTag {
-  font-size: 12px;
   color: #667085;
   background: rgba(102, 112, 133, 0.12);
-  border-radius: 4px;
-  padding: 1px 6px;
-  white-space: nowrap;
-  line-height: 18px;
 }
 
 .cardTitle {
   display: block;
-  width: 100%;
   font-size: 14px;
   line-height: 1.4;
   color: var(--note-title-color);
@@ -564,7 +444,6 @@
 .infoLabel {
   font-size: 12px;
   color: var(--note-label-color);
-  margin-bottom: 0;
   line-height: 1.2;
 }
 
@@ -643,7 +522,7 @@
   gap: 8px;
   border-top: 1px solid #f1f2f6;
   padding: 8px 14px 10px;
-  margin: 0 -14px 0;
+  margin: 0 -14px;
 }
 
 .actionRow {
@@ -697,7 +576,7 @@
 }
 
 .enableBackfillHint {
-  margin-bottom: 0 !important;
+  margin-bottom: 0;
   color: #667085;
 }
 
@@ -755,23 +634,9 @@
     grid-template-columns: 1fr;
   }
 
-  .cardHeader {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .actionRow {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .policyHeader {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .policyGrid {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -787,12 +652,12 @@
     border-radius: 0;
   }
 
-  .copawSparkContent {
+  .cardContainer {
     padding: 12px 12px 0;
   }
 
   .cardFooter {
-    margin: 0 -12px 0;
+    margin: 0 -12px;
     padding: 8px 12px 10px;
   }
 }

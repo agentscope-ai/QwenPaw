@@ -1080,9 +1080,9 @@ function KnowledgePage() {
                   })
                 : "-";
               return (
-                <div key={record.id} className={styles.copawCard}>
+                <div key={record.id}>
                   <div
-                    className={`${styles.copawSparkContent} ${isActiveCard ? styles.copawSparkContentActive : ""}`}
+                    className={`${styles.cardContainer} ${isActiveCard ? styles.cardContainerActive : ""}`}
                     aria-busy={isActiveCard}
                   >
                         <div className={styles.cardHeader}>
