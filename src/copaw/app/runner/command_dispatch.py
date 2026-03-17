@@ -127,8 +127,8 @@ async def run_command_path(
         session_id=session_id,
         user_id=user_id,
     )
-    memory_state = session_state.get("agent", {}).get("memory")
-    memory.load_state_dict(memory_state)
+    memory_state = session_state.get("agent", {}).get("memory", {})
+    memory.load_state_dict(memory_state, strict=False)
 
     conv_handler = CommandHandler(
         agent_name="Friday",
