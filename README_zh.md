@@ -390,6 +390,56 @@ docker run -p 127.0.0.1:8088:8088 \
 
 > **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp 或 MLX），则**无需**任何 API Key。
 
+### CoPaw 配置透传到 Cognee（Ollama / LM Studio / Custom）
+
+当你在知识层启用 Cognee 后，CoPaw 现在可以把当前激活的模型配置自动同步给 Cognee（通过环境变量 `LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_API_BASE`）。
+
+推荐最小配置（`config.json`）：
+
+```json
+{
+  "knowledge": {
+    "enabled": true,
+    "engine": {
+      "provider": "cognee",
+      "fallback_to_default": true
+    },
+    "cognee": {
+      "enabled": true,
+      "sync_with_copaw_provider": true,
+      "custom_model_prefix": "openai"
+    }
+  }
+}
+```
+
+说明：
+
+- Ollama：会自动把 CoPaw 里的模型名转成 `ollama/<model>`（例如 `ollama/qwen3:8b`）。
+- LM Studio：会自动转成 `lm_studio/<model>`。
+- 其他自定义 OpenAI 兼容服务：使用 `custom_model_prefix`（例如 `openai`、`hosted_vllm`、`openrouter`）。
+
+如果你想让 Cognee 与聊天主模型隔离（避免“抢调用”）：
+
+1. 关闭自动同步：`sync_with_copaw_provider: false`
+2. 显式指定 Cognee 专用模型：
+
+```json
+{
+  "knowledge": {
+    "cognee": {
+      "enabled": true,
+      "sync_with_copaw_provider": false,
+      "llm_model": "ollama/qwen3:8b",
+      "llm_api_key": "local",
+      "llm_base_url": "http://127.0.0.1:11434/v1"
+    }
+  }
+}
+```
+
+> 提示：Cognee 基于 LiteLLM，很多 provider 需要 `provider/model` 形式（如 `gemini/gemini-2.0-flash`、`openrouter/...`）。
+
 ---
 
 ## 本地模型
