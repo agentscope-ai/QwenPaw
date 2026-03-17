@@ -1,14 +1,5 @@
-import { request } from "../request";
+import { buildAuthHeaders, request, requestRaw } from "../request";
 import type { HubSkillSpec, SkillSpec } from "../types";
-
-// Declare BASE_URL as global (injected by Vite)
-declare const BASE_URL: string;
-
-// Get the API base URL for streaming requests
-function getStreamApiUrl(): string {
-  const base = typeof BASE_URL === "string" ? BASE_URL : "";
-  return `${base}/api`;
-}
 
 export const skillApi = {
   listSkills: () => request<SkillSpec[]>("/skills"),
@@ -71,13 +62,11 @@ export const skillApi = {
     signal: AbortSignal,
     language: string = "en",
   ): Promise<void> {
-    const apiUrl = getStreamApiUrl();
-
-    const response = await fetch(`${apiUrl}/skills/ai/optimize/stream`, {
+    const response = await requestRaw("/skills/ai/optimize/stream", {
       method: "POST",
-      headers: {
+      headers: buildAuthHeaders("POST", {
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify({ content, language }),
       signal,
     });

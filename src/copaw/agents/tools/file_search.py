@@ -11,6 +11,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
+from ...config.context import get_current_workspace_dir
 from .file_io import _resolve_file_path
 
 # Skip binary / large files
@@ -112,7 +113,11 @@ async def grep_search(  # pylint: disable=too-many-branches
             ],
         )
 
-    search_root = Path(_resolve_file_path(path)) if path else WORKING_DIR
+    search_root = (
+        Path(_resolve_file_path(path))
+        if path
+        else (get_current_workspace_dir() or WORKING_DIR)
+    )
 
     if not search_root.exists():
         return ToolResponse(
@@ -236,7 +241,11 @@ async def glob_search(
             ],
         )
 
-    search_root = Path(_resolve_file_path(path)) if path else WORKING_DIR
+    search_root = (
+        Path(_resolve_file_path(path))
+        if path
+        else (get_current_workspace_dir() or WORKING_DIR)
+    )
 
     if not search_root.exists():
         return ToolResponse(

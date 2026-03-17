@@ -18,9 +18,12 @@ function AgentConfigPage() {
     error,
     language,
     savingLang,
+    timezone,
+    savingTimezone,
     fetchConfig,
     handleSave,
     handleLanguageChange,
+    handleTimezoneChange,
   } = useAgentConfig();
 
   // Force re-render when form values change to refresh derived threshold values
@@ -84,6 +87,9 @@ function AgentConfigPage() {
           language={language}
           savingLang={savingLang}
           onLanguageChange={handleLanguageChange}
+          timezone={timezone}
+          savingTimezone={savingTimezone}
+          onTimezoneChange={handleTimezoneChange}
         />
 
         <ContextManagementCard

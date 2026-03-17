@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Logging setup for CoPaw: console output and optional file handler."""
+import io
 import logging
 import logging.handlers
 import os
@@ -126,7 +127,12 @@ def setup_logger(level: int | str = logging.INFO):
     logger.setLevel(level)
     logger.propagate = False
     if not logger.handlers:
-        handler = logging.StreamHandler()
+        utf8_stderr = io.TextIOWrapper(
+            sys.stderr.buffer,
+            encoding="utf-8",
+            errors="replace",
+        )
+        handler = logging.StreamHandler(utf8_stderr)
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
@@ -144,7 +150,7 @@ def add_copaw_file_handler(log_path: Path) -> None:
     when lifespan runs multiple times in the same process).
 
     Args:
-        log_path: Path to the log file (e.g. WORKING_DIR / "copaw.log").
+        log_path: Path to the log file (e.g. WORKING_DIR / "boostclaw.log").
     """
     log_path = Path(log_path).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)

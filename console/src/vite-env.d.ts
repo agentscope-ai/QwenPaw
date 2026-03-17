@@ -1,4 +1,6 @@
 /// <reference types="vite/client" />
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 
 declare module "*.less" {
   const classes: { [key: string]: string };

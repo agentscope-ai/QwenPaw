@@ -1,0 +1,59 @@
+# Unauthorized Tool & Permission Abuse Signatures
+# Detects system package installs, untrusted sources, and privilege escalation
+
+# Note: Package installs are common in setup/init scripts and not inherently malicious
+# Only flag system-level installs that require sudo (actual privilege escalation)
+- id: TOOL_ABUSE_SYSTEM_PACKAGE_INSTALL
+  category: unauthorized_tool_use
+  severity: MEDIUM
+  patterns:
+    # System package managers (require root/admin)
+    - "sudo\\s+apt-get\\s+install"
+    - "sudo\\s+yum\\s+install"
+    - "sudo\\s+dnf\\s+install"
+    - "sudo\\s+pacman\\s+-S"
+    - "sudo\\s+brew\\s+install"
+    # System-wide pip (not user-level)
+    - "sudo\\s+pip\\s+install"
+    - "sudo\\s+pip3\\s+install"
+  file_types: [python, bash]
+  description: "Attempting to install system packages with elevated privileges"
+  remediation: "Use user-level installs without sudo. Document if system install is necessary"
+
+- id: TOOL_ABUSE_UNTRUSTED_PACKAGE_SOURCE
+  category: unauthorized_tool_use
+  severity: HIGH
+  patterns:
+    # Python: direct install from URL / VCS can bypass curated registries
+    - "pip(?:3)?\\s+install\\s+(?:https?://|git\\+https?://|git\\+ssh://)"
+    # JavaScript: remote tarballs / git URLs
+    - "npm\\s+install\\s+(?:https?://|git\\+https?://|git\\+ssh://)"
+    - "yarn\\s+add\\s+(?:https?://|git\\+https?://|git\\+ssh://)"
+    - "pnpm\\s+add\\s+(?:https?://|git\\+https?://|git\\+ssh://)"
+  exclude_patterns:
+    - "localhost"
+    - "127\\.0\\.0\\.1"
+    - "example\\.com"
+    - "test"
+    - "demo"
+  file_types: [python, bash]
+  description: "Package installation from untrusted remote sources"
+  remediation: "Prefer trusted registries and pinned package versions over direct URL/VCS installs"
+
+- id: TOOL_ABUSE_SYSTEM_MODIFICATION
+  category: unauthorized_tool_use
+  severity: CRITICAL
+  patterns:
+    - "chmod\\s+(?:777|666|4755|6755|[ug]\\+s)\\b"
+    - "chown\\s+root\\b"
+    # Sudo with specific system-modifying commands (service, user, kernel,
+    # firewall, mount).  Generic "sudo\\s+" is intentionally avoided because
+    # package-install sudo commands are handled at MEDIUM severity by
+    # TOOL_ABUSE_SYSTEM_PACKAGE_INSTALL and should not also fire here at
+    # CRITICAL.
+    - "sudo\\s+(?:systemctl|service|usermod|useradd|userdel|groupadd|visudo|crontab|mount|umount|sysctl|modprobe|iptables|ufw|firewall-cmd)\\b"
+    - "sudo\\s+(?:sh|bash)\\s+-c"
+    - "/etc/(?:passwd|shadow|sudoers)"
+  file_types: [bash]
+  description: "Modifying system permissions or configuration"
+  remediation: "Remove system modification commands"

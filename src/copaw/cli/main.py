@@ -101,6 +101,16 @@ from .desktop_cmd import desktop_cmd  # noqa: E402
 
 _record(".desktop_cmd", time.perf_counter() - _t)
 
+_t = time.perf_counter()
+from .update_cmd import update_cmd  # noqa: E402
+
+_record(".update_cmd", time.perf_counter() - _t)
+
+_t = time.perf_counter()
+from .shutdown_cmd import shutdown_cmd  # noqa: E402
+
+_record(".shutdown_cmd", time.perf_counter() - _t)
+
 _total = time.perf_counter() - _t0_main
 _init_timings.append(("(total imports)", _total))
 logger.debug("%.3fs (total imports)", _total)
@@ -113,7 +123,7 @@ def log_init_timings() -> None:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.version_option(version=__version__, prog_name="CoPaw")
+@click.version_option(version=__version__, prog_name="boostclaw")
 @click.option("--host", default=None, help="API Host")
 @click.option(
     "--port",
@@ -123,7 +133,7 @@ def log_init_timings() -> None:
 )
 @click.pass_context
 def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
-    """CoPaw CLI."""
+    """boostclaw CLI."""
     # default from last run if not provided
     last = read_last_api()
     if host is None or port is None:
@@ -152,3 +162,5 @@ cli.add_command(models_group)
 cli.add_command(skills_group)
 cli.add_command(uninstall_cmd)
 cli.add_command(desktop_cmd)
+cli.add_command(update_cmd)
+cli.add_command(shutdown_cmd)

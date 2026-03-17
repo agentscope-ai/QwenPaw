@@ -9,7 +9,6 @@ import logging
 from typing import AsyncIterator
 
 from agentscope.message import Msg, TextBlock
-from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
 
 from .daemon_commands import (
     DaemonContext,
@@ -118,6 +117,11 @@ async def run_command_path(
         return
 
     # Conversation path: lightweight memory + CommandHandler
+    # Lazy import to avoid module-level dependency errors
+    from reme.memory.file_based.reme_in_memory_memory import (
+        ReMeInMemoryMemory,
+    )
+
     memory = ReMeInMemoryMemory(token_counter=_get_token_counter())
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,

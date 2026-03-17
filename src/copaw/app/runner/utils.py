@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 import json
+import logging
+from datetime import datetime, timezone
 from typing import Optional, Union, List
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from agentscope.message import Msg
 from agentscope_runtime.engine.schemas.agent_schemas import (
     Message,
@@ -10,6 +14,10 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     MessageType,
 )
 from agentscope_runtime.engine.helpers.agent_api_builder import ResponseBuilder
+
+from ...config import load_config
+
+logger = logging.getLogger(__name__)
 
 
 def build_env_context(
@@ -32,6 +40,14 @@ def build_env_context(
         Formatted environment context string
     """
     parts = []
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+
     if session_id is not None:
         parts.append(f"- 当前的session_id: {session_id}")
     if user_id is not None:
@@ -41,6 +57,11 @@ def build_env_context(
 
     if working_dir is not None:
         parts.append(f"- 工作目录: {working_dir}")
+
+    parts.append(
+        f"- 当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"{user_tz} ({now.strftime('%A')})",
+    )
 
     if add_hint:
         parts.append(
