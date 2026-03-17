@@ -241,8 +241,25 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         );
         const versions = versionsWithTime.map((v) => v.version);
         const latest = versions[0] ?? data?.info?.version ?? "";
-        setAllVersions(versions);
-        setLatestVersion(latest);
+        
+        // Only show update notification if the latest version was released more than 1 hour ago
+        // This gives Docker images time to build and become available
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const latestVersionReleaseTime = versionsWithTime.find(
+          (v) => v.version === latest,
+        )?.uploadTime;
+        
+        if (
+          latestVersionReleaseTime &&
+          new Date(latestVersionReleaseTime) <= oneHourAgo
+        ) {
+          setAllVersions(versions);
+          setLatestVersion(latest);
+        } else {
+          // If latest version is less than 1 hour old, don't show update notification
+          setAllVersions([]);
+          setLatestVersion("");
+        }
       })
       .catch(() => {});
   }, []);

@@ -1,6 +1,6 @@
 import { Modal, Form, Input } from "antd";
 import { useTranslation } from "react-i18next";
-import type { AgentSummary } from "../../../api/types/agents";
+import type { AgentSummary } from "@/api/types/agents";
 
 interface AgentModalProps {
   open: boolean;

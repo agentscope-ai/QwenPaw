@@ -2,7 +2,7 @@ import { Table, Button, Space, Popconfirm } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
-import type { AgentSummary } from "../../../api/types/agents";
+import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
