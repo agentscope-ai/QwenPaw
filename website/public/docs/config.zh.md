@@ -218,10 +218,14 @@ copaw app
 
 **`channels.dingtalk`** — 钉钉
 
-| 字段            | 类型   | 默认值 | 说明                     |
-| --------------- | ------ | ------ | ------------------------ |
-| `client_id`     | string | `""`   | 钉钉应用的 Client ID     |
-| `client_secret` | string | `""`   | 钉钉应用的 Client Secret |
+| 字段                | 类型   | 默认值       | 说明                                                 |
+| ------------------- | ------ | ------------ | ---------------------------------------------------- |
+| `client_id`         | string | `""`         | 钉钉应用的 Client ID                                 |
+| `client_secret`     | string | `""`         | 钉钉应用的 Client Secret                             |
+| `message_type`      | string | `"markdown"` | 消息模式：`markdown`（默认）或 `card`（AI 互动卡片） |
+| `card_template_id`  | string | `""`         | 钉钉 AI Card 模板 ID（`message_type=card` 时必填）   |
+| `card_template_key` | string | `"content"`  | AI Card 变量字段名，必须与模板中的变量名完全一致     |
+| `robot_code`        | string | `""`         | 机器人编码（群聊卡片投放场景建议显式配置）           |
 
 **`channels.feishu`** — 飞书 / Lark
 

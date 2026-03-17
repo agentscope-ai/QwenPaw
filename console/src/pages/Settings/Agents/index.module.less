@@ -1,27 +1,72 @@
 .agentsPage {
   padding: 24px;
-  min-height: 100vh;
-  background: var(--background-secondary);
+}
 
-  :global {
-    .ant-card {
-      border-radius: 8px;
-      box-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.03),
-        0 2px 4px rgba(0, 0, 0, 0.03);
-    }
+/* ---- Section (same as Models / Environments) ---- */
 
-    .ant-table {
-      background: transparent;
-    }
+.section {
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 
-    .ant-table-thead > tr > th {
-      background: var(--background-primary);
-      font-weight: 600;
-    }
+.section:last-child {
+  margin-bottom: 0;
+}
 
-    .ant-table-tbody > tr:hover > td {
-      background: var(--background-hover);
-    }
+.sectionTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.sectionDesc {
+  color: #999;
+  font-size: 14px;
+}
+
+/* ---- Table Card ---- */
+
+.tableCard {
+  margin-bottom: 24px;
+
+  &:last-child {
+    margin-bottom: 0;
   }
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .sectionTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}
+
+/* Link buttons in table — must be flat global selectors to beat AntD specificity */
+:global(.dark-mode .ant-btn-link) {
+  color: #8b87f0 !important;
+
+  &:global(:hover) {
+    color: #a5a2f5 !important;
+  }
+}
+
+:global(.dark-mode .ant-btn-link.ant-btn-dangerous) {
+  color: #ff7875 !important;
+
+  &:global(:hover) {
+    color: #ff9c9a !important;
+  }
+}
+
+:global(.dark-mode .ant-btn-link:disabled),
+:global(.dark-mode .ant-btn-link.ant-btn-disabled),
+:global(.dark-mode .ant-btn-link[disabled]) {
+  color: rgba(255, 255, 255, 0.35) !important;
+  opacity: 1 !important;
 }

@@ -18,6 +18,7 @@ import ModelsPage from "../../pages/Settings/Models";
 import EnvironmentsPage from "../../pages/Settings/Environments";
 import SecurityPage from "../../pages/Settings/Security";
 import TokenUsagePage from "../../pages/Settings/TokenUsage";
+import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
 import AgentsPage from "../../pages/Settings/Agents";
 
 const { Content } = Layout;
@@ -38,6 +39,7 @@ const pathToKey: Record<string, string> = {
   "/agent-config": "agent-config",
   "/security": "security",
   "/token-usage": "token-usage",
+  "/voice-transcription": "voice-transcription",
 };
 
 export default function MainLayout() {

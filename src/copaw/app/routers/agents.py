@@ -3,6 +3,7 @@
 
 Provides RESTful API for managing multiple agent instances.
 """
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -20,6 +21,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ..multi_agent_manager import MultiAgentManager
+from ...constant import WORKING_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +164,7 @@ async def create_agent(
 
     # Create workspace directory
     workspace_dir = Path(
-        request.workspace_dir or f"~/.copaw/workspaces/{new_id}",
+        request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
@@ -181,7 +183,7 @@ async def create_agent(
         workspace_dir=str(workspace_dir),
         language=request.language,
         channels=ChannelConfig(),
-        mcp=MCPConfig(clients={}),
+        mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
     )
@@ -233,9 +235,18 @@ async def update_agent(
     # Save agent configuration
     save_agent_config(agentId, agent_config)
 
-    # Trigger hot reload if agent is running
+    # Trigger hot reload if agent is running (async, non-blocking)
+    # IMPORTANT: Get manager before creating background task to avoid
+    # accessing request object after its lifecycle ends
     manager = _get_multi_agent_manager(request)
-    await manager.reload_agent(agentId)
+
+    async def reload_in_background():
+        try:
+            await manager.reload_agent(agentId)
+        except Exception as e:
+            logger.warning(f"Background reload failed for {agentId}: {e}")
+
+    asyncio.create_task(reload_in_background())
 
     return agent_config
 

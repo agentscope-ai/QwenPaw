@@ -44,7 +44,42 @@
     "models": "Models",
     "environments": "Environments",
     "security": "Security",
-    "tokenUsage": "Token Usage"
+    "tokenUsage": "Token Usage",
+    "voiceTranscription": "Voice Transcription"
+  },
+  "voiceTranscription": {
+    "title": "Voice Transcription",
+    "description": "Configure how incoming audio and voice messages are handled.",
+    "loadFailed": "Failed to load audio mode settings",
+    "saveSuccess": "Audio mode saved",
+    "saveFailed": "Failed to save audio mode",
+    "audioModeLabel": "Audio Mode",
+    "audioModeDescription": "Choose how voice messages from channels (Discord, Telegram, etc.) are processed before being sent to the model.",
+    "modeAuto": "Auto (Recommended)",
+    "modeAutoDesc": "Transcribe audio to text using the selected transcription provider, then send the text to the model. If transcription is unavailable or disabled, a file-uploaded placeholder is shown instead. Audio is never sent directly to the model in this mode. Works with all models.",
+    "modeNative": "Native Audio",
+    "modeNativeDesc": "Send the audio file directly to the model without transcription. This is the only mode that sends audio to the model. Only works with specific audio-capable models (e.g. gpt-4o-audio). Most models do not support this and will reject the message.",
+    "ffmpegReady": "ffmpeg is installed. Audio conversion is available for native mode.",
+    "ffmpegMissing": "ffmpeg is not installed.",
+    "ffmpegMissingDesc": "Native audio mode requires ffmpeg to convert audio formats (e.g. .ogg to .wav). Install ffmpeg as a system package to enable this mode.",
+    "providerTypeLabel": "Transcription Provider",
+    "providerTypeDescription": "Choose the transcription backend. Select Disabled if you do not need voice transcription.",
+    "providerTypeDisabled": "Disabled",
+    "providerTypeDisabledDesc": "No transcription. Voice messages will show a file-uploaded placeholder.",
+    "providerTypeWhisperApi": "Whisper API",
+    "providerTypeWhisperApiDesc": "Use an OpenAI-compatible Whisper API endpoint from a configured provider (e.g. OpenAI, Ollama).",
+    "providerTypeLocalWhisper": "Local Whisper",
+    "providerTypeLocalWhisperDesc": "Run transcription locally using the openai-whisper Python library. Requires both ffmpeg and openai-whisper to be installed.",
+    "localWhisperReady": "Local Whisper is ready. Both ffmpeg and openai-whisper are installed.",
+    "localWhisperMissing": "Local Whisper is not ready. Missing dependencies must be installed.",
+    "localWhisperMissingDesc": "ffmpeg: {{ffmpeg}} | openai-whisper: {{whisper}}. Install missing dependencies: ffmpeg (system package) and openai-whisper (uv pip install openai-whisper, or install CoPaw with the [whisper] extra).",
+    "providerLabel": "Whisper API Provider",
+    "providerDescription": "Select which provider to use for audio transcription via the Whisper API. Only providers with a Whisper-compatible endpoint are shown.",
+    "providerPlaceholder": "Select a provider...",
+    "noProvidersWarning": "No transcription-capable providers found. Configure an OpenAI provider to enable voice transcription.",
+    "transcriptionInfoTitle": "How transcription works",
+    "transcriptionInfoDesc": "Whisper API transcription uses an OpenAI-compatible /v1/audio/transcriptions endpoint. This requires a configured provider with a Whisper-compatible endpoint — for example, an OpenAI provider. Select a specific provider above to enable transcription.",
+    "transcriptionInfoDescLocal": "Local Whisper transcription runs the openai-whisper library directly on your machine. It requires both ffmpeg (for audio decoding) and the openai-whisper Python package to be installed. No API key or network connection is needed. Install with: uv pip install 'copaw[whisper]'."
   },
   "workspace": {
     "title": "WorkSpace",
@@ -71,6 +106,7 @@
   },
   "agent": {
     "management": "Agent Management",
+    "pageDescription": "Create, configure, and manage multiple AI agents with custom workspaces and identities.",
     "name": "Name",
     "id": "ID",
     "description": "Description",
@@ -621,6 +657,14 @@
     "faq": "FAQ",
     "github": "GitHub"
   },
+  "theme": {
+    "dark": "Dark",
+    "light": "Light",
+    "darkMode": "Dark mode",
+    "lightMode": "Light mode",
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode"
+  },
   "sidebar": {
     "newVersion": "New version available: v{{version}}, click to upgrade",
     "updateModal": {
@@ -748,5 +792,24 @@
         "goToWhitelist": "Go to Whitelist"
       }
     }
+  },
+  "login": {
+    "title": "Login to CoPaw",
+    "registerTitle": "Create Account",
+    "firstUserHint": "Create your admin account to get started",
+    "usernamePlaceholder": "Username",
+    "passwordPlaceholder": "Password",
+    "usernameRequired": "Please enter your username",
+    "passwordRequired": "Please enter your password",
+    "submit": "Login",
+    "register": "Register",
+    "failed": "Login failed, please check your credentials",
+    "registerSuccess": "Registration successful",
+    "registerFailed": "Registration failed",
+    "authNotEnabled": "Authentication is not enabled",
+    "logout": "Logout",
+    "logoutSuccess": "Logged out successfully",
+    "sessionExpired": "Session expired, please login again",
+    "unauthorized": "Unauthorized, please login"
   }
 }

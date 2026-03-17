@@ -246,14 +246,14 @@ copaw channels config --agent-id abc123 # Configure specific agent
 
 The interactive `config` flow lets you pick a channel, enable/disable it, and enter credentials. It loops until you choose "Save and exit".
 
-| Channel      | Fields to fill in                             |
-| ------------ | --------------------------------------------- |
-| **iMessage** | Bot prefix, database path, poll interval      |
-| **Discord**  | Bot prefix, Bot Token, HTTP proxy, proxy auth |
-| **DingTalk** | Bot prefix, Client ID, Client Secret          |
-| **Feishu**   | Bot prefix, App ID, App Secret                |
-| **QQ**       | Bot prefix, App ID, Client Secret             |
-| **Console**  | Bot prefix                                    |
+| Channel      | Fields to fill in                                                                    |
+| ------------ | ------------------------------------------------------------------------------------ |
+| **iMessage** | Bot prefix, database path, poll interval                                             |
+| **Discord**  | Bot prefix, Bot Token, HTTP proxy, proxy auth                                        |
+| **DingTalk** | Bot prefix, Client ID, Client Secret, Message Type, Card Template ID/Key, Robot Code |
+| **Feishu**   | Bot prefix, App ID, App Secret                                                       |
+| **QQ**       | Bot prefix, App ID, Client Secret                                                    |
+| **Console**  | Bot prefix                                                                           |
 
 > For platform-specific credential setup, see [Channels](./channels).
 

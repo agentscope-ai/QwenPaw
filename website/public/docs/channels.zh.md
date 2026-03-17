@@ -79,11 +79,17 @@
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
   "client_secret": "你的 Client Secret",
+  "message_type": "markdown",
+  "card_template_id": "",
+  "card_template_key": "content",
+  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
 
 - 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
+- AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致（默认 `content`）。
+- 群聊场景建议显式配置 `robot_code`；留空时 CoPaw 会回退使用 `client_id`。
 
 保存后若服务已运行会自动重载；未运行则执行 `copaw app` 启动。
 
@@ -431,18 +437,29 @@
 
 ### 创建新企业
 
-个人使用者可先注册账号，创建新企业，成为企业管理员。
+个人使用者可以访问[企业微信官网](https://work.weixin.qq.com)注册账号，创建新企业，成为企业管理员。
+
 ![创建企业](https://img.alicdn.com/imgextra/i2/O1CN01Xg8B3i1EQWAKt5xj0_!!6000000000346-2-tps-2938-1588.png)
-![新建账号](https://img.alicdn.com/imgextra/i2/O1CN01QzuScv26w6je9Yypg_!!6000000007725-2-tps-2938-1592.png)
+
+填写企业信息与管理员信息，并绑定微信账号
+
+![新建账号](https://img.alicdn.com/imgextra/i4/O1CN01uRF1Mv1TX87bOQ045_!!6000000002391-2-tps-1538-905.png)
+
+注册成功之后即可登陆企业微信开始使用。
 
 若已经有企业微信账号或是企业普通员工，可以直接在当前企业创建API模式机器人。
 
 ### 创建机器人
 
-可在管理后台点击管理工具-智能机器人-创建机器人，选择API模式创建-通过长链接配置
-![创建机器人1](https://img.alicdn.com/imgextra/i2/O1CN01n4qAEI1deajLveo2B_!!6000000003761-2-tps-2938-1590.png)
-![新建机器人2](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
-![新建机器人3](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
+可在工作台点击智能机器人-创建机器人，选择API模式创建-通过长链接配置
+
+![创建机器人1](https://img.alicdn.com/imgextra/i3/O1CN01lcA2rX1fm2P19SLcB_!!6000000004048-2-tps-1440-814.png)
+![新建机器人2](https://img.alicdn.com/imgextra/i1/O1CN014R3a0f1mnb3qbycMV_!!6000000004999-2-tps-1440-814.png)
+![新建机器人3](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
+
+获取`Bot ID`和`Secret`
+
+![新建机器人4](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
 
 ### 绑定bot
 
@@ -707,18 +724,17 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ### 配置总览
 
-| 频道       | 配置键     | 必填/主要字段                                                       |
-| ---------- | ---------- | ------------------------------------------------------------------- |
-| 钉钉       | dingtalk   | client_id, client_secret                                            |
-| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir |
-| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                       |
-| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                         |
-| QQ         | qq         | app_id, client_secret                                               |
-| 企业微信   | wecom      | bot_id, secret；可选 media_dir, max_reconnect_attempts              |
-| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                         |
-| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from             |
-| Matrix     | matrix     | homeserver, user_id, access_token                                   |
-| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                       |
+| 频道       | 配置键     | 必填/主要字段                                                                           |
+| ---------- | ---------- | --------------------------------------------------------------------------------------- |
+| 钉钉       | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code |
+| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir                     |
+| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                           |
+| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| QQ         | qq         | app_id, client_secret                                                                   |
+| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
+| Matrix     | matrix     | homeserver, user_id, access_token                                                       |
+| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                           |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 

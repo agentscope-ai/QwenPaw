@@ -128,11 +128,16 @@ async def put_channels(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
+    # IMPORTANT: Get manager and agent_id before creating background task
+    # to avoid accessing request/workspace after their lifecycle ends
     import asyncio
+
+    manager = request.app.state.multi_agent_manager
+    agent_id = agent.agent_id
 
     async def reload_in_background():
         try:
-            await agent.reload()
+            await manager.reload_agent(agent_id)
         except Exception as e:
             import logging
 
@@ -236,11 +241,16 @@ async def put_channel(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
+    # IMPORTANT: Get manager and agent_id before creating background task
+    # to avoid accessing request/workspace after their lifecycle ends
     import asyncio
+
+    manager = request.app.state.multi_agent_manager
+    agent_id = agent.agent_id
 
     async def reload_in_background():
         try:
-            await agent.reload()
+            await manager.reload_agent(agent_id)
         except Exception as e:
             import logging
 

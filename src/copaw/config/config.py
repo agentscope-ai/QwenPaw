@@ -10,6 +10,7 @@ from ..providers.models import ModelSlotConfig
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    WORKING_DIR,
 )
 from .timezone import detect_system_timezone
 
@@ -55,6 +56,10 @@ class DiscordConfig(BaseChannelConfig):
 class DingTalkConfig(BaseChannelConfig):
     client_id: str = ""
     client_secret: str = ""
+    message_type: str = "markdown"
+    card_template_id: str = ""
+    card_template_key: str = "content"
+    robot_code: str = ""
     media_dir: Optional[str] = None
 
 
@@ -371,7 +376,7 @@ class AgentsConfig(BaseModel):
         default_factory=lambda: {
             "default": AgentProfileRef(
                 id="default",
-                workspace_dir="~/.copaw/workspaces/default",
+                workspace_dir=f"{WORKING_DIR}/workspaces/default",
             ),
         },
         description="Agent profile references (ID and workspace path only)",
@@ -390,6 +395,45 @@ class AgentsConfig(BaseModel):
     installed_md_files_language: Optional[str] = None
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
+    )
+    audio_mode: Literal["auto", "native"] = Field(
+        default="auto",
+        description=(
+            "How to handle incoming audio/voice messages. "
+            '"auto": transcribe if a provider is available, otherwise show '
+            "file-uploaded placeholder; "
+            '"native": send audio blocks directly to the model '
+            "(may need ffmpeg)."
+        ),
+    )
+
+    transcription_provider_type: Literal[
+        "disabled",
+        "whisper_api",
+        "local_whisper",
+    ] = Field(
+        default="disabled",
+        description=(
+            "Transcription backend. "
+            '"disabled": no transcription; '
+            '"whisper_api": remote OpenAI-compatible endpoint; '
+            '"local_whisper": locally installed openai-whisper.'
+        ),
+    )
+    transcription_provider_id: str = Field(
+        default="",
+        description=(
+            "Provider ID for Whisper API transcription. "
+            "Empty = no provider selected. "
+            'Only used when transcription_provider_type is "whisper_api".'
+        ),
+    )
+    transcription_model: str = Field(
+        default="whisper-1",
+        description=(
+            "Model name for Whisper API transcription. "
+            'e.g. "whisper-1", "whisper-large-v3".'
+        ),
     )
 
 
@@ -774,6 +818,16 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     with open(agent_config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+    # This keeps COPAW_WORKING_DIR effective even if existing agent.json
+    # contains older hard-coded paths like "~/.copaw/media".
+    try:
+        from .utils import _normalize_working_dir_bound_paths
+
+        data = _normalize_working_dir_bound_paths(data)
+    except Exception:
+        pass
+
     return AgentProfileConfig(**data)
 
 
@@ -840,7 +894,7 @@ def migrate_legacy_config_to_multi_agent() -> bool:
     legacy_agents = config.agents
 
     # Create default agent workspace
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
 
     # Create default agent configuration from legacy settings
@@ -885,8 +939,10 @@ def migrate_legacy_config_to_multi_agent() -> bool:
             indent=2,
         )
 
-    # Migrate existing workspace files to default agent workspace
-    old_workspace = Path("~/.copaw").expanduser()
+    # Migrate existing workspace files from legacy default working dir.
+    # When COPAW_WORKING_DIR is customized, historical data may still exist
+    # under "~/.copaw".
+    old_workspace = Path("~/.copaw").expanduser().resolve()
 
     # Move sessions, memory, and other workspace files
     for item_name in ["sessions", "memory", "jobs.json"]:

@@ -234,14 +234,14 @@ copaw channels config --agent-id abc123 # 交互式配置特定智能体
 
 交互式 `config` 流程：依次选择频道、启用/禁用、填写凭据，循环直到选择「保存退出」。
 
-| 频道         | 需要填写的字段                           |
-| ------------ | ---------------------------------------- |
-| **iMessage** | Bot 前缀、数据库路径、轮询间隔           |
-| **Discord**  | Bot 前缀、Bot Token、HTTP 代理、代理认证 |
-| **DingTalk** | Bot 前缀、Client ID、Client Secret       |
-| **Feishu**   | Bot 前缀、App ID、App Secret             |
-| **QQ**       | Bot 前缀、App ID、Client Secret          |
-| **Console**  | Bot 前缀                                 |
+| 频道         | 需要填写的字段                                                             |
+| ------------ | -------------------------------------------------------------------------- |
+| **iMessage** | Bot 前缀、数据库路径、轮询间隔                                             |
+| **Discord**  | Bot 前缀、Bot Token、HTTP 代理、代理认证                                   |
+| **DingTalk** | Bot 前缀、Client ID、Client Secret、消息类型、Card 模板 ID/Key、Robot Code |
+| **Feishu**   | Bot 前缀、App ID、App Secret                                               |
+| **QQ**       | Bot 前缀、App ID、Client Secret                                            |
+| **Console**  | Bot 前缀                                                                   |
 
 > 各平台凭据的获取步骤，请看 [频道配置](./channels)。
 

@@ -16,12 +16,12 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.45);
+  color: rgba(0, 0, 0, 0.4);
   white-space: nowrap;
   user-select: none;
 
   svg {
-    opacity: 0.6;
+    opacity: 0.5;
   }
 }
 
@@ -31,25 +31,25 @@
 
   :global {
     .ant-select-selector {
-      border: 1px solid rgba(0, 0, 0, 0.06) !important;
-      background: rgba(0, 0, 0, 0.02) !important;
+      border: 1px solid rgba(97, 92, 237, 0.25) !important;
+      background: rgba(97, 92, 237, 0.04) !important;
       box-shadow: none !important;
       padding: 4px 8px !important;
       height: 32px !important;
       font-size: 13px;
       font-weight: 500;
-      border-radius: 6px;
+      border-radius: 8px !important;
       transition: all 0.2s ease;
 
       &:hover {
-        border-color: rgba(0, 0, 0, 0.1) !important;
-        background: rgba(0, 0, 0, 0.04) !important;
+        border-color: rgba(97, 92, 237, 0.45) !important;
+        background: rgba(97, 92, 237, 0.07) !important;
       }
 
       &:focus {
-        border-color: #1890ff !important;
+        border-color: #615ced !important;
         background: #ffffff !important;
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+        box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.12) !important;
       }
     }
 
@@ -59,7 +59,7 @@
     }
 
     .ant-select-arrow {
-      color: rgba(0, 0, 0, 0.45);
+      color: rgba(97, 92, 237, 0.5);
       right: 8px;
 
       .ant-select-suffix {
@@ -70,9 +70,9 @@
 
     .ant-select-focused {
       .ant-select-selector {
-        border-color: #1890ff !important;
+        border-color: #615ced !important;
         background: #ffffff !important;
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+        box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.12) !important;
       }
     }
   }
@@ -87,11 +87,12 @@
 
   svg {
     flex-shrink: 0;
-    opacity: 0.7;
+    color: #615ced;
+    opacity: 0.85;
   }
 
   span {
-    font-weight: 500;
+    font-weight: 600;
     font-size: 13px;
   }
 }
@@ -106,15 +107,15 @@
   .agentBadge {
     :global {
       .ant-badge-count {
-        background: rgba(0, 0, 0, 0.06);
-        color: rgba(0, 0, 0, 0.65);
+        background: linear-gradient(135deg, #615ced, #8b87f0);
+        color: #ffffff;
         font-size: 10px;
-        font-weight: 600;
+        font-weight: 700;
         min-width: 18px;
         height: 18px;
         line-height: 18px;
         border-radius: 9px;
-        box-shadow: none;
+        box-shadow: 0 2px 6px rgba(97, 92, 237, 0.35);
       }
     }
   }
@@ -122,64 +123,95 @@
 
 // ─── Dropdown ─────────────────────────────────────────────────────────────────
 .agentSelectorDropdown {
+  border-radius: 12px !important;
+  overflow: hidden;
+  min-width: 280px !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.06) !important;
   :global {
+    .copaw-select-item {
+      padding: 0 !important;
+      border-radius: 8px;
+      margin: 3px 6px;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+      &:hover {
+        background: rgba(97, 92, 237, 0.08) !important;
+      }
+
+      &.copaw-select-item-option-selected {
+        background: rgba(97, 92, 237, 0.05) !important;
+
+        .agentOptionIcon {
+          background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
+          border-color: transparent;
+          color: #ffffff;
+          box-shadow: 0 2px 8px rgba(97, 92, 237, 0.4);
+        }
+      }
+    }
+
     .ant-select-item {
       padding: 0 !important;
       border-radius: 8px;
-      margin: 4px 8px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      margin: 3px 6px;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
-        background: #fafafa !important;
+        background: rgba(97, 92, 237, 0.08) !important;
       }
 
       &.ant-select-item-option-selected {
-        background: linear-gradient(
-          135deg,
-          #f0efff 0%,
-          #fafafa 100%
-        ) !important;
-        border-left: 3px solid #615ced;
+        background: rgba(97, 92, 237, 0.05) !important;
+
+        .agentOptionIcon {
+          background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
+          border-color: transparent;
+          color: #ffffff;
+          box-shadow: 0 2px 8px rgba(97, 92, 237, 0.4);
+        }
       }
     }
 
     .rc-virtual-list {
-      padding: 8px 0;
+      padding: 6px 0;
     }
   }
 }
 
 // ─── Agent Option ─────────────────────────────────────────────────────────────
 .agentOption {
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .agentOptionHeader {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
 }
 
 .agentOptionIcon {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
-  border: 1px solid #e8e8e8;
-  border-radius: 6px;
-  color: #595959;
+  background: linear-gradient(135deg, #f5f5ff 0%, #efefff 100%);
+  border: 1px solid rgba(97, 92, 237, 0.15);
+  border-radius: 8px;
+  color: #615ced;
   transition: all 0.2s ease;
 
   .agentOption:hover & {
-    background: linear-gradient(135deg, #f0efff 0%, #fafafa 100%);
-    border-color: #d9d9f7;
+    background: linear-gradient(135deg, #ebe9ff 0%, #f0efff 100%);
+    border-color: rgba(97, 92, 237, 0.3);
     color: #615ced;
+    box-shadow: 0 2px 6px rgba(97, 92, 237, 0.15);
   }
 }
 
@@ -188,16 +220,16 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .agentOptionName {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 600;
-  color: #262626;
+  color: #1a1a2e;
   line-height: 1.4;
 
   span {
@@ -226,19 +258,140 @@
 }
 
 .agentOptionDescription {
-  font-size: 12px;
+  font-size: 11px;
   color: #8c8c8c;
-  line-height: 1.5;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .agentOptionId {
-  font-size: 11px;
+  font-size: 10px;
   font-family: "SF Mono", "Consolas", "Monaco", monospace;
-  color: #bfbfbf;
-  letter-spacing: 0.5px;
+  color: rgba(97, 92, 237, 0.4);
+  letter-spacing: 0.3px;
   padding-top: 4px;
-  border-top: 1px solid #f5f5f5;
+  border-top: 1px solid rgba(97, 92, 237, 0.06);
+}
+
+// ─── Dark mode overrides ───────────────────────────────────────────────────────
+:global(.dark-mode) {
+  .agentSelectorLabel {
+    color: rgba(255, 255, 255, 0.55);
+
+    svg {
+      opacity: 0.7;
+    }
+  }
+
+  .agentSelector {
+    :global {
+      .ant-select-selector {
+        border-color: rgba(139, 135, 240, 0.3) !important;
+        background: rgba(97, 92, 237, 0.1) !important;
+
+        &:hover {
+          border-color: rgba(139, 135, 240, 0.5) !important;
+          background: rgba(97, 92, 237, 0.15) !important;
+        }
+
+        &:focus {
+          border-color: #8b87f0 !important;
+          background: rgba(97, 92, 237, 0.15) !important;
+          box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.25) !important;
+        }
+      }
+
+      .ant-select-arrow {
+        color: rgba(139, 135, 240, 0.6);
+      }
+
+      .ant-select-focused .ant-select-selector {
+        border-color: #8b87f0 !important;
+        background: rgba(97, 92, 237, 0.15) !important;
+        box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.25) !important;
+      }
+    }
+  }
+
+  .selectedAgentLabel {
+    color: rgba(255, 255, 255, 0.9);
+
+    svg {
+      color: #b8b5f5;
+      opacity: 0.9;
+    }
+  }
+
+  .agentSelectorSuffix {
+    .agentBadge {
+      :global {
+        .ant-badge-count {
+          background: linear-gradient(135deg, #615ced, #8b87f0);
+          color: #ffffff;
+          box-shadow: 0 2px 6px rgba(97, 92, 237, 0.4);
+        }
+      }
+    }
+  }
+
+  .agentSelectorDropdown {
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      0 2px 8px rgba(0, 0, 0, 0.2) !important;
+
+    :global {
+      .ant-select-item {
+        &:hover {
+          background: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        &.ant-select-item-option-selected {
+          background: rgba(255, 255, 255, 0.06) !important;
+
+          .agentOptionIcon {
+            background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
+            border-color: transparent;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(97, 92, 237, 0.5);
+          }
+        }
+      }
+    }
+  }
+
+  .agentOptionIcon {
+    background: linear-gradient(
+      135deg,
+      rgba(97, 92, 237, 0.15) 0%,
+      rgba(97, 92, 237, 0.08) 100%
+    );
+    border-color: rgba(139, 135, 240, 0.2);
+    color: #b8b5f5;
+
+    .agentOption:hover & {
+      background: linear-gradient(
+        135deg,
+        rgba(97, 92, 237, 0.3) 0%,
+        rgba(97, 92, 237, 0.15) 100%
+      );
+      border-color: rgba(139, 135, 240, 0.4);
+      color: #c5c3f8;
+      box-shadow: 0 2px 8px rgba(97, 92, 237, 0.3);
+    }
+  }
+
+  .agentOptionName {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .agentOptionDescription {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .agentOptionId {
+    color: rgba(139, 135, 240, 0.45);
+    border-top-color: rgba(139, 135, 240, 0.1);
+  }
 }

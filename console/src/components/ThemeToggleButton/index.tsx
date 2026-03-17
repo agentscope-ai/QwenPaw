@@ -1,6 +1,7 @@
 import { Tooltip, Button } from "antd";
 import { SunOutlined, MoonOutlined } from "@ant-design/icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
 /**
@@ -9,17 +10,18 @@ import styles from "./index.module.less";
  */
 export default function ThemeToggleButton() {
   const { isDark, toggleTheme } = useTheme();
+  const { t } = useTranslation();
 
   return (
-    <Tooltip title={isDark ? "Light mode" : "Dark mode"}>
+    <Tooltip title={t(isDark ? "theme.lightMode" : "theme.darkMode")}>
       <Button
         className={styles.toggleBtn}
         onClick={toggleTheme}
-        aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        aria-label={t(isDark ? "theme.switchToLight" : "theme.switchToDark")}
         type="text"
         icon={isDark ? <SunOutlined /> : <MoonOutlined />}
       >
-        {isDark ? "Light" : "Dark"}
+        {t(isDark ? "theme.light" : "theme.dark")}
       </Button>
     </Tooltip>
   );

@@ -29,15 +29,12 @@ Quick start::
 """
 from __future__ import annotations
 
+from concurrent import futures
 import hashlib
 import json
 import logging
 import os
 import threading
-from concurrent.futures import (
-    ThreadPoolExecutor,
-    TimeoutError as FuturesTimeout,
-)
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -471,7 +468,7 @@ def scan_skill_directory(
     else:
         scanner = _get_scanner()
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
                 scanner.scan_skill,
                 resolved,
@@ -479,7 +476,7 @@ def scan_skill_directory(
             )
             try:
                 result = future.result(timeout=effective_timeout)
-            except FuturesTimeout:
+            except futures.TimeoutError:
                 logger.warning(
                     "Security scan of skill '%s' timed out after %.0fs",
                     effective_name,

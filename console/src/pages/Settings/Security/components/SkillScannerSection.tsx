@@ -9,9 +9,10 @@ import {
   message,
   Tooltip,
   Empty,
+  Tabs,
 } from "@agentscope-ai/design";
 import { Select, Space } from "antd";
-import { Trash2, ShieldCheck, Eye, ShieldOff } from "lucide-react";
+import { Trash2, ShieldCheck, Eye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSkillScanner } from "../useSkillScanner";
 import type {
@@ -21,6 +22,7 @@ import type {
   SkillScannerMode,
 } from "../../../../api/modules/security";
 import { skillApi } from "../../../../api/modules/skill";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 function FindingsModal({
@@ -81,6 +83,8 @@ function FindingsModal({
 
 export function SkillScannerSection() {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
+  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
   const {
     config,
     blockedHistory,
@@ -220,8 +224,8 @@ export function SkillScannerSection() {
           <Tooltip title={t("security.skillScanner.scanAlerts.viewFindings")}>
             <Button
               type="text"
-              size="small"
-              icon={<Eye size={14} />}
+              size="middle"
+              style={darkBtnStyle}
               onClick={() =>
                 setFindingsModal({
                   open: true,
@@ -229,24 +233,29 @@ export function SkillScannerSection() {
                   skillName: record.skill_name,
                 })
               }
-            />
+            >
+              <Eye size={14} />
+            </Button>
           </Tooltip>
           <Tooltip title={t("security.skillScanner.scanAlerts.allowSkill")}>
             <Button
               type="text"
-              size="small"
-              icon={<ShieldCheck size={14} />}
+              size="middle"
+              style={darkBtnStyle}
               onClick={() => handleAllowSkill(record, index)}
-            />
+            >
+              <ShieldCheck size={14} />
+            </Button>
           </Tooltip>
           <Tooltip title={t("security.skillScanner.scanAlerts.remove")}>
             <Button
               type="text"
-              size="small"
+              size="middle"
               danger
-              icon={<Trash2 size={14} />}
               onClick={() => removeBlockedEntry(index)}
-            />
+            >
+              <Trash2 size={14} />
+            </Button>
           </Tooltip>
         </Space>
       ),
@@ -269,7 +278,7 @@ export function SkillScannerSection() {
       render: (hash: string) =>
         hash ? (
           <Tooltip title={hash}>
-            <code style={{ fontSize: 12 }}>{hash.substring(0, 16)}...</code>
+            <code className={styles.codeHash}>{hash.substring(0, 16)}...</code>
           </Tooltip>
         ) : (
           <span style={{ color: "#999" }}>any</span>
@@ -296,11 +305,12 @@ export function SkillScannerSection() {
         <Tooltip title={t("security.skillScanner.whitelist.remove")}>
           <Button
             type="text"
-            size="small"
+            size="middle"
             danger
-            icon={<ShieldOff size={14} />}
             onClick={() => handleRemoveWhitelist(record.skill_name)}
-          />
+          >
+            <Trash2 size={14} />
+          </Button>
         </Tooltip>
       ),
     },
@@ -308,28 +318,11 @@ export function SkillScannerSection() {
 
   return (
     <>
-      <div className={styles.sectionHeader} style={{ marginTop: 40 }}>
-        <div>
-          <h2 className={styles.sectionTitle}>
-            {t("security.skillScanner.title")}
-          </h2>
-          <p className={styles.description} style={{ marginTop: 4 }}>
-            {t("security.skillScanner.description")}
-          </p>
-        </div>
-      </div>
-
       <Card className={styles.formCard}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+        <div className={styles.skillScannerConfig}>
+          <div className={styles.skillScannerConfigItem}>
             <Tooltip title={t("security.skillScanner.modeTooltip")}>
-              <span style={{ fontWeight: 500 }}>
+              <span className={styles.skillScannerLabel}>
                 {t("security.skillScanner.mode")}
               </span>
             </Tooltip>
@@ -349,15 +342,9 @@ export function SkillScannerSection() {
             />
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+          <div className={styles.skillScannerConfigItem}>
             <Tooltip title={t("security.skillScanner.timeoutTooltip")}>
-              <span style={{ fontWeight: 500 }}>
+              <span className={styles.skillScannerLabel}>
                 {t("security.skillScanner.timeout")}
               </span>
             </Tooltip>
@@ -375,56 +362,92 @@ export function SkillScannerSection() {
         </div>
       </Card>
 
-      {/* Scan Alerts */}
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>
-          {t("security.skillScanner.scanAlerts.title")}
-        </h2>
-        {blockedHistory.length > 0 && (
-          <Button size="small" danger onClick={handleClearHistory}>
-            {t("security.skillScanner.scanAlerts.clearAll")}
-          </Button>
-        )}
-      </div>
-
-      <Card className={styles.tableCard}>
-        {blockedHistory.length === 0 ? (
-          <div style={{ padding: 24 }}>
-            <Empty description={t("security.skillScanner.scanAlerts.empty")} />
-          </div>
-        ) : (
-          <Table
-            dataSource={blockedHistory}
-            columns={blockedColumns}
-            rowKey={(_, idx) => String(idx)}
-            pagination={false}
-            size="small"
-          />
-        )}
-      </Card>
-
-      {/* Whitelist */}
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>
-          {t("security.skillScanner.whitelist.title")}
-        </h2>
-      </div>
-
-      <Card className={styles.tableCard}>
-        {whitelist.length === 0 ? (
-          <div style={{ padding: 24 }}>
-            <Empty description={t("security.skillScanner.whitelist.empty")} />
-          </div>
-        ) : (
-          <Table
-            dataSource={whitelist}
-            columns={whitelistColumns}
-            rowKey="skill_name"
-            pagination={false}
-            size="small"
-          />
-        )}
-      </Card>
+      <Tabs
+        className={styles.innerTabs}
+        items={[
+          {
+            key: "scanAlerts",
+            label: (
+              <span>
+                {t("security.skillScanner.scanAlerts.title")}
+                {blockedHistory.length > 0 && (
+                  <span className={styles.tabBadge}>
+                    {blockedHistory.length}
+                  </span>
+                )}
+              </span>
+            ),
+            children: (
+              <div className={styles.tabPanelContent}>
+                {blockedHistory.length > 0 && (
+                  <div className={styles.tabPanelHeader}>
+                    <Button size="small" danger onClick={handleClearHistory}>
+                      {t("security.skillScanner.scanAlerts.clearAll")}
+                    </Button>
+                  </div>
+                )}
+                <Card className={styles.tableCard}>
+                  {blockedHistory.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <Empty
+                        description={
+                          <span className={styles.emptyText}>
+                            {t("security.skillScanner.scanAlerts.empty")}
+                          </span>
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <Table
+                      dataSource={blockedHistory}
+                      columns={blockedColumns}
+                      rowKey={(_, idx) => String(idx)}
+                      pagination={false}
+                      size="small"
+                    />
+                  )}
+                </Card>
+              </div>
+            ),
+          },
+          {
+            key: "whitelist",
+            label: (
+              <span>
+                {t("security.skillScanner.whitelist.title")}
+                {whitelist.length > 0 && (
+                  <span className={styles.tabBadge}>{whitelist.length}</span>
+                )}
+              </span>
+            ),
+            children: (
+              <div className={styles.tabPanelContent}>
+                <Card className={styles.tableCard}>
+                  {whitelist.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <Empty
+                        description={
+                          <span className={styles.emptyText}>
+                            {t("security.skillScanner.whitelist.empty")}
+                          </span>
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <Table
+                      dataSource={whitelist}
+                      columns={whitelistColumns}
+                      rowKey="skill_name"
+                      pagination={false}
+                      size="small"
+                    />
+                  )}
+                </Card>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       <FindingsModal
         findings={findingsModal.findings}
