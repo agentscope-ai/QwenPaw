@@ -20,6 +20,7 @@ from ...config import load_config, save_config
 from ...config.config import KnowledgeConfig, KnowledgeSourceSpec
 from ...constant import WORKING_DIR
 from ...knowledge import GraphOpsManager, KnowledgeManager
+from ...knowledge.module_skills import sync_knowledge_module_skills
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -110,7 +111,11 @@ async def put_knowledge_config(
     knowledge_config: KnowledgeConfig = Body(...),
 ) -> KnowledgeConfig:
     config = load_config()
+    previous_enabled = bool(getattr(config.agents.running, "knowledge_enabled", True))
     config.knowledge = knowledge_config
+    config.agents.running.knowledge_enabled = knowledge_config.enabled
+    if previous_enabled != knowledge_config.enabled:
+        sync_knowledge_module_skills(knowledge_config.enabled)
     save_config(config)
     return config.knowledge
 

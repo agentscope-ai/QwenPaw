@@ -9,6 +9,7 @@ from ...config import (
     save_config,
     AgentsRunningConfig,
 )
+from ...knowledge.module_skills import sync_knowledge_module_skills
 
 from ...agents.memory.agent_md_manager import AGENT_MD_MANAGER
 
@@ -297,8 +298,11 @@ async def put_agents_running_config(
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
     config = load_config()
+    previous_enabled = bool(getattr(config.agents.running, "knowledge_enabled", True))
     config.agents.running = running_config
     _sync_running_to_knowledge_automation(config)
+    if previous_enabled != running_config.knowledge_enabled:
+        sync_knowledge_module_skills(running_config.knowledge_enabled)
     save_config(config)
     return running_config
 

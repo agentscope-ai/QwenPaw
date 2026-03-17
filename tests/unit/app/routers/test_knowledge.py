@@ -193,6 +193,7 @@ def test_clear_knowledge_removes_sources_and_indexes(
     tmp_path: Path,
 ):
     config_payload = Config().knowledge.model_dump(mode="json")
+    config_payload["enabled"] = True
     config_payload["sources"] = [
         {
             "id": "clear-1",
@@ -285,6 +286,48 @@ def test_get_memify_job_status_success(
     payload = response.json()
     assert payload["job_id"] == job_id
     assert payload["status"] in {"succeeded", "failed"}
+
+
+def test_put_knowledge_config_syncs_running_toggle_and_module_skill(
+    knowledge_api_client: TestClient,
+    monkeypatch,
+):
+    sync_calls: list[bool] = []
+    monkeypatch.setattr(
+        knowledge_router_module,
+        "sync_knowledge_module_skills",
+        lambda enabled: sync_calls.append(enabled),
+    )
+
+    config_payload = Config().knowledge.model_dump(mode="json")
+    config_payload["enabled"] = False
+
+    response = knowledge_api_client.put("/knowledge/config", json=config_payload)
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+    assert sync_calls == [False]
+
+
+def test_put_knowledge_config_does_not_resync_module_skill_when_toggle_unchanged(
+    knowledge_api_client: TestClient,
+    monkeypatch,
+):
+    sync_calls: list[bool] = []
+    monkeypatch.setattr(
+        knowledge_router_module,
+        "sync_knowledge_module_skills",
+        lambda enabled: sync_calls.append(enabled),
+    )
+
+    config_payload = Config().knowledge.model_dump(mode="json")
+    config_payload["enabled"] = True
+
+    response = knowledge_api_client.put("/knowledge/config", json=config_payload)
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert sync_calls == []
 
 
 def _build_knowledge_zip(entries: dict[str, str]) -> bytes:
