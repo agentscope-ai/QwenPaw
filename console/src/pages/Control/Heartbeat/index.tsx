@@ -13,6 +13,7 @@ import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { useAgentStore } from "../../../stores/agentStore";
 import type { HeartbeatConfig } from "../../../api/types/heartbeat";
 import { parseEvery, serializeEvery, type EveryUnit } from "./parseEvery";
 import styles from "./index.module.less";
@@ -68,6 +69,7 @@ const EVERY_UNIT_OPTIONS: { value: EveryUnit; labelKey: string }[] = [
 
 function HeartbeatPage() {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<HeartbeatFormValues>();
@@ -96,7 +98,8 @@ function HeartbeatPage() {
 
   useEffect(() => {
     fetchConfig();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgent]);
 
   const onFinish = async (values: HeartbeatFormValues) => {
     const every =

@@ -326,3 +326,95 @@
     min-height: 50px;
   }
 }
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .loadingText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Import modal hints */
+  .importHintTitle {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .importHintList {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .importUrlInput {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    &:focus {
+      border-color: #615ced;
+    }
+  }
+
+  .importLoadingText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  /* Skill card */
+  .skillCard {
+    &.normal {
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    &.hover {
+      border-color: #615ced !important;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
+    }
+  }
+
+  .skillTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusDot.disabled {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .statusText.disabled {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  /* Description info block */
+  .infoBlock {
+    color: rgba(255, 255, 255, 0.65);
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Source / Path labels */
+  .infoLabel {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  /* Card footer divider */
+  .cardFooter {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Toggle label */
+  .toggleLabel {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  /* Markdown viewer */
+  .markdownViewer {
+    border-color: rgba(255, 255, 255, 0.1);
+    background-color: #1f1f1f;
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

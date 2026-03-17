@@ -3,9 +3,11 @@ import { message } from "@agentscope-ai/design";
 import api from "../../../api";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { useTranslation } from "react-i18next";
+import { useAgentStore } from "../../../stores/agentStore";
 
 export function useTools() {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
@@ -25,21 +27,37 @@ export function useTools() {
 
   useEffect(() => {
     loadTools();
-  }, [loadTools]);
+  }, [loadTools, selectedAgent]);
 
   const toggleEnabled = useCallback(
     async (tool: ToolInfo) => {
+      // Optimistic update
+      setTools((prev) =>
+        prev.map((t) =>
+          t.name === tool.name ? { ...t, enabled: !t.enabled } : t,
+        ),
+      );
+
       try {
-        await api.toggleTool(tool.name);
+        const result = await api.toggleTool(tool.name);
         message.success(
           tool.enabled ? t("tools.disableSuccess") : t("tools.enableSuccess"),
         );
-        await loadTools();
-      } catch {
+        // Update with server response (no full reload)
+        setTools((prev) =>
+          prev.map((t) => (t.name === result.name ? result : t)),
+        );
+      } catch (error) {
+        // Revert optimistic update on error
+        setTools((prev) =>
+          prev.map((t) =>
+            t.name === tool.name ? { ...t, enabled: tool.enabled } : t,
+          ),
+        );
         message.error(t("tools.toggleError"));
       }
     },
-    [t, loadTools],
+    [t],
   );
 
   const enableAll = useCallback(async () => {
@@ -49,13 +67,26 @@ export function useTools() {
       return;
     }
 
+    // Optimistic update
+    setTools((prev) => prev.map((t) => ({ ...t, enabled: true })));
+
     setBatchLoading(true);
     try {
-      await Promise.all(disabledTools.map((tool) => api.toggleTool(tool.name)));
+      const results = await Promise.all(
+        disabledTools.map((tool) => api.toggleTool(tool.name)),
+      );
       message.success(t("tools.enableAllSuccess"));
-      await loadTools();
-    } catch {
+      // Update with server responses
+      setTools((prev) =>
+        prev.map((t) => {
+          const result = results.find((r) => r.name === t.name);
+          return result || t;
+        }),
+      );
+    } catch (error) {
       message.error(t("tools.toggleError"));
+      // Reload on error to sync with server
+      await loadTools();
     } finally {
       setBatchLoading(false);
     }
@@ -68,13 +99,26 @@ export function useTools() {
       return;
     }
 
+    // Optimistic update
+    setTools((prev) => prev.map((t) => ({ ...t, enabled: false })));
+
     setBatchLoading(true);
     try {
-      await Promise.all(enabledTools.map((tool) => api.toggleTool(tool.name)));
+      const results = await Promise.all(
+        enabledTools.map((tool) => api.toggleTool(tool.name)),
+      );
       message.success(t("tools.disableAllSuccess"));
-      await loadTools();
-    } catch {
+      // Update with server responses
+      setTools((prev) =>
+        prev.map((t) => {
+          const result = results.find((r) => r.name === t.name);
+          return result || t;
+        }),
+      );
+    } catch (error) {
       message.error(t("tools.toggleError"));
+      // Reload on error to sync with server
+      await loadTools();
     } finally {
       setBatchLoading(false);
     }

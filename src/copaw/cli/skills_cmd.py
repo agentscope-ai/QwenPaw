@@ -2,21 +2,47 @@
 """CLI skill: list and interactively enable/disable skills."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from ..agents.skills_manager import SkillService, list_available_skills
+from ..constant import WORKING_DIR
+from ..config import load_config
 from .utils import prompt_checkbox, prompt_confirm
 
 
+def _get_agent_workspace(agent_id: str) -> Path:
+    """Get agent workspace directory."""
+    try:
+        config = load_config()
+        if agent_id in config.agents.profiles:
+            ref = config.agents.profiles[agent_id]
+            workspace_dir = Path(ref.workspace_dir).expanduser()
+            return workspace_dir
+    except Exception:
+        pass
+    return WORKING_DIR
+
+
 # pylint: disable=too-many-branches
-def configure_skills_interactive() -> None:
+def configure_skills_interactive(
+    agent_id: str = "default",
+    working_dir: Path | None = None,
+) -> None:
     """Interactively select which skills to enable (multi-select)."""
-    all_skills = SkillService.list_all_skills()
+    if working_dir is None:
+        working_dir = _get_agent_workspace(agent_id)
+
+    click.echo(f"Configuring skills for agent: {agent_id}\n")
+
+    skill_service = SkillService(working_dir)
+    all_skills = skill_service.list_all_skills()
     if not all_skills:
         click.echo("No skills found. Nothing to configure.")
         return
 
-    available = set(list_available_skills())
+    available = set(list_available_skills(working_dir))
     all_names = {s.name for s in all_skills}
 
     # Default to all skills if nothing is currently active (first time)
@@ -78,7 +104,7 @@ def configure_skills_interactive() -> None:
 
     # Apply changes
     for name in to_enable:
-        result = SkillService.enable_skill(name)
+        result = skill_service.enable_skill(name)
         if result:
             click.echo(f"  ✓ Enabled: {name}")
         else:
@@ -87,7 +113,7 @@ def configure_skills_interactive() -> None:
             )
 
     for name in to_disable:
-        result = SkillService.disable_skill(name)
+        result = skill_service.disable_skill(name)
         if result:
             click.echo(f"  ✓ Disabled: {name}")
         else:
@@ -104,10 +130,20 @@ def skills_group() -> None:
 
 
 @skills_group.command("list")
-def list_cmd() -> None:
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def list_cmd(agent_id: str) -> None:
     """Show all skills and their enabled/disabled status."""
-    all_skills = SkillService.list_all_skills()
-    available = set(list_available_skills())
+    working_dir = _get_agent_workspace(agent_id)
+
+    click.echo(f"Skills for agent: {agent_id}\n")
+
+    skill_service = SkillService(working_dir)
+    all_skills = skill_service.list_all_skills()
+    available = set(list_available_skills(working_dir))
 
     if not all_skills:
         click.echo("No skills found.")
@@ -135,5 +171,11 @@ def list_cmd() -> None:
 
 
 @skills_group.command("config")
-def configure_cmd() -> None:
-    configure_skills_interactive()
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def configure_cmd(agent_id: str) -> None:
+    """Interactively configure skills."""
+    configure_skills_interactive(agent_id=agent_id)

@@ -3,8 +3,9 @@ import {
   IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Modal, Result } from "antd";
+import { Button, Modal, Result, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
+import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -13,6 +14,24 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
+import { useTheme } from "../../contexts/ThemeContext";
+import { useAgentStore } from "../../stores/agentStore";
+import "./index.module.less";
+
+type CopyableContent = {
+  type?: string;
+  text?: string;
+  refusal?: string;
+};
+
+type CopyableMessage = {
+  role?: string;
+  content?: string | CopyableContent[];
+};
+
+type CopyableResponse = {
+  output?: CopyableMessage[];
+};
 
 interface CustomWindow extends Window {
   currentSessionId?: string;
@@ -21,6 +40,65 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+function extractCopyableText(response: CopyableResponse): string {
+  const collectText = (assistantOnly: boolean) => {
+    const chunks = (response.output || []).flatMap((item: CopyableMessage) => {
+      if (assistantOnly && item.role !== "assistant") return [];
+
+      if (typeof item.content === "string") {
+        return [item.content];
+      }
+
+      if (!Array.isArray(item.content)) {
+        return [];
+      }
+
+      return item.content.flatMap((content: CopyableContent) => {
+        if (content.type === "text" && typeof content.text === "string") {
+          return [content.text];
+        }
+
+        if (content.type === "refusal" && typeof content.refusal === "string") {
+          return [content.refusal];
+        }
+
+        return [];
+      });
+    });
+
+    return chunks.filter(Boolean).join("\n\n").trim();
+  };
+
+  return collectText(true) || JSON.stringify(response);
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "absolute";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+
+  let copied = false;
+  try {
+    textarea.focus();
+    textarea.select();
+    copied = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  if (!copied) {
+    throw new Error("Failed to copy text");
+  }
+}
 
 function buildModelError(): Response {
   return new Response(
@@ -36,11 +114,14 @@ export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark } = useTheme();
   const chatId = useMemo(() => {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
+  const { selectedAgent } = useAgentStore();
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -120,6 +201,20 @@ export default function ChatPage() {
     };
   }, []);
 
+  // Refresh chat when selectedAgent changes
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  useEffect(() => {
+    // Only refresh if selectedAgent actually changed (not initial mount)
+    if (
+      prevSelectedAgentRef.current !== selectedAgent &&
+      prevSelectedAgentRef.current !== undefined
+    ) {
+      // Force re-render by updating refresh key
+      setRefreshKey((prev) => prev + 1);
+    }
+    prevSelectedAgentRef.current = selectedAgent;
+  }, [selectedAgent]);
+
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
     const currentChatId = chatIdRef.current;
@@ -176,6 +271,18 @@ export default function ChatPage() {
     [],
   );
 
+  const copyResponse = useCallback(
+    async (response: CopyableResponse) => {
+      try {
+        await copyText(extractCopyableText(response));
+        message.success(t("common.copied"));
+      } catch {
+        message.error(t("common.copyFailed"));
+      }
+    },
+    [t],
+  );
+
   const customFetch = useCallback(
     async (data: {
       input: any[];
@@ -214,7 +321,21 @@ export default function ChatPage() {
       const token = getApiToken();
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/agent/process"), {
+      // Add selected agent ID for multi-agent support
+      try {
+        const agentStorage = localStorage.getItem("copaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          const selectedAgent = parsed?.state?.selectedAgent;
+          if (selectedAgent) {
+            headers["X-Agent-Id"] = selectedAgent;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to get selected agent from storage:", error);
+      }
+
+      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
@@ -236,7 +357,17 @@ export default function ChatPage() {
       ...i18nConfig,
       theme: {
         ...defaultConfig.theme,
+        darkMode: isDark,
+        leftHeader: {
+          ...defaultConfig.theme.leftHeader,
+        },
         rightHeader: <ModelSelector />,
+      },
+      welcome: {
+        ...i18nConfig.welcome,
+        avatar: isDark
+          ? `${import.meta.env.BASE_URL}copaw-dark.png`
+          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -250,15 +381,30 @@ export default function ChatPage() {
           console.log(data);
         },
       },
+      actions: {
+        list: [
+          {
+            icon: (
+              <span title={t("common.copy")}>
+                <SparkCopyLine />
+              </span>
+            ),
+            onClick: ({ data }: { data: CopyableResponse }) => {
+              void copyResponse(data);
+            },
+          },
+        ],
+        replace: true,
+      },
       customToolRenderConfig: {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, t]);
+  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
 
   return (
     <div style={{ height: "100%", width: "100%" }}>
-      <AgentScopeRuntimeWebUI options={options} />
+      <AgentScopeRuntimeWebUI key={refreshKey} options={options} />
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result

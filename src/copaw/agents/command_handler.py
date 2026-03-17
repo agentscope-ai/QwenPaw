@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING
 from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
-from copaw.config import load_config
-
 if TYPE_CHECKING:
     from .memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
@@ -61,6 +59,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         memory: "ReMeInMemoryMemory",
         memory_manager: "MemoryManager | None" = None,
         enable_memory_manager: bool = True,
+        max_input_length: int = 128 * 1024,
     ):
         """Initialize command handler.
 
@@ -69,9 +68,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             memory: Agent's ReMeInMemoryMemory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
+            max_input_length: Maximum input length in tokens for context
+                window (default: 128K = 131072)
         """
         self.agent_name = agent_name
         self.memory = memory
+        self.max_input_length = max_input_length
         self.memory_manager = memory_manager
         self._enable_memory_manager = enable_memory_manager
 
@@ -199,10 +201,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /history command."""
-        config = load_config()
-        max_input_length = config.agents.running.max_input_length
         history_str = await self.memory.get_history_str(
-            max_input_length=max_input_length,
+            max_input_length=self.max_input_length,
         )
         return await self._make_system_msg(history_str)
 
