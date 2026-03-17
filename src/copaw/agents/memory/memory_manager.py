@@ -349,9 +349,10 @@ class MemoryManager(ReMeLight):
         if self._local_embedder is not None:
             return self._local_embedder.encode_text(texts)
         
-        # Fall back to parent class (remote API)
-        # Note: This assumes parent has encode_text or similar method
-        # If not, we need to handle this differently
+        # Fall back to parent class (remote API) if available
+        if hasattr(self, 'embedding_model') and self.embedding_model is not None:
+            return self.embedding_model.encode(texts)
+        
         raise RuntimeError(
             "No embedding provider available. "
             "Please enable local embedding in settings or configure EMBEDDING_API_KEY."

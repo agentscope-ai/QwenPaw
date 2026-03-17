@@ -158,13 +158,22 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const handleEnabledChange = (checked: boolean) => {
     setEnabled(checked);
     // Initialize with default config if not exists
-    try {
-      const currentConfig = form?.getFieldValue?.("local_embedding");
-      if (!currentConfig) {
-        form?.setFieldValue?.("local_embedding", DEFAULT_CONFIG);
+    if (checked) {
+      try {
+        const currentConfig = form?.getFieldValue?.("local_embedding");
+        // Only set defaults if model_id is missing, indicating an uninitialized config
+        if (!currentConfig?.model_id) {
+          form?.setFieldsValue?.({
+            local_embedding: {
+              ...DEFAULT_CONFIG,
+              ...(currentConfig || {}),
+              enabled: true,
+            },
+          });
+        }
+      } catch (e) {
+        console.error("Error initializing config:", e);
       }
-    } catch (e) {
-      console.error("Error initializing config:", e);
     }
   };
 

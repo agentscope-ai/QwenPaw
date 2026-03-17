@@ -18,6 +18,7 @@ dependencies = [
     "mss>=9.0.0",
     "reme-ai==0.3.0.6b3",
     "transformers>=4.30.0",
+    "qwen-vl-utils>=0.0.3",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
     "onnxruntime<1.24",

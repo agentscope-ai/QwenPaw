@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch, MagicMock
-import torch
 
 from copaw.config.config import LocalEmbeddingConfig
 from copaw.agents.memory.local_embedder import (
     LocalEmbedder,
     PRESET_MODELS,
     ModelMetadata,
-    _TextEmbedderImpl,
-    _MultimodalEmbedderImpl,
 )
 
 
