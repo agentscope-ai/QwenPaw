@@ -11,7 +11,13 @@ import { PlusCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
-import { PageHeader, RuleTable, RuleModal, PreviewModal } from "./components";
+import {
+  PageHeader,
+  RuleTable,
+  RuleModal,
+  PreviewModal,
+  SkillScannerSection,
+} from "./components";
 import styles from "./index.module.less";
 
 const BUILTIN_TOOLS = [
@@ -204,6 +210,17 @@ function SecurityPage() {
       <div className={styles.content}>
         <PageHeader />
 
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>
+              {t("security.toolGuardTitle")}
+            </h2>
+            <p className={styles.description} style={{ marginTop: 4 }}>
+              {t("security.toolGuardDescription")}
+            </p>
+          </div>
+        </div>
+
         <Card className={styles.formCard}>
           <Form
             form={form}
@@ -292,6 +309,8 @@ function SecurityPage() {
             {t("common.save")}
           </Button>
         </div>
+
+        <SkillScannerSection />
       </div>
 
       <RuleModal

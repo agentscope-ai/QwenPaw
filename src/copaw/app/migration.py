@@ -156,7 +156,14 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     )
 
     # Migrate markdown files
-    for md_file in ["AGENTS.md", "SOUL.md", "PROFILE.md", "HEARTBEAT.md"]:
+    for md_file in [
+        "AGENTS.md",
+        "SOUL.md",
+        "PROFILE.md",
+        "HEARTBEAT.md",
+        "MEMORY.md",
+        "BOOTSTRAP.md",
+    ]:
         _migrate_workspace_item(
             old_workspace / md_file,
             default_workspace / md_file,

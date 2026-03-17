@@ -8,11 +8,13 @@ import enUS from "antd/locale/en_US";
 import jaJP from "antd/locale/ja_JP";
 import ruRU from "antd/locale/ru_RU";
 import type { Locale } from "antd/es/locale";
+import { theme as antdTheme } from "antd";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 import "dayjs/locale/ja";
 import "dayjs/locale/ru";
 import MainLayout from "./layouts/MainLayout";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
@@ -101,9 +103,10 @@ function getRouterBasename(pathname: string): string | undefined {
   return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
 }
 
-function App() {
+function AppInner() {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
+  const { isDark } = useTheme();
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
     antdLocaleMap[lang] ?? enUS,
@@ -133,6 +136,12 @@ function App() {
         prefix="copaw"
         prefixCls="copaw"
         locale={antdLocale}
+        theme={{
+          ...(bailianTheme as any)?.theme,
+          algorithm: isDark
+            ? antdTheme.darkAlgorithm
+            : antdTheme.defaultAlgorithm,
+        }}
       >
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -147,6 +156,14 @@ function App() {
         </Routes>
       </ConfigProvider>
     </BrowserRouter>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
   );
 }
 

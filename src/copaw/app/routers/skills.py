@@ -3,6 +3,7 @@ import logging
 from typing import Any
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from ...agents.skills_manager import (
     SkillService,
@@ -12,9 +13,35 @@ from ...agents.skills_hub import (
     search_hub_skills,
     install_skill_from_hub,
 )
+from ...security.skill_scanner import SkillScanError
 
 
 logger = logging.getLogger(__name__)
+
+
+def _scan_error_response(exc: SkillScanError) -> JSONResponse:
+    """Build a 422 response with structured scan findings."""
+    result = exc.result
+    return JSONResponse(
+        status_code=422,
+        content={
+            "type": "security_scan_failed",
+            "detail": str(exc),
+            "skill_name": result.skill_name,
+            "max_severity": result.max_severity.value,
+            "findings": [
+                {
+                    "severity": f.severity.value,
+                    "title": f.title,
+                    "description": f.description,
+                    "file_path": f.file_path,
+                    "line_number": f.line_number,
+                    "rule_id": f.rule_id,
+                }
+                for f in result.findings
+            ],
+        },
+    )
 
 
 class SkillSpec(SkillInfo):
@@ -177,6 +204,8 @@ async def install_from_hub(
             enable=request_body.enable,
             overwrite=request_body.overwrite,
         )
+    except SkillScanError as e:
+        return _scan_error_response(e)
     except ValueError as e:
         detail = str(e)
         logger.warning(
@@ -186,7 +215,6 @@ async def install_from_hub(
         )
         raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
-        # Upstream hub is flaky/rate-limited sometimes; surface as bad gateway.
         detail = str(e) + _github_token_hint(request_body.bundle_url)
         logger.exception(
             "Skill hub install failed (upstream/rate limit): %s",
@@ -226,15 +254,36 @@ async def batch_disable_skills(
 async def batch_enable_skills(
     skill_name: list[str],
     request: Request,
-) -> None:
+):
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
     skill_service = SkillService(workspace_dir)
 
+    blocked: list[dict] = []
     for skill in skill_name:
-        skill_service.enable_skill(skill)
+        try:
+            skill_service.enable_skill(skill)
+        except SkillScanError as e:
+            blocked.append(
+                {
+                    "skill_name": skill,
+                    "max_severity": e.result.max_severity.value,
+                    "detail": str(e),
+                },
+            )
+    if blocked:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "type": "security_scan_failed",
+                "detail": (
+                    f"{len(blocked)} skill(s) blocked by security scan"
+                ),
+                "blocked_skills": blocked,
+            },
+        )
 
 
 @router.post("")
@@ -248,12 +297,15 @@ async def create_skill(
     workspace_dir = Path(workspace.workspace_dir)
     skill_service = SkillService(workspace_dir)
 
-    result = skill_service.create_skill(
-        name=request_body.name,
-        content=request_body.content,
-        references=request_body.references,
-        scripts=request_body.scripts,
-    )
+    try:
+        result = skill_service.create_skill(
+            name=request_body.name,
+            content=request_body.content,
+            references=request_body.references,
+            scripts=request_body.scripts,
+        )
+    except SkillScanError as e:
+        return _scan_error_response(e)
     return {"created": result}
 
 
@@ -323,6 +375,21 @@ async def enable_skill(
             status_code=404,
             detail=f"Skill '{skill_name}' not found",
         )
+
+    # --- Security scan (pre-activation) --------------------------------
+    try:
+        from ...security.skill_scanner import scan_skill_directory
+
+        scan_skill_directory(source_dir, skill_name=skill_name)
+    except SkillScanError as e:
+        return _scan_error_response(e)
+    except Exception as scan_exc:
+        logger.warning(
+            "Security scan error for skill '%s' (non-fatal): %s",
+            skill_name,
+            scan_exc,
+        )
+    # -------------------------------------------------------------------
 
     # Copy to active_skills
     shutil.copytree(source_dir, active_skill_dir)

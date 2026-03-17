@@ -554,6 +554,11 @@ class SkillService:
         """
         self.workspace_dir = workspace_dir
 
+    def get_customized_skill_dir(self, name: str) -> Path | None:
+        """Return the Path to a skill inside customized_skills, or None."""
+        skill_dir = get_customized_skills_dir(self.workspace_dir) / name
+        return skill_dir if skill_dir.exists() else None
+
     def list_all_skills(self) -> list[SkillInfo]:
         """
         List all skills from builtin and customized directories.
@@ -734,9 +739,31 @@ class SkillService:
                     name,
                 )
 
+            # --- Security scan (post-write) ----------------------------------
+            try:
+                from ..security.skill_scanner import (
+                    SkillScanError,
+                    scan_skill_directory,
+                )
+
+                scan_skill_directory(skill_dir, skill_name=name)
+            except SkillScanError:
+                raise
+            except Exception as scan_exc:
+                logger.warning(
+                    "Security scan error for skill '%s' (non-fatal): %s",
+                    name,
+                    scan_exc,
+                )
+            # ---------------------------------------------------------------
+
             logger.debug("Created skill '%s' in customized_skills.", name)
             return True
         except Exception as e:
+            from ..security.skill_scanner import SkillScanError
+
+            if isinstance(e, SkillScanError):
+                raise
             logger.error(
                 "Failed to create skill '%s': %s",
                 name,
@@ -780,6 +807,10 @@ class SkillService:
         """
         Enable a skill by syncing it to active_skills directory.
 
+        Before syncing the skill runs through a security scan.
+        Blocking behaviour is controlled by the scanner mode in
+        config (``security.skill_scanner.mode``).
+
         Args:
             name: Skill name to enable.
             force: If True, overwrite existing skill in active_skills.
@@ -787,6 +818,31 @@ class SkillService:
         Returns:
             True if skill was enabled successfully, False otherwise.
         """
+        # --- Security scan (pre-activation) --------------------------------
+        try:
+            from ..security.skill_scanner import (
+                SkillScanError,
+                scan_skill_directory,
+            )
+
+            source_dir = self.get_customized_skill_dir(name)
+            if source_dir is None:
+                builtin = get_builtin_skills_dir() / name
+                if builtin.is_dir():
+                    source_dir = builtin
+
+            if source_dir is not None:
+                scan_skill_directory(source_dir, skill_name=name)
+        except SkillScanError:
+            raise
+        except Exception as scan_exc:
+            logger.warning(
+                "Security scan error for skill '%s' (non-fatal): %s",
+                name,
+                scan_exc,
+            )
+        # -------------------------------------------------------------------
+
         sync_skills_to_working_dir(
             self.workspace_dir,
             skill_names=[name],

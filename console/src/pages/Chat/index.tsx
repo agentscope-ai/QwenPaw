@@ -14,6 +14,7 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
+import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import "./index.module.less";
 
@@ -113,6 +114,7 @@ export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark } = useTheme();
   const chatId = useMemo(() => {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
@@ -341,7 +343,7 @@ export default function ChatPage() {
         console.warn("Failed to get selected agent from storage:", error);
       }
 
-      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/agent/process"), {
+      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
@@ -363,7 +365,17 @@ export default function ChatPage() {
       ...i18nConfig,
       theme: {
         ...defaultConfig.theme,
+        darkMode: isDark,
+        leftHeader: {
+          ...defaultConfig.theme.leftHeader,
+        },
         rightHeader: <ModelSelector />,
+      },
+      welcome: {
+        ...i18nConfig.welcome,
+        avatar: isDark
+          ? `${import.meta.env.BASE_URL}copaw-dark.png`
+          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -396,7 +408,7 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t]);
+  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
 
   return (
     <div style={{ height: "100%", width: "100%" }}>

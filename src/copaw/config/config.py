@@ -613,10 +613,53 @@ class ToolGuardConfig(BaseModel):
     disabled_rules: List[str] = Field(default_factory=list)
 
 
+class SkillScannerWhitelistEntry(BaseModel):
+    """A whitelisted skill (identified by name + content hash)."""
+
+    skill_name: str
+    content_hash: str = Field(
+        default="",
+        description="SHA-256 of concatenated file contents at whitelist time. "
+        "Empty string means any content is allowed.",
+    )
+    added_at: str = Field(
+        default="",
+        description="ISO 8601 timestamp when the entry was added.",
+    )
+
+
+class SkillScannerConfig(BaseModel):
+    """Skill scanner settings under ``security.skill_scanner``.
+
+    ``mode`` controls the scanner behavior:
+    * ``"block"`` – scan and block unsafe skills.
+    * ``"warn"``  – scan but only log warnings, do not block (default).
+    * ``"off"``   – disable scanning entirely.
+    """
+
+    mode: Literal["block", "warn", "off"] = Field(
+        default="warn",
+        description="Scanner mode: block, warn, or off.",
+    )
+    timeout: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        description="Max seconds to wait for a scan to complete.",
+    )
+    whitelist: List[SkillScannerWhitelistEntry] = Field(
+        default_factory=list,
+        description="Skills that bypass security scanning.",
+    )
+
+
 class SecurityConfig(BaseModel):
     """Top-level ``security`` section in config.json."""
 
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
+    skill_scanner: SkillScannerConfig = Field(
+        default_factory=SkillScannerConfig,
+    )
 
 
 class Config(BaseModel):

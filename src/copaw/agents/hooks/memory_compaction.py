@@ -83,7 +83,7 @@ class MemoryCompactionHook:
             system_prompt = agent.sys_prompt
             compressed_summary = memory.get_compressed_summary()
             str_token_count = safe_count_str_tokens(
-                system_prompt + compressed_summary,
+                (system_prompt or "") + (compressed_summary or ""),
             )
 
             # memory_compact_threshold must be provided
