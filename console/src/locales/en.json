@@ -22,7 +22,9 @@
     "copyFailed": "Failed to copy to clipboard",
     "contentPlaceholder": "Enter content...",
     "help": "Help",
-    "close": "Close"
+    "close": "Close",
+    "actions": "Actions",
+    "total": "Total {{count}}"
   },
   "nav": {
     "chat": "Chat",
@@ -37,6 +39,7 @@
     "tools": "Tools",
     "mcp": "MCP",
     "agentConfig": "Configuration",
+    "agents": "Agent Management",
     "settings": "Settings",
     "models": "Models",
     "environments": "Environments",
@@ -62,7 +65,45 @@
     "memoryFileWarning": "MEMORY.md is typically queried on-demand by the agent using tools. Loading it into the system prompt may cause the context to become too long.",
     "configUpdated": "System prompt configuration updated",
     "configUpdateFailed": "Failed to update system prompt configuration",
-    "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾"
+    "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed"
+  },
+  "agent": {
+    "management": "Agent Management",
+    "name": "Name",
+    "id": "ID",
+    "description": "Description",
+    "workspace": "Workspace Path",
+    "create": "Create Agent",
+    "createTitle": "Create New Agent",
+    "createSuccess": "Agent created successfully",
+    "createFailed": "Failed to create agent",
+    "edit": "Edit",
+    "editTitle": "Edit Agent - {{name}}",
+    "updateSuccess": "Agent updated successfully",
+    "updateFailed": "Failed to update agent",
+    "delete": "Delete",
+    "deleteConfirm": "Confirm Delete Agent",
+    "deleteConfirmDesc": "Agent will be unavailable after deletion, but workspace files will be kept",
+    "deleteSuccess": "Agent deleted successfully",
+    "deleteFailed": "Failed to delete agent",
+    "selectAgent": "Select Agent",
+    "currentWorkspace": "Current Agent",
+    "switchSuccess": "Agent switched successfully",
+    "switchFailed": "Failed to switch agent",
+    "loadFailed": "Failed to load agent list",
+    "loadConfigFailed": "Failed to load agent config",
+    "saveFailed": "Failed to save agent",
+    "idRequired": "Please enter agent ID",
+    "idPattern": "ID can only contain lowercase letters, numbers, underscores and hyphens",
+    "idPlaceholder": "e.g.: my-agent",
+    "nameRequired": "Please enter agent name",
+    "namePlaceholder": "e.g.: My Agent",
+    "descriptionPlaceholder": "Briefly describe this agent's purpose...",
+    "workspaceHelp": "Leave empty to auto-generate in ~/.copaw/workspaces/<id>",
+    "defaultNotEditable": "Default agent cannot be edited",
+    "defaultNotDeletable": "Default agent cannot be deleted"
   },
   "skills": {
     "title": "Skills",
@@ -596,8 +637,10 @@
     "prompt2": "Can you tell me what skills you have?"
   },
   "security": {
-    "title": "Tool Guard",
-    "description": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
+    "title": "Security",
+    "description": "Manage security features for tools and skills.",
+    "toolGuardTitle": "Tool Guard",
+    "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Enable Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
     "guardedTools": "Guarded Tools",
@@ -653,6 +696,56 @@
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "Detects 'rm' command that may cause data loss",
         "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly"
+      }
+    },
+    "skillScanner": {
+      "title": "Skill Scanner",
+      "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
+      "mode": "Scanner Mode",
+      "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
+      "modeBlock": "Block",
+      "modeWarn": "Warn Only",
+      "modeOff": "Off",
+      "timeout": "Scan Timeout (seconds)",
+      "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
+      "saveSuccess": "Skill scanner settings saved",
+      "saveFailed": "Failed to save skill scanner settings",
+      "scanAlerts": {
+        "title": "Scan Alerts",
+        "empty": "No security alerts",
+        "clearAll": "Clear All",
+        "clearConfirm": "Clear all scan alerts?",
+        "skillName": "Skill",
+        "action": "Action",
+        "actionBlocked": "Blocked",
+        "actionWarned": "Warned",
+        "time": "Time",
+        "actions": "Actions",
+        "allowSkill": "Add to Whitelist",
+        "remove": "Remove",
+        "viewFindings": "View Details"
+      },
+      "whitelist": {
+        "title": "Whitelist",
+        "empty": "No skills are whitelisted",
+        "skillName": "Skill",
+        "addedAt": "Added At",
+        "contentHash": "Content Hash",
+        "actions": "Actions",
+        "remove": "Remove",
+        "removeConfirm": "Remove this skill from the whitelist?",
+        "addSuccess": "Skill added to whitelist",
+        "removeSuccess": "Skill removed from whitelist",
+        "addFailed": "Failed to add skill to whitelist",
+        "removeFailed": "Failed to remove skill from whitelist",
+        "removeWillDisable": "The skill will also be disabled after removal.",
+        "removeAndDisabled": "Skill removed from whitelist and disabled"
+      },
+      "scanError": {
+        "title": "Security Issues Detected",
+        "description": "The following security issues were found:",
+        "warnDescription": "Security issues were found but the skill was still enabled (warn mode):",
+        "goToWhitelist": "Go to Whitelist"
       }
     }
   }

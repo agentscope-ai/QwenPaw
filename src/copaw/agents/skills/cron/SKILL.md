@@ -11,8 +11,11 @@ metadata: { "copaw": { "emoji": "⏰" } }
 ## 常用命令
 
 ```bash
-# 列出所有任务
+# 列出所有任务（默认操作 default agent）
 copaw cron list
+
+# 为特定 agent 列出任务
+copaw cron list --agent-id abc123
 
 # 查看任务详情
 copaw cron get <job_id>
@@ -31,6 +34,8 @@ copaw cron resume <job_id>
 copaw cron run <job_id>
 ```
 
+**注意**：所有命令都支持 `--agent-id` 参数，默认为 `default`。如果需要操作特定 agent 的任务，请指定对应的 agent ID。
+
 ## 创建任务
 
 支持两种任务类型：
@@ -40,7 +45,7 @@ copaw cron run <job_id>
 ### 快速创建
 
 ```bash
-# 每天 9:00 发送文本消息
+# 每天 9:00 发送文本消息（默认 agent）
 copaw cron create \
   --type text \
   --name "每日早安" \
@@ -50,8 +55,9 @@ copaw cron create \
   --target-session "CHANGEME" \
   --text "早上好！"
 
-# 每 2 小时向 Agent 提问
+# 为特定 agent 创建任务
 copaw cron create \
+  --agent-id abc123 \
   --type agent \
   --name "检查待办" \
   --cron "0 */2 * * *" \
@@ -71,6 +77,10 @@ copaw cron create \
 - `--target-user`：用户标识
 - `--target-session`：会话标识
 - `--text`：消息内容（text 类型）或提问内容（agent 类型）
+
+### 可选参数
+
+- `--agent-id`：指定 agent ID（默认：default）。用于多 agent 场景。
 
 ### 从 JSON 创建（复杂配置）
 
@@ -94,3 +104,4 @@ copaw cron create -f job_spec.json
 - 暂停/删除/恢复前，用 `copaw cron list` 查找 job_id
 - 排查问题时，用 `copaw cron state <job_id>` 查看状态
 - 给用户的命令要完整、可直接复制执行
+- 记得指定 `--agent-id` 参数

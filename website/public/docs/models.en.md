@@ -4,13 +4,13 @@ You need to configure a model before chatting with CoPaw. You can do this under 
 
 ![Console models](https://img.alicdn.com/imgextra/i1/O1CN01zHAE1Z26w6jXl2xbr_!!6000000007725-2-tps-3802-1968.png)
 
-CoPaw supports multiple LLM providers: **cloud providers** (require API Key), **local providers** (llama.cpp / MLX), **Ollama provider**, **LM Studio provider**, and you can add **custom providers**. This page explains how to configure each type.
+CoPaw supports multiple LLM providers: **cloud providers** (require API Key, including Google Gemini), **local providers** (llama.cpp / MLX), **Ollama provider**, **LM Studio provider**, and you can add **custom providers**. This page explains how to configure each type.
 
 ---
 
 ## Configure cloud providers
 
-Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, and Azure OpenAI) call remote models via API and require an **API Key**.
+Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, Azure OpenAI, Google Gemini, and MiniMax) call remote models via API and require an **API Key**.
 
 **In the console:**
 
@@ -34,6 +34,33 @@ Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, an
 > To revoke a cloud provider, click **Settings** on its card, then **Revoke Authorization** and confirm. The provider status will change to **Unavailable**.
 >
 > ![cancel](https://img.alicdn.com/imgextra/i2/O1CN01A8j1IR1n8fHGnio0q_!!6000000005045-2-tps-3802-1968.png)
+
+## Google Gemini provider
+
+The Google Gemini provider uses Google's native Gemini API (via the `google-genai` SDK) to access Gemini models. Pre-configured models include Gemini 3.1 Pro Preview, Gemini 3 Flash Preview, Gemini 3.1 Flash Lite Preview, Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite, and Gemini 2.0 Flash. Additional models can be auto-discovered from the API.
+
+**Prerequisites:**
+
+- Obtain a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+**In the console:**
+
+1. Open the console and go to **Settings → Models**.
+2. Find the **Google Gemini** provider card and click **Settings**. Enter your **API key** and click **Save**.
+3. After saving, the card status becomes **Available**. The provider supports **model discovery** — click **Models** to auto-discover available Gemini models from the API.
+4. In the **LLM Configuration** section at the top, select **Google Gemini** in the **Provider** dropdown and choose a model (e.g. `gemini-2.5-flash`), then click **Save**.
+
+**Using the CLI:**
+
+```bash
+# Configure the API key
+copaw models config-key gemini
+
+# Set Gemini as the active LLM
+copaw models set-llm
+```
+
+> **Tip:** Gemini models with thinking capabilities (e.g. Gemini 3.1 Pro, Gemini 2.5 Pro, Gemini 2.5 Flash) support extended reasoning. CoPaw automatically handles thinking blocks and thought signatures from these models.
 
 ## Local providers (llama.cpp / MLX)
 

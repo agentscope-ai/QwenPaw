@@ -14,17 +14,22 @@ logger = logging.getLogger(__name__)
 def copy_md_files(
     language: str,
     skip_existing: bool = False,
+    workspace_dir: Path | None = None,
 ) -> list[str]:
     """Copy md files from agents/md_files to working directory.
 
     Args:
         language: Language code (e.g. 'en', 'zh')
         skip_existing: If True, skip files that already exist in working dir.
+        workspace_dir: Target workspace directory. If None, uses WORKING_DIR.
 
     Returns:
         List of copied file names.
     """
     from ...constant import WORKING_DIR
+
+    # Use provided workspace_dir or default to WORKING_DIR
+    target_dir = workspace_dir if workspace_dir is not None else WORKING_DIR
 
     # Get md_files directory path with language subdirectory
     md_files_dir = Path(__file__).parent.parent / "md_files" / language
@@ -40,13 +45,13 @@ def copy_md_files(
             logger.error("Default 'en' md files not found either")
             return []
 
-    # Ensure working directory exists
-    WORKING_DIR.mkdir(parents=True, exist_ok=True)
+    # Ensure target directory exists
+    target_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy all .md files to working directory
+    # Copy all .md files to target directory
     copied_files: list[str] = []
     for md_file in md_files_dir.glob("*.md"):
-        target_file = WORKING_DIR / md_file.name
+        target_file = target_dir / md_file.name
         if skip_existing and target_file.exists():
             logger.debug("Skipped existing md file: %s", md_file.name)
             continue
@@ -66,7 +71,7 @@ def copy_md_files(
             "Copied %d md file(s) [%s] to %s",
             len(copied_files),
             language,
-            WORKING_DIR,
+            target_dir,
         )
 
     return copied_files

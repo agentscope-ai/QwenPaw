@@ -79,6 +79,9 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Default media directory for channels (cross-platform)
+DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
+
 JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")

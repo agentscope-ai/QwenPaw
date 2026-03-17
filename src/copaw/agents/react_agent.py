@@ -7,6 +7,7 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Any, List, Literal, Optional, Type
 
 from agentscope.agent import ReActAgent
@@ -43,7 +44,7 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
-from ..config import load_config
+from ..config.config import load_agent_config
 from ..constant import (
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
@@ -85,6 +86,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         max_iters: int = 50,
         max_input_length: int = 128 * 1024,  # 128K = 131072 tokens
         namesake_strategy: NamesakeStrategy = "skip",
+        memory_compact_threshold: int | None = None,
+        memory_compact_reserve: int | None = None,
+        enable_tool_result_compact: bool = False,
+        tool_result_compact_keep_n: int = 5,
+        language: str = "zh",
+        workspace_dir: Path | None = None,
     ):
         """Initialize CoPawAgent.
 
@@ -102,17 +109,37 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             namesake_strategy: Strategy to handle namesake tool functions.
                 Options: "override", "skip", "raise", "rename"
                 (default: "skip")
+            memory_compact_threshold: Token threshold for memory
+                compaction (optional, uses default ratio if not set)
+            memory_compact_reserve: Reserve tokens for recent messages
+            enable_tool_result_compact: Enable tool result compaction
+            tool_result_compact_keep_n: Number of tool results to keep
+            language: Language setting for agent (default: "zh")
+            workspace_dir: Workspace directory for reading prompt files
+                (if None, uses global WORKING_DIR)
         """
         self._env_context = env_context
         self._request_context = dict(request_context or {})
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
+        self._language = language
+        self._workspace_dir = workspace_dir
 
-        # Memory compaction threshold: configurable ratio of max_input_length
-        self._memory_compact_threshold = int(
-            max_input_length * MEMORY_COMPACT_RATIO,
+        # Memory compaction settings: use provided or calculate defaults
+        self._memory_compact_threshold = (
+            memory_compact_threshold
+            if memory_compact_threshold is not None
+            else int(max_input_length * MEMORY_COMPACT_RATIO)
         )
+        # Calculate reserve as 40% of max_input_length if not provided
+        self._memory_compact_reserve = (
+            memory_compact_reserve
+            if memory_compact_reserve is not None
+            else int(max_input_length * 0.4)
+        )
+        self._enable_tool_result_compact = enable_tool_result_compact
+        self._tool_result_compact_keep_n = tool_result_compact_keep_n
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
@@ -150,6 +177,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             memory=self.memory,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
+            max_input_length=max_input_length,
         )
 
         # Register hooks
@@ -171,14 +199,29 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         toolkit = Toolkit()
 
-        # Load config to check which tools are enabled
-        config = load_config()
+        # Check which tools are enabled (tools config is agent-specific)
         enabled_tools = {}
-        if hasattr(config, "tools") and hasattr(config.tools, "builtin_tools"):
-            enabled_tools = {
-                name: tool_config.enabled
-                for name, tool_config in config.tools.builtin_tools.items()
-            }
+        try:
+            # Get agent_id from request_context
+            agent_id = (
+                self._request_context.get("agent_id", "default")
+                if self._request_context
+                else "default"
+            )
+            agent_config = load_agent_config(agent_id)
+            if hasattr(agent_config, "tools") and hasattr(
+                agent_config.tools,
+                "builtin_tools",
+            ):
+                enabled_tools = {
+                    name: tool.enabled
+                    for name, tool in agent_config.tools.builtin_tools.items()
+                }
+        except Exception as e:
+            logger.warning(
+                f"Failed to load agent tools config: {e}, "
+                "all tools will be disabled",
+            )
 
         # Map of tool functions
         tool_functions = {
@@ -210,16 +253,18 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         return toolkit
 
     def _register_skills(self, toolkit: Toolkit) -> None:
-        """Load and register skills from working directory.
+        """Load and register skills from workspace directory.
 
         Args:
             toolkit: Toolkit to register skills to
         """
-        # Check skills initialization
-        ensure_skills_initialized()
+        workspace_dir = self._workspace_dir or WORKING_DIR
 
-        working_skills_dir = get_working_skills_dir()
-        available_skills = list_available_skills()
+        # Check skills initialization
+        ensure_skills_initialized(workspace_dir)
+
+        working_skills_dir = get_working_skills_dir(workspace_dir)
+        available_skills = list_available_skills(workspace_dir)
 
         for skill_name in available_skills:
             skill_dir = working_skills_dir / skill_name
@@ -240,7 +285,17 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Complete system prompt string
         """
-        sys_prompt = build_system_prompt_from_working_dir()
+        # Get agent_id from request_context
+        agent_id = (
+            self._request_context.get("agent_id")
+            if self._request_context
+            else None
+        )
+
+        sys_prompt = build_system_prompt_from_working_dir(
+            working_dir=self._workspace_dir,
+            agent_id=agent_id,
+        )
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
@@ -283,10 +338,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
         # Bootstrap hook - checks BOOTSTRAP.md on first interaction
-        config = load_config()
+        # Use workspace_dir if available, else fallback to WORKING_DIR
+        working_dir = (
+            self._workspace_dir if self._workspace_dir else WORKING_DIR
+        )
         bootstrap_hook = BootstrapHook(
-            working_dir=WORKING_DIR,
-            language=config.agents.language,
+            working_dir=working_dir,
+            language=self._language,
         )
         self.register_instance_hook(
             hook_type="pre_reasoning",
@@ -299,6 +357,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
+                memory_compact_threshold=self._memory_compact_threshold,
+                memory_compact_reserve=self._memory_compact_reserve,
+                enable_tool_result_compact=self._enable_tool_result_compact,
+                tool_result_compact_keep_n=self._tool_result_compact_keep_n,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
@@ -513,6 +575,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
+        # Set workspace_dir in context for tool functions
+        from ..config.context import set_current_workspace_dir
+
+        set_current_workspace_dir(self._workspace_dir)
+
         # Process file and media blocks in messages
         if msg is not None:
             await process_file_and_media_blocks_in_message(msg)

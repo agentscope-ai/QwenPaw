@@ -39,7 +39,12 @@ const GlobalStyle = createGlobalStyle`
 }
 `;
 
+function getRouterBasename(pathname: string): string | undefined {
+  return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
+}
+
 function AppInner() {
+  const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
   const lang = i18n.resolvedLanguage || i18n.language || "en";
@@ -64,7 +69,7 @@ function AppInner() {
   }, [i18n]);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <GlobalStyle />
       <ConfigProvider
         {...bailianTheme}

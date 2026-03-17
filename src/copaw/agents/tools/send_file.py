@@ -4,7 +4,6 @@
 import os
 import mimetypes
 import unicodedata
-from pathlib import Path
 
 from agentscope.tool import ToolResponse
 from agentscope.message import (
@@ -15,24 +14,6 @@ from agentscope.message import (
 )
 
 from ..schema import FileBlock
-from ...constant import WORKING_DIR
-
-# Only allow files under this directory, mirroring message_processing.py
-_ALLOWED_MEDIA_ROOT = WORKING_DIR / "media"
-
-
-def _is_allowed_media_path(path: str) -> bool:
-    """True if path is a file under _ALLOWED_MEDIA_ROOT.
-
-    Returns False when the path is invalid, cannot be resolved,
-    is not a regular file, or lies outside the allowed media root.
-    """
-    try:
-        resolved = Path(path).expanduser().resolve()
-        root = _ALLOWED_MEDIA_ROOT.resolve()
-        return resolved.is_file() and resolved.is_relative_to(root)
-    except Exception:
-        return False
 
 
 def _auto_as_type(mt: str) -> str:
@@ -50,13 +31,9 @@ async def send_file_to_user(
 ) -> ToolResponse:
     """Send a file to the user.
 
-    The file must be located inside the allowed media directory
-    (``<working_dir>/media``).  Attempting to send a file from outside that
-    directory will return an error so that the agent is aware of the failure.
-
     Args:
         file_path (`str`):
-            Path to the file to send.  Must be inside the media directory.
+            Path to the file to send.
 
     Returns:
         `ToolResponse`:
@@ -98,17 +75,6 @@ async def send_file_to_user(
     try:
         # Use local file URL instead of base64
         absolute_path = os.path.abspath(file_path)
-
-        if not _is_allowed_media_path(absolute_path):
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=f"Error: Media file outside allowed directory: {os.path.basename(file_path)}",
-                    ),
-                ],
-            )
-
         file_url = f"file://{absolute_path}"
         source = {"type": "url", "url": file_url}
 
