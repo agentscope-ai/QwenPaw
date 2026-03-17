@@ -371,7 +371,7 @@ CoPaw needs an LLM provider to work. You can set it up in three ways:
 | Anthropic          | `anthropic`         | `https://api.anthropic.com`                         | _(any)_        |
 | Ollama             | `ollama`            | `http://localhost:11434`                            | _(none)_       |
 | LM Studio          | `lmstudio`          | `http://localhost:1234/v1`                          | _(none)_       |
-| Venice.ai          | `venice`            | `https://api.venice.ai/api/v1`                      |                |
+| Venice.ai          | `venice`            | `https://api.venice.ai/api/v1`                      | _(any)_        |
 | Custom             | `custom`            | _(you set it)_                                      | _(any)_        |
 
 For each provider you need to set:
