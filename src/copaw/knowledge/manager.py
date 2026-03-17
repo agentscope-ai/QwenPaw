@@ -99,14 +99,18 @@ class KnowledgeManager:
     def __init__(self, working_dir: str | Path):
         self.working_dir = Path(working_dir).expanduser().resolve()
         self.root_dir = self.working_dir / "knowledge"
-        self.index_dir = self.root_dir / "indexes"
+        self.sources_dir = self.root_dir / "sources"
+        self.catalog_path = self.root_dir / "catalog.json"
         self.uploads_dir = self.root_dir / "uploads"
         self.backfill_state_path = self.root_dir / "history-backfill-state.json"
         self.backfill_progress_path = self.root_dir / "history-backfill-progress.json"
         self.remote_dir = self.uploads_dir / "remote"
         self.remote_blob_dir = self.remote_dir / "blobs"
         self.remote_meta_dir = self.remote_dir / "url-meta"
-        self.index_dir.mkdir(parents=True, exist_ok=True)
+        legacy_index_dir = self.root_dir / "indexes"
+        if legacy_index_dir.exists():
+            shutil.rmtree(legacy_index_dir, ignore_errors=True)
+        self.sources_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.remote_blob_dir.mkdir(parents=True, exist_ok=True)
         self.remote_meta_dir.mkdir(parents=True, exist_ok=True)
@@ -134,8 +138,8 @@ class KnowledgeManager:
         source: KnowledgeSourceSpec | None = None,
     ) -> dict[str, Any]:
         """Return persisted index metadata for a source."""
-        index_path = self._index_path(source_id)
-        if not index_path.exists():
+        source_index_path = self._source_index_path(source_id)
+        if not source_index_path.exists():
             status = {
                 "indexed": False,
                 "indexed_at": None,
@@ -147,7 +151,7 @@ class KnowledgeManager:
                 status.update(self._remote_source_status(source))
             return status
 
-        payload = self._load_json(index_path)
+        payload = self._load_json(source_index_path)
         status = {
             "indexed": True,
             "indexed_at": payload.get("indexed_at"),
@@ -179,10 +183,7 @@ class KnowledgeManager:
             "error": None,
             "chunks": chunks,
         }
-        self._index_path(source.id).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self._write_source_storage(source, payload, documents)
         return {
             "source_id": source.id,
             "document_count": len(documents),
@@ -208,22 +209,22 @@ class KnowledgeManager:
 
     def delete_index(self, source_id: str) -> None:
         """Delete persisted index for a source."""
-        index_path = self._index_path(source_id)
-        if index_path.exists():
-            index_path.unlink()
+        source_dir = self._source_dir(source_id)
+        if source_dir.exists():
+            shutil.rmtree(source_dir, ignore_errors=True)
 
     def clear_knowledge(self, config: KnowledgeConfig, *, remove_sources: bool = True) -> dict[str, Any]:
         """Clear persisted knowledge data and optionally reset configured sources."""
         source_count = len(config.sources)
         cleared_indexes = 0
-        if self.index_dir.exists():
-            cleared_indexes = len(list(self.index_dir.glob("*.json")))
+        if self.sources_dir.exists():
+            cleared_indexes = len(list(self.sources_dir.glob("*/index.json")))
 
         if self.root_dir.exists():
             shutil.rmtree(self.root_dir, ignore_errors=True)
 
         # Recreate expected directory structure after cleanup.
-        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.sources_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.remote_blob_dir.mkdir(parents=True, exist_ok=True)
         self.remote_meta_dir.mkdir(parents=True, exist_ok=True)
@@ -258,10 +259,9 @@ class KnowledgeManager:
                 continue
             if source_types and source.type not in source_types:
                 continue
-            index_path = self._index_path(source.id)
-            if not index_path.exists():
+            payload = self._load_index_payload(source.id)
+            if payload is None:
                 continue
-            payload = self._load_json(index_path)
             for chunk in payload.get("chunks", []):
                 score = self._score_chunk(chunk.get("text", ""), terms)
                 if score <= 0:
@@ -286,10 +286,9 @@ class KnowledgeManager:
 
     def get_source_documents(self, source_id: str) -> dict[str, Any]:
         """Return the indexed documents for a source, merged by document path."""
-        index_path = self._index_path(source_id)
-        if not index_path.exists():
+        payload = self._load_index_payload(source_id)
+        if payload is None:
             return {"indexed": False, "documents": []}
-        payload = self._load_json(index_path)
         chunks = payload.get("chunks", [])
         # Merge chunks back into per-document text blocks
         docs: dict[str, dict[str, Any]] = {}
@@ -318,8 +317,206 @@ class KnowledgeManager:
             "documents": documents,
         }
 
-    def _index_path(self, source_id: str) -> Path:
-        return self.index_dir / f"{source_id}.json"
+    def _source_dir(self, source_id: str) -> Path:
+        return self.sources_dir / self._safe_name(source_id)
+
+    def _source_index_path(self, source_id: str) -> Path:
+        return self._source_dir(source_id) / "index.json"
+
+    def _source_content_md_path(self, source_id: str) -> Path:
+        return self._source_dir(source_id) / "content.md"
+
+    def get_source_storage_dir(self, source_id: str) -> Path:
+        return self._source_dir(source_id)
+
+    def list_sources_from_storage(self) -> list[KnowledgeSourceSpec]:
+        """Rebuild source specs from persisted v2 storage layout."""
+        sources: list[KnowledgeSourceSpec] = []
+        for index_path in sorted(self.sources_dir.glob("*/index.json")):
+            try:
+                payload = self._load_json(index_path)
+                source_payload = payload.get("source")
+                if not isinstance(source_payload, dict):
+                    continue
+                source = KnowledgeSourceSpec.model_validate(source_payload)
+                sources.append(source)
+            except Exception:
+                logger.warning(
+                    "Failed to read source spec from storage index: %s",
+                    index_path,
+                )
+        return sources
+
+    def _load_index_payload(self, source_id: str) -> dict[str, Any] | None:
+        source_index_path = self._source_index_path(source_id)
+        if source_index_path.exists():
+            return self._load_json(source_index_path)
+        return None
+
+    def _write_source_storage(
+        self,
+        source: KnowledgeSourceSpec,
+        payload: dict[str, Any],
+        documents: list[dict[str, str]],
+    ) -> None:
+        source_dir = self._source_dir(source.id)
+        source_dir.mkdir(parents=True, exist_ok=True)
+        (source_dir / "raw").mkdir(parents=True, exist_ok=True)
+        (source_dir / "media").mkdir(parents=True, exist_ok=True)
+
+        self._source_index_path(source.id).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self._source_content_md_path(source.id).write_text(
+            self._build_source_markdown(source, documents),
+            encoding="utf-8",
+        )
+        self._sync_raw_source_assets(source)
+        self._update_catalog_entry(source, payload)
+
+    def _update_catalog_entry(
+        self,
+        source: KnowledgeSourceSpec,
+        payload: dict[str, Any],
+    ) -> None:
+        catalog: dict[str, Any] = {
+            "version": 2,
+            "updated_at": datetime.now(UTC).isoformat(),
+            "sources": {},
+        }
+        if self.catalog_path.exists():
+            try:
+                current = self._load_json(self.catalog_path)
+                if isinstance(current, dict):
+                    catalog.update(current)
+                    if not isinstance(catalog.get("sources"), dict):
+                        catalog["sources"] = {}
+            except Exception:
+                logger.warning("Failed to read knowledge catalog, recreating")
+
+        catalog["updated_at"] = datetime.now(UTC).isoformat()
+        catalog["sources"][source.id] = {
+            "id": source.id,
+            "name": source.name,
+            "type": source.type,
+            "indexed_at": payload.get("indexed_at"),
+            "document_count": payload.get("document_count", 0),
+            "chunk_count": payload.get("chunk_count", 0),
+            "path": str(self._source_dir(source.id)),
+        }
+
+        self.catalog_path.write_text(
+            json.dumps(catalog, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _build_source_markdown(
+        self,
+        source: KnowledgeSourceSpec,
+        documents: list[dict[str, str]],
+    ) -> str:
+        lines = [
+            f"# {source.name}",
+            "",
+            "## Metadata",
+            "",
+            f"- id: {source.id}",
+            f"- type: {source.type}",
+            f"- location: {source.location or '-'}",
+            f"- updated_at: {datetime.now(UTC).isoformat()}",
+            "",
+            "## Documents",
+            "",
+        ]
+        if not documents:
+            lines.append("(no documents)")
+            lines.append("")
+            return "\n".join(lines)
+
+        for doc in documents:
+            title = self._truncate_title(doc.get("title", "document"), max_len=200)
+            path = doc.get("path", "")
+            text = doc.get("text", "").strip()
+            lines.extend(
+                [
+                    f"### {title}",
+                    "",
+                    f"- path: {path}",
+                    "",
+                    text if text else "(empty)",
+                    "",
+                ],
+            )
+        return "\n".join(lines)
+
+    def _sync_raw_source_assets(self, source: KnowledgeSourceSpec) -> None:
+        raw_root = self._source_dir(source.id) / "raw"
+        media_root = self._source_dir(source.id) / "media"
+
+        if source.type not in {"file", "directory"}:
+            return
+        if not source.location:
+            return
+
+        source_path = Path(source.location).expanduser()
+        if not source_path.exists():
+            return
+
+        if source.type == "file" and source_path.is_file():
+            target_file = raw_root / source_path.name
+            try:
+                shutil.copy2(source_path, target_file)
+                self._write_media_semantic_if_needed(target_file, media_root)
+            except Exception:
+                logger.warning("Failed to sync raw file for source %s", source.id)
+            return
+
+        if source.type == "directory" and source_path.is_dir():
+            target_dir = raw_root / source_path.name
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            try:
+                shutil.copytree(source_path, target_dir, dirs_exist_ok=True)
+                for file_path in target_dir.rglob("*"):
+                    if file_path.is_file():
+                        self._write_media_semantic_if_needed(file_path, media_root)
+            except Exception:
+                logger.warning("Failed to sync raw directory for source %s", source.id)
+
+    def _write_media_semantic_if_needed(self, file_path: Path, media_root: Path) -> None:
+        suffix = file_path.suffix.lower()
+        media_kind = None
+        if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}:
+            media_kind = "image"
+        elif suffix in {".mp3", ".wav", ".m4a", ".flac", ".ogg"}:
+            media_kind = "audio"
+        elif suffix in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+            media_kind = "video"
+        if media_kind is None:
+            return
+
+        semantic_name = f"{self._safe_name(file_path.stem)}.semantic.md"
+        semantic_path = media_root / semantic_name
+        size = file_path.stat().st_size if file_path.exists() else 0
+        semantic_path.write_text(
+            "\n".join(
+                [
+                    f"# {file_path.name}",
+                    "",
+                    "## Semantic Summary",
+                    "",
+                    "(placeholder) Semantic extraction is not generated yet.",
+                    "",
+                    "## Metadata",
+                    "",
+                    f"- kind: {media_kind}",
+                    f"- original_file: {file_path.as_posix()}",
+                    f"- size_bytes: {size}",
+                ],
+            ),
+            encoding="utf-8",
+        )
 
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any]:
@@ -1964,7 +2161,7 @@ class KnowledgeManager:
             return ""
 
     def _load_index_payload_safe(self, source_id: str) -> dict[str, Any] | None:
-        index_path = self._index_path(source_id)
+        index_path = self._source_index_path(source_id)
         if not index_path.exists():
             return None
         try:

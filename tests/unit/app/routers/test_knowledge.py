@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import io
+import json
 from pathlib import Path
+import zipfile
 
 import pytest
 from fastapi import FastAPI
@@ -149,9 +152,9 @@ def test_clear_knowledge_removes_sources_and_indexes(
     saved = knowledge_api_client.put("/knowledge/config", json=config_payload)
     assert saved.status_code == 200
 
-    index_root = tmp_path / "knowledge" / "indexes"
-    index_root.mkdir(parents=True, exist_ok=True)
-    (index_root / "clear-1.json").write_text("{}", encoding="utf-8")
+    source_root = tmp_path / "knowledge" / "sources" / "clear-1"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "index.json").write_text("{}", encoding="utf-8")
 
     response = knowledge_api_client.delete(
         "/knowledge/clear?confirm=true&remove_sources=true"
@@ -225,3 +228,137 @@ def test_get_memify_job_status_success(
     payload = response.json()
     assert payload["job_id"] == job_id
     assert payload["status"] in {"succeeded", "failed"}
+
+
+def _build_knowledge_zip(entries: dict[str, str]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path, content in entries.items():
+            zf.writestr(path, content)
+    return buf.getvalue()
+
+
+def _source_index_payload(source_id: str, content: str = "knowledge text") -> str:
+    payload = {
+        "source": {
+            "id": source_id,
+            "name": source_id,
+            "type": "text",
+            "location": "",
+            "content": content,
+            "enabled": True,
+            "recursive": False,
+            "tags": [],
+            "description": "",
+        },
+        "documents": [
+            {
+                "path": f"{source_id}.md",
+                "title": source_id,
+                "text": content,
+            }
+        ],
+        "chunks": [],
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def test_restore_knowledge_backup_replace_existing(
+    knowledge_api_client: TestClient,
+    tmp_path: Path,
+):
+    old_source_dir = tmp_path / "knowledge" / "sources" / "old-source"
+    old_source_dir.mkdir(parents=True, exist_ok=True)
+    (old_source_dir / "index.json").write_text(
+        _source_index_payload("old-source", "old content"),
+        encoding="utf-8",
+    )
+
+    zip_data = _build_knowledge_zip(
+        {
+            "sources/new-source/index.json": _source_index_payload(
+                "new-source",
+                "new content",
+            ),
+            "sources/new-source/content.md": "# new-source\n\nnew content\n",
+            "catalog.json": json.dumps({"version": 2}),
+        }
+    )
+
+    response = knowledge_api_client.post(
+        "/knowledge/restore",
+        files={"file": ("knowledge.zip", zip_data, "application/zip")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["replace_existing"] is True
+    assert payload["restored_sources"] == 1
+    assert not old_source_dir.exists()
+    assert (tmp_path / "knowledge" / "sources" / "new-source" / "index.json").exists()
+
+    listing = knowledge_api_client.get("/knowledge/sources")
+    assert listing.status_code == 200
+    ids = {item["id"] for item in listing.json()["sources"]}
+    assert ids == {"new-source"}
+
+
+def test_restore_knowledge_backup_merge_existing(
+    knowledge_api_client: TestClient,
+    tmp_path: Path,
+):
+    existing_source_dir = tmp_path / "knowledge" / "sources" / "local-source"
+    existing_source_dir.mkdir(parents=True, exist_ok=True)
+    (existing_source_dir / "index.json").write_text(
+        _source_index_payload("local-source", "local content"),
+        encoding="utf-8",
+    )
+
+    zip_data = _build_knowledge_zip(
+        {
+            "sources/imported-source/index.json": _source_index_payload(
+                "imported-source",
+                "imported content",
+            ),
+            "sources/imported-source/content.md": "# imported-source\n\nimported content\n",
+        }
+    )
+
+    response = knowledge_api_client.post(
+        "/knowledge/restore?replace_existing=false",
+        files={"file": ("knowledge.zip", zip_data, "application/zip")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["replace_existing"] is False
+    assert payload["restored_sources"] == 2
+    assert (tmp_path / "knowledge" / "sources" / "local-source" / "index.json").exists()
+    assert (
+        tmp_path / "knowledge" / "sources" / "imported-source" / "index.json"
+    ).exists()
+
+    listing = knowledge_api_client.get("/knowledge/sources")
+    assert listing.status_code == 200
+    ids = {item["id"] for item in listing.json()["sources"]}
+    assert ids == {"local-source", "imported-source"}
+
+
+def test_restore_knowledge_backup_rejects_unsafe_zip_path(
+    knowledge_api_client: TestClient,
+):
+    zip_data = _build_knowledge_zip(
+        {
+            "../escape/index.json": _source_index_payload("escape"),
+        }
+    )
+
+    response = knowledge_api_client.post(
+        "/knowledge/restore",
+        files={"file": ("knowledge.zip", zip_data, "application/zip")},
+    )
+
+    assert response.status_code == 400
+    assert "unsafe path" in response.json()["detail"]

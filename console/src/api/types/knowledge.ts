@@ -145,3 +145,9 @@ export interface KnowledgeClearResponse {
   cleared_sources: number;
   removed_source_configs: boolean;
 }
+
+export interface KnowledgeRestoreResponse {
+  success: boolean;
+  replace_existing: boolean;
+  restored_sources: number;
+}

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import shutil
+import tempfile
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 
 from ...config import load_config, save_config
 from ...config.config import KnowledgeConfig, KnowledgeSourceSpec
@@ -15,6 +22,49 @@ from ...constant import WORKING_DIR
 from ...knowledge import GraphOpsManager, KnowledgeManager
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+
+
+def _zip_path(path) -> io.BytesIO:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for entry in sorted(path.rglob("*")):
+            arcname = entry.relative_to(path).as_posix()
+            if entry.is_file():
+                zf.write(entry, arcname)
+            elif entry.is_dir():
+                zf.write(entry, arcname + "/")
+    buf.seek(0)
+    return buf
+
+
+def _validate_zip_data(data: bytes) -> None:
+    if not zipfile.is_zipfile(io.BytesIO(data)):
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a valid zip archive",
+        )
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for name in zf.namelist():
+            p = Path(name)
+            if p.is_absolute() or ".." in p.parts:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Zip contains unsafe path: {name}",
+                )
+
+
+def _extract_zip_to_temp(data: bytes) -> Path:
+    tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_knowledge_import_"))
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        zf.extractall(tmp_dir)
+    return tmp_dir
+
+
+def _detect_extract_root(tmp_dir: Path) -> Path:
+    entries = [entry for entry in tmp_dir.iterdir() if not entry.name.startswith(".__")]
+    if len(entries) == 1 and entries[0].is_dir() and (entries[0] / "sources").exists():
+        return entries[0]
+    return tmp_dir
 
 
 def _clamp_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
@@ -291,3 +341,102 @@ async def stream_history_backfill_progress(websocket: WebSocket):
             await asyncio.sleep(interval_ms / 1000)
     except WebSocketDisconnect:
         return
+
+
+@router.get("/backup")
+async def backup_knowledge():
+    manager = _manager()
+    if not manager.root_dir.exists():
+        raise HTTPException(status_code=404, detail="KNOWLEDGE_NOT_FOUND")
+
+    buf = await asyncio.to_thread(_zip_path, manager.root_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"copaw_knowledge_{timestamp}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@router.get("/backup/{source_id}")
+async def backup_knowledge_source(source_id: str):
+    manager = _manager()
+    source_dir = manager.get_source_storage_dir(source_id)
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
+
+    buf = await asyncio.to_thread(_zip_path, source_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_name = manager._safe_name(source_id)
+    filename = f"copaw_knowledge_{safe_name}_{timestamp}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@router.post("/restore")
+async def restore_knowledge_backup(
+    file: UploadFile = File(...),
+    replace_existing: bool = Query(default=True),
+):
+    if file.content_type and file.content_type not in {
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/octet-stream",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Expected a zip file, got content-type: {file.content_type}",
+        )
+
+    data = await file.read()
+    _validate_zip_data(data)
+
+    manager = _manager()
+    tmp_dir: Path | None = None
+    try:
+        tmp_dir = await asyncio.to_thread(_extract_zip_to_temp, data)
+        extract_root = _detect_extract_root(tmp_dir)
+        if not (extract_root / "sources").is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid knowledge backup: missing sources directory",
+            )
+
+        if replace_existing and manager.root_dir.exists():
+            shutil.rmtree(manager.root_dir, ignore_errors=True)
+
+        manager.root_dir.mkdir(parents=True, exist_ok=True)
+        for item in extract_root.iterdir():
+            dest = manager.root_dir / item.name
+            if item.is_file():
+                shutil.copy2(item, dest)
+            else:
+                if dest.exists() and dest.is_file():
+                    dest.unlink()
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+
+        manager.sources_dir.mkdir(parents=True, exist_ok=True)
+        manager.uploads_dir.mkdir(parents=True, exist_ok=True)
+        manager.remote_blob_dir.mkdir(parents=True, exist_ok=True)
+        manager.remote_meta_dir.mkdir(parents=True, exist_ok=True)
+
+        config = load_config()
+        config.knowledge.sources = manager.list_sources_from_storage()
+        save_config(config)
+
+        return {
+            "success": True,
+            "replace_existing": replace_existing,
+            "restored_sources": len(config.knowledge.sources),
+        }
+    finally:
+        if tmp_dir and tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)

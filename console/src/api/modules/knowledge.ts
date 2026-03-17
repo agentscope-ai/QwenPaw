@@ -5,6 +5,7 @@ import type {
   KnowledgeConfig,
   KnowledgeHistoryBackfillRunResponse,
   KnowledgeHistoryBackfillStatus,
+  KnowledgeRestoreResponse,
   KnowledgeIndexResult,
   KnowledgeClearResponse,
   KnowledgeSearchResponse,
@@ -140,5 +141,59 @@ export const knowledgeApi = {
     return request<KnowledgeSearchResponse>(
       `/knowledge/search?${searchParams.toString()}`,
     );
+  },
+
+  downloadKnowledgeBackup: async (): Promise<Blob> => {
+    const response = await fetch(getApiUrl("/knowledge/backup"), {
+      method: "GET",
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Knowledge backup failed: ${response.status} ${response.statusText}`,
+      );
+    }
+    return await response.blob();
+  },
+
+  downloadKnowledgeSourceBackup: async (sourceId: string): Promise<Blob> => {
+    const response = await fetch(
+      getApiUrl(`/knowledge/backup/${encodeURIComponent(sourceId)}`),
+      {
+        method: "GET",
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Knowledge source backup failed: ${response.status} ${response.statusText}`,
+      );
+    }
+    return await response.blob();
+  },
+
+  restoreKnowledgeBackup: async (
+    file: File,
+    replaceExisting = true,
+  ): Promise<KnowledgeRestoreResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(
+      getApiUrl(
+        `/knowledge/restore?replace_existing=${replaceExisting ? "true" : "false"}`,
+      ),
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Knowledge restore failed: ${response.status} ${response.statusText}${
+          text ? ` - ${text}` : ""
+        }`,
+      );
+    }
+    return (await response.json()) as KnowledgeRestoreResponse;
   },
 };
