@@ -405,7 +405,7 @@ A preview of changes is shown before applying.
 
 ### copaw clean
 
-Remove everything under the working directory (default `~/.copaw`).
+Remove everything under the working directory (default `~/.boostclaw`).
 
 ```bash
 copaw clean             # Interactive confirmation
@@ -433,13 +433,13 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## Working directory
 
-All config and data live in `~/.copaw` by default:
+All config and data live in `~/.boostclaw` by default:
 
 - **Global config**: `config.json` (providers, environment variables, agent list)
 - **Agent workspaces**: `workspaces/{agent_id}/` (each agent's independent config and data)
 
 ```
-~/.copaw/
+~/.boostclaw/
 ├── config.json              # Global config
 └── workspaces/
     ├── default/             # Default agent workspace

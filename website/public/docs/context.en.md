@@ -203,7 +203,7 @@ graph TB
 
 ## Configuration
 
-Configuration is located in `~/.copaw/config.json` under `agents.running`:
+Configuration is located in `~/.boostclaw/config.json` under `agents.running`:
 
 | Context Management Parameter | Default  | Description                                                                                    |
 | ---------------------------- | -------- | ---------------------------------------------------------------------------------------------- |

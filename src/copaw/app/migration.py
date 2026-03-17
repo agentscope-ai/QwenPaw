@@ -69,7 +69,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     legacy_agents = config.agents
 
     # Create default agent workspace
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path("~/.boostclaw/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created default agent workspace: {default_workspace}")
 
@@ -276,7 +276,7 @@ def ensure_default_agent_exists() -> None:
         default_workspace = Path(agent_ref.workspace_dir).expanduser()
         agent_existed = True
     else:
-        default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+        default_workspace = Path("~/.boostclaw/workspaces/default").expanduser()
         agent_existed = False
 
     # Ensure workspace directory exists

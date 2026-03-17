@@ -289,9 +289,9 @@ def read_root():
         return FileResponse(_CONSOLE_INDEX)
     return {
         "message": (
-            "CoPaw Web Console is not available. "
-            "If you installed CoPaw from source code, please run "
-            "`npm ci && npm run build` in CoPaw's `console/` "
+            "Web Console is not available. "
+            "If you installed boostclaw from source code, please run "
+            "`npm ci && npm run build` in boostclaw's `console/` "
             "directory, and restart CoPaw to enable the "
             "web console."
         ),

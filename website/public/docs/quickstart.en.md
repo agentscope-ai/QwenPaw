@@ -107,7 +107,7 @@ To upgrade, simply re-run the install command. To uninstall, run `copaw uninstal
 ### Step 2: Init
 
 Generate `config.json` and `HEARTBEAT.md` in the working directory (default
-`~/.copaw`). Two options:
+`~/.boostclaw`). Two options:
 
 - **Use defaults** (no prompts; good for getting running first, then editing
   config later):

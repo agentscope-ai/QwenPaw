@@ -53,6 +53,6 @@ class DownloadProgress(BaseModel):
 
 
 class LocalModelsManifest(BaseModel):
-    """Persisted to ~/.copaw/models/manifest.json."""
+    """Persisted to ~/.boostclaw/models/manifest.json."""
 
     models: dict[str, LocalModelInfo] = Field(default_factory=dict)

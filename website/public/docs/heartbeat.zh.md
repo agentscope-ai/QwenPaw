@@ -8,7 +8,7 @@
 
 ## 心跳是怎么工作的？
 
-1. 你有一个文件 **HEARTBEAT.md**（默认在工作目录 `~/.copaw/` 下），里面写的是**每次心跳要问 CoPaw 的内容**（一段或几段话都行，CoPaw 会当成一条用户消息）。
+1. 你有一个文件 **HEARTBEAT.md**（默认在工作目录 `~/.boostclaw/` 下），里面写的是**每次心跳要问 CoPaw 的内容**（一段或几段话都行，CoPaw 会当成一条用户消息）。
 2. 系统按你配置的**间隔**（例如每 30 分钟）执行一次：读取 HEARTBEAT.md → 用这段内容去问 CoPaw → CoPaw 回复。
 3. **发不发到频道** 由配置里的 **target** 决定：
    - **main**：只跑 CoPaw，不把回复发到任何频道（适合只做「自检」、结果自己看日志或别处）。
@@ -20,7 +20,7 @@
 
 ## 第一步：写 HEARTBEAT.md
 
-文件路径默认是 `~/.copaw/HEARTBEAT.md`。内容就是「每次要问 CoPaw 什么」，纯文本或 Markdown 都行，CoPaw 会整体当作一条用户消息。
+文件路径默认是 `~/.boostclaw/HEARTBEAT.md`。内容就是「每次要问 CoPaw 什么」，纯文本或 Markdown 都行，CoPaw 会整体当作一条用户消息。
 
 示例（你可以按自己需求改）：
 
@@ -39,7 +39,7 @@
 
 ## 第二步：在 config.json 里配置心跳
 
-心跳的**间隔、发到哪、活跃时段**都在 `config.json` 里，路径一般是 `~/.copaw/config.json`。
+心跳的**间隔、发到哪、活跃时段**都在 `config.json` 里，路径一般是 `~/.boostclaw/config.json`。
 
 在 `agents.defaults.heartbeat` 下可以配置：
 

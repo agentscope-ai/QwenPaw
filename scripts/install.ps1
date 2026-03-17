@@ -27,11 +27,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-$CopawHome     = if ($env:BOOSTCLAW_HOME) { $env:BOOSTCLAW_HOME } elseif ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME ".boostclaw" }
-$CopawVenv     = Join-Path $CopawHome "venv"
-$CopawBin      = Join-Path $CopawHome "bin"
+$BoostclawHome = if ($env:BOOSTCLAW_HOME) { $env:BOOSTCLAW_HOME } elseif ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME ".boostclaw" }
+$BoostclawVenv = Join-Path $BoostclawHome "venv"
+$BoostclawBin  = Join-Path $BoostclawHome "bin"
 $PythonVersion = "3.12"
-$CopawRepo     = "https://github.com/aimentorai/boostclaw.git"
+$BoostclawRepo = "https://github.com/aimentorai/boostclaw.git"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 function Write-Info { param([string]$Message) Write-Host "[boostclaw] " -ForegroundColor Green  -NoNewline; Write-Host $Message }
@@ -64,7 +64,7 @@ Environment:
 
 Write-Host "[boostclaw] " -ForegroundColor Green -NoNewline
 Write-Host "Installing BoostClaw into " -NoNewline
-Write-Host "$CopawHome" -ForegroundColor White
+Write-Host "$BoostclawHome" -ForegroundColor White
 
 # ── Execution Policy Check ────────────────────────────────────────────────────
 $policy = Get-ExecutionPolicy
@@ -194,16 +194,16 @@ function Ensure-Uv {
 Ensure-Uv
 
 # ── Step 2: Create / update virtual environment ──────────────────────────────
-if (Test-Path $CopawVenv) {
+if (Test-Path $BoostclawVenv) {
     Write-Info "Existing environment found, upgrading..."
 } else {
     Write-Info "Creating Python $PythonVersion environment..."
 }
 
-uv venv $CopawVenv --python $PythonVersion --quiet --clear
+uv venv $BoostclawVenv --python $PythonVersion --quiet --clear
 if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to create virtual environment" }
 
-$VenvPython = Join-Path $CopawVenv "Scripts\python.exe"
+$VenvPython = Join-Path $BoostclawVenv "Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) { Stop-WithError "Failed to create virtual environment" }
 
 $pyVersion = & $VenvPython --version 2>&1
@@ -281,7 +281,7 @@ function Cleanup-Console {
     }
 }
 
-$VenvCopaw = Join-Path $CopawVenv "Scripts\boostclaw.exe"
+$VenvBoostclaw = Join-Path $BoostclawVenv "Scripts\boostclaw.exe"
 
 if ($FromSource) {
     if ($SourceDir) {
@@ -299,7 +299,7 @@ if ($FromSource) {
         Write-Info "Installing BoostClaw from source (GitHub)..."
         $cloneDir = Join-Path $env:TEMP "boostclaw-install-$(Get-Random)"
         try {
-            git clone --depth 1 $CopawRepo $cloneDir
+            git clone --depth 1 $BoostclawRepo $cloneDir
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to clone repository" }
             Prepare-Console $cloneDir
             Write-Info "Installing package from source..."
@@ -321,7 +321,7 @@ if ($FromSource) {
 }
 
 # Verify the CLI entry point exists
-if (-not (Test-Path $VenvCopaw)) { Stop-WithError "Installation failed: boostclaw CLI not found in venv" }
+if (-not (Test-Path $VenvBoostclaw)) { Stop-WithError "Installation failed: boostclaw CLI not found in venv" }
 
 Write-Info "BoostClaw installed successfully"
 
@@ -332,18 +332,18 @@ if (-not $script:ConsoleAvailable) {
 }
 
 # ── Step 4: Create wrapper scripts ───────────────────────────────────────────
-New-Item -ItemType Directory -Path $CopawBin -Force | Out-Null
+New-Item -ItemType Directory -Path $BoostclawBin -Force | Out-Null
 
-$wrapperPath = Join-Path $CopawBin "boostclaw.ps1"
+$wrapperPath = Join-Path $BoostclawBin "boostclaw.ps1"
 $wrapperContent = @'
 # BoostClaw CLI wrapper — delegates to the uv-managed environment.
 $ErrorActionPreference = "Stop"
 
-$CopawHome = if ($env:BOOSTCLAW_HOME) { $env:BOOSTCLAW_HOME } elseif ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME ".boostclaw" }
-$RealBin   = Join-Path $CopawHome "venv\Scripts\boostclaw.exe"
+$BoostclawHome = if ($env:BOOSTCLAW_HOME) { $env:BOOSTCLAW_HOME } elseif ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME ".boostclaw" }
+$RealBin   = Join-Path $BoostclawHome "venv\Scripts\boostclaw.exe"
 
 if (-not (Test-Path $RealBin)) {
-    Write-Error "BoostClaw environment not found at $CopawHome\venv"
+    Write-Error "BoostClaw environment not found at $BoostclawHome\venv"
     Write-Error "Please reinstall: irm <install-url> | iex"
     exit 1
 }
@@ -355,7 +355,7 @@ Set-Content -Path $wrapperPath -Value $wrapperContent -Encoding UTF8
 Write-Info "Wrapper created at $wrapperPath"
 
 # Also create a .cmd wrapper for use from cmd.exe
-$cmdWrapperPath = Join-Path $CopawBin "boostclaw.cmd"
+$cmdWrapperPath = Join-Path $BoostclawBin "boostclaw.cmd"
 $cmdWrapperContent = @"
 @echo off
 REM BoostClaw CLI wrapper — delegates to the uv-managed environment.
@@ -375,7 +375,7 @@ Set-Content -Path $cmdWrapperPath -Value $cmdWrapperContent -Encoding UTF8
 Write-Info "CMD wrapper created at $cmdWrapperPath"
 
 # ──Step 5: Update PATH via User Environment Variable ────────────────────────
-$targetPath = $CopawBin
+$targetPath = $BoostclawBin
 $registryPath = "HKCU:\Environment"
 $registryName = "Path"
 
@@ -456,7 +456,7 @@ Write-Host ""
 Write-Host "BoostClaw installed successfully!" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "  Install location:  " -NoNewline; Write-Host "$CopawHome" -ForegroundColor White
+Write-Host "  Install location:  " -NoNewline; Write-Host "$BoostclawHome" -ForegroundColor White
 Write-Host "  Python:            " -NoNewline; Write-Host "$pyVersion"  -ForegroundColor White
 if ($script:ConsoleAvailable) {
     Write-Host "  Console (web UI):  " -NoNewline; Write-Host "available"     -ForegroundColor Green

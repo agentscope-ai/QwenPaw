@@ -167,15 +167,15 @@ metadata:
 }
 ```
 
-路径：`~/.copaw/config.json`，位于 `channels.dingtalk` 下。
+路径：`~/.boostclaw/config.json`，位于 `channels.dingtalk` 下。
 
 ### 凭证交付要求（强制）
 
 1. agent 只负责引导用户进入凭证页、获取并展示 `Client ID` 与真实 `Client Secret`。
-2. agent 不主动改 `console` 配置、不主动改 `~/.copaw/config.json`。
+2. agent 不主动改 `console` 配置、不主动改 `~/.boostclaw/config.json`。
 3. 必须提示用户按以下两种方式之一手动填写：
    - 控制台前端：`控制 -> 频道 -> DingTalk`
-   - 配置文件：编辑 `~/.copaw/config.json` 的 `channels.dingtalk` 字段
+   - 配置文件：编辑 `~/.boostclaw/config.json` 的 `channels.dingtalk` 字段
 
 ## Browser 工具调用模式
 

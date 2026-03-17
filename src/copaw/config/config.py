@@ -371,7 +371,7 @@ class AgentsConfig(BaseModel):
         default_factory=lambda: {
             "default": AgentProfileRef(
                 id="default",
-                workspace_dir="~/.copaw/workspaces/default",
+                workspace_dir="~/.boostclaw/workspaces/default",
             ),
         },
         description="Agent profile references (ID and workspace path only)",
@@ -840,7 +840,7 @@ def migrate_legacy_config_to_multi_agent() -> bool:
     legacy_agents = config.agents
 
     # Create default agent workspace
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path("~/.boostclaw/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
 
     # Create default agent configuration from legacy settings

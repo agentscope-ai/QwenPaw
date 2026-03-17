@@ -194,7 +194,7 @@ Yes. If you configure different agents for DingTalk and Discord, they can respon
 
 Click the delete button in the "Settings → Agent Management" page in console.
 
-**Note**: After deletion, the workspace directory is retained (to prevent accidental data loss). To completely remove it, manually delete the `~/.copaw/workspaces/{agent_id}` directory.
+**Note**: After deletion, the workspace directory is retained (to prevent accidental data loss). To completely remove it, manually delete the `~/.boostclaw/workspaces/{agent_id}` directory.
 
 ### Q: Can the default agent be deleted?
 
@@ -235,7 +235,7 @@ If you previously used CoPaw **v0.0.x**, upgrading to **v0.1.0** will **automati
 3. **Backup Recommendation**
    Back up your working directory before upgrading:
    ```bash
-   cp -r ~/.copaw ~/.copaw.backup
+   cp -r ~/.boostclaw ~/.boostclaw.backup
    ```
 
 ---
@@ -337,7 +337,7 @@ If you need to directly edit configuration files:
 #### New Structure (v0.1.0+)
 
 ```
-~/.copaw/
+~/.boostclaw/
 ├── config.json          # Global config (providers, agents.profiles)
 └── workspaces/
     ├── default/         # Default agent workspace

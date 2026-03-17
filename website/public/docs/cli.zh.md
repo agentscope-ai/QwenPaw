@@ -392,7 +392,7 @@ copaw skills config --agent-id abc123 # 交互式配置特定智能体
 
 ### copaw clean
 
-清空工作目录（默认 `~/.copaw`）下的所有内容。
+清空工作目录（默认 `~/.boostclaw`）下的所有内容。
 
 ```bash
 copaw clean             # 交互确认
@@ -420,13 +420,13 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## 工作目录
 
-配置和数据都在 `~/.copaw`（默认）：
+配置和数据都在 `~/.boostclaw`（默认）：
 
 - **全局配置**: `config.json`（提供商、环境变量、智能体列表）
 - **智能体工作区**: `workspaces/{agent_id}/`（每个智能体独立的配置和数据）
 
 ```
-~/.copaw/
+~/.boostclaw/
 ├── config.json              # 全局配置
 └── workspaces/
     ├── default/             # 默认智能体工作区

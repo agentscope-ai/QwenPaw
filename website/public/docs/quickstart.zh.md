@@ -106,7 +106,7 @@ bash install.sh --extras ollama      # Ollama（跨平台，需 Ollama 服务运
 
 ### 步骤二：初始化
 
-在工作目录（默认 `~/.copaw`）下生成 `config.json` 与 `HEARTBEAT.md`。两种方式：
+在工作目录（默认 `~/.boostclaw`）下生成 `config.json` 与 `HEARTBEAT.md`。两种方式：
 
 - **快速用默认配置**（不交互，适合先跑起来再改配置）：
   ```bash

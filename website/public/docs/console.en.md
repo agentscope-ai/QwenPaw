@@ -435,7 +435,7 @@ View LLM token consumption over a time range, aggregated by date and model.
 
 Ask CoPaw directly, e.g. "How many tokens have I used recently?" or "Show me token usage." The agent will call the `get_token_usage` tool and return the summary.
 
-> Data is stored in `~/.copaw/token_usage.json`. You can override the filename with the `COPAW_TOKEN_USAGE_FILE` environment variable. See [Config — Environment Variables](./config#environment-variables).
+> Data is stored in `~/.boostclaw/token_usage.json`. You can override the filename with the `COPAW_TOKEN_USAGE_FILE` environment variable. See [Config — Environment Variables](./config#environment-variables).
 
 ---
 

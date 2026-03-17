@@ -14,12 +14,12 @@ This page covers:
 
 By default, all config and data live in one folder — the **working directory**:
 
-- **`~/.copaw`** (the `.copaw` folder under your home directory)
+- **`~/.boostclaw`** (the `.boostclaw` folder under your home directory)
 
 Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run `copaw init`, the new structure looks like:
 
 ```
-~/.copaw/
+~/.boostclaw/
 ├── config.json              # Global config (providers, environment variables)
 └── workspaces/
     ├── default/             # Default agent workspace
@@ -37,14 +37,14 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 
 ### Directory Explanation
 
-**Global Directory (`~/.copaw/`)**
+**Global Directory (`~/.boostclaw/`)**
 
 | File / Directory | Purpose                                               |
 | ---------------- | ----------------------------------------------------- |
 | `config.json`    | Global config (model providers, env vars, agent list) |
 | `workspaces/`    | All agent workspace directories                       |
 
-**Agent Workspace (`~/.copaw/workspaces/{agent_id}/`)**
+**Agent Workspace (`~/.boostclaw/workspaces/{agent_id}/`)**
 
 | File / Directory     | Purpose                                                      |
 | -------------------- | ------------------------------------------------------------ |
@@ -70,13 +70,13 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 
 ## Changing paths with environment variables (optional)
 
-If you don't want to use `~/.copaw`, you can override the working directory or
+If you don't want to use `~/.boostclaw`, you can override the working directory or
 specific file names:
 
 | Variable                 | Default            | Meaning                                                                                                                                                                                 |
 | ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COPAW_WORKING_DIR`      | `~/.copaw`         | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here                                                                                                     |
-| `COPAW_SECRET_DIR`       | `~/.copaw.secret`  | Secret directory (sibling of working dir); stores `providers.json` (model provider settings, API keys) and `envs.json` (environment variables). In Docker, set to `/app/working.secret` |
+| `COPAW_WORKING_DIR`      | `~/.boostclaw`     | Working directory; config, heartbeat, jobs, chats, skills, and memory all live here                                                                                                     |
+| `COPAW_SECRET_DIR`       | `~/.boostclaw.secret` | Secret directory (sibling of working dir); stores `providers.json` (model provider settings, API keys) and `envs.json` (environment variables). In Docker, set to `/app/working.secret` |
 | `COPAW_CONFIG_FILE`      | `config.json`      | Config file name (relative to working dir)                                                                                                                                              |
 | `COPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`     | Heartbeat prompt file name (relative to working dir)                                                                                                                                    |
 | `COPAW_JOBS_FILE`        | `jobs.json`        | Cron jobs file name (relative to working dir)                                                                                                                                           |
@@ -138,7 +138,7 @@ automatically use defaults.
       "app_secret": "",
       "encrypt_key": "",
       "verification_token": "",
-      "media_dir": "~/.copaw/media"
+      "media_dir": "~/.boostclaw/media"
     },
     "qq": {
       "enabled": false,
@@ -221,7 +221,7 @@ Each channel has a common base and channel-specific fields.
 | `app_secret`         | string | `""`             | Feishu App Secret                   |
 | `encrypt_key`        | string | `""`             | Event encryption key (optional)     |
 | `verification_token` | string | `""`             | Event verification token (optional) |
-| `media_dir`          | string | `~/.copaw/media` | Directory for received media files  |
+| `media_dir`          | string | `~/.boostclaw/media` | Directory for received media files  |
 
 **`channels.qq`** — QQ Bot
 
@@ -260,7 +260,7 @@ From **v0.1.0**, the `agents` section now contains agent profiles:
 | `description` | string | No       | Agent description            |
 | `enabled`     | bool   | Yes      | Whether the agent is enabled |
 
-Each agent's detailed configuration is stored in `~/.copaw/workspaces/{agent_id}/agent.json`:
+Each agent's detailed configuration is stored in `~/.boostclaw/workspaces/{agent_id}/agent.json`:
 
 | Field                         | Type           | Default   | Description                                                             |
 | ----------------------------- | -------------- | --------- | ----------------------------------------------------------------------- |
@@ -417,8 +417,8 @@ Skills extend the agent's capabilities. They live in three directories:
 | Directory                     | Purpose                                                             |
 | ----------------------------- | ------------------------------------------------------------------- |
 | Built-in (in source code)     | Shipped with CoPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
-| `~/.copaw/customized_skills/` | User-created skills                                                 |
-| `~/.copaw/active_skills/`     | Currently active skills (synced from built-in + customized)         |
+| `~/.boostclaw/customized_skills/` | User-created skills                                                 |
+| `~/.boostclaw/active_skills/`     | Currently active skills (synced from built-in + customized)         |
 
 Each skill is a directory with a `SKILL.md` file (YAML front matter with `name`
 and `description`), and optional `references/` and `scripts/` subdirectories.
@@ -439,8 +439,8 @@ Memory files are stored in two locations:
 
 | File / Directory                | Purpose                                                               |
 | ------------------------------- | --------------------------------------------------------------------- |
-| `~/.copaw/MEMORY.md`            | Long-lived key information (decisions, preferences, persistent facts) |
-| `~/.copaw/memory/YYYY-MM-DD.md` | Daily logs (notes, runtime context, auto-generated summaries)         |
+| `~/.boostclaw/MEMORY.md`            | Long-lived key information (decisions, preferences, persistent facts) |
+| `~/.boostclaw/memory/YYYY-MM-DD.md` | Daily logs (notes, runtime context, auto-generated summaries)         |
 
 ### Embedding Configuration
 
@@ -463,11 +463,11 @@ Memory search relies on vector embeddings for semantic retrieval. Configure via 
 
 ## Summary
 
-- Everything lives under **`~/.copaw`** by default; override with
+- Everything lives under **`~/.boostclaw`** by default; override with
   `COPAW_WORKING_DIR` (and related env vars) if needed.
 - From **v0.1.0**, configuration is split into:
-  - **Global config** (`~/.copaw/config.json`) — providers, environment variables, agent list
-  - **Agent config** (`~/.copaw/workspaces/{agent_id}/agent.json`) — per-agent settings
+  - **Global config** (`~/.boostclaw/config.json`) — providers, environment variables, agent list
+  - **Agent config** (`~/.boostclaw/workspaces/{agent_id}/agent.json`) — per-agent settings
 - Day-to-day you edit agent-specific **agent.json** (channels, heartbeat, language) and
   **HEARTBEAT.md** (what to ask on each heartbeat tick); manage cron jobs
   via CLI/API with `--agent-id` parameter.

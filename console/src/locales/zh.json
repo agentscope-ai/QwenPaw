@@ -101,7 +101,7 @@
     "nameRequired": "请输入智能体名称",
     "namePlaceholder": "例如：我的智能体",
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
-    "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
+    "workspaceHelp": "留空将自动生成在 ~/.boostclaw/workspaces/<id> 目录",
     "defaultNotEditable": "默认智能体不允许编辑",
     "defaultNotDeletable": "默认智能体不允许删除"
   },

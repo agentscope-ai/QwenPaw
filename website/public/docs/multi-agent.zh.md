@@ -194,7 +194,7 @@ CoPaw 支持**多智能体工作区**，允许您在同一个 CoPaw 实例中运
 
 在控制台的"设置 → 智能体管理"页面点击删除按钮。
 
-**注意**：删除后工作区目录会保留（防止误删数据），如需彻底清理，请手动删除 `~/.copaw/workspaces/{agent_id}` 目录。
+**注意**：删除后工作区目录会保留（防止误删数据），如需彻底清理，请手动删除 `~/.boostclaw/workspaces/{agent_id}` 目录。
 
 ### Q: 默认智能体可以删除吗？
 
@@ -235,7 +235,7 @@ CoPaw 支持**多智能体工作区**，允许您在同一个 CoPaw 实例中运
 3. **备份建议**
    升级前备份工作目录：
    ```bash
-   cp -r ~/.copaw ~/.copaw.backup
+   cp -r ~/.boostclaw ~/.boostclaw.backup
    ```
 
 ---
@@ -337,7 +337,7 @@ curl -X POST http://localhost:7860/api/cron/jobs \
 #### 新结构（v0.1.0+）
 
 ```
-~/.copaw/
+~/.boostclaw/
 ├── config.json          # 全局配置（providers, agents.profiles）
 └── workspaces/
     ├── default/         # 默认智能体工作区
@@ -380,10 +380,10 @@ curl -X POST http://localhost:7860/api/cron/jobs \
 
 ```bash
 # 备份特定智能体
-cp -r ~/.copaw/workspaces/abc123 ~/backups/agent-abc123-$(date +%Y%m%d)
+cp -r ~/.boostclaw/workspaces/abc123 ~/backups/agent-abc123-$(date +%Y%m%d)
 
 # 备份所有智能体
-cp -r ~/.copaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
+cp -r ~/.boostclaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 ```
 
 ---

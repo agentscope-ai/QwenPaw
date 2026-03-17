@@ -5,7 +5,7 @@
 配置频道有两种方式：
 
 - **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
-- **手动编辑 `config.json`** — 默认在 `~/.copaw/config.json` （由 `copaw init` 生成），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
+- **手动编辑 `config.json`** — 默认在 `~/.boostclaw/config.json` （由 `copaw init` 生成），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
 
 所有频道都有如下通用字段:
 
@@ -61,7 +61,7 @@
 
 ### 绑定应用
 
-可以在console前端配置，或者修改`~/.copaw/config.json`。
+可以在console前端配置，或者修改`~/.boostclaw/config.json`。
 
 **方法1**: 在console前端配置
 
@@ -69,7 +69,7 @@
 
 ![console](https://img.alicdn.com/imgextra/i1/O1CN01uXrlyQ25Zpr5eVksk_!!6000000007541-2-tps-3451-1778.png)
 
-**方法2**: 修改`~/.copaw/config.json`
+**方法2**: 修改`~/.boostclaw/config.json`
 
 在 `config.json` 里找到 `channels.dingtalk`，填入对应信息，例如：
 
@@ -191,7 +191,7 @@
 
 ### 填写 config.json
 
-在`config.json`（默认在 `~/.copaw/config.json`）中找到`channels.feishu`，只需填 **App ID** 和 **App Secret**（在开放平台「凭证与基础信息」里复制）：
+在`config.json`（默认在 `~/.boostclaw/config.json`）中找到`channels.feishu`，只需填 **App ID** 和 **App Secret**（在开放平台「凭证与基础信息」里复制）：
 
 ```json
 "feishu": {
@@ -280,7 +280,7 @@
 
      ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
 
-   - 填写 config.json（路径通常为~/.copaw/config.json）：
+   - 填写 config.json（路径通常为~/.boostclaw/config.json）：
 
      ```json
      "imessage": {
@@ -341,7 +341,7 @@
 
 ### 绑定 Bot
 
-可以在console前端配置，或者修改`~/.copaw/config.json`。
+可以在console前端配置，或者修改`~/.boostclaw/config.json`。
 
 **方法1**: 在console前端配置
 
@@ -349,7 +349,7 @@
 
 ![console](https://img.alicdn.com/imgextra/i2/O1CN01kP657n1XK5IXfPLAv_!!6000000002904-2-tps-4082-2126.png)
 
-**方法2**: 修改`~/.copaw/config.json`
+**方法2**: 修改`~/.boostclaw/config.json`
 
 在 `config.json` 里找到 `channels.discord`，填入对应信息，例如：
 
@@ -452,7 +452,7 @@
 
 ![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
 
-**方法二**在`config.json`填写(默认文件路径为`~/.copaw/config.json`)
+**方法二**在`config.json`填写(默认文件路径为`~/.boostclaw/config.json`)
 找到`wecom`，填写对应信息，例如：
 
 ```json
@@ -462,7 +462,7 @@
       "group_policy": "open",
       "bot_id": "your bot_id",
       "secret": "your secret",
-      "media_dir": "~/.copaw/media",
+      "media_dir": "~/.boostclaw/media",
       "max_reconnect_attempts": -1
     }
 ```
@@ -488,7 +488,7 @@
 
 ### 绑定 Bot
 
-可以在console前端配置，或者修改`~/.copaw/config.json`。
+可以在console前端配置，或者修改`~/.boostclaw/config.json`。
 
 **方法1**: 在console前端配置
 
@@ -496,7 +496,7 @@
 
 ![console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
 
-**方法2**: 修改`~/.copaw/config.json`
+**方法2**: 修改`~/.boostclaw/config.json`
 
 在 `config.json` 里找到 `channels.telegram`，填入对应信息，例如：
 
@@ -655,7 +655,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **User ID** — 例如 `@mybot:matrix.org`
 - **Access Token** — 上面复制的 Token（以密码框形式显示）
 
-**方式二：** 编辑 `~/.copaw/config.json`
+**方式二：** 编辑 `~/.boostclaw/config.json`
 
 在 `config.json` 中找到 `channels.matrix`：
 
@@ -896,7 +896,7 @@ def build_agent_request_from_native(self, native_payload):
 
 ### 自定义渠道目录与 CLI
 
-- **目录**：工作目录下的 `custom_channels/`（默认 `~/.copaw/custom_channels/`）用于存放自定义渠道模块。Manager 启动时会扫描该目录下的 `.py` 文件与包（含 `__init__.py` 的子目录），加载其中的 `BaseChannel` 子类，并按类的 `channel` 属性注册。
+- **目录**：工作目录下的 `custom_channels/`（默认 `~/.boostclaw/custom_channels/`）用于存放自定义渠道模块。Manager 启动时会扫描该目录下的 `.py` 文件与包（含 `__init__.py` 的子目录），加载其中的 `BaseChannel` 子类，并按类的 `channel` 属性注册。
 - **安装**：`copaw channels install <key>` 会在 `custom_channels/` 下生成名为 `<key>.py` 的模板文件，可直接编辑实现；也可用 `--path <本地路径>` 或 `--url <URL>` 从本地/网络复制渠道模块。`copaw channels add <key>` 等价于安装后并写入 config 默认项，且可加 `--path`/`--url`。
 - **删除**：`copaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
 - **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`copaw channels config` 交互式配置，或直接编辑 config。

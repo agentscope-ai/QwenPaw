@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-REM CoPaw Installer for Windows (cmd.exe / batch)
+REM BoostClaw Installer for Windows (cmd.exe / batch)
 REM Usage: install.bat [-Version X.Y.Z] [-FromSource] [-SourceDir DIR]
 REM                         [-Extras "llamacpp,mlx"] [-UvPath PATH] [-Help]
 REM
-REM Installs CoPaw into %USERPROFILE%\.copaw with a uv-managed Python environment.
+REM Installs BoostClaw into %USERPROFILE%\.boostclaw with a uv-managed Python environment.
 REM Users do NOT need Python pre-installed -- uv handles everything.
 REM
 REM uv is obtained automatically (no action required from the user):
@@ -14,15 +14,17 @@ REM   2. Downloaded via https://astral.sh/uv/install.ps1
 REM   3. Downloaded via GitHub Releases if astral.sh is unreachable (e.g. in China)
 
 REM ── Defaults ──────────────────────────────────────────────────────────────────
-if defined COPAW_HOME (
-    set "COPAW_HOME=%COPAW_HOME%"
+if defined BOOSTCLAW_HOME (
+    set "BOOSTCLAW_HOME=%BOOSTCLAW_HOME%"
+) else if defined COPAW_HOME (
+    set "BOOSTCLAW_HOME=%COPAW_HOME%"
 ) else (
-    set "COPAW_HOME=%USERPROFILE%\.copaw"
+    set "BOOSTCLAW_HOME=%USERPROFILE%\.boostclaw"
 )
-set "COPAW_VENV=%COPAW_HOME%\venv"
-set "COPAW_BIN=%COPAW_HOME%\bin"
+set "BOOSTCLAW_VENV=%BOOSTCLAW_HOME%\venv"
+set "BOOSTCLAW_BIN=%BOOSTCLAW_HOME%\bin"
 set "PYTHON_VERSION=3.10"
-set "COPAW_REPO=https://github.com/aimentorai/boostclaw.git"
+set "BOOSTCLAW_REPO=https://github.com/aimentorai/boostclaw.git"
 
 REM ──── Argument defaults ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 set "ARG_VERSION="
@@ -75,7 +77,7 @@ goto :main
 
 REM ──── Help ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 :show_help
-echo CoPaw Installer for Windows
+echo BoostClaw Installer for Windows
 echo.
 echo Usage: install.bat [OPTIONS]
 echo.
@@ -89,24 +91,25 @@ echo   -UvPath ^<PATH^>        Path to a pre-installed uv.exe (skips all auto-in
 echo   -Help                 Show this help
 echo.
 echo Environment:
-echo   COPAW_HOME            Installation directory (default: %%USERPROFILE%%\.copaw)
+echo   BOOSTCLAW_HOME        Installation directory (default: %%USERPROFILE%%\.boostclaw)
+echo   COPAW_HOME            Legacy alias for BOOSTCLAW_HOME
 exit /b 0
 
 REM ──── Helper functions ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 :write_info
-echo [copaw] %~1
+echo [boostclaw] %~1
 exit /b 0
 
 :write_warn
-echo [copaw] WARNING: %~1
+echo [boostclaw] WARNING: %~1
 exit /b 0
 
 :write_err
-echo [copaw] ERROR: %~1
+echo [boostclaw] ERROR: %~1
 exit /b 0
 
 :stop_with_error
-echo [copaw] ERROR: %~1
+echo [boostclaw] ERROR: %~1
 exit /b 1
 
 REM ──── Download uv from GitHub Releases ────────────────────────────────────────────────────────────────────────────────────
@@ -122,41 +125,41 @@ set "_DL_URL=https://github.com/astral-sh/uv/releases/latest/download/uv-!_DL_AR
 set "_DL_DEST=%LOCALAPPDATA%\uv"
 set "_DL_ZIP=%TEMP%\uv-gh-%RANDOM%.zip"
 
-echo [copaw] Downloading uv ^(!_DL_ARCH!^) from GitHub Releases...
+echo [boostclaw] Downloading uv ^(!_DL_ARCH!^) from GitHub Releases...
 
 REM Try curl.exe (built into Windows 10+), then fall back to PowerShell
 where curl >nul 2>&1
 if not errorlevel 1 (
     curl -L --progress-bar -o "!_DL_ZIP!" "!_DL_URL!"
     if not errorlevel 1 goto :download_uv_extract
-    echo [copaw] curl failed, retrying with PowerShell...
+    echo [boostclaw] curl failed, retrying with PowerShell...
     del "!_DL_ZIP!" >nul 2>&1
 )
 
 powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '!_DL_URL!' -OutFile '!_DL_ZIP!' -UseBasicParsing"
 if errorlevel 1 (
-    echo [copaw] ERROR: GitHub download also failed.
-    echo [copaw] Download uv manually from: https://github.com/astral-sh/uv/releases/latest
+    echo [boostclaw] ERROR: GitHub download also failed.
+    echo [boostclaw] Download uv manually from: https://github.com/astral-sh/uv/releases/latest
     del "!_DL_ZIP!" >nul 2>&1
     exit /b 1
 )
 
 :download_uv_extract
 if not exist "!_DL_DEST!" mkdir "!_DL_DEST!"
-echo [copaw] Extracting uv...
+echo [boostclaw] Extracting uv...
 powershell -NoProfile -Command "Expand-Archive -Force -Path '!_DL_ZIP!' -DestinationPath '!_DL_DEST!'"
 set "_DL_ERR=%errorlevel%"
 del "!_DL_ZIP!" >nul 2>&1
 if %_DL_ERR% neq 0 (
-    echo [copaw] ERROR: Extraction failed.
+    echo [boostclaw] ERROR: Extraction failed.
     exit /b 1
 )
 if not exist "!_DL_DEST!\uv.exe" (
-    echo [copaw] ERROR: uv.exe not found after extraction.
+    echo [boostclaw] ERROR: uv.exe not found after extraction.
     exit /b 1
 )
 set "PATH=!_DL_DEST!;!PATH!"
-echo [copaw] uv installed: !_DL_DEST!\uv.exe
+echo [boostclaw] uv installed: !_DL_DEST!\uv.exe
 exit /b 0
 
 REM ──── Ensure uv ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -164,11 +167,11 @@ REM ──── Ensure uv ─────────────────�
 REM 0. User-supplied path (-UvPath)
 if defined ARG_UV_PATH (
     if not exist "%ARG_UV_PATH%" (
-        echo [copaw] ERROR: Specified uv not found: %ARG_UV_PATH%
+        echo [boostclaw] ERROR: Specified uv not found: %ARG_UV_PATH%
         exit /b 1
     )
     for %%I in ("%ARG_UV_PATH%") do set "PATH=%%~dpI;!PATH!"
-    echo [copaw] uv found: %ARG_UV_PATH%
+    echo [boostclaw] uv found: %ARG_UV_PATH%
     goto :ensure_uv_done
 )
 
@@ -176,7 +179,7 @@ REM 1. Already on PATH
 where uv >nul 2>&1
 if %errorlevel%==0 (
     for /f "delims=" %%p in ('where uv 2^>nul') do (
-        echo [copaw] uv found: %%p
+        echo [boostclaw] uv found: %%p
         goto :ensure_uv_done
     )
 )
@@ -186,22 +189,22 @@ for %%c in ("%USERPROFILE%\.local\bin\uv.exe" "%USERPROFILE%\.cargo\bin\uv.exe" 
     if exist %%c (
         set "_UV_DIR=%%~dpc"
         set "PATH=!_UV_DIR!;!PATH!"
-        echo [copaw] uv found: %%~c
+        echo [boostclaw] uv found: %%~c
         goto :ensure_uv_done
     )
 )
 
 REM 3. Try astral.sh (standard installer, fast outside China)
-echo [copaw] Installing uv via astral.sh...
+echo [boostclaw] Installing uv via astral.sh...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 -TimeoutSec 15 | iex"
 if not errorlevel 1 goto :ensure_uv_refresh
 
 REM 4. astral.sh failed -- fall back to GitHub Releases (works in China)
-echo [copaw] astral.sh unreachable, falling back to GitHub Releases...
+echo [boostclaw] astral.sh unreachable, falling back to GitHub Releases...
 call :download_uv_github
 if errorlevel 1 (
-    echo [copaw] ERROR: Failed to install uv automatically.
-    echo [copaw] Please install uv manually: https://docs.astral.sh/uv/
+    echo [boostclaw] ERROR: Failed to install uv automatically.
+    echo [boostclaw] Please install uv manually: https://docs.astral.sh/uv/
     exit /b 1
 )
 goto :ensure_uv_done
@@ -216,10 +219,10 @@ for %%p in ("%USERPROFILE%\.local\bin" "%USERPROFILE%\.cargo\bin" "%LOCALAPPDATA
 )
 where uv >nul 2>&1
 if errorlevel 1 (
-    echo [copaw] ERROR: Failed to install uv. Please install it manually: https://docs.astral.sh/uv/
+    echo [boostclaw] ERROR: Failed to install uv. Please install it manually: https://docs.astral.sh/uv/
     exit /b 1
 )
-echo [copaw] uv installed via astral.sh
+echo [boostclaw] uv installed via astral.sh
 
 :ensure_uv_done
 exit /b 0
@@ -239,7 +242,7 @@ if exist "%_CONSOLE_DEST%\index.html" (
 
 REM Copy pre-built assets if available
 if exist "%_CONSOLE_SRC%\index.html" (
-    echo [copaw] Copying console frontend assets...
+    echo [boostclaw] Copying console frontend assets...
     if not exist "%_CONSOLE_DEST%" mkdir "%_CONSOLE_DEST%"
     xcopy /s /e /y /q "%_CONSOLE_SRC%\*" "%_CONSOLE_DEST%\" >nul
     set "CONSOLE_COPIED=1"
@@ -249,30 +252,30 @@ if exist "%_CONSOLE_SRC%\index.html" (
 
 REM Try to build if npm is available
 if not exist "%_REPO_DIR%\console\package.json" (
-    echo [copaw] WARNING: Console source not found - the web UI won't be available.
+    echo [boostclaw] WARNING: Console source not found - the web UI won't be available.
     exit /b 0
 )
 
 where npm >nul 2>&1
 if errorlevel 1 (
-    echo [copaw] WARNING: npm not found - skipping console frontend build.
-    echo [copaw] WARNING: Install Node.js from https://nodejs.org/ then re-run this installer,
-    echo [copaw] WARNING: or run 'cd console ^&^& npm ci ^&^& npm run build' manually.
+    echo [boostclaw] WARNING: npm not found - skipping console frontend build.
+    echo [boostclaw] WARNING: Install Node.js from https://nodejs.org/ then re-run this installer,
+    echo [boostclaw] WARNING: or run 'cd console ^&^& npm ci ^&^& npm run build' manually.
     exit /b 0
 )
 
-echo [copaw] Building console frontend (npm ci ^&^& npm run build)...
+echo [boostclaw] Building console frontend (npm ci ^&^& npm run build)...
 pushd "%_REPO_DIR%\console"
 npm ci
 if errorlevel 1 (
     popd
-    echo [copaw] WARNING: npm ci failed - the web UI won't be available.
+    echo [boostclaw] WARNING: npm ci failed - the web UI won't be available.
     exit /b 0
 )
 npm run build
 if errorlevel 1 (
     popd
-    echo [copaw] WARNING: npm run build failed - the web UI won't be available.
+    echo [boostclaw] WARNING: npm run build failed - the web UI won't be available.
     exit /b 0
 )
 popd
@@ -282,11 +285,11 @@ if exist "%_CONSOLE_SRC%\index.html" (
     xcopy /s /e /y /q "%_CONSOLE_SRC%\*" "%_CONSOLE_DEST%\" >nul
     set "CONSOLE_COPIED=1"
     set "CONSOLE_AVAILABLE=1"
-    echo [copaw] Console frontend built successfully
+    echo [boostclaw] Console frontend built successfully
     exit /b 0
 )
 
-echo [copaw] WARNING: Console build completed but index.html not found - the web UI won't be available.
+echo [boostclaw] WARNING: Console build completed but index.html not found - the web UI won't be available.
 exit /b 0
 
 REM ──── Cleanup console frontend ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -300,39 +303,39 @@ exit /b 0
 
 REM ══════════════════════════════ MAIN ═════════════════════════════════════════
 :main
-echo [copaw] Installing CoPaw into %COPAW_HOME%
+echo [boostclaw] Installing boostclaw into %BOOSTCLAW_HOME%
 
 REM ──── Step 1: Ensure uv ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 call :ensure_uv
 if errorlevel 1 exit /b 1
 
 REM ──── Step 2: Create / update virtual environment ──────────────────────────────────────────────────────────────
-if exist "%COPAW_VENV%" (
-    echo [copaw] Existing environment found, upgrading...
+if exist "%BOOSTCLAW_VENV%" (
+    echo [boostclaw] Existing environment found, upgrading...
 ) else (
-    echo [copaw] Creating Python %PYTHON_VERSION% environment...
+    echo [boostclaw] Creating Python %PYTHON_VERSION% environment...
 )
 
-uv venv "%COPAW_VENV%" --python %PYTHON_VERSION% --quiet --clear
+uv venv "%BOOSTCLAW_VENV%" --python %PYTHON_VERSION% --quiet --clear
 if errorlevel 1 (
-    echo [copaw] ERROR: Failed to create virtual environment
+    echo [boostclaw] ERROR: Failed to create virtual environment
     exit /b 1
 )
 
-set "VENV_PYTHON=%COPAW_VENV%\Scripts\python.exe"
+set "VENV_PYTHON=%BOOSTCLAW_VENV%\Scripts\python.exe"
 if not exist "%VENV_PYTHON%" (
-    echo [copaw] ERROR: Failed to create virtual environment
+    echo [boostclaw] ERROR: Failed to create virtual environment
     exit /b 1
 )
 
 for /f "delims=" %%v in ('"%VENV_PYTHON%" --version 2^>^&1') do set "PY_VERSION=%%v"
-echo [copaw] Python environment ready (%PY_VERSION%)
+echo [boostclaw] Python environment ready (%PY_VERSION%)
 
-REM ──── Step 3: Install CoPaw ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+REM ──── Step 3: Install BoostClaw ─────────────────────────────────────────────────────────────────────────────────────────────────────
 set "EXTRAS_SUFFIX="
 if defined ARG_EXTRAS set "EXTRAS_SUFFIX=[%ARG_EXTRAS%]"
 
-set "VENV_COPAW=%COPAW_VENV%\Scripts\copaw.exe"
+set "VENV_BOOSTCLAW=%BOOSTCLAW_VENV%\Scripts\boostclaw.exe"
 
 REM Use goto-based branching to avoid nested parenthesized blocks,
 REM which break when %vars% expand to values containing "(" or ")".
@@ -341,13 +344,13 @@ goto :install_from_pypi
 
 :install_from_source
 if defined ARG_SOURCE_DIR goto :install_from_local
-goto :install_from_github_copaw
+goto :install_from_github_boostclaw
 
 :install_from_local
 for %%I in ("%ARG_SOURCE_DIR%") do set "ARG_SOURCE_DIR=%%~fI"
-echo [copaw] Installing CoPaw from local source: %ARG_SOURCE_DIR%
+echo [boostclaw] Installing boostclaw from local source: %ARG_SOURCE_DIR%
 call :prepare_console "%ARG_SOURCE_DIR%"
-echo [copaw] Installing package from source...
+echo [boostclaw] Installing package from source...
 
 rem === Secure Input Validation (Prevents Argument Injection) ===
 rem 1. Ensure non-empty
@@ -387,34 +390,34 @@ uv pip install "%ARG_SOURCE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prer
 set "_INST_ERR=%errorlevel%"
 call :cleanup_console "%ARG_SOURCE_DIR%"
 if %_INST_ERR% neq 0 (
-    echo [copaw] ERROR: Installation from source failed
+    echo [boostclaw] ERROR: Installation from source failed
     exit /b 1
 )
 goto :install_verify
 
-:install_from_github_copaw
+:install_from_github_boostclaw
 where git >nul 2>&1
 if errorlevel 1 (
-    echo [copaw] ERROR: git is required for -FromSource without a local directory.
-    echo [copaw]        Please install Git from https://git-scm.com/ or pass a local path:
-    echo [copaw]        install-w-uv.bat -FromSource -SourceDir C:\path\to\CoPaw
+    echo [boostclaw] ERROR: git is required for -FromSource without a local directory.
+    echo [boostclaw]        Please install Git from https://git-scm.com/ or pass a local path:
+    echo [boostclaw]        install.bat -FromSource -SourceDir C:\path\to\boostclaw
     exit /b 1
 )
-echo [copaw] Installing CoPaw from source (GitHub)...
-set "CLONE_DIR=%TEMP%\copaw-install-%RANDOM%"
-git clone --depth 1 %COPAW_REPO% "%CLONE_DIR%"
+echo [boostclaw] Installing boostclaw from source (GitHub)...
+set "CLONE_DIR=%TEMP%\boostclaw-install-%RANDOM%"
+git clone --depth 1 %BOOSTCLAW_REPO% "%CLONE_DIR%"
 if errorlevel 1 (
     if exist "%CLONE_DIR%" rd /s /q "%CLONE_DIR%"
-    echo [copaw] ERROR: Failed to clone repository
+    echo [boostclaw] ERROR: Failed to clone repository
     exit /b 1
 )
 call :prepare_console "%CLONE_DIR%"
-echo [copaw] Installing package from source...
+echo [boostclaw] Installing package from source...
 uv pip install "%CLONE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow
 set "_INST_ERR=%errorlevel%"
 if exist "%CLONE_DIR%" rd /s /q "%CLONE_DIR%"
 if %_INST_ERR% neq 0 (
-    echo [copaw] ERROR: Installation from source failed
+    echo [boostclaw] ERROR: Installation from source failed
     exit /b 1
 )
 goto :install_verify
@@ -437,7 +440,7 @@ if defined ARG_VERSION (
 )
 rem === End Version Validation ===
 
-echo [copaw] Installing %_PACKAGE%%EXTRAS_SUFFIX% from PyPI...
+echo [boostclaw] Installing %_PACKAGE%%EXTRAS_SUFFIX% from PyPI...
 rem Note: It is also recommended to validate EXTRAS_SUFFIX here. Although it may be undefined in the local scope above,
 rem for safety, if ARG_EXTRAS is defined globally, it is best to reuse the validation logic from above or ensure its source is secure.
 rem Assume EXTRAS_SUFFIX is generated here based on the previously validated ARG_EXTRAS, or is empty.
@@ -445,61 +448,62 @@ rem If ARG_EXTRAS is passed globally, it is recommended to validate it uniformly
 
 uv pip install "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow --quiet
 if errorlevel 1 (
-    echo [copaw] ERROR: Installation failed
+    echo [boostclaw] ERROR: Installation failed
     exit /b 1
 )
 
 :install_verify
 
 REM Verify the CLI entry point exists
-if not exist "%VENV_COPAW%" (
-    echo [copaw] ERROR: Installation failed: copaw CLI not found in venv
+if not exist "%VENV_BOOSTCLAW%" (
+    echo [boostclaw] ERROR: Installation failed: boostclaw CLI not found in venv
     exit /b 1
 )
-echo [copaw] CoPaw installed successfully
+echo [boostclaw] boostclaw installed successfully
 
 REM Check console availability (for PyPI installs, probe the installed package)
 if "%CONSOLE_AVAILABLE%"=="0" (
-    "%VENV_PYTHON%" -c "import importlib.resources, copaw; p=importlib.resources.files('copaw')/'console'/'index.html'; print('yes' if p.is_file() else 'no')" > "%TEMP%\_copaw_console_check.tmp" 2>&1
-    set /p CONSOLE_CHECK=<"%TEMP%\_copaw_console_check.tmp"
-    del "%TEMP%\_copaw_console_check.tmp" >nul 2>&1
+    "%VENV_PYTHON%" -c "import importlib.resources, copaw; p=importlib.resources.files('copaw')/'console'/'index.html'; print('yes' if p.is_file() else 'no')" > "%TEMP%\_boostclaw_console_check.tmp" 2>&1
+    set /p CONSOLE_CHECK=<"%TEMP%\_boostclaw_console_check.tmp"
+    del "%TEMP%\_boostclaw_console_check.tmp" >nul 2>&1
     if "!CONSOLE_CHECK!"=="yes" set "CONSOLE_AVAILABLE=1"
 )
 
 REM ──── Step 4: Create wrapper scripts ────────────────────────────────────────────────────────────────────────────────────────
-if not exist "%COPAW_BIN%" mkdir "%COPAW_BIN%"
+if not exist "%BOOSTCLAW_BIN%" mkdir "%BOOSTCLAW_BIN%"
 
 REM PowerShell wrapper
-set "WRAPPER_PS1=%COPAW_BIN%\copaw.ps1"
-echo # CoPaw CLI wrapper -- delegates to the uv-managed environment. > "%WRAPPER_PS1%"
+set "WRAPPER_PS1=%BOOSTCLAW_BIN%\boostclaw.ps1"
+echo # boostclaw CLI wrapper -- delegates to the uv-managed environment. > "%WRAPPER_PS1%"
 echo $ErrorActionPreference = "Stop" >> "%WRAPPER_PS1%"
 echo. >> "%WRAPPER_PS1%"
-echo $CopawHome = if ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME ".boostclaw" } >> "%WRAPPER_PS1%"
-echo $RealBin = Join-Path $CopawHome "venv\Scripts\copaw.exe" >> "%WRAPPER_PS1%"
+echo $BoostclawHome = if ($env:BOOSTCLAW_HOME) { $env:BOOSTCLAW_HOME } elseif ($env:COPAW_HOME) { $env:COPAW_HOME } else { Join-Path $HOME ".boostclaw" } >> "%WRAPPER_PS1%"
+echo $RealBin = Join-Path $BoostclawHome "venv\Scripts\boostclaw.exe" >> "%WRAPPER_PS1%"
 echo. >> "%WRAPPER_PS1%"
 echo if (-not (Test-Path $RealBin)) { >> "%WRAPPER_PS1%"
-echo     Write-Error "CoPaw environment not found at $CopawHome\venv" >> "%WRAPPER_PS1%"
+echo     Write-Error "boostclaw environment not found at $BoostclawHome\venv" >> "%WRAPPER_PS1%"
 echo     Write-Error "Please reinstall: irm ^<install-url^> ^| iex" >> "%WRAPPER_PS1%"
 echo     exit 1 >> "%WRAPPER_PS1%"
 echo } >> "%WRAPPER_PS1%"
 echo. >> "%WRAPPER_PS1%"
 echo ^& $RealBin @args >> "%WRAPPER_PS1%"
-echo [copaw] Wrapper created at %WRAPPER_PS1%
+echo [boostclaw] Wrapper created at %WRAPPER_PS1%
 
 REM CMD wrapper
-set "WRAPPER_CMD=%COPAW_BIN%\copaw.cmd"
+set "WRAPPER_CMD=%BOOSTCLAW_BIN%\boostclaw.cmd"
 echo @echo off > "%WRAPPER_CMD%"
-echo REM CoPaw CLI wrapper -- delegates to the uv-managed environment. >> "%WRAPPER_CMD%"
-echo set "COPAW_HOME=%%COPAW_HOME%%" >> "%WRAPPER_CMD%"
-echo if "%%COPAW_HOME%%"=="" set "COPAW_HOME=%%USERPROFILE%%\.copaw" >> "%WRAPPER_CMD%"
-echo set "REAL_BIN=%%COPAW_HOME%%\venv\Scripts\copaw.exe" >> "%WRAPPER_CMD%"
+echo REM boostclaw CLI wrapper -- delegates to the uv-managed environment. >> "%WRAPPER_CMD%"
+echo set "BOOSTCLAW_HOME=%%BOOSTCLAW_HOME%%" >> "%WRAPPER_CMD%"
+echo if "%%BOOSTCLAW_HOME%%"=="" if not "%%COPAW_HOME%%"=="" set "BOOSTCLAW_HOME=%%COPAW_HOME%%" >> "%WRAPPER_CMD%"
+echo if "%%BOOSTCLAW_HOME%%"=="" set "BOOSTCLAW_HOME=%%USERPROFILE%%\.boostclaw" >> "%WRAPPER_CMD%"
+echo set "REAL_BIN=%%BOOSTCLAW_HOME%%\venv\Scripts\boostclaw.exe" >> "%WRAPPER_CMD%"
 echo if not exist "%%REAL_BIN%%" ( >> "%WRAPPER_CMD%"
-echo     echo Error: CoPaw environment not found at %%COPAW_HOME%%\venv ^>^&2 >> "%WRAPPER_CMD%"
+echo     echo Error: boostclaw environment not found at %%BOOSTCLAW_HOME%%\venv ^>^&2 >> "%WRAPPER_CMD%"
 echo     echo Please reinstall ^>^&2 >> "%WRAPPER_CMD%"
 echo     exit /b 1 >> "%WRAPPER_CMD%"
 echo ) >> "%WRAPPER_CMD%"
 echo "%%REAL_BIN%%" %%* >> "%WRAPPER_CMD%"
-echo [copaw] CMD wrapper created at %WRAPPER_CMD%
+echo [boostclaw] CMD wrapper created at %WRAPPER_CMD%
 
 REM ──── Step 5: Update PATH via user environment variable ──────────────────────────────────────────────────
 set "CURRENT_USER_PATH="
@@ -509,34 +513,34 @@ for /f "skip=2 tokens=1,2,*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nu
 
 :: === 安全检查PATH是否已存在（关键修复） ===
 set "path_check=;%CURRENT_USER_PATH%;"
-set "check_str=;%COPAW_BIN%;"
+set "check_str=;%BOOSTCLAW_BIN%;"
 if /i "%path_check%" neq "%path_check:%check_str%=%" (
-    echo [copaw] %COPAW_BIN% already in PATH
+    echo [boostclaw] %BOOSTCLAW_BIN% already in PATH
 ) else (
     :: === 修复1：安全传递参数（解决命令注入） ===
     if defined CURRENT_USER_PATH (
-        powershell -NoProfile -Command "$p = $args[0]; $v = $args[1]; [Environment]::SetEnvironmentVariable('Path', $p + ';' + $v, 'User')" "%COPAW_BIN%" "!CURRENT_USER_PATH!"
+        powershell -NoProfile -Command "$p = $args[0]; $v = $args[1]; [Environment]::SetEnvironmentVariable('Path', $p + ';' + $v, 'User')" "%BOOSTCLAW_BIN%" "!CURRENT_USER_PATH!"
     ) else (
-        powershell -NoProfile -Command "$p = $args[0]; [Environment]::SetEnvironmentVariable('Path', $p, 'User')" "%COPAW_BIN%"
+        powershell -NoProfile -Command "$p = $args[0]; [Environment]::SetEnvironmentVariable('Path', $p, 'User')" "%BOOSTCLAW_BIN%"
     )
 
     :: === 修复2：添加关键错误检查（解决失败不报错） ===
     if errorlevel 1 (
-        echo [error] Failed to update PATH. COPAW_BIN: "%COPAW_BIN%"
+        echo [error] Failed to update PATH. BOOSTCLAW_BIN: "%BOOSTCLAW_BIN%"
         echo [error] Please verify the path is valid.
         exit /b 1
     )
 
     :: === 修复3：安全更新当前进程PATH ===
-    set "PATH=%COPAW_BIN%;!PATH!"
-    echo [copaw] Added %COPAW_BIN% to PATH
+    set "PATH=%BOOSTCLAW_BIN%;!PATH!"
+    echo [boostclaw] Added %BOOSTCLAW_BIN% to PATH
 )
 
 REM ──── Done ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 echo.
-echo CoPaw installed successfully!
+echo boostclaw installed successfully!
 echo.
-echo   Install location:  %COPAW_HOME%
+echo   Install location:  %BOOSTCLAW_HOME%
 echo   Python:            %PY_VERSION%
 if "%CONSOLE_AVAILABLE%"=="1" (
     echo   Console ^(web UI^):  available
@@ -547,10 +551,10 @@ if "%CONSOLE_AVAILABLE%"=="1" (
 echo.
 echo To get started, open a new terminal and run:
 echo.
-echo   copaw init       # first-time setup
-echo   copaw app        # start CoPaw
+echo   boostclaw init       # first-time setup
+echo   boostclaw app        # start boostclaw
 echo.
 echo To upgrade later, re-run this installer.
-echo To uninstall, run: copaw uninstall
+echo To uninstall, run: boostclaw uninstall
 
 exit /b 0

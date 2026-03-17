@@ -14,7 +14,7 @@ If you haven’t read [Introduction](./intro), skim the short “terms” there
 ## How heartbeat works
 
 1. You have a file **HEARTBEAT.md** (by default under the working dir
-   `~/.copaw/`). Its content is **what to ask CoPaw each time** (one
+   `~/.boostclaw/`). Its content is **what to ask CoPaw each time** (one
    block of text; CoPaw sees it as one user message).
 2. The system runs on your **interval** (e.g. every 30 minutes): read
    HEARTBEAT.md → send that as the user message → CoPaw replies.
@@ -33,7 +33,7 @@ day (e.g. 08:00–22:00).
 
 ## Step 1: Write HEARTBEAT.md
 
-Default path: `~/.copaw/HEARTBEAT.md`. Content = “what to ask each time.”
+Default path: `~/.boostclaw/HEARTBEAT.md`. Content = “what to ask each time.”
 Plain text or Markdown; the whole thing is sent as one user message.
 
 Example (customize as you like):
@@ -56,7 +56,7 @@ the next heartbeat run will use the new content.
 ## Step 2: Configure heartbeat in config.json
 
 **Interval, target, and active hours** are in `config.json` (usually
-`~/.copaw/config.json`), under `agents.defaults.heartbeat`:
+`~/.boostclaw/config.json`), under `agents.defaults.heartbeat`:
 
 | Field       | Meaning                                    | Example                                        |
 | ----------- | ------------------------------------------ | ---------------------------------------------- |

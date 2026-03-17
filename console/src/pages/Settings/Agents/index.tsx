@@ -243,7 +243,7 @@ export default function AgentsPage() {
             help={!editingAgent ? t("agent.workspaceHelp") : undefined}
           >
             <Input
-              placeholder="~/.copaw/workspaces/my-agent"
+              placeholder="~/.boostclaw/workspaces/my-agent"
               disabled={!!editingAgent}
             />
           </Form.Item>

@@ -9,7 +9,7 @@
 
 > 若尚未了解「频道」「心跳」「定时任务」等概念，建议先阅读 [项目介绍](./intro)。
 
-应用从工作目录下的 `skills` 目录（默认 `~/.copaw/active_skills/`）加载能力：每个子目录中只要包含一份 `SKILL.md`，即会被识别为一个 Skill 并加载，无需额外注册。
+应用从工作目录下的 `skills` 目录（默认 `~/.boostclaw/active_skills/`）加载能力：每个子目录中只要包含一份 `SKILL.md`，即会被识别为一个 Skill 并加载，无需额外注册。
 
 ---
 
@@ -48,7 +48,7 @@
 
 ## 内置 Skill：Cron（定时任务）
 
-首次运行时会从包里把 **Cron** 同步到 `~/.copaw/active_skills/cron/`。它提供「按时间表执行任务并把结果发到频道」的能力；具体任务的增删改查用 [CLI](./cli) 的 `copaw cron` 或控制台 **Control → Cron Jobs** 完成，不需要手写 cron 以外的配置。
+首次运行时会从包里把 **Cron** 同步到 `~/.boostclaw/active_skills/cron/`。它提供「按时间表执行任务并把结果发到频道」的能力；具体任务的增删改查用 [CLI](./cli) 的 `copaw cron` 或控制台 **Control → Cron Jobs** 完成，不需要手写 cron 以外的配置。
 
 常用操作：
 
@@ -115,13 +115,13 @@
 
 ### 步骤
 
-1. 在 `~/.copaw/customized_skills/` 下新建一个目录，例如 `my_skill`。
+1. 在 `~/.boostclaw/customized_skills/` 下新建一个目录，例如 `my_skill`。
 2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；可选在文件开头用 YAML front matter 写 `name`、`description`、`metadata`，方便在 Agent 或控制台里展示。
 
 ### 目录结构示例
 
 ```
-~/.copaw/
+~/.boostclaw/
   active_skills/        # 实际激活的 Skill（由内置与自定义合并同步）
     cron/
       SKILL.md
@@ -145,7 +145,7 @@ description: 我的自定义能力说明
 本 Skill 用于……
 ```
 
-应用启动时会将内置 Skill 与 `~/.copaw/customized_skills/` 中的自定义 Skill 合并同步到 `~/.copaw/active_skills/`，同名时自定义优先。你在 `customized_skills` 中新加的目录不会被覆盖；内置 Skill 只会在 `active_skills` 中缺失时复制一次，已存在则不会覆盖。
+应用启动时会将内置 Skill 与 `~/.boostclaw/customized_skills/` 中的自定义 Skill 合并同步到 `~/.boostclaw/active_skills/`，同名时自定义优先。你在 `customized_skills` 中新加的目录不会被覆盖；内置 Skill 只会在 `active_skills` 中缺失时复制一次，已存在则不会覆盖。
 
 ---
 

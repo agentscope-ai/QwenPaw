@@ -166,7 +166,7 @@ xattr -cr /Applications/CoPaw.app
 
 - 双击 `CoPaw.app` 即可启动
 - 应用会在后台运行，打开浏览器窗口
-- 日志输出到：`~/.copaw/desktop.log`
+- 日志输出到：`~/.boostclaw/desktop.log`
 
 #### 终端启动（查看实时日志）
 
@@ -192,7 +192,7 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 
 ```bash
 # 查看最近的启动日志
-tail -f ~/.copaw/desktop.log
+tail -f ~/.boostclaw/desktop.log
 ```
 
 ### 常见问题
@@ -200,14 +200,14 @@ tail -f ~/.copaw/desktop.log
 **Q: 双击后没有任何反应？**
 A:
 
-1. 检查 `~/.copaw/desktop.log` 文件查看错误
+1. 检查 `~/.boostclaw/desktop.log` 文件查看错误
 2. 使用上述终端命令启动，查看实时输出
 
 **Q: 提示"Apple 无法验证此应用"？**
 A: 按照上述"解除系统安全限制"步骤操作
 
 **Q: 如何卸载？**
-A: 将 `CoPaw.app` 拖到废纸篓，然后删除 `~/.copaw` 配置文件夹
+A: 将 `CoPaw.app` 拖到废纸篓，然后删除 `~/.boostclaw` 配置文件夹
 
 **Q: Intel Mac 可以用吗？**
 A: 可以运行，但无法使用 MLX 模型加速（MLX 仅支持 Apple Silicon）
@@ -230,8 +230,8 @@ A:
 - **GitHub Issues**: [提交问题](https://github.com/aimentorai/boostclaw/issues)
 - **打包文档**: `scripts/pack/README.md` - 技术细节和本地构建指南
 - **日志位置**:
-  - Windows: Debug 模式终端查看，或 `%USERPROFILE%\.copaw\` 目录
-  - macOS: `~/.copaw/desktop.log`
+  - Windows: Debug 模式终端查看，或 `%USERPROFILE%\.boostclaw\` 目录
+  - macOS: `~/.boostclaw/desktop.log`
 
 ---
 

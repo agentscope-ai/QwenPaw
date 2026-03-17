@@ -10,7 +10,7 @@ Two ways to manage skills:
 > If you're new to channels, heartbeat, or cron, read [Introduction](./intro) first.
 
 The app loads skills from the working directory `skills` folder (default
-`~/.copaw/active_skills/`): any subdirectory containing a `SKILL.md` is loaded as a
+`~/.boostclaw/active_skills/`): any subdirectory containing a `SKILL.md` is loaded as a
 skill; no extra registration.
 
 ---
@@ -51,7 +51,7 @@ Changes are synced to the working directory and affect the agent. Handy if you p
 ## Built-in skill: Cron (scheduled tasks)
 
 On first run the **Cron** skill is synced from the package to
-`~/.copaw/active_skills/cron/`. It provides “run on a schedule and send results to a
+`~/.boostclaw/active_skills/cron/`. It provides “run on a schedule and send results to a
 channel.” You manage jobs with the [CLI](./cli) (`copaw cron`) or in the
 Console under **Control → Cron Jobs**; no need to edit skill files.
 
@@ -122,13 +122,13 @@ To add your own instructions or capabilities via the file system, add a custom s
 
 ### Steps
 
-1. Create a directory under `~/.copaw/customized_skills/`, e.g. `my_skill`.
+1. Create a directory under `~/.boostclaw/customized_skills/`, e.g. `my_skill`.
 2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. You can optionally use YAML front matter at the top for `name`, `description`, and `metadata` (for the agent or Console).
 
 ### Directory layout example
 
 ```
-~/.copaw/
+~/.boostclaw/
   active_skills/        # Activated skills (merged from built-in + custom)
     cron/
       SKILL.md
@@ -152,7 +152,7 @@ description: My custom capability
 This skill is used for…
 ```
 
-On startup the app merges built-in skills with custom skills from `~/.copaw/customized_skills/` into `~/.copaw/active_skills/`; custom skills take priority when names collide. Your custom directories are never overwritten; built-in skills are only copied to `active_skills` when missing.
+On startup the app merges built-in skills with custom skills from `~/.boostclaw/customized_skills/` into `~/.boostclaw/active_skills/`; custom skills take priority when names collide. Your custom directories are never overwritten; built-in skills are only copied to `active_skills` when missing.
 
 ---
 

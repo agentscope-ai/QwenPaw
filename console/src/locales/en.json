@@ -101,7 +101,7 @@
     "nameRequired": "Please enter agent name",
     "namePlaceholder": "e.g.: My Agent",
     "descriptionPlaceholder": "Briefly describe this agent's purpose...",
-    "workspaceHelp": "Leave empty to auto-generate in ~/.copaw/workspaces/<id>",
+    "workspaceHelp": "Leave empty to auto-generate in ~/.boostclaw/workspaces/<id>",
     "defaultNotEditable": "Default agent cannot be edited",
     "defaultNotDeletable": "Default agent cannot be deleted"
   },

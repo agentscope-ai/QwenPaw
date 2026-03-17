@@ -162,7 +162,7 @@ async def create_agent(
 
     # Create workspace directory
     workspace_dir = Path(
-        request.workspace_dir or f"~/.copaw/workspaces/{new_id}",
+        request.workspace_dir or f"~/.boostclaw/workspaces/{new_id}",
     ).expanduser()
     workspace_dir.mkdir(parents=True, exist_ok=True)
 

@@ -6,7 +6,7 @@ in DingTalk; same for QQ, etc. If that term is new, see [Introduction](./intro).
 Two ways to configure channels:
 
 - **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
-- **Edit `config.json` directly** — Default `~/.copaw/config.json` (created by `copaw init`), set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
+- **Edit `config.json` directly** — Default `~/.boostclaw/config.json` (created by `copaw init`), set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
 
 All channels have common fields below:
 
@@ -62,7 +62,7 @@ Step-by-step:
 
 ### Link the app
 
-You can configure it either in the Console frontend or by editing `~/.copaw/config.json`.
+You can configure it either in the Console frontend or by editing `~/.boostclaw/config.json`.
 
 **Method 1**: Configure in the Console frontend
 
@@ -70,7 +70,7 @@ Go to "Control→Channels", find **DingTalk**, click it, and enter the **Client 
 
 ![console](https://img.alicdn.com/imgextra/i3/O1CN01i07tt61rzZUSMo5SI_!!6000000005702-2-tps-3643-1897.png)
 
-**Method 2**: Edit `~/.copaw/config.json`
+**Method 2**: Edit `~/.boostclaw/config.json`
 
 In `config.json`, find `channels.dingtalk` and fill in the corresponding information, for example:
 
@@ -195,7 +195,7 @@ The Feishu channel receives messages via **WebSocket long connection** (no publi
 
 ### Fill config.json
 
-Find `channels.feishu`（default as `~/.copaw/config.json`） in `config.json`. Only **App ID** and **App Secret** are required (copy from the Feishu console under Credentials & basic info):
+Find `channels.feishu`（default as `~/.boostclaw/config.json`） in `config.json`. Only **App ID** and **App Secret** are required (copy from the Feishu console under Credentials & basic info):
 
 ```json
 "feishu": {
@@ -282,7 +282,7 @@ The app polls the local iMessage database for new messages and sends replies on 
 
      ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
 
-   - Or edit `config.json` (usually at `~/.copaw/config.json`):
+   - Or edit `config.json` (usually at `~/.boostclaw/config.json`):
 
      ```json
      "imessage": {
@@ -343,7 +343,7 @@ The app polls the local iMessage database for new messages and sends replies on 
 
 ### Configure the Bot
 
-You can configure via the Console UI or by editing `~/.copaw/config.json`.
+You can configure via the Console UI or by editing `~/.boostclaw/config.json`.
 
 **Method 1:** Configure in the Console
 
@@ -351,7 +351,7 @@ Go to **Control → Channels**, click **Discord**, and enter the **Bot Token** y
 
 ![Console](https://img.alicdn.com/imgextra/i4/O1CN019GKk901VE0od1PU9t_!!6000000002620-2-tps-4084-2126.png)
 
-**Method 2:** Edit `~/.copaw/config.json`
+**Method 2:** Edit `~/.boostclaw/config.json`
 
 Find `channels.discord` in `config.json` and fill in the fields, for example:
 
@@ -461,7 +461,7 @@ You can bind the bot by filling in the Bot ID and Secret in the Console or `conf
 
 ![Bind robot](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
 
-**Method 2:** Fill in `config.json` (default file path is `~/.copaw/config.json`)
+**Method 2:** Fill in `config.json` (default file path is `~/.boostclaw/config.json`)
 
 Find `wecom` and fill in the corresponding information, for example:
 
@@ -472,7 +472,7 @@ Find `wecom` and fill in the corresponding information, for example:
   "group_policy": "open",
   "bot_id": "your bot_id",
   "secret": "your secret",
-  "media_dir": "~/.copaw/media",
+  "media_dir": "~/.boostclaw/media",
   "max_reconnect_attempts": -1
 }
 ```
@@ -498,7 +498,7 @@ Find `wecom` and fill in the corresponding information, for example:
 
 ### Configure the Bot
 
-You can configure via the Console UI or by editing `~/.copaw/config.json`.
+You can configure via the Console UI or by editing `~/.boostclaw/config.json`.
 
 **Method 1:** Configure in the Console
 
@@ -506,7 +506,7 @@ Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** 
 
 ![Console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
 
-**Method 2:** Edit `~/.copaw/config.json`
+**Method 2:** Edit `~/.boostclaw/config.json`
 
 Find `channels.telegram` in `config.json` and fill in the fields, for example:
 
@@ -665,7 +665,7 @@ Go to **Control → Channels**, click **Matrix**, enable it, and fill in:
 - **User ID** — e.g. `@mybot:matrix.org`
 - **Access Token** — the token you copied above (shown as a password field)
 
-**Method 2:** Edit `~/.copaw/config.json`
+**Method 2:** Edit `~/.boostclaw/config.json`
 
 Find `channels.matrix` in `config.json`:
 
@@ -915,7 +915,7 @@ def build_agent_request_from_native(self, native_payload):
 
 ### Custom channel directory and CLI
 
-- **Directory**: Channels under the working dir at `custom_channels/` (default `~/.copaw/custom_channels/`) are loaded at runtime. The manager scans `.py` files and packages (subdirs with `__init__.py`), loads `BaseChannel` subclasses, and registers them by the class’s `channel` attribute.
+- **Directory**: Channels under the working dir at `custom_channels/` (default `~/.boostclaw/custom_channels/`) are loaded at runtime. The manager scans `.py` files and packages (subdirs with `__init__.py`), loads `BaseChannel` subclasses, and registers them by the class’s `channel` attribute.
 - **Install**: `copaw channels install <key>` creates a template `<key>.py` in `custom_channels/` for you to edit, or use `--path <local path>` / `--url <URL>` to copy a channel module from disk or the web. `copaw channels add <key>` does the same and also adds a default entry to config (with optional `--path`/`--url`).
 - **Remove**: `copaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
 - **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `copaw channels config` for interactive setup or edit config by hand.

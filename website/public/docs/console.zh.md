@@ -404,7 +404,7 @@ LM Studio 提供商连接 LM Studio 桌面应用内置的 OpenAI 兼容本地服
 
 在聊天中直接问 CoPaw「最近用了多少 token？」或「帮我看看 token 消耗」，Agent 会调用 `get_token_usage` 工具并返回统计结果。
 
-> 数据存储在 `~/.copaw/token_usage.json`，可通过 `COPAW_TOKEN_USAGE_FILE` 环境变量自定义文件名。详见 [配置 — 环境变量](./config#环境变量)。
+> 数据存储在 `~/.boostclaw/token_usage.json`，可通过 `COPAW_TOKEN_USAGE_FILE` 环境变量自定义文件名。详见 [配置 — 环境变量](./config#环境变量)。
 
 ---
 

@@ -32,7 +32,7 @@ metadata:
 
 ```bash
 # 获取memory中的文档目录
-DOC_DIR=$(find ~/.copaw/memory/ -type d -name "docs")
+DOC_DIR=$(find ~/.boostclaw/memory/ -type d -name "docs")
 ```
 
 如果 memory 中没有文档目录，则继续执行下面的逻辑。

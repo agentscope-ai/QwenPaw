@@ -221,7 +221,7 @@ export function ChannelDrawer({
               <Input placeholder="Optional" />
             </Form.Item>
             <Form.Item name="media_dir" label="Media Dir">
-              <Input placeholder="~/.copaw/media" />
+              <Input placeholder="~/.boostclaw/media" />
             </Form.Item>
           </>
         );
@@ -458,7 +458,7 @@ export function ChannelDrawer({
               <Input.Password placeholder="Secret from WeCom backend" />
             </Form.Item>
             <Form.Item name="media_dir" label="Media Dir">
-              <Input placeholder="~/.copaw/media" />
+              <Input placeholder="~/.boostclaw/media" />
             </Form.Item>
             <Form.Item
               name="welcome_text"

@@ -166,7 +166,7 @@ When first launched, macOS may request the following permissions:
 
 - Double-click `CoPaw.app` to launch
 - The app runs in the background and opens a browser window
-- Logs are written to: `~/.copaw/desktop.log`
+- Logs are written to: `~/.boostclaw/desktop.log`
 
 #### Terminal Launch (View real-time logs)
 
@@ -192,7 +192,7 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 
 ```bash
 # View recent startup logs
-tail -f ~/.copaw/desktop.log
+tail -f ~/.boostclaw/desktop.log
 ```
 
 ### Common Issues
@@ -200,14 +200,14 @@ tail -f ~/.copaw/desktop.log
 **Q: Nothing happens after double-clicking?**
 A:
 
-1. Check the `~/.copaw/desktop.log` file for errors
+1. Check the `~/.boostclaw/desktop.log` file for errors
 2. Use the terminal command above to launch and view real-time output
 
 **Q: Message "Apple cannot verify this application"?**
 A: Follow the "Bypassing System Security Restrictions" steps above
 
 **Q: How to uninstall?**
-A: Drag `CoPaw.app` to the Trash, then delete the `~/.copaw` configuration folder
+A: Drag `CoPaw.app` to the Trash, then delete the `~/.boostclaw` configuration folder
 
 **Q: Can I use it on Intel Mac?**
 A: Yes, but you cannot use MLX model acceleration (MLX only supports Apple Silicon)
@@ -230,8 +230,8 @@ Currently using:
 - **GitHub Issues**: [Submit an issue](https://github.com/aimentorai/boostclaw/issues)
 - **Packaging documentation**: `scripts/pack/README.md` - Technical details and local build guide
 - **Log locations**:
-  - Windows: View in Debug mode terminal, or `%USERPROFILE%\.copaw\` directory
-  - macOS: `~/.copaw/desktop.log`
+  - Windows: View in Debug mode terminal, or `%USERPROFILE%\.boostclaw\` directory
+  - macOS: `~/.boostclaw/desktop.log`
 
 ---
 
