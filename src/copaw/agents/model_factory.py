@@ -172,9 +172,7 @@ def _create_file_block_support_formatter(
                         and m.content
                         and all(b.get("type") == "thinking" for b in m.content)
                     )
-                    if not (
-                        is_thinking_only and not getattr(m, "tool_calls", None)
-                    ):
+                    if not is_thinking_only:
                         aligned_reasoning.append(
                             reasoning_contents.get(id(m)),
                         )
