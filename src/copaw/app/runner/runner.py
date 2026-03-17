@@ -47,9 +47,137 @@ from ...security.tool_guard.approval import ApprovalDecision
 logger = logging.getLogger(__name__)
 
 
-def _classify_exception(  # pylint: disable=too-many-return-statements
-    exc: Exception,
-) -> AppBaseException:
+class _Rule:
+    """Declarative rule for mapping raw exceptions to error codes."""
+
+    __slots__ = (
+        "factory",
+        "status_codes",
+        "type_keywords",
+        "msg_keywords",
+        "base_types",
+    )
+
+    def __init__(
+        self,
+        factory,
+        *,
+        status_codes: tuple[int, ...] = (),
+        type_keywords: tuple[str, ...] = (),
+        msg_keywords: tuple[str, ...] = (),
+        base_types: tuple[type, ...] = (),
+    ):
+        self.factory = factory
+        self.status_codes = status_codes
+        self.type_keywords = type_keywords
+        self.msg_keywords = msg_keywords
+        self.base_types = base_types
+
+    def matches(self, exc, exc_type, exc_msg, status) -> bool:
+        if self.base_types and isinstance(exc, self.base_types):
+            return True
+        if self.status_codes and status in self.status_codes:
+            return True
+        if self.type_keywords and any(
+            k in exc_type for k in self.type_keywords
+        ):
+            return True
+        if self.msg_keywords and any(k in exc_msg for k in self.msg_keywords):
+            return True
+        return False
+
+
+def _make_auth(details):
+    return UnauthorizedModelAccessException(model_name="", details=details)
+
+
+def _make_quota(details):
+    return ModelQuotaExceededException(model_name="", details=details)
+
+
+def _make_context(details):
+    return ModelContextLengthExceededException(model_name="", details=details)
+
+
+def _make_timeout(details):
+    return ModelTimeoutException(model_name="", timeout=0, details=details)
+
+
+def _make_network(details):
+    return NetworkException(
+        message=details["original_message"],
+        details=details,
+    )
+
+
+def _make_exec(details):
+    return ModelExecutionException(model_name="", details=details)
+
+
+def _make_not_found(details):
+    return ModelNotFoundException(model_name="", details=details)
+
+
+_RULES: list[_Rule] = [
+    _Rule(
+        _make_auth,
+        status_codes=(401,),
+        type_keywords=("AuthenticationError",),
+        msg_keywords=(
+            "api_key",
+            "api key",
+            "unauthorized",
+            "invalid x-api-key",
+        ),
+    ),
+    _Rule(
+        _make_quota,
+        status_codes=(429,),
+        type_keywords=("RateLimitError", "OverloadedError"),
+        msg_keywords=("rate_limit", "rate limit", "quota"),
+    ),
+    _Rule(
+        _make_context,
+        status_codes=(413,),
+        type_keywords=("LengthFinishReasonError", "RequestTooLargeError"),
+        msg_keywords=(
+            "context_length",
+            "maximum context length",
+            "too many tokens",
+        ),
+    ),
+    _Rule(
+        _make_timeout,
+        status_codes=(504,),
+        type_keywords=("Timeout", "DeadlineExceeded"),
+        base_types=(TimeoutError,),
+    ),
+    _Rule(
+        _make_network,
+        status_codes=(503,),
+        type_keywords=("ConnectionError", "ConnectError"),
+        base_types=(ConnectionError,),
+    ),
+    _Rule(
+        _make_exec,
+        type_keywords=("ContentFilterFinishReasonError",),
+        msg_keywords=("content_filter", "content management policy"),
+    ),
+    _Rule(
+        _make_not_found,
+        status_codes=(404,),
+        type_keywords=("NotFoundError",),
+        msg_keywords=("model not found", "does not exist"),
+    ),
+    _Rule(
+        _make_exec,
+        status_codes=(400,),
+        type_keywords=("BadRequestError",),
+    ),
+]
+
+
+def _classify_exception(exc: Exception) -> AppBaseException:
     """Map a raw exception to an ``AppBaseException`` with a specific error
     code so that agentscope-runtime can propagate a meaningful code instead
     of the catch-all ``AGENT_UNKNOWN_ERROR``.
@@ -71,116 +199,13 @@ def _classify_exception(  # pylint: disable=too-many-return-statements
     )
     details = {"original_type": exc_type, "original_message": str(exc)}
 
-    def _msg_has(*keywords: str) -> bool:
-        return any(k in exc_msg for k in keywords)
+    for rule in _RULES:
+        if rule.matches(exc, exc_type, exc_msg, status):
+            return rule.factory(details)
 
-    def _type_has(*keywords: str) -> bool:
-        return any(k in exc_type for k in keywords)
-
-    # Auth / API-key errors (HTTP 401)
-    if (
-        status == 401
-        or _type_has("AuthenticationError")
-        or _msg_has(
-            "api_key",
-            "api key",
-            "unauthorized",
-            "invalid x-api-key",
-        )
-    ):
-        return UnauthorizedModelAccessException(
-            model_name="",
-            details=details,
-        )
-
-    # Rate-limit / quota (HTTP 429, Anthropic 529 overloaded)
-    if (
-        status == 429
-        or _type_has(
-            "RateLimitError",
-            "OverloadedError",
-        )
-        or _msg_has("rate_limit", "rate limit", "quota")
-    ):
-        return ModelQuotaExceededException(model_name="", details=details)
-
-    # Context-length / request-too-large
-    if (
-        status == 413
-        or _type_has(
-            "LengthFinishReasonError",
-            "RequestTooLargeError",
-        )
-        or _msg_has(
-            "context_length",
-            "maximum context length",
-            "too many tokens",
-        )
-    ):
-        return ModelContextLengthExceededException(
-            model_name="",
-            details=details,
-        )
-
-    # Timeout (HTTP 504 / SDK timeouts / Python builtins)
-    if (
-        isinstance(exc, (TimeoutError, asyncio.TimeoutError))
-        or _type_has("Timeout", "DeadlineExceeded")
-        or status == 504
-    ):
-        return ModelTimeoutException(
-            model_name="",
-            timeout=0,
-            details=details,
-        )
-
-    # Connection / network (HTTP 503 / SDK connection errors)
-    if (
-        isinstance(exc, ConnectionError)
-        or _type_has("ConnectionError", "ConnectError")
-        or status == 503
-    ):
-        return NetworkException(message=str(exc), details=details)
-
-    matched = _match_remaining(exc, exc_type, exc_msg, status, details)
-    if matched is not None:
-        return matched
-
-    return UnknownAgentException(original_exception=exc, details=details)
-
-
-def _match_remaining(
-    exc: Exception,
-    exc_type: str,
-    exc_msg: str,
-    status: int | None,
-    details: dict,
-) -> AppBaseException | None:
-    """Secondary matching rules split out to keep the main function concise."""
-    # Content filter / safety
-    if (
-        "ContentFilterFinishReasonError" in exc_type
-        or "content_filter" in exc_msg
-        or "content management policy" in exc_msg
-    ):
-        return ModelExecutionException(model_name="", details=details)
-
-    # Model not found (HTTP 404 or config miss)
-    if (
-        status == 404
-        or "NotFoundError" in exc_type
-        or "model not found" in exc_msg
-        or "does not exist" in exc_msg
-    ):
-        return ModelNotFoundException(model_name="", details=details)
-
-    # Bad request (HTTP 400)
-    if status == 400 or "BadRequestError" in exc_type:
-        return ModelExecutionException(model_name="", details=details)
-
-    # Generic server errors (5xx)
+    # Generic server errors (5xx) not covered by specific rules
     if isinstance(status, int) and 500 <= status < 600:
-        return ModelExecutionException(model_name="", details=details)
+        return _make_exec(details)
 
     # Provider / model not configured (ValueError from provider_manager)
     if isinstance(exc, (ValueError, NotImplementedError)) and (
@@ -188,9 +213,9 @@ def _match_remaining(
         or "not configured" in exc_msg
         or "no active model" in exc_msg
     ):
-        return ModelNotFoundException(model_name="", details=details)
+        return _make_not_found(details)
 
-    return None
+    return UnknownAgentException(original_exception=exc, details=details)
 
 
 class AgentRunner(Runner):
