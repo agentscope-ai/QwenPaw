@@ -363,8 +363,8 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
 def get_heartbeat_config() -> HeartbeatConfig:
     """Return effective heartbeat config (from file or default 30m/main)."""
     config = load_config()
-    hb = config.agents.defaults.heartbeat
-    return hb if hb is not None else HeartbeatConfig()
+    hb = config.agents.defaults and config.agents.defaults.heartbeat
+    return hb or HeartbeatConfig()
 
 
 def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:

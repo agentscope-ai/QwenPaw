@@ -225,17 +225,8 @@ class Workspace:
                 channel_manager=self._channel_manager,
                 timezone="UTC",
             )
-            # Only start background tasks if heartbeat is enabled
-            if agent_config.heartbeat and agent_config.heartbeat.enabled:
-                await self._cron_manager.start()
-                logger.debug(
-                    f"CronManager started with heartbeat: {self.agent_id}",
-                )
-            else:
-                logger.debug(
-                    f"CronManager created (heartbeat disabled): "
-                    f"{self.agent_id}",
-                )
+            await self._cron_manager.start()
+            logger.debug(f"CronManager started for agent: {self.agent_id}")
 
             # 6. Start config watchers for hot-reload (non-blocking)
             await self._start_config_watchers()
