@@ -132,3 +132,48 @@
   font-family: "SF Mono", "Menlo", monospace;
   font-size: 13px;
 }
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .loadingText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .emptyState {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  /* Summary cards */
+  .cardValue {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .cardLabel {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Data table */
+  .table {
+    th,
+    td {
+      border-bottom-color: rgba(255, 255, 255, 0.06);
+    }
+
+    th {
+      color: rgba(255, 255, 255, 0.4);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    td {
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    tbody tr:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+}

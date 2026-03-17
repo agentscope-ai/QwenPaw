@@ -20,6 +20,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import MattermostConfig as MattermostChannelConfig
+from ....constant import WORKING_DIR
 from ..base import (
     BaseChannel,
     OnReplySent,

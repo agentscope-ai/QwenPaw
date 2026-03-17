@@ -44,6 +44,9 @@ def _crontab_dow_to_name(field: str) -> str:
         return field
 
     def _convert_token(tok: str) -> str:
+        if "/" in tok:
+            base, step = tok.rsplit("/", 1)
+            return f"{_convert_token(base)}/{step}"
         if "-" in tok:
             parts = tok.split("-", 1)
             return "-".join(_CRONTAB_NUM_TO_NAME.get(p, p) for p in parts)

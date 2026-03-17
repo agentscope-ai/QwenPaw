@@ -1,5 +1,7 @@
 import { Layout, Space } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher";
+import ThemeToggleButton from "../components/ThemeToggleButton";
+import AgentSelector from "../components/AgentSelector";
 import { useTranslation } from "react-i18next";
 import {
   BookOutlined,
@@ -20,6 +22,11 @@ const NAV_URLS = {
   changelog: "https://github.com/aimentorai/boostclaw/releases",
   github: "https://github.com/aimentorai/boostclaw",
 } as const;
+
+function getReleaseNotesUrl(lang: string): string {
+  const websiteLang = lang.startsWith("zh") ? "zh" : "en";
+  return `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`;
+}
 
 const keyToLabel: Record<string, string> = {
   chat: "nav.chat",
@@ -96,6 +103,7 @@ export default function Header({ selectedKey }: HeaderProps) {
           </Button>
         </Tooltip>
         <LanguageSwitcher />
+        <ThemeToggleButton />
       </Space>
     </AntHeader>
   );

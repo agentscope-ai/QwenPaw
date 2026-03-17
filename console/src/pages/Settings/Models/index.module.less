@@ -69,7 +69,7 @@
 
 .providerCard {
   flex: 1 1 calc(33.333% - 16px);
-  min-width: 280px;
+  min-width: 432px;
   border-radius: 16px;
   transition: all 0.2s ease-in-out;
   cursor: pointer;
@@ -515,4 +515,157 @@
   background: #fafafa;
   border-radius: 8px;
   border: 1px dashed #d9d9d9;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .loadingText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .providerGroupTitle {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  /* Provider card */
+  .providerCard {
+    background: #2a2a2a;
+
+    &.normal {
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    &.hover {
+      border-color: #615ced !important;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
+    }
+  }
+
+  .cardName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .infoRow {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .infoLabel {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .infoValue {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .infoEmpty {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .cardActions {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .configBtn {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .statusContainer .statusText.disabled {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  /* Slot section (LLM 顶部选择区) */
+  .slotSection {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+    &:hover {
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+  }
+
+  .slotHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .slotTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .slotCurrent {
+    color: #52c41a;
+    background: rgba(82, 196, 26, 0.1);
+    border-color: rgba(82, 196, 26, 0.3);
+  }
+
+  .slotLabel {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .slotActions {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Advanced config */
+  .advancedConfigSection {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .advancedConfigToggle {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  /* JSON editor */
+  .jsonEditorContainer {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: #1a1a1a;
+
+    &:focus-within {
+      border-color: #615ced;
+    }
+  }
+
+  .jsonEditorHighlight {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .jsonEditorTextarea {
+    caret-color: rgba(255, 255, 255, 0.85);
+  }
+
+  /* Model list (modal) */
+  .modelList {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modelListEmpty {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .modelListItem {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+
+  .modelListItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .modelListItemId {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .modelAddForm {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
 }

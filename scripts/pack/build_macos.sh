@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 #/usr/bin/env bash
 # One-click build: console -> conda-pack -> boostclaw.app. Run from repo root.
 # Requires: conda, node/npm (for console). Optional: icon.icns in assets/.

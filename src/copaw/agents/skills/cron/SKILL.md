@@ -14,6 +14,9 @@ metadata: { "boostclaw": { "emoji": "⏰" } }
 # 列出所有任务
 boostclaw cron list
 
+# 为特定 agent 列出任务
+copaw cron list --agent-id abc123
+
 # 查看任务详情
 boostclaw cron get <job_id>
 
@@ -30,6 +33,8 @@ boostclaw cron resume <job_id>
 # 立即执行一次
 boostclaw cron run <job_id>
 ```
+
+**注意**：所有命令都支持 `--agent-id` 参数，默认为 `default`。如果需要操作特定 agent 的任务，请指定对应的 agent ID。
 
 ## 创建任务
 
@@ -66,11 +71,15 @@ boostclaw cron create \
 创建任务需要：
 - `--type`：任务类型（text 或 agent）
 - `--name`：任务名称
-- `--cron`：cron 表达式（**UTC 时间**，如用户在 UTC+8 希望每天 9:00 执行，需填 `"0 1 * * *"`）
-- `--channel`：目标频道（imessage / discord / dingtalk / qq / console）
+- `--cron`：cron 表达式（如 `"0 9 * * *"` 表示每天 9:00）
+- `--channel`：目标频道（console / feishu / dingtalk / discord / qq / telegram / imessage / matrix / mattermost 等）。用户未指定时，使用"当前的channel"的值
 - `--target-user`：用户标识
 - `--target-session`：会话标识
 - `--text`：消息内容（text 类型）或提问内容（agent 类型）
+
+### 可选参数
+
+- `--agent-id`：指定 agent ID（默认：default）。用于多 agent 场景。
 
 ### 从 JSON 创建（复杂配置）
 
@@ -80,15 +89,12 @@ boostclaw cron create -f job_spec.json
 
 ## Cron 表达式示例
 
-> **重要：`--cron` 参数中的时间为 UTC 时间。** 用户描述的时间默认为其所在时区的本地时间，创建定时任务前必须先将其换算为 UTC 时间后再填写。
-> 例如：用户在 UTC+8 时区，说"每天早上 9:00 执行"，需填写 `0 1 * * *`（UTC 01:00 = 本地 09:00）。
-
 ```
-0 9 * * *      # 每天 UTC 9:00（UTC+8 用户的 17:00，UTC-5 用户的 4:00）
-0 */2 * * *    # 每 2 小时（与时区无关）
-30 8 * * 1-5   # UTC 工作日 8:30（UTC+9 用户的 17:30）
-0 0 * * 0      # UTC 每周日零点（UTC+1 用户的周日 1:00）
-*/15 * * * *   # 每 15 分钟（与时区无关）
+0 9 * * *      # 每天 9:00
+0 */2 * * *    # 每 2 小时
+30 8 * * 1-5   # 工作日 8:30
+0 0 * * 0      # 每周日零点
+*/15 * * * *   # 每 15 分钟
 ```
 
 ## 使用建议
@@ -97,3 +103,4 @@ boostclaw cron create -f job_spec.json
 - 暂停/删除/恢复前，用 `boostclaw cron list` 查找 job_id
 - 排查问题时，用 `boostclaw cron state <job_id>` 查看状态
 - 给用户的命令要完整、可直接复制执行
+- 记得指定 `--agent-id` 参数

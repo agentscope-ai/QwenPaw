@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from .renderer import MessageRenderer, RenderStyle
 from .schema import ChannelType
+from ...config.utils import load_config
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -99,10 +100,17 @@ class BaseChannel(ABC):
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
         self._enqueue: EnqueueCallback = None
+        cfg = load_config()
+        internal_tools = frozenset(
+            name
+            for name, tc in cfg.tools.builtin_tools.items()
+            if not tc.display_to_user
+        )
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            internal_tools=internal_tools,
         )
         self._renderer = MessageRenderer(self._render_style)
         self._http: Optional[Any] = None
@@ -122,15 +130,15 @@ class BaseChannel(ABC):
     def get_debounce_key(self, payload: Any) -> str:
         """
         Key for time debounce (same key = same conversation).
-        Override for channel-specific keys (e.g. short conversation_id).
+        Delegates to ``resolve_session_id`` so every channel gets
+        session-scoped isolation automatically.
         """
         if isinstance(payload, dict):
+            sender_id = payload.get("sender_id") or ""
             meta = payload.get("meta") or {}
-            return (
-                payload.get("session_id")
-                or meta.get("conversation_id")
-                or payload.get("sender_id")
-                or ""
+            return payload.get("session_id") or self.resolve_session_id(
+                sender_id,
+                meta,
             )
         return getattr(payload, "session_id", "") or ""
 
@@ -154,6 +162,7 @@ class BaseChannel(ABC):
                 "reply_loop",
                 "incoming_message",
                 "conversation_id",
+                "message_id",
             ):
                 if k in m:
                     merged_meta[k] = m[k]
@@ -344,7 +353,7 @@ class BaseChannel(ABC):
 
         if not content_parts:
             content_parts = [
-                TextContent(type=ContentType.TEXT, text=""),
+                TextContent(type=ContentType.TEXT, text=" "),
             ]
         msg = Message(
             type=MessageType.MESSAGE,

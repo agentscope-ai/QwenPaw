@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Logging setup for CoPaw: console output and optional file handler."""
+import io
 import logging
 import logging.handlers
 import os
@@ -126,7 +127,12 @@ def setup_logger(level: int | str = logging.INFO):
     logger.setLevel(level)
     logger.propagate = False
     if not logger.handlers:
-        handler = logging.StreamHandler()
+        utf8_stderr = io.TextIOWrapper(
+            sys.stderr.buffer,
+            encoding="utf-8",
+            errors="replace",
+        )
+        handler = logging.StreamHandler(utf8_stderr)
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 

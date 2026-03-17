@@ -5,17 +5,18 @@
 A lightweight channel that prints all agent responses to stdout.
 
 Messages are sent to the agent via the standard AgentApp ``/agent/process``
-endpoint.  This channel only handles the **output** side: whenever a
-completed message event or a proactive send arrives, it is pretty-printed
-to the terminal.
+endpoint or via POST /console/chat. This channel handles the **output** side:
+whenever a completed message event or a proactive send arrives, it is
+pretty-printed to the terminal.
 """
 from __future__ import annotations
 
 import logging
 import os
 import sys
+import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
@@ -139,6 +140,19 @@ class ConsoleChannel(BaseChannel):
             filter_thinking=filter_thinking,
         )
 
+    def resolve_session_id(
+        self,
+        sender_id: str,
+        channel_meta: Optional[dict] = None,
+    ) -> str:
+        """Resolve session_id: use explicit meta['session_id'] when provided
+        (e.g. from the HTTP /console/chat API), otherwise fall back to
+        'console:<sender_id>'.
+        """
+        if channel_meta and channel_meta.get("session_id"):
+            return channel_meta["session_id"]
+        return f"{self.channel}:{sender_id}"
+
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
         """
         Build AgentRequest from console native payload (dict with
@@ -161,8 +175,8 @@ class ConsoleChannel(BaseChannel):
         request.channel_meta = meta
         return request
 
-    async def consume_one(self, payload: Any) -> None:
-        """Process one payload (AgentRequest or native dict) from queue."""
+    async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
+        """Process one payload and yield SSE-formatted events"""
         if isinstance(payload, dict) and "content_parts" in payload:
             session_id = self.resolve_session_id(
                 payload.get("sender_id") or "",
@@ -212,6 +226,14 @@ class ConsoleChannel(BaseChannel):
                     ev_type,
                 )
 
+                if hasattr(event, "model_dump_json"):
+                    data = event.model_dump_json()
+                elif hasattr(event, "json"):
+                    data = event.json()
+                else:
+                    data = json.dumps({"text": str(event)})
+                yield f"data: {data}\n\n"
+
                 if obj == "message" and status == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
                     self._print_parts(parts, ev_type)
@@ -241,6 +263,11 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+
+    async def consume_one(self, payload: Any) -> None:
+        """Process one payload; drain stream_one (queue/terminal)."""
+        async for _ in self.stream_one(payload):
+            pass
 
     # ── pretty-print helpers ────────────────────────────────────────
 

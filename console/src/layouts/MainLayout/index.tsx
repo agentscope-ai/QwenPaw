@@ -19,6 +19,7 @@ import ModelsPage from "../../pages/Settings/Models";
 import EnvironmentsPage from "../../pages/Settings/Environments";
 import SecurityPage from "../../pages/Settings/Security";
 import TokenUsagePage from "../../pages/Settings/TokenUsage";
+import AgentsPage from "../../pages/Settings/Agents";
 
 const { Content } = Layout;
 
@@ -79,6 +80,7 @@ export default function MainLayout() {
                 <Route path="/tools" element={<ToolsPage />} />
                 <Route path="/mcp" element={<MCPPage />} />
                 <Route path="/workspace" element={<WorkspacePage />} />
+                <Route path="/agents" element={<AgentsPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/environments" element={<EnvironmentsPage />} />
                 <Route path="/agent-config" element={<AgentConfigPage />} />

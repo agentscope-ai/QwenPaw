@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
+from pydantic import BaseModel
 
 from ...config import (
     load_config,
     save_config,
-    get_heartbeat_config,
     ChannelConfig,
     ChannelConfigUnion,
     get_available_channels,
@@ -27,6 +28,8 @@ from ...config.config import (
     MattermostConfig,
     MQTTConfig,
     QQConfig,
+    SkillScannerConfig,
+    SkillScannerWhitelistEntry,
     TelegramConfig,
     VoiceChannelConfig,
 )
@@ -56,15 +59,23 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     summary="List all channels",
     description="Retrieve configuration for all available channels",
 )
-async def list_channels() -> dict:
+async def list_channels(request: Request) -> dict:
     """List all channel configs (filtered by available channels)."""
-    config = load_config()
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    agent_config = agent.config
     available = get_available_channels()
 
-    # Get all channel configs from model_dump and __pydantic_extra__
-    all_configs = config.channels.model_dump()
-    extra = getattr(config.channels, "__pydantic_extra__", None) or {}
-    all_configs.update(extra)
+    # Get channel configs from agent's config (with fallback to empty)
+    channels_config = agent_config.channels
+    if channels_config is None:
+        # No channels config yet, use empty defaults
+        all_configs = {}
+    else:
+        all_configs = channels_config.model_dump()
+        extra = getattr(channels_config, "__pydantic_extra__", None) or {}
+        all_configs.update(extra)
 
     # Return all available channels (use default config if not saved)
     result = {}
@@ -102,15 +113,35 @@ async def list_channel_types() -> List[str]:
     description="Update configuration for all channels at once",
 )
 async def put_channels(
+    request: Request,
     channels_config: ChannelConfig = Body(
         ...,
         description="Complete channel configuration",
     ),
 ) -> ChannelConfig:
     """Update all channel configs."""
-    config = load_config()
-    config.channels = channels_config
-    save_config(config)
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    agent = await get_agent_for_request(request)
+    agent.config.channels = channels_config
+    save_agent_config(agent.agent_id, agent.config)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            await agent.reload()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
     return channels_config
 
 
@@ -121,6 +152,7 @@ async def put_channels(
     description="Retrieve configuration for a specific channel by name",
 )
 async def get_channel(
+    request: Request,
     channel_name: str = Path(
         ...,
         description="Name of the channel to retrieve",
@@ -128,16 +160,26 @@ async def get_channel(
     ),
 ) -> ChannelConfigUnion:
     """Get a specific channel config by name."""
+    from ..agent_context import get_agent_for_request
+
     available = get_available_channels()
     if channel_name not in available:
         raise HTTPException(
             status_code=404,
             detail=f"Channel '{channel_name}' not found",
         )
-    config = load_config()
-    single_channel_config = getattr(config.channels, channel_name, None)
+
+    agent = await get_agent_for_request(request)
+    channels = agent.config.channels
+    if channels is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Channel '{channel_name}' not configured",
+        )
+
+    single_channel_config = getattr(channels, channel_name, None)
     if single_channel_config is None:
-        extra = getattr(config.channels, "__pydantic_extra__", None) or {}
+        extra = getattr(channels, "__pydantic_extra__", None) or {}
         single_channel_config = extra.get(channel_name)
     if single_channel_config is None:
         raise HTTPException(
@@ -154,6 +196,7 @@ async def get_channel(
     description="Update configuration for a specific channel by name",
 )
 async def put_channel(
+    request: Request,
     channel_name: str = Path(
         ...,
         description="Name of the channel to update",
@@ -165,13 +208,21 @@ async def put_channel(
     ),
 ) -> ChannelConfigUnion:
     """Update a specific channel config by name."""
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
     available = get_available_channels()
     if channel_name not in available:
         raise HTTPException(
             status_code=404,
             detail=f"Channel '{channel_name}' not found",
         )
-    config = load_config()
+
+    agent = await get_agent_for_request(request)
+
+    # Initialize channels if not exists
+    if agent.config.channels is None:
+        agent.config.channels = ChannelConfig()
 
     config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
     if config_class is not None:
@@ -180,9 +231,25 @@ async def put_channel(
         # For custom channels, just use the dict
         channel_config = single_channel_config
 
-    # Allow setting extra (plugin) channel config
-    setattr(config.channels, channel_name, channel_config)
-    save_config(config)
+    # Set channel config in agent's config
+    setattr(agent.config.channels, channel_name, channel_config)
+    save_agent_config(agent.agent_id, agent.config)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            await agent.reload()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
     return channel_config
 
 
@@ -191,9 +258,16 @@ async def put_channel(
     summary="Get heartbeat config",
     description="Return current heartbeat config (interval, target, etc.)",
 )
-async def get_heartbeat() -> Any:
+async def get_heartbeat(request: Request) -> Any:
     """Return effective heartbeat config (from file or default)."""
-    hb = get_heartbeat_config()
+    from ..agent_context import get_agent_for_request
+    from ...config.config import HeartbeatConfig as HeartbeatConfigModel
+
+    agent = await get_agent_for_request(request)
+    hb = agent.config.heartbeat
+    if hb is None:
+        # Use default if not configured
+        hb = HeartbeatConfigModel()
     return hb.model_dump(mode="json", by_alias=True)
 
 
@@ -207,19 +281,34 @@ async def put_heartbeat(
     body: HeartbeatBody = Body(..., description="Heartbeat configuration"),
 ) -> Any:
     """Update heartbeat config and reschedule the heartbeat job."""
-    config = load_config()
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    agent = await get_agent_for_request(request)
     hb = HeartbeatConfig(
         enabled=body.enabled,
         every=body.every,
         target=body.target,
         active_hours=body.active_hours,
     )
-    config.agents.defaults.heartbeat = hb
-    save_config(config)
+    agent.config.heartbeat = hb
+    save_agent_config(agent.agent_id, agent.config)
 
-    cron_manager = getattr(request.app.state, "cron_manager", None)
-    if cron_manager is not None:
-        await cron_manager.reschedule_heartbeat()
+    # Reschedule heartbeat (async, non-blocking)
+    import asyncio
+
+    async def reschedule_in_background():
+        try:
+            if agent.cron_manager is not None:
+                await agent.cron_manager.reschedule_heartbeat()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Background reschedule failed: {e}",
+            )
+
+    asyncio.create_task(reschedule_in_background())
 
     return hb.model_dump(mode="json", by_alias=True)
 
@@ -246,6 +335,36 @@ async def put_agents_llm_routing(
     config.agents.llm_routing = body
     save_config(config)
     return body
+
+
+# ── User Timezone ────────────────────────────────────────────────────
+
+
+@router.get(
+    "/user-timezone",
+    summary="Get user timezone",
+    description="Return the configured user IANA timezone",
+)
+async def get_user_timezone() -> dict:
+    config = load_config()
+    return {"timezone": config.user_timezone}
+
+
+@router.put(
+    "/user-timezone",
+    summary="Update user timezone",
+    description="Set the user IANA timezone",
+)
+async def put_user_timezone(
+    body: dict = Body(..., description="Body with 'timezone' key"),
+) -> dict:
+    tz = body.get("timezone", "").strip()
+    if not tz:
+        raise HTTPException(status_code=400, detail="timezone is required")
+    config = load_config()
+    config.user_timezone = tz
+    save_config(config)
+    return {"timezone": tz}
 
 
 # ── Security / Tool Guard ────────────────────────────────────────────
@@ -307,3 +426,127 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── Security / Skill Scanner ────────────────────────────────────────
+
+
+@router.get(
+    "/security/skill-scanner",
+    response_model=SkillScannerConfig,
+    summary="Get skill scanner settings",
+)
+async def get_skill_scanner() -> SkillScannerConfig:
+    config = load_config()
+    return config.security.skill_scanner
+
+
+@router.put(
+    "/security/skill-scanner",
+    response_model=SkillScannerConfig,
+    summary="Update skill scanner settings",
+)
+async def put_skill_scanner(
+    body: SkillScannerConfig = Body(...),
+) -> SkillScannerConfig:
+    config = load_config()
+    config.security.skill_scanner = body
+    save_config(config)
+    return body
+
+
+@router.get(
+    "/security/skill-scanner/blocked-history",
+    summary="Get blocked skills history",
+)
+async def get_blocked_history() -> list:
+    from ...security.skill_scanner import get_blocked_history as _get_history
+
+    records = _get_history()
+    return [r.to_dict() for r in records]
+
+
+@router.delete(
+    "/security/skill-scanner/blocked-history",
+    summary="Clear all blocked skills history",
+)
+async def delete_blocked_history() -> dict:
+    from ...security.skill_scanner import clear_blocked_history
+
+    clear_blocked_history()
+    return {"cleared": True}
+
+
+@router.delete(
+    "/security/skill-scanner/blocked-history/{index}",
+    summary="Remove a single blocked history entry",
+)
+async def delete_blocked_entry(
+    index: int = Path(..., ge=0),
+) -> dict:
+    from ...security.skill_scanner import remove_blocked_entry
+
+    ok = remove_blocked_entry(index)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"removed": True}
+
+
+class WhitelistAddRequest(BaseModel):
+    skill_name: str
+    content_hash: str = ""
+
+
+@router.post(
+    "/security/skill-scanner/whitelist",
+    summary="Add a skill to the whitelist",
+)
+async def add_to_whitelist(
+    body: WhitelistAddRequest = Body(...),
+) -> dict:
+    skill_name = body.skill_name.strip()
+    content_hash = body.content_hash
+    if not skill_name:
+        raise HTTPException(status_code=400, detail="skill_name is required")
+
+    config = load_config()
+    scanner_cfg = config.security.skill_scanner
+
+    for entry in scanner_cfg.whitelist:
+        if entry.skill_name == skill_name:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Skill '{skill_name}' is already whitelisted",
+            )
+
+    scanner_cfg.whitelist.append(
+        SkillScannerWhitelistEntry(
+            skill_name=skill_name,
+            content_hash=content_hash,
+            added_at=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    save_config(config)
+    return {"whitelisted": True, "skill_name": skill_name}
+
+
+@router.delete(
+    "/security/skill-scanner/whitelist/{skill_name}",
+    summary="Remove a skill from the whitelist",
+)
+async def remove_from_whitelist(
+    skill_name: str = Path(..., min_length=1),
+) -> dict:
+    config = load_config()
+    scanner_cfg = config.security.skill_scanner
+    original_len = len(scanner_cfg.whitelist)
+    scanner_cfg.whitelist = [
+        e for e in scanner_cfg.whitelist if e.skill_name != skill_name
+    ]
+    if len(scanner_cfg.whitelist) == original_len:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in whitelist",
+        )
+    save_config(config)
+    return {"removed": True, "skill_name": skill_name}
