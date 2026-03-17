@@ -100,10 +100,7 @@ class MemoryManager(ReMeLight):
             return
 
         embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
-        embedding_base_url = self._safe_str(
-            "EMBEDDING_BASE_URL",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        )
+        embedding_base_url = self._safe_str("EMBEDDING_BASE_URL", "")
         embedding_model_name = self._safe_str("EMBEDDING_MODEL_NAME", "")
         embedding_dimensions = self._safe_int("EMBEDDING_DIMENSIONS", 1024)
         embedding_cache_enabled = (
@@ -124,7 +121,11 @@ class MemoryManager(ReMeLight):
 
         # Determine if vector search should be enabled based on configuration
         # Vector search requires either an API key or a local model name
-        vector_enabled = bool(embedding_api_key) and bool(embedding_model_name)
+        vector_enabled = (
+            bool(embedding_api_key)
+            and bool(embedding_model_name)
+            and bool(embedding_base_url)
+        )
         if vector_enabled:
             logger.info(
                 f"Vector search enabled. "
@@ -136,8 +137,10 @@ class MemoryManager(ReMeLight):
             logger.warning(
                 "Vector search disabled. Memory search functionality "
                 "will be restricted. "
-                "To enable, configure: EMBEDDING_API_KEY, "
-                "EMBEDDING_BASE_URL, EMBEDDING_MODEL_NAME.",
+                "To enable, configure: "
+                f"EMBEDDING_API_KEY={embedding_api_key[:5]}... "
+                f"EMBEDDING_BASE_URL={embedding_base_url} "
+                f"EMBEDDING_MODEL_NAME={embedding_model_name} ",
             )
 
         # Check if full-text search (FTS) is enabled via environment variable
