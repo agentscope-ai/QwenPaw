@@ -127,7 +127,11 @@ def setup_logger(level: int | str = logging.INFO):
     logger.setLevel(level)
     logger.propagate = False
     if not logger.handlers:
-        utf8_stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        utf8_stderr = io.TextIOWrapper(
+            sys.stderr.buffer,
+            encoding="utf-8",
+            errors="replace",
+        )
         handler = logging.StreamHandler(utf8_stderr)
         handler.setFormatter(formatter)
         logger.addHandler(handler)
