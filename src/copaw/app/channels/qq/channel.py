@@ -12,6 +12,7 @@ Rich media read (images, videos, files)
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -71,10 +72,36 @@ MAX_QUICK_DISCONNECT_COUNT = 3
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
-_IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
+_IMAGE_TAG_PATTERN = re.compile(
+    r"\[Image: ([^\]]+)\]",
+    re.IGNORECASE,
+)
 
 # Rich media paths
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "qq"
+
+
+def _is_local_path(value: str) -> bool:
+    """Check if a value is not a web URL.
+
+    Treats it as a potential local path.
+    """
+    return not value.startswith(("http://", "https://"))
+
+
+async def _read_local_file_as_base64(path_str: str) -> Optional[str]:
+    """Read a local file and return its base64-encoded content.
+
+    Handles ``file://`` prefix. Returns *None* on failure.
+    """
+    local_path = path_str[7:] if path_str.startswith("file://") else path_str
+    try:
+        async with aiofiles.open(local_path, "rb") as f:
+            raw = await f.read()
+        return base64.b64encode(raw).decode()
+    except OSError:
+        logger.exception(f"Failed to read local file: {local_path}")
+        return None
 
 
 class QQApiError(RuntimeError):
@@ -310,18 +337,24 @@ async def _upload_media_async(
     access_token: str,
     openid: str,
     media_type: int,
-    url: str,
+    url: str = "",
     message_type: str = "c2c",
+    file_data: Optional[str] = None,
 ) -> Optional[str]:
     """Upload media to QQ rich media server.
+
+    Supports two modes:
+    - url: provide a public URL for QQ to fetch.
+    - file_data: provide base64-encoded binary data for local files.
 
     Args:
         session: aiohttp session
         access_token: QQ access token
         openid: user openid or group openid
         media_type: 1 image, 2 video, 3 audio, 4 file
-        url: media url
+        url: media url (public URL)
         message_type: "c2c" or "group"
+        file_data: base64-encoded file content for local files
 
     Returns:
         file_info if success, None otherwise
@@ -337,11 +370,14 @@ async def _upload_media_async(
             )
             return None
 
-        body = {
+        body: Dict[str, Any] = {
             "file_type": media_type,
-            "url": url,
             "srv_send_msg": False,
         }
+        if file_data:
+            body["file_data"] = file_data
+        else:
+            body["url"] = url
         response = await _api_request_async(
             session,
             access_token,
@@ -351,7 +387,10 @@ async def _upload_media_async(
         )
         return response.get("file_info")
     except Exception:
-        logger.exception(f"Failed to upload media from url: {url}")
+        logger.exception(
+            f"Failed to upload media: "
+            f"{'local file' if file_data else url}",
+        )
         return None
 
 
@@ -719,39 +758,66 @@ class QQChannel(BaseChannel):
                 sender_id if message_type == "c2c" else group_openid
             )
             if target_openid:
-                for image_url in image_urls:
-                    try:
-                        # Upload image to QQ rich media
-                        file_info = await _upload_media_async(
-                            self._http,
-                            token,
-                            target_openid,
-                            media_type=1,  # 1 for image
-                            url=image_url,
-                            message_type=message_type,
-                        )
-                        if file_info:
-                            # Send media message
-                            await _send_media_message_async(
-                                self._http,
-                                token,
-                                target_openid,
-                                file_info,
-                                msg_id if not text_sent
-                                # Only reply with msg_id for first message
-                                else None,
-                                message_type=message_type,
-                            )
-                            logger.info(
-                                f"Successfully sent image: {image_url}",
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to upload image,"
-                                f" skipping: {image_url}",
-                            )
-                    except Exception:
-                        logger.exception(f"Failed to send image: {image_url}")
+                await self._send_images(
+                    token,
+                    target_openid,
+                    image_urls,
+                    message_type,
+                    msg_id if not text_sent else None,
+                )
+
+    async def _send_images(
+        self,
+        token: str,
+        target_openid: str,
+        image_urls: List[str],
+        message_type: str,
+        reply_msg_id: Optional[str],
+    ) -> None:
+        """Upload and send image messages to QQ.
+
+        Supports both public URLs and local file paths (via base64).
+        """
+        for image_url in image_urls:
+            try:
+                if _is_local_path(image_url):
+                    encoded = await _read_local_file_as_base64(image_url)
+                    if not encoded:
+                        continue
+                    file_info = await _upload_media_async(
+                        self._http,
+                        token,
+                        target_openid,
+                        media_type=1,
+                        message_type=message_type,
+                        file_data=encoded,
+                    )
+                else:
+                    file_info = await _upload_media_async(
+                        self._http,
+                        token,
+                        target_openid,
+                        media_type=1,
+                        url=image_url,
+                        message_type=message_type,
+                    )
+                if file_info:
+                    await _send_media_message_async(
+                        self._http,
+                        token,
+                        target_openid,
+                        file_info,
+                        reply_msg_id,
+                        message_type=message_type,
+                    )
+                    reply_msg_id = None  # only reply first image
+                    logger.info(f"Successfully sent image: {image_url}")
+                else:
+                    logger.warning(
+                        f"Failed to upload image, skipping: {image_url}",
+                    )
+            except Exception:
+                logger.exception(f"Failed to send image: {image_url}")
 
     def _resolve_attachment_type(self, att_type: str, file_name: str) -> str:
         # pylint: disable=too-many-return-statements
