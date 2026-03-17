@@ -16,18 +16,24 @@ import os
 import sys
 import json
 from datetime import datetime
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
+from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
+    AudioContent,
     BaseChannel,
     ContentType,
+    FileContent,
+    ImageContent,
     OnReplySent,
     OutgoingContentPart,
     ProcessHandler,
+    VideoContent,
 )
 
 
@@ -70,6 +76,8 @@ class ConsoleChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Optional[Union[str, Path]] = None,
+        media_dir: Optional[str] = None,
     ):
         """Initialize ConsoleChannel.
 
@@ -81,6 +89,9 @@ class ConsoleChannel(BaseChannel):
             show_tool_details: Whether to show tool execution details.
             filter_tool_messages: Whether to filter out tool messages.
             filter_thinking: Whether to filter thinking/reasoning blocks.
+            workspace_dir: Agent workspace directory; used to resolve uploaded
+                file names (media_dir = workspace_dir / "media").
+            media_dir: Agent workspace directory for resolving uploads.
         """
         super().__init__(
             process,
@@ -91,8 +102,23 @@ class ConsoleChannel(BaseChannel):
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
 
-    # ── factory methods ─────────────────────────────────────────────
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def media_dir(self) -> Path:
+        """Media directory"""
+        return self._media_dir
 
     @classmethod
     def from_env(
@@ -105,6 +131,7 @@ class ConsoleChannel(BaseChannel):
             enabled=os.getenv("CONSOLE_CHANNEL_ENABLED", "1") == "1",
             bot_prefix=os.getenv("CONSOLE_BOT_PREFIX", "[BOT] "),
             on_reply_sent=on_reply_sent,
+            media_dir=os.getenv("CONSOLE_MEDIA_DIR", ""),
         )
 
     @classmethod
@@ -116,6 +143,7 @@ class ConsoleChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Optional[Union[str, Path]] = None,
     ) -> "ConsoleChannel":
         """Create ConsoleChannel from config.
 
@@ -126,6 +154,7 @@ class ConsoleChannel(BaseChannel):
             show_tool_details: Whether to show tool execution details.
             filter_tool_messages: Whether to filter out tool messages.
             filter_thinking: Whether to filter thinking/reasoning blocks.
+            workspace_dir: Agent workspace directory for resolving uploads.
 
         Returns:
             Configured ConsoleChannel instance.
@@ -138,6 +167,8 @@ class ConsoleChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            workspace_dir=workspace_dir,
+            media_dir=config.media_dir or "",
         )
 
     def resolve_session_id(
@@ -153,6 +184,43 @@ class ConsoleChannel(BaseChannel):
             return channel_meta["session_id"]
         return f"{self.channel}:{sender_id}"
 
+    # (Content type, attr name) for resolving plain filename to media_dir path
+    _MEDIA_ATTRS: tuple = (
+        (ImageContent, "image_url"),
+        (FileContent, "file_url"),
+        (VideoContent, "video_url"),
+        (AudioContent, "audio_url"),
+    )
+
+    def _resolve_console_upload_refs(
+        self,
+        content_parts: List[Any],
+    ) -> List[Any]:
+        """Resolve Image/File/Audio/VideoContent."""
+        if not self._media_dir:
+            return content_parts
+
+        def is_plain_filename(val: str) -> bool:
+            if not isinstance(val, str) or not val or "/" in val:
+                return False
+            return not val.startswith(
+                ("http://", "https://", "file:", "data:"),
+            )
+
+        def resolve_one(part: Any) -> Any:
+            for cls, attr in self._MEDIA_ATTRS:
+                if isinstance(part, cls):
+                    val = getattr(part, attr, None)
+                    if isinstance(val, str) and is_plain_filename(val):
+                        path = (self._media_dir / val).resolve()
+                        if attr == "audio_url":
+                            return part.model_copy(update={"data": str(path)})
+                        return part.model_copy(update={attr: str(path)})
+                    break
+            return part
+
+        return [resolve_one(p) for p in content_parts]
+
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
         """
         Build AgentRequest from console native payload (dict with
@@ -163,6 +231,7 @@ class ConsoleChannel(BaseChannel):
         channel_id = payload.get("channel_id") or self.channel
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
+        content_parts = self._resolve_console_upload_refs(content_parts)
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
         request = self.build_agent_request_from_user_content(

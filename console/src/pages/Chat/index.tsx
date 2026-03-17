@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
+import { chatApi } from "../../api/modules/chat";
 import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
@@ -305,9 +306,33 @@ export default function ChatPage() {
 
       const { input, biz_params } = data;
       const session = input[input.length - 1]?.session || {};
+      const lastInput = input.slice(-1);
+      const lastMsg = lastInput[0];
+      const rewrittenInput =
+        lastMsg?.content && Array.isArray(lastMsg.content)
+          ? [
+            {
+              ...lastMsg,
+              content: lastMsg.content.map((part: any) => {
+                const p = { ...part };
+                // Backend expects plain filename (stored_name); strip /console/files/... or agent_id/name to filename
+                const toStoredName = (v: string) => {
+                  const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                  if (m1) return m1[1];
+                  const m2 = v.match(/^[^/]+\/(.+)$/);
+                  if (m2) return m2[1];
+                  return v;
+                };
+                if (p.type === "image" && typeof p.image_url === "string") p.image_url = toStoredName(p.image_url);
+                if (p.type === "file" && typeof p.file_url === "string") p.file_url = toStoredName(p.file_url);
+                return p;
+              }),
+            },
+          ]
+          : lastInput;
 
       const requestBody = {
-        input: input.slice(-1),
+        input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || "default",
         channel: window.currentChannel || session?.channel || "console",
@@ -372,6 +397,26 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
+        attachments: {
+          accept:
+            "*/*",
+          customRequest: async (options: {
+            file: File;
+            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+            onError?: (e: Error) => void;
+            onProgress?: (e: { percent?: number }) => void;
+          }) => {
+            try {
+              console.log('options.file', options.file);
+              options.onProgress?.({ percent: 0 });
+              const res = await chatApi.uploadFile(options.file);
+              options.onProgress?.({ percent: 100 });
+              options.onSuccess({ url: chatApi.fileUrl(res.url) });
+            } catch (e) {
+              options.onError?.(e instanceof Error ? e : new Error(String(e)));
+            }
+          },
+        },
       },
       session: { multiple: true, api: wrappedSessionApi },
       api: {

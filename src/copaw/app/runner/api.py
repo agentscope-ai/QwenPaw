@@ -129,12 +129,13 @@ async def get_chat(
     """Get detailed information about a specific chat by UUID.
 
     Args:
+        request: FastAPI request (for agent context)
         chat_id: Chat UUID
         mgr: Chat manager dependency
         session: SafeJSONSession dependency
 
     Returns:
-        ChatHistory with messages
+        ChatHistory with messages (console file paths normalized for display)
 
     Raises:
         HTTPException: If chat not found (404)
