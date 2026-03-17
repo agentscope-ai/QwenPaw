@@ -203,8 +203,8 @@ COPAW_AUTH_ENABLED=true
 unset COPAW_AUTH_ENABLED
 copaw app
 
-# Docker — 移除 -e 参数即可
-docker run -p 127.0.0.1:8088:8088 agentscope/copaw:latest
+# Docker — 移除 -e 参数即可。以下示例包含用于持久化的卷。
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working -v copaw-secrets:/app/working.secret agentscope/copaw:latest
 ```
 
 ### 重置密码
