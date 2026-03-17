@@ -35,12 +35,11 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         session_id = request_data.get("session_id", "default")
         input_data = request_data.get("input", [])
         content_parts = []
-        if input_data and len(input_data) > 0:
-            last_msg = input_data[-1]
-            if hasattr(last_msg, "content"):
-                content_parts = list(last_msg.content or [])
-            elif isinstance(last_msg, dict) and "content" in last_msg:
-                content_parts = last_msg["content"] or []
+        for content_part in input_data:
+            if hasattr(content_part, "content"):
+                content_parts.extend(list(content_part.content or []))
+            elif isinstance(content_part, dict) and "content" in content_part:
+                content_parts.extend(content_part["content"] or [])
 
     native_payload = {
         "channel_id": channel_id,
@@ -83,10 +82,18 @@ async def post_console_chat(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
+    name = "New Chat"
+    if len(native_payload["content_parts"]) > 0:
+        content = native_payload["content_parts"][0]
+        if content:
+            name = content.text[:10]
+        else:
+            name = "Media Message"
     chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         native_payload["sender_id"],
         native_payload["channel_id"],
+        name=name,
     )
     tracker = workspace.task_tracker
 
