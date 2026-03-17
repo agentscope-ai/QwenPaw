@@ -126,7 +126,7 @@ class MemoryCompactionHook:
                 messages=messages,
                 memory_compact_threshold=left_compact_threshold,
                 memory_compact_reserve=self.memory_compact_reserve,
-                token_counter=token_counter,
+                as_token_counter=token_counter,
             )
 
             if not messages_to_compact:

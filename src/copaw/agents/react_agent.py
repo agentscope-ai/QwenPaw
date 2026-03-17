@@ -46,9 +46,9 @@ from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     WORKING_DIR,
 )
+from ..agents.memory import MemoryManager
 
 if TYPE_CHECKING:
-    from ..agents.memory import MemoryManager
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
