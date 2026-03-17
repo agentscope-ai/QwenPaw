@@ -300,9 +300,13 @@ class MemoryManager(ReMeLight):
             compact_ratio=self._memory_compact_ratio,
         )
 
-    async def memory_search(self, query: str, max_results: int = 5, min_score: float = 0.1) -> ToolResponse:
+    async def memory_search(
+        self, query: str, max_results: int = 5, min_score: float = 0.1
+    ) -> ToolResponse:
         if not self._started:
-            logger.warning("Application has not been started, report issue to github!")
+            logger.warning(
+                "Application has not been started, report issue to github!"
+            )
             await self.start()
 
         return await super().memory_search(

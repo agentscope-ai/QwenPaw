@@ -167,8 +167,9 @@ class MemoryCompactionHook:
                 role="assistant",
                 content=[
                     TextBlock(
-                        type="text", text="🔄 Context compaction started..."
-                    )
+                        type="text",
+                        text="🔄 Context compaction started...",
+                    ),
                 ],
             )
             await agent.print(start_msg)
@@ -184,8 +185,9 @@ class MemoryCompactionHook:
                 role="assistant",
                 content=[
                     TextBlock(
-                        type="text", text="✅ Context compaction completed"
-                    )
+                        type="text",
+                        text="✅ Context compaction completed",
+                    ),
                 ],
             )
             await agent.print(result_msg)
