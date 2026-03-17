@@ -22,8 +22,10 @@ import logging
 import mimetypes
 import os
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from uuid import uuid4
 from urllib.parse import urlparse
 
 import aiohttp
@@ -45,7 +47,12 @@ from ..base import (
 )
 
 from .constants import (
+    AI_CARD_PROCESSING_TEXT,
+    AI_CARD_RECOVERY_FINAL_TEXT,
+    AI_CARD_STREAM_MIN_INTERVAL_SECONDS,
+    AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS,
     DINGTALK_TOKEN_TTL_SECONDS,
+    SENT_VIA_AI_CARD,
     SENT_VIA_WEBHOOK,
 )
 from .content_utils import (
@@ -55,6 +62,14 @@ from .content_utils import (
 )
 from .handler import DingTalkChannelHandler
 from . import markdown as dingtalk_markdown
+from .ai_card import (
+    FAILED,
+    FINISHED,
+    INPUTING,
+    PROCESSING,
+    AICardPendingStore,
+    ActiveAICard,
+)
 from .utils import guess_suffix_from_file_content
 
 if TYPE_CHECKING:
@@ -86,6 +101,10 @@ class DingTalkChannel(BaseChannel):
         client_id: str,
         client_secret: str,
         bot_prefix: str,
+        message_type: str = "markdown",
+        card_template_id: str = "",
+        card_template_key: str = "content",
+        robot_code: str = "",
         media_dir: str = "",
         workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
@@ -114,6 +133,15 @@ class DingTalkChannel(BaseChannel):
         self.client_id = client_id
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
+        self.message_type = (message_type or "markdown").strip().lower()
+        self.card_template_id = card_template_id or ""
+        self.card_template_key = card_template_key or "content"
+        self.robot_code = robot_code or self.client_id
+        self._active_cards: Dict[str, ActiveAICard] = {}
+        self._active_cards_lock = asyncio.Lock()
+        self._card_store = AICardPendingStore(
+            get_config_path().parent / "dingtalk-active-cards.json",
+        )
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -168,6 +196,14 @@ class DingTalkChannel(BaseChannel):
             client_id=os.getenv("DINGTALK_CLIENT_ID", ""),
             client_secret=os.getenv("DINGTALK_CLIENT_SECRET", ""),
             bot_prefix=os.getenv("DINGTALK_BOT_PREFIX", "[BOT] "),
+            message_type=os.getenv("DINGTALK_MESSAGE_TYPE", "markdown"),
+            card_template_id=os.getenv("DINGTALK_CARD_TEMPLATE_ID", ""),
+            card_template_key=os.getenv(
+                "DINGTALK_CARD_TEMPLATE_KEY",
+                "content",
+            ),
+            robot_code=os.getenv("DINGTALK_ROBOT_CODE", "")
+            or os.getenv("DINGTALK_CLIENT_ID", ""),
             media_dir=os.getenv("DINGTALK_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("DINGTALK_DM_POLICY", "open"),
@@ -194,6 +230,12 @@ class DingTalkChannel(BaseChannel):
             client_id=config.client_id or "",
             client_secret=config.client_secret or "",
             bot_prefix=config.bot_prefix or "[BOT] ",
+            message_type=getattr(config, "message_type", "markdown"),
+            card_template_id=getattr(config, "card_template_id", ""),
+            card_template_key=getattr(config, "card_template_key", "content"),
+            robot_code=(
+                getattr(config, "robot_code", "") or config.client_id or ""
+            ),
             media_dir=config.media_dir or "",
             workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
@@ -410,6 +452,19 @@ class DingTalkChannel(BaseChannel):
                 len(self._processing_message_ids),
             )
 
+    @staticmethod
+    def _safe_set_future_result(
+        future: "asyncio.Future[str]",
+        text: str,
+    ) -> None:
+        """Set future result only if not already done (idempotent).
+
+        Guards against InvalidStateError when _ack_early already resolved
+        the future before _reply_sync_batch is called at stream end.
+        """
+        if not future.done():
+            future.set_result(text)
+
     def _reply_sync(self, meta: Dict[str, Any], text: str) -> None:
         """Resolve reply_future on the stream thread's loop so process()
         can continue and reply.
@@ -418,7 +473,11 @@ class DingTalkChannel(BaseChannel):
         reply_future = meta.get("reply_future")
         if reply_loop is None or reply_future is None:
             return
-        reply_loop.call_soon_threadsafe(reply_future.set_result, text)
+        reply_loop.call_soon_threadsafe(
+            self._safe_set_future_result,
+            reply_future,
+            text,
+        )
         if "_message_ids" in meta:
             ids = meta["_message_ids"]
         else:
@@ -434,13 +493,50 @@ class DingTalkChannel(BaseChannel):
             for reply_loop, reply_future in lst:
                 if reply_loop and reply_future:
                     reply_loop.call_soon_threadsafe(
-                        reply_future.set_result,
+                        self._safe_set_future_result,
+                        reply_future,
                         text,
                     )
             ids = meta["_message_ids"] if "_message_ids" in meta else []
             self._release_message_ids(ids)
         else:
             self._reply_sync(meta, text)
+
+    def _ack_early(self, meta: Dict[str, Any], text: str) -> None:
+        """Resolve reply_futures immediately for streaming paths (AI card /
+        sessionWebhook) WITHOUT releasing dedup msg_ids.
+
+        Unblocks the DingTalk stream callback handler so it can return
+        STATUS_OK to the SDK quickly, preventing DingTalk retry storms
+        during long LLM generation. Dedup msg_ids are released later by
+        _reply_sync_batch once streaming fully completes, so any DingTalk
+        re-delivery before that point is still correctly rejected.
+        """
+        lst = meta.get("_reply_futures_list") or []
+        if lst:
+            for reply_loop, reply_future in lst:
+                if reply_loop and reply_future:
+                    reply_loop.call_soon_threadsafe(
+                        self._safe_set_future_result,
+                        reply_future,
+                        text,
+                    )
+            futures_count = len(lst)
+        else:
+            reply_loop = meta.get("reply_loop")
+            reply_future = meta.get("reply_future")
+            if reply_loop and reply_future:
+                reply_loop.call_soon_threadsafe(
+                    self._safe_set_future_result,
+                    reply_future,
+                    text,
+                )
+            futures_count = 1 if meta.get("reply_future") else 0
+        logger.debug(
+            "dingtalk _ack_early: text=%r futures_count=%s",
+            text,
+            futures_count,
+        )
 
     def _get_session_webhook(
         self,
@@ -1333,6 +1429,47 @@ class DingTalkChannel(BaseChannel):
         last_response = None
         accumulated_parts: list = []
         event_count = 0
+        # _acked_early: reply_future already resolved so DingTalk handler
+        # returned STATUS_OK quickly; msg_ids still held for dedup until
+        # streaming fully completes (_reply_sync_batch at the end).
+        _acked_early = False
+        conversation_id = str(meta.get("conversation_id") or "")
+        use_ai_card = self._ai_card_enabled() and bool(conversation_id)
+        logger.info(
+            "dingtalk ai card gate: enabled=%s "
+            "message_type=%s has_template=%s "
+            "has_robot=%s has_conversation=%s",
+            use_ai_card,
+            self.message_type,
+            bool(self.card_template_id),
+            bool(self.robot_code),
+            bool(conversation_id),
+        )
+        card: Optional[ActiveAICard] = None
+        card_full_text = ""
+        if use_ai_card:
+            try:
+                card = await self._create_ai_card(
+                    conversation_id,
+                    meta=meta,
+                    inbound=True,
+                )
+                # AI card created: ACK DingTalk immediately so the stream
+                # callback handler returns STATUS_OK without waiting for
+                # the full LLM response. This stops DingTalk retry storms
+                # on long-form generations. Dedup msg_ids are kept until
+                # streaming finishes (see _reply_sync_batch below).
+                self._ack_early(reply_meta, SENT_VIA_AI_CARD)
+                _acked_early = True
+                logger.info(
+                    "dingtalk _ack_early: AI card created, "
+                    "handler unblocked early",
+                )
+            except Exception:
+                logger.exception(
+                    "dingtalk create ai card failed, fallback to markdown",
+                )
+                use_ai_card = False
 
         # Store sessionWebhook (keyed by conversation).
         if session_webhook:
@@ -1371,46 +1508,67 @@ class DingTalkChannel(BaseChannel):
                     f"dingtalk completed message: type={ev_type} "
                     f"parts_count={len(parts)}",
                 )
-                if use_multi and parts and session_webhook:
-                    body = self._parts_to_single_text(
-                        parts,
-                        bot_prefix="",
+                body = self._parts_to_single_text(
+                    parts,
+                    bot_prefix="",
+                )
+                if use_ai_card and card:
+                    next_card_text = self._merge_ai_card_text(
+                        card_full_text,
+                        body,
                     )
+                    try:
+                        if next_card_text != card_full_text:
+                            card_full_text = next_card_text
+                            await self._stream_ai_card(
+                                card,
+                                card_full_text,
+                                finalize=False,
+                            )
+                    except Exception:
+                        logger.exception(
+                            "dingtalk stream ai card failed,"
+                            " fallback to markdown",
+                        )
+                        await self._mark_card_failed(conversation_id)
+                        use_ai_card = False
+                        fallback_body = body.strip() or card_full_text.strip()
+                        if use_multi and session_webhook and fallback_body:
+                            await self._send_via_session_webhook(
+                                session_webhook,
+                                fallback_body,
+                                bot_prefix="",
+                            )
+                        else:
+                            accumulated_parts.extend(parts)
+                elif use_multi and parts and session_webhook:
                     if body.strip():
                         await self._send_via_session_webhook(
                             session_webhook,
                             body.strip(),
                             bot_prefix="",
                         )
+                        # First webhook message sent: ACK DingTalk early so
+                        # handler returns STATUS_OK without waiting for the
+                        # full LLM response.
+                        if not _acked_early:
+                            self._ack_early(reply_meta, SENT_VIA_WEBHOOK)
+                            _acked_early = True
+                            logger.info(
+                                "dingtalk _ack_early: first webhook chunk "
+                                "sent, handler unblocked early",
+                            )
                     _media_types = (
                         ContentType.IMAGE,
                         ContentType.FILE,
                         ContentType.VIDEO,
                         ContentType.AUDIO,
                     )
-                    media_count = sum(
-                        1
-                        for p in parts
-                        if getattr(p, "type", None) in _media_types
-                    )
-                    if media_count:
-                        logger.info(
-                            "dingtalk consume_loop: "
-                            "sending %s media "
-                            "parts via webhook",
-                            media_count,
-                        )
                     for part in parts:
                         if getattr(part, "type", None) in _media_types:
-                            ok = await self._send_media_part_via_webhook(
+                            await self._send_media_part_via_webhook(
                                 session_webhook,
                                 part,
-                            )
-                            logger.info(
-                                "dingtalk consume_loop: media part "
-                                "type=%s result=%s",
-                                getattr(part, "type", None),
-                                ok,
                             )
                 else:
                     accumulated_parts.extend(parts)
@@ -1425,7 +1583,23 @@ class DingTalkChannel(BaseChannel):
         )
 
         err_msg = self._get_response_error_message(last_response)
-        if err_msg:
+        if use_ai_card and card:
+            final_text = card_full_text or self._build_ai_card_initial_text()
+            try:
+                if err_msg:
+                    final_text = self.bot_prefix + f"Error: {err_msg}"
+                await self._stream_ai_card(card, final_text, finalize=True)
+            except Exception:
+                logger.exception("dingtalk finalize ai card failed")
+                await self._mark_card_failed(conversation_id)
+                if use_multi and session_webhook:
+                    await self._send_via_session_webhook(
+                        session_webhook,
+                        final_text,
+                        bot_prefix="",
+                    )
+            self._reply_sync_batch(reply_meta, SENT_VIA_AI_CARD)
+        elif err_msg:
             err_text = self.bot_prefix + f"Error: {err_msg}"
             if use_multi and session_webhook:
                 await self._send_via_session_webhook(
@@ -1630,6 +1804,7 @@ class DingTalkChannel(BaseChannel):
         self._stream_thread.start()
         if self._http is None:
             self._http = aiohttp.ClientSession()
+        await self._recover_active_cards()
 
     async def stop(self) -> None:
         if not self.enabled:
@@ -1647,10 +1822,389 @@ class DingTalkChannel(BaseChannel):
             )
         self._debounce_timers.clear()
         self._debounce_pending.clear()
+        # best-effort finalize active cards before stopping
+        for conv_id in list(self._active_cards.keys()):
+            try:
+                card = self._active_cards.get(conv_id)
+                if card and card.state not in (FINISHED, FAILED):
+                    await self._stream_ai_card(
+                        card,
+                        card.last_streamed_content
+                        or AI_CARD_RECOVERY_FINAL_TEXT,
+                        finalize=True,
+                    )
+            except Exception:
+                logger.debug(
+                    "dingtalk finalize active card on stop failed",
+                    exc_info=True,
+                )
         if self._http is not None:
             await self._http.close()
             self._http = None
         self._client = None
+
+    # Note: dingtalk_stream SDK has AICardReplier/CardReplier,
+    # but those APIs are request/reply oriented and tied to ChatbotMessage
+    # context; here we keep raw OpenAPI calls to support proactive recovery
+    # and persisted card lifecycles across restarts.
+    def _ai_card_enabled(self) -> bool:
+        return (
+            self.message_type == "card"
+            and bool(self.card_template_id)
+            and bool(self.robot_code)
+        )
+
+    def _build_ai_card_initial_text(self) -> str:
+        return self.bot_prefix + AI_CARD_PROCESSING_TEXT
+
+    def _merge_ai_card_text(self, current: str, incoming: str) -> str:
+        current = (current or "").strip()
+        incoming = (incoming or "").strip()
+        if not incoming:
+            return current
+        if not current:
+            return incoming
+        if incoming == current or current.endswith(incoming):
+            return current
+        return f"{current}\n{incoming}".strip()
+
+    async def _save_active_cards(self) -> None:
+        async with self._active_cards_lock:
+            self._card_store.save(self._active_cards)
+
+    async def _mark_card_failed(self, conversation_id: str) -> None:
+        async with self._active_cards_lock:
+            card = self._active_cards.get(conversation_id)
+            if card:
+                card.state = FAILED
+                card.last_updated = int(time.time() * 1000)
+                self._active_cards.pop(conversation_id, None)
+            self._card_store.save(self._active_cards)
+
+    async def _create_ai_card(
+        self,
+        conversation_id: str,
+        meta: Optional[Dict[str, Any]] = None,
+        inbound: bool = True,
+    ) -> Optional[ActiveAICard]:
+        if not self._ai_card_enabled() or self._http is None:
+            logger.warning(
+                "dingtalk create ai card skipped: enabled=%s http_ready=%s "
+                "message_type=%s has_template=%s has_robot=%s",
+                self._ai_card_enabled(),
+                self._http is not None,
+                self.message_type,
+                bool(self.card_template_id),
+                bool(self.robot_code),
+            )
+            return None
+        token = await self._get_access_token()
+        card_instance_id = f"card_{uuid4()}"
+        meta = meta or {}
+        incoming_message = meta.get("incoming_message")
+        sender_staff_id = (
+            meta.get("sender_staff_id")
+            or getattr(incoming_message, "sender_staff_id", None)
+            or getattr(incoming_message, "senderStaffId", None)
+            or ""
+        )
+        is_group = bool(meta.get("is_group"))
+        create_payload: Dict[str, Any] = {
+            "cardTemplateId": self.card_template_id,
+            "outTrackId": card_instance_id,
+            "cardData": {"cardParamMap": {self.card_template_key: ""}},
+            "callbackType": "STREAM",
+            "imGroupOpenSpaceModel": {"supportForward": True},
+            "imRobotOpenSpaceModel": {"supportForward": True},
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-acs-dingtalk-access-token": token,
+        }
+        create_url = "https://api.dingtalk.com/v1.0/card/instances"
+        logger.info(
+            "dingtalk create ai card: conversation_id=%s is_group=%s "
+            "sender_staff_id=%s template_id=%s inbound=%s",
+            conversation_id,
+            is_group,
+            sender_staff_id,
+            self.card_template_id,
+            inbound,
+        )
+        async with self._http.post(
+            create_url,
+            json=create_payload,
+            headers=headers,
+        ) as resp:
+            body = await resp.text()
+            logger.info(
+                "dingtalk create ai card response: status=%s body=%s",
+                resp.status,
+                body[:1000],
+            )
+            if resp.status >= 400:
+                raise RuntimeError(
+                    "create ai card failed"
+                    f" status={resp.status}"
+                    f" body={body[:500]}",
+                )
+
+        if is_group:
+            open_space_id = f"dtv1.card//IM_GROUP.{conversation_id}"
+            deliver_payload: Dict[str, Any] = {
+                "outTrackId": card_instance_id,
+                "userIdType": 1,
+                "openSpaceId": open_space_id,
+                "imGroupOpenDeliverModel": {
+                    "robotCode": self.robot_code,
+                },
+            }
+        else:
+            if not sender_staff_id:
+                raise RuntimeError(
+                    "create ai card failed:"
+                    " missing sender_staff_id for IM_ROBOT",
+                )
+            open_space_id = f"dtv1.card//IM_ROBOT.{sender_staff_id}"
+            deliver_payload = {
+                "outTrackId": card_instance_id,
+                "userIdType": 1,
+                "openSpaceId": open_space_id,
+                "imRobotOpenDeliverModel": {
+                    "spaceType": "IM_ROBOT",
+                },
+            }
+
+        deliver_url = "https://api.dingtalk.com/v1.0/card/instances/deliver"
+        logger.info(
+            "dingtalk deliver ai card: conversation_id=%s open_space_id=%s",
+            conversation_id,
+            open_space_id,
+        )
+        async with self._http.post(
+            deliver_url,
+            json=deliver_payload,
+            headers=headers,
+        ) as resp:
+            deliver_body = await resp.text()
+            logger.info(
+                "dingtalk deliver ai card response: status=%s body=%s",
+                resp.status,
+                deliver_body[:1000],
+            )
+            if resp.status >= 400:
+                raise RuntimeError(
+                    "deliver ai card failed"
+                    f" status={resp.status}"
+                    f" body={deliver_body[:500]}",
+                )
+
+        try:
+            deliver_data = json.loads(deliver_body) if deliver_body else {}
+        except json.JSONDecodeError:
+            deliver_data = {}
+        result = (
+            deliver_data.get("result")
+            if isinstance(deliver_data, dict)
+            else None
+        )
+        if isinstance(result, list):
+            deliver_results = result
+        elif isinstance(result, dict):
+            deliver_results = result.get("deliverResults")
+        else:
+            deliver_results = None
+        if isinstance(deliver_results, list):
+            failed = [
+                item
+                for item in deliver_results
+                if isinstance(item, dict) and not item.get("success", False)
+            ]
+            if failed:
+                err = failed[0]
+                raise RuntimeError(
+                    "deliver ai card failed: "
+                    f"spaceId={err.get('spaceId')} "
+                    f"spaceType={err.get('spaceType')} "
+                    f"errorMsg={err.get('errorMsg')}",
+                )
+        logger.info(
+            "dingtalk create ai card ok:"
+            " conversation_id=%s card_instance_id=%s",
+            conversation_id,
+            card_instance_id,
+        )
+
+        now_ms = int(time.time() * 1000)
+        card = ActiveAICard(
+            card_instance_id=card_instance_id,
+            access_token=token,
+            conversation_id=conversation_id,
+            account_id="default",
+            store_path=str(self._card_store.path),
+            created_at=now_ms,
+            last_updated=now_ms,
+            state=PROCESSING,
+            last_streamed_content="",
+        )
+        async with self._active_cards_lock:
+            self._active_cards[conversation_id] = card
+            if inbound:
+                self._card_store.save(self._active_cards)
+        return card
+
+    async def _stream_ai_card(
+        self,
+        card: ActiveAICard,
+        content: str,
+        finalize: bool = False,
+    ) -> bool:
+        if self._http is None or card.state in (FINISHED, FAILED):
+            return False
+
+        content = (content or "").strip()
+        if not content:
+            return False
+
+        now_ms = int(time.time() * 1000)
+        if not finalize:
+            if content == (card.last_streamed_content or "").strip():
+                return False
+            if (
+                card.last_updated
+                and (now_ms - card.last_updated)
+                < AI_CARD_STREAM_MIN_INTERVAL_SECONDS * 1000
+            ):
+                return False
+
+        if (
+            now_ms - card.created_at
+        ) > AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS * 1000:
+            card.access_token = await self._get_access_token()
+
+        payload = {
+            "outTrackId": card.card_instance_id,
+            "guid": str(uuid4()),
+            "key": self.card_template_key,
+            "content": content,
+            "isFull": True,
+            "isFinalize": finalize,
+            "isError": False,
+        }
+        url = "https://api.dingtalk.com/v1.0/card/streaming"
+
+        async def _do_stream(token: str):
+            headers = {
+                "Content-Type": "application/json",
+                "x-acs-dingtalk-access-token": token,
+            }
+            logger.info(
+                "dingtalk stream ai card: conversation_id=%s finalize=%s "
+                "content_len=%s",
+                card.conversation_id,
+                finalize,
+                len(content),
+            )
+            async with self._http.put(
+                url,
+                json=payload,
+                headers=headers,
+            ) as resp:
+                txt = await resp.text()
+                logger.info(
+                    "dingtalk stream ai card response:"
+                    " status=%s finalize=%s body=%s",
+                    resp.status,
+                    finalize,
+                    txt[:1000],
+                )
+                return resp.status, txt
+
+        status, txt = await _do_stream(card.access_token)
+        if status == 401:
+            card.access_token = await self._get_access_token()
+            status, txt = await _do_stream(card.access_token)
+
+        if status >= 400:
+            if status == 500 and "unknownError" in txt:
+                raise RuntimeError(
+                    "dingtalk ai card unknownError:"
+                    " card_template_key mismatch?",
+                )
+            raise RuntimeError(
+                f"stream ai card failed status={status} body={txt[:500]}",
+            )
+        logger.info(
+            "dingtalk stream ai card ok: conversation_id=%s finalize=%s",
+            card.conversation_id,
+            finalize,
+        )
+
+        card.last_streamed_content = content
+        card.last_updated = int(time.time() * 1000)
+        if finalize:
+            card.state = FINISHED
+            async with self._active_cards_lock:
+                self._active_cards.pop(card.conversation_id, None)
+                self._card_store.save(self._active_cards)
+        elif card.state == PROCESSING:
+            card.state = INPUTING
+            await self._save_active_cards()
+        return True
+
+    async def _finish_ai_card(
+        self,
+        conversation_id: str,
+        final_content: str,
+    ) -> bool:
+        async with self._active_cards_lock:
+            card = self._active_cards.get(conversation_id)
+        if not card:
+            return False
+        return await self._stream_ai_card(card, final_content, finalize=True)
+
+    async def _recover_active_cards(self) -> None:
+        if not self._ai_card_enabled() or self._http is None:
+            return
+        records = self._card_store.load()
+        if not records:
+            return
+        token = await self._get_access_token()
+        for item in records:
+            state = str(item.get("state") or "")
+            if state in (FINISHED, FAILED):
+                continue
+            conversation_id = item.get("conversation_id") or ""
+            card_id = item.get("card_instance_id") or f"card_{uuid4()}"
+            if not conversation_id:
+                continue
+            card = ActiveAICard(
+                card_instance_id=card_id,
+                access_token=token,
+                conversation_id=conversation_id,
+                account_id=item.get("account_id") or "default",
+                store_path=str(self._card_store.path),
+                created_at=int(
+                    item.get("created_at") or int(time.time() * 1000),
+                ),
+                last_updated=int(
+                    item.get("last_updated") or int(time.time() * 1000),
+                ),
+                state=state or PROCESSING,
+                last_streamed_content="",
+            )
+            async with self._active_cards_lock:
+                self._active_cards[conversation_id] = card
+            try:
+                await self._stream_ai_card(
+                    card,
+                    AI_CARD_RECOVERY_FINAL_TEXT,
+                    finalize=True,
+                )
+            except Exception:
+                logger.exception("dingtalk ai card recovery finalize failed")
+                await self._mark_card_failed(conversation_id)
 
     async def send(
         self,

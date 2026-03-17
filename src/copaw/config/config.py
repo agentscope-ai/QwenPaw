@@ -55,6 +55,10 @@ class DiscordConfig(BaseChannelConfig):
 class DingTalkConfig(BaseChannelConfig):
     client_id: str = ""
     client_secret: str = ""
+    message_type: str = "markdown"
+    card_template_id: str = ""
+    card_template_key: str = "content"
+    robot_code: str = ""
     media_dir: Optional[str] = None
 
 

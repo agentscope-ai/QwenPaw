@@ -79,11 +79,17 @@
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
   "client_secret": "你的 Client Secret",
+  "message_type": "markdown",
+  "card_template_id": "",
+  "card_template_key": "content",
+  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
 
 - 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
+- AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致（默认 `content`）。
+- 群聊场景建议显式配置 `robot_code`；留空时 CoPaw 会回退使用 `client_id`。
 
 保存后若服务已运行会自动重载；未运行则执行 `copaw app` 启动。
 
@@ -718,18 +724,17 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ### 配置总览
 
-| 频道       | 配置键     | 必填/主要字段                                                       |
-| ---------- | ---------- | ------------------------------------------------------------------- |
-| 钉钉       | dingtalk   | client_id, client_secret                                            |
-| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir |
-| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                       |
-| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                         |
-| QQ         | qq         | app_id, client_secret                                               |
-| 企业微信   | wecom      | bot_id, secret；可选 media_dir, max_reconnect_attempts              |
-| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                         |
-| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from             |
-| Matrix     | matrix     | homeserver, user_id, access_token                                   |
-| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                       |
+| 频道       | 配置键     | 必填/主要字段                                                                           |
+| ---------- | ---------- | --------------------------------------------------------------------------------------- |
+| 钉钉       | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code |
+| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir                     |
+| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                           |
+| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| QQ         | qq         | app_id, client_secret                                                                   |
+| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
+| Matrix     | matrix     | homeserver, user_id, access_token                                                       |
+| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                           |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 

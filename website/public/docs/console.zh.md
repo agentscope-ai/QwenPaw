@@ -63,14 +63,14 @@
 
 3. 填写该频道所需的凭据——每个频道要求不同：
 
-   | 频道         | 需要填写的字段                                       |
-   | ------------ | ---------------------------------------------------- |
-   | **钉钉**     | Client ID、Client Secret                             |
-   | **飞书**     | App ID、App Secret、加密密钥、验证令牌、媒体文件目录 |
-   | **Discord**  | Bot Token、HTTP 代理、代理认证                       |
-   | **QQ**       | App ID、Client Secret                                |
-   | **iMessage** | 数据库路径、轮询间隔                                 |
-   | **Console**  | _（只需开关）_                                       |
+   | 频道         | 需要填写的字段                                                   |
+   | ------------ | ---------------------------------------------------------------- |
+   | **钉钉**     | Client ID、Client Secret、消息类型、Card 模板 ID/Key、Robot Code |
+   | **飞书**     | App ID、App Secret、加密密钥、验证令牌、媒体文件目录             |
+   | **Discord**  | Bot Token、HTTP 代理、代理认证                                   |
+   | **QQ**       | App ID、Client Secret                                            |
+   | **iMessage** | 数据库路径、轮询间隔                                             |
+   | **Console**  | _（只需开关）_                                                   |
 
 4. 点 **保存**，几秒内自动生效，无需重启。
 

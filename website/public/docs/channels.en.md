@@ -79,12 +79,18 @@ In `config.json`, find `channels.dingtalk` and fill in the corresponding informa
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "your Client ID",
-  "client_secret": "your Client Secret"
+  "client_secret": "your Client Secret",
+  "message_type": "markdown",
+  "card_template_id": "",
+  "card_template_key": "content",
+  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
 
 - Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
+- AI Card mode: set `message_type` to `card`, then configure `card_template_id`; keep `card_template_key` consistent with your DingTalk template variable (default `content`).
+- `robot_code` is recommended in group scenarios; if empty, CoPaw falls back to `client_id`.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run
 `copaw app`.

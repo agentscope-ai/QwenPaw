@@ -195,6 +195,60 @@ export function ChannelDrawer({
             <Form.Item name="client_secret" label="Client Secret">
               <Input.Password />
             </Form.Item>
+            <Form.Item
+              name="message_type"
+              label="Message Type"
+              tooltip="markdown: regular messages; card: AI interactive card"
+            >
+              <Select
+                options={[
+                  { label: "markdown", value: "markdown" },
+                  { label: "card", value: "card" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, cur) =>
+                prev.message_type !== cur.message_type
+              }
+            >
+              {({ getFieldValue }) => {
+                const isCard = getFieldValue("message_type") === "card";
+                if (!isCard) return null;
+                return (
+                  <>
+                    <Form.Item
+                      name="card_template_id"
+                      label="Card Template ID"
+                      rules={[
+                        {
+                          required: true,
+                          message:
+                            "Please input card template id when message_type=card",
+                        },
+                      ]}
+                    >
+                      <Input placeholder="dt_card_template_xxx" />
+                    </Form.Item>
+                    <Form.Item
+                      name="card_template_key"
+                      label="Card Template Key"
+                      tooltip="Must exactly match the template variable name"
+                    >
+                      <Input placeholder="content" />
+                    </Form.Item>
+                    <Form.Item
+                      name="robot_code"
+                      label="Robot Code"
+                      tooltip="Recommended to configure explicitly for group chats"
+                    >
+                      <Input placeholder="robot code (default client_id)" />
+                    </Form.Item>
+                  </>
+                );
+              }}
+            </Form.Item>
           </>
         );
       case "feishu":

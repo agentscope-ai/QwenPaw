@@ -69,14 +69,14 @@ iMessage, and Console.
 
 3. Fill in required credentials (fields differ by channel):
 
-   | Channel      | Required fields                                                |
-   | ------------ | -------------------------------------------------------------- |
-   | **DingTalk** | Client ID, Client Secret                                       |
-   | **Feishu**   | App ID, App Secret, Encrypt Key, Verification Token, Media Dir |
-   | **Discord**  | Bot Token, HTTP Proxy, Proxy Auth                              |
-   | **QQ**       | App ID, Client Secret                                          |
-   | **iMessage** | Database path, Poll interval                                   |
-   | **Console**  | _(toggle only)_                                                |
+   | Channel      | Required fields                                                          |
+   | ------------ | ------------------------------------------------------------------------ |
+   | **DingTalk** | Client ID, Client Secret, Message Type, Card Template ID/Key, Robot Code |
+   | **Feishu**   | App ID, App Secret, Encrypt Key, Verification Token, Media Dir           |
+   | **Discord**  | Bot Token, HTTP Proxy, Proxy Auth                                        |
+   | **QQ**       | App ID, Client Secret                                                    |
+   | **iMessage** | Database path, Poll interval                                             |
+   | **Console**  | _(toggle only)_                                                          |
 
 4. Click **Save**. Changes take effect in seconds, no restart required.
 
