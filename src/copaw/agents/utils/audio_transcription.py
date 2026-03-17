@@ -56,10 +56,15 @@ def _url_for_provider(provider) -> Optional[Tuple[str, str]]:
         key = provider.api_key or ""
         if requires_key and not key:
             return None
-        return (provider.base_url, key or "")
+        base = provider.base_url.rstrip("/")
+        if not base.endswith("/v1"):
+            base += "/v1"
+        return (base, key or "")
     if isinstance(provider, OllamaProvider):
         base = provider.base_url.rstrip("/")
-        return (base + "/v1", provider.api_key or "")
+        if not base.endswith("/v1"):
+            base += "/v1"
+        return (base, provider.api_key or "")
     return None
 
 
