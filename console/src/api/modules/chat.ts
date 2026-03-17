@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { getApiUrl, getApiToken } from "../config";
 import type {
   ChatSpec,
   ChatHistory,
@@ -43,6 +44,47 @@ export const chatApi = {
         body: JSON.stringify(chatIds),
       },
     ),
+
+  /** Stop a running console chat (only stop when user clicks stop). chat_id = ChatSpec.id */
+  stopConsoleChat: (chatId: string) =>
+    request<{ stopped: boolean }>(
+      `/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`,
+      { method: "POST" },
+    ),
+
+  /** POST /console/chat with reconnect=true to attach to running stream. Uses session_id (no chat_id). Returns fetch Response (stream). */
+  reconnectConsoleChat: (params: {
+    session_id: string;
+    user_id?: string;
+    channel?: string;
+  }): Promise<Response> => {
+    const url = getApiUrl("/console/chat");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const token = getApiToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+      const agentStorage = localStorage.getItem("copaw-agent-storage");
+      if (agentStorage) {
+        const parsed = JSON.parse(agentStorage);
+        const selectedAgentId = parsed?.state?.selectedAgent;
+        if (selectedAgentId) headers["X-Agent-Id"] = selectedAgentId;
+      }
+    } catch {
+      // ignore
+    }
+    return fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        reconnect: true,
+        session_id: params.session_id,
+        user_id: params.user_id ?? "default",
+        channel: params.channel ?? "console",
+      }),
+    });
+  },
 };
 
 export const sessionApi = {

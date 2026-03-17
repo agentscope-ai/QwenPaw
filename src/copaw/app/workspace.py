@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from .runner import AgentRunner
+from .runner.task_tracker import TaskTracker
 from .channels.utils import make_process_from_runner
 from .mcp import MCPClientManager
 from .crons.manager import CronManager
@@ -63,6 +64,7 @@ class Workspace:
         self._config = None
         self._config_watcher = None
         self._mcp_config_watcher = None
+        self._task_tracker = TaskTracker()
         self._started = False
 
         logger.debug(
@@ -98,6 +100,11 @@ class Workspace:
     def chat_manager(self):
         """Get chat manager instance."""
         return self._chat_manager
+
+    @property
+    def task_tracker(self) -> TaskTracker:
+        """Get task tracker for background chat and reconnect."""
+        return self._task_tracker
 
     @property
     def config(self):
