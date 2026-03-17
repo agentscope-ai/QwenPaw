@@ -343,9 +343,6 @@ class ToolGuardMixin:
             await self.memory.add(msg)
             return msg
 
-        if tool_choice is None and self.toolkit.get_json_schemas():
-            tool_choice = "auto"
-
         return await super()._reasoning(  # type: ignore[misc]
             tool_choice=tool_choice,
         )

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from typing import (
     Callable,
@@ -159,8 +160,16 @@ class ChannelManager:
         process: ProcessHandler,
         config: "Config",
         on_last_dispatch: OnLastDispatch = None,
+        workspace_dir: Path | None = None,
     ) -> "ChannelManager":
-        """Create channels from config (config.json)."""
+        """Create channels from config (config.json or agent.json).
+
+        Args:
+            process: Process handler for agent communication
+            config: Configuration object with channels
+            on_last_dispatch: Callback for dispatch events
+            workspace_dir: Agent workspace directory for channel state files
+        """
         available = get_available_channels()
         ch = config.channels
         show_tool_details = getattr(config, "show_tool_details", True)
@@ -180,6 +189,12 @@ class ChannelManager:
                 )
             if ch_cfg is None:
                 continue
+
+            # Check if channel is enabled
+            enabled = getattr(ch_cfg, "enabled", False)
+            if not enabled:
+                continue
+
             filter_tool_messages = getattr(
                 ch_cfg,
                 "filter_tool_messages",
@@ -190,16 +205,26 @@ class ChannelManager:
                 "filter_thinking",
                 False,
             )
-            channels.append(
-                ch_cls.from_config(
-                    process,
-                    ch_cfg,
-                    on_reply_sent=on_last_dispatch,
-                    show_tool_details=show_tool_details,
-                    filter_tool_messages=filter_tool_messages,
-                    filter_thinking=filter_thinking,
-                ),
-            )
+
+            # Pass workspace_dir to channel if supported
+            from_config_kwargs = {
+                "process": process,
+                "config": ch_cfg,
+                "on_reply_sent": on_last_dispatch,
+                "show_tool_details": show_tool_details,
+                "filter_tool_messages": filter_tool_messages,
+                "filter_thinking": filter_thinking,
+            }
+
+            # Only pass workspace_dir to channels that support it
+            import inspect
+
+            sig = inspect.signature(ch_cls.from_config)
+            if "workspace_dir" in sig.parameters:
+                from_config_kwargs["workspace_dir"] = workspace_dir
+
+            channels.append(ch_cls.from_config(**from_config_kwargs))
+
         return cls(channels)
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:

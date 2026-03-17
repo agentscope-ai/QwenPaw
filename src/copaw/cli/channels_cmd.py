@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
 
 import click
 
@@ -21,6 +22,8 @@ from ..config.config import (
     IMessageChannelConfig,
     QQConfig,
     VoiceChannelConfig,
+    load_agent_config,
+    save_agent_config,
 )
 from .utils import prompt_confirm, prompt_path, prompt_select
 from ..config import get_available_channels
@@ -29,6 +32,7 @@ from ..app.channels.registry import (
     BUILTIN_CHANNEL_KEYS,
     get_channel_registry,
 )
+
 
 # Fields that contain secrets — display masked in ``list``
 _SECRET_FIELDS = {
@@ -816,41 +820,51 @@ def _channel_enabled(ch) -> bool:
 
 
 @channels_group.command("list")
-def list_cmd() -> None:
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def list_cmd(agent_id: str) -> None:
     """Show current channel configuration."""
-    config_path = get_config_path()
+    try:
+        agent_config = load_agent_config(agent_id)
+        click.echo(f"Channels for agent: {agent_id}\n")
 
-    if not config_path.is_file():
-        click.echo(f"Config not found: {config_path}")
-        click.echo("Will load default config.")
-        click.echo("Run `copaw channels config` to create one.")
-        cfg = load_config()
-    else:
-        cfg = load_config(config_path)
+        if not agent_config.channels:
+            click.echo("No channels configured for this agent.")
+            return
 
-    extra = getattr(cfg.channels, "__pydantic_extra__", None) or {}
-    for key, name in _get_channel_names().items():
-        ch = getattr(cfg.channels, key, None)
-        if ch is None:
-            ch = extra.get(key)
-        if ch is None:
-            continue
-        status = (
-            click.style("enabled", fg="green")
-            if _channel_enabled(ch)
-            else click.style("disabled", fg="red")
+        extra = (
+            getattr(agent_config.channels, "__pydantic_extra__", None) or {}
         )
-        click.echo(f"\n{'─' * 40}")
-        click.echo(f"  {name}  [{status}]")
-        click.echo(f"{'─' * 40}")
-
-        for field_name, value in _channel_config_fields(ch):
-            display = (
-                _mask(str(value)) if field_name in _SECRET_FIELDS else value
+        for key, name in _get_channel_names().items():
+            ch = getattr(agent_config.channels, key, None)
+            if ch is None:
+                ch = extra.get(key)
+            if ch is None:
+                continue
+            status = (
+                click.style("enabled", fg="green")
+                if _channel_enabled(ch)
+                else click.style("disabled", fg="red")
             )
-            click.echo(f"  {field_name:20s}: {display}")
+            click.echo(f"\n{'─' * 40}")
+            click.echo(f"  {name}  [{status}]")
+            click.echo(f"{'─' * 40}")
 
-    click.echo()
+            for field_name, value in _channel_config_fields(ch):
+                display = (
+                    _mask(str(value))
+                    if field_name in _SECRET_FIELDS
+                    else value
+                )
+                click.echo(f"  {field_name:20s}: {display}")
+
+        click.echo()
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from e
 
 
 def _install_channel_to_dir(
@@ -872,8 +886,6 @@ def _install_channel_to_dir(
     dest_dir = CUSTOM_CHANNELS_DIR / key
 
     if from_path:
-        from pathlib import Path
-
         src = Path(from_path).resolve()
         if not src.exists():
             click.echo(f"Path not found: {src}", err=True)
@@ -1051,17 +1063,31 @@ def remove_cmd(key: str, keep_config: bool) -> None:
 
 
 @channels_group.command("config")
-def configure_cmd() -> None:
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def configure_cmd(agent_id: str) -> None:
     """Interactively configure channels."""
-    config_path = get_config_path()
-    working_dir = config_path.parent
+    try:
+        agent_config = load_agent_config(agent_id)
+        click.echo(f"Configuring channels for agent: {agent_id}\n")
 
-    click.echo(f"Working dir: {working_dir}")
-    working_dir.mkdir(parents=True, exist_ok=True)
+        # Create a temporary Config object for the interactive configurator
+        temp_config = Config()
+        temp_config.channels = (
+            agent_config.channels
+            if agent_config.channels
+            else temp_config.channels
+        )
 
-    existing = load_config(config_path) if config_path.is_file() else Config()
+        configure_channels_interactive(temp_config)
 
-    configure_channels_interactive(existing)
-
-    save_config(existing, config_path)
-    click.echo(f"\n✓ Configuration saved to {config_path}")
+        # Save back to agent config
+        agent_config.channels = temp_config.channels
+        save_agent_config(agent_id, agent_config)
+        click.echo(f"\n✓ Configuration saved for agent {agent_id}")
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from e
