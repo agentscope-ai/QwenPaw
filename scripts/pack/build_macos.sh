@@ -145,7 +145,7 @@ if [ ! -t 2 ]; then
     exit 1
   fi
   if [ ! -f "$BOOSTCLAW_WORKING_DIR/config.json" ]; then
-    "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
+    "$ENV_DIR/bin/boostclaw" init --defaults --accept-security
   fi
   echo "Launching python with log-level=$LOG_LEVEL..."
   "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
@@ -160,7 +160,7 @@ if [ ! -t 2 ]; then
   exit $EXIT
 fi
 if [ ! -f "$BOOSTCLAW_WORKING_DIR/config.json" ]; then
-  "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
+  "$ENV_DIR/bin/boostclaw" init --defaults --accept-security
 fi
 exec "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
 LAUNCHER

@@ -1,12 +1,20 @@
 import { createGlobalStyle } from "antd-style";
 import { ConfigProvider, bailianTheme } from "@agentscope-ai/design";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import zhCN from "antd/locale/zh_CN";
+import enUS from "antd/locale/en_US";
+import jaJP from "antd/locale/ja_JP";
+import ruRU from "antd/locale/ru_RU";
+import type { Locale } from "antd/es/locale";
 import MainLayout from "./layouts/MainLayout";
 import LoginPage from "./pages/Auth/Login";
 import { AuthProvider } from "./auth/context";
 import RequireAuth from "./auth/RequireAuth";
 import "./styles/layout.css";
 import "./styles/form-override.css";
+import dayjs from "dayjs";
 
 const antdLocaleMap: Record<string, Locale> = {
   zh: zhCN,
@@ -61,7 +69,12 @@ function AppInner() {
   return (
     <BrowserRouter basename={basename}>
       <GlobalStyle />
-      <ConfigProvider {...bailianTheme} prefix="copaw" prefixCls="copaw">
+      <ConfigProvider
+        {...bailianTheme}
+        locale={antdLocale}
+        prefix="copaw"
+        prefixCls="copaw"
+      >
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

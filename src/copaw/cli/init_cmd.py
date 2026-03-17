@@ -168,24 +168,25 @@ def init_cmd(
     working_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Telemetry collection (optional, anonymous) ---
-    from ..utils.telemetry import (
-        collect_and_upload_telemetry,
-        has_telemetry_been_collected,
-        mark_telemetry_collected,
-    )
+    # disable telemetry
+    #from ..utils.telemetry import (
+    #    collect_and_upload_telemetry,
+    #    has_telemetry_been_collected,
+    #    mark_telemetry_collected,
+    #)
 
-    if not has_telemetry_been_collected(working_dir):
-        if use_defaults:
-            success = collect_and_upload_telemetry(working_dir)
+    #if not has_telemetry_been_collected(working_dir):
+    #    if use_defaults:
+    #        success = collect_and_upload_telemetry(working_dir)
 
-        else:
-            _echo_telemetry_info_box()
-            if prompt_confirm("Share usage data?", default=True):
-                success = collect_and_upload_telemetry(working_dir)
-                if success:
-                    click.echo("✓ Thank you!")
-            else:
-                mark_telemetry_collected(working_dir)
+    #    else:
+    #        _echo_telemetry_info_box()
+    #        if prompt_confirm("Share usage data?", default=True):
+    #            success = collect_and_upload_telemetry(working_dir)
+    #            if success:
+    #                click.echo("✓ Thank you!")
+    #        else:
+    #            mark_telemetry_collected(working_dir)
 
     # --- Ensure default agent workspace exists ---
     click.echo("\n=== Default Workspace Initialization ===")

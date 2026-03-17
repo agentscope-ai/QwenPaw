@@ -1,6 +1,6 @@
 ; boostpaw desktop NSIS installer. Run makensis from repo root after
 ; building dist/win-unpacked (see scripts/pack/build_win.ps1).
-; Usage: makensis /DCOPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\boostpaw-Setup-1.2.3.exe scripts\pack\copaw_desktop.nsi
+; Usage: makensis /DCOPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\boostpaw-setup-1.2.3.exe scripts\pack\copaw_desktop.nsi
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
@@ -12,7 +12,7 @@
   !define COPAW_VERSION "0.0.0"
 !endif
 !ifndef OUTPUT_EXE
-  !define OUTPUT_EXE "dist\boostpaw-Setup-${COPAW_VERSION}.exe"
+  !define OUTPUT_EXE "dist\boostpaw-setup-${COPAW_VERSION}.exe"
 !endif
 
 Name "boostpaw desktop"
