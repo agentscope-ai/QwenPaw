@@ -19,7 +19,7 @@ ENV COPAW_SECRET_DIR=/app/working.secret
 
 # Available channels for this image.
 # Override at runtime with -e COPAW_ENABLED_CHANNELS=... if needed.
-ARG COPAW_ENABLED_CHANNELS="discord,telegram,dingtalk,feishu,qq,console"
+ARG COPAW_ENABLED_CHANNELS="discord,telegram,dingtalk,feishu,qq,console,wecom"
 ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -47,6 +47,7 @@ RUN apt-get update && apt-get install -y --fix-missing \
 
 RUN apt-get update && apt-get install -y --fix-missing \
     chromium \
+    net-tools \
     chromium-sandbox \
     libx11-xcb1 \
     libxcomposite1 \
@@ -84,7 +85,8 @@ COPY pyproject.toml setup.py README.md ./
 COPY src ./src
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/copaw/console/
-RUN pip install --no-cache-dir .
+#RUN pip install --no-cache-dir . --index-url https://mirrors.aliyun.com/pypi/simple/
+RUN pip install . --index-url https://mirrors.aliyun.com/pypi/simple/
 
 # Init working dir with default config.json and HEARTBEAT.md (build time).
 RUN copaw init --defaults --accept-security
