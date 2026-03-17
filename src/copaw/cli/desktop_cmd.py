@@ -130,6 +130,9 @@ def desktop_cmd(
 
     is_windows = sys.platform == "win32"
     proc = None
+    manually_terminated = (
+        False  # Track if we intentionally terminated the process
+    )
     try:
         proc = subprocess.Popen(
             [
@@ -197,33 +200,65 @@ def desktop_cmd(
                     pass  # will be handled in finally
         finally:
             # Ensure backend process is always cleaned up
+            # Wrap all cleanup operations to handle race conditions:
+            # - Process may exit between poll() and terminate()
+            # - terminate()/kill() may raise ProcessLookupError/OSError
+            # - We must not let cleanup exceptions mask the original error
             if proc and proc.poll() is None:  # process still running
                 logger.info("Terminating backend server...")
-                proc.terminate()
+                manually_terminated = (
+                    True  # Mark that we're intentionally terminating
+                )
                 try:
-                    proc.wait(timeout=5.0)
-                    logger.info("Backend server terminated cleanly.")
-                except subprocess.TimeoutExpired:
-                    logger.warning(
-                        "Backend did not exit in 5s, force killing...",
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5.0)
+                        logger.info("Backend server terminated cleanly.")
+                    except subprocess.TimeoutExpired:
+                        logger.warning(
+                            "Backend did not exit in 5s, force killing...",
+                        )
+                        try:
+                            proc.kill()
+                            proc.wait()
+                            logger.info("Backend server force killed.")
+                        except (ProcessLookupError, OSError) as e:
+                            # Process already exited, which is fine
+                            logger.debug(
+                                f"kill() raised {e.__class__.__name__} "
+                                f"(process already exited)",
+                            )
+                except (ProcessLookupError, OSError) as e:
+                    # Process already exited between poll() and terminate()
+                    logger.debug(
+                        f"terminate() raised {e.__class__.__name__} "
+                        f"(process already exited)",
                     )
-                    proc.kill()
-                    proc.wait()
-                    logger.info("Backend server force killed.")
             elif proc:
                 logger.info(
                     f"Backend already exited with code {proc.returncode}",
                 )
 
-        # Check exit code: -15 (SIGTERM) and -9 (SIGKILL) are expected when
-        # we manually terminate the backend, so only treat other non-zero
-        # codes as errors.
-        if proc and proc.returncode not in (0, -15, -9, None):
+        # Only report errors if process exited unexpectedly
+        # (not manually terminated)
+        # On Windows, terminate() doesn't use signals so exit codes vary
+        # (1, 259, etc.)
+        # On Unix/Linux/macOS, terminate() sends SIGTERM (exit code -15)
+        # Using a flag is more reliable than checking specific exit codes
+        if proc and proc.returncode != 0 and not manually_terminated:
             logger.error(
                 f"Backend process exited unexpectedly with code "
                 f"{proc.returncode}",
             )
-            sys.exit(abs(proc.returncode) if proc.returncode else 1)
+            # Follow POSIX convention for exit codes:
+            # - Negative (signal): 128 + signal_number
+            # - Positive (normal): use as-is
+            # Example: -15 (SIGTERM) -> 143 (128+15), -11 (SIGSEGV) ->
+            # 139 (128+11)
+            if proc.returncode < 0:
+                sys.exit(128 + abs(proc.returncode))
+            else:
+                sys.exit(proc.returncode or 1)
     except KeyboardInterrupt:
         logger.warning("KeyboardInterrupt in main, cleaning up...")
         raise
