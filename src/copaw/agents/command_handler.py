@@ -167,6 +167,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         self.memory_manager.add_async_summary_task(messages=messages)
         self.memory.clear_compressed_summary()
+
         updated_count = await self.memory.mark_messages_compressed(messages)
         logger.info(f"Marked {updated_count} messages as compacted")
         return await self._make_system_msg(
