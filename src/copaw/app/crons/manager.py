@@ -11,8 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from ...config import HeartbeatConfig
-from ...config.config import load_agent_config
+from ...config import HeartbeatConfig, load_heartbeat_for_agent
 
 from ..console_push_store import append as push_store_append
 from .executor import CronExecutor
@@ -57,15 +56,7 @@ class CronManager:
 
     def _load_heartbeat_config(self) -> HeartbeatConfig:
         """Load heartbeat config from agent-level agent.json."""
-        try:
-            agent_config = load_agent_config(self._agent_id)
-            return agent_config.heartbeat or HeartbeatConfig()
-        except (ValueError, FileNotFoundError):
-            logger.warning(
-                "Failed to load agent config for %s, using default heartbeat",
-                self._agent_id,
-            )
-            return HeartbeatConfig()
+        return load_heartbeat_for_agent(self._agent_id)
 
     async def start(self) -> None:
         async with self._lock:

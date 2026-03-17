@@ -14,11 +14,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict
 
 from ...config import (
-    HeartbeatConfig,
     get_heartbeat_query_path,
     load_config,
+    load_heartbeat_for_agent,
 )
-from ...config.config import load_agent_config
 from ...constant import HEARTBEAT_TARGET_LAST
 
 logger = logging.getLogger(__name__)
@@ -97,15 +96,7 @@ async def run_heartbeat_once(
     optionally dispatch to last channel (target=last).
     """
     config = load_config()
-    try:
-        agent_config = load_agent_config(agent_id)
-        hb = agent_config.heartbeat or HeartbeatConfig()
-    except (ValueError, FileNotFoundError):
-        logger.warning(
-            "Failed to load agent config for %s, using default heartbeat",
-            agent_id,
-        )
-        hb = HeartbeatConfig()
+    hb = load_heartbeat_for_agent(agent_id)
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return

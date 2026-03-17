@@ -18,6 +18,7 @@ from .utils import (
     get_system_default_browser,
     is_running_in_container,
     load_config,
+    load_heartbeat_for_agent,
     save_config,
     update_last_dispatch,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "get_system_default_browser",
     "is_running_in_container",
     "load_config",
+    "load_heartbeat_for_agent",
     "save_config",
     "update_last_dispatch",
 ]

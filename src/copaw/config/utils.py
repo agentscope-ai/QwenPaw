@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import plistlib
 import subprocess
@@ -18,6 +19,8 @@ from ..constant import (
     WORKING_DIR,
 )
 from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _discover_system_chromium_path() -> Optional[str]:
@@ -363,14 +366,31 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
 def get_heartbeat_config() -> HeartbeatConfig:
     """Return heartbeat config from root config (legacy).
 
-    Deprecated: prefer loading from agent-level config via
-    ``load_agent_config(agent_id).heartbeat`` instead.
+    Deprecated: prefer ``load_heartbeat_for_agent(agent_id)`` instead.
     """
     config = load_config()
     defaults = config.agents.defaults
-    if defaults is None:
+    if defaults and defaults.heartbeat:
+        return defaults.heartbeat
+    return HeartbeatConfig()
+
+
+def load_heartbeat_for_agent(agent_id: str) -> HeartbeatConfig:
+    """Load heartbeat config from agent-level agent.json.
+
+    Falls back to default HeartbeatConfig on any config load failure.
+    """
+    from .config import load_agent_config
+
+    try:
+        agent_config = load_agent_config(agent_id)
+        return agent_config.heartbeat or HeartbeatConfig()
+    except (ValueError, OSError):
+        logger.warning(
+            "Failed to load agent config for %s, using default heartbeat",
+            agent_id,
+        )
         return HeartbeatConfig()
-    return defaults.heartbeat if defaults.heartbeat is not None else HeartbeatConfig()
 
 
 def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:

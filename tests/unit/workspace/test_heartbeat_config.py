@@ -19,7 +19,11 @@ from copaw.config.config import (
     load_agent_config,
     save_agent_config,
 )
-from copaw.config.utils import get_config_path, get_heartbeat_config
+from copaw.config.utils import (
+    get_config_path,
+    get_heartbeat_config,
+    load_heartbeat_for_agent,
+)
 
 
 @pytest.fixture
@@ -96,6 +100,34 @@ def test_agent_level_heartbeat_config_is_loaded(
     assert agent_config.heartbeat.enabled is True
     assert agent_config.heartbeat.every == "15m"
     assert agent_config.heartbeat.target == "main"
+
+
+def test_load_heartbeat_for_agent_reads_agent_json(
+    workspace_with_heartbeat,
+):  # pylint: disable=redefined-outer-name
+    """load_heartbeat_for_agent should read from agent.json."""
+    agent_id = workspace_with_heartbeat["agent_id"]
+    hb = load_heartbeat_for_agent(agent_id)
+    assert hb.enabled is True
+    assert hb.every == "15m"
+    assert hb.target == "main"
+
+
+def test_load_heartbeat_for_agent_fallback(tmp_path, monkeypatch):
+    """load_heartbeat_for_agent should return defaults for missing agents."""
+    monkeypatch.setenv(
+        "COPAW_CONFIG_PATH",
+        str(tmp_path / "config.json"),
+    )
+    root_config = Config()
+    config_path = Path(get_config_path())
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(root_config.model_dump(mode="json", by_alias=True), f)
+
+    hb = load_heartbeat_for_agent("nonexistent")
+    assert isinstance(hb, HeartbeatConfig)
+    assert hb.enabled is False
 
 
 def test_cron_manager_reads_agent_config(
