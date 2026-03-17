@@ -1,5 +1,4 @@
 import { request } from "../request";
-import { getApiUrl, getApiToken } from "../config";
 import type {
   ChatSpec,
   ChatHistory,

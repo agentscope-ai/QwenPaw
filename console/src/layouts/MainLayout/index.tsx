@@ -72,6 +72,10 @@ export default function MainLayout() {
               <Route path="/agent-config" element={<AgentConfigPage />} />
               <Route path="/security" element={<SecurityPage />} />
               <Route path="/token-usage" element={<TokenUsagePage />} />
+              <Route
+                path="/voice-transcription"
+                element={<VoiceTranscriptionPage />}
+              />
             </Routes>
           </div>
         </Content>
