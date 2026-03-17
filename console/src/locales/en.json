@@ -637,8 +637,10 @@
     "prompt2": "Can you tell me what skills you have?"
   },
   "security": {
-    "title": "Tool Guard",
-    "description": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
+    "title": "Security",
+    "description": "Manage security features for tools and skills.",
+    "toolGuardTitle": "Tool Guard",
+    "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Enable Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
     "guardedTools": "Guarded Tools",
@@ -694,6 +696,56 @@
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "Detects 'rm' command that may cause data loss",
         "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly"
+      }
+    },
+    "skillScanner": {
+      "title": "Skill Scanner",
+      "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
+      "mode": "Scanner Mode",
+      "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
+      "modeBlock": "Block",
+      "modeWarn": "Warn Only",
+      "modeOff": "Off",
+      "timeout": "Scan Timeout (seconds)",
+      "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
+      "saveSuccess": "Skill scanner settings saved",
+      "saveFailed": "Failed to save skill scanner settings",
+      "scanAlerts": {
+        "title": "Scan Alerts",
+        "empty": "No security alerts",
+        "clearAll": "Clear All",
+        "clearConfirm": "Clear all scan alerts?",
+        "skillName": "Skill",
+        "action": "Action",
+        "actionBlocked": "Blocked",
+        "actionWarned": "Warned",
+        "time": "Time",
+        "actions": "Actions",
+        "allowSkill": "Add to Whitelist",
+        "remove": "Remove",
+        "viewFindings": "View Details"
+      },
+      "whitelist": {
+        "title": "Whitelist",
+        "empty": "No skills are whitelisted",
+        "skillName": "Skill",
+        "addedAt": "Added At",
+        "contentHash": "Content Hash",
+        "actions": "Actions",
+        "remove": "Remove",
+        "removeConfirm": "Remove this skill from the whitelist?",
+        "addSuccess": "Skill added to whitelist",
+        "removeSuccess": "Skill removed from whitelist",
+        "addFailed": "Failed to add skill to whitelist",
+        "removeFailed": "Failed to remove skill from whitelist",
+        "removeWillDisable": "The skill will also be disabled after removal.",
+        "removeAndDisabled": "Skill removed from whitelist and disabled"
+      },
+      "scanError": {
+        "title": "Security Issues Detected",
+        "description": "The following security issues were found:",
+        "warnDescription": "Security issues were found but the skill was still enabled (warn mode):",
+        "goToWhitelist": "Go to Whitelist"
       }
     }
   }
