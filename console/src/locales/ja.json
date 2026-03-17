@@ -630,7 +630,12 @@
     "greeting": "こんにちは、今日はどんなお手伝いができますか？",
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
-    "prompt2": "あなたのスキルを教えてください。"
+    "prompt2": "あなたのスキルを教えてください。",
+    "uploadButton": "ファイルをアップロード",
+    "fileUploading": "ファイルをアップロードして処理中: {{name}}",
+    "fileUploadSuccess": "ファイルをアップロードし、処理に送信しました: {{name}}",
+    "fileUploadFailed": "ファイルのアップロードに失敗しました",
+    "fileTooLarge": "ファイルサイズが 100MB 制限を超えています。現在のファイル: {{size}}MB"
   },
   "security": {
     "title": "セキュリティ",

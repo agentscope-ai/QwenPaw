@@ -678,7 +678,12 @@
     "greeting": "Hello, how can I help you today?",
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
-    "prompt2": "Can you tell me what skills you have?"
+    "prompt2": "Can you tell me what skills you have?",
+    "uploadButton": "Upload file",
+    "fileUploading": "Uploading and processing file: {{name}}",
+    "fileUploadSuccess": "File uploaded and submitted for processing: {{name}}",
+    "fileUploadFailed": "File upload failed",
+    "fileTooLarge": "File exceeds the 100MB limit. Current file: {{size}}MB"
   },
   "security": {
     "title": "Security",

@@ -644,7 +644,12 @@
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
-    "prompt2": "能告诉我你有哪些技能吗？"
+    "prompt2": "能告诉我你有哪些技能吗？",
+    "uploadButton": "上传文件",
+    "fileUploading": "正在上传并处理文件：{{name}}",
+    "fileUploadSuccess": "文件已上传并提交处理：{{name}}",
+    "fileUploadFailed": "文件上传失败",
+    "fileTooLarge": "文件大小超过 100MB 限制。当前文件：{{size}}MB"
   },
   "security": {
     "title": "安全",

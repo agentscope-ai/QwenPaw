@@ -1,8 +1,30 @@
+.chatPage {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
 /* Disabled input overlay */
 .chatDisabledOverlay {
   position: relative;
   height: 100%;
   width: 100%;
+}
+
+.senderUploadButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+}
+
+.senderUploadButton :global(.ant-btn) {
+  color: rgba(0, 0, 0, 0.72);
+}
+
+:global(.dark) .senderUploadButton :global(.ant-btn),
+:global([data-theme="dark"]) .senderUploadButton :global(.ant-btn) {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .chatDisabledOverlay :global([class*="chat-anywhere-input"]),

@@ -4,10 +4,15 @@ import {
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
-import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+  ExclamationCircleOutlined,
+  PaperClipOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
@@ -16,7 +21,7 @@ import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import "./index.module.less";
+import styles from "./index.module.less";
 
 type CopyableContent = {
   type?: string;
@@ -40,6 +45,104 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
+const FILE_UPLOAD_MESSAGE_KEY = "chat-file-upload";
+
+function getSelectedAgentId(): string | null {
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (!agentStorage) return null;
+    const parsed = JSON.parse(agentStorage);
+    return parsed?.state?.selectedAgent || null;
+  } catch (error) {
+    console.warn("Failed to get selected agent from storage:", error);
+    return null;
+  }
+}
+
+function buildRequestHeaders(contentType?: string): Headers {
+  const headers = new Headers();
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
+
+  const token = getApiToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const selectedAgentId = getSelectedAgentId();
+  if (selectedAgentId) {
+    headers.set("X-Agent-Id", selectedAgentId);
+  }
+
+  return headers;
+}
+
+function findSenderActionsMountNode(root: ParentNode = document): HTMLElement | null {
+  const exactMatch = root.querySelector(
+    ".agentscope-runtime-webui-sender-actions-list-presets",
+  );
+  if (exactMatch instanceof HTMLElement) {
+    return exactMatch;
+  }
+
+  const fuzzyMatch = root.querySelector('[class*="sender-actions-list-presets"]');
+  return fuzzyMatch instanceof HTMLElement ? fuzzyMatch : null;
+}
+
+async function consumeEventStream(response: Response): Promise<void> {
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamError: string | null = null;
+
+  const processChunk = (chunk: string) => {
+    const events = chunk.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const lines = event
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+
+        try {
+          const parsed = JSON.parse(payload);
+          if (typeof parsed?.error === "string" && parsed.error) {
+            streamError = parsed.error;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    processChunk(buffer);
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    processChunk(`${buffer}\n\n`);
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+}
 
 function extractCopyableText(response: CopyableResponse): string {
   const collectText = (assistantOnly: boolean) => {
@@ -122,6 +225,10 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadButtonMountNode, setUploadButtonMountNode] =
+    useState<HTMLElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -177,6 +284,51 @@ export default function ChatPage() {
       document.removeEventListener("keypress", handleKeyPress, true);
     };
   }, []);
+
+  useEffect(() => {
+    let mountNode: HTMLSpanElement | null = null;
+    let frameId = 0;
+    let cancelled = false;
+    let observer: MutationObserver | null = null;
+
+    const ensureMounted = () => {
+      if (cancelled || mountNode?.isConnected) return;
+
+      const actionsNode = findSenderActionsMountNode();
+      if (!actionsNode) return;
+
+      mountNode = document.createElement("span");
+      mountNode.className = styles.senderUploadButton;
+      actionsNode.insertBefore(mountNode, actionsNode.firstChild);
+      setUploadButtonMountNode(mountNode);
+    };
+
+    const startObserver = () => {
+      observer = new MutationObserver(() => {
+        ensureMounted();
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    };
+
+    frameId = window.requestAnimationFrame(() => {
+      ensureMounted();
+      startObserver();
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+      observer?.disconnect();
+      setUploadButtonMountNode(null);
+      if (mountNode?.parentNode) {
+        mountNode.parentNode.removeChild(mountNode);
+      }
+    };
+  }, [refreshKey]);
 
   useEffect(() => {
     sessionApi.onSessionIdResolved = (tempId, realId) => {
@@ -283,23 +435,140 @@ export default function ChatPage() {
     [t],
   );
 
+  const ensureModelConfigured = useCallback(async () => {
+    try {
+      const activeModels = await providerApi.getActiveModels();
+      if (
+        !activeModels?.active_llm?.provider_id ||
+        !activeModels?.active_llm?.model
+      ) {
+        setShowModelPrompt(true);
+        return false;
+      }
+      return true;
+    } catch {
+      setShowModelPrompt(true);
+      return false;
+    }
+  }, []);
+
+  const ensureActiveSessionId = useCallback(async () => {
+    const currentSessionId = window.currentSessionId || chatIdRef.current;
+    if (
+      currentSessionId &&
+      currentSessionId !== "undefined" &&
+      currentSessionId !== "null"
+    ) {
+      return currentSessionId;
+    }
+
+    const sessions = await sessionApi.createSession({});
+    const newSessionId = sessions[0]?.id;
+    if (!newSessionId) {
+      throw new Error("Failed to create chat session");
+    }
+
+    lastSessionIdRef.current = newSessionId;
+    navigateRef.current(`/chat/${newSessionId}`, { replace: true });
+    return newSessionId;
+  }, []);
+
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      if (!(await ensureModelConfigured())) {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      if (file.size > MAX_UPLOAD_SIZE) {
+        message.error(
+          t("chat.fileTooLarge", {
+            size: (file.size / (1024 * 1024)).toFixed(2),
+          }),
+        );
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      setIsUploadingFile(true);
+      message.open({
+        type: "loading",
+        content: t("chat.fileUploading", { name: file.name }),
+        key: FILE_UPLOAD_MESSAGE_KEY,
+        duration: 0,
+      });
+
+      try {
+        const sessionId = await ensureActiveSessionId();
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("session_id", sessionId);
+        formData.append("user_id", window.currentUserId || "default");
+        formData.append("channel", window.currentChannel || "console");
+
+        const response = await fetch(
+          defaultConfig?.api?.baseURL || getApiUrl("/console/chat-upload"),
+          {
+            method: "POST",
+            headers: buildRequestHeaders(),
+            body: formData,
+          },
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          throw new Error(
+            errorText || `Upload failed: ${response.status} ${response.statusText}`,
+          );
+        }
+
+        await consumeEventStream(response);
+        await sessionApi.updateSession({ id: sessionId });
+        await sessionApi.getSession(sessionId);
+        setRefreshKey((prev) => prev + 1);
+
+        message.success({
+          content: t("chat.fileUploadSuccess", { name: file.name }),
+          key: FILE_UPLOAD_MESSAGE_KEY,
+        });
+      } catch (error) {
+        console.error("File upload failed:", error);
+        const errorMessage =
+          error instanceof Error ? error.message : t("chat.fileUploadFailed");
+        message.error({
+          content: `${t("chat.fileUploadFailed")}: ${errorMessage}`,
+          key: FILE_UPLOAD_MESSAGE_KEY,
+        });
+      } finally {
+        setIsUploadingFile(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    },
+    [ensureActiveSessionId, ensureModelConfigured, t],
+  );
+
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      void handleFileUpload(file);
+    },
+    [handleFileUpload],
+  );
+
   const customFetch = useCallback(
     async (data: {
       input: any[];
       biz_params?: any;
       signal?: AbortSignal;
     }): Promise<Response> => {
-      try {
-        const activeModels = await providerApi.getActiveModels();
-        if (
-          !activeModels?.active_llm?.provider_id ||
-          !activeModels?.active_llm?.model
-        ) {
-          setShowModelPrompt(true);
-          return buildModelError();
-        }
-      } catch {
-        setShowModelPrompt(true);
+      if (!(await ensureModelConfigured())) {
         return buildModelError();
       }
 
@@ -315,34 +584,14 @@ export default function ChatPage() {
         ...biz_params,
       };
 
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      // Add selected agent ID for multi-agent support
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
-      }
-
       return fetch(defaultConfig?.api?.baseURL || getApiUrl("/console/chat"), {
         method: "POST",
-        headers,
+        headers: buildRequestHeaders("application/json"),
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
     },
-    [],
+    [ensureModelConfigured],
   );
 
   const options = useMemo(() => {
@@ -403,8 +652,33 @@ export default function ChatPage() {
   }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
 
   return (
-    <div style={{ height: "100%", width: "100%" }}>
+    <div
+      className={showModelPrompt ? styles.chatDisabledOverlay : styles.chatPage}
+    >
       <AgentScopeRuntimeWebUI key={refreshKey} options={options} />
+
+      {uploadButtonMountNode
+        ? createPortal(
+            <Button
+              type="text"
+              shape="circle"
+              title={t("chat.uploadButton")}
+              aria-label={t("chat.uploadButton")}
+              icon={<PaperClipOutlined />}
+              onClick={() => fileInputRef.current?.click()}
+              loading={isUploadingFile}
+              disabled={isUploadingFile || showModelPrompt}
+            />,
+            uploadButtonMountNode,
+          )
+        : null}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileInputChange}
+        style={{ display: "none" }}
+      />
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result
