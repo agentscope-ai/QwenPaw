@@ -183,10 +183,14 @@ function SkillsPage() {
           <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
           <ul className={styles.importHintList}>
             <li>https://skills.sh/vercel-labs/skills/find-skills</li>
-            <li>https://clawhub.ai/ivangdavila/self-improving</li>
+            <li>https://lobehub.com/zh/skills/openclaw-skills-cli-developer</li>
+            <li>
+              https://market.lobehub.com/api/v1/skills/openclaw-skills-cli-developer/download
+            </li>
             <li>
               https://github.com/anthropics/skills/tree/main/skills/skill-creator
             </li>
+            <li>https://modelscope.cn/skills/@anthropics/skill-creator</li>
           </ul>
         </div>
 
