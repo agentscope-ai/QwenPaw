@@ -449,6 +449,7 @@
 可以在Console或是`config.json`填写Bot ID和Secret绑定bot
 
 **方法一**在console填写
+
 ![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
 
 **方法二**在`config.json`填写(默认文件路径为`~/.copaw/config.json`)
