@@ -38,8 +38,11 @@ import {
   BarChart3,
   Mic,
   Bot,
+  LogOut,
 } from "lucide-react";
 import api from "../api";
+import { clearAuthToken } from "../api/config";
+import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -205,6 +208,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [allVersions, setAllVersions] = useState<string[]>([]);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
+  const [authEnabled, setAuthEnabled] = useState(false);
+
+  useEffect(() => {
+    authApi
+      .getStatus()
+      .then((res) => setAuthEnabled(res.enabled))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!collapsed) {
@@ -443,6 +454,28 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         items={menuItems}
         theme={isDark ? "dark" : "light"}
       />
+
+      {authEnabled && (
+        <div style={{ padding: "12px 16px", borderTop: "1px solid #f0f0f0" }}>
+          <Button
+            type="text"
+            icon={<LogOut size={16} />}
+            onClick={() => {
+              clearAuthToken();
+              window.location.href = "/login";
+            }}
+            block
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: collapsed ? "center" : "flex-start",
+            }}
+          >
+            {!collapsed && t("login.logout")}
+          </Button>
+        </div>
+      )}
 
       <Modal
         open={updateModalOpen}
