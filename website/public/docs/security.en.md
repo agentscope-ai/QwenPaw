@@ -203,8 +203,8 @@ Remove or unset the environment variable and restart CoPaw:
 unset COPAW_AUTH_ENABLED
 copaw app
 
-# Docker — simply remove the -e flag
-docker run -p 127.0.0.1:8088:8088 agentscope/copaw:latest
+# Docker — simply remove the -e flag. The example below includes volumes for persistence.
+docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working -v copaw-secrets:/app/working.secret agentscope/copaw:latest
 ```
 
 ### Password reset
