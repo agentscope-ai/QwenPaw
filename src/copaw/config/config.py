@@ -391,6 +391,45 @@ class AgentsConfig(BaseModel):
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
     )
+    audio_mode: Literal["auto", "native"] = Field(
+        default="auto",
+        description=(
+            "How to handle incoming audio/voice messages. "
+            '"auto": transcribe if a provider is available, otherwise show '
+            "file-uploaded placeholder; "
+            '"native": send audio blocks directly to the model '
+            "(may need ffmpeg)."
+        ),
+    )
+
+    transcription_provider_type: Literal[
+        "disabled",
+        "whisper_api",
+        "local_whisper",
+    ] = Field(
+        default="disabled",
+        description=(
+            "Transcription backend. "
+            '"disabled": no transcription; '
+            '"whisper_api": remote OpenAI-compatible endpoint; '
+            '"local_whisper": locally installed openai-whisper.'
+        ),
+    )
+    transcription_provider_id: str = Field(
+        default="",
+        description=(
+            "Provider ID for Whisper API transcription. "
+            "Empty = no provider selected. "
+            'Only used when transcription_provider_type is "whisper_api".'
+        ),
+    )
+    transcription_model: str = Field(
+        default="whisper-1",
+        description=(
+            "Model name for Whisper API transcription. "
+            'e.g. "whisper-1", "whisper-large-v3".'
+        ),
+    )
 
 
 class LastDispatchConfig(BaseModel):

@@ -237,6 +237,13 @@ class BaseChannel(ABC):
                 return True
         return False
 
+    def _content_has_audio(self, contents: List[Any]) -> bool:
+        """True if contents has at least one AUDIO block."""
+        return any(
+            getattr(c, "type", None) == ContentType.AUDIO
+            for c in (contents or [])
+        )
+
     def _apply_no_text_debounce(
         self,
         session_id: str,
@@ -245,8 +252,19 @@ class BaseChannel(ABC):
         """
         Debounce: if content has no text, buffer and return (False, []).
         If has text, return (True, merged) with any buffered content prepended.
+        Audio-only messages bypass debounce and are processed immediately
+        (voice messages are standalone user input, not partial uploads).
         """
         if not self._content_has_text(content_parts):
+            if self._content_has_audio(content_parts):
+                # Audio-only messages (e.g. voice messages) should be
+                # processed immediately — they are complete user input.
+                pending = self._pending_content_by_session.pop(
+                    session_id,
+                    [],
+                )
+                merged = pending + list(content_parts)
+                return (True, merged)
             self._pending_content_by_session.setdefault(
                 session_id,
                 [],

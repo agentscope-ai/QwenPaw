@@ -6,6 +6,7 @@ This module handles:
 - Message content manipulation
 - Message validation
 """
+import asyncio
 import logging
 import os
 import urllib.parse
@@ -21,16 +22,23 @@ from .file_handling import download_file_from_base64, download_file_from_url
 
 logger = logging.getLogger(__name__)
 
-# Only allow local paths under this dir (channels save media here).
-_ALLOWED_MEDIA_ROOT = WORKING_DIR / "media"
+# Trusted directories where channels save downloaded media.
+_ALLOWED_MEDIA_ROOTS = [
+    WORKING_DIR / "media",
+    WORKING_DIR / "downloads",
+]
 
 
 def _is_allowed_media_path(path: str) -> bool:
-    """True if path is a file under _ALLOWED_MEDIA_ROOT."""
+    """True if *path* is a file under one of the allowed media directories."""
     try:
         resolved = Path(path).expanduser().resolve()
-        root = _ALLOWED_MEDIA_ROOT.resolve()
-        return resolved.is_file() and resolved.is_relative_to(root)
+        if not resolved.is_file():
+            return False
+        return any(
+            resolved.is_relative_to(root.resolve())
+            for root in _ALLOWED_MEDIA_ROOTS
+        )
     except Exception:
         return False
 
@@ -118,7 +126,82 @@ def _media_type_from_path(path: str) -> str:
         ".wav": "audio/wav",
         ".mp3": "audio/mp3",
         ".opus": "audio/opus",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+        ".m4a": "audio/mp4",
+        ".aac": "audio/aac",
     }.get(ext, "audio/octet-stream")
+
+
+# Extensions accepted by the agentscope OpenAIChatFormatter
+_FORMATTER_SUPPORTED_AUDIO_EXTS = {".wav", ".mp3"}
+
+
+def _convert_audio_to_wav(src_path: str) -> Optional[str]:
+    """Convert an audio file to .wav using ffmpeg if the extension is not
+    natively supported by the LLM formatter.
+
+    Uses a unique temporary file name to avoid overwriting existing files.
+
+    Returns the path to the converted .wav file, or None if conversion
+    failed or was not needed.
+    """
+    ext = (os.path.splitext(src_path)[1] or "").lower()
+    if ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
+        return None  # already supported, no conversion needed
+
+    import subprocess
+    import shutil
+    import tempfile
+
+    if not shutil.which("ffmpeg"):
+        logger.warning(
+            "ffmpeg not found; cannot convert %s audio to wav. "
+            "Install ffmpeg to enable audio format conversion.",
+            ext,
+        )
+        return None
+
+    # Use a temp file in the same directory to avoid clobbering.
+    src_dir = os.path.dirname(src_path) or "."
+    fd, dst_path = tempfile.mkstemp(suffix=".wav", dir=src_dir)
+    os.close(fd)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                src_path,
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                dst_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=True,
+        )
+        logger.debug("Converted audio %s -> %s", src_path, dst_path)
+        return dst_path
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        stderr = getattr(e, "stderr", b"") or b""
+        logger.warning(
+            "Audio conversion failed for %s: %s\nffmpeg stderr: %s",
+            src_path,
+            e,
+            stderr.decode(errors="replace"),
+        )
+        # Clean up the temp file on failure.
+        try:
+            os.unlink(dst_path)
+        except OSError:
+            pass
+        return None
 
 
 def _update_block_with_local_path(
@@ -155,6 +238,93 @@ def _handle_download_failure(block_type: str) -> Optional[dict]:
         }
     logger.debug("Failed to download %s block, keeping original", block_type)
     return None
+
+
+async def _process_audio_block(
+    message_content: list,
+    index: int,
+    local_path: str,
+    block: dict,
+) -> bool:
+    """Handle an audio block according to the configured audio_mode.
+
+    Modes:
+      - ``"auto"`` (default): try transcription; if it succeeds, replace
+        the audio block with the transcribed text and suppress file
+        metadata.  If transcription fails (no provider, missing deps,
+        API error), show a file-uploaded placeholder instead.  Audio is
+        never sent directly to the model in this mode.
+      - ``"native"``: send the audio block directly to the model
+        (convert via ffmpeg if needed).  No transcription is attempted.
+        If the file format is unsupported and conversion fails, a text
+        placeholder is shown instead.
+
+    Returns:
+        True if the audio was fully handled (transcribed or sent natively)
+        — the "file downloaded" notification will be suppressed.
+        False if transcription failed — the notification is kept so the
+        LLM knows the file path.
+    """
+    # Security: reject paths outside the allowed media directory.
+    if not _is_allowed_media_path(local_path):
+        logger.warning(
+            "Audio path outside allowed media dir, rejecting: %s",
+            local_path,
+        )
+        message_content[index] = {
+            "type": "text",
+            "text": "[Voice message]: (audio file rejected)",
+        }
+        return True
+
+    from .audio_transcription import transcribe_audio
+
+    audio_mode = load_config().agents.audio_mode
+
+    if audio_mode == "native":
+        converted = await asyncio.to_thread(
+            _convert_audio_to_wav,
+            local_path,
+        )
+        ext = (os.path.splitext(local_path)[1] or "").lower()
+        if converted:
+            audio_path = converted
+        elif ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
+            # Already a supported format, no conversion needed.
+            audio_path = local_path
+        else:
+            # Unsupported format and conversion failed — show placeholder
+            # instead of sending an unsupported audio block to the model.
+            message_content[index] = {
+                "type": "text",
+                "text": (
+                    "[Voice message]: (audio conversion failed, "
+                    "install ffmpeg to enable native audio)"
+                ),
+            }
+            return True
+        block["source"] = {
+            "type": "url",
+            "url": Path(audio_path).as_uri(),
+            "media_type": _media_type_from_path(audio_path),
+        }
+        return True
+
+    # "auto": attempt transcription.
+    text = await transcribe_audio(local_path)
+    if text:
+        message_content[index] = {
+            "type": "text",
+            "text": f"[Voice message]: {text}",
+        }
+        return True
+
+    # Transcription failed — show file-uploaded placeholder.
+    message_content[index] = {
+        "type": "text",
+        "text": "[Voice message]: (audio file received)",
+    }
+    return False
 
 
 async def _process_single_block(
@@ -201,11 +371,26 @@ async def _process_single_block(
         local_path = await _process_single_file_block(source, filename)
 
         if local_path:
-            message_content[index] = _update_block_with_local_path(
-                block,
-                block_type,
-                local_path,
-            )
+            if block_type == "audio":
+                # Audio blocks need transcription or format conversion
+                # depending on the configured audio_mode.
+                _update_block_with_local_path(block, block_type, local_path)
+                handled = await _process_audio_block(
+                    message_content,
+                    index,
+                    local_path,
+                    block,
+                )
+                if handled:
+                    # Audio was transcribed or sent natively; suppress the
+                    # "file downloaded" notification that would follow.
+                    return None
+            else:
+                message_content[index] = _update_block_with_local_path(
+                    block,
+                    block_type,
+                    local_path,
+                )
             logger.debug(
                 "Updated %s block with local path: %s",
                 block_type,
