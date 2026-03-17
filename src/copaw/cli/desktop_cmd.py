@@ -10,16 +10,20 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 
 import click
 
 from ..constant import LOG_LEVEL_ENV
+from ..utils.logging import setup_logger
 
 try:
     import webview
 except ImportError:
     webview = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 
 class WebViewAPI:
@@ -52,24 +56,6 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
         except (OSError, socket.error):
             time.sleep(1)
     return False
-
-
-def _get_desktop_logger():
-    """Get or create desktop logger (initialized once per process)."""
-    logger = logging.getLogger("copaw.cli.desktop")
-    if not logger.handlers:
-        # Setup basic handler if not already configured
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s | %(levelname)s | %(message)s",
-                "%Y-%m-%d %H:%M:%S",
-            ),
-        )
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-        logger.propagate = False
-    return logger
 
 
 def _stream_reader(in_stream, out_stream) -> None:
@@ -120,7 +106,8 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing CoPaw app instance.
     """
-    logger = _get_desktop_logger()
+    # Setup logger for desktop command (separate from backend subprocess)
+    setup_logger(log_level)
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
@@ -139,7 +126,7 @@ def desktop_cmd(
                 f"SSL_CERT_FILE set but not found: {cert_file}",
             )
     else:
-        logger.warning("SSL_CERT_FILE not set")
+        logger.warning("SSL_CERT_FILE not set on environment")
 
     is_windows = sys.platform == "win32"
     proc = None
@@ -228,16 +215,20 @@ def desktop_cmd(
                     f"Backend already exited with code {proc.returncode}",
                 )
 
-        if proc and proc.returncode != 0:
-            logger.error(f"Process exited with code {proc.returncode}")
-            sys.exit(proc.returncode or 1)
+        # Check exit code: -15 (SIGTERM) and -9 (SIGKILL) are expected when
+        # we manually terminate the backend, so only treat other non-zero
+        # codes as errors.
+        if proc and proc.returncode not in (0, -15, -9, None):
+            logger.error(
+                f"Backend process exited unexpectedly with code "
+                f"{proc.returncode}",
+            )
+            sys.exit(abs(proc.returncode) if proc.returncode else 1)
     except KeyboardInterrupt:
         logger.warning("KeyboardInterrupt in main, cleaning up...")
         raise
     except Exception as e:
         logger.error(f"Exception: {e!r}")
-        import traceback
-
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         raise
