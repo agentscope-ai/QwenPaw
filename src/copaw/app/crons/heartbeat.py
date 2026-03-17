@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Heartbeat: run agent with HEARTBEAT.md as query at interval.
-Uses config functions (get_heartbeat_config, get_heartbeat_query_path,
-load_config) for paths and settings.
+Uses agent-level config (load_agent_config) for heartbeat settings
+and config functions (get_heartbeat_query_path, load_config) for paths.
 """
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict
 
 from ...config import (
-    get_heartbeat_config,
+    HeartbeatConfig,
     get_heartbeat_query_path,
     load_config,
 )
+from ...config.config import load_agent_config
 from ...constant import HEARTBEAT_TARGET_LAST
 
 logger = logging.getLogger(__name__)
@@ -89,13 +90,22 @@ async def run_heartbeat_once(
     *,
     runner: Any,
     channel_manager: Any,
+    agent_id: str,
 ) -> None:
     """
     Run one heartbeat: read HEARTBEAT.md via config path, run agent,
     optionally dispatch to last channel (target=last).
     """
     config = load_config()
-    hb = get_heartbeat_config()
+    try:
+        agent_config = load_agent_config(agent_id)
+        hb = agent_config.heartbeat or HeartbeatConfig()
+    except (ValueError, FileNotFoundError):
+        logger.warning(
+            "Failed to load agent config for %s, using default heartbeat",
+            agent_id,
+        )
+        hb = HeartbeatConfig()
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return

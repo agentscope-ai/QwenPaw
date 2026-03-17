@@ -223,6 +223,7 @@ class Workspace:
                 repo=job_repo,
                 runner=self._runner,
                 channel_manager=self._channel_manager,
+                agent_id=self.agent_id,
                 timezone="UTC",
             )
             # Only start background tasks if heartbeat is enabled

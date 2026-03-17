@@ -11,7 +11,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from ...config import get_heartbeat_config
+from ...config import HeartbeatConfig
+from ...config.config import load_agent_config
 
 from ..console_push_store import append as push_store_append
 from .executor import CronExecutor
@@ -36,11 +37,13 @@ class CronManager:
         repo: BaseJobRepository,
         runner: Any,
         channel_manager: Any,
+        agent_id: str,
         timezone: str = "UTC",  # pylint: disable=redefined-outer-name
     ):
         self._repo = repo
         self._runner = runner
         self._channel_manager = channel_manager
+        self._agent_id = agent_id
         self._scheduler = AsyncIOScheduler(timezone=timezone)
         self._executor = CronExecutor(
             runner=runner,
@@ -52,6 +55,18 @@ class CronManager:
         self._rt: Dict[str, _Runtime] = {}
         self._started = False
 
+    def _load_heartbeat_config(self) -> HeartbeatConfig:
+        """Load heartbeat config from agent-level agent.json."""
+        try:
+            agent_config = load_agent_config(self._agent_id)
+            return agent_config.heartbeat or HeartbeatConfig()
+        except (ValueError, FileNotFoundError):
+            logger.warning(
+                "Failed to load agent config for %s, using default heartbeat",
+                self._agent_id,
+            )
+            return HeartbeatConfig()
+
     async def start(self) -> None:
         async with self._lock:
             if self._started:
@@ -62,9 +77,9 @@ class CronManager:
             for job in jobs_file.jobs:
                 await self._register_or_update(job)
 
-            # Heartbeat: one interval job when enabled in config
-            hb = get_heartbeat_config()
-            if getattr(hb, "enabled", True):
+            # Heartbeat: one interval job when enabled in agent config
+            hb = self._load_heartbeat_config()
+            if hb.enabled:
                 interval_seconds = parse_heartbeat_every(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
@@ -118,14 +133,14 @@ class CronManager:
             self._scheduler.resume_job(job_id)
 
     async def reschedule_heartbeat(self) -> None:
-        """Reload heartbeat config and update or remove the heartbeat job."""
+        """Reload heartbeat config from agent.json and update the job."""
         async with self._lock:
             if not self._started:
                 return
-            hb = get_heartbeat_config()
+            hb = self._load_heartbeat_config()
             if self._scheduler.get_job(HEARTBEAT_JOB_ID):
                 self._scheduler.remove_job(HEARTBEAT_JOB_ID)
-            if getattr(hb, "enabled", True):
+            if hb.enabled:
                 interval_seconds = parse_heartbeat_every(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
@@ -261,6 +276,7 @@ class CronManager:
             await run_heartbeat_once(
                 runner=self._runner,
                 channel_manager=self._channel_manager,
+                agent_id=self._agent_id,
             )
         except Exception:  # pylint: disable=broad-except
             logger.exception("heartbeat run failed")

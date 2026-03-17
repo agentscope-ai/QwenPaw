@@ -361,10 +361,16 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
 
 
 def get_heartbeat_config() -> HeartbeatConfig:
-    """Return effective heartbeat config (from file or default 30m/main)."""
+    """Return heartbeat config from root config (legacy).
+
+    Deprecated: prefer loading from agent-level config via
+    ``load_agent_config(agent_id).heartbeat`` instead.
+    """
     config = load_config()
-    hb = config.agents.defaults.heartbeat
-    return hb if hb is not None else HeartbeatConfig()
+    defaults = config.agents.defaults
+    if defaults is None:
+        return HeartbeatConfig()
+    return defaults.heartbeat if defaults.heartbeat is not None else HeartbeatConfig()
 
 
 def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:
