@@ -240,9 +240,12 @@ export default function AgentsPage() {
           <Form.Item
             name="workspace_dir"
             label={t("agent.workspace")}
-            help={t("agent.workspaceHelp")}
+            help={!editingAgent ? t("agent.workspaceHelp") : undefined}
           >
-            <Input placeholder="~/.copaw/workspaces/my-agent" />
+            <Input
+              placeholder="~/.copaw/workspaces/my-agent"
+              disabled={!!editingAgent}
+            />
           </Form.Item>
         </Form>
       </Modal>

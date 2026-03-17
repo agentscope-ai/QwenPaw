@@ -9,14 +9,20 @@ import "./index.css";
 
 const LANG_KEY = "site-lang";
 
-function getStoredLang(): Lang {
+function getInitialLang(): Lang {
+  const params = new URLSearchParams(window.location.search);
+  const urlLang = params.get("lang");
+  if (urlLang === "en" || urlLang === "zh") {
+    localStorage.setItem(LANG_KEY, urlLang);
+    return urlLang;
+  }
   const v = localStorage.getItem(LANG_KEY);
   return v === "en" ? "en" : "zh";
 }
 
 export default function App() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
-  const [lang, setLang] = useState<Lang>(getStoredLang);
+  const [lang, setLang] = useState<Lang>(getInitialLang);
 
   useEffect(() => {
     loadSiteConfig().then(setConfig);

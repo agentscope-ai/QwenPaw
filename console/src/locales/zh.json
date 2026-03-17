@@ -637,8 +637,10 @@
     "prompt2": "能告诉我你有哪些技能吗？"
   },
   "security": {
-    "title": "工具防护",
-    "description": "配置工具调用的安全扫描。危险操作将在执行前需要你的明确批准。",
+    "title": "安全",
+    "description": "管理工具和技能的安全功能。",
+    "toolGuardTitle": "工具防护",
+    "toolGuardDescription": "配置工具调用的安全扫描。危险操作将在执行前需要你的明确批准。",
     "enabled": "启用工具防护",
     "enabledTooltip": "启用后，工具调用在执行前会被扫描是否包含危险模式",
     "guardedTools": "受保护的工具",
@@ -694,6 +696,56 @@
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "检测可能导致数据丢失的 rm 命令",
         "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令"
+      }
+    },
+    "skillScanner": {
+      "title": "技能扫描器",
+      "description": "在启用或安装技能前，自动扫描安全威胁。不安全的技能可以被拦截或加入白名单。",
+      "mode": "扫描模式",
+      "modeTooltip": "控制扫描器如何处理不安全的技能：拦截、仅提醒或关闭",
+      "modeBlock": "拦截",
+      "modeWarn": "仅提醒",
+      "modeOff": "关闭",
+      "timeout": "扫描超时（秒）",
+      "timeoutTooltip": "等待扫描完成的最长时间（5-300秒）",
+      "saveSuccess": "技能扫描器设置已保存",
+      "saveFailed": "保存技能扫描器设置失败",
+      "scanAlerts": {
+        "title": "扫描告警",
+        "empty": "暂无安全告警",
+        "clearAll": "清除全部",
+        "clearConfirm": "确定清除所有扫描告警吗？",
+        "skillName": "技能",
+        "action": "动作",
+        "actionBlocked": "已拦截",
+        "actionWarned": "已提醒",
+        "time": "时间",
+        "actions": "操作",
+        "allowSkill": "加入白名单",
+        "remove": "删除",
+        "viewFindings": "查看详情"
+      },
+      "whitelist": {
+        "title": "白名单",
+        "empty": "暂无白名单技能",
+        "skillName": "技能",
+        "addedAt": "添加时间",
+        "contentHash": "内容哈希",
+        "actions": "操作",
+        "remove": "移除",
+        "removeConfirm": "确定将此技能从白名单中移除？",
+        "addSuccess": "技能已加入白名单",
+        "removeSuccess": "技能已从白名单移除",
+        "addFailed": "加入白名单失败",
+        "removeFailed": "从白名单移除失败",
+        "removeWillDisable": "移除后该技能将同时被禁用。",
+        "removeAndDisabled": "技能已从白名单移除并已禁用"
+      },
+      "scanError": {
+        "title": "检测到安全问题",
+        "description": "发现以下安全问题：",
+        "warnDescription": "发现安全问题，但技能仍已启用（仅提醒模式）：",
+        "goToWhitelist": "前往白名单"
       }
     }
   }

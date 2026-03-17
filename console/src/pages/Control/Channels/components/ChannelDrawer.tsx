@@ -50,6 +50,8 @@ const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
   mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
   mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
+  wecom:
+    "https://copaw.agentscope.io/docs/channels/#%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };

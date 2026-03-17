@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
+from pydantic import BaseModel
 
 from ...config import (
     load_config,
@@ -26,6 +28,8 @@ from ...config.config import (
     MattermostConfig,
     MQTTConfig,
     QQConfig,
+    SkillScannerConfig,
+    SkillScannerWhitelistEntry,
     TelegramConfig,
     VoiceChannelConfig,
 )
@@ -422,3 +426,127 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── Security / Skill Scanner ────────────────────────────────────────
+
+
+@router.get(
+    "/security/skill-scanner",
+    response_model=SkillScannerConfig,
+    summary="Get skill scanner settings",
+)
+async def get_skill_scanner() -> SkillScannerConfig:
+    config = load_config()
+    return config.security.skill_scanner
+
+
+@router.put(
+    "/security/skill-scanner",
+    response_model=SkillScannerConfig,
+    summary="Update skill scanner settings",
+)
+async def put_skill_scanner(
+    body: SkillScannerConfig = Body(...),
+) -> SkillScannerConfig:
+    config = load_config()
+    config.security.skill_scanner = body
+    save_config(config)
+    return body
+
+
+@router.get(
+    "/security/skill-scanner/blocked-history",
+    summary="Get blocked skills history",
+)
+async def get_blocked_history() -> list:
+    from ...security.skill_scanner import get_blocked_history as _get_history
+
+    records = _get_history()
+    return [r.to_dict() for r in records]
+
+
+@router.delete(
+    "/security/skill-scanner/blocked-history",
+    summary="Clear all blocked skills history",
+)
+async def delete_blocked_history() -> dict:
+    from ...security.skill_scanner import clear_blocked_history
+
+    clear_blocked_history()
+    return {"cleared": True}
+
+
+@router.delete(
+    "/security/skill-scanner/blocked-history/{index}",
+    summary="Remove a single blocked history entry",
+)
+async def delete_blocked_entry(
+    index: int = Path(..., ge=0),
+) -> dict:
+    from ...security.skill_scanner import remove_blocked_entry
+
+    ok = remove_blocked_entry(index)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"removed": True}
+
+
+class WhitelistAddRequest(BaseModel):
+    skill_name: str
+    content_hash: str = ""
+
+
+@router.post(
+    "/security/skill-scanner/whitelist",
+    summary="Add a skill to the whitelist",
+)
+async def add_to_whitelist(
+    body: WhitelistAddRequest = Body(...),
+) -> dict:
+    skill_name = body.skill_name.strip()
+    content_hash = body.content_hash
+    if not skill_name:
+        raise HTTPException(status_code=400, detail="skill_name is required")
+
+    config = load_config()
+    scanner_cfg = config.security.skill_scanner
+
+    for entry in scanner_cfg.whitelist:
+        if entry.skill_name == skill_name:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Skill '{skill_name}' is already whitelisted",
+            )
+
+    scanner_cfg.whitelist.append(
+        SkillScannerWhitelistEntry(
+            skill_name=skill_name,
+            content_hash=content_hash,
+            added_at=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    save_config(config)
+    return {"whitelisted": True, "skill_name": skill_name}
+
+
+@router.delete(
+    "/security/skill-scanner/whitelist/{skill_name}",
+    summary="Remove a skill from the whitelist",
+)
+async def remove_from_whitelist(
+    skill_name: str = Path(..., min_length=1),
+) -> dict:
+    config = load_config()
+    scanner_cfg = config.security.skill_scanner
+    original_len = len(scanner_cfg.whitelist)
+    scanner_cfg.whitelist = [
+        e for e in scanner_cfg.whitelist if e.skill_name != skill_name
+    ]
+    if len(scanner_cfg.whitelist) == original_len:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found in whitelist",
+        )
+    save_config(config)
+    return {"removed": True, "skill_name": skill_name}
