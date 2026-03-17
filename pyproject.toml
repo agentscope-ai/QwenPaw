@@ -27,6 +27,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "paho-mqtt>=2.0.0",
     "matrix-nio>=0.24.0",
+    "jieba>=0.42.1",
 ]
 
 [tool.setuptools.dynamic]
@@ -74,8 +75,11 @@ mlx = [
 ollama = [
     "ollama>=0.6.1",
 ]
+nlp = [
+    "hanlp>=2.1.0b50",
+]
 full = [
-    "copaw[local,ollama,llamacpp]",
+    "copaw[local,ollama,llamacpp,nlp]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
 

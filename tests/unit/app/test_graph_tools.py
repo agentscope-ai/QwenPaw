@@ -212,7 +212,7 @@ async def test_graph_tool_chain_smoke_local_engine(
         enabled=True,
         recursive=False,
         tags=["smoke"],
-        description="",
+        summary="",
     )
     knowledge_config.sources.append(source)
     manager.index_source(

@@ -506,6 +506,16 @@
   line-height: 1.4;
 }
 
+.keywordList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.keywordTag {
+  margin: 0;
+}
+
 .clickableBlock {
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -617,6 +627,12 @@
   background-color: #d64550;
   color: #fff;
   border-color: #d64550;
+}
+
+.noteStyleObsidian .keywordTag {
+  background: rgba(99, 179, 237, 0.16);
+  border-color: rgba(99, 179, 237, 0.28);
+  color: #d8ecff;
 }
 
 .remoteError {

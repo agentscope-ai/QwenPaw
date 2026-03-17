@@ -14,7 +14,7 @@ export interface KnowledgeSourceSpec {
   enabled: boolean;
   recursive: boolean;
   tags: string[];
-  description: string;
+  summary: string;
 }
 
 export interface KnowledgeIndexConfig {
@@ -55,6 +55,8 @@ export interface KnowledgeSourceStatus {
 }
 
 export interface KnowledgeSourceItem extends KnowledgeSourceSpec {
+  subject?: string;
+  keywords?: string[];
   status: KnowledgeSourceStatus;
 }
 

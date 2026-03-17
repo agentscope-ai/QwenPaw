@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import shutil
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from html import unescape
 from pathlib import Path
@@ -16,6 +17,16 @@ from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 import httpx
+
+try:
+    import jieba  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency
+    jieba = None
+
+try:
+    import hanlp  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency
+    hanlp = None
 
 from ..constant import CHATS_FILE
 from ..config.config import KnowledgeConfig, KnowledgeSourceSpec
@@ -75,6 +86,30 @@ _TITLE_STOP_WORDS = {
     "知识",
     "数据",
 }
+_SEMANTIC_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}")
+_SEMANTIC_STOP_WORDS = {
+    *_TITLE_STOP_WORDS,
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "by",
+    "or",
+    "as",
+    "it",
+    "an",
+    "a",
+    "关键词",
+    "关键",
+    "词",
+}
+_KEYWORD_DEFAULT_TOP_N = 3
 _TEXTUAL_CONTENT_TYPE_MARKERS = (
     "text/",
     "application/json",
@@ -120,6 +155,10 @@ class KnowledgeManager:
         results: list[dict[str, Any]] = []
         for source in config.sources:
             payload = source.model_dump(mode="json")
+            processed = self._process_source_knowledge(source, config)
+            payload["subject"] = processed.get("subject") or source.name
+            payload["summary"] = processed.get("summary") or source.summary
+            payload["keywords"] = processed.get("keywords") or []
             payload["status"] = self.get_source_status(source.id, source)
             results.append(payload)
         return results
@@ -1301,7 +1340,7 @@ class KnowledgeManager:
                     enabled=True,
                     recursive=False,
                     tags=tags,
-                    description=f"Auto-collected from chat session {session_id}",
+                    summary=f"Auto-collected from chat session {session_id}",
                 ),
             )
         return sources
@@ -1341,7 +1380,7 @@ class KnowledgeManager:
                         "auto:text",
                         f"role:{role}",
                     ],
-                    description=(
+                    summary=(
                         f"Auto-saved from {role} message in {session_id}"
                         + (f" for {user_id}" if user_id else "")
                     ),
@@ -1396,7 +1435,7 @@ class KnowledgeManager:
                     "auto:text",
                     "role:turn_pair",
                 ],
-                description=(
+                summary=(
                     f"Auto-saved from user-assistant turn in {session_id}"
                     + (f" for {user_id}" if user_id else "")
                 ),
@@ -1436,12 +1475,12 @@ class KnowledgeManager:
                 # Capture surrounding text context from the conversation message
                 # so title generation can use it without fetching the URL.
                 context_snippet = self._extract_url_context(text, url, max_chars=400)
-                description = (
+                summary = (
                     f"Auto-collected URL from {role} message in {session_id}"
                     + (f" for {user_id}" if user_id else "")
                 )
                 if context_snippet:
-                    description = f"{description}\n来源上下文: {context_snippet}"
+                    summary = f"{summary}\n来源上下文: {context_snippet}"
                 sources.append(
                     KnowledgeSourceSpec(
                         id=source_id,
@@ -1458,7 +1497,7 @@ class KnowledgeManager:
                             "auto:url",
                             f"role:{role}",
                         ],
-                        description=description,
+                        summary=summary,
                     ),
                 )
         return sources
@@ -1960,12 +1999,12 @@ class KnowledgeManager:
         updates: dict[str, Any] = {}
         source_for_title = source
 
-        if not (source.description or "").strip():
-            generated_description = self._generate_source_description(source, config)
-            if generated_description:
-                updates["description"] = generated_description
+        if not (source.summary or "").strip():
+            generated_summary = self._generate_source_summary(source, config)
+            if generated_summary:
+                updates["summary"] = generated_summary
                 source_for_title = source.model_copy(
-                    update={"description": generated_description}
+                    update={"summary": generated_summary}
                 )
 
         generated = self._generate_source_name(source_for_title, config)
@@ -1976,14 +2015,20 @@ class KnowledgeManager:
             return source
         return source.model_copy(update=updates)
 
-    def _generate_source_description(
+    def _generate_source_summary(
         self,
         source: KnowledgeSourceSpec,
         config: KnowledgeConfig | None = None,
     ) -> str:
-        semantic = self._semantic_description_for_source(source, config)
+        semantic = self._semantic_summary_for_source(source, config)
         if semantic:
-            return self._truncate_description(semantic)
+            keywords = self._semantic_keywords_for_source(source, config)
+            if keywords:
+                summary_with_keywords = (
+                    f"{semantic} 关键词: {', '.join(keywords)}"
+                )
+                return self._truncate_summary(summary_with_keywords)
+            return self._truncate_summary(semantic)
 
         if source.type == "url":
             url = (source.location or "").strip()
@@ -1993,51 +2038,32 @@ class KnowledgeManager:
                 path = parsed.path.strip("/")
                 tail = path.split("/")[-1] if path else ""
                 if tail:
-                    return self._truncate_description(f"{host}/{tail}")
-                return self._truncate_description(host)
+                    return self._truncate_summary(f"{host}/{tail}")
+                return self._truncate_summary(host)
 
         if source.type in {"file", "directory"} and source.location:
             location = (source.location or "").strip()
             if location:
-                return self._truncate_description(Path(location).name or location)
+                return self._truncate_summary(Path(location).name or location)
 
         if source.name:
-            return self._truncate_description(source.name)
+            return self._truncate_summary(source.name)
         return ""
 
-    def _semantic_description_for_source(
+    def _semantic_summary_for_source(
         self,
         source: KnowledgeSourceSpec,
         config: KnowledgeConfig | None = None,
     ) -> str:
-        candidates: list[str] = []
-
-        full_text = self._collect_full_text_for_local_title(source, config)
-        if full_text:
-            candidates.append(full_text)
-
-        indexed_payload = self._load_index_payload_safe(source.id)
-        if indexed_payload:
-            chunk_texts = [
-                chunk.get("text", "")
-                for chunk in indexed_payload.get("chunks", [])
-                if isinstance(chunk, dict) and isinstance(chunk.get("text"), str)
-            ]
-            if chunk_texts:
-                candidates.append("\n".join(chunk_texts))
-
-        for candidate in candidates:
-            sentence = self._semantic_title_from_text(candidate)
-            if sentence:
-                return sentence
-        return ""
+        processed = self._process_source_knowledge(source, config)
+        return processed.get("summary", "")
 
     def _generate_source_name(
         self,
         source: KnowledgeSourceSpec,
         config: KnowledgeConfig | None = None,
     ) -> str:
-        semantic = self._semantic_title_for_source(source, config)
+        semantic = self._semantic_subject_for_source(source, config)
         if semantic:
             return self._truncate_title(semantic)
 
@@ -2059,15 +2085,79 @@ class KnowledgeManager:
 
         return self._truncate_title(source.id)
 
-    def _semantic_title_for_source(
+    def _semantic_subject_for_source(
         self,
         source: KnowledgeSourceSpec,
         config: KnowledgeConfig | None = None,
     ) -> str:
+        processed = self._process_source_knowledge(source, config)
+        return processed.get("subject", "")
+
+    def _semantic_keywords_for_source(
+        self,
+        source: KnowledgeSourceSpec,
+        config: KnowledgeConfig | None = None,
+        top_n: int = _KEYWORD_DEFAULT_TOP_N,
+    ) -> list[str]:
+        processed = self._process_source_knowledge(source, config, top_n=top_n)
+        return processed.get("keywords", [])
+
+    def _process_source_knowledge(
+        self,
+        source: KnowledgeSourceSpec,
+        config: KnowledgeConfig | None = None,
+        top_n: int = _KEYWORD_DEFAULT_TOP_N,
+    ) -> dict[str, Any]:
+        candidates = self._collect_source_processing_candidates(source, config)
+        merged = self._normalize_text("\n".join(part for part in candidates if part))
+        processed = self._process_knowledge_text(merged, top_n=top_n)
+
+        # Keep deterministic priority for subjects: summary > content > index/title.
+        for candidate in candidates:
+            subject = self._extract_subject_from_text(candidate)
+            if subject:
+                processed["subject"] = subject
+                break
+        return processed
+
+    def _process_knowledge_text(
+        self,
+        text: str,
+        top_n: int = _KEYWORD_DEFAULT_TOP_N,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_text(text or "")
+        if not normalized:
+            return {
+                "subject": "",
+                "summary": "",
+                "keywords": [],
+            }
+
+        return {
+            "subject": self._extract_subject_from_text(normalized),
+            "summary": self._extract_summary_from_text(normalized),
+            "keywords": self._extract_keywords_from_text(normalized, top_n=top_n),
+        }
+
+    def _collect_source_processing_text(
+        self,
+        source: KnowledgeSourceSpec,
+        config: KnowledgeConfig | None = None,
+    ) -> str:
+        candidates = self._collect_source_processing_candidates(source, config)
+        return self._normalize_text("\n".join(part for part in candidates if part))
+
+    def _collect_source_processing_candidates(
+        self,
+        source: KnowledgeSourceSpec,
+        config: KnowledgeConfig | None = None,
+    ) -> list[str]:
         candidates: list[str] = []
 
-        if source.description:
-            candidates.append(source.description)
+        if source.summary and source.summary.strip():
+            candidates.append(source.summary)
+        if source.content and source.content.strip():
+            candidates.append(source.content)
 
         indexed_payload = self._load_index_payload_safe(source.id)
         if indexed_payload:
@@ -2082,49 +2172,23 @@ class KnowledgeManager:
                 chunk_text = chunk.get("text")
                 if isinstance(chunk_text, str) and chunk_text.strip():
                     chunk_texts.append(chunk_text)
+
             if chunk_titles:
                 candidates.append("\n".join(chunk_titles))
             if chunk_texts:
                 candidates.append("\n".join(chunk_texts))
 
-        for candidate in candidates:
-            title = self._semantic_title_from_text(candidate)
-            if title:
-                return title
-        return ""
-
-    def _collect_full_text_for_local_title(
-        self,
-        source: KnowledgeSourceSpec,
-        config: KnowledgeConfig | None = None,
-    ) -> str:
-        parts: list[str] = []
-
-        if source.content and source.content.strip():
-            parts.append(source.content)
-
-        indexed_payload = self._load_index_payload_safe(source.id)
-        if indexed_payload:
-            chunk_texts = [
-                chunk.get("text", "")
-                for chunk in indexed_payload.get("chunks", [])
-                if isinstance(chunk, dict) and isinstance(chunk.get("text"), str)
-            ]
-            if chunk_texts:
-                parts.append("\n".join(chunk_texts))
-
         location = (source.location or "").strip()
         if source.type == "file" and location:
             full_text = self._read_local_text(Path(location))
             if full_text:
-                parts.append(full_text)
+                candidates.append(full_text)
         elif source.type == "directory" and location:
             full_text = self._read_directory_text(Path(location), config)
             if full_text:
-                parts.append(full_text)
+                candidates.append(full_text)
 
-        merged = self._normalize_text("\n".join(part for part in parts if part))
-        return merged
+        return candidates
 
     def _read_local_text(self, path: Path) -> str:
         try:
@@ -2210,11 +2274,7 @@ class KnowledgeManager:
         token_freq: dict[str, int] = {}
         sentence_tokens: list[list[str]] = []
         for sentence in sentences:
-            tokens = [
-                tok.lower()
-                for tok in _TITLE_WORD_RE.findall(sentence)
-                if tok.lower() not in _TITLE_STOP_WORDS
-            ]
+            tokens = self._tokenize_text(sentence)
             sentence_tokens.append(tokens)
             for token in tokens:
                 token_freq[token] = token_freq.get(token, 0) + 1
@@ -2235,6 +2295,66 @@ class KnowledgeManager:
             best_sentence = sentences[0]
         return self._normalize_text(best_sentence)
 
+    def _extract_subject_from_text(self, text: str) -> str:
+        return self._semantic_title_from_text(text)
+
+    def _extract_summary_from_text(self, text: str) -> str:
+        # Keep the summary extractor independent for future tuning.
+        return self._semantic_title_from_text(text)
+
+    @staticmethod
+    def _tokenize_text(text: str) -> list[str]:
+        normalized = re.sub(r"\s+", " ", (text or "").strip())
+        if not normalized:
+            return []
+
+        raw_tokens: list[str] = []
+
+        if jieba is not None:
+            try:
+                raw_tokens = [str(tok) for tok in jieba.lcut(normalized)]
+            except Exception:
+                raw_tokens = []
+        elif hanlp is not None:
+            for attr in ("tokenize", "tok"):
+                fn = getattr(hanlp, attr, None)
+                if not callable(fn):
+                    continue
+                try:
+                    result = fn(normalized)
+                    if isinstance(result, list):
+                        raw_tokens = [str(tok) for tok in result]
+                    elif isinstance(result, tuple):
+                        raw_tokens = [str(tok) for tok in result]
+                    if raw_tokens:
+                        break
+                except Exception:
+                    continue
+
+        if not raw_tokens:
+            raw_tokens = _SEMANTIC_TOKEN_RE.findall(normalized)
+
+        tokens: list[str] = []
+        for raw in raw_tokens:
+            token = str(raw).strip().lower()
+            if not token:
+                continue
+            if not _SEMANTIC_TOKEN_RE.fullmatch(token):
+                continue
+            if token in _SEMANTIC_STOP_WORDS:
+                continue
+            tokens.append(token)
+        return tokens
+
+    def _extract_keywords_from_text(self, text: str, top_n: int = 3) -> list[str]:
+        tokens = self._tokenize_text(text)
+        if not tokens or top_n <= 0:
+            return []
+
+        freq = Counter(tokens)
+        ranked = sorted(freq.items(), key=lambda item: (-item[1], item[0]))
+        return [token for token, _ in ranked[:top_n]]
+
     @staticmethod
     def _truncate_title(value: str, max_len: int = 120) -> str:
         compact = re.sub(r"\s+", " ", (value or "").strip())
@@ -2245,7 +2365,7 @@ class KnowledgeManager:
         return compact[: max_len - 3].rstrip() + "..."
 
     @staticmethod
-    def _truncate_description(value: str, max_len: int = 180) -> str:
+    def _truncate_summary(value: str, max_len: int = 180) -> str:
         compact = re.sub(r"\s+", " ", (value or "").strip())
         if not compact:
             return ""

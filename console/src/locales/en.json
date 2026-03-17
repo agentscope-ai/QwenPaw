@@ -178,8 +178,9 @@
     "documentContentEmpty": "No content retrieved",
     "documentContentNotIndexed": "Not indexed yet — run Index first",
     "table": {
-      "title": "Title",
-      "source": "Description",
+      "subject": "Subject",
+      "source": "Summary",
+      "keywords": "Keywords",
       "origin": "Origin",
       "type": "Type",
       "location": "Location",
@@ -200,8 +201,8 @@
       "directoryUpload": "Folder Upload",
       "content": "Content",
       "contentPlaceholder": "Paste source text here",
-      "description": "Description",
-      "descriptionPlaceholder": "What this source is for",
+      "summary": "Summary",
+      "summaryPlaceholder": "Add a summary for this source (optional)",
       "enabled": "Enabled",
       "disabled": "Disabled"
     }

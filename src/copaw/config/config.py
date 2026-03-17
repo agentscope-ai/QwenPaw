@@ -623,7 +623,7 @@ class KnowledgeSourceSpec(BaseModel):
     enabled: bool = Field(default=True)
     recursive: bool = Field(default=True)
     tags: List[str] = Field(default_factory=list)
-    description: str = Field(default="")
+    summary: str = Field(default="")
 
     @model_validator(mode="after")
     def validate_source(self):

@@ -523,7 +523,7 @@ function KnowledgePage() {
         content,
         recursive: values.recursive ?? true,
         tags: values.tags ?? [],
-        description: values.description ?? "",
+        summary: values.summary ?? "",
       };
 
       await api.upsertKnowledgeSource(payload);
@@ -849,6 +849,19 @@ function KnowledgePage() {
         })
       : "-";
   }, [selectedSource, t]);
+
+  const selectedSourceSummaryData = useMemo(() => {
+    if (!selectedSource) {
+      return {
+        summary: "",
+        keywords: [] as string[],
+      };
+    }
+    return {
+      summary: (selectedSource.summary || "").trim(),
+      keywords: selectedSource.keywords || [],
+    };
+  }, [selectedSource]);
 
   const openDetailDrawer = useCallback((record: KnowledgeSourceItem) => {
     setSelectedSource(record);
@@ -1227,12 +1240,13 @@ function KnowledgePage() {
               const originText = getSourceOriginText(record, t);
               const remoteLine = formatRemoteStatus(record, t);
               const isActiveCard = indexingId === record.id;
-              const cardTitle = record.name?.trim() || "";
-              const descriptionText = record.description?.trim() || "";
-              const hideDescriptionBlock =
-                cardTitle.length > 0 &&
-                descriptionText.length > 0 &&
-                cardTitle === descriptionText;
+              const cardSubject = (record.subject || record.name || "").trim();
+              const summaryText = (record.summary || "").trim();
+              const summaryKeywords = record.keywords || [];
+              const hideSummaryBlock =
+                cardSubject.length > 0 &&
+                summaryText.length > 0 &&
+                cardSubject === summaryText;
               const indexedCountText = record.status.indexed
                 ? t("knowledge.indexedCount", {
                     documents: record.status.document_count,
@@ -1256,10 +1270,10 @@ function KnowledgePage() {
                         </div>
 
                         <div className={styles.cardMeta}>
-                          {cardTitle ? (
+                          {cardSubject ? (
                             <div className={styles.infoSection}>
                               <div className={styles.infoLabel}>
-                                {t("knowledge.table.title")}
+                                {t("knowledge.table.subject")}
                               </div>
                               <div
                                 role="button"
@@ -1269,19 +1283,19 @@ function KnowledgePage() {
                                   handleDetailDrawerValueKeyDown(event, record)
                                 }
                                 className={`${styles.infoBlock} ${styles.clickableBlock}`}
-                                title={cardTitle}
+                                title={cardSubject}
                               >
                                 <Typography.Text
                                   className={styles.cardTitle}
-                                  title={cardTitle}
+                                  title={cardSubject}
                                 >
-                                  {cardTitle}
+                                  {cardSubject}
                                 </Typography.Text>
                               </div>
                             </div>
                           ) : null}
 
-                          {!hideDescriptionBlock ? (
+                          {!hideSummaryBlock ? (
                             <div className={styles.infoSection}>
                               <div className={styles.infoLabel}>
                                 {t("knowledge.table.source")}
@@ -1294,14 +1308,31 @@ function KnowledgePage() {
                                   handleDetailDrawerValueKeyDown(event, record)
                                 }
                                 className={`${styles.infoBlock} ${styles.clickableBlock}`}
-                                title={descriptionText || t("knowledge.inlineText")}
+                                title={summaryText || t("knowledge.inlineText")}
                               >
                                 <Typography.Text
                                   className={styles.cardTitle}
-                                  title={descriptionText || t("knowledge.inlineText")}
+                                  title={summaryText || t("knowledge.inlineText")}
                                 >
-                                  {descriptionText || t("knowledge.inlineText")}
+                                  {summaryText || t("knowledge.inlineText")}
                                 </Typography.Text>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {summaryKeywords.length > 0 ? (
+                            <div className={styles.infoSection}>
+                              <div className={styles.infoLabel}>
+                                {t("knowledge.table.keywords")}
+                              </div>
+                              <div className={styles.infoBlock}>
+                                <div className={styles.keywordList}>
+                                  {summaryKeywords.map((keyword) => (
+                                    <Tag key={`${record.id}-${keyword}`} className={styles.keywordTag}>
+                                      {keyword}
+                                    </Tag>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           ) : null}
@@ -1444,7 +1475,7 @@ function KnowledgePage() {
             location: "",
             content: "",
             tags: [],
-            description: "",
+            summary: "",
           }}
         >
           <Form.Item
@@ -1553,8 +1584,8 @@ function KnowledgePage() {
               </Typography.Text>
             </>
           )}
-          <Form.Item name="description" label={t("knowledge.form.description")}>
-            <Input placeholder={t("knowledge.form.descriptionPlaceholder")} />
+          <Form.Item name="summary" label={t("knowledge.form.summary")}>
+            <Input placeholder={t("knowledge.form.summaryPlaceholder")} />
           </Form.Item>
           <Form.Item name="enabled" valuePropName="checked">
             <Switch checkedChildren={t("knowledge.form.enabled")} unCheckedChildren={t("knowledge.form.disabled")} />
@@ -1706,9 +1737,9 @@ function KnowledgePage() {
           <Space direction="vertical" size={12} className={styles.fullWidth}>
             {selectedSource.name?.trim() ? (
               <div className={styles.infoSection}>
-                <div className={styles.infoLabel}>{t("knowledge.table.title")}</div>
+                <div className={styles.infoLabel}>{t("knowledge.table.subject")}</div>
                 <div className={`${styles.infoBlock} ${styles.singleLineValue}`}>
-                  {selectedSource.name}
+                  {selectedSource.subject || selectedSource.name}
                 </div>
               </div>
             ) : null}
@@ -1716,9 +1747,24 @@ function KnowledgePage() {
             <div className={styles.infoSection}>
               <div className={styles.infoLabel}>{t("knowledge.table.source")}</div>
               <div className={styles.infoBlock}>
-                {selectedSource.description || t("knowledge.inlineText")}
+                {selectedSourceSummaryData.summary || t("knowledge.inlineText")}
               </div>
             </div>
+
+            {selectedSourceSummaryData.keywords.length > 0 ? (
+              <div className={styles.infoSection}>
+                <div className={styles.infoLabel}>{t("knowledge.table.keywords")}</div>
+                <div className={styles.infoBlock}>
+                  <div className={styles.keywordList}>
+                    {selectedSourceSummaryData.keywords.map((keyword) => (
+                      <Tag key={`drawer-${selectedSource.id}-${keyword}`} className={styles.keywordTag}>
+                        {keyword}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className={styles.detailTagRow}>
               <span className={styles.originTag}>{selectedSourceOriginText}</span>

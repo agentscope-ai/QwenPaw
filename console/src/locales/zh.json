@@ -178,8 +178,9 @@
     "documentContentEmpty": "未读取到内容",
     "documentContentNotIndexed": "尚未索引，建诮先执行“索引”操作",
     "table": {
-      "title": "标题",
-      "source": "描述",
+      "subject": "主题",
+      "source": "摘要",
+      "keywords": "关键词",
       "origin": "来源归属",
       "type": "类型",
       "location": "位置",
@@ -200,8 +201,8 @@
       "directoryUpload": "文件夹上传",
       "content": "内容",
       "contentPlaceholder": "在这里粘贴来源文本",
-      "description": "描述",
-      "descriptionPlaceholder": "说明该来源的用途",
+      "summary": "摘要",
+      "summaryPlaceholder": "补充该来源的摘要（可选）",
       "enabled": "启用",
       "disabled": "停用"
     }
