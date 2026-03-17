@@ -126,7 +126,10 @@ class MemoryManager(ReMeLight):
         # Vector search requires either an API key or a local model name
         vector_enabled = bool(embedding_api_key) and bool(embedding_model_name)
         if vector_enabled:
-            logger.info("Vector search enabled.")
+            logger.info(f"Vector search enabled. "
+                        f"embedding_api_key={embedding_api_key[:5]}..."
+                        f"embedding_model_name={embedding_model_name}"
+                        f"embedding_base_url={embedding_base_url}")
         else:
             logger.warning(
                 "Vector search disabled. Memory search functionality "
