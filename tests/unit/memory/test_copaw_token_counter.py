@@ -42,9 +42,10 @@ def _create_mock_agent_config(
     return mock_config
 
 
+# pylint: disable=protected-access
 def _reset_global_state() -> None:
     """Reset global token counter cache for test isolation."""
-    token_counter_module._token_counter_cache.clear()  # pylint: disable=protected-access
+    token_counter_module._token_counter_cache.clear()
 
 
 def test_init_default_model() -> None:
