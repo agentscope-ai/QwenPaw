@@ -253,10 +253,10 @@ def authenticate(username: str, password: str) -> Optional[str]:
         return None
     stored_hash = user.get("password_hash", "")
     stored_salt = user.get("password_salt", "")
-    if stored_hash and stored_salt and verify_password(
-        password,
-        stored_hash,
-        stored_salt,
+    if (
+        stored_hash
+        and stored_salt
+        and verify_password(password, stored_hash, stored_salt)
     ):
         return create_token(username)
     return None
