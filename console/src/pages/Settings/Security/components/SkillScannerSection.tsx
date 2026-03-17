@@ -366,7 +366,9 @@ export function SkillScannerSection() {
               <span>
                 {t("security.skillScanner.scanAlerts.title")}
                 {blockedHistory.length > 0 && (
-                  <span className={styles.tabBadge}>{blockedHistory.length}</span>
+                  <span className={styles.tabBadge}>
+                    {blockedHistory.length}
+                  </span>
                 )}
               </span>
             ),
@@ -382,7 +384,11 @@ export function SkillScannerSection() {
                 <Card className={styles.tableCard}>
                   {blockedHistory.length === 0 ? (
                     <div className={styles.emptyState}>
-                      <Empty description={t("security.skillScanner.scanAlerts.empty")} />
+                      <Empty
+                        description={t(
+                          "security.skillScanner.scanAlerts.empty",
+                        )}
+                      />
                     </div>
                   ) : (
                     <Table
@@ -412,7 +418,9 @@ export function SkillScannerSection() {
                 <Card className={styles.tableCard}>
                   {whitelist.length === 0 ? (
                     <div className={styles.emptyState}>
-                      <Empty description={t("security.skillScanner.whitelist.empty")} />
+                      <Empty
+                        description={t("security.skillScanner.whitelist.empty")}
+                      />
                     </div>
                   ) : (
                     <Table

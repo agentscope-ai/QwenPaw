@@ -8,7 +8,11 @@ import {
   message,
   Tabs,
 } from "@agentscope-ai/design";
-import { PlusCircleOutlined, SafetyOutlined, ScanOutlined } from "@ant-design/icons";
+import {
+  PlusCircleOutlined,
+  SafetyOutlined,
+  ScanOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
@@ -281,7 +285,9 @@ function SecurityPage() {
                   </Card>
 
                   <div className={styles.sectionHeader}>
-                    <h2 className={styles.sectionTitle}>{t("security.rules.title")}</h2>
+                    <h2 className={styles.sectionTitle}>
+                      {t("security.rules.title")}
+                    </h2>
                     <Button
                       type="primary"
                       icon={<PlusCircleOutlined />}
@@ -312,7 +318,11 @@ function SecurityPage() {
                     >
                       {t("common.reset")}
                     </Button>
-                    <Button type="primary" onClick={handleSave} loading={saving}>
+                    <Button
+                      type="primary"
+                      onClick={handleSave}
+                      loading={saving}
+                    >
                       {t("common.save")}
                     </Button>
                   </div>
