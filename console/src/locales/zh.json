@@ -640,7 +640,7 @@
     "description": "配置智能体运行参数",
     "reactAgentTitle": "ReAct 智能体",
     "contextManagementTitle": "上下文管理",
-    "knowledgeMaintenanceTitle": "知识库自动维护",
+    "knowledgeMaintenanceTitle": "知识库",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",
     "maxItersPlaceholder": "请输入最大迭代次数",
