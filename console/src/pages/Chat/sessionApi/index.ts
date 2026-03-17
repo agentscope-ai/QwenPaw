@@ -378,9 +378,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     try {
       const result = await requestPromise;
-      if ((result as ExtendedSession).status === "running") {
-        setTimeout(() => this.triggerReconnectSubmit(), 100);
-      }
+      // Reconnect for running sessions is triggered by ChatPage when session
+      // status becomes "running" (useEffect on chatStatus), avoiding a fixed
+      // timeout and race conditions with the chat input ref.
       return result;
     } finally {
       this.sessionRequests.delete(sessionId);

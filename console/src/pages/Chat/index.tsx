@@ -125,8 +125,10 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [, setChatStatus] = useState<"idle" | "running">("idle");
+  const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
   const [, setReconnectStreaming] = useState(false);
+  const reconnectTriggeredForRef = useRef<string | null>(null);
+  const prevChatIdRef = useRef<string | undefined>(undefined);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -225,8 +227,20 @@ export default function ChatPage() {
     );
   }, [chatId]);
 
-  // Reconnect when opening a running session is done via sessionApi.triggerReconnectSubmit()
-  // (called from getSession when status === "running"), so the library consumes the SSE stream.
+  // Trigger reconnect when session status becomes "running" so the library
+  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
+  // run after React has updated and the chat input ref is ready, avoiding
+  // a fixed timeout and race conditions.
+  useEffect(() => {
+    if (prevChatIdRef.current !== chatId) {
+      prevChatIdRef.current = chatId;
+      reconnectTriggeredForRef.current = null;
+    }
+    if (!chatId || chatStatus !== "running") return;
+    if (reconnectTriggeredForRef.current === chatId) return;
+    reconnectTriggeredForRef.current = chatId;
+    sessionApi.triggerReconnectSubmit();
+  }, [chatId, chatStatus]);
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -466,7 +480,9 @@ export default function ChatPage() {
           if (chatIdForStop) {
             chatApi.stopConsoleChat(chatIdForStop).then(
               () => setChatStatus("idle"),
-              () => {},
+              (err) => {
+                console.error("stopConsoleChat failed:", err);
+              },
             );
           }
         },

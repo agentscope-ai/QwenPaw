@@ -23,7 +23,7 @@ _SENTINEL = None
 class _RunState:
     """Per-run state (task, queues, buffer), guarded by tracker lock."""
 
-    task: asyncio.Task
+    task: asyncio.Future
     queues: list[asyncio.Queue] = field(default_factory=list)
     buffer: list[str] = field(default_factory=list)
 
@@ -38,6 +38,10 @@ class TaskTracker:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        return self._lock
 
     async def get_status(self, run_key: str) -> str:
         """Return ``'idle'`` or ``'running'``."""
@@ -107,7 +111,7 @@ class TaskTracker:
                         tracker = tracker_ref()
                         if tracker is None:
                             return
-                        async with tracker._lock:
+                        async with tracker.lock:
                             run.buffer.append(sse)
                             alive: list[asyncio.Queue] = []
                             for q in run.queues:
@@ -132,7 +136,7 @@ class TaskTracker:
                     )
                     tracker = tracker_ref()
                     if tracker is not None:
-                        async with tracker._lock:
+                        async with tracker.lock:
                             run.buffer.append(err_sse)
                             for q in run.queues:
                                 try:
@@ -142,13 +146,17 @@ class TaskTracker:
                 finally:
                     tracker = tracker_ref()
                     if tracker is not None:
-                        async with tracker._lock:
+                        async with tracker.lock:
                             for q in run.queues:
                                 try:
                                     q.put_nowait(_SENTINEL)
                                 except asyncio.QueueFull:
                                     pass
-                            tracker._runs.pop(run_key, None)
+                            # pylint: disable=protected-access
+                            tracker._runs.pop(
+                                run_key,
+                                None,
+                            )
 
             run.task = asyncio.create_task(_producer())
             return my_queue, True
