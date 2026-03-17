@@ -228,7 +228,7 @@ class Workspace:
                     f"ChannelManager started for agent: {self.agent_id}",
                 )
 
-            # 5. Start CronManager (always create for API access)
+            # 5. Start CronManager (always start for API access and cron jobs)
             job_repo = JsonJobRepository(
                 str(self.workspace_dir / "jobs.json"),
             )
@@ -239,17 +239,19 @@ class Workspace:
                 timezone="UTC",
                 agent_id=self.agent_id,
             )
-            # Only start background tasks if heartbeat is enabled
-            if agent_config.heartbeat and agent_config.heartbeat.enabled:
-                await self._cron_manager.start()
-                logger.debug(
-                    f"CronManager started with heartbeat: {self.agent_id}",
-                )
-            else:
-                logger.debug(
-                    f"CronManager created (heartbeat disabled): "
-                    f"{self.agent_id}",
-                )
+            # Always start CronManager (it will register cron jobs and
+            # optionally add heartbeat based on config)
+            await self._cron_manager.start()
+
+            heartbeat_status = (
+                "enabled"
+                if (agent_config.heartbeat and agent_config.heartbeat.enabled)
+                else "disabled"
+            )
+            logger.debug(
+                f"CronManager started for agent {self.agent_id} "
+                f"(heartbeat: {heartbeat_status})",
+            )
 
             # 6. Start config watchers for hot-reload (non-blocking)
             await self._start_config_watchers()
