@@ -1,9 +1,9 @@
 ---
 name: dingtalk_channel_connect
-description: "使用可视浏览器自动完成 CoPaw 的钉钉频道接入。适用于用户提到钉钉、DingTalk、开发者后台、Client ID、Client Secret、机器人、Stream 模式、绑定或配置 channel 的场景；支持遇到登录页时暂停，等待用户登录后继续。"
+description: "使用可视浏览器自动完成 boostclaw 的钉钉频道接入。适用于用户提到钉钉、DingTalk、开发者后台、Client ID、Client Secret、机器人、Stream 模式、绑定或配置 channel 的场景；支持遇到登录页时暂停，等待用户登录后继续。"
 metadata:
   {
-    "copaw":
+    "boostclaw":
       {
         "emoji": "🤖",
         "requires": {}
@@ -13,7 +13,7 @@ metadata:
 
 # 钉钉 Channel 自动连接（可视浏览器）
 
-此 skill 用于通过可视浏览器自动化完成钉钉应用创建与 CoPaw channel 绑定。
+此 skill 用于通过可视浏览器自动化完成钉钉应用创建与 boostclaw channel 绑定。
 
 ## 强制规则
 
@@ -48,13 +48,13 @@ metadata:
    - 机器人消息预览图：格式 `png/jpeg/jpg`，不超过 `2MB`。
 
 3. 明确告知默认值（用户不指定时自动采用）：
-   - 应用名称：`CoPaw`
+   - 应用名称：`boostclaw`
    - 应用描述：`Your personal assistant`
    - 机器人图标：`https://img.alicdn.com/imgextra/i4/O1CN01M0iyHF1FVNzM9qjC0_!!6000000000492-2-tps-254-254.png`
    - 机器人消息预览图：`https://img.alicdn.com/imgextra/i4/O1CN01M0iyHF1FVNzM9qjC0_!!6000000000492-2-tps-254-254.png`
 
 4. 若用户未给任何自定义值，必须先明确回复：
-   - “将全部采用默认设置（CoPaw / Your personal assistant / 默认图片）后继续执行。”
+   - “将全部采用默认设置（boostclaw / Your personal assistant / 默认图片）后继续执行。”
 
 ## 图片上传策略（link/path 都支持）
 
@@ -111,7 +111,7 @@ metadata:
 1. 进入创建路径：
    - 应用开发 -> 企业内部应用 -> 钉钉应用 -> 创建应用
 2. 填写应用信息（优先使用用户自定义，否则使用默认值）：
-   - 应用名称：默认 `CoPaw`
+   - 应用名称：默认 `boostclaw`
    - 应用描述：默认 `Your personal assistant`
 3. 保存并创建应用
 
@@ -148,12 +148,12 @@ metadata:
 1. 打开 `基础信息 -> 凭证与基础信息`
 2. 告知用户`Client ID`（AppKey）和`Client Secret`（AppSecret）在该页面上。不主动进行修改，引导用户自行绑定
 
-## CoPaw 绑定方式
+## boostclaw 绑定方式
 
 拿到凭证后，引导用户选择以下任一方式：
 
 1. 控制台前端配置：
-   - CoPaw console 中进入 `控制 -> 频道 -> DingTalk`
+   - boostclaw console 中进入 `控制 -> 频道 -> DingTalk`
    - 填入 `Client ID` 与 `Client Secret`
 
 2. 配置文件方式：

@@ -18,5 +18,5 @@ export function getApiUrl(path: string): string {
  * @returns API token string or empty string
  */
 export function getApiToken(): string {
-  return TOKEN;
+  return typeof TOKEN !== "undefined" ? TOKEN : "";
 }

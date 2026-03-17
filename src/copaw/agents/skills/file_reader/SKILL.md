@@ -3,7 +3,7 @@ name: file_reader
 description: "Read and summarize text-based file types only. Prefer read_file for text formats; use execute_shell_command for type detection when needed. PDF/Office/images/archives are handled by other skills."
 metadata:
   {
-    "copaw":
+    "boostclaw":
       {
         "emoji": "📄",
         "requires": {}

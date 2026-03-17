@@ -70,7 +70,7 @@ def version_cmd() -> None:
     help="Number of last lines to show (default 100).",
 )
 def logs_cmd(lines: int) -> None:
-    """Tail last N lines of WORKING_DIR/copaw.log."""
+    """Tail last N lines of WORKING_DIR/boostclaw.log."""
     ctx = _context()
     lines = min(max(1, lines), 2000)
     click.echo(run_daemon_logs(ctx, lines=lines))

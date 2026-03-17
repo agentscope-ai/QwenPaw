@@ -74,7 +74,7 @@ Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 | `copaw daemon restart`       | 打印说明（在对话中用 /daemon restart 可进程内重载）                            |
 | `copaw daemon reload-config` | 重新读取并校验配置（频道/MCP 变更需在对话中 /daemon restart 或重启进程后生效） |
 | `copaw daemon version`       | 版本与路径                                                                     |
-| `copaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `copaw.log`）                            |
+| `copaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `boostclaw.log`）                            |
 
 ```bash
 copaw daemon status

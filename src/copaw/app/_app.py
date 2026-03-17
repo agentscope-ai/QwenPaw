@@ -64,7 +64,7 @@ async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
     startup_start_time = time.time()
-    add_copaw_file_handler(WORKING_DIR / "copaw.log")
+    add_copaw_file_handler(WORKING_DIR / "boostclaw.log")
     await runner.start()
 
     # --- MCP client manager init (independent module, hot-reloadable) ---

@@ -82,7 +82,7 @@ the app is not running).
 | `copaw daemon restart`       | Print instructions (in-chat /daemon restart does in-process reload)                       |
 | `copaw daemon reload-config` | Re-read and validate config (channel/MCP changes need /daemon restart or process restart) |
 | `copaw daemon version`       | Version and paths                                                                         |
-| `copaw daemon logs [-n N]`   | Last N lines of log (default 100; from `copaw.log` in working dir)                        |
+| `copaw daemon logs [-n N]`   | Last N lines of log (default 100; from `boostclaw.log` in working dir)                        |
 
 ```bash
 copaw daemon status

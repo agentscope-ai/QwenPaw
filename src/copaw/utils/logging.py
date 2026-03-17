@@ -144,7 +144,7 @@ def add_copaw_file_handler(log_path: Path) -> None:
     when lifespan runs multiple times in the same process).
 
     Args:
-        log_path: Path to the log file (e.g. WORKING_DIR / "copaw.log").
+        log_path: Path to the log file (e.g. WORKING_DIR / "boostclaw.log").
     """
     log_path = Path(log_path).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
