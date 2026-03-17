@@ -6,8 +6,27 @@ declare const TOKEN: string;
  * @param path - API path (e.g., "/models", "/skills")
  * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
  */
+function getRuntimeBase(): string {
+  const configuredBase = (BASE_URL || "")
+    .replace(/^https?:\/\/[^/]+/, "")
+    .replace(/\/$/, "");
+  if (configuredBase) {
+    return configuredBase.startsWith("/")
+      ? configuredBase
+      : `/${configuredBase}`;
+  }
+
+  const pathname = window.location.pathname;
+  const copawPrefix = pathname.match(/^\/(copaw\/[^/]+)(?:\/|$)/);
+  if (copawPrefix) {
+    return `/${copawPrefix[1]}`;
+  }
+
+  return /^\/console(?:\/|$)/.test(pathname) ? "/console" : "";
+}
+
 export function getApiUrl(path: string): string {
-  const base = BASE_URL || "";
+  const base = getRuntimeBase();
   const apiPrefix = "/api";
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${base}${apiPrefix}${normalizedPath}`;

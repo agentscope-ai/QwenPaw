@@ -16,6 +16,8 @@ import MainLayout from "./layouts/MainLayout";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
+declare const BASE_URL: string;
+
 const antdLocaleMap: Record<string, Locale> = {
   zh: zhCN,
   en: enUS,
@@ -38,6 +40,20 @@ const GlobalStyle = createGlobalStyle`
 `;
 
 function getRouterBasename(pathname: string): string | undefined {
+  const configuredBase = (typeof BASE_URL === "string" ? BASE_URL : "")
+    .replace(/^https?:\/\/[^/]+/, "")
+    .replace(/\/$/, "");
+  if (configuredBase) {
+    return configuredBase.startsWith("/")
+      ? configuredBase
+      : `/${configuredBase}`;
+  }
+
+  const copawPrefix = pathname.match(/^\/(copaw\/[^/]+)(?:\/|$)/);
+  if (copawPrefix) {
+    return `/${copawPrefix[1]}`;
+  }
+
   return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
 }
 
