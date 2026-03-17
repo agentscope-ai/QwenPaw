@@ -301,11 +301,14 @@ class MemoryManager(ReMeLight):
         )
 
     async def memory_search(
-        self, query: str, max_results: int = 5, min_score: float = 0.1
+        self,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0.1,
     ) -> ToolResponse:
         if not self._started:
             logger.warning(
-                "Application has not been started, report issue to github!"
+                "Application has not been started, report issue to github!",
             )
             await self.start()
 
