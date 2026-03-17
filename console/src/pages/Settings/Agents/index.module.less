@@ -1,27 +1,42 @@
 .agentsPage {
   padding: 24px;
-  min-height: 100vh;
-  background: var(--background-secondary);
+}
 
-  :global {
-    .ant-card {
-      border-radius: 8px;
-      box-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.03),
-        0 2px 4px rgba(0, 0, 0, 0.03);
-    }
+/* ---- Section (same as Models / Environments) ---- */
 
-    .ant-table {
-      background: transparent;
-    }
+.section {
+  margin-bottom: 32px;
+}
 
-    .ant-table-thead > tr > th {
-      background: var(--background-primary);
-      font-weight: 600;
-    }
+.section:last-child {
+  margin-bottom: 0;
+}
 
-    .ant-table-tbody > tr:hover > td {
-      background: var(--background-hover);
-    }
+.sectionTitle {
+  margin-bottom: 4px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.sectionDesc {
+  margin: 0 0 16px;
+  color: #999;
+  font-size: 14px;
+}
+
+/* ---- Table Card ---- */
+
+.tableCard {
+  margin-bottom: 24px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
   }
 }

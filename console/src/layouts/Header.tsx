@@ -37,6 +37,7 @@ const keyToLabel: Record<string, string> = {
   environments: "nav.environments",
   security: "nav.security",
   "token-usage": "nav.tokenUsage",
+  agents: "nav.agents",
 };
 
 interface HeaderProps {

@@ -71,6 +71,7 @@
   },
   "agent": {
     "management": "智能体管理",
+    "pageDescription": "创建、配置和管理多个 AI 智能体，支持自定义工作空间和身份。",
     "name": "名称",
     "id": "ID",
     "description": "描述",

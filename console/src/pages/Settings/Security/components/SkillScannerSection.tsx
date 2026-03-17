@@ -11,7 +11,7 @@ import {
   Empty,
 } from "@agentscope-ai/design";
 import { Select, Space } from "antd";
-import { Trash2, ShieldCheck, Eye, ShieldOff } from "lucide-react";
+import { Trash2, ShieldCheck, Eye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSkillScanner } from "../useSkillScanner";
 import type {
@@ -220,8 +220,7 @@ export function SkillScannerSection() {
           <Tooltip title={t("security.skillScanner.scanAlerts.viewFindings")}>
             <Button
               type="text"
-              size="small"
-              icon={<Eye size={14} />}
+              size="middle"
               onClick={() =>
                 setFindingsModal({
                   open: true,
@@ -229,24 +228,28 @@ export function SkillScannerSection() {
                   skillName: record.skill_name,
                 })
               }
-            />
+            >
+              <Eye size={14} />
+            </Button>
           </Tooltip>
           <Tooltip title={t("security.skillScanner.scanAlerts.allowSkill")}>
             <Button
               type="text"
-              size="small"
-              icon={<ShieldCheck size={14} />}
+              size="middle"
               onClick={() => handleAllowSkill(record, index)}
-            />
+            >
+              <ShieldCheck size={14} />
+            </Button>
           </Tooltip>
           <Tooltip title={t("security.skillScanner.scanAlerts.remove")}>
             <Button
               type="text"
-              size="small"
+              size="middle"
               danger
-              icon={<Trash2 size={14} />}
               onClick={() => removeBlockedEntry(index)}
-            />
+            >
+              <Trash2 size={14} />
+            </Button>
           </Tooltip>
         </Space>
       ),
@@ -269,7 +272,7 @@ export function SkillScannerSection() {
       render: (hash: string) =>
         hash ? (
           <Tooltip title={hash}>
-            <code style={{ fontSize: 12 }}>{hash.substring(0, 16)}...</code>
+            <code className={styles.codeHash}>{hash.substring(0, 16)}...</code>
           </Tooltip>
         ) : (
           <span style={{ color: "#999" }}>any</span>
@@ -296,11 +299,12 @@ export function SkillScannerSection() {
         <Tooltip title={t("security.skillScanner.whitelist.remove")}>
           <Button
             type="text"
-            size="small"
+            size="middle"
             danger
-            icon={<ShieldOff size={14} />}
             onClick={() => handleRemoveWhitelist(record.skill_name)}
-          />
+          >
+            <Trash2 size={14} />
+          </Button>
         </Tooltip>
       ),
     },
@@ -313,23 +317,17 @@ export function SkillScannerSection() {
           <h2 className={styles.sectionTitle}>
             {t("security.skillScanner.title")}
           </h2>
-          <p className={styles.description} style={{ marginTop: 4 }}>
+          <p className={styles.description}>
             {t("security.skillScanner.description")}
           </p>
         </div>
       </div>
 
       <Card className={styles.formCard}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+        <div className={styles.skillScannerConfig}>
+          <div className={styles.skillScannerConfigItem}>
             <Tooltip title={t("security.skillScanner.modeTooltip")}>
-              <span style={{ fontWeight: 500 }}>
+              <span className={styles.skillScannerLabel}>
                 {t("security.skillScanner.mode")}
               </span>
             </Tooltip>
@@ -349,15 +347,9 @@ export function SkillScannerSection() {
             />
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+          <div className={styles.skillScannerConfigItem}>
             <Tooltip title={t("security.skillScanner.timeoutTooltip")}>
-              <span style={{ fontWeight: 500 }}>
+              <span className={styles.skillScannerLabel}>
                 {t("security.skillScanner.timeout")}
               </span>
             </Tooltip>
@@ -389,7 +381,7 @@ export function SkillScannerSection() {
 
       <Card className={styles.tableCard}>
         {blockedHistory.length === 0 ? (
-          <div style={{ padding: 24 }}>
+          <div className={styles.emptyState}>
             <Empty description={t("security.skillScanner.scanAlerts.empty")} />
           </div>
         ) : (
@@ -412,7 +404,7 @@ export function SkillScannerSection() {
 
       <Card className={styles.tableCard}>
         {whitelist.length === 0 ? (
-          <div style={{ padding: 24 }}>
+          <div className={styles.emptyState}>
             <Empty description={t("security.skillScanner.whitelist.empty")} />
           </div>
         ) : (

@@ -110,7 +110,42 @@
   }
 }
 
-/* ---- Footer Buttons ---- */
+/* ---- Skill Scanner Section ---- */
+.skillScannerConfig {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0;
+}
+
+.skillScannerConfigItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 24px;
+}
+
+.skillScannerConfigItem + .skillScannerConfigItem {
+  padding-right: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--ant-color-border, #f0f0f0);
+}
+
+.skillScannerLabel {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.emptyState {
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.codeHash {
+  font-size: 12px;
+}
+
 .footerButtons {
   display: flex;
   justify-content: flex-end;

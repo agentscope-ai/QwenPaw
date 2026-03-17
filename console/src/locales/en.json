@@ -71,6 +71,7 @@
   },
   "agent": {
     "management": "Agent Management",
+    "pageDescription": "Create, configure, and manage multiple AI agents with custom workspaces and identities.",
     "name": "Name",
     "id": "ID",
     "description": "Description",
