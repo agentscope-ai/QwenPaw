@@ -61,6 +61,8 @@ class CronExecutor:
         req: Dict[str, Any] = job.request.model_dump(mode="json")
         req["user_id"] = target_user_id or "cron"
         req["session_id"] = target_session_id or f"cron:{job.id}"
+        if job.dispatch.channel and job.dispatch.channel.strip():
+            req["channel"] = job.dispatch.channel.strip()
 
         async def _run() -> None:
             async for event in self._runner.stream_query(req):
