@@ -1,97 +1,16 @@
 # -*- coding: utf-8 -*-
 """Skills management: sync skills from code to working_dir."""
 
-import filecmp
 import logging
 import shutil
-from collections.abc import Iterable
-from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
 import frontmatter
+from packaging.version import Version
 
 
 logger = logging.getLogger(__name__)
-
-
-IGNORED_RUNTIME_ARTIFACT_NAMES = {
-    "__pycache__",
-    ".DS_Store",
-    "Thumbs.db",
-    ".pytest_cache",
-}
-IGNORED_RUNTIME_ARTIFACT_SUFFIXES = {
-    ".pyc",
-    ".pyo",
-}
-
-
-def _should_ignore_runtime_artifact(path: Path) -> bool:
-    """Return True for generated runtime files that should not sync."""
-    if path.name in IGNORED_RUNTIME_ARTIFACT_NAMES:
-        return True
-    if path.is_file() and path.suffix in IGNORED_RUNTIME_ARTIFACT_SUFFIXES:
-        return True
-    return False
-
-
-def _iter_relevant_directory_entries(
-    directory: Path,
-) -> Iterable[tuple[Path, Path]]:
-    """Yield relative paths for non-generated files and directories."""
-    if not directory.exists():
-        return
-
-    yield from _iter_relevant_directory_entries_from(
-        root_dir=directory,
-        current_dir=directory,
-    )
-
-
-def _iter_relevant_directory_entries_from(
-    root_dir: Path,
-    current_dir: Path,
-) -> Iterable[tuple[Path, Path]]:
-    """Yield sorted non-generated directory entries without buffering."""
-    for item in sorted(current_dir.iterdir(), key=lambda path: path.name):
-        if _should_ignore_runtime_artifact(item):
-            continue
-
-        yield item.relative_to(root_dir), item
-
-        if item.is_dir():
-            yield from _iter_relevant_directory_entries_from(
-                root_dir=root_dir,
-                current_dir=item,
-            )
-
-
-def _directories_match_ignoring_runtime_artifacts(
-    dir1: Path,
-    dir2: Path,
-) -> bool:
-    """Compare two directories while ignoring generated runtime artifacts."""
-    if not dir1.exists() or not dir2.exists():
-        return False
-
-    for entry1, entry2 in zip_longest(
-        _iter_relevant_directory_entries(dir1),
-        _iter_relevant_directory_entries(dir2),
-    ):
-        if entry1 is None or entry2 is None:
-            return False
-
-        relative_path1, left = entry1
-        relative_path2, right = entry2
-        if relative_path1 != relative_path2:
-            return False
-        if left.is_dir() != right.is_dir():
-            return False
-        if left.is_file() and not filecmp.cmp(left, right, shallow=False):
-            return False
-
-    return True
 
 
 def _dedupe_skills_by_name(skills: list["SkillInfo"]) -> list["SkillInfo"]:
@@ -216,6 +135,47 @@ def _collect_skills_from_dir(directory: Path) -> dict[str, Path]:
     return skills
 
 
+def _get_builtin_skill_version(skill_dir: Path) -> Version | None:
+    """Read ``builtin_skill_version`` from SKILL.md front matter."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return None
+    try:
+        content = skill_md.read_text(encoding="utf-8")
+        post = frontmatter.loads(content)
+        metadata = post.get("metadata") or {}
+        ver = metadata.get("builtin_skill_version")
+        if ver is not None:
+            return Version(str(ver))
+    except Exception as e:
+        logger.warning(
+            "Could not parse version for skill '%s' from '%s': %s",
+            skill_dir.name,
+            skill_md,
+            e,
+        )
+    return None
+
+
+def _replace_skill_dir(source: Path, target: Path) -> None:
+    """Remove *target* (if it exists) and copy *source* in its place."""
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
+def _skill_md_differs(dir_a: Path, dir_b: Path) -> bool:
+    """Return True when the SKILL.md files in two dirs have different
+    content (or one side is missing)."""
+    md_a = dir_a / "SKILL.md"
+    md_b = dir_b / "SKILL.md"
+    if not md_a.exists() or not md_b.exists():
+        return True
+    return md_a.read_text(encoding="utf-8") != md_b.read_text(
+        encoding="utf-8",
+    )
+
+
 def sync_skills_to_working_dir(
     workspace_dir: Path,
     skill_names: list[str] | None = None,
@@ -265,33 +225,52 @@ def sync_skills_to_working_dir(
     synced_count = 0
     skipped_count = 0
 
-    # Sync each skill
     for skill_name, skill_dir in skills_to_sync.items():
         target_dir = active_skills / skill_name
 
-        # Check if skill already exists
-        if target_dir.exists() and not force:
+        if not target_dir.exists() or force:
+            _replace_skill_dir(skill_dir, target_dir)
             logger.debug(
-                "Skill '%s' already exists in active_skills, skipping. "
-                "Use force=True to overwrite.",
+                "Synced skill '%s' to active_skills.",
                 skill_name,
             )
-            skipped_count += 1
+            synced_count += 1
             continue
 
-        # Copy skill directory
-        try:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            shutil.copytree(skill_dir, target_dir)
-            logger.debug("Synced skill '%s' to active_skills.", skill_name)
-            synced_count += 1
-        except Exception as e:
-            logger.error(
-                "Failed to sync skill '%s': %s",
+        customized_dir = customized_skills / skill_name
+
+        # Builtin version upgrade (only when no customized override)
+        builtin_dir = builtin_skills / skill_name
+        if builtin_dir.exists() and not customized_dir.exists():
+            builtin_ver = _get_builtin_skill_version(builtin_dir)
+            if builtin_ver is not None:
+                active_ver = _get_builtin_skill_version(target_dir)
+                if active_ver is None or builtin_ver > active_ver:
+                    _replace_skill_dir(builtin_dir, target_dir)
+                    logger.debug(
+                        "Builtin skill '%s' updated in "
+                        "active_skills (v%s -> v%s).",
+                        skill_name,
+                        active_ver,
+                        builtin_ver,
+                    )
+                    synced_count += 1
+                    continue
+
+        # Customized override: propagate customized → active
+        if customized_dir.exists() and _skill_md_differs(
+            customized_dir,
+            target_dir,
+        ):
+            _replace_skill_dir(customized_dir, target_dir)
+            logger.debug(
+                "Customized skill '%s' updated in active_skills.",
                 skill_name,
-                e,
             )
+            synced_count += 1
+            continue
+
+        skipped_count += 1
 
     return synced_count, skipped_count
 
@@ -330,23 +309,23 @@ def sync_skills_from_active_to_customized(
         if skill_names is not None and skill_name not in skill_names:
             continue
 
-        if skill_name in builtin_skills_dict:
-            builtin_skill_dir = builtin_skills_dict[skill_name]
-            if _directories_match_ignoring_runtime_artifacts(
-                skill_dir,
-                builtin_skill_dir,
-            ):
-                skipped_count += 1
-                continue
+        # Skip builtin skills (dual check: version field + name match)
+        active_ver = _get_builtin_skill_version(skill_dir)
+        if active_ver is not None and skill_name in builtin_skills_dict:
+            skipped_count += 1
+            continue
 
+        # Only back-sync when customized doesn't already exist
         target_dir = customized_skills / skill_name
+        if target_dir.exists():
+            skipped_count += 1
+            continue
 
         try:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
             shutil.copytree(skill_dir, target_dir)
             logger.debug(
-                "Synced skill '%s' from active_skills to customized_skills.",
+                "Synced skill '%s' from active_skills to "
+                "customized_skills.",
                 skill_name,
             )
             synced_count += 1
@@ -572,12 +551,27 @@ class SkillService:
             )
             if synced > 0:
                 logger.debug(
-                    "Synced %d skill(s) from active_skills",
+                    "Back-synced %d skill(s) from active_skills",
                     synced,
                 )
         except Exception as e:
             logger.debug(
-                "Failed to sync skills from active_skills: %s",
+                "Failed to back-sync skills: %s",
+                e,
+            )
+
+        try:
+            synced, _ = sync_skills_to_working_dir(
+                self.workspace_dir,
+            )
+            if synced > 0:
+                logger.debug(
+                    "Forward-synced %d skill(s) to active_skills",
+                    synced,
+                )
+        except Exception as e:
+            logger.debug(
+                "Failed to forward-sync skills: %s",
                 e,
             )
 

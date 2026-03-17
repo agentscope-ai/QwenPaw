@@ -3,6 +3,7 @@ name: dingtalk_channel_connect
 description: "使用可视浏览器自动完成 CoPaw 的钉钉频道接入。适用于用户提到钉钉、DingTalk、开发者后台、Client ID、Client Secret、机器人、Stream 模式、绑定或配置 channel 的场景；支持遇到登录页时暂停，等待用户登录后继续。"
 metadata:
   {
+    "builtin_skill_version": "1.0",
     "copaw":
       {
         "emoji": "🤖",
