@@ -716,6 +716,15 @@ function KnowledgePage() {
     }
   };
 
+  const handleResetSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchTypeFilter("all");
+    setHits([]);
+  }, []);
+
+  const hasSearchQuery = searchQuery.trim().length > 0;
+  const showSearchPanel = searching || hasSearchQuery || hits.length > 0;
+
   const handleDeleteSource = useCallback(async (sourceId: string) => {
     try {
       await api.deleteKnowledgeSource(sourceId);
@@ -972,7 +981,7 @@ function KnowledgePage() {
   }, [noteStyle]);
 
   return (
-    <div className={`${styles.knowledgePage} ${noteStyleClassName}`}>
+    <div className={styles.knowledgePage}>
       <div className={styles.header}>
         <div className={styles.headerInfo}>
           <Typography.Title level={3} className={styles.title}>
@@ -994,15 +1003,6 @@ function KnowledgePage() {
             onChange={handleRestoreBackupPicked}
           />
           <div className={styles.headerControlGroup}>
-            <Typography.Text className={styles.noteStyleLabel}>
-              {t("knowledge.noteStyle")}
-            </Typography.Text>
-            <Segmented
-              options={noteStyleOptions}
-              value={noteStyle}
-              onChange={(value) => setNoteStyle(value as KnowledgeNoteStyle)}
-              className={styles.noteStyleSegment}
-            />
             <Typography.Text>{t("knowledge.enabled")}</Typography.Text>
             <Switch
               checked={config?.enabled ?? false}
@@ -1010,9 +1010,6 @@ function KnowledgePage() {
             />
           </div>
           <div className={styles.headerButtonGroup}>
-            <Button icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
-              {t("knowledge.addSource")}
-            </Button>
             <Button
               icon={<ReloadOutlined />}
               onClick={handleIndexAll}
@@ -1083,69 +1080,113 @@ function KnowledgePage() {
               </Tag>
             ) : null}
           </div>
-          <Space.Compact className={styles.fullWidth}>
-            <Select
-              value={searchTypeFilter}
-              onChange={(value) =>
-                setSearchTypeFilter(value as KnowledgeSourceType | "all")
-              }
-              options={[
-                { label: t("knowledge.allTypes"), value: "all" },
-                ...SOURCE_TYPE_OPTIONS,
-              ]}
-              className={styles.searchTypeSelect}
-            />
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={t("knowledge.searchPlaceholder")}
-              onPressEnter={handleSearch}
-            />
-            <Button
-              type="primary"
-              icon={<SearchOutlined />}
-              loading={searching}
-              onClick={handleSearch}
-            >
-              {t("knowledge.search")}
-            </Button>
-          </Space.Compact>
+          <div className={styles.searchControls}>
+            <Space.Compact className={styles.searchCompact}>
+              <Select
+                value={searchTypeFilter}
+                onChange={(value) =>
+                  setSearchTypeFilter(value as KnowledgeSourceType | "all")
+                }
+                options={[
+                  { label: t("knowledge.allTypes"), value: "all" },
+                  ...SOURCE_TYPE_OPTIONS,
+                ]}
+                className={styles.searchTypeSelect}
+              />
+              <Input
+                value={searchQuery}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSearchQuery(value);
+                  if (!value.trim() && hits.length > 0) {
+                    setHits([]);
+                  }
+                }}
+                placeholder={t("knowledge.searchPlaceholder")}
+                onPressEnter={handleSearch}
+              />
+            </Space.Compact>
+            <div className={styles.searchButtons}>
+              <Button onClick={handleResetSearch}>{t("common.reset")}</Button>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                loading={searching}
+                onClick={handleSearch}
+              >
+                {t("knowledge.search")}
+              </Button>
+            </div>
+          </div>
         </Space>
-        <div className={styles.searchResultsWrap}>
-          {hits.length === 0 ? (
-            <Empty description={t("knowledge.searchEmpty")} />
-          ) : (
-            <Space direction="vertical" size={12} className={styles.fullWidth}>
-              {hits.map((hit) => (
-                <Card
-                  key={`${hit.source_id}-${hit.document_path}-${hit.score}`}
-                  className={styles.searchHitCard}
-                >
-                  <div className={styles.searchHitTopRow}>
-                    <Space>
-                      <Tag color="blue">{hit.source_name}</Tag>
-                      <Tag>{hit.source_type}</Tag>
-                    </Space>
-                    <Tag color="geekblue">
-                      {t("knowledge.scoreLabel", {
-                        score: Number(hit.score).toFixed(2),
-                      })}
-                    </Tag>
-                  </div>
-                  <Typography.Text >{hit.document_title}</Typography.Text>
-                  <Typography.Text type="secondary" className={styles.searchHitPath}>
-                    {hit.document_path}
-                  </Typography.Text>
-                  <Typography.Paragraph className={styles.searchHitSnippet}>
-                    {hit.snippet}
-                  </Typography.Paragraph>
-                </Card>
-              ))}
-            </Space>
-          )}
-        </div>
+        {showSearchPanel ? (
+          <div className={styles.searchResultsWrap}>
+            {searching ? (
+              <div className={styles.searchStatusText}>
+                <Spin size="small" />
+              </div>
+            ) : hits.length === 0 ? (
+              <div className={styles.searchStatusText}>{t("knowledge.searchEmpty")}</div>
+            ) : (
+              <div className={styles.searchResultList}>
+                <Space direction="vertical" size={12} className={styles.fullWidth}>
+                  {hits.map((hit) => (
+                    <Card
+                      key={`${hit.source_id}-${hit.document_path}-${hit.score}`}
+                      className={styles.searchHitCard}
+                    >
+                      <div className={styles.searchHitTopRow}>
+                        <Space>
+                          <Tag color="blue">{hit.source_name}</Tag>
+                          <Tag>{hit.source_type}</Tag>
+                        </Space>
+                        <Tag color="geekblue">
+                          {t("knowledge.scoreLabel", {
+                            score: Number(hit.score).toFixed(2),
+                          })}
+                        </Tag>
+                      </div>
+                      <Typography.Text >{hit.document_title}</Typography.Text>
+                      <Typography.Text type="secondary" className={styles.searchHitPath}>
+                        {hit.document_path}
+                      </Typography.Text>
+                      <Typography.Paragraph className={styles.searchHitSnippet}>
+                        {hit.snippet}
+                      </Typography.Paragraph>
+                    </Card>
+                  ))}
+                </Space>
+              </div>
+            )}
+          </div>
+        ) : null}
       </Card>
 
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <Button icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+          {t("knowledge.addSource")}
+        </Button>
+        <div className={styles.headerControlGroup}>
+          <Typography.Text className={styles.noteStyleLabel}>
+            {t("knowledge.noteStyle")}
+          </Typography.Text>
+          <Segmented
+            options={noteStyleOptions}
+            value={noteStyle}
+            onChange={(value) => setNoteStyle(value as KnowledgeNoteStyle)}
+            className={styles.noteStyleSegment}
+          />
+        </div>
+      </div>
+
+      <div className={`${styles.knowledgeListThemeScope} ${noteStyleClassName}`}>
       <Card loading={loading}>
         <div className={styles.filterBar}>
           <div className={styles.filterGroup}>
@@ -1377,6 +1418,7 @@ function KnowledgePage() {
           </div>
         )}
       </Card>
+      </div>
 
       </Space>
 

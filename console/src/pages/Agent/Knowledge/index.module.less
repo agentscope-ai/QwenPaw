@@ -46,6 +46,10 @@
   --note-title-font: "IBM Plex Serif", "Georgia", serif;
 }
 
+.knowledgeListThemeScope {
+  width: 100%;
+}
+
 .header {
   display: flex;
   justify-content: space-between;
@@ -280,8 +284,40 @@
   width: 180px;
 }
 
+.searchControls {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  align-items: center;
+}
+
+.searchCompact {
+  flex: 1;
+}
+
+.searchButtons {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .searchResultsWrap {
   margin-top: 16px;
+}
+
+.searchStatusText {
+  color: var(--note-label-color);
+  font-size: 13px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchResultList {
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .searchHitCard {
@@ -562,6 +598,27 @@
   }
 }
 
+.noteStyleObsidian .actionButton {
+  color: #9ecbff;
+}
+
+.noteStyleObsidian .actionButton:hover {
+  color: #d4e8ff;
+}
+
+.noteStyleObsidian .deleteButton {
+  color: #ffb3b8;
+  border: 1px solid rgba(255, 99, 110, 0.38);
+  border-radius: 8px;
+  background: rgba(255, 99, 110, 0.08);
+}
+
+.noteStyleObsidian .deleteButton:hover {
+  background-color: #d64550;
+  color: #fff;
+  border-color: #d64550;
+}
+
 .remoteError {
   color: #d4380d;
 }
@@ -638,6 +695,16 @@
 
   .searchTypeSelect {
     width: 140px;
+  }
+
+  .searchControls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .searchButtons {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .filterBar {
