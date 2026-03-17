@@ -389,6 +389,7 @@ def load_heartbeat_for_agent(agent_id: str) -> HeartbeatConfig:
         logger.warning(
             "Failed to load agent config for %s, using default heartbeat",
             agent_id,
+            exc_info=True,
         )
         return HeartbeatConfig()
 
