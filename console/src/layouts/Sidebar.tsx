@@ -433,12 +433,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           <Button
             key="releases"
             type="primary"
-            onClick={() =>
+            onClick={() => {
+              const websiteLang = i18n.language?.startsWith("zh") ? "zh" : "en";
               window.open(
-                "https://github.com/agentscope-ai/CoPaw/releases",
+                `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`,
                 "_blank",
-              )
-            }
+              );
+            }}
             className={styles.updateModalPrimaryBtn}
           >
             {t("sidebar.updateModal.viewReleases")}
