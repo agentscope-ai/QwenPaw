@@ -277,6 +277,31 @@ async def _send_channel_message_async(
     )
 
 
+async def _send_dm_message_async(
+    session: Any,
+    access_token: str,
+    guild_id: str,
+    content: str,
+    msg_id: Optional[str] = None,
+    use_markdown: bool = False,
+) -> None:
+    """Send a direct message in a guild via /dms/{guild_id}/messages."""
+    body: Dict[str, Any] = (
+        {"markdown": {"content": content}}
+        if use_markdown
+        else {"content": content}
+    )
+    if msg_id:
+        body["msg_id"] = msg_id
+    await _api_request_async(
+        session,
+        access_token,
+        "POST",
+        f"/dms/{guild_id}/messages",
+        body,
+    )
+
+
 async def _send_group_message_async(
     session: Any,
     access_token: str,
@@ -623,6 +648,7 @@ class QQChannel(BaseChannel):
         sender_id = meta.get("sender_id") or to_handle
         channel_id = meta.get("channel_id")
         group_openid = meta.get("group_openid")
+        guild_id = meta.get("guild_id")
         if message_type is None:
             if to_handle.startswith("group:"):
                 message_type = "group"
@@ -644,6 +670,15 @@ class QQChannel(BaseChannel):
                     self._http,
                     token,
                     sender_id,
+                    send_text,
+                    msg_id,
+                    use_markdown=markdown,
+                )
+            elif message_type == "dm" and guild_id:
+                await _send_dm_message_async(
+                    self._http,
+                    token,
+                    guild_id,
                     send_text,
                     msg_id,
                     use_markdown=markdown,
