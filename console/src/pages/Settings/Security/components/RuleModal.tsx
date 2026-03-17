@@ -19,6 +19,7 @@ const BUILTIN_TOOLS = [
   "execute_python_code",
   "browser_use",
   "desktop_screenshot",
+  "view_image",
   "read_file",
   "write_file",
   "edit_file",

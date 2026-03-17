@@ -20,8 +20,17 @@ mkdir -p "$CONSOLE_DEST"
 cp -R "$CONSOLE_DIR/dist/"* "$CONSOLE_DEST/"
 
 echo "[wheel_build] Building wheel + sdist..."
-python3 -m pip install --quiet build
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+BUILD_VENV_DIR="${WHEEL_BUILD_VENV:-$REPO_ROOT/.wheelshim/build-venv}"
+BUILD_PY="$BUILD_VENV_DIR/bin/python"
+
+if [ ! -x "$BUILD_PY" ]; then
+  echo "[wheel_build] Creating isolated build venv: $BUILD_VENV_DIR"
+  "$PYTHON_BIN" -m venv "$BUILD_VENV_DIR"
+fi
+
+"$BUILD_PY" -m pip install --quiet --upgrade pip build
 rm -rf dist/*
-python3 -m build --outdir dist .
+"$BUILD_PY" -m build --outdir dist .
 
 echo "[wheel_build] Done. Wheel(s) in: $REPO_ROOT/dist/"

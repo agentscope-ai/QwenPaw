@@ -1,12 +1,17 @@
 import { Layout, Space } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher";
+import ThemeToggleButton from "../components/ThemeToggleButton";
+import AgentSelector from "../components/AgentSelector";
 import { useTranslation } from "react-i18next";
 import {
   BookOutlined,
+  LogoutOutlined,
   QuestionCircleOutlined,
 } from "@ant-design/icons";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import styles from "./index.module.less";
+import { useAuth } from "../auth/useAuth";
+import { useNavigate } from "react-router-dom";
 
 const { Header: AntHeader } = Layout;
 
@@ -17,6 +22,11 @@ const NAV_URLS = {
   changelog: "https://github.com/aimentorai/boostclaw/releases",
   github: "https://github.com/aimentorai/boostclaw",
 } as const;
+
+function getReleaseNotesUrl(lang: string): string {
+  const websiteLang = lang.startsWith("zh") ? "zh" : "en";
+  return `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`;
+}
 
 const keyToLabel: Record<string, string> = {
   chat: "nav.chat",
@@ -41,11 +51,18 @@ interface HeaderProps {
 
 export default function Header({ selectedKey }: HeaderProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
 
   const handleNavClick = (url: string) => {
     if (url) {
       // Check if running in pywebview environment
-      const pywebview = (window as any).pywebview;
+      const pywebview = window.pywebview;
       if (pywebview && pywebview.api) {
         // Use pywebview API to open external link in system browser
         pywebview.api.open_external_link(url);
@@ -80,7 +97,13 @@ export default function Header({ selectedKey }: HeaderProps) {
             {t("header.faq")}
           </Button>
         </Tooltip>
+        <Tooltip title={t("header.logout")}>
+          <Button icon={<LogoutOutlined />} type="text" onClick={handleLogout}>
+            {t("header.logout")}
+          </Button>
+        </Tooltip>
         <LanguageSwitcher />
+        <ThemeToggleButton />
       </Space>
     </AntHeader>
   );

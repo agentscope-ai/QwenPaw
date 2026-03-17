@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 #/usr/bin/env bash
 # One-click build: console -> conda-pack -> boostclaw.app. Run from repo root.
 # Requires: conda, node/npm (for console). Optional: icon.icns in assets/.
@@ -87,15 +88,18 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && ./bin/conda-unpack)
 fi
 
-# Launcher: force packed env; when no TTY log to ~/.copaw/desktop.log (no exec so we see errors)
+# Launcher: force packed env; when no TTY log to ~/.boostclaw/desktop.log (no exec so we see errors)
 cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
 ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
 LOG="$HOME/.boostclaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
+export BOOSTCLAW_DESKTOP_APP=1
 export COPAW_DESKTOP_APP=1
-export COPAW_WORKING_DIR="${COPAW_WORKING_DIR:-$HOME/.boostclaw}"
+export BOOSTCLAW_LOG_LEVEL=debug
+export BOOSTCLAW_WORKING_DIR="${BOOSTCLAW_WORKING_DIR:-${COPAW_WORKING_DIR:-$HOME/.boostclaw}}"
+export COPAW_WORKING_DIR="$BOOSTCLAW_WORKING_DIR"
 
 # Preserve system PATH for accessing system commands (e.g. imsg, brew)
 # Prepend packaged env/bin so packaged Python takes precedence
@@ -115,11 +119,11 @@ fi
 
 cd "$HOME" || true
 
-# Log level: env var COPAW_LOG_LEVEL or default to "info"
-LOG_LEVEL="${COPAW_LOG_LEVEL:-info}"
+# Log level: prefer BOOSTCLAW_LOG_LEVEL, fallback to COPAW_LOG_LEVEL, else "info"
+LOG_LEVEL="${BOOSTCLAW_LOG_LEVEL:-${COPAW_LOG_LEVEL:-info}}"
 
 if [ ! -t 2 ]; then
-  mkdir -p "$COPAW_WORKING_DIR"
+  mkdir -p "$BOOSTCLAW_WORKING_DIR"
   { echo "=== $(date) boostclaw starting ==="
     echo "ENV_DIR=$ENV_DIR"
     echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
@@ -140,7 +144,7 @@ if [ ! -t 2 ]; then
     echo "ERROR: python not executable at $ENV_DIR/bin/python"
     exit 1
   fi
-  if [ ! -f "$COPAW_WORKING_DIR/config.json" ]; then
+  if [ ! -f "$BOOSTCLAW_WORKING_DIR/config.json" ]; then
     "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
   fi
   echo "Launching python with log-level=$LOG_LEVEL..."
@@ -155,7 +159,7 @@ if [ ! -t 2 ]; then
   echo "--- Full log: $LOG (scroll up for Python traceback if app exited early) ---"
   exit $EXIT
 fi
-if [ ! -f "$COPAW_WORKING_DIR/config.json" ]; then
+if [ ! -f "$BOOSTCLAW_WORKING_DIR/config.json" ]; then
   "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
 fi
 exec "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"

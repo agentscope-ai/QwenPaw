@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import api from "../../../api";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
+import { useAgentStore } from "../../../stores/agentStore";
 
 export function useProviders() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -9,6 +10,7 @@ export function useProviders() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { selectedAgent } = useAgentStore();
 
   const fetchAll = useCallback(async (showLoading = true) => {
     if (showLoading) {
@@ -41,7 +43,7 @@ export function useProviders() {
 
   useEffect(() => {
     fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, selectedAgent]);
 
   return {
     providers,

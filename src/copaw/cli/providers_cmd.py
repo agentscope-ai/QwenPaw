@@ -60,7 +60,7 @@ def _get_ollama_host() -> str:
     manager = _manager()
     provider = manager.get_provider("ollama")
     if provider is None or not provider.base_url:
-        return "http://localhost:11434"
+        return "http://127.0.0.1:11434"
     return provider.base_url
 
 

@@ -19,7 +19,6 @@ from agentscope.tool import Toolkit
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_token_counter
-from copaw.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +35,9 @@ except ImportError as e:
     class ReMeLight:  # type: ignore
         """Placeholder when reme is not available."""
 
+        async def start(self) -> None:
+            """No-op start when reme is unavailable."""
+
 
 class MemoryManager(ReMeLight):
     """Memory manager that extends ReMeLight for CoPaw agents.
@@ -47,11 +49,25 @@ class MemoryManager(ReMeLight):
     - Configurable vector search and full-text search backends
     """
 
-    def __init__(self, working_dir: str):
+    def __init__(
+        self,
+        working_dir: str,
+        max_input_length: int = 128 * 1024,
+        memory_compact_ratio: float = 0.7,
+        memory_reserve_ratio: float = 0.1,
+        language: str = "zh",
+    ):
         """Initialize MemoryManager with ReMeLight configuration.
 
         Args:
             working_dir: Working directory path for memory storage
+            max_input_length: Maximum input length in tokens for context
+                window (default: 128K = 131072)
+            memory_compact_ratio: Ratio for memory compaction
+                (default: 0.7)
+            memory_reserve_ratio: Ratio for memory reserve
+                (default: 0.1)
+            language: Language for memory operations (default: "zh")
 
         Environment Variables:
             EMBEDDING_API_KEY: API key for embedding service
@@ -72,8 +88,17 @@ class MemoryManager(ReMeLight):
             Vector search is enabled only when both EMBEDDING_API_KEY and
             EMBEDDING_MODEL_NAME are configured.
         """
+        # Store configuration parameters
+        self._max_input_length = max_input_length
+        self._memory_compact_ratio = memory_compact_ratio
+        self._memory_reserve_ratio = memory_reserve_ratio
+        self._language = language
+
         if not _REME_AVAILABLE:
-            raise RuntimeError("reme package not installed.")
+            logger.warning(
+                "reme package not available, memory features will be limited",
+            )
+            return
 
         embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
         embedding_base_url = self._safe_str(
@@ -234,19 +259,14 @@ class MemoryManager(ReMeLight):
         """
         self.prepare_model_formatter()
 
-        config = load_config()
-        max_input_length = config.agents.running.max_input_length
-        memory_compact_ratio = config.agents.running.memory_compact_ratio
-        language = config.agents.language
-
         return await super().compact_memory(
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
             token_counter=self.token_counter,
-            language=language,
-            max_input_length=max_input_length,
-            compact_ratio=memory_compact_ratio,
+            language=self._language,
+            max_input_length=self._max_input_length,
+            compact_ratio=self._memory_compact_ratio,
             previous_summary=previous_summary,
         )
 
@@ -263,20 +283,15 @@ class MemoryManager(ReMeLight):
         Returns:
             str: Comprehensive summary of the messages
         """
-        config = load_config()
-        max_input_length = config.agents.running.max_input_length
-        memory_compact_ratio = config.agents.running.memory_compact_ratio
-        language = config.agents.language
-
         return await super().summary_memory(
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
             token_counter=self.token_counter,
             toolkit=self.summary_toolkit,
-            language=language,
-            max_input_length=max_input_length,
-            compact_ratio=memory_compact_ratio,
+            language=self._language,
+            max_input_length=self._max_input_length,
+            compact_ratio=self._memory_compact_ratio,
         )
 
     def get_in_memory_memory(self, **_kwargs):

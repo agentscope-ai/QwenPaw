@@ -1,5 +1,4 @@
-import { request } from "../request";
-import { getApiUrl } from "../config";
+import { request, requestRaw } from "../request";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 export const workspaceApi = {
@@ -25,7 +24,7 @@ export const workspaceApi = {
 
   // Workspace package download
   downloadWorkspace: async (): Promise<Blob> => {
-    const response = await fetch(getApiUrl("/workspace/download"), {
+    const response = await requestRaw("/workspace/download", {
       method: "GET",
     });
 
@@ -45,7 +44,7 @@ export const workspaceApi = {
     const formData = new FormData();
     formData.append("file", file);
 
-    const response = await fetch(getApiUrl("/workspace/upload"), {
+    const response = await requestRaw("/workspace/upload", {
       method: "POST",
       body: formData,
     });

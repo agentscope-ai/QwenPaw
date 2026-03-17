@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button, Card, Form, Modal, Table } from "@agentscope-ai/design";
 import dayjs from "dayjs";
 import type { CronJobSpecOutput } from "../../../api/types";
 import { useTranslation } from "react-i18next";
+import api from "../../../api";
 import {
   createColumns,
   JobDrawer,
@@ -28,11 +29,27 @@ function CronJobsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [form] = Form.useForm<CronJob>();
+  const userTimezoneRef = useRef("UTC");
+
+  useEffect(() => {
+    api
+      .getUserTimezone()
+      .then((res) => {
+        if (res.timezone) userTimezoneRef.current = res.timezone;
+      })
+      .catch((err) => console.error("Failed to fetch user timezone:", err));
+  }, []);
 
   const handleCreate = () => {
     setEditingJob(null);
     form.resetFields();
-    form.setFieldsValue(DEFAULT_FORM_VALUES);
+    form.setFieldsValue({
+      ...DEFAULT_FORM_VALUES,
+      schedule: {
+        ...DEFAULT_FORM_VALUES.schedule,
+        timezone: userTimezoneRef.current,
+      },
+    });
     setDrawerOpen(true);
   };
 

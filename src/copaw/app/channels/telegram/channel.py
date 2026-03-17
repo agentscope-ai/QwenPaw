@@ -5,13 +5,23 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from telegram import BotCommand
 from telegram.constants import ParseMode
+from telegram.error import (
+    BadRequest,
+    Forbidden,
+    InvalidToken,
+    NetworkError,
+    RetryAfter,
+    TimedOut,
+)
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
@@ -23,7 +33,9 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import TelegramConfig as TelegramChannelConfig
-from .format_html import markdown_to_telegram_html, strip_markdown
+from ....constant import WORKING_DIR
+from .format_html import markdown_to_telegram_html
+from ..utils import file_url_to_local_path
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -35,9 +47,17 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
+TELEGRAM_MAX_FILE_SIZE_BYTES = (
+    50 * 1024 * 1024
+)  # 50 MB – Telegram bot upload limit
 
-_DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
+_DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "telegram"
 _TYPING_TIMEOUT_S = 180
+
+_RECONNECT_INITIAL_S = 2.0
+_RECONNECT_MAX_S = 30.0
+_RECONNECT_FACTOR = 1.8
+_POLL_WATCHDOG_INTERVAL_S = 30
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -45,6 +65,14 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("voice", AudioContent, ContentType.AUDIO, "data"),
     ("audio", AudioContent, ContentType.AUDIO, "data"),
 ]
+
+
+class _FileTooLargeError(Exception):
+    """Raised when a local media file exceeds Telegram's upload size limit."""
+
+
+class _MediaFileUnavailableError(Exception):
+    """Raised when a media file cannot be found or resolved."""
 
 
 async def _download_telegram_file(
@@ -124,7 +152,7 @@ async def _build_content_parts_from_message(
         "edited_message",
     )
     if not message:
-        return [TextContent(type=ContentType.TEXT, text="")], False, False
+        return [], False, False
 
     content_parts: list[Any] = []
     text = (
@@ -181,8 +209,9 @@ async def _build_content_parts_from_message(
                 filename_hint="photo.jpg",
             )
             if local_path:
+                file_url = Path(local_path).resolve().as_uri()
                 content_parts.append(
-                    ImageContent(type=ContentType.IMAGE, image_url=local_path),
+                    ImageContent(type=ContentType.IMAGE, image_url=file_url),
                 )
 
     for attr_name, content_cls, content_type, url_field in _MEDIA_ATTRS:
@@ -200,12 +229,10 @@ async def _build_content_parts_from_message(
             filename_hint=file_name,
         )
         if local_path:
+            file_url = Path(local_path).resolve().as_uri()
             content_parts.append(
-                content_cls(type=content_type, **{url_field: local_path}),
+                content_cls(type=content_type, **{url_field: file_url}),
             )
-
-    if not content_parts:
-        content_parts.append(TextContent(type=ContentType.TEXT, text=""))
 
     return content_parts, has_bot_command, is_bot_mentioned
 
@@ -230,11 +257,11 @@ def _message_meta(update: Any) -> dict:
         "username": username,
         "message_id": str(getattr(message, "message_id", "")),
         "is_group": chat_type in ("group", "supergroup", "channel"),
+        "message_thread_id": getattr(message, "message_thread_id", None),
     }
 
 
 class TelegramChannel(BaseChannel):
-
     """Telegram channel: Bot API polling; session_id = telegram:{chat_id}."""
 
     channel = "telegram"
@@ -251,6 +278,7 @@ class TelegramChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         show_typing: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
@@ -279,6 +307,9 @@ class TelegramChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._media_dir = (
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+        )
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
         self._show_typing = show_typing
         self._typing_tasks: dict[str, asyncio.Task] = {}
@@ -346,6 +377,9 @@ class TelegramChannel(BaseChannel):
                 bot=context.bot,
                 media_dir=self._media_dir,
             )
+            if not content_parts:
+                logger.debug("telegram: ignore non-content message")
+                return
             meta = _message_meta(update)
             if has_bot_command:
                 meta["has_bot_command"] = True
@@ -400,6 +434,22 @@ class TelegramChannel(BaseChannel):
         app.add_handler(MessageHandler(filters.ALL, handle_message))
         return app
 
+    def _apply_no_text_debounce(
+        self,
+        session_id: str,
+        content_parts: list[Any],
+    ) -> tuple[bool, list[Any]]:
+        """Process media-only Telegram messages without waiting for text."""
+        has_media = any(
+            getattr(part, "type", None)
+            not in (ContentType.TEXT, ContentType.REFUSAL)
+            for part in content_parts
+        )
+        if has_media:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return True, pending + list(content_parts)
+        return super()._apply_no_text_debounce(session_id, content_parts)
+
     @classmethod
     def from_env(
         cls,
@@ -439,6 +489,7 @@ class TelegramChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "TelegramChannel":
         if isinstance(config, dict):
             c = config
@@ -463,6 +514,7 @@ class TelegramChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            workspace_dir=workspace_dir,
             show_typing=show_typing,
             dm_policy=c.get("dm_policy") or "open",
             group_policy=c.get("group_policy") or "open",
@@ -560,28 +612,44 @@ class TelegramChannel(BaseChannel):
         bot = self._application.bot
         if not bot:
             return
+        message_thread_id = meta.get("message_thread_id")
         self._stop_typing(chat_id)
         chunks = self._chunk_text(text)
         for chunk in chunks:
             html_chunk = markdown_to_telegram_html(chunk)
             try:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=html_chunk,
-                    parse_mode=ParseMode.HTML,
-                )
-            except Exception:
+                kwargs = {
+                    "chat_id": chat_id,
+                    "text": html_chunk,
+                    "parse_mode": ParseMode.HTML,
+                }
+                if message_thread_id is not None:
+                    kwargs["message_thread_id"] = message_thread_id
+                await bot.send_message(**kwargs)
+            except BadRequest as exc:
                 logger.warning(
-                    "telegram HTML send failed, trying plain text",
+                    "telegram HTML send failed, trying plain text: %s",
+                    exc,
                 )
                 try:
-                    plain = strip_markdown(chunk)
-                    await bot.send_message(chat_id=chat_id, text=plain)
+                    plain_chunk = html.unescape(
+                        re.sub(r"<[^>]+>", "", html_chunk),
+                    )
+                    kwargs = {
+                        "chat_id": chat_id,
+                        "text": plain_chunk,
+                    }
+                    if message_thread_id is not None:
+                        kwargs["message_thread_id"] = message_thread_id
+                    await bot.send_message(**kwargs)
                 except Exception:
                     logger.exception("telegram send_message fallback failed")
                     return
+            except Exception:
+                logger.exception("telegram send_message failed")
+                return
 
-    async def send_media(
+    async def send_media(  # pylint: disable=too-many-statements
         self,
         to_handle: str,
         part: OutgoingContentPart,
@@ -600,115 +668,321 @@ class TelegramChannel(BaseChannel):
         bot = self._application.bot
         if not bot:
             return
+        message_thread_id = meta.get("message_thread_id")
         self._stop_typing(chat_id)
 
         part_type = getattr(part, "type", None)
         try:
             if part_type == ContentType.IMAGE:
                 image_url = getattr(part, "image_url", None)
-                if image_url and image_url.startswith("file://"):
-                    local_path = image_url.replace("file://", "")
-                    with open(local_path, "rb") as f:
-                        await bot.send_photo(chat_id=chat_id, photo=f)
-                elif image_url:
-                    await bot.send_photo(chat_id=chat_id, photo=image_url)
+                await self._send_media_value(
+                    bot=bot,
+                    chat_id=chat_id,
+                    value=image_url,
+                    method_name="send_photo",
+                    payload_name="photo",
+                    message_thread_id=message_thread_id,
+                )
             elif part_type == ContentType.VIDEO:
                 video_url = getattr(part, "video_url", None)
-                if video_url and video_url.startswith("file://"):
-                    local_path = video_url.replace("file://", "")
-                    with open(local_path, "rb") as f:
-                        await bot.send_video(chat_id=chat_id, video=f)
-                elif video_url:
-                    await bot.send_video(chat_id=chat_id, video=video_url)
+                await self._send_media_value(
+                    bot=bot,
+                    chat_id=chat_id,
+                    value=video_url,
+                    method_name="send_video",
+                    payload_name="video",
+                    message_thread_id=message_thread_id,
+                )
             elif part_type == ContentType.AUDIO:
-                data = getattr(part, "data", None)
-                if data:
-                    await bot.send_audio(chat_id=chat_id, audio=data)
+                audio_data = getattr(part, "data", None)
+                await self._send_media_value(
+                    bot=bot,
+                    chat_id=chat_id,
+                    value=audio_data,
+                    method_name="send_audio",
+                    payload_name="audio",
+                    message_thread_id=message_thread_id,
+                )
             elif part_type == ContentType.FILE:
                 file_url = getattr(part, "file_url", None)
-                if file_url and file_url.startswith("file://"):
-                    local_path = file_url.replace("file://", "")
-                    with open(local_path, "rb") as f:
-                        await bot.send_document(chat_id=chat_id, document=f)
-                elif file_url:
-                    await bot.send_document(chat_id=chat_id, document=file_url)
+                await self._send_media_value(
+                    bot=bot,
+                    chat_id=chat_id,
+                    value=file_url,
+                    method_name="send_document",
+                    payload_name="document",
+                    message_thread_id=message_thread_id,
+                )
+        except _FileTooLargeError as exc:
+            logger.warning("telegram send_media: file too large: %s", exc)
+            await self.send(to_handle, str(exc), meta)
+        except _MediaFileUnavailableError as exc:
+            logger.warning("telegram send_media: file unavailable: %s", exc)
+            await self.send(to_handle, str(exc), meta)
+        except BadRequest as exc:
+            logger.warning("telegram send_media: bad request: %s", exc)
+            await self.send(
+                to_handle,
+                f"Telegram rejected the file: {exc}",
+                meta,
+            )
+        except TimedOut as exc:
+            logger.warning("telegram send_media: timed out: %s", exc)
+            await self.send(
+                to_handle,
+                "File upload timed out. "
+                "The file may be too large (Telegram bot limit: 50 MB).",
+                meta,
+            )
+        except RetryAfter as exc:
+            logger.warning("telegram send_media: rate limited: %s", exc)
+            await self.send(
+                to_handle,
+                f"Too many requests. Please try again later. ({exc})",
+                meta,
+            )
+        except Forbidden as exc:
+            logger.warning("telegram send_media: forbidden: %s", exc)
+            await self.send(
+                to_handle,
+                "The bot does not have permission to send media in this chat.",
+                meta,
+            )
+        except NetworkError as exc:
+            logger.warning("telegram send_media: network error: %s", exc)
+            await self.send(
+                to_handle,
+                "Network error. Failed to send file, please try again later.",
+                meta,
+            )
+        except OSError as exc:
+            logger.warning("telegram send_media: OS error: %s", exc)
+            error_detail = str(exc) or repr(exc)
+            await self.send(
+                to_handle,
+                f"Failed to read the file, cannot send ({error_detail}).",
+                meta,
+            )
         except Exception:
             logger.exception("telegram send_media failed")
 
-    async def _run_polling(self) -> None:
-        """Run Telegram bot in existing event loop (FastAPI/uvicorn).
-        Do not use run_polling() - it calls run_until_complete() and fails when
-        the event loop is already running.
-        """
-        if not self.enabled or not self._application or not self._bot_token:
+    async def _send_media_value(
+        self,
+        *,
+        bot: Any,
+        chat_id: str,
+        value: Any,
+        method_name: str,
+        payload_name: str,
+        message_thread_id: Optional[int],
+    ) -> None:
+        """Send media from URL or local file path."""
+        if not value:
             return
-        try:
-            from telegram.error import TelegramError
-            from telegram import BotCommand
-
-            def _on_poll_error(exc: TelegramError) -> None:
-                self._application.create_task(
-                    self._application.process_error(error=exc, update=None),
-                )
-
-            await self._application.initialize()
-
-            commands = [
-                BotCommand(
-                    command="start",
-                    description="Start a new conversation",
-                ),
-                BotCommand(
-                    command="new",
-                    description="Start a new conversation (clear memory)",
-                ),
-                BotCommand(
-                    command="compact",
-                    description="Compact conversation memory",
-                ),
-                BotCommand(
-                    command="clear",
-                    description="Clear conversation history",
-                ),
-                BotCommand(
-                    command="history",
-                    description="Show conversation history",
-                ),
-            ]
-            try:
-                await self._application.bot.set_my_commands(commands)
-                logger.info(
-                    "telegram: registered %d bot commands",
-                    len(commands),
-                )
-            except Exception:
+        if isinstance(value, str) and value.startswith("file://"):
+            raw_path = file_url_to_local_path(value)
+            if not raw_path:
                 logger.warning(
-                    "telegram: failed to register commands (non-fatal)",
+                    "telegram: could not resolve file URL: %s",
+                    value,
                 )
+                raise _MediaFileUnavailableError(
+                    "Could not resolve media file from URL.",
+                )
+            local_path = Path(raw_path).resolve()
+            allowed_root = (
+                (self._workspace_dir / "media").resolve()
+                if self._workspace_dir
+                else (WORKING_DIR / "media").resolve()
+            )
+            if not local_path.is_relative_to(allowed_root):
+                logger.error(
+                    "telegram: blocked media outside allowed directory: %s",
+                    local_path,
+                )
+                raise _MediaFileUnavailableError(
+                    f"Media file outside allowed directory: {local_path.name}",
+                )
+            if not local_path.exists():
+                logger.warning(
+                    "telegram: media file not found at path: %s",
+                    local_path,
+                )
+                raise _MediaFileUnavailableError(
+                    f"Media file not found: {local_path.name}",
+                )
+            file_size = local_path.stat().st_size
+            if file_size > TELEGRAM_MAX_FILE_SIZE_BYTES:
+                file_size_mb = file_size / (1024 * 1024)
+                raise _FileTooLargeError(
+                    f"File too large to send via Telegram: {local_path.name} "
+                    f"({file_size_mb:.1f} MB, Telegram bot limit: 50 MB)",
+                )
+            try:
+                with open(local_path, "rb") as media_file:
+                    await self._send_media_payload(
+                        bot=bot,
+                        chat_id=chat_id,
+                        method_name=method_name,
+                        payload_name=payload_name,
+                        payload=media_file,
+                        message_thread_id=message_thread_id,
+                    )
+            except OSError as exc:
+                logger.warning(
+                    "telegram: failed to open media file: %s: %s",
+                    local_path,
+                    exc,
+                )
+                raise
+            return
+        await self._send_media_payload(
+            bot=bot,
+            chat_id=chat_id,
+            method_name=method_name,
+            payload_name=payload_name,
+            payload=value,
+            message_thread_id=message_thread_id,
+        )
 
-            await self._application.updater.start_polling(
-                allowed_updates=["message", "edited_message"],
-                error_callback=_on_poll_error,
+    async def _send_media_payload(
+        self,
+        *,
+        bot: Any,
+        chat_id: str,
+        method_name: str,
+        payload_name: str,
+        payload: Any,
+        message_thread_id: Optional[int],
+    ) -> None:
+        """Send a prepared Telegram media payload."""
+        if not payload:
+            return
+        kwargs = {
+            "chat_id": chat_id,
+            payload_name: payload,
+        }
+        if message_thread_id is not None:
+            kwargs["message_thread_id"] = message_thread_id
+        await getattr(bot, method_name)(**kwargs)
+
+    async def _polling_cycle(self, app) -> None:
+        """Run one polling lifecycle: init → poll → watchdog."""
+
+        def _on_poll_error(exc) -> None:
+            app.create_task(
+                app.process_error(error=exc, update=None),
             )
-            await self._application.start()
-            logger.info("telegram: polling started (receiving updates)")
-            await asyncio.Future()  # never completes until cancelled
-        except asyncio.CancelledError:
-            logger.debug("telegram: polling cancelled")
-            raise
+
+        await app.initialize()
+
+        commands = [
+            BotCommand(
+                command="start",
+                description="Start a new conversation",
+            ),
+            BotCommand(
+                command="new",
+                description="Start a new conversation (clear memory)",
+            ),
+            BotCommand(
+                command="compact",
+                description="Compact conversation memory",
+            ),
+            BotCommand(
+                command="clear",
+                description="Clear conversation history",
+            ),
+            BotCommand(
+                command="history",
+                description="Show conversation history",
+            ),
+        ]
+        try:
+            await app.bot.set_my_commands(commands)
+            logger.info(
+                "telegram: registered %d bot commands",
+                len(commands),
+            )
         except Exception:
-            logger.exception(
-                "telegram: polling error (check token, network, proxy; "
-                "in China you may need TELEGRAM_HTTP_PROXY)",
+            logger.warning(
+                "telegram: failed to register commands (non-fatal)",
             )
-            raise
+
+        await app.updater.start_polling(
+            bootstrap_retries=-1,
+            allowed_updates=["message", "edited_message"],
+            error_callback=_on_poll_error,
+        )
+        await app.start()
+        logger.info("telegram: polling started (receiving updates)")
+
+        while getattr(app.updater, "running", False):
+            await asyncio.sleep(_POLL_WATCHDOG_INTERVAL_S)
+
+        logger.warning("telegram: updater stopped unexpectedly")
+
+    @staticmethod
+    async def _teardown_application(app) -> None:
+        """Cleanly shut down a Telegram Application instance."""
+        try:
+            updater = getattr(app, "updater", None)
+            if updater and getattr(updater, "running", False):
+                await updater.stop()
+            if getattr(app, "running", False):
+                await app.stop()
+            await app.shutdown()
+        except Exception as exc:
+            logger.debug("telegram teardown: %s", exc)
+
+    async def _run_polling(self) -> None:
+        """Run Telegram polling with automatic reconnection.
+
+        Do not use run_polling() — it calls run_until_complete() and
+        fails when the event loop is already running (FastAPI/uvicorn).
+        """
+        if not self.enabled or not self._bot_token:
+            return
+
+        delay = _RECONNECT_INITIAL_S
+        while True:
+            try:
+                self._application = self._build_application()
+                await self._polling_cycle(self._application)
+                delay = _RECONNECT_INITIAL_S
+            except asyncio.CancelledError:
+                logger.debug("telegram: polling cancelled")
+                raise
+            except InvalidToken:
+                logger.error(
+                    "telegram: invalid bot token — not retrying",
+                )
+                return
+            except Exception:
+                logger.exception(
+                    "telegram: polling failed (check token, network, "
+                    "proxy; in China you may need TELEGRAM_HTTP_PROXY)",
+                )
+            finally:
+                if self._application:
+                    await self._teardown_application(
+                        self._application,
+                    )
+                    self._application = None
+
+            logger.info(
+                "telegram: reconnecting in %.1fs",
+                delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * _RECONNECT_FACTOR, _RECONNECT_MAX_S)
 
     async def start(self) -> None:
-        if not self.enabled or not self._application:
+        if not self.enabled or not self._bot_token:
             logger.debug(
-                "telegram: start() skipped (enabled=%s, application=%s)",
+                "telegram: start() skipped (enabled=%s, token=%s)",
                 self.enabled,
-                "built" if self._application else "not built",
+                "set" if self._bot_token else "empty",
             )
             return
         self._task = asyncio.create_task(
@@ -730,15 +1004,7 @@ class TelegramChannel(BaseChannel):
         for cid in list(self._typing_tasks):
             self._stop_typing(cid)
         if self._application:
-            try:
-                updater = getattr(self._application, "updater", None)
-                if updater and getattr(updater, "running", False):
-                    await updater.stop()
-                if getattr(self._application, "running", False):
-                    await self._application.stop()
-                await self._application.shutdown()
-            except Exception as exc:
-                logger.debug("telegram stop: %s", exc)
+            await self._teardown_application(self._application)
 
     def resolve_session_id(
         self,

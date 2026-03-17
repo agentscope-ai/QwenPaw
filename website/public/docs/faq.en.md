@@ -146,6 +146,43 @@ You can also use `copaw models` CLI commands for configuration, download, and
 switching. See
 [CLI -> Models and environment variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
 
+### When using models deployed with Ollama / LM Studio, why can't CoPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
+
+In most cases, this is not a CoPaw bug. The root cause is usually that the
+model's context length is configured too small.
+
+When you deploy a local model with Ollama or LM Studio, if the model's
+`context length` is too low, CoPaw may show problems such as:
+
+- failing to sustain multi-turn conversations reliably
+- losing context during complex tool calls
+- forgetting instructions given in earlier turns
+- drifting away from the task during long-running interactions
+
+**How to fix it:**
+
+- Before running CoPaw, set the model's `context length` to **at least 32K**
+- For more complex tasks, frequent tool calls, or longer conversations, you
+  may need a value **higher than 32K**
+
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> For local models deployed with Ollama or LM Studio, CoPaw typically needs a
+> context length of **32K or higher** to handle multi-turn interactions,
+> complex tool calls, and long-context tasks reliably. In more demanding
+> scenarios, an even larger context window may be required.
+>
+> Note that larger context windows can significantly increase VRAM / memory
+> usage and compute cost, so make sure your local machine can handle it.
+
+**Ollama configuration example:**
+
+![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
+**LM Studio configuration example:**
+
+![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
+
 ### Troubleshooting scheduled (cron) tasks
 
 In Console, go to **Control -> Cron Jobs** to create and manage scheduled tasks.

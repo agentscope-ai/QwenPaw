@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 from ..utils import file_url_to_local_path
 from ....config.config import DingTalkConfig as DingTalkChannelConfig
 from ....config.utils import get_config_path
+from ....constant import DEFAULT_MEDIA_DIR
 
 from ..base import (
     BaseChannel,
@@ -85,7 +86,8 @@ class DingTalkChannel(BaseChannel):
         client_id: str,
         client_secret: str,
         bot_prefix: str,
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -112,7 +114,17 @@ class DingTalkChannel(BaseChannel):
         self.client_id = client_id
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
-        self._media_dir = Path(media_dir).expanduser()
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Optional[dingtalk_stream.DingTalkStreamClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -156,7 +168,7 @@ class DingTalkChannel(BaseChannel):
             client_id=os.getenv("DINGTALK_CLIENT_ID", ""),
             client_secret=os.getenv("DINGTALK_CLIENT_SECRET", ""),
             bot_prefix=os.getenv("DINGTALK_BOT_PREFIX", "[BOT] "),
-            media_dir=os.getenv("DINGTALK_MEDIA_DIR", "~/.copaw/media"),
+            media_dir=os.getenv("DINGTALK_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("DINGTALK_DM_POLICY", "open"),
             group_policy=os.getenv("DINGTALK_GROUP_POLICY", "open"),
@@ -174,6 +186,7 @@ class DingTalkChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "DingTalkChannel":
         return cls(
             process=process,
@@ -181,7 +194,8 @@ class DingTalkChannel(BaseChannel):
             client_id=config.client_id or "",
             client_secret=config.client_secret or "",
             bot_prefix=config.bot_prefix or "[BOT] ",
-            media_dir=config.media_dir or "~/.copaw/media",
+            media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -257,7 +271,13 @@ class DingTalkChannel(BaseChannel):
         return {"webhook_key": s} if s else {}
 
     def _session_webhook_store_path(self) -> Path:
-        """Path to persist session webhook mapping (for cron after restart)."""
+        """Path to persist session webhook mapping (for cron after restart).
+
+        Uses agent workspace directory if available, otherwise falls back
+        to global config directory for backward compatibility.
+        """
+        if self._workspace_dir:
+            return self._workspace_dir / "dingtalk_session_webhooks.json"
         return get_config_path().parent / "dingtalk_session_webhooks.json"
 
     def _load_session_webhook_store_from_disk(self) -> None:
@@ -1192,10 +1212,6 @@ class DingTalkChannel(BaseChannel):
         else:
             await self.send(to_handle, body.strip() or prefix, meta)
 
-    def get_debounce_key(self, payload: Any) -> str:
-        """Use short conversation_id or channel:sender for time debounce."""
-        return self._debounce_key(payload)
-
     def merge_native_items(self, items: List[Any]) -> Any:
         """Merge payloads (content_parts + meta) for DingTalk."""
         return self._merge_native(items)
@@ -1451,14 +1467,6 @@ class DingTalkChannel(BaseChannel):
                 request.user_id or "",
                 request.session_id or f"{self.channel}:{request.user_id}",
             )
-
-    def _debounce_key(self, native: Any) -> str:
-        payload = native if isinstance(native, dict) else {}
-        meta = payload.get("meta") or {}
-        cid = meta.get("conversation_id") or ""
-        if cid:
-            return short_session_id_from_conversation_id(str(cid))
-        return f"{self.channel}:{payload.get('sender_id', '')}"
 
     def _merge_native(self, items: list) -> dict:
         """Merge multiple native payloads into one (content_parts + meta)."""

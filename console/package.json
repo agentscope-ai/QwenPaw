@@ -5,15 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc -b && vite build",
-    "build:prod": "tsc -b && vite build --mode production",
-    "build:test": "tsc -b && vite build --mode test",
+    "build": "tsc -b && vite build && node ./scripts/sync-built-console.mjs",
+    "build:prod": "tsc -b && vite build --mode production && node ./scripts/sync-built-console.mjs",
+    "build:test": "tsc -b && vite build --mode test && node ./scripts/sync-built-console.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "preview": "vite preview",
     "preview:prod": "vite preview --mode production",
-    "preview:test": "vite preview --mode test"
+    "preview:test": "vite preview --mode test",
+    "test": "vitest run"
   },
   "dependencies": {
     "@agentscope-ai/chat": "^1.1.51",
@@ -50,7 +51,8 @@
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^4.1.0"
   },
   "repository": "https://github.com/agentscope-ai/agentscope-runtime.git"
 }

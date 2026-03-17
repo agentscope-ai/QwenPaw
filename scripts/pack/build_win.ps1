@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
 Write-Host "== Building wheel (includes console frontend) =="
 # Skip wheel_build if dist already has a wheel for current version
-$VersionFile = Join-Path $RepoRoot "src\boostclaw\__version__.py"
+$VersionFile = Join-Path $RepoRoot "src\copaw\__version__.py"
 $CurrentVersion = ""
 if (Test-Path $VersionFile) {
   $m = (Get-Content $VersionFile -Raw) -match '__version__\s*=\s*"([^"]+)"'
@@ -135,12 +135,21 @@ REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 
-REM Log level: env var COPAW_LOG_LEVEL or default to "info"
-if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=info"
+REM Workspace/log level: prefer BOOSTCLAW_* and mirror to COPAW_* for compatibility
+if not defined BOOSTCLAW_WORKING_DIR set "BOOSTCLAW_WORKING_DIR=%USERPROFILE%\.boostclaw"
+set "COPAW_WORKING_DIR=%BOOSTCLAW_WORKING_DIR%"
+if not defined BOOSTCLAW_LOG_LEVEL (
+  if defined COPAW_LOG_LEVEL (
+    set "BOOSTCLAW_LOG_LEVEL=%COPAW_LOG_LEVEL%"
+  ) else (
+    set "BOOSTCLAW_LOG_LEVEL=info"
+  )
+)
+set "COPAW_LOG_LEVEL=%BOOSTCLAW_LOG_LEVEL%"
 
 REM Set SSL certificate paths for packaged environment
 REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+set "CERT_TMP=%TEMP%\boostclaw_cert_%RANDOM%.txt"
 "%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
 set /p CERT_FILE=<"%CERT_TMP%"
 del "%CERT_TMP%" 2>nul
@@ -152,10 +161,10 @@ if defined CERT_FILE (
   )
 )
 
-if not exist "%USERPROFILE%\.boostclaw\config.json" (
-  "%~dp0python.exe" -u -m boostclaw init --defaults --accept-security
+if not exist "%BOOSTCLAW_WORKING_DIR%\config.json" (
+  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
 )
-"%~dp0python.exe" -u -m boostclaw desktop --log-level %COPAW_LOG_LEVEL%
+"%~dp0python.exe" -u -m copaw desktop --log-level %BOOSTCLAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -168,12 +177,21 @@ REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 
-REM Debug mode: use debug log level by default (can override with COPAW_LOG_LEVEL)
-if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=debug"
+REM Workspace/log level: prefer BOOSTCLAW_* and mirror to COPAW_* for compatibility
+if not defined BOOSTCLAW_WORKING_DIR set "BOOSTCLAW_WORKING_DIR=%USERPROFILE%\.boostclaw"
+set "COPAW_WORKING_DIR=%BOOSTCLAW_WORKING_DIR%"
+if not defined BOOSTCLAW_LOG_LEVEL (
+  if defined COPAW_LOG_LEVEL (
+    set "BOOSTCLAW_LOG_LEVEL=%COPAW_LOG_LEVEL%"
+  ) else (
+    set "BOOSTCLAW_LOG_LEVEL=debug"
+  )
+)
+set "COPAW_LOG_LEVEL=%BOOSTCLAW_LOG_LEVEL%"
 
 REM Set SSL certificate paths for packaged environment
 REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+set "CERT_TMP=%TEMP%\boostclaw_cert_%RANDOM%.txt"
 "%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
 set /p CERT_FILE=<"%CERT_TMP%"
 del "%CERT_TMP%" 2>nul
@@ -191,19 +209,20 @@ echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
 echo PATH: %PATH%
-echo Log Level: %COPAW_LOG_LEVEL%
+echo Workspace: %BOOSTCLAW_WORKING_DIR%
+echo Log Level: %BOOSTCLAW_LOG_LEVEL%
 echo SSL_CERT_FILE: %SSL_CERT_FILE%
 echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
 echo CURL_CA_BUNDLE: %CURL_CA_BUNDLE%
 echo.
-if not exist "%USERPROFILE%\.boostclaw\config.json" (
+if not exist "%BOOSTCLAW_WORKING_DIR%\config.json" (
   echo [Init] Creating config...
-  "%~dp0python.exe" -u -m boostclaw init --defaults --accept-security
+  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
 )
-echo [Launch] Starting boostclaw desktop with log-level=%COPAW_LOG_LEVEL%...
+echo [Launch] Starting boostclaw desktop with log-level=%BOOSTCLAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -u -m boostclaw desktop --log-level %COPAW_LOG_LEVEL%
+"%~dp0python.exe" -u -m copaw desktop --log-level %BOOSTCLAW_LOG_LEVEL%
 echo.
 echo [Exit] boostclaw desktop closed
 pause

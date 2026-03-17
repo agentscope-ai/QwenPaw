@@ -24,10 +24,10 @@ error() { printf "${RED}[boostclaw]${RESET} %s\n" "$*" >&2; }
 die()   { error "$@"; exit 1; }
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-BOOSTCLAW_HOME="${BOOSTCLAW_HOME:-$HOME/.boostclaw}"
+BOOSTCLAW_HOME="${BOOSTCLAW_HOME:-${COPAW_HOME:-$HOME/.boostclaw}}"
 BOOSTCLAW_VENV="$BOOSTCLAW_HOME/venv"
 BOOSTCLAW_BIN="$BOOSTCLAW_HOME/bin"
-PYTHON_VERSION="3.10"
+PYTHON_VERSION="3.12"
 BOOSTCLAW_REPO="https://github.com/aimentorai/boostclaw.git"
 
 # New: Intelligent selection of PyPI source (automatically using Alibaba Cloud mirror for domestic users, and official source for overseas users)
@@ -85,6 +85,7 @@ Options:
 
 Environment:
   BOOSTCLAW_HOME    Installation directory (default: ~/.boostclaw)
+  COPAW_HOME        Legacy alias for BOOSTCLAW_HOME
 EOF
             exit 0 ;;
         *)
@@ -146,7 +147,7 @@ uv venv "$BOOSTCLAW_VENV" --python "$PYTHON_VERSION" --quiet
 [ -x "$BOOSTCLAW_VENV/bin/python" ] || die "Failed to create virtual environment"
 info "Python environment ready ($("$BOOSTCLAW_VENV/bin/python" --version))"
 
-# ── Step 3: Install CoPaw ────────────────────────────────────────────────────
+# ── Step 3: Install BoostClaw ────────────────────────────────────────────────
 # Build extras suffix: "" or "[llamacpp,mlx]"
 EXTRAS_SUFFIX=""
 if [ -n "$EXTRAS" ]; then
@@ -157,23 +158,54 @@ fi
 ## Sets _CONSOLE_COPIED=1 if we populated the directory (so we can clean up).
 _CONSOLE_COPIED=0
 _CONSOLE_AVAILABLE=0
+
+console_bundle_needs_refresh() {
+    local console_src="$1"
+    local console_dest="$2"
+
+    if [ ! -f "$console_dest/index.html" ]; then
+        return 0
+    fi
+
+    if [ ! -f "$console_src/index.html" ]; then
+        return 1
+    fi
+
+    if ! cmp -s "$console_src/index.html" "$console_dest/index.html"; then
+        return 0
+    fi
+
+    return 1
+}
+
 prepare_console() {
     local repo_dir="$1"
     local console_src="$repo_dir/console/dist"
     local console_dest="$repo_dir/src/copaw/console"
+    local dest_had_index=0
 
-    # Already populated
     if [ -f "$console_dest/index.html" ]; then
+        dest_had_index=1
+    fi
+
+    # Copy pre-built assets if available (e.g. developer already ran npm build).
+    # Refresh stale bundled assets instead of blindly trusting an existing copy.
+    if [ -d "$console_src" ] && [ -f "$console_src/index.html" ]; then
+        if console_bundle_needs_refresh "$console_src" "$console_dest"; then
+            info "Refreshing console frontend assets from console/dist..."
+            mkdir -p "$console_dest"
+            rm -rf "$console_dest/"*
+            cp -R "$console_src/"* "$console_dest/"
+            if [ "$dest_had_index" = 0 ]; then
+                _CONSOLE_COPIED=1
+            fi
+        fi
         _CONSOLE_AVAILABLE=1
         return
     fi
 
-    # Copy pre-built assets if available (e.g. developer already ran npm build)
-    if [ -d "$console_src" ] && [ -f "$console_src/index.html" ]; then
-        info "Copying console frontend assets..."
-        mkdir -p "$console_dest"
-        cp -R "$console_src/"* "$console_dest/"
-        _CONSOLE_COPIED=1
+    # Already populated (no dist build available, so keep the bundled copy).
+    if [ -f "$console_dest/index.html" ]; then
         _CONSOLE_AVAILABLE=1
         return
     fi
@@ -195,8 +227,11 @@ prepare_console() {
     (cd "$repo_dir/console" && npm ci && npm run build)
     if [ -f "$console_src/index.html" ]; then
         mkdir -p "$console_dest"
-        cp -R "$console_src/"* "$console_dest/"
-        _CONSOLE_COPIED=1
+        if [ "$dest_had_index" = 0 ]; then
+            rm -rf "$console_dest/"*
+            cp -R "$console_src/"* "$console_dest/"
+            _CONSOLE_COPIED=1
+        fi
         _CONSOLE_AVAILABLE=1
         info "Console frontend built successfully"
         return
@@ -237,7 +272,22 @@ else
     fi
 
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
-    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$BOOSTCLAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
+    if ! uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$BOOSTCLAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"; then
+        warn "PyPI install failed for ${PACKAGE}${EXTRAS_SUFFIX}."
+        warn "Falling back to source install from GitHub..."
+
+        command -v git &>/dev/null || die "git is required for source fallback. Please install git, or run with --from-source <DIR>."
+
+        CLONE_DIR="$(mktemp -d)"
+        info "Cloning source: $BOOSTCLAW_REPO"
+        git clone --depth 1 "$BOOSTCLAW_REPO" "$CLONE_DIR" || die "Failed to clone repository"
+
+        prepare_console "$CLONE_DIR"
+        info "Installing package from source (fallback)..."
+        uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$BOOSTCLAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR" || die "Fallback source installation failed"
+
+        rm -rf "$CLONE_DIR"
+    fi
 fi
 
 # Verify the CLI entry point exists
@@ -261,7 +311,7 @@ cat > "$BOOSTCLAW_BIN/boostclaw" << 'WRAPPER'
 # BoostClaw CLI wrapper — delegates to the uv-managed environment.
 set -euo pipefail
 
-BOOSTCLAW_HOME="${BOOSTCLAW_HOME:-$HOME/.boostclaw}"
+BOOSTCLAW_HOME="${BOOSTCLAW_HOME:-${COPAW_HOME:-$HOME/.boostclaw}}"
 REAL_BIN="$BOOSTCLAW_HOME/venv/bin/boostclaw"
 
 if [ ! -x "$REAL_BIN" ]; then

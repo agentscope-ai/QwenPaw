@@ -2,10 +2,15 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   const apiBaseUrl = env.BASE_URL ?? "";
+  const devApiProxyTarget = trimTrailingSlash(apiBaseUrl || "http://127.0.0.1:8088");
 
   return {
     define: {
@@ -33,6 +38,12 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
+      proxy: {
+        "/api/proboost-auth": {
+          target: devApiProxyTarget,
+          changeOrigin: true,
+        },
+      },
     },
     optimizeDeps: {
       include: ["diff"],
