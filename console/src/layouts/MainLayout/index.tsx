@@ -17,6 +17,10 @@ import WorkspacePage from "../../pages/Agent/Workspace";
 import MCPPage from "../../pages/Agent/MCP";
 import ModelsPage from "../../pages/Settings/Models";
 import EnvironmentsPage from "../../pages/Settings/Environments";
+import SecurityPage from "../../pages/Settings/Security";
+import TokenUsagePage from "../../pages/Settings/TokenUsage";
+import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
+import AgentsPage from "../../pages/Settings/Agents";
 
 const { Content } = Layout;
 
@@ -34,6 +38,9 @@ const pathToKey: Record<string, string> = {
   "/models": "models",
   "/environments": "environments",
   "/agent-config": "agent-config",
+  "/security": "security",
+  "/token-usage": "token-usage",
+  "/voice-transcription": "voice-transcription",
 };
 
 export default function MainLayout() {
@@ -41,6 +48,7 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const currentPath = location.pathname;
   const selectedKey = pathToKey[currentPath] || "chat";
+  const isChatPage = currentPath === "/" || currentPath.startsWith("/chat");
 
   useEffect(() => {
     if (currentPath === "/") {
@@ -56,21 +64,36 @@ export default function MainLayout() {
         <Content className="page-container">
           <ConsoleCronBubble />
           <div className="page-content">
-            <Routes>
-              <Route path="/chat" element={<Chat />} />
-              <Route path="/channels" element={<ChannelsPage />} />
-              <Route path="/sessions" element={<SessionsPage />} />
-              <Route path="/cron-jobs" element={<CronJobsPage />} />
-              <Route path="/heartbeat" element={<HeartbeatPage />} />
-              <Route path="/skills" element={<SkillsPage />} />
-              <Route path="/tools" element={<ToolsPage />} />
-              <Route path="/mcp" element={<MCPPage />} />
-              <Route path="/workspace" element={<WorkspacePage />} />
-              <Route path="/models" element={<ModelsPage />} />
-              <Route path="/environments" element={<EnvironmentsPage />} />
-              <Route path="/agent-config" element={<AgentConfigPage />} />
-              <Route path="/" element={<Chat />} />
-            </Routes>
+            <div
+              style={{
+                display: isChatPage ? undefined : "none",
+                height: "100%",
+              }}
+            >
+              <Chat />
+            </div>
+            {!isChatPage && (
+              <Routes>
+                <Route path="/channels" element={<ChannelsPage />} />
+                <Route path="/sessions" element={<SessionsPage />} />
+                <Route path="/cron-jobs" element={<CronJobsPage />} />
+                <Route path="/heartbeat" element={<HeartbeatPage />} />
+                <Route path="/skills" element={<SkillsPage />} />
+                <Route path="/tools" element={<ToolsPage />} />
+                <Route path="/mcp" element={<MCPPage />} />
+                <Route path="/workspace" element={<WorkspacePage />} />
+                <Route path="/agents" element={<AgentsPage />} />
+                <Route path="/models" element={<ModelsPage />} />
+                <Route path="/environments" element={<EnvironmentsPage />} />
+                <Route path="/agent-config" element={<AgentConfigPage />} />
+                <Route path="/security" element={<SecurityPage />} />
+                <Route path="/token-usage" element={<TokenUsagePage />} />
+                <Route
+                  path="/voice-transcription"
+                  element={<VoiceTranscriptionPage />}
+                />
+              </Routes>
+            )}
           </div>
         </Content>
       </Layout>

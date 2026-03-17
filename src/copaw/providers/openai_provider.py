@@ -11,12 +11,13 @@ from openai import APIError, AsyncOpenAI
 
 from copaw.providers.provider import ModelInfo, Provider
 
-
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
 
 class OpenAIProvider(Provider):
+    """Provider implementation for OpenAI API and compatible endpoints."""
+
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
         return AsyncOpenAI(
             base_url=self.base_url,
@@ -46,16 +47,21 @@ class OpenAIProvider(Provider):
             deduped.append(model)
         return deduped
 
-    async def check_connection(self, timeout: float = 5) -> bool:
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if OpenAI provider is reachable with current configuration."""
         if self.base_url == CODING_DASHSCOPE_BASE_URL:
-            return True
+            return True, ""
         client = self._client()
         try:
             await client.models.list(timeout=timeout)
-            return True
+            return True, ""
         except APIError:
-            return False
+            return False, f"API error when connecting to `{self.base_url}`"
+        except Exception:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`",
+            )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
@@ -66,13 +72,19 @@ class OpenAIProvider(Provider):
             return models
         except APIError:
             return []
+        except Exception:
+            return []
 
     async def check_model_connection(
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable"""
+        model_id = (model_id or "").strip()
+        if not model_id:
+            return False, "Empty model ID"
+
         try:
             client = self._client(timeout=timeout)
             res = await client.chat.completions.create(
@@ -85,9 +97,14 @@ class OpenAIProvider(Provider):
             # consume the stream to ensure the model is actually responsive
             async for _ in res:
                 break
-            return True
+            return True, ""
         except APIError:
-            return False
+            return False, f"API error when connecting to model '{model_id}'"
+        except Exception:
+            return (
+                False,
+                f"Unknown exception when connecting to model '{model_id}'",
+            )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
@@ -116,5 +133,7 @@ class OpenAIProvider(Provider):
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
+            stream_tool_parsing=False,
             client_kwargs=client_kwargs,
+            generate_kwargs=self.generate_kwargs,
         )

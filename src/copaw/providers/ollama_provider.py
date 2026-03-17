@@ -13,7 +13,7 @@ except ImportError:
 
 from agentscope.model import ChatModelBase
 
-from copaw.providers.provider import ModelInfo, Provider, ProviderInfo
+from copaw.providers.provider import ModelInfo, Provider
 
 
 class OllamaProvider(Provider):
@@ -22,7 +22,7 @@ class OllamaProvider(Provider):
     def model_post_init(self, __context: Any) -> None:
         if not self.base_url:  # type: ignore
             self.base_url = (
-                os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
+                os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
             )
         if self.base_url.endswith("/v1"):
             # For backwards compatibility, if the URL ends with /v1,
@@ -66,14 +66,21 @@ class OllamaProvider(Provider):
             deduped.append(model)
         return deduped
 
-    async def check_connection(self, timeout: float = 5) -> bool:
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if Ollama provider is reachable with current configuration."""
         try:
             client = self._client(timeout=timeout)
             await client.list()
-            return True
-        except (ImportError, ConnectionError, OSError, RuntimeError):
-            return False
+            return True, ""
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception as exc:
+            return (
+                False,
+                f"Failed to connect to Ollama at `{self.base_url}`: {exc}",
+            )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models and cache them on this provider instance."""
@@ -81,7 +88,6 @@ class OllamaProvider(Provider):
             client = self._client(timeout=timeout)
             payload = await client.list()
             models = self._normalize_models_payload(payload)
-            self.models = models
             return models
         except (ImportError, ConnectionError, OSError, RuntimeError):
             return []
@@ -90,12 +96,11 @@ class OllamaProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable."""
         target = (model_id or "").strip()
         if not target:
-            return False
-
+            return False, "Empty model ID"
         try:
             client = self._client(timeout=timeout)
             await client.chat(
@@ -103,46 +108,57 @@ class OllamaProvider(Provider):
                 messages=[{"role": "user", "content": "ping"}],
                 options={"num_predict": 1},
             )
-            return True
-        except (ImportError, ConnectionError, OSError, RuntimeError):
-            return False
+            return True, ""
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception as exc:
+            return False, f"Model connection failed for `{target}`: {exc}"
 
     async def add_model(
         self,
         model_info: ModelInfo,
         target: str = "models",
-        ignore_duplicates: bool = False,
         timeout: float = 36000,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Ollama models are added by pulling from a registry, so here we
         interpret "adding" a model as pulling it from the registry.
         The model_info.id is expected to be in the format of
         "registry/model:tag" or "registry/model".
         """
-        if model_info.id in {model.id for model in self.models}:
-            if not ignore_duplicates:
-                raise ValueError(f"Model '{model_info.id}' already exists")
-            return False  # the model was not added due to duplication
+        if model_info.id in {
+            model.id for model in self.extra_models  # type: ignore [has-type]
+        }:
+            return False, f"Model '{model_info.id}' already exists"
         client = self._client(timeout=timeout)
         try:
             await client.pull(model=model_info.id)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to pull model '{model_info.id}': {e}",
-            ) from e
-        self.models = await self.fetch_models()
-        return True
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception:
+            return False, f"Failed to pull model '{model_info.id}'"
+        self.extra_models = await self.fetch_models()
+        return True, ""
 
-    async def delete_model(self, model_id: str, timeout: float = 60) -> bool:
+    async def delete_model(
+        self,
+        model_id: str,
+        timeout: float = 60,
+    ) -> tuple[bool, str]:
         client = self._client(timeout=timeout)
         try:
             await client.delete(model=model_id)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to delete model '{model_id}': {e}",
-            ) from e
-        self.models = await self.fetch_models()
-        return True
+        except ImportError:
+            return False, "Ollama Python SDK is not installed"
+        except ConnectionError:
+            return False, f"Failed to connect to Ollama at `{self.base_url}`"
+        except Exception:
+            return False, f"Failed to delete model '{model_id}'"
+        self.extra_models = await self.fetch_models()
+        return True, ""
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
@@ -151,32 +167,12 @@ class OllamaProvider(Provider):
             openai_compatible_url = self.base_url[:-1] + "/v1"
         else:
             openai_compatible_url = self.base_url + "/v1"
+
         return OpenAIChatModelCompat(
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
+            stream_tool_parsing=False,
             client_kwargs={"base_url": openai_compatible_url},
-        )
-
-    async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
-        try:
-            models = await self.fetch_models(timeout=1)
-            self.models = models
-        except Exception:
-            models = []
-        return ProviderInfo(
-            id=self.id,
-            name=self.name,
-            base_url=self.base_url,
-            api_key=self.api_key_prefix + "*" * 6
-            if mock_secret
-            else self.api_key,
-            chat_model=self.chat_model,
-            models=models,
-            extra_models=self.extra_models,
-            api_key_prefix=self.api_key_prefix,
-            is_local=self.is_local,
-            is_custom=self.is_custom,
-            freeze_url=self.freeze_url,
-            require_api_key=self.require_api_key,
+            generate_kwargs=self.generate_kwargs,
         )

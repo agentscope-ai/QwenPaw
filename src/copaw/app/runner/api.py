@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
-import json
-
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope.session import JSONSession
 from agentscope.memory import InMemoryMemory
 
+from .session import SafeJSONSession
 from .manager import ChatManager
 from .models import (
     ChatSpec,
@@ -20,46 +18,44 @@ from .utils import agentscope_msg_to_message
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
-def get_chat_manager(request: Request) -> ChatManager:
-    """Get the chat manager from app state.
+async def get_chat_manager(
+    request: Request,
+) -> ChatManager:
+    """Get the chat manager for the active agent.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        ChatManager instance
+        ChatManager instance for the specified agent
 
     Raises:
         HTTPException: If manager is not initialized
     """
-    mgr = getattr(request.app.state, "chat_manager", None)
-    if mgr is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Chat manager not initialized",
-        )
-    return mgr
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    return workspace.chat_manager
 
 
-def get_session(request: Request) -> JSONSession:
-    """Get the session from app state.
+async def get_session(
+    request: Request,
+) -> SafeJSONSession:
+    """Get the session for the active agent.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        JSONSession instance
+        SafeJSONSession instance for the specified agent
 
     Raises:
         HTTPException: If session is not initialized
     """
-    runner = getattr(request.app.state, "runner", None)
-    if runner is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Session not initialized",
-        )
-    return runner.session
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    return workspace.runner.session
 
 
 @router.get("", response_model=list[ChatSpec])
@@ -128,14 +124,14 @@ async def batch_delete_chats(
 async def get_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
-    session: JSONSession = Depends(get_session),
+    session: SafeJSONSession = Depends(get_session),
 ):
     """Get detailed information about a specific chat by UUID.
 
     Args:
         chat_id: Chat UUID
         mgr: Chat manager dependency
-        session: JSONSession  dependency
+        session: SafeJSONSession dependency
 
     Returns:
         ChatHistory with messages
@@ -150,16 +146,11 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
-    # pylint: disable=protected-access
-    session_path = session._get_save_path(
+    state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
     )
-
-    try:
-        with open(session_path, "r", encoding="utf-8") as file:
-            state = json.load(file)
-    except Exception:
+    if not state:
         return ChatHistory(messages=[])
     memories = state.get("agent", {}).get("memory", [])
     memory = InMemoryMemory()

@@ -28,15 +28,23 @@ import {
   Box,
   Globe,
   Settings,
+  Shield,
   Plug,
   Wrench,
   PanelLeftClose,
   PanelLeftOpen,
   Copy,
   Check,
+  BarChart3,
+  Mic,
+  Bot,
+  LogOut,
 } from "lucide-react";
 import api from "../api";
+import { clearAuthToken } from "../api/config";
+import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
+import { useTheme } from "../contexts/ThemeContext";
 
 const { Sider } = Layout;
 
@@ -59,9 +67,13 @@ const KEY_TO_PATH: Record<string, string> = {
   tools: "/tools",
   mcp: "/mcp",
   workspace: "/workspace",
+  agents: "/agents",
   models: "/models",
   environments: "/environments",
   "agent-config": "/agent-config",
+  security: "/security",
+  "token-usage": "/token-usage",
+  "voice-transcription": "/voice-transcription",
 };
 
 const UPDATE_MD: Record<string, string> = {
@@ -188,6 +200,7 @@ function CopyButton({ text }: { text: string }) {
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
+  const { isDark } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [openKeys, setOpenKeys] = useState<string[]>(DEFAULT_OPEN_KEYS);
   const [version, setVersion] = useState<string>("");
@@ -195,6 +208,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [allVersions, setAllVersions] = useState<string[]>([]);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
+  const [authEnabled, setAuthEnabled] = useState(false);
+
+  useEffect(() => {
+    authApi
+      .getStatus()
+      .then((res) => setAuthEnabled(res.enabled))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!collapsed) {
@@ -233,8 +254,25 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         );
         const versions = versionsWithTime.map((v) => v.version);
         const latest = versions[0] ?? data?.info?.version ?? "";
-        setAllVersions(versions);
-        setLatestVersion(latest);
+
+        // Only show update notification if the latest version was released more than 1 hour ago
+        // This gives Docker images time to build and become available
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const latestVersionReleaseTime = versionsWithTime.find(
+          (v) => v.version === latest,
+        )?.uploadTime;
+
+        if (
+          latestVersionReleaseTime &&
+          new Date(latestVersionReleaseTime) <= oneHourAgo
+        ) {
+          setAllVersions(versions);
+          setLatestVersion(latest);
+        } else {
+          // If latest version is less than 1 hour old, don't show update notification
+          setAllVersions([]);
+          setLatestVersion("");
+        }
       })
       .catch(() => {});
   }, []);
@@ -333,11 +371,27 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.settings"),
       icon: <Cpu size={16} />,
       children: [
+        { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
         { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
         {
           key: "environments",
           label: t("nav.environments"),
           icon: <Globe size={16} />,
+        },
+        {
+          key: "security",
+          label: t("nav.security"),
+          icon: <Shield size={16} />,
+        },
+        {
+          key: "token-usage",
+          label: t("nav.tokenUsage"),
+          icon: <BarChart3 size={16} />,
+        },
+        {
+          key: "voice-transcription",
+          label: t("nav.voiceTranscription"),
+          icon: <Mic size={16} />,
         },
       ],
     },
@@ -348,12 +402,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       collapsed={collapsed}
       onCollapse={setCollapsed}
       width={275}
-      className={styles.sider}
+      className={`${styles.sider}${isDark ? ` ${styles.siderDark}` : ""}`}
     >
       <div className={styles.siderTop}>
         {!collapsed && (
           <div className={styles.logoWrapper}>
-            <img src="/logo.png" alt="CoPaw" className={styles.logoImg} />
+            <img
+              src={isDark ? "/dark-logo.png" : "/logo.png"}
+              alt="CoPaw"
+              className={styles.logoImg}
+            />
             {version && (
               <Badge dot={!!hasUpdate} color="red" offset={[4, 18]}>
                 <span
@@ -394,7 +452,30 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           if (path) navigate(path);
         }}
         items={menuItems}
+        theme={isDark ? "dark" : "light"}
       />
+
+      {authEnabled && (
+        <div style={{ padding: "12px 16px", borderTop: "1px solid #f0f0f0" }}>
+          <Button
+            type="text"
+            icon={<LogOut size={16} />}
+            onClick={() => {
+              clearAuthToken();
+              window.location.href = "/login";
+            }}
+            block
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: collapsed ? "center" : "flex-start",
+            }}
+          >
+            {!collapsed && t("login.logout")}
+          </Button>
+        </div>
+      )}
 
       <Modal
         open={updateModalOpen}
@@ -409,12 +490,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           <Button
             key="releases"
             type="primary"
-            onClick={() =>
+            onClick={() => {
+              const websiteLang = i18n.language?.startsWith("zh") ? "zh" : "en";
               window.open(
-                "https://github.com/agentscope-ai/CoPaw/releases",
+                `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`,
                 "_blank",
-              )
-            }
+              );
+            }}
             className={styles.updateModalPrimaryBtn}
           >
             {t("sidebar.updateModal.viewReleases")}

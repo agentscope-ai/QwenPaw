@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 import json
+import logging
+import platform
+from datetime import datetime, timezone
 from typing import Optional, Union, List
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from agentscope.message import Msg
 from agentscope_runtime.engine.schemas.agent_schemas import (
     Message,
@@ -10,6 +15,10 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     MessageType,
 )
 from agentscope_runtime.engine.helpers.agent_api_builder import ResponseBuilder
+
+from ...config import load_config
+
+logger = logging.getLogger(__name__)
 
 
 def build_env_context(
@@ -32,25 +41,42 @@ def build_env_context(
         Formatted environment context string
     """
     parts = []
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+
     if session_id is not None:
-        parts.append(f"- 当前的session_id: {session_id}")
+        parts.append(f"- Session ID: {session_id}")
     if user_id is not None:
-        parts.append(f"- 当前的user_id: {user_id}")
+        parts.append(f"- User ID: {user_id}")
     if channel is not None:
-        parts.append(f"- 当前的channel: {channel}")
+        parts.append(f"- Channel: {channel}")
+
+    parts.append(
+        f"- OS: {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
+    )
 
     if working_dir is not None:
-        parts.append(f"- 工作目录: {working_dir}")
+        parts.append(f"- Working directory: {working_dir}")
+    parts.append(
+        f"- Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"{user_tz} ({now.strftime('%A')})",
+    )
 
     if add_hint:
         parts.append(
-            "- 重要提示:\n"
-            "  1. 完成任务时，优先考虑使用 skills"
-            "（例如定时任务，优先使用 cron skill）。"
-            "对于不清楚的 skills，请先查阅相关对应文档。\n"
-            "  2. 使用 write_file 写文件时，如果担心覆盖原有内容，"
-            "可以先用 read_file 查看文件内容，"
-            "再使用 edit_file 工具进行局部内容更新或追加内容。",
+            "- Important:\n"
+            "  1. Prefer using skills when completing tasks "
+            "(e.g. use the cron skill for scheduled tasks). "
+            "Consult the relevant skill documentation if unsure.\n"
+            "  2. When using write_file, if you want to avoid overwriting "
+            "existing content, use read_file first to inspect the file, "
+            "then use edit_file for partial updates or appending.",
         )
 
     return (

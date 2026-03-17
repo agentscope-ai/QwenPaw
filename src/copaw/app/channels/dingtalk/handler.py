@@ -15,7 +15,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ..base import ContentType
 
-from .constants import SENT_VIA_WEBHOOK
+from .constants import SENT_VIA_AI_CARD, SENT_VIA_WEBHOOK
 from .content_utils import (
     conversation_id_from_chatbot_message,
     conversation_type_from_chatbot_message,
@@ -121,12 +121,14 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 # Text may be under "text" or "content" (API variation).
                 item_text = item.get("text") or item.get("content")
                 if item_text is not None:
-                    content.append(
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=(item_text or "").strip(),
-                        ),
-                    )
+                    stripped = (item_text or "").strip()
+                    if stripped:
+                        content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=stripped,
+                            ),
+                        )
                 # Picture items may use pictureDownloadCode or downloadCode.
                 dl_code = (
                     item.get("downloadCode")
@@ -249,6 +251,9 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             conversation_type = conversation_type_from_chatbot_message(
                 incoming_message,
             )
+            is_group = conversation_type == "group"
+            is_bot_mentioned = bool(raw_data.get("isInAtList"))
+
             loop = asyncio.get_running_loop()
             reply_future: asyncio.Future[str] = loop.create_future()
             meta: Dict[str, Any] = {
@@ -256,8 +261,17 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 "reply_future": reply_future,
                 "reply_loop": loop,
                 "conversation_type": conversation_type,
-                "is_group": conversation_type == "group",
+                "is_group": is_group,
+                "sender_staff_id": getattr(
+                    incoming_message,
+                    "sender_staff_id",
+                    None,
+                )
+                or getattr(incoming_message, "senderStaffId", None)
+                or "",
             }
+            if is_bot_mentioned:
+                meta["bot_mentioned"] = True
             if conversation_id:
                 meta["conversation_id"] = conversation_id
             if raw_msg_id:
@@ -330,7 +344,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             self._emit_native_threadsafe(native)
 
             response_text = await reply_future
-            if response_text == SENT_VIA_WEBHOOK:
+            if response_text == SENT_VIA_AI_CARD:
+                logger.info("sent to=%s via ai card", sender)
+                self.reply_text(" ", incoming_message)
+            elif response_text == SENT_VIA_WEBHOOK:
                 logger.info(
                     "sent to=%s via sessionWebhook (multi-message)",
                     sender,

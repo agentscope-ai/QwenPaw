@@ -1,5 +1,6 @@
 export interface SkillSpec {
   name: string;
+  description?: string;
   content: string;
   source: string;
   path: string;

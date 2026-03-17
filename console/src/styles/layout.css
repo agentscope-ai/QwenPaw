@@ -6,6 +6,657 @@ body {
   padding: 0;
 }
 
+/* ─── Dark mode global token overrides ─────────────────────────────────────── */
+html.dark-mode {
+  color-scheme: dark;
+}
+
+html.dark-mode body {
+  background: #141414;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Ant Design layout background in dark mode */
+html.dark-mode .ant-layout,
+html.dark-mode .copaw-layout {
+  background: #141414 !important;
+}
+
+html.dark-mode .ant-layout-content,
+html.dark-mode .copaw-layout-content {
+  background: #141414 !important;
+}
+
+/* Page content area background */
+html.dark-mode .page-content {
+  background: #141414;
+}
+
+/* Card components — @agentscope-ai/design uses copaw prefix */
+html.dark-mode .copaw-card,
+html.dark-mode .ant-card {
+  background: #1f1f1f !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-card-head,
+html.dark-mode .ant-card-head {
+  background: #1f1f1f !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-card-head-title,
+html.dark-mode .ant-card-head-title {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* @agentscope-ai/design Card custom title (sparkPrefix-title inside card-wrapper) */
+html.dark-mode .copaw-card-wrapper .copaw-title,
+html.dark-mode .copaw-spark-title {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-card-wrapper .copaw-info,
+html.dark-mode .copaw-spark-info {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+html.dark-mode .copaw-card-body,
+html.dark-mode .ant-card-body {
+  background: #1f1f1f !important;
+}
+
+/* Table components */
+html.dark-mode .copaw-table,
+html.dark-mode .ant-table {
+  background: #1f1f1f !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-table-wrapper,
+html.dark-mode .ant-table-wrapper {
+  background: #1f1f1f !important;
+}
+
+html.dark-mode .copaw-table-thead > tr > th,
+html.dark-mode .ant-table-thead > tr > th,
+html.dark-mode .copaw-table-thead > tr > td,
+html.dark-mode .ant-table-thead > tr > td {
+  background: #262626 !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark-mode .copaw-table-tbody > tr > td,
+html.dark-mode .ant-table-tbody > tr > td {
+  background: #1f1f1f !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark-mode .copaw-table-tbody > tr:hover > td,
+html.dark-mode .ant-table-tbody > tr:hover > td {
+  background: #2a2a2a !important;
+}
+
+html.dark-mode .copaw-table-tbody > tr.copaw-table-row-selected > td,
+html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: rgba(97, 92, 237, 0.12) !important;
+}
+
+/* Table fixed columns shadow in dark mode */
+html.dark-mode .copaw-table-cell-fix-right,
+html.dark-mode .ant-table-cell-fix-right {
+  background: #1f1f1f !important;
+}
+
+html.dark-mode .copaw-table-cell-fix-right-first::after,
+html.dark-mode .ant-table-cell-fix-right-first::after {
+  box-shadow: inset -10px 0 8px -8px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Table pagination */
+html.dark-mode .copaw-pagination .copaw-pagination-item,
+html.dark-mode .ant-pagination .ant-pagination-item {
+  background: #1f1f1f !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark-mode .copaw-pagination .copaw-pagination-item a,
+html.dark-mode .ant-pagination .ant-pagination-item a {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-pagination .copaw-pagination-item-active,
+html.dark-mode .ant-pagination .ant-pagination-item-active {
+  background: #615ced !important;
+  border-color: #615ced !important;
+}
+
+html.dark-mode .copaw-pagination .copaw-pagination-item-active a,
+html.dark-mode .ant-pagination .ant-pagination-item-active a {
+  color: #fff !important;
+}
+
+html.dark-mode .copaw-pagination .copaw-pagination-prev button,
+html.dark-mode .copaw-pagination .copaw-pagination-next button,
+html.dark-mode .ant-pagination .ant-pagination-prev button,
+html.dark-mode .ant-pagination .ant-pagination-next button {
+  background: #1f1f1f !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+/* Table sorter icons */
+html.dark-mode .copaw-table-column-sorter,
+html.dark-mode .ant-table-column-sorter {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+html.dark-mode .copaw-table-column-sorter-up.active,
+html.dark-mode .copaw-table-column-sorter-down.active,
+html.dark-mode .ant-table-column-sorter-up.active,
+html.dark-mode .ant-table-column-sorter-down.active {
+  color: #8b87f0 !important;
+}
+
+/* Checkbox in table */
+html.dark-mode .copaw-checkbox-inner,
+html.dark-mode .ant-checkbox-inner {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+html.dark-mode .copaw-checkbox-checked .copaw-checkbox-inner,
+html.dark-mode .ant-checkbox-checked .ant-checkbox-inner {
+  background: #615ced !important;
+  border-color: #615ced !important;
+}
+
+/* Page titles (h1) */
+html.dark-mode h1,
+html.dark-mode h2,
+html.dark-mode h3 {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Input / Textarea */
+html.dark-mode .copaw-input,
+html.dark-mode .ant-input {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Disabled input */
+html.dark-mode .copaw-input[disabled],
+html.dark-mode .ant-input[disabled],
+html.dark-mode .copaw-input-disabled,
+html.dark-mode .ant-input-disabled {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+  cursor: not-allowed;
+}
+
+/* Disabled InputNumber */
+html.dark-mode .copaw-input-number-disabled,
+html.dark-mode .ant-input-number-disabled,
+html.dark-mode .copaw-input-number-disabled .copaw-input-number-input,
+html.dark-mode .ant-input-number-disabled .ant-input-number-input {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+html.dark-mode .copaw-input::placeholder,
+html.dark-mode .ant-input::placeholder {
+  color: rgba(255, 255, 255, 0.25) !important;
+}
+
+html.dark-mode .copaw-input-affix-wrapper,
+html.dark-mode .ant-input-affix-wrapper {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Select */
+html.dark-mode .copaw-select-selector,
+html.dark-mode .ant-select-selector {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-select-selection-placeholder,
+html.dark-mode .ant-select-selection-placeholder {
+  color: rgba(255, 255, 255, 0.25) !important;
+}
+
+html.dark-mode .copaw-select-arrow,
+html.dark-mode .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Select dropdown */
+html.dark-mode .copaw-select-dropdown,
+html.dark-mode .ant-select-dropdown {
+  background: #1f1f1f !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark-mode .copaw-select-item,
+html.dark-mode .ant-select-item {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-select-item-option-active,
+html.dark-mode .ant-select-item-option-active {
+  background: rgba(97, 92, 237, 0.12) !important;
+}
+
+html.dark-mode .copaw-select-item-option-selected,
+html.dark-mode .ant-select-item-option-selected {
+  background: rgba(97, 92, 237, 0.2) !important;
+  color: #8b87f0 !important;
+}
+
+/* Form labels */
+html.dark-mode .copaw-form-item-label > label,
+html.dark-mode .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-form-item-required::before,
+html.dark-mode .ant-form-item-required::before {
+  color: #ff4d4f !important;
+}
+
+/* InputNumber */
+html.dark-mode .copaw-input-number,
+html.dark-mode .ant-input-number {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-input-number-input,
+html.dark-mode .ant-input-number-input {
+  background: #2a2a2a !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-input-number-handler-wrap,
+html.dark-mode .ant-input-number-handler-wrap {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark-mode .copaw-input-number-handler,
+html.dark-mode .ant-input-number-handler {
+  color: rgba(255, 255, 255, 0.45) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* TimePicker */
+html.dark-mode .copaw-picker,
+html.dark-mode .ant-picker {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-picker-input > input,
+html.dark-mode .ant-picker-input > input {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-picker-suffix,
+html.dark-mode .ant-picker-suffix {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+html.dark-mode .copaw-picker-dropdown,
+html.dark-mode .ant-picker-dropdown {
+  background: #1f1f1f !important;
+}
+
+html.dark-mode .copaw-picker-panel,
+html.dark-mode .ant-picker-panel {
+  background: #1f1f1f !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark-mode .copaw-picker-time-panel-cell-inner,
+html.dark-mode .ant-picker-time-panel-cell-inner {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode
+  .copaw-picker-time-panel-cell-selected
+  .copaw-picker-time-panel-cell-inner,
+html.dark-mode
+  .ant-picker-time-panel-cell-selected
+  .ant-picker-time-panel-cell-inner {
+  background: rgba(97, 92, 237, 0.2) !important;
+  color: #8b87f0 !important;
+}
+
+/* DatePicker / RangePicker calendar panel */
+html.dark-mode .copaw-picker-dropdown,
+html.dark-mode .ant-picker-dropdown {
+  background: transparent !important;
+}
+
+html.dark-mode .copaw-picker-panel-container,
+html.dark-mode .ant-picker-panel-container {
+  background: #1f1f1f !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Header (month/year nav) */
+html.dark-mode .copaw-picker-header,
+html.dark-mode .ant-picker-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-picker-header-view button,
+html.dark-mode .ant-picker-header-view button,
+html.dark-mode .copaw-picker-prev-icon,
+html.dark-mode .copaw-picker-next-icon,
+html.dark-mode .copaw-picker-super-prev-icon,
+html.dark-mode .copaw-picker-super-next-icon,
+html.dark-mode .ant-picker-prev-icon,
+html.dark-mode .ant-picker-next-icon,
+html.dark-mode .ant-picker-super-prev-icon,
+html.dark-mode .ant-picker-super-next-icon {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-picker-header button:hover,
+html.dark-mode .ant-picker-header button:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Week day labels (Su Mo Tu ...) */
+html.dark-mode .copaw-picker-content th,
+html.dark-mode .ant-picker-content th {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Normal date cells */
+html.dark-mode .copaw-picker-cell .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell .ant-picker-cell-inner {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-picker-cell:hover .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell:hover .ant-picker-cell-inner {
+  background: rgba(97, 92, 237, 0.2) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Outside-month cells */
+html.dark-mode .copaw-picker-cell-disabled .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell-disabled .ant-picker-cell-inner,
+html.dark-mode .copaw-picker-cell-disabled,
+html.dark-mode .ant-picker-cell-disabled {
+  color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Today marker */
+html.dark-mode .copaw-picker-cell-today .copaw-picker-cell-inner::before,
+html.dark-mode .ant-picker-cell-today .ant-picker-cell-inner::before {
+  border-color: #615ced !important;
+}
+
+/* Selected start/end cell */
+html.dark-mode .copaw-picker-cell-selected .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell-selected .ant-picker-cell-inner,
+html.dark-mode .copaw-picker-cell-range-start .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell-range-start .ant-picker-cell-inner,
+html.dark-mode .copaw-picker-cell-range-end .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell-range-end .ant-picker-cell-inner {
+  background: #615ced !important;
+  color: #fff !important;
+}
+
+/* Range in-between cells */
+html.dark-mode .copaw-picker-cell-in-range::before,
+html.dark-mode .ant-picker-cell-in-range::before {
+  background: rgba(97, 92, 237, 0.15) !important;
+}
+
+html.dark-mode .copaw-picker-cell-in-range .copaw-picker-cell-inner,
+html.dark-mode .ant-picker-cell-in-range .ant-picker-cell-inner {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Range hover preview */
+html.dark-mode .copaw-picker-cell-in-view.copaw-picker-cell-range-hover::before,
+html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover::before,
+html.dark-mode
+  .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-start::after,
+html.dark-mode
+  .ant-picker-cell-in-view.ant-picker-cell-range-hover-start::after,
+html.dark-mode
+  .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-end::after,
+html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-end::after {
+  border-color: #8b87f0 !important;
+}
+
+/* Panel footer (OK button area) */
+html.dark-mode .copaw-picker-footer,
+html.dark-mode .ant-picker-footer {
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+  background: #1f1f1f !important;
+}
+
+html.dark-mode .copaw-picker-today-btn,
+html.dark-mode .ant-picker-today-btn {
+  color: #8b87f0 !important;
+}
+
+/* Divider between two panels in RangePicker */
+html.dark-mode .copaw-picker-panel + .copaw-picker-panel,
+html.dark-mode .ant-picker-panel + .ant-picker-panel {
+  border-left-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Modal */
+html.dark-mode .copaw-modal-content,
+html.dark-mode .ant-modal-content {
+  background: #1f1f1f !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark-mode .copaw-modal-header,
+html.dark-mode .ant-modal-header {
+  background: #1f1f1f !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark-mode .copaw-modal-title,
+html.dark-mode .ant-modal-title {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-modal-close,
+html.dark-mode .ant-modal-close {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+html.dark-mode .copaw-modal-close:hover,
+html.dark-mode .ant-modal-close:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark-mode .copaw-modal-body,
+html.dark-mode .ant-modal-body {
+  background: #1f1f1f !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-modal-footer,
+html.dark-mode .ant-modal-footer {
+  background: #1f1f1f !important;
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Form labels inside modal */
+html.dark-mode .copaw-modal-body .copaw-form-item-label > label,
+html.dark-mode .copaw-modal-body .ant-form-item-label > label,
+html.dark-mode .ant-modal-body .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+/* Extra description text inside modal */
+html.dark-mode .copaw-modal-body .copaw-form-item-extra,
+html.dark-mode .ant-modal-body .ant-form-item-extra {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Drawer */
+html.dark-mode .copaw-drawer-content,
+html.dark-mode .ant-drawer-content {
+  background: #1f1f1f !important;
+}
+
+html.dark-mode .copaw-drawer-header,
+html.dark-mode .ant-drawer-header {
+  background: #1f1f1f !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark-mode .copaw-drawer-title,
+html.dark-mode .ant-drawer-title {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-drawer-close,
+html.dark-mode .ant-drawer-close {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+html.dark-mode .copaw-drawer-close:hover,
+html.dark-mode .ant-drawer-close:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-drawer-body,
+html.dark-mode .ant-drawer-body {
+  background: #1f1f1f !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-drawer-footer,
+html.dark-mode .ant-drawer-footer {
+  background: #1f1f1f !important;
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Form labels inside drawer */
+html.dark-mode .copaw-drawer-body .copaw-form-item-label > label,
+html.dark-mode .copaw-drawer-body .ant-form-item-label > label,
+html.dark-mode .ant-drawer-body .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+/* Tooltip info icon inside drawer */
+html.dark-mode .copaw-drawer-body .anticon-info-circle,
+html.dark-mode .ant-drawer-body .anticon-info-circle {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Slider */
+html.dark-mode .copaw-slider-rail,
+html.dark-mode .ant-slider-rail {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.dark-mode .copaw-slider-track,
+html.dark-mode .ant-slider-track {
+  background-color: #615ced !important;
+}
+
+html.dark-mode .copaw-slider-handle::after,
+html.dark-mode .ant-slider-handle::after {
+  box-shadow: 0 0 0 2px #615ced !important;
+  background-color: #1f1f1f !important;
+}
+
+html.dark-mode .copaw-slider-dot,
+html.dark-mode .ant-slider-dot {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  background-color: #2a2a2a !important;
+}
+
+/* Tooltip popup (slider value) */
+html.dark-mode .copaw-tooltip-inner,
+html.dark-mode .ant-tooltip-inner {
+  background-color: #2a2a2a !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .copaw-tooltip-arrow::before,
+html.dark-mode .ant-tooltip-arrow::before {
+  background: #2a2a2a !important;
+}
+
+/* Disabled chat input overlay in dark mode */
+html.dark-mode
+  [class*="chatDisabledOverlay"]
+  :global([class*="chat-anywhere-input"]),
+html.dark-mode [class*="chatDisabledOverlay"] :global([class*="chat-input"]),
+html.dark-mode [class*="chatDisabledOverlay"] :global(textarea),
+html.dark-mode [class*="chatDisabledOverlay"] :global(input[type="text"]) {
+  background-color: #2a2a2a !important;
+}
+
+/* Sender area dark mode */
+html.dark-mode [class*="copaw-sender-content"],
+html.dark-mode [class*="sender-content"] {
+  background: #2a2a2a !important;
+}
+
+/* Chat message bubble text in dark mode */
+html.dark-mode [class*="message-item"] [class*="content"],
+html.dark-mode [class*="chat-anywhere"] [class*="message"] p,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] li,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h1,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h2,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h3,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h4,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h5,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h6,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] span,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode [class*="chat-anywhere"] [class*="message"] strong,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] b {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html.dark-mode [class*="chat-anywhere"] [class*="message"] code {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
+  color: #8b87f5 !important;
+}
+
 #root {
   height: 100%;
   overflow: hidden;
@@ -70,4 +721,19 @@ body {
 [class*="message-list-welcome"] [class*="-avatar"] > img {
   object-fit: contain !important;
   object-position: center;
+}
+
+/* Move rightHeader to the leftmost position of the right header area (CoPaw chat) */
+[class*="chat-anywhere-default-header-right"],
+[class*="default-header-right"],
+[class*="copaw-chat-anywhere-default-header-right"],
+.copaw-chat-anywhere-default-header-right {
+  display: flex !important;
+  margin: 0 auto 0 0 !important;
+  justify-content: flex-start !important;
+}
+[class*="chat-anywhere-default-header-right"] > *,
+[class*="default-header-right"] > * {
+  margin-right: auto !important;
+  margin-left: 0 !important;
 }

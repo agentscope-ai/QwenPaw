@@ -83,3 +83,55 @@
     padding: 0;
   }
 }
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .selectedRow > td {
+    background-color: rgba(97, 92, 237, 0.12) !important;
+  }
+
+  .selectedRow:hover > td {
+    background-color: rgba(97, 92, 237, 0.2) !important;
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Filter input and select */
+  :global(.sessions-filter-input) {
+    :global(.copaw-input),
+    :global(.ant-input) {
+      background: #2a2a2a !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+
+      &::placeholder {
+        color: rgba(255, 255, 255, 0.25) !important;
+      }
+    }
+  }
+
+  :global(.sessions-filter-select) {
+    :global(.copaw-select-selector),
+    :global(.ant-select-selector) {
+      background: #2a2a2a !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+    }
+
+    :global(.copaw-select-selection-placeholder),
+    :global(.ant-select-selection-placeholder) {
+      color: rgba(255, 255, 255, 0.25) !important;
+    }
+
+    :global(.copaw-select-arrow),
+    :global(.ant-select-arrow) {
+      color: rgba(255, 255, 255, 0.3) !important;
+    }
+  }
+}

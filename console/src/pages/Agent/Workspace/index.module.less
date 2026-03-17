@@ -302,21 +302,31 @@
   margin-left: 12px;
 }
 
-.reorderButtons {
+.dragHandle {
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  color: #bbb;
+  cursor: grab;
+  font-size: 14px;
+  transition: color 0.2s;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &:hover {
+    color: #615ced;
+  }
 }
 
-.reorderButton {
-  padding: 0 4px !important;
-  min-width: 20px !important;
-  height: 20px !important;
-  font-size: 10px;
-
-  &:disabled {
-    opacity: 0.3;
-  }
+.dragging {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border-color: #615ced !important;
+  background-color: #f6f5ff !important;
 }
 
 .enabledBadge {
@@ -393,4 +403,132 @@
   color: #bbb;
   text-align: right;
   flex-shrink: 0;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .workspacePath {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .infoText {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .divider {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* File list items */
+  .fileItem {
+    background-color: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.1);
+
+    &:hover:not(.selected) {
+      border-color: rgba(255, 255, 255, 0.2);
+      background-color: #333;
+    }
+
+    &.selected {
+      border-color: #615ced;
+      background-color: rgba(97, 92, 237, 0.15);
+    }
+  }
+
+  .fileItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .fileItemMeta {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .expandIcon {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .dragHandle {
+    color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      color: #8b87f0;
+    }
+  }
+
+  .dragging {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    border-color: #615ced !important;
+    background-color: rgba(97, 92, 237, 0.15) !important;
+  }
+
+  /* Daily memory items */
+  .dailyMemoryItem {
+    background-color: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.1);
+
+    &:hover:not(.selected) {
+      border-color: rgba(255, 255, 255, 0.2);
+      background-color: #333;
+    }
+
+    &.selected {
+      border-color: #615ced;
+      background-color: rgba(97, 92, 237, 0.15);
+    }
+  }
+
+  .dailyMemoryName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .dailyMemoryMeta {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Editor area */
+  .editorHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .fileName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .filePath {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .markdownViewer {
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+    background: #1f1f1f;
+  }
+
+  .toggleLabel {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .emptyState {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .sectionTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .attribution {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Textarea inside editor */
+  .textarea,
+  .editorContent textarea {
+    background: #2a2a2a !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
 }

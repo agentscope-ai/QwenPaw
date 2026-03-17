@@ -1,4 +1,4 @@
-.page {
+.environmentsPage {
   padding: 24px;
 }
 
@@ -375,4 +375,154 @@
 .emptyIcon {
   font-size: 32px;
   opacity: 0.6;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .stateText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Main card */
+  .tableCard {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+    &:hover {
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+  }
+
+  /* Toolbar */
+  .toolbar {
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  .toolbarCount {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Env row */
+  .envRow {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+
+  .envRowSelected {
+    background: rgba(22, 119, 255, 0.12);
+    border-left-color: #4096ff;
+
+    &:hover {
+      background: rgba(22, 119, 255, 0.18);
+    }
+  }
+
+  /* Input group (Key / Value 外框) */
+  .inputGroup {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #2a2a2a;
+
+    &:focus-within {
+      border-color: #615ced;
+      box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2);
+    }
+  }
+
+  /* Key / Value 标签 */
+  .inputLabel {
+    color: rgba(255, 255, 255, 0.4);
+    border-right-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+
+    .inputGroup:focus-within & {
+      color: #8b87f0;
+      background: rgba(97, 92, 237, 0.1);
+    }
+  }
+
+  /* Input field inside group */
+  .inputField {
+    color: rgba(255, 255, 255, 0.85);
+
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.2);
+    }
+
+    :global(.ant-input),
+    :global(.copaw-input) {
+      color: rgba(255, 255, 255, 0.85) !important;
+      background: transparent !important;
+
+      &::placeholder {
+        color: rgba(255, 255, 255, 0.2) !important;
+      }
+    }
+  }
+
+  /* Password toggle */
+  .passwordToggle {
+    color: rgba(255, 255, 255, 0.3);
+
+    &:hover {
+      color: #8b87f0;
+      background: rgba(97, 92, 237, 0.12);
+    }
+  }
+
+  /* Row action icons */
+  .rowIconBtn {
+    color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      color: #8b87f0;
+      background: rgba(97, 92, 237, 0.12);
+    }
+  }
+
+  .rowIconBtnDanger {
+    &:hover {
+      color: #ff7875;
+      background: rgba(255, 77, 79, 0.12);
+    }
+  }
+
+  /* Add bar */
+  .addBar {
+    background: rgba(255, 255, 255, 0.02);
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+
+  .addBtn {
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: #8b87f0;
+      border-color: #615ced;
+      background: rgba(97, 92, 237, 0.1);
+    }
+  }
+
+  /* Empty state */
+  .emptyState {
+    color: rgba(255, 255, 255, 0.2);
+  }
 }

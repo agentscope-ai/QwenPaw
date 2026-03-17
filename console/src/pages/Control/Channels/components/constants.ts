@@ -10,8 +10,12 @@ export const CHANNEL_LABELS: Record<string, string> = {
   qq: "QQ",
   telegram: "Telegram",
   mqtt: "MQTT",
+  mattermost: "Mattermost",
+  matrix: "Matrix",
   console: "Console",
   voice: "Twilio",
+  wecom: "WeCom",
+  xiaoyi: "XiaoYi",
 };
 
 // Get channel label - returns built-in label or formatted custom name

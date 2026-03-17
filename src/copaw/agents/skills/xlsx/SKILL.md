@@ -4,6 +4,10 @@ description: "Use this skill any time a spreadsheet file is the primary input or
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
+> **Important:** All `scripts/` paths are relative to this skill directory.
+> Run with: `cd {this_skill_dir} && python scripts/...`
+> Or use the `cwd` parameter of `execute_shell_command`.
+
 # Requirements for Outputs
 
 ## All Excel files
@@ -69,9 +73,11 @@ Unless otherwise stated by the user or existing template
 
 A user may ask you to create, edit, or analyze the contents of an .xlsx file. You have different tools and workflows available for different tasks.
 
-## Runtime Dependencies
+## Prerequisites
 
-- Requires LibreOffice (`soffice`) for formula recalculation via `scripts/recalc.py`.
+- **openpyxl**: Excel file creation and editing
+- **pandas**: data analysis and bulk operations
+- **LibreOffice** (`soffice`): formula recalculation via `scripts/recalc.py`
 - `git` is optional but improves redlining diff output in validation workflows.
 - On Windows, dependencies must be installed and available in `PATH`; if missing, report the dependency issue and stop (do not keep retrying).
 

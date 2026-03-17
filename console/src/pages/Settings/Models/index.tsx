@@ -6,7 +6,6 @@ import {
   PageHeader,
   LoadingState,
   ProviderCard,
-  ModelsSection,
   CustomProviderModal,
 } from "./components";
 import { useTranslation } from "react-i18next";
@@ -57,25 +56,14 @@ function ModelsPage() {
     ));
 
   return (
-    <div className={styles.page}>
+    <div className={styles.settingsPage}>
       {loading ? (
         <LoadingState message={t("models.loading")} />
       ) : error ? (
         <LoadingState message={error} error onRetry={fetchAll} />
       ) : (
         <>
-          {/* ---- LLM Section (top) ---- */}
-          <PageHeader
-            title={t("models.llmTitle")}
-            description={t("models.llmDescription")}
-          />
-          <ModelsSection
-            providers={providers}
-            activeModels={activeModels}
-            onSaved={fetchAll}
-          />
-
-          {/* ---- Providers Section (below) ---- */}
+          {/* ---- Providers Section ---- */}
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader

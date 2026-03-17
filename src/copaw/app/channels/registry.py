@@ -23,9 +23,13 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "feishu": (".feishu", "FeishuChannel"),
     "qq": (".qq", "QQChannel"),
     "telegram": (".telegram", "TelegramChannel"),
+    "mattermost": (".mattermost", "MattermostChannel"),
     "mqtt": (".mqtt", "MQTTChannel"),
     "console": (".console", "ConsoleChannel"),
+    "matrix": (".matrix", "MatrixChannel"),
     "voice": (".voice", "VoiceChannel"),
+    "wecom": (".wecom", "WecomChannel"),
+    "xiaoyi": (".xiaoyi", "XiaoYiChannel"),
 }
 
 # Required channels must load; failures are raised, not skipped.

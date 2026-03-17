@@ -1,6 +1,8 @@
 import React from "react";
-import { Switch, Tooltip, Button } from "@agentscope-ai/design";
-import { UpOutlined, DownOutlined } from "@ant-design/icons";
+import { Switch, Tooltip } from "@agentscope-ai/design";
+import { HolderOutlined } from "@ant-design/icons";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { formatFileSize, formatTimeAgo } from "./utils";
 import { useTranslation } from "react-i18next";
@@ -12,12 +14,9 @@ interface FileItemProps {
   expandedMemory: boolean;
   dailyMemories: DailyMemoryFile[];
   enabled?: boolean;
-  isFirst?: boolean;
-  isLast?: boolean;
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
   onToggleEnabled: (filename: string) => void;
-  onReorder?: (filename: string, direction: "up" | "down") => void;
 }
 
 export const FileItem: React.FC<FileItemProps> = ({
@@ -26,16 +25,33 @@ export const FileItem: React.FC<FileItemProps> = ({
   expandedMemory,
   dailyMemories,
   enabled = false,
-  isFirst = false,
-  isLast = false,
   onFileClick,
   onDailyMemoryClick,
   onToggleEnabled,
-  onReorder,
 }) => {
   const { t } = useTranslation();
   const isSelected = selectedFile?.filename === file.filename;
   const isMemoryFile = file.filename === "MEMORY.md";
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: file.filename,
+    disabled: !enabled,
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: "relative",
+    zIndex: isDragging ? 1 : undefined,
+  };
 
   const handleToggleClick = (
     _checked: boolean,
@@ -47,23 +63,25 @@ export const FileItem: React.FC<FileItemProps> = ({
     onToggleEnabled(file.filename);
   };
 
-  const handleReorderClick = (
-    e: React.MouseEvent,
-    direction: "up" | "down",
-  ) => {
-    e.stopPropagation();
-    if (onReorder) {
-      onReorder(file.filename, direction);
-    }
-  };
-
   return (
-    <div>
+    <div ref={setNodeRef} style={style}>
       <div
         onClick={() => onFileClick(file)}
-        className={`${styles.fileItem} ${isSelected ? styles.selected : ""}`}
+        className={`${styles.fileItem} ${isSelected ? styles.selected : ""} ${
+          isDragging ? styles.dragging : ""
+        }`}
       >
         <div className={styles.fileItemHeader}>
+          {enabled && (
+            <div
+              className={styles.dragHandle}
+              {...attributes}
+              {...listeners}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <HolderOutlined />
+            </div>
+          )}
           <div className={styles.fileInfo}>
             <div className={styles.fileItemName}>
               {enabled && <span className={styles.enabledBadge}>●</span>}
@@ -74,26 +92,6 @@ export const FileItem: React.FC<FileItemProps> = ({
             </div>
           </div>
           <div className={styles.fileItemActions}>
-            {enabled && onReorder && (
-              <div className={styles.reorderButtons}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<UpOutlined />}
-                  disabled={isFirst}
-                  onClick={(e) => handleReorderClick(e, "up")}
-                  className={styles.reorderButton}
-                />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<DownOutlined />}
-                  disabled={isLast}
-                  onClick={(e) => handleReorderClick(e, "down")}
-                  className={styles.reorderButton}
-                />
-              </div>
-            )}
             <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
               <Switch
                 size="small"
