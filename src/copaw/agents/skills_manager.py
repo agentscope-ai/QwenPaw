@@ -278,6 +278,8 @@ def sync_skills_from_active_to_customized(
         logger.debug("No skills found in active_skills.")
         return 0, 0
 
+    builtin_skills_dict = _collect_skills_from_dir(get_builtin_skills_dir())
+
     synced_count = 0
     skipped_count = 0
 
@@ -286,7 +288,7 @@ def sync_skills_from_active_to_customized(
             continue
 
         active_ver = _get_builtin_skill_version(skill_dir)
-        if active_ver is not None:
+        if active_ver is not None and skill_name in builtin_skills_dict:
             skipped_count += 1
             continue
 
