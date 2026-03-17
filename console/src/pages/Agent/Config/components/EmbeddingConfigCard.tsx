@@ -205,159 +205,157 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         <Switch onChange={handleEnabledChange} />
       </Form.Item>
 
-      {enabled && (
-        <>
-          {testResult && (
-            <Alert
-              type={testResult.type}
-              message={testResult.message}
-              style={{ marginBottom: 16 }}
-              closable
-              onClose={() => setTestResult(null)}
-            />
-          )}
+      <div style={{ opacity: enabled ? 1 : 0.6, pointerEvents: enabled ? "auto" : "none" }}>
+        {testResult && (
+          <Alert
+            type={testResult.type}
+            message={testResult.message}
+            style={{ marginBottom: 16 }}
+            closable
+            onClose={() => setTestResult(null)}
+          />
+        )}
 
-          <Form.Item
-            label={t("agentConfig.embedding.model")}
-            name={["local_embedding", "model_id"]}
-            rules={[{ required: true, message: t("agentConfig.embedding.modelRequired") }]}
-            tooltip={t("agentConfig.embedding.modelTooltip")}
+        <Form.Item
+          label={t("agentConfig.embedding.model")}
+          name={["local_embedding", "model_id"]}
+          rules={[{ required: true, message: t("agentConfig.embedding.modelRequired") }]}
+          tooltip={t("agentConfig.embedding.modelTooltip")}
+        >
+          <Select
+            placeholder={t("agentConfig.embedding.modelPlaceholder")}
+            loading={loadingPresets}
+            showSearch
+            optionFilterProp="children"
           >
-            <Select
-              placeholder={t("agentConfig.embedding.modelPlaceholder")}
-              loading={loadingPresets}
-              showSearch
-              optionFilterProp="children"
-            >
-              {presetModels && presetModels.multimodal.length > 0 && (
-                <Select.OptGroup label="多模态模型">
-                  {presetModels.multimodal.map(renderModelOption)}
-                </Select.OptGroup>
-              )}
-              {presetModels && presetModels.text.length > 0 && (
-                <Select.OptGroup label="纯文本模型">
-                  {presetModels.text.map(renderModelOption)}
-                </Select.OptGroup>
-              )}
-            </Select>
-          </Form.Item>
+            {presetModels && presetModels.multimodal.length > 0 && (
+              <Select.OptGroup label="多模态模型">
+                {presetModels.multimodal.map(renderModelOption)}
+              </Select.OptGroup>
+            )}
+            {presetModels && presetModels.text.length > 0 && (
+              <Select.OptGroup label="纯文本模型">
+                {presetModels.text.map(renderModelOption)}
+              </Select.OptGroup>
+            )}
+          </Select>
+        </Form.Item>
 
-          {selectedModel && (
-            <Alert
-              type="info"
-              showIcon={false}
-              message={
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span>类型:</span>
-                    <Tag color={selectedModel.type === "multimodal" ? "blue" : "green"}>
-                      {selectedModel.type === "multimodal" ? "多模态" : "纯文本"}
-                    </Tag>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span>维度:</span>
-                    <Tag>{selectedModel.dimensions}</Tag>
-                    {selectedModel.mrl_enabled && (
-                      <span style={{ color: "#666", fontSize: 12 }}>
-                        (支持 MRL 裁剪至 {selectedModel.mrl_min_dims}D)
-                      </span>
-                    )}
-                  </div>
-                </div>
-              }
-              style={{ marginBottom: 16 }}
-            />
-          )}
-
-          <Form.Item
-            label={t("agentConfig.embedding.downloadSource")}
-            name={["local_embedding", "download_source"]}
-            tooltip={t("agentConfig.embedding.downloadSourceTooltip")}
-          >
-            <Select>
-              {DOWNLOAD_SOURCE_OPTIONS.map((opt) => (
-                <Option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            label={t("agentConfig.embedding.device")}
-            name={["local_embedding", "device"]}
-            tooltip={t("agentConfig.embedding.deviceTooltip")}
-          >
-            <Select>
-              {DEVICE_OPTIONS.map((opt) => (
-                <Option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            label={t("agentConfig.embedding.dtype")}
-            name={["local_embedding", "dtype"]}
-            tooltip={t("agentConfig.embedding.dtypeTooltip")}
-          >
-            <Select>
-              {DTYPE_OPTIONS.map((opt) => (
-                <Option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            label={t("agentConfig.embedding.modelPath")}
-            name={["local_embedding", "model_path"]}
-            tooltip={t("agentConfig.embedding.modelPathTooltip")}
-          >
-            <Input
-              placeholder={t("agentConfig.embedding.modelPathPlaceholder")}
-              allowClear
-            />
-          </Form.Item>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <Button
-              onClick={handleTest}
-              loading={testing}
-              disabled={testing}
-              type="default"
-            >
-              {testing ? "测试中..." : t("agentConfig.embedding.test")}
-            </Button>
-            <Button
-              onClick={handleDownload}
-              loading={downloading}
-              disabled={downloading}
-              type="primary"
-            >
-              {downloading
-                ? t("agentConfig.embedding.downloading")
-                : t("agentConfig.embedding.download")}
-            </Button>
-          </div>
-
+        {selectedModel && (
           <Alert
             type="info"
-            showIcon
-            message={t("agentConfig.embedding.noticeTitle")}
-            description={
-              <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-                <li>{t("agentConfig.embedding.notice1")}</li>
-                <li>{t("agentConfig.embedding.notice2")}</li>
-                <li>{t("agentConfig.embedding.notice3")}</li>
-              </ul>
+            showIcon={false}
+            message={
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>类型:</span>
+                  <Tag color={selectedModel.type === "multimodal" ? "blue" : "green"}>
+                    {selectedModel.type === "multimodal" ? "多模态" : "纯文本"}
+                  </Tag>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>维度:</span>
+                  <Tag>{selectedModel.dimensions}</Tag>
+                  {selectedModel.mrl_enabled && (
+                    <span style={{ color: "#666", fontSize: 12 }}>
+                      (支持 MRL 裁剪至 {selectedModel.mrl_min_dims}D)
+                    </span>
+                  )}
+                </div>
+              </div>
             }
-            style={{ marginTop: 16 }}
+            style={{ marginBottom: 16 }}
           />
-        </>
-      )}
+        )}
+
+        <Form.Item
+          label={t("agentConfig.embedding.downloadSource")}
+          name={["local_embedding", "download_source"]}
+          tooltip={t("agentConfig.embedding.downloadSourceTooltip")}
+        >
+          <Select>
+            {DOWNLOAD_SOURCE_OPTIONS.map((opt) => (
+              <Option key={opt.value} value={opt.value}>
+                {opt.label}
+              </Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.embedding.device")}
+          name={["local_embedding", "device"]}
+          tooltip={t("agentConfig.embedding.deviceTooltip")}
+        >
+          <Select>
+            {DEVICE_OPTIONS.map((opt) => (
+              <Option key={opt.value} value={opt.value}>
+                {opt.label}
+              </Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.embedding.dtype")}
+          name={["local_embedding", "dtype"]}
+          tooltip={t("agentConfig.embedding.dtypeTooltip")}
+        >
+          <Select>
+            {DTYPE_OPTIONS.map((opt) => (
+              <Option key={opt.value} value={opt.value}>
+                {opt.label}
+              </Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.embedding.modelPath")}
+          name={["local_embedding", "model_path"]}
+          tooltip={t("agentConfig.embedding.modelPathTooltip")}
+        >
+          <Input
+            placeholder={t("agentConfig.embedding.modelPathPlaceholder")}
+            allowClear
+          />
+        </Form.Item>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <Button
+            onClick={handleTest}
+            loading={testing}
+            disabled={testing || !enabled}
+            type="default"
+          >
+            {testing ? "测试中..." : t("agentConfig.embedding.test")}
+          </Button>
+          <Button
+            onClick={handleDownload}
+            loading={downloading}
+            disabled={downloading || !enabled}
+            type="primary"
+          >
+            {downloading
+              ? t("agentConfig.embedding.downloading")
+              : t("agentConfig.embedding.download")}
+          </Button>
+        </div>
+
+        <Alert
+          type="info"
+          showIcon
+          message={t("agentConfig.embedding.noticeTitle")}
+          description={
+            <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+              <li>{t("agentConfig.embedding.notice1")}</li>
+              <li>{t("agentConfig.embedding.notice2")}</li>
+              <li>{t("agentConfig.embedding.notice3")}</li>
+            </ul>
+          }
+          style={{ marginTop: 16 }}
+        />
+      </div>
     </Card>
   );
 }
