@@ -39,6 +39,7 @@ import {
   Bot,
 } from "lucide-react";
 import api from "../api";
+import { getRuntimeBase } from "../api/config";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -373,7 +374,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {!collapsed && (
           <div className={styles.logoWrapper}>
             <img
-              src={isDark ? "/dark-logo.png" : "/logo.png"}
+              src={`${getRuntimeBase() || ""}/logo.png`}
               alt="CoPaw"
               className={styles.logoImg}
             />

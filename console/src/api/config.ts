@@ -6,7 +6,7 @@ declare const TOKEN: string;
  * @param path - API path (e.g., "/models", "/skills")
  * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
  */
-function getRuntimeBase(): string {
+export function getRuntimeBase(): string {
   const configuredBase = (BASE_URL || "")
     .replace(/^https?:\/\/[^/]+/, "")
     .replace(/\/$/, "");
