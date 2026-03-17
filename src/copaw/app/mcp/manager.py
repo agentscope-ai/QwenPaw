@@ -227,15 +227,13 @@ class MCPClientManager:
         return {
             "name": client_config.name,
             "transport": client_config.transport,
-            "url": expand(client_config.url) if client_config.url else "",
+            "url": expand(client_config.url),
             "headers": (
                 {k: expand(v) for k, v in client_config.headers.items()}
                 if client_config.headers
                 else None
             ),
-            "command": (
-                expand(client_config.command) if client_config.command else ""
-            ),
+            "command": expand(client_config.command),
             "args": [expand(a) for a in client_config.args],
             "env": (
                 {k: expand(v) for k, v in client_config.env.items()}

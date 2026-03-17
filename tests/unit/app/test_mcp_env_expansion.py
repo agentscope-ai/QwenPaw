@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
 """Tests for MCP config ${VAR} environment variable expansion.
 
 Verifies that MCPClientManager correctly expands ${VAR_NAME} placeholders
@@ -7,7 +8,6 @@ in all config fields before passing them to the underlying MCP clients.
 
 from __future__ import annotations
 
-import os
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -103,7 +103,10 @@ class TestExpandConfigStrings:
         assert resolved["args"] == ["--key", "key123"]
         assert resolved["env"]["MY_KEY"] == "key123"
 
-    def test_original_config_not_mutated(self, monkeypatch: pytest.MonkeyPatch):
+    def test_original_config_not_mutated(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         monkeypatch.setenv("TOKEN", "val")
         cfg = MCPClientConfig(
             name="test",
