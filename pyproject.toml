@@ -43,6 +43,7 @@ include-package-data = true
     "agents/md_files/**",
     "agents/skills/**",
     "tokenizer/**",
+    "security/tool_guard/rules/**",
 ]
 
 [build-system]

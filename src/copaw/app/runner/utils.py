@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+from datetime import datetime, timezone
 from typing import Optional, Union, List
 from urllib.parse import urlparse
 from agentscope.message import Msg
@@ -32,6 +33,8 @@ def build_env_context(
         Formatted environment context string
     """
     parts = []
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC (%A)")
+    parts.append(f"- 当前 UTC 时间: {now_utc}")
     if session_id is not None:
         parts.append(f"- 当前的session_id: {session_id}")
     if user_id is not None:

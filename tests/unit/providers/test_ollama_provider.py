@@ -285,14 +285,21 @@ async def test_update_config_keeps_chat_model_for_non_custom_provider(
 async def test_add_model_calls_pull(monkeypatch) -> None:
     provider = _make_provider()
     called = {"timeout": [], "model": None, "list_count": 0}
+    payload = {"models": []}
 
     class FakeClient:
+        def __init__(self) -> None:
+            self.payload = payload
+
         async def pull(self, model: str):
             called["model"] = model
+            self.payload["models"].append(
+                SimpleNamespace(model=model, name=model),
+            )
 
         async def list(self):
             called["list_count"] += 1
-            return {"models": []}
+            return self.payload
 
     def _fake_client(timeout=5):
         called["timeout"].append(timeout)
@@ -305,6 +312,8 @@ async def test_add_model_calls_pull(monkeypatch) -> None:
         timeout=8.0,
     )
 
+    assert provider.extra_models == [ModelInfo(id="qwen2:7b", name="qwen2:7b")]
+
     assert called == {
         "timeout": [8.0, 5],
         "model": "qwen2:7b",
@@ -315,14 +324,27 @@ async def test_add_model_calls_pull(monkeypatch) -> None:
 async def test_delete_model_calls_delete(monkeypatch) -> None:
     provider = _make_provider()
     called = {"timeout": [], "model": None, "list_count": 0}
+    payload = {
+        "models": [
+            SimpleNamespace(model="qwen3:8b"),
+            SimpleNamespace(model="qwen3:4b"),
+        ],
+    }
 
     class FakeClient:
+        def __init__(self):
+            self.payload = payload
+
         async def delete(self, model: str):
             called["model"] = model
+            for m in self.payload["models"]:
+                if m.model == model:
+                    self.payload["models"].remove(m)
+                    break
 
         async def list(self):
             called["list_count"] += 1
-            return {"models": []}
+            return self.payload
 
     def _fake_client(timeout=5):
         called["timeout"].append(timeout)
@@ -330,10 +352,12 @@ async def test_delete_model_calls_delete(monkeypatch) -> None:
 
     monkeypatch.setattr(provider, "_client", _fake_client)
 
-    await provider.delete_model("qwen2:7b", timeout=6.0)
+    await provider.delete_model("qwen3:8b", timeout=6.0)
 
     assert called == {
         "timeout": [6.0, 5],
-        "model": "qwen2:7b",
+        "model": "qwen3:8b",
         "list_count": 1,
     }
+
+    assert provider.extra_models == [ModelInfo(id="qwen3:4b", name="qwen3:4b")]

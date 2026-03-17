@@ -8,6 +8,20 @@ import RequireAuth from "./auth/RequireAuth";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
+const antdLocaleMap: Record<string, Locale> = {
+  zh: zhCN,
+  en: enUS,
+  ja: jaJP,
+  ru: ruRU,
+};
+
+const dayjsLocaleMap: Record<string, string> = {
+  zh: "zh-cn",
+  en: "en",
+  ja: "ja",
+  ru: "ru",
+};
+
 const GlobalStyle = createGlobalStyle`
 * {
   margin: 0;
@@ -16,6 +30,28 @@ const GlobalStyle = createGlobalStyle`
 `;
 
 function App() {
+  const { i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || "en";
+  const [antdLocale, setAntdLocale] = useState<Locale>(
+    antdLocaleMap[lang] ?? enUS,
+  );
+
+  useEffect(() => {
+    const handleLanguageChanged = (lng: string) => {
+      const shortLng = lng.split("-")[0];
+      setAntdLocale(antdLocaleMap[shortLng] ?? enUS);
+      dayjs.locale(dayjsLocaleMap[shortLng] ?? "en");
+    };
+
+    // Set initial dayjs locale
+    dayjs.locale(dayjsLocaleMap[lang.split("-")[0]] ?? "en");
+
+    i18n.on("languageChanged", handleLanguageChanged);
+    return () => {
+      i18n.off("languageChanged", handleLanguageChanged);
+    };
+  }, [i18n]);
+
   return (
     <BrowserRouter>
       <GlobalStyle />

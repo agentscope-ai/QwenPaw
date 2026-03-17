@@ -135,6 +135,36 @@ CoPaw 已开源，官方仓库地址：
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
 
+### 使用 Ollama / LM Studio 部署的模型时，为什么 CoPaw 无法完成多轮交互、复杂工具调用，或记不住之前的指令？
+
+这类问题通常不是 CoPaw 本身异常，而是**模型上下文长度配置过小**导致的。
+
+当你使用 Ollama 或 LM Studio 部署本地模型时，如果模型的 `context length` 设置太低，CoPaw 在以下场景中就可能表现异常：
+
+- 无法稳定完成多轮对话
+- 执行复杂工具调用时中途丢失上下文
+- 记不住前面几轮中已经给出的要求或指令
+- 长任务执行到一半开始偏离目标
+
+**解决方法：**
+
+- 运行 CoPaw 前，请将模型的 `context length` 设置为**至少 32K**
+- 如果任务较复杂、工具调用较多或对话轮次较长，实际可能需要设置到**高于 32K**
+
+> ⚠️ **运行 CoPaw 前必须将上下文长度设为 32K 以上**
+>
+> 对于 Ollama 和 LM Studio 部署的本地模型，如果要让 CoPaw 正常完成多轮交互、复杂工具调用和长上下文任务，通常必须提供 **32K 或更高** 的上下文长度；在更复杂的场景下，可能还需要进一步提高。
+>
+> 注意，更大的上下文窗口会显著增加显存 / 内存占用和计算开销，请确认你的本地机器能够支持。
+
+**Ollama 配置示意图：**
+
+![Ollama context length 配置示意图](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
+**LM Studio 配置示意图：**
+
+![LM Studio context length 配置示意图](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
+
 ### 定时任务错误排查
 
 在控制台进入 **控制 → 定时任务** ，在这里可以创建和管理定时任务。
