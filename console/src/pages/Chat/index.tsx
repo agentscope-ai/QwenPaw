@@ -406,8 +406,7 @@ export default function ChatPage() {
 
       const { input = [], biz_params } = data;
       const session = input[input.length - 1]?.session || {};
-      const sessionId =
-        window.currentSessionId || session?.session_id || "";
+      const sessionId = window.currentSessionId || session?.session_id || "";
 
       const requestBody = {
         input: input.slice(-1),
@@ -494,7 +493,14 @@ export default function ChatPage() {
   }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
 
   return (
-    <div style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+    <div
+      style={{
+        height: "100%",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <div style={{ flex: 1, minHeight: 0 }}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}

@@ -286,7 +286,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
     ref.input.submit({
       query: "",
-      biz_params: { reconnect: true } as IAgentScopeRuntimeWebUIInputData["biz_params"],
+      biz_params: {
+        reconnect: true,
+      } as IAgentScopeRuntimeWebUIInputData["biz_params"],
     });
   }
 
