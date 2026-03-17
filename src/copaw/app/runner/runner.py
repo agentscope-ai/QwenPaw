@@ -2,6 +2,7 @@
 # pylint: disable=unused-argument too-many-branches too-many-statements
 from __future__ import annotations
 
+import os
 import asyncio
 import json
 import logging
@@ -147,6 +148,159 @@ class AgentRunner(Runner):
             ),
             True,
         )
+
+    # -- Session overflow protection ----------------------------------------
+
+    # Maximum session file size in bytes before emergency truncation.
+    _SESSION_FILE_SIZE_LIMIT: int = 2 * 1024 * 1024  # 2 MB
+
+    # Number of recent messages to keep when truncating.
+    _SESSION_KEEP_RECENT: int = 5
+
+    async def _guard_session_overflow(
+        self,
+        agent: CoPawAgent,
+        session_id: str,
+        user_id: str,
+    ) -> None:
+        """Truncate agent memory if the session file is dangerously large.
+
+        This is a hard guard that does NOT require an LLM call – it simply
+        drops old messages and keeps only the most recent ones.  It fires
+        *before* the model is called, so that we never send a prompt that
+        exceeds the model's context window.
+
+        Args:
+            agent: The CoPawAgent whose memory may be truncated.
+            session_id: Current session id (for logging / file lookup).
+            user_id: Current user id (for file lookup).
+        """
+        try:
+            session_path = self.session._get_save_path(session_id, user_id)
+            if not os.path.exists(session_path):
+                return
+
+            file_size = os.path.getsize(session_path)
+            if file_size <= self._SESSION_FILE_SIZE_LIMIT:
+                return
+
+            # --- Emergency truncation ---
+            total_msgs = len(agent.memory.content)
+            keep = self._SESSION_KEEP_RECENT
+
+            if total_msgs <= keep:
+                logger.warning(
+                    "Session file is large (%d bytes, %d messages) but "
+                    "too few messages to truncate – skipping.",
+                    file_size,
+                    total_msgs,
+                )
+                return
+
+            removed = total_msgs - keep
+            agent.memory.content = self._keep_system_and_recent(
+                agent.memory.content,
+                keep,
+            )
+            # Clear the compressed summary (it refers to now-deleted msgs)
+            agent.memory._compressed_summary = ""
+
+            logger.warning(
+                "Session overflow protection: truncated %d messages "
+                "(kept last %d). File was %d bytes (%s).",
+                removed,
+                keep,
+                file_size,
+                session_path,
+            )
+        except Exception as exc:
+            logger.error(
+                "Session overflow guard failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _is_prompt_too_long(exc: Exception) -> bool:
+        """Return True if *exc* indicates the prompt exceeded the model
+        context limit.
+
+        Hardened to prioritize structured error fields (status code,
+        provider-specific error codes) over fragile substring matching.
+        """
+        try:
+            # 2. Inspect provider-specific error/code fields
+            error_code = None
+            if hasattr(exc, "body") and isinstance(exc.body, dict):
+                # OpenAI / aiohttp common structure
+                error_code = exc.body.get("error", {}).get("code")
+            elif hasattr(exc, "error") and isinstance(exc.error, dict):
+                # Another common structure
+                error_code = exc.error.get("code")
+            elif hasattr(exc, "code"):
+                # DashScope / Simple types
+                error_code = str(exc.code)
+
+            if error_code in (
+                "context_length_exceeded",
+                "prompt_too_long",
+                "string_too_long",
+                "max_tokens",
+            ):
+                return True
+
+            # DashScope specific string check on 'code'
+            if error_code and "context_length_exceeded" in error_code.lower():
+                return True
+        except Exception:
+            pass
+
+        # 3. Fallback to substring matching (CodeRabbit: use as last resort)
+        msg = str(exc).lower()
+        return any(
+            phrase in msg
+            for phrase in (
+                "prompt is too long",
+                "prompt_too_long",
+                "context_length_exceeded",
+                "maximum context length",
+                "tokens is too long",
+            )
+        )
+
+    @staticmethod
+    def _keep_system_and_recent(content: list, keep_recent: int) -> list:
+        """Helper to truncate memory while preserving the system prompt.
+
+        If the first message is a 'system' message, it is kept.
+        Then, up to *keep_recent* messages from the end are appended.
+        Duplicates are avoided if the system message is already in recent.
+        """
+        if not content:
+            return []
+
+        system_entry = None
+        # In AgentScope, msgs are often Msg objects or tuples
+        # Rebuilder expects the first entry to be the system prompt
+        first_msg = content[0]
+        # Robustly check if it's a system message
+        role = getattr(first_msg, "role", None)
+        if role is None and isinstance(first_msg, dict):
+            role = first_msg.get("role")
+
+        if role == "system":
+            system_entry = first_msg
+
+        recent = content[-keep_recent:] if keep_recent > 0 else []
+
+        if system_entry is not None:
+            # Avoid duplication if system_entry is already at the start
+            if not recent or recent[0] is not system_entry:
+                recent = [system_entry] + recent
+
+        return recent
+
+    # -----------------------------------------------------------------------
 
     async def query_handler(
         self,
@@ -325,6 +479,9 @@ class AgentRunner(Runner):
                 )
             session_state_loaded = True
 
+            # --- Layer 1: proactive session overflow guard ---
+            await self._guard_session_overflow(agent, session_id, user_id)
+
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
             # in the session state.
@@ -342,18 +499,49 @@ class AgentRunner(Runner):
                 await agent.interrupt()
             raise RuntimeError("Task has been cancelled!") from exc
         except Exception as e:
+            # --- Layer 2: catch prompt-too-long and retry ---
+            final_exc = e
+            if self._is_prompt_too_long(e) and agent is not None:
+                logger.warning(
+                    "Prompt too long detected – trimming session and "
+                    "retrying once. Original error: %s",
+                    e,
+                )
+                try:
+                    # Soft reset: trim oldest while preserving system prompt
+                    agent.memory.content = self._keep_system_and_recent(
+                        agent.memory.content,
+                        self._SESSION_KEEP_RECENT,
+                    )
+                    agent.memory._compressed_summary = ""
+                    agent.rebuild_sys_prompt()
+
+                    async for msg, last in stream_printing_messages(
+                        agents=[agent],
+                        coroutine_task=agent.reply(msgs),
+                    ):
+                        yield msg, last
+                    # Retry succeeded – skip the original raise
+                    return
+                except Exception as retry_exc:
+                    logger.exception(
+                        "Retry after session trim also failed: %s",
+                        retry_exc,
+                    )
+                    final_exc = retry_exc  # fall through to normal error path
+
             debug_dump_path = write_query_error_dump(
                 request=request,
-                exc=e,
+                exc=final_exc,
                 locals_=locals(),
             )
             path_hint = (
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
-            logger.exception(f"Error in query handler: {e}{path_hint}")
+            logger.exception(f"Error in query handler: {final_exc}{path_hint}")
             if debug_dump_path:
-                setattr(e, "debug_dump_path", debug_dump_path)
-                if hasattr(e, "add_note"):
+                setattr(final_exc, "debug_dump_path", debug_dump_path)
+                if hasattr(final_exc, "add_note"):
                     e.add_note(
                         f"(Details:  {debug_dump_path})",
                     )
