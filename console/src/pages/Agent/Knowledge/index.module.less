@@ -1,5 +1,64 @@
 .knowledgePage {
+  --note-page-bg: radial-gradient(circle at top left, #f9fbff 0%, #fefefe 40%, #f6f7fb 100%);
+  --note-card-bg: #ffffff;
+  --note-card-border: rgba(26, 31, 44, 0.08);
+  --note-card-shadow: 0 10px 28px rgba(17, 24, 39, 0.06);
+  --note-hover-border: #4c6fff;
+  --note-hover-shadow: 0 16px 36px rgba(76, 111, 255, 0.2);
+  --note-block-bg: #f8f9fd;
+  --note-block-border: #e8ecf5;
+  --note-title-color: #1f2430;
+  --note-body-color: #4f566b;
+  --note-label-color: #7f8699;
+  --note-font: "Avenir Next", "Segoe UI", sans-serif;
+  --note-title-font: "Iowan Old Style", "Georgia", serif;
+  --note-radius: 18px;
   padding: 24px;
+  background: var(--note-page-bg);
+  border-radius: 18px;
+  font-family: var(--note-font);
+}
+
+.noteStyleNotion {
+  --note-page-bg: linear-gradient(160deg, #f8fafc 0%, #fdfefe 55%, #f3f7ff 100%);
+  --note-card-bg: #ffffff;
+  --note-card-border: rgba(17, 24, 39, 0.09);
+  --note-card-shadow: 0 10px 26px rgba(15, 23, 42, 0.07);
+  --note-hover-border: #4c6fff;
+  --note-hover-shadow: 0 16px 34px rgba(76, 111, 255, 0.2);
+  --note-block-bg: #f8f9fd;
+  --note-block-border: #e8ecf5;
+}
+
+.noteStyleSticky {
+  --note-page-bg: linear-gradient(160deg, #fffbe9 0%, #fffef8 52%, #f8fff8 100%);
+  --note-card-bg: #fffdf0;
+  --note-card-border: #ecd68d;
+  --note-card-shadow: 0 9px 22px rgba(159, 121, 0, 0.14);
+  --note-hover-border: #daaf0f;
+  --note-hover-shadow: 0 15px 30px rgba(218, 175, 15, 0.26);
+  --note-block-bg: #fff8d9;
+  --note-block-border: #ebd58d;
+  --note-title-color: #4f3c00;
+  --note-body-color: #5a4a1f;
+  --note-label-color: #7f6b2a;
+  --note-title-font: "Palatino Linotype", "Book Antiqua", serif;
+}
+
+.noteStyleObsidian {
+  --note-page-bg: radial-gradient(circle at top right, #202734 0%, #1a202b 60%, #151b25 100%);
+  --note-card-bg: #1f2633;
+  --note-card-border: #2d3748;
+  --note-card-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+  --note-hover-border: #63b3ed;
+  --note-hover-shadow: 0 18px 36px rgba(49, 130, 206, 0.26);
+  --note-block-bg: #273042;
+  --note-block-border: #344259;
+  --note-title-color: #edf2f7;
+  --note-body-color: #cbd5e1;
+  --note-label-color: #93a4ba;
+  --note-font: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --note-title-font: "IBM Plex Serif", "Georgia", serif;
 }
 
 .header {
@@ -23,7 +82,7 @@
 
 .description {
   margin: 0 !important;
-  color: #999;
+  color: var(--note-label-color);
   font-size: 14px;
 }
 
@@ -32,6 +91,10 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.noteStyleSegment {
+  min-width: 280px;
 }
 
 .unifiedProgressRow {
@@ -178,7 +241,7 @@
 
 .contentEmpty {
   font-size: 12px;
-  color: #999;
+  color: var(--note-label-color);
 }
 
 .documentList {
@@ -190,12 +253,24 @@
 .documentItem {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .documentTitle {
   font-size: 12px;
-  color: #525866;
+  color: var(--note-body-color);
+}
+
+.documentMarkdown {
+  border: 1px solid var(--note-block-border);
+  border-radius: 10px;
+  background: var(--note-block-bg);
+  padding: 8px;
+}
+
+.documentMarkdownViewer {
+  border: none !important;
+  background: transparent !important;
 }
 
 .documentText {
@@ -278,26 +353,26 @@
 }
 
 .copawSparkContent {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  border-radius: 16px;
+  background: var(--note-card-bg);
+  border: 1px solid var(--note-card-border);
+  border-radius: var(--note-radius);
   transition: all 0.2s ease-in-out;
   overflow: hidden;
   height: 100%;
   display: flex;
   flex-direction: column;
+  box-shadow: var(--note-card-shadow);
+  animation: cardFadeIn 0.35s ease;
 
   &:hover {
-    border-color: #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+    border-color: var(--note-hover-border);
+    box-shadow: var(--note-hover-shadow);
   }
 }
 
 .copawSparkContentActive {
-  border-color: #615ced;
-  box-shadow:
-    0 0 0 2px rgba(97, 92, 237, 0.18),
-    0 12px 32px rgba(97, 92, 237, 0.18);
+  border-color: var(--note-hover-border);
+  box-shadow: var(--note-hover-shadow);
 }
 
 .sourceCardBody {
@@ -402,9 +477,10 @@
   width: 100%;
   font-size: 14px;
   line-height: 1.4;
-  color: #1a1a1a;
+  color: var(--note-title-color);
   white-space: normal;
   word-break: break-word;
+  font-family: var(--note-title-font);
 }
 
 .sourceMeta {
@@ -424,16 +500,16 @@
 
 .sourceInfoLabel {
   font-size: 12px;
-  color: #999;
+  color: var(--note-label-color);
   margin-bottom: 0;
   line-height: 1.2;
 }
 
 .sourceInfoBlock {
   font-size: 12px;
-  color: #525866;
-  background-color: #f5f6fa;
-  border: 1px solid #eceff6;
+  color: var(--note-body-color);
+  background-color: var(--note-block-bg);
+  border: 1px solid var(--note-block-border);
   border-radius: 8px;
   padding: 7px 9px;
   line-height: 1.4;
@@ -509,7 +585,7 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid #f1f2f6;
+  border-top: 1px solid var(--note-block-border);
   padding: 8px 14px 10px;
   margin-top: 0;
 }
@@ -573,6 +649,18 @@
   color: #667085;
 }
 
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 900px) {
   .header {
     flex-direction: column;
@@ -585,6 +673,11 @@
 
   .originSelect {
     width: 180px;
+  }
+
+  .noteStyleSegment {
+    width: 100%;
+    min-width: 0;
   }
 
   .sourceCards {
