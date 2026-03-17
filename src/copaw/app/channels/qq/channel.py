@@ -124,6 +124,89 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
     )
 
 
+async def _fix_content_with_llm(
+    original_text: str,
+    error_info: dict,
+    process_handler: ProcessHandler,
+) -> Optional[str]:
+    """Use LLM to fix message that failed to send.
+    
+    Args:
+        original_text: The text that failed to send
+        error_info: Error details from QQ API
+        process_handler: The agent process handler to query LLM
+        
+    Returns:
+        Fixed text or None if fixing failed
+    """
+    from agentscope_runtime.engine.schemas.agent_schemas import (
+        AgentRequest,
+        Message,
+        Role,
+        ContentType,
+        TextContent,
+    )
+    
+    # Simple prompt: just give the error and original message
+    prompt = f"""Failed to send this message to QQ:
+
+{original_text}
+
+Error: {json.dumps(error_info, ensure_ascii=False)}
+
+Please fix the message to make it sendable. Return only the fixed message."""
+
+    try:
+        msg = Message(
+            type=ContentType.TEXT,
+            role=Role.USER,
+            content=[TextContent(type=ContentType.TEXT, text=prompt)],
+        )
+        request = AgentRequest(
+            session_id="qq_fix",
+            user_id="system",
+            input=[msg],
+            channel="internal",
+        )
+        
+        fixed_text_parts = []
+        async for event in process_handler(request):
+            obj = getattr(event, "object", None)
+            status = getattr(event, "status", None)
+            if obj == "message" and status == "completed":
+                parts = getattr(event, "content", None) or []
+                for part in parts:
+                    if getattr(part, "type", None) == ContentType.TEXT:
+                        fixed_text_parts.append(getattr(part, "text", "") or "")
+        
+        fixed_text = "".join(fixed_text_parts).strip()
+        
+        # Validate the fix is not empty
+        if fixed_text:
+            logger.info(
+                "LLM fixed QQ message: original_len=%d, fixed_len=%d",
+                len(original_text),
+                len(fixed_text),
+            )
+            return fixed_text
+        
+        logger.warning("LLM fix returned empty text")
+        return None
+        
+    except Exception:
+        logger.exception("Failed to fix message with LLM")
+        return None
+
+
+def _is_token_expired_error(exc: Exception) -> bool:
+    """Check if error indicates token expiration (401) or auth failure."""
+    if isinstance(exc, QQApiError):
+        return exc.status == 401
+    # Also check for auth-related messages
+    err_str = str(exc).lower()
+    return any(kw in err_str for kw in ["unauthorized", "token", "auth", "401"])
+
+
 def _get_api_base() -> str:
     """API root address (e.g. sandbox: https://sandbox.api.sgroup.qq.com)"""
     return os.getenv("QQ_API_BASE", DEFAULT_API_BASE).rstrip("/")
@@ -688,15 +771,20 @@ class QQChannel(BaseChannel):
                 await _dispatch(clean_text, use_markdown)
                 text_sent = True
             except Exception as exc:
-                if not use_markdown:
-                    logger.exception("send text failed")
-                elif not _should_plaintext_fallback_from_markdown(exc):
-                    logger.exception(
-                        "send text failed with markdown; "
-                        "skip fallback to avoid duplicates",
-                    )
-                else:
-                    logger.exception(
+                # Check if token expired - try refresh and retry once
+                if _is_token_expired_error(exc):
+                    logger.warning("QQ API token expired, refreshing and retrying")
+                    self._clear_token_cache()
+                    try:
+                        token = await self._get_access_token_async()
+                        await _dispatch(clean_text, use_markdown)
+                        text_sent = True
+                        logger.info("QQ send succeeded after token refresh")
+                    except Exception as retry_exc:
+                        logger.exception("send failed even after token refresh")
+                # Check if markdown payload issue - fallback to plain text
+                elif use_markdown and _should_plaintext_fallback_from_markdown(exc):
+                    logger.warning(
                         "send text failed with markdown payload validation; "
                         "fallback to plain text",
                     )
@@ -709,8 +797,38 @@ class QQChannel(BaseChannel):
                     try:
                         await _dispatch(fallback_text, False)
                         text_sent = True
-                    except Exception:
+                    except Exception as fallback_exc:
                         logger.exception("send text fallback failed")
+                # For all other errors, try LLM to fix
+                else:
+                    error_info = (
+                        exc.data if isinstance(exc, QQApiError) else {"error": str(exc)}
+                    )
+                    if isinstance(error_info, dict):
+                        err_code = error_info.get("err_code") or error_info.get("code", "unknown")
+                    else:
+                        err_code = str(exc)[:50]
+                    logger.warning(
+                        "QQ send failed (%s), trying LLM to fix",
+                        err_code,
+                    )
+                    
+                    # Try LLM-based fixing
+                    fixed_text = await _fix_content_with_llm(
+                        clean_text,
+                        error_info,
+                        self._process,
+                    )
+                    
+                    if fixed_text:
+                        try:
+                            await _dispatch(fixed_text, False)
+                            text_sent = True
+                            logger.info("QQ send succeeded after LLM fix")
+                        except Exception:
+                            logger.exception("send failed even after LLM fix")
+                    else:
+                        logger.warning("LLM fix failed, giving up")
 
         # Send images if any
         if image_urls and message_type in ("c2c", "group"):
