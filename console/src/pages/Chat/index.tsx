@@ -5,10 +5,15 @@ import {
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
-import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+  ExclamationCircleOutlined,
+  PaperClipOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
@@ -19,7 +24,19 @@ import api from "../../api";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import "./index.module.less";
+import {
+  createUploadStatusState,
+  markProcessingSlow,
+  markProcessingStarted,
+  markUploadCompleted,
+  markUploadFailed,
+  markUploadSucceeded,
+  shouldShowUploadToast,
+  type UploadStatusMessages,
+  type UploadStatusPhase,
+  type UploadStatusState,
+} from "./uploadStatus";
+import styles from "./index.module.less";
 
 type CopyableContent = {
   type?: string;
@@ -43,6 +60,123 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
+const SLOW_PROCESSING_DELAY_MS = 8000;
+const STATUS_RESET_DELAY_MS = 4000;
+const ERROR_STATUS_RESET_DELAY_MS = 8000;
+
+function getSelectedAgentId(): string | null {
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (!agentStorage) return null;
+    const parsed = JSON.parse(agentStorage);
+    return parsed?.state?.selectedAgent || null;
+  } catch (error) {
+    console.warn("Failed to get selected agent from storage:", error);
+    return null;
+  }
+}
+
+function buildRequestHeaders(contentType?: string): Headers {
+  const headers = new Headers();
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
+
+  const token = getApiToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const selectedAgentId = getSelectedAgentId();
+  if (selectedAgentId) {
+    headers.set("X-Agent-Id", selectedAgentId);
+  }
+
+  return headers;
+}
+
+function findSenderActionsMountNode(
+  root: ParentNode = document,
+): HTMLElement | null {
+  const exactMatch = root.querySelector(
+    ".agentscope-runtime-webui-sender-actions-list-presets",
+  );
+  if (exactMatch instanceof HTMLElement) {
+    return exactMatch;
+  }
+
+  const fuzzyMatch = root.querySelector(
+    '[class*="sender-actions-list-presets"]',
+  );
+  return fuzzyMatch instanceof HTMLElement ? fuzzyMatch : null;
+}
+
+type EventStreamCallbacks = {
+  onFirstEvent?: () => void;
+};
+
+async function consumeEventStream(
+  response: Response,
+  callbacks: EventStreamCallbacks = {},
+): Promise<void> {
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamError: string | null = null;
+  let hasSeenEvent = false;
+
+  const processChunk = (chunk: string) => {
+    const events = chunk.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const lines = event
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+
+        if (!hasSeenEvent) {
+          hasSeenEvent = true;
+          callbacks.onFirstEvent?.();
+        }
+
+        try {
+          const parsed = JSON.parse(payload);
+          if (typeof parsed?.error === "string" && parsed.error) {
+            streamError = parsed.error;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    processChunk(buffer);
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    processChunk(`${buffer}\n\n`);
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+}
 
 function extractCopyableText(response: CopyableResponse): string {
   const collectText = (assistantOnly: boolean) => {
@@ -113,6 +247,17 @@ function buildModelError(): Response {
   );
 }
 
+function getUploadStatusTone(phase: UploadStatusPhase): string {
+  switch (phase) {
+    case "success":
+      return styles.uploadStatusSuccess;
+    case "error":
+      return styles.uploadStatusError;
+    default:
+      return styles.uploadStatusInfo;
+  }
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -127,8 +272,17 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
   const [, setReconnectStreaming] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatusState | null>(
+    null,
+  );
+  const [uploadButtonMountNode, setUploadButtonMountNode] =
+    useState<HTMLElement | null>(null);
   const reconnectTriggeredForRef = useRef<string | null>(null);
   const prevChatIdRef = useRef<string | undefined>(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const processingSlowTimerRef = useRef<number | null>(null);
+  const clearStatusTimerRef = useRef<number | null>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -192,6 +346,51 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    let mountNode: HTMLSpanElement | null = null;
+    let frameId = 0;
+    let cancelled = false;
+    let observer: MutationObserver | null = null;
+
+    const ensureMounted = () => {
+      if (cancelled || mountNode?.isConnected) return;
+
+      const actionsNode = findSenderActionsMountNode();
+      if (!actionsNode) return;
+
+      mountNode = document.createElement("span");
+      mountNode.className = styles.senderUploadButton;
+      actionsNode.insertBefore(mountNode, actionsNode.firstChild);
+      setUploadButtonMountNode(mountNode);
+    };
+
+    const startObserver = () => {
+      observer = new MutationObserver(() => {
+        ensureMounted();
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    };
+
+    frameId = window.requestAnimationFrame(() => {
+      ensureMounted();
+      startObserver();
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+      observer?.disconnect();
+      setUploadButtonMountNode(null);
+      if (mountNode?.parentNode) {
+        mountNode.parentNode.removeChild(mountNode);
+      }
+    };
+  }, [refreshKey]);
+
+  useEffect(() => {
     sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === tempId) {
@@ -214,7 +413,6 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Fetch chat status when viewing a chat (for running indicator and reconnect)
   useEffect(() => {
     if (!chatId || chatId === "undefined" || chatId === "null") {
       setChatStatus("idle");
@@ -227,10 +425,6 @@ export default function ChatPage() {
     );
   }, [chatId]);
 
-  // Trigger reconnect when session status becomes "running" so the library
-  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
-  // run after React has updated and the chat input ref is ready, avoiding
-  // a fixed timeout and race conditions.
   useEffect(() => {
     if (prevChatIdRef.current !== chatId) {
       prevChatIdRef.current = chatId;
@@ -242,15 +436,29 @@ export default function ChatPage() {
     sessionApi.triggerReconnectSubmit();
   }, [chatId, chatStatus]);
 
-  // Refresh chat when selectedAgent changes
+  const clearUploadStatusTimers = useCallback(() => {
+    if (processingSlowTimerRef.current !== null) {
+      window.clearTimeout(processingSlowTimerRef.current);
+      processingSlowTimerRef.current = null;
+    }
+    if (clearStatusTimerRef.current !== null) {
+      window.clearTimeout(clearStatusTimerRef.current);
+      clearStatusTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearUploadStatusTimers();
+    };
+  }, [clearUploadStatusTimers]);
+
   const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
-    // Only refresh if selectedAgent actually changed (not initial mount)
     if (
       prevSelectedAgentRef.current !== selectedAgent &&
       prevSelectedAgentRef.current !== undefined
     ) {
-      // Force re-render by updating refresh key
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
@@ -324,6 +532,205 @@ export default function ChatPage() {
     [t],
   );
 
+  const ensureModelConfigured = useCallback(async () => {
+    try {
+      const activeModels = await providerApi.getActiveModels();
+      if (
+        !activeModels?.active_llm?.provider_id ||
+        !activeModels?.active_llm?.model
+      ) {
+        setShowModelPrompt(true);
+        return false;
+      }
+      return true;
+    } catch {
+      setShowModelPrompt(true);
+      return false;
+    }
+  }, []);
+
+  const ensureActiveSessionId = useCallback(async () => {
+    const currentSessionId = window.currentSessionId || chatIdRef.current;
+    if (
+      currentSessionId &&
+      currentSessionId !== "undefined" &&
+      currentSessionId !== "null"
+    ) {
+      return currentSessionId;
+    }
+
+    const sessions = await sessionApi.createSession({});
+    const newSessionId = sessions[0]?.id;
+    if (!newSessionId) {
+      throw new Error("Failed to create chat session");
+    }
+
+    lastSessionIdRef.current = newSessionId;
+    navigateRef.current(`/chat/${newSessionId}`, { replace: true });
+    return newSessionId;
+  }, []);
+
+  const uploadStatusMessages = useMemo<UploadStatusMessages>(
+    () => ({
+      uploading: (name) => t("chat.uploadStatusUploading", { name }),
+      uploaded: (name) => t("chat.uploadStatusUploaded", { name }),
+      processing: (name) => t("chat.uploadStatusProcessing", { name }),
+      processingSlow: (name) => t("chat.uploadStatusProcessingSlow", { name }),
+      success: (name) => t("chat.uploadStatusSuccess", { name }),
+    }),
+    [t],
+  );
+
+  const scheduleStatusReset = useCallback((delayMs: number) => {
+    if (clearStatusTimerRef.current !== null) {
+      window.clearTimeout(clearStatusTimerRef.current);
+    }
+    clearStatusTimerRef.current = window.setTimeout(() => {
+      setUploadStatus(null);
+      clearStatusTimerRef.current = null;
+    }, delayMs);
+  }, []);
+
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      if (!(await ensureModelConfigured())) {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      if (file.size > MAX_UPLOAD_SIZE) {
+        message.error(
+          t("chat.fileTooLarge", {
+            size: (file.size / (1024 * 1024)).toFixed(2),
+          }),
+        );
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      clearUploadStatusTimers();
+      setIsUploadingFile(true);
+      setUploadStatus(createUploadStatusState(file.name, uploadStatusMessages));
+
+      try {
+        const sessionId = await ensureActiveSessionId();
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("session_id", sessionId);
+        formData.append("user_id", window.currentUserId || "default");
+        formData.append("channel", window.currentChannel || "console");
+
+        const response = await fetch(getApiUrl("/console/chat-upload"), {
+          method: "POST",
+          headers: buildRequestHeaders(),
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          throw new Error(
+            errorText ||
+              `Upload failed: ${response.status} ${response.statusText}`,
+          );
+        }
+
+        setUploadStatus((current) =>
+          markUploadCompleted(
+            current ?? createUploadStatusState(file.name, uploadStatusMessages),
+            uploadStatusMessages,
+          ),
+        );
+
+        processingSlowTimerRef.current = window.setTimeout(() => {
+          setUploadStatus((current) => {
+            if (!current || !current.busy || current.phase !== "processing") {
+              return current;
+            }
+            return markProcessingSlow(current, uploadStatusMessages);
+          });
+          processingSlowTimerRef.current = null;
+        }, SLOW_PROCESSING_DELAY_MS);
+
+        await consumeEventStream(response, {
+          onFirstEvent: () => {
+            setUploadStatus((current) =>
+              markProcessingStarted(
+                current ??
+                  markUploadCompleted(
+                    createUploadStatusState(file.name, uploadStatusMessages),
+                    uploadStatusMessages,
+                  ),
+                uploadStatusMessages,
+              ),
+            );
+          },
+        });
+
+        clearUploadStatusTimers();
+        setUploadStatus((current) =>
+          markUploadSucceeded(
+            current ??
+              markProcessingStarted(
+                markUploadCompleted(
+                  createUploadStatusState(file.name, uploadStatusMessages),
+                  uploadStatusMessages,
+                ),
+                uploadStatusMessages,
+              ),
+            uploadStatusMessages,
+          ),
+        );
+        scheduleStatusReset(STATUS_RESET_DELAY_MS);
+        await sessionApi.updateSession({ id: sessionId });
+        await sessionApi.getSession(sessionId);
+        setRefreshKey((prev) => prev + 1);
+      } catch (error) {
+        console.error("File upload failed:", error);
+        const errorMessage =
+          error instanceof Error ? error.message : t("chat.fileUploadFailed");
+        clearUploadStatusTimers();
+        setUploadStatus((current) =>
+          markUploadFailed(
+            current ?? createUploadStatusState(file.name, uploadStatusMessages),
+            errorMessage,
+          ),
+        );
+        scheduleStatusReset(ERROR_STATUS_RESET_DELAY_MS);
+        if (shouldShowUploadToast("error")) {
+          message.error({
+            content: `${t("chat.fileUploadFailed")}: ${errorMessage}`,
+          });
+        }
+      } finally {
+        setIsUploadingFile(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    },
+    [
+      clearUploadStatusTimers,
+      ensureActiveSessionId,
+      ensureModelConfigured,
+      scheduleStatusReset,
+      t,
+      uploadStatusMessages,
+    ],
+  );
+
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      void handleFileUpload(file);
+    },
+    [handleFileUpload],
+  );
+
   const customFetch = useCallback(
     async (data: {
       input?: any[];
@@ -334,32 +741,15 @@ export default function ChatPage() {
       user_id?: string;
       channel?: string;
     }): Promise<Response> => {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
-      }
-
       const shouldReconnect =
         data.reconnect || data.biz_params?.reconnect === true;
       const reconnectSessionId =
         data.session_id ?? window.currentSessionId ?? "";
+
       if (shouldReconnect && reconnectSessionId) {
         const res = await fetch(getApiUrl("/console/chat"), {
           method: "POST",
-          headers,
+          headers: buildRequestHeaders("application/json"),
           body: JSON.stringify({
             reconnect: true,
             session_id: reconnectSessionId,
@@ -396,17 +786,7 @@ export default function ChatPage() {
         });
       }
 
-      try {
-        const activeModels = await providerApi.getActiveModels();
-        if (
-          !activeModels?.active_llm?.provider_id ||
-          !activeModels?.active_llm?.model
-        ) {
-          setShowModelPrompt(true);
-          return buildModelError();
-        }
-      } catch {
-        setShowModelPrompt(true);
+      if (!(await ensureModelConfigured())) {
         return buildModelError();
       }
 
@@ -425,12 +805,12 @@ export default function ChatPage() {
 
       return fetch(getApiUrl("/console/chat"), {
         method: "POST",
-        headers,
+        headers: buildRequestHeaders("application/json"),
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
     },
-    [setChatStatus, setReconnectStreaming],
+    [ensureModelConfigured],
   );
 
   const options = useMemo(() => {
@@ -502,20 +882,52 @@ export default function ChatPage() {
 
   return (
     <div
-      style={{
-        height: "100%",
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }}
+      className={showModelPrompt ? styles.chatDisabledOverlay : styles.chatPage}
     >
-      <div style={{ flex: 1, minHeight: 0 }}>
+      {uploadStatus ? (
+        <div
+          className={`${styles.uploadStatusBanner} ${getUploadStatusTone(uploadStatus.phase)}`}
+          aria-live="polite"
+        >
+          <span
+            className={`${styles.uploadStatusDot} ${
+              uploadStatus.busy ? styles.uploadStatusDotBusy : ""
+            }`}
+          />
+          <span className={styles.uploadStatusText}>{uploadStatus.label}</span>
+        </div>
+      ) : null}
+
+      <div className={styles.chatContent}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
           options={options}
         />
       </div>
+
+      {uploadButtonMountNode
+        ? createPortal(
+            <Button
+              type="text"
+              shape="circle"
+              title={t("chat.uploadButton")}
+              aria-label={t("chat.uploadButton")}
+              icon={<PaperClipOutlined />}
+              onClick={() => fileInputRef.current?.click()}
+              loading={isUploadingFile}
+              disabled={isUploadingFile || showModelPrompt}
+            />,
+            uploadButtonMountNode,
+          )
+        : null}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileInputChange}
+        style={{ display: "none" }}
+      />
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result

@@ -4,24 +4,77 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import AsyncGenerator, Union
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from starlette.responses import StreamingResponse
 
-from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    AgentRequest,
+    ContentType,
+    FileContent,
+    TextContent,
+)
+
+from ...constant import WORKING_DIR
 from ..agent_context import get_agent_for_request
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
 
+MAX_CONSOLE_UPLOAD_SIZE = 100 * 1024 * 1024
+
+
+def _sanitize_upload_filename(filename: str | None) -> str:
+    """Return a basename-only filename safe for local storage."""
+    safe_name = Path(filename or "upload").name.strip()
+    return safe_name or "upload"
+
+
+async def _save_console_upload(request: Request, file: UploadFile) -> Path:
+    """Persist a browser-uploaded file into the console uploads folder."""
+    workspace = await get_agent_for_request(request)
+    safe_name = _sanitize_upload_filename(file.filename)
+    original_path = Path(safe_name)
+    target_dir = WORKING_DIR / "media" / "console" / workspace.agent_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    target_name = (
+        f"{original_path.stem or 'upload'}-{uuid4().hex}"
+        f"{original_path.suffix}"
+    )
+    target_path = target_dir / target_name
+
+    size = 0
+    try:
+        with target_path.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_CONSOLE_UPLOAD_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "Uploaded file is too large; maximum size is 100MB"
+                        ),
+                    )
+                out.write(chunk)
+    except Exception:
+        target_path.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    return target_path
+
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
-    """Extract run_key (ChatSpec.id), session_id, and native payload.
-
-    run_key must be ChatSpec.id (chat_id) so it matches list_chats/get_chat.
-    """
+    """Extract run_key (ChatSpec.id), session_id, and native payload."""
     if isinstance(request_data, AgentRequest):
         channel_id = request_data.channel or "console"
         sender_id = request_data.user_id or "default"
@@ -53,6 +106,64 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
+async def _start_console_stream(
+    request: Request,
+    native_payload: dict,
+) -> StreamingResponse:
+    workspace = await get_agent_for_request(request)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+
+    session_id = console_channel.resolve_session_id(
+        sender_id=native_payload["sender_id"],
+        channel_meta=native_payload["meta"],
+    )
+
+    name = "New Chat"
+    if native_payload["content_parts"]:
+        first_part = native_payload["content_parts"][0]
+        if hasattr(first_part, "text") and first_part.text:
+            name = first_part.text[:10]
+        else:
+            name = "Media Message"
+
+    chat = await workspace.chat_manager.get_or_create_chat(
+        session_id,
+        native_payload["sender_id"],
+        native_payload["channel_id"],
+        name=name,
+    )
+
+    queue, _ = await workspace.task_tracker.attach_or_start(
+        chat.id,
+        native_payload,
+        console_channel.stream_one,
+    )
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        try:
+            async for event_data in workspace.task_tracker.stream_from_queue(
+                queue,
+            ):
+                yield event_data
+        except Exception as e:
+            logger.exception("Console chat stream error")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @router.post(
     "/chat",
     status_code=200,
@@ -64,9 +175,7 @@ async def post_console_chat(
     request_data: Union[AgentRequest, dict],
     request: Request,
 ) -> StreamingResponse:
-    """Stream agent response. Run continues in background after disconnect.
-    Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
-    """
+    """Stream agent response. Run continues in background after disconnect."""
     workspace = await get_agent_for_request(request)
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
@@ -83,10 +192,10 @@ async def post_console_chat(
         channel_meta=native_payload["meta"],
     )
     name = "New Chat"
-    if len(native_payload["content_parts"]) > 0:
-        content = native_payload["content_parts"][0]
-        if content:
-            name = content.text[:10]
+    if native_payload["content_parts"]:
+        first_part = native_payload["content_parts"][0]
+        if hasattr(first_part, "text") and first_part.text:
+            name = first_part.text[:10]
         else:
             name = "Media Message"
     chat = await workspace.chat_manager.get_or_create_chat(
@@ -131,6 +240,50 @@ async def post_console_chat(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.post(
+    "/chat-upload",
+    status_code=200,
+    summary="Upload a file and chat with console",
+    description=(
+        "Accept a browser-uploaded file, persist it locally, then stream "
+        "the agent response as an SSE event stream."
+    ),
+)
+async def post_console_chat_upload(
+    request: Request,
+    file: UploadFile = File(..., description="File uploaded from the browser"),
+    session_id: str = Form("default"),
+    user_id: str = Form("default"),
+    channel: str = Form("console"),
+    text: str = Form(""),
+) -> StreamingResponse:
+    """Bridge browser file uploads into console chat file content parts."""
+    saved_path = await _save_console_upload(request, file)
+    display_name = _sanitize_upload_filename(file.filename) or saved_path.name
+    prompt_text = (text or "").strip() or (
+        f"Please process the uploaded file: {display_name}"
+    )
+
+    native_payload = {
+        "channel_id": channel or "console",
+        "sender_id": user_id or "default",
+        "content_parts": [
+            TextContent(type=ContentType.TEXT, text=prompt_text),
+            FileContent(type=ContentType.FILE, file_url=str(saved_path)),
+        ],
+        "meta": {
+            "session_id": session_id or "default",
+            "user_id": user_id or "default",
+        },
+    }
+
+    try:
+        return await _start_console_stream(request, native_payload)
+    except Exception:
+        saved_path.unlink(missing_ok=True)
+        raise
 
 
 @router.post(
