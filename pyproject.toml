@@ -83,4 +83,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests that start the full app",
+    "unit: marks tests as unit tests (fast, no external dependencies)",
 ]

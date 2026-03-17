@@ -550,7 +550,7 @@
       "device": "Device",
       "deviceTooltip": "auto for auto-detect GPU, cuda for force GPU, cpu for CPU only",
       "dtype": "Data Type",
-      "dtypeTooltip": "FP16 for speed and memory efficiency, BF16 for higher precision, FP32 for full precision",
+      "dtypeTooltip": "FP16 for speed and memory efficiency (recommended), BF16 for larger dynamic range, FP32 for full precision but uses more resources",
       "modelPath": "Local Model Path (Optional)",
       "modelPathPlaceholder": "Leave empty to auto-download to cache",
       "modelPathTooltip": "Specify local path if model already downloaded, leave empty for auto-download",
