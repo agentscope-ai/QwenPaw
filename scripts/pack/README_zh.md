@@ -85,6 +85,6 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 | `build_common.py` | 创建临时 conda 环境，从 wheel 安装 `boostclaw[full]`，conda-pack 产出归档 |
 | `build_macos.sh` | 一键：构建 wheel → build_common → 解压到 boostclaw.app；可选打 zip |
 | `build_win.ps1` | 一键：构建 wheel → build_common → 解压 → 创建 VBS/BAT 启动器 → makensis 安装包 |
-| `copaw_desktop.nsi` | NSIS 脚本：打包 `dist/win-unpacked`，添加图标，创建快捷方式 |
+| `boostclaw_desktop.nsi` | NSIS 脚本：打包 `dist/win-unpacked`，添加图标，创建快捷方式 |
 | `assets/icon.ico` | 预生成的 Windows 图标（安装包和快捷方式使用） |
 | `assets/icon.icns` | 预生成的 macOS 图标（应用包使用） |
