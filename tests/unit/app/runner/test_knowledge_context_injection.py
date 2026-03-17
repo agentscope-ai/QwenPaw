@@ -85,9 +85,9 @@ async def test_query_handler_does_not_inject_knowledge_context(monkeypatch) -> N
                 running=SimpleNamespace(
                     max_iters=8,
                     max_input_length=8192,
-                    auto_collect_chat_files=False,
-                    auto_collect_chat_urls=False,
-                    auto_collect_long_text=False,
+                    knowledge_auto_collect_chat_files=False,
+                    knowledge_auto_collect_chat_urls=False,
+                    knowledge_auto_collect_long_text=False,
                 ),
             ),
             knowledge=SimpleNamespace(enabled=True),
@@ -160,8 +160,8 @@ async def test_query_handler_skips_knowledge_context_when_disabled(monkeypatch) 
                 running=SimpleNamespace(
                     max_iters=8,
                     max_input_length=8192,
-                    auto_collect_chat_files=False,
-                    auto_collect_long_text=False,
+                    knowledge_auto_collect_chat_files=False,
+                    knowledge_auto_collect_long_text=False,
                     knowledge_retrieval_enabled=False,
                 ),
             ),

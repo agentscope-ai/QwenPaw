@@ -26,6 +26,10 @@ async def memify_status(job_id: str) -> ToolResponse:
         return ToolResponse(
             content=[TextBlock(type="text", text="Error: knowledge is disabled in configuration.")],
         )
+    if not bool(getattr(config.agents.running, "knowledge_enabled", True)):
+        return ToolResponse(
+            content=[TextBlock(type="text", text="Error: knowledge is disabled in agent runtime configuration.")],
+        )
     if not bool(getattr(config.knowledge, "memify_enabled", False)):
         return ToolResponse(
             content=[TextBlock(type="text", text="Error: memify is disabled in configuration.")],

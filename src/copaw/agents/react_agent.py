@@ -46,7 +46,6 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
-from ..config import load_config
 from ..constant import (
     MEMORY_COMPACT_RATIO,
     WORKING_DIR,
@@ -208,6 +207,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 tool_enabled = (
                     tool_enabled
                     and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
                     and bool(
                         getattr(
                             config.agents.running,
@@ -220,18 +220,21 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 tool_enabled = (
                     tool_enabled
                     and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
                     and bool(getattr(config.knowledge, "graph_query_enabled", False))
                 )
             elif tool_name in {"memify_run", "memify_status"}:
                 tool_enabled = (
                     tool_enabled
                     and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
                     and bool(getattr(config.knowledge, "memify_enabled", False))
                 )
             elif tool_name == "triplet_focus_search":
                 tool_enabled = (
                     tool_enabled
                     and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
                     and bool(getattr(config.knowledge, "triplet_search_enabled", False))
                 )
 
@@ -253,7 +256,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Args:
             toolkit: Toolkit to register skills to
         """
-        # Check skills initialization
         ensure_skills_initialized()
 
         working_skills_dir = get_working_skills_dir()

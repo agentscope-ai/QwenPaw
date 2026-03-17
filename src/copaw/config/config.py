@@ -218,28 +218,33 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
-    auto_collect_chat_files: bool = Field(
+    knowledge_enabled: bool = Field(
+        default=True,
+        description="Master switch for knowledge features and operations",
+    )
+
+    knowledge_auto_collect_chat_files: bool = Field(
         default=True,
         description=(
             "Automatically collect file references in chat turns into knowledge sources"
         ),
     )
 
-    auto_collect_chat_urls: bool = Field(
+    knowledge_auto_collect_chat_urls: bool = Field(
         default=True,
         description=(
             "Automatically collect URLs mentioned in chat turns into knowledge sources"
         ),
     )
 
-    auto_collect_long_text: bool = Field(
+    knowledge_auto_collect_long_text: bool = Field(
         default=True,
         description=(
             "Automatically save long chat passages into text knowledge sources"
         ),
     )
 
-    long_text_min_chars: int = Field(
+    knowledge_long_text_min_chars: int = Field(
         default=2000,
         ge=200,
         le=20000,
@@ -623,7 +628,7 @@ class KnowledgeSourceSpec(BaseModel):
     enabled: bool = Field(default=True)
     recursive: bool = Field(default=True)
     tags: List[str] = Field(default_factory=list)
-    description: str = Field(default="")
+    summary: str = Field(default="")
 
     @model_validator(mode="after")
     def validate_source(self):
@@ -673,10 +678,10 @@ class KnowledgeIndexConfig(BaseModel):
 class KnowledgeAutomationConfig(BaseModel):
     """Passive knowledge collection during chat turns."""
 
-    auto_collect_chat_files: bool = Field(default=True)
-    auto_collect_chat_urls: bool = Field(default=True)
-    auto_collect_long_text: bool = Field(default=True)
-    long_text_min_chars: int = Field(default=2000, ge=200, le=20000)
+    knowledge_auto_collect_chat_files: bool = Field(default=True)
+    knowledge_auto_collect_chat_urls: bool = Field(default=True)
+    knowledge_auto_collect_long_text: bool = Field(default=True)
+    knowledge_long_text_min_chars: int = Field(default=2000, ge=200, le=20000)
 
     url_exclude_private_addresses: bool = Field(
         default=True,

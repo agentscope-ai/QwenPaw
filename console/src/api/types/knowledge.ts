@@ -14,7 +14,7 @@ export interface KnowledgeSourceSpec {
   enabled: boolean;
   recursive: boolean;
   tags: string[];
-  description: string;
+  summary: string;
 }
 
 export interface KnowledgeIndexConfig {
@@ -26,10 +26,10 @@ export interface KnowledgeIndexConfig {
 }
 
 export interface KnowledgeAutomationConfig {
-  auto_collect_chat_files: boolean;
-  auto_collect_chat_urls: boolean;
-  auto_collect_long_text: boolean;
-  long_text_min_chars: number;
+  knowledge_auto_collect_chat_files: boolean;
+  knowledge_auto_collect_chat_urls: boolean;
+  knowledge_auto_collect_long_text: boolean;
+  knowledge_long_text_min_chars: number;
 }
 
 export interface KnowledgeConfig {
@@ -55,6 +55,8 @@ export interface KnowledgeSourceStatus {
 }
 
 export interface KnowledgeSourceItem extends KnowledgeSourceSpec {
+  subject?: string;
+  keywords?: string[];
   status: KnowledgeSourceStatus;
 }
 

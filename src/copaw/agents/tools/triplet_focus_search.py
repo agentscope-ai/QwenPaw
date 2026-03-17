@@ -43,6 +43,10 @@ async def triplet_focus_search(
         return ToolResponse(
             content=[TextBlock(type="text", text="Error: knowledge is disabled in configuration.")],
         )
+    if not bool(getattr(config.agents.running, "knowledge_enabled", True)):
+        return ToolResponse(
+            content=[TextBlock(type="text", text="Error: knowledge is disabled in agent runtime configuration.")],
+        )
     if not bool(getattr(config.knowledge, "triplet_search_enabled", False)):
         return ToolResponse(
             content=[

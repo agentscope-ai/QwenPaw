@@ -116,6 +116,8 @@ function KnowledgePage() {
   const [runningConfig, setRunningConfig] = useState<AgentsRunningConfig | null>(
     null,
   );
+  const knowledgeRuntimeEnabled = runningConfig?.knowledge_enabled ?? true;
+  const knowledgePageDisabled = !knowledgeRuntimeEnabled;
   const [backfillStatus, setBackfillStatus] =
     useState<KnowledgeHistoryBackfillStatus | null>(null);
   const [backfillProgress, setBackfillProgress] =
@@ -412,14 +414,18 @@ function KnowledgePage() {
 
   const handleConfirmEnable = useCallback(
     async (runBackfillNow: boolean) => {
-      if (!config) {
+      if (!config || !runningConfig) {
         return;
       }
       try {
-        const nextRunningConfig = await enableConfigForm.validateFields();
+        const nextRunningConfig = {
+          ...runningConfig,
+          ...(await enableConfigForm.validateFields()),
+          knowledge_enabled: true,
+        } as AgentsRunningConfig;
         setEnableModalSubmitting(true);
         const updatedRunningConfig = await api.updateAgentRunningConfig(
-          nextRunningConfig as AgentsRunningConfig,
+          nextRunningConfig,
         );
         setRunningConfig(updatedRunningConfig);
         const updatedKnowledge = await persistKnowledgeConfig({
@@ -454,20 +460,43 @@ function KnowledgePage() {
       handleRunHistoryBackfillNow,
       loadData,
       persistKnowledgeConfig,
+      runningConfig,
       t,
     ],
   );
 
   const handleToggleEnabled = async (checked: boolean) => {
-    if (!config) {
+    if (!config || !runningConfig) {
       return;
     }
 
     if (!checked) {
-      await persistKnowledgeConfig({
-        ...config,
-        enabled: false,
-      });
+      try {
+        const updatedRunningConfig = await api.updateAgentRunningConfig({
+          ...runningConfig,
+          knowledge_enabled: false,
+        });
+        setRunningConfig(updatedRunningConfig);
+        await loadData();
+      } catch (error) {
+        console.error("Failed to disable knowledge runtime", error);
+        message.error(t("knowledge.configSaveFailed"));
+      }
+      return;
+    }
+
+    if (config.enabled) {
+      try {
+        const updatedRunningConfig = await api.updateAgentRunningConfig({
+          ...runningConfig,
+          knowledge_enabled: true,
+        });
+        setRunningConfig(updatedRunningConfig);
+        await loadData();
+      } catch (error) {
+        console.error("Failed to enable knowledge runtime", error);
+        message.error(t("knowledge.configSaveFailed"));
+      }
       return;
     }
 
@@ -485,6 +514,9 @@ function KnowledgePage() {
   };
 
   const handleAddSource = async () => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     try {
       const values = await form.validateFields();
       setSaving(true);
@@ -523,7 +555,7 @@ function KnowledgePage() {
         content,
         recursive: values.recursive ?? true,
         tags: values.tags ?? [],
-        description: values.description ?? "",
+        summary: values.summary ?? "",
       };
 
       await api.upsertKnowledgeSource(payload);
@@ -552,6 +584,9 @@ function KnowledgePage() {
   };
 
   const handleIndexSource = useCallback(async (sourceId: string) => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     try {
       setIndexingId(sourceId);
       await api.indexKnowledgeSource(sourceId);
@@ -563,9 +598,12 @@ function KnowledgePage() {
     } finally {
       setIndexingId(null);
     }
-  }, [loadData, t]);
+  }, [knowledgePageDisabled, loadData, t]);
 
   const handleIndexAll = async () => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     try {
       setIndexingAll(true);
       await api.indexAllKnowledgeSources();
@@ -591,6 +629,9 @@ function KnowledgePage() {
   }, []);
 
   const handleBackupAll = useCallback(async () => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     try {
       setExportingAll(true);
       const blob = await api.downloadKnowledgeBackup();
@@ -603,7 +644,7 @@ function KnowledgePage() {
     } finally {
       setExportingAll(false);
     }
-  }, [t, triggerBlobDownload]);
+  }, [knowledgePageDisabled, t, triggerBlobDownload]);
 
   const handleBackupSource = useCallback(
     async (sourceId: string, sourceName: string) => {
@@ -657,13 +698,19 @@ function KnowledgePage() {
   );
 
   const handleRestoreBackup = useCallback(() => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     if (importingBackup) {
       return;
     }
     backupImportInputRef.current?.click();
-  }, [importingBackup]);
+  }, [importingBackup, knowledgePageDisabled]);
 
   const handleClearKnowledge = useCallback(() => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     Modal.confirm({
       title: t("knowledge.clearConfirmTitle"),
       content: t("knowledge.clearConfirmContent"),
@@ -691,9 +738,12 @@ function KnowledgePage() {
         }
       },
     });
-  }, [loadData, t]);
+  }, [knowledgePageDisabled, loadData, t]);
 
   const handleSearch = async () => {
+    if (knowledgePageDisabled) {
+      return;
+    }
     const query = searchQuery.trim();
     if (!query) {
       setHits([]);
@@ -850,6 +900,19 @@ function KnowledgePage() {
       : "-";
   }, [selectedSource, t]);
 
+  const selectedSourceSummaryData = useMemo(() => {
+    if (!selectedSource) {
+      return {
+        summary: "",
+        keywords: [] as string[],
+      };
+    }
+    return {
+      summary: (selectedSource.summary || "").trim(),
+      keywords: selectedSource.keywords || [],
+    };
+  }, [selectedSource]);
+
   const openDetailDrawer = useCallback((record: KnowledgeSourceItem) => {
     setSelectedSource(record);
     setSourceContent(null);
@@ -878,7 +941,7 @@ function KnowledgePage() {
     isFileDragActive ? styles.dragZoneActive : ""
   }`;
   const enableModalAutoCollectLongText = Form.useWatch(
-    "auto_collect_long_text",
+    "knowledge_auto_collect_long_text",
     enableConfigForm,
   );
   const showBackfillNowButton = Boolean(
@@ -1005,7 +1068,7 @@ function KnowledgePage() {
           <div className={styles.headerControlGroup}>
             <Typography.Text>{t("knowledge.enabled")}</Typography.Text>
             <Switch
-              checked={config?.enabled ?? false}
+              checked={knowledgeRuntimeEnabled}
               onChange={handleToggleEnabled}
             />
           </div>
@@ -1014,6 +1077,7 @@ function KnowledgePage() {
               icon={<ReloadOutlined />}
               onClick={handleIndexAll}
               loading={indexingAll}
+              disabled={knowledgePageDisabled}
             >
               {t("knowledge.indexAll")}
             </Button>
@@ -1021,6 +1085,7 @@ function KnowledgePage() {
               icon={<DownloadOutlined />}
               onClick={handleBackupAll}
               loading={exportingAll}
+              disabled={knowledgePageDisabled}
             >
               {t("knowledge.backupAll")}
             </Button>
@@ -1028,6 +1093,7 @@ function KnowledgePage() {
               icon={<UploadOutlined />}
               onClick={handleRestoreBackup}
               loading={importingBackup}
+              disabled={knowledgePageDisabled}
             >
               {t("knowledge.restore")}
             </Button>
@@ -1039,6 +1105,7 @@ function KnowledgePage() {
               icon={<DeleteOutlined />}
               onClick={handleClearKnowledge}
               loading={clearingKnowledge}
+              disabled={knowledgePageDisabled}
             >
               {t("knowledge.clearKnowledge")}
             </Button>
@@ -1047,6 +1114,7 @@ function KnowledgePage() {
                 icon={<ReloadOutlined />}
                 onClick={handleRunHistoryBackfillNow}
                 loading={backfillingHistory}
+                disabled={knowledgePageDisabled}
               >
                 {t("knowledge.backfillNowButton")}
               </Button>
@@ -1068,7 +1136,11 @@ function KnowledgePage() {
         </div>
       ) : null}
 
-      <Space direction="vertical" size={16} className={styles.contentStack}>
+      <Space
+        direction="vertical"
+        size={16}
+        className={`${styles.contentStack} ${knowledgePageDisabled ? styles.disabledPanel : ""}`}
+      >
 
       <Card>
         <Space className={styles.fullWidth} direction="vertical" size={12}>
@@ -1227,12 +1299,13 @@ function KnowledgePage() {
               const originText = getSourceOriginText(record, t);
               const remoteLine = formatRemoteStatus(record, t);
               const isActiveCard = indexingId === record.id;
-              const cardTitle = record.name?.trim() || "";
-              const descriptionText = record.description?.trim() || "";
-              const hideDescriptionBlock =
-                cardTitle.length > 0 &&
-                descriptionText.length > 0 &&
-                cardTitle === descriptionText;
+              const cardSubject = (record.subject || record.name || "").trim();
+              const summaryText = (record.summary || "").trim();
+              const summaryKeywords = record.keywords || [];
+              const hideSummaryBlock =
+                cardSubject.length > 0 &&
+                summaryText.length > 0 &&
+                cardSubject === summaryText;
               const indexedCountText = record.status.indexed
                 ? t("knowledge.indexedCount", {
                     documents: record.status.document_count,
@@ -1256,10 +1329,10 @@ function KnowledgePage() {
                         </div>
 
                         <div className={styles.cardMeta}>
-                          {cardTitle ? (
+                          {cardSubject ? (
                             <div className={styles.infoSection}>
                               <div className={styles.infoLabel}>
-                                {t("knowledge.table.title")}
+                                {t("knowledge.table.subject")}
                               </div>
                               <div
                                 role="button"
@@ -1269,19 +1342,19 @@ function KnowledgePage() {
                                   handleDetailDrawerValueKeyDown(event, record)
                                 }
                                 className={`${styles.infoBlock} ${styles.clickableBlock}`}
-                                title={cardTitle}
+                                title={cardSubject}
                               >
                                 <Typography.Text
                                   className={styles.cardTitle}
-                                  title={cardTitle}
+                                  title={cardSubject}
                                 >
-                                  {cardTitle}
+                                  {cardSubject}
                                 </Typography.Text>
                               </div>
                             </div>
                           ) : null}
 
-                          {!hideDescriptionBlock ? (
+                          {!hideSummaryBlock ? (
                             <div className={styles.infoSection}>
                               <div className={styles.infoLabel}>
                                 {t("knowledge.table.source")}
@@ -1294,14 +1367,31 @@ function KnowledgePage() {
                                   handleDetailDrawerValueKeyDown(event, record)
                                 }
                                 className={`${styles.infoBlock} ${styles.clickableBlock}`}
-                                title={descriptionText || t("knowledge.inlineText")}
+                                title={summaryText || t("knowledge.inlineText")}
                               >
                                 <Typography.Text
                                   className={styles.cardTitle}
-                                  title={descriptionText || t("knowledge.inlineText")}
+                                  title={summaryText || t("knowledge.inlineText")}
                                 >
-                                  {descriptionText || t("knowledge.inlineText")}
+                                  {summaryText || t("knowledge.inlineText")}
                                 </Typography.Text>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {summaryKeywords.length > 0 ? (
+                            <div className={styles.infoSection}>
+                              <div className={styles.infoLabel}>
+                                {t("knowledge.table.keywords")}
+                              </div>
+                              <div className={styles.infoBlock}>
+                                <div className={styles.keywordList}>
+                                  {summaryKeywords.map((keyword) => (
+                                    <Tag key={`${record.id}-${keyword}`} className={styles.keywordTag}>
+                                      {keyword}
+                                    </Tag>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           ) : null}
@@ -1444,7 +1534,7 @@ function KnowledgePage() {
             location: "",
             content: "",
             tags: [],
-            description: "",
+            summary: "",
           }}
         >
           <Form.Item
@@ -1553,8 +1643,8 @@ function KnowledgePage() {
               </Typography.Text>
             </>
           )}
-          <Form.Item name="description" label={t("knowledge.form.description")}>
-            <Input placeholder={t("knowledge.form.descriptionPlaceholder")} />
+          <Form.Item name="summary" label={t("knowledge.form.summary")}>
+            <Input placeholder={t("knowledge.form.summaryPlaceholder")} />
           </Form.Item>
           <Form.Item name="enabled" valuePropName="checked">
             <Switch checkedChildren={t("knowledge.form.enabled")} unCheckedChildren={t("knowledge.form.disabled")} />
@@ -1609,7 +1699,7 @@ function KnowledgePage() {
           >
             <Form.Item
               label={t("agentConfig.autoCollectChatFiles")}
-              name="auto_collect_chat_files"
+              name="knowledge_auto_collect_chat_files"
               valuePropName="checked"
               tooltip={t("agentConfig.autoCollectChatFilesTooltip")}
             >
@@ -1617,7 +1707,7 @@ function KnowledgePage() {
             </Form.Item>
             <Form.Item
               label={t("agentConfig.autoCollectChatUrls")}
-              name="auto_collect_chat_urls"
+              name="knowledge_auto_collect_chat_urls"
               valuePropName="checked"
               tooltip={t("agentConfig.autoCollectChatUrlsTooltip")}
             >
@@ -1625,7 +1715,7 @@ function KnowledgePage() {
             </Form.Item>
             <Form.Item
               label={t("agentConfig.autoCollectLongText")}
-              name="auto_collect_long_text"
+              name="knowledge_auto_collect_long_text"
               valuePropName="checked"
               tooltip={t("agentConfig.autoCollectLongTextTooltip")}
             >
@@ -1633,7 +1723,7 @@ function KnowledgePage() {
             </Form.Item>
             <Form.Item
               label={t("agentConfig.longTextMinChars")}
-              name="long_text_min_chars"
+              name="knowledge_long_text_min_chars"
               rules={[
                 {
                   required: true,
@@ -1706,9 +1796,9 @@ function KnowledgePage() {
           <Space direction="vertical" size={12} className={styles.fullWidth}>
             {selectedSource.name?.trim() ? (
               <div className={styles.infoSection}>
-                <div className={styles.infoLabel}>{t("knowledge.table.title")}</div>
+                <div className={styles.infoLabel}>{t("knowledge.table.subject")}</div>
                 <div className={`${styles.infoBlock} ${styles.singleLineValue}`}>
-                  {selectedSource.name}
+                  {selectedSource.subject || selectedSource.name}
                 </div>
               </div>
             ) : null}
@@ -1716,9 +1806,24 @@ function KnowledgePage() {
             <div className={styles.infoSection}>
               <div className={styles.infoLabel}>{t("knowledge.table.source")}</div>
               <div className={styles.infoBlock}>
-                {selectedSource.description || t("knowledge.inlineText")}
+                {selectedSourceSummaryData.summary || t("knowledge.inlineText")}
               </div>
             </div>
+
+            {selectedSourceSummaryData.keywords.length > 0 ? (
+              <div className={styles.infoSection}>
+                <div className={styles.infoLabel}>{t("knowledge.table.keywords")}</div>
+                <div className={styles.infoBlock}>
+                  <div className={styles.keywordList}>
+                    {selectedSourceSummaryData.keywords.map((keyword) => (
+                      <Tag key={`drawer-${selectedSource.id}-${keyword}`} className={styles.keywordTag}>
+                        {keyword}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className={styles.detailTagRow}>
               <span className={styles.originTag}>{selectedSourceOriginText}</span>

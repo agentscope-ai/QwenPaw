@@ -215,8 +215,8 @@ class AgentRunner(Runner):
 
             try:
                 should_collect_user_assets = bool(
-                    getattr(running, "auto_collect_chat_files", False)
-                    or getattr(running, "auto_collect_chat_urls", True)
+                    getattr(running, "knowledge_auto_collect_chat_files", False)
+                    or getattr(running, "knowledge_auto_collect_chat_urls", True)
                 )
                 if should_collect_user_assets:
                     from ...knowledge import KnowledgeManager
@@ -340,8 +340,8 @@ class AgentRunner(Runner):
                 try:
                     running = config.agents.running
                     should_auto_collect = bool(
-                        getattr(running, "auto_collect_chat_files", False)
-                        or getattr(running, "auto_collect_long_text", False)
+                        getattr(running, "knowledge_auto_collect_chat_files", False)
+                        or getattr(running, "knowledge_auto_collect_long_text", False)
                     )
 
                     if should_auto_collect:
@@ -350,7 +350,7 @@ class AgentRunner(Runner):
                         manager = knowledge_manager or KnowledgeManager(WORKING_DIR)
 
                     should_auto_collect_text = bool(
-                        getattr(running, "auto_collect_long_text", False),
+                        getattr(running, "knowledge_auto_collect_long_text", False),
                     )
 
                     if should_auto_collect_text:

@@ -4,7 +4,8 @@ import styles from "../index.module.less";
 
 export function KnowledgeMaintenanceCard() {
   const { t } = useTranslation();
-  const autoCollectLongText = Form.useWatch("auto_collect_long_text");
+  const knowledgeEnabled = Form.useWatch("knowledge_enabled");
+  const autoCollectLongText = Form.useWatch("knowledge_auto_collect_long_text");
 
   return (
     <Card
@@ -13,35 +14,44 @@ export function KnowledgeMaintenanceCard() {
       style={{ marginTop: 16 }}
     >
       <Form.Item
+        label={t("agentConfig.knowledgeEnabled")}
+        name="knowledge_enabled"
+        valuePropName="checked"
+        tooltip={t("agentConfig.knowledgeEnabledTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
         label={t("agentConfig.autoCollectChatFiles")}
-        name="auto_collect_chat_files"
+        name="knowledge_auto_collect_chat_files"
         valuePropName="checked"
         tooltip={t("agentConfig.autoCollectChatFilesTooltip")}
       >
-        <Switch />
+        <Switch disabled={!knowledgeEnabled} />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.autoCollectChatUrls")}
-        name="auto_collect_chat_urls"
+        name="knowledge_auto_collect_chat_urls"
         valuePropName="checked"
         tooltip={t("agentConfig.autoCollectChatUrlsTooltip")}
       >
-        <Switch />
+        <Switch disabled={!knowledgeEnabled} />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.autoCollectLongText")}
-        name="auto_collect_long_text"
+        name="knowledge_auto_collect_long_text"
         valuePropName="checked"
         tooltip={t("agentConfig.autoCollectLongTextTooltip")}
       >
-        <Switch />
+        <Switch disabled={!knowledgeEnabled} />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.longTextMinChars")}
-        name="long_text_min_chars"
+        name="knowledge_long_text_min_chars"
         rules={[
           {
             required: true,
@@ -60,7 +70,7 @@ export function KnowledgeMaintenanceCard() {
           min={200}
           max={20000}
           step={100}
-          disabled={!autoCollectLongText}
+          disabled={!knowledgeEnabled || !autoCollectLongText}
           placeholder={t("agentConfig.longTextMinCharsPlaceholder")}
         />
       </Form.Item>
@@ -86,6 +96,7 @@ export function KnowledgeMaintenanceCard() {
           min={200}
           max={8000}
           step={100}
+          disabled={!knowledgeEnabled}
           placeholder={t("agentConfig.knowledgeChunkSizePlaceholder")}
         />
       </Form.Item>

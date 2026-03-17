@@ -13,9 +13,10 @@ export interface AgentsRunningConfig {
   memory_reserve_ratio: number;
   enable_tool_result_compact: boolean;
   tool_result_compact_keep_n: number;
-  auto_collect_chat_files: boolean;
-  auto_collect_chat_urls: boolean;
-  auto_collect_long_text: boolean;
-  long_text_min_chars: number;
+  knowledge_enabled: boolean;
+  knowledge_auto_collect_chat_files: boolean;
+  knowledge_auto_collect_chat_urls: boolean;
+  knowledge_auto_collect_long_text: boolean;
+  knowledge_long_text_min_chars: number;
   knowledge_chunk_size: number;
 }

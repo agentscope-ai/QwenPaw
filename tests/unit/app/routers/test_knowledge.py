@@ -34,42 +34,69 @@ def knowledge_api_client(tmp_path: Path, monkeypatch) -> TestClient:
     return TestClient(app)
 
 
-def test_upsert_source_auto_generates_description_when_empty(
+def test_upsert_source_auto_generates_summary_when_empty(
     knowledge_api_client: TestClient,
 ):
     response = knowledge_api_client.put(
         "/knowledge/sources",
         json={
-            "id": "text-auto-description",
+            "id": "text-auto-summary",
             "name": "Manual Name",
             "type": "text",
             "content": "Quarterly planning checklist and milestone review for the release train.",
             "enabled": True,
             "recursive": False,
             "tags": [],
-            "description": "",
+            "summary": "",
         },
     )
 
     assert response.status_code == 200
-    generated = response.json()["description"]
+    generated = response.json()["summary"]
     assert generated
 
 
-def test_upsert_source_title_prefers_description_over_content(
+def test_upsert_source_auto_summary_includes_keywords(
     knowledge_api_client: TestClient,
 ):
     response = knowledge_api_client.put(
         "/knowledge/sources",
         json={
-            "id": "text-title-from-description",
+            "id": "text-auto-keywords",
             "name": "Manual Name",
             "type": "text",
-            "content": "Very long internal content that should not be the direct title source.",
+            "content": (
+                "支付系统 风控规则 更新。"
+                "支付系统 对账流程 优化。"
+                "支付系统 异常告警 升级。"
+                "风控规则 每日巡检。"
+            ),
             "enabled": True,
             "recursive": False,
             "tags": [],
-            "description": "Release checklist summary for sprint handoff",
+            "summary": "",
+        },
+    )
+
+    assert response.status_code == 200
+    generated = response.json()["summary"]
+    assert "关键词:" in generated
+
+
+def test_upsert_source_subject_prefers_summary_over_content(
+    knowledge_api_client: TestClient,
+):
+    response = knowledge_api_client.put(
+        "/knowledge/sources",
+        json={
+            "id": "text-subject-from-summary",
+            "name": "Manual Name",
+            "type": "text",
+            "content": "Very long internal content that should not be the direct subject source.",
+            "enabled": True,
+            "recursive": False,
+            "tags": [],
+            "summary": "Release checklist summary for sprint handoff",
         },
     )
 
@@ -77,20 +104,20 @@ def test_upsert_source_title_prefers_description_over_content(
     assert response.json()["name"] == "Release checklist summary for sprint handoff"
 
 
-def test_list_sources_uses_auto_generated_titles_for_existing_config(
+def test_list_sources_uses_auto_generated_subjects_for_existing_config(
     knowledge_api_client: TestClient,
 ):
     put_response = knowledge_api_client.put(
         "/knowledge/sources",
         json={
-            "id": "url-auto-title",
+            "id": "url-auto-subject",
             "name": "Old URL Name",
             "type": "url",
             "location": "https://example.com/path/to/guide.html",
             "enabled": True,
             "recursive": False,
             "tags": ["remote"],
-            "description": "",
+            "summary": "",
         },
     )
     assert put_response.status_code == 200
@@ -99,6 +126,36 @@ def test_list_sources_uses_auto_generated_titles_for_existing_config(
     assert listing.status_code == 200
     source = listing.json()["sources"][0]
     assert source["name"] == "example.com/guide.html"
+
+
+def test_list_sources_returns_structured_summary_keywords(
+    knowledge_api_client: TestClient,
+):
+    put_response = knowledge_api_client.put(
+        "/knowledge/sources",
+        json={
+            "id": "text-structured-fields",
+            "name": "Manual Name",
+            "type": "text",
+            "content": (
+                "支付系统 风控规则 更新。"
+                "支付系统 对账流程 优化。"
+                "支付系统 异常告警 升级。"
+            ),
+            "enabled": True,
+            "recursive": False,
+            "tags": [],
+            "summary": "",
+        },
+    )
+    assert put_response.status_code == 200
+
+    listing = knowledge_api_client.get("/knowledge/sources")
+    assert listing.status_code == 200
+    source = listing.json()["sources"][0]
+    assert isinstance(source.get("subject"), str)
+    assert isinstance(source.get("summary"), str)
+    assert isinstance(source.get("keywords"), list)
 
 
 def test_history_backfill_status_includes_progress(
@@ -136,6 +193,7 @@ def test_clear_knowledge_removes_sources_and_indexes(
     tmp_path: Path,
 ):
     config_payload = Config().knowledge.model_dump(mode="json")
+    config_payload["enabled"] = True
     config_payload["sources"] = [
         {
             "id": "clear-1",
@@ -146,7 +204,7 @@ def test_clear_knowledge_removes_sources_and_indexes(
             "enabled": True,
             "recursive": False,
             "tags": [],
-            "description": "",
+            "summary": "",
         }
     ]
     saved = knowledge_api_client.put("/knowledge/config", json=config_payload)
@@ -230,6 +288,48 @@ def test_get_memify_job_status_success(
     assert payload["status"] in {"succeeded", "failed"}
 
 
+def test_put_knowledge_config_syncs_running_toggle_and_module_skill(
+    knowledge_api_client: TestClient,
+    monkeypatch,
+):
+    sync_calls: list[bool] = []
+    monkeypatch.setattr(
+        knowledge_router_module,
+        "sync_knowledge_module_skills",
+        lambda enabled: sync_calls.append(enabled),
+    )
+
+    config_payload = Config().knowledge.model_dump(mode="json")
+    config_payload["enabled"] = False
+
+    response = knowledge_api_client.put("/knowledge/config", json=config_payload)
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+    assert sync_calls == [False]
+
+
+def test_put_knowledge_config_does_not_resync_module_skill_when_toggle_unchanged(
+    knowledge_api_client: TestClient,
+    monkeypatch,
+):
+    sync_calls: list[bool] = []
+    monkeypatch.setattr(
+        knowledge_router_module,
+        "sync_knowledge_module_skills",
+        lambda enabled: sync_calls.append(enabled),
+    )
+
+    config_payload = Config().knowledge.model_dump(mode="json")
+    config_payload["enabled"] = True
+
+    response = knowledge_api_client.put("/knowledge/config", json=config_payload)
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert sync_calls == []
+
+
 def _build_knowledge_zip(entries: dict[str, str]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -249,7 +349,7 @@ def _source_index_payload(source_id: str, content: str = "knowledge text") -> st
             "enabled": True,
             "recursive": False,
             "tags": [],
-            "description": "",
+            "summary": "",
         },
         "documents": [
             {

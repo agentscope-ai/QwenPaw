@@ -217,6 +217,44 @@ def _collect_skills_from_dir(directory: Path) -> dict[str, Path]:
     return skills
 
 
+def sync_skill_dir_to_active(
+    skill_dir: Path,
+    force: bool = False,
+) -> bool:
+    """Sync a single skill directory into active_skills."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_dir.is_dir() or not skill_md.exists():
+        logger.warning("Skill directory is invalid or missing SKILL.md: %s", skill_dir)
+        return False
+
+    active_skills = get_active_skills_dir()
+    active_skills.mkdir(parents=True, exist_ok=True)
+
+    target_dir = active_skills / skill_dir.name
+    if target_dir.exists():
+        if _directories_match_ignoring_runtime_artifacts(skill_dir, target_dir):
+            return True
+        if not force:
+            logger.debug(
+                "Skill '%s' already exists in active_skills with different content, skipping.",
+                skill_dir.name,
+            )
+            return False
+        shutil.rmtree(target_dir)
+
+    try:
+        shutil.copytree(skill_dir, target_dir)
+        logger.debug("Synced skill '%s' to active_skills.", skill_dir.name)
+        return True
+    except Exception as e:
+        logger.error(
+            "Failed to sync skill directory '%s' to active_skills: %s",
+            skill_dir,
+            e,
+        )
+        return False
+
+
 def sync_skills_to_working_dir(
     skill_names: list[str] | None = None,
     force: bool = False,
@@ -280,17 +318,12 @@ def sync_skills_to_working_dir(
 
         # Copy skill directory
         try:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            shutil.copytree(skill_dir, target_dir)
-            logger.debug("Synced skill '%s' to active_skills.", skill_name)
-            synced_count += 1
+            if sync_skill_dir_to_active(skill_dir, force=True):
+                synced_count += 1
+            else:
+                skipped_count += 1
         except Exception as e:
-            logger.error(
-                "Failed to sync skill '%s': %s",
-                skill_name,
-                e,
-            )
+            logger.error("Failed to sync skill '%s': %s", skill_name, e)
 
     return synced_count, skipped_count
 

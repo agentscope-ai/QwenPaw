@@ -51,6 +51,15 @@ async def knowledge_search(
                     ),
                 ],
             )
+        if not bool(getattr(config.agents.running, "knowledge_enabled", True)):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="Knowledge is disabled in agent runtime configuration.",
+                    ),
+                ],
+            )
         if not bool(
             getattr(
                 getattr(config, "agents", None),

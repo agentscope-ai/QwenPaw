@@ -20,8 +20,23 @@ from ...config import load_config, save_config
 from ...config.config import KnowledgeConfig, KnowledgeSourceSpec
 from ...constant import WORKING_DIR
 from ...knowledge import GraphOpsManager, KnowledgeManager
+from ...knowledge.module_skills import sync_knowledge_module_skills
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+
+
+def _knowledge_runtime_enabled(config) -> bool:
+    running = getattr(getattr(config, "agents", None), "running", None)
+    return bool(getattr(running, "knowledge_enabled", True))
+
+
+def _knowledge_effective_enabled(config) -> bool:
+    return _knowledge_runtime_enabled(config)
+
+
+def _ensure_knowledge_enabled(config) -> None:
+    if not _knowledge_effective_enabled(config):
+        raise HTTPException(status_code=400, detail="KNOWLEDGE_DISABLED")
 
 
 def _zip_path(path) -> io.BytesIO:
@@ -96,7 +111,11 @@ async def put_knowledge_config(
     knowledge_config: KnowledgeConfig = Body(...),
 ) -> KnowledgeConfig:
     config = load_config()
+    previous_enabled = bool(getattr(config.agents.running, "knowledge_enabled", True))
     config.knowledge = knowledge_config
+    config.agents.running.knowledge_enabled = knowledge_config.enabled
+    if previous_enabled != knowledge_config.enabled:
+        sync_knowledge_module_skills(knowledge_config.enabled)
     save_config(config)
     return config.knowledge
 
@@ -105,7 +124,7 @@ async def put_knowledge_config(
 async def list_sources():
     config = load_config()
     return {
-        "enabled": config.knowledge.enabled,
+        "enabled": _knowledge_effective_enabled(config),
         "sources": _manager().list_sources(config.knowledge),
     }
 
@@ -115,6 +134,7 @@ async def upsert_source(
     source: KnowledgeSourceSpec = Body(...),
 ) -> KnowledgeSourceSpec:
     config = load_config()
+    _ensure_knowledge_enabled(config)
     manager = _manager()
     source = manager.normalize_source_name(source, config.knowledge)
     existing = _find_source(config.knowledge, source.id)
@@ -170,6 +190,7 @@ async def upload_knowledge_directory(
 @router.delete("/sources/{source_id}")
 async def delete_source(source_id: str):
     config = load_config()
+    _ensure_knowledge_enabled(config)
     source = _find_source(config.knowledge, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
@@ -191,6 +212,7 @@ async def clear_knowledge(
         raise HTTPException(status_code=400, detail="KNOWLEDGE_CLEAR_CONFIRM_REQUIRED")
 
     config = load_config()
+    _ensure_knowledge_enabled(config)
     result = _manager().clear_knowledge(
         config.knowledge,
         remove_sources=remove_sources,
@@ -202,6 +224,7 @@ async def clear_knowledge(
 @router.post("/sources/{source_id}/index")
 async def index_source(source_id: str):
     config = load_config()
+    _ensure_knowledge_enabled(config)
     source = _find_source(config.knowledge, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
@@ -230,6 +253,7 @@ async def get_source_content(source_id: str):
 @router.post("/index")
 async def index_all_sources():
     config = load_config()
+    _ensure_knowledge_enabled(config)
     try:
         return _manager().index_all(config.knowledge, config.agents.running)
     except (FileNotFoundError, ValueError, OSError) as exc:
@@ -246,6 +270,7 @@ async def search_knowledge(
     source_types: Optional[str] = Query(default=None),
 ):
     config = load_config()
+    _ensure_knowledge_enabled(config)
     ids = [item for item in (source_ids or "").split(",") if item]
     types = [item for item in (source_types or "").split(",") if item]
     return _manager().search(
@@ -267,13 +292,14 @@ async def get_history_backfill_status():
 async def run_history_backfill_now():
     """Run history backfill immediately regardless of runtime auto-backfill toggle."""
     config = load_config()
+    _ensure_knowledge_enabled(config)
     manager = _manager()
     running = config.agents.running
     force_running = SimpleNamespace(
-        auto_collect_chat_files=running.auto_collect_chat_files,
-        auto_collect_chat_urls=running.auto_collect_chat_urls,
-        auto_collect_long_text=running.auto_collect_long_text,
-        long_text_min_chars=running.long_text_min_chars,
+        knowledge_auto_collect_chat_files=running.knowledge_auto_collect_chat_files,
+        knowledge_auto_collect_chat_urls=running.knowledge_auto_collect_chat_urls,
+        knowledge_auto_collect_long_text=running.knowledge_auto_collect_long_text,
+        knowledge_long_text_min_chars=running.knowledge_long_text_min_chars,
         knowledge_chunk_size=running.knowledge_chunk_size,
     )
     result = await asyncio.to_thread(
@@ -297,6 +323,7 @@ async def get_memify_job_status(job_id: str):
         raise HTTPException(status_code=400, detail="MEMIFY_JOB_ID_REQUIRED")
 
     config = load_config()
+    _ensure_knowledge_enabled(config)
     if not config.knowledge.enabled:
         raise HTTPException(status_code=400, detail="KNOWLEDGE_DISABLED")
     if not bool(getattr(config.knowledge, "memify_enabled", False)):
