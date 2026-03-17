@@ -27,6 +27,16 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
+_httpx_retryable: tuple[type[Exception], ...] | None = None
+
+# Python built-in exceptions that indicate transient network problems.
+# These cover cases where the SDK does not wrap the underlying error
+# (e.g. a VPN/proxy disconnect during streaming).
+_BUILTIN_NETWORK_ERRORS: tuple[type[Exception], ...] = (
+    ConnectionError,  # includes ConnectionResetError
+    TimeoutError,
+    OSError,  # network unreachable, broken pipe, etc.
+)
 
 
 def _get_openai_retryable() -> tuple[type[Exception], ...]:
@@ -61,14 +71,56 @@ def _get_anthropic_retryable() -> tuple[type[Exception], ...]:
     return _anthropic_retryable
 
 
-def _is_retryable(exc: Exception) -> bool:
-    """Return *True* if *exc* should trigger a retry."""
-    retryable = _get_openai_retryable() + _get_anthropic_retryable()
-    if retryable and isinstance(exc, retryable):
-        return True
+def _get_httpx_retryable() -> tuple[type[Exception], ...]:
+    """Return httpx exception types that indicate transient network issues.
 
+    These exceptions are raised when the HTTP transport layer encounters
+    problems such as a peer closing the connection mid-stream, a read
+    timeout, or a connect timeout.  They are particularly common in
+    environments with VPN/proxy instability.
+    """
+    global _httpx_retryable  # noqa: PLW0603
+    if _httpx_retryable is None:
+        try:
+            import httpx  # noqa: PLC0415
+
+            _httpx_retryable = (
+                httpx.RemoteProtocolError,
+                httpx.ReadTimeout,
+                httpx.ConnectTimeout,
+                httpx.ConnectError,
+                httpx.ReadError,
+            )
+        except ImportError:
+            _httpx_retryable = ()
+    return _httpx_retryable
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return *True* if *exc* should trigger a retry.
+
+    Checks for two types of retryable conditions:
+    1. **HTTP status codes**: Checks if the exception has a ``status_code``
+       attribute that is in the set of retryable codes (429, 5xx).
+    2. **Exception type**: Checks if the exception is an instance of a known
+       transient error from provider SDKs (OpenAI, Anthropic), the ``httpx``
+       transport layer, or Python's built-in network exceptions
+       (``ConnectionError``, ``TimeoutError``, etc.).
+    """
+    # First, check for retryable status codes, as this is a common
+    # and explicit signal from APIs.
     status = getattr(exc, "status_code", None)
     if status is not None and status in RETRYABLE_STATUS_CODES:
+        return True
+
+    # Next, check against a combined list of retryable exception types.
+    retryable_exc_types = (
+        _get_openai_retryable()
+        + _get_anthropic_retryable()
+        + _get_httpx_retryable()
+        + _BUILTIN_NETWORK_ERRORS
+    )
+    if retryable_exc_types and isinstance(exc, retryable_exc_types):
         return True
 
     return False
