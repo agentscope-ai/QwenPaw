@@ -11,7 +11,7 @@ Example:
 
 
 import logging
-from typing import Sequence, Tuple, Type, Any
+from typing import List, Sequence, Tuple, Type, Any, Union
 from functools import wraps
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
@@ -101,6 +101,7 @@ def _get_formatter_for_chat_model(
     )
 
 
+# pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
 ) -> Type[FormatterBase]:
@@ -199,7 +200,7 @@ def _create_file_block_support_formatter(
 
         @staticmethod
         def convert_tool_result_to_string(
-            output: str | list[dict],
+            output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
             """Extend parent class to support file blocks.
 
