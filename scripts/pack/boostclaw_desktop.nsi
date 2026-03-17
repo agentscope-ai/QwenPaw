@@ -1,4 +1,4 @@
-; boostpaw desktop NSIS installer. Run makensis from repo root after
+; boostclaw desktop NSIS installer. Run makensis from repo root after
 ; building dist/win-unpacked (see scripts/pack/build_win.ps1).
 ; Usage: makensis /DCOPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\boostpaw-setup-1.2.3.exe scripts\pack\copaw_desktop.nsi
 

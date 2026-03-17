@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -26,6 +27,7 @@ DEFAULT_PROBOOST_COUNTRY_CODE_LABEL_KEYS = {
 }
 DEFAULT_PROBOOST_REFERER = "https://proboost.microdata-inc.com/login"
 PROBOOST_TIMEOUT = 20.0
+logger = logging.getLogger(__name__)
 
 
 def _trim_trailing_slash(value: str) -> str:
@@ -142,20 +144,31 @@ def _build_proboost_headers(request: Request) -> dict[str, str]:
     authorization = request.headers.get("authorization", "").strip()
 
     # Upstream transport defaults are backend-owned so browser config stays minimal.
-    return {
-        "Authorization": authorization or "Bearer undefined",
+    headers = {
         "Content-Type": "application/json",
         "Origin": PROBOOST_ORIGIN,
         "Referer": PROBOOST_REFERER,
         "language": PROBOOST_LANGUAGE,
     }
+    if authorization:
+        headers["Authorization"] = authorization
+    return headers
 
 
 def _build_proboost_payload(payload: BaseModel) -> dict[str, Any]:
-    data = payload.model_dump(mode="json")
+    data = payload.model_dump(mode="json", exclude_none=True)
     # `webSiteId` is injected here instead of being supplied by the browser.
     data["webSiteId"] = PROBOOST_WEBSITE_ID
     return data
+
+
+def _mask_phone(phone: Any) -> str:
+    if not isinstance(phone, str):
+        return ""
+    value = phone.strip()
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{'*' * (len(value) - 4)}{value[-4:]}"
 
 
 @router.get("/meta")
@@ -193,6 +206,17 @@ async def _proxy_auth_request(
             status_code=502,
             detail="ProBoost auth service returned invalid JSON",
         ) from exc
+
+    if path == "/user/auth/sendSmsCode":
+        logger.info(
+            "ProBoost sendSmsCode result status=%s headers=%s response=%s countryCode=%s phone=%s webSiteId=%s",
+            response.status_code,
+            dict(response.headers),
+            data,
+            getattr(payload, "countryCode", None),
+            _mask_phone(getattr(payload, "phone", "")),
+            PROBOOST_WEBSITE_ID,
+        )
 
     return JSONResponse(status_code=response.status_code, content=data)
 

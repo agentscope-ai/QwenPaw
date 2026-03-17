@@ -15,13 +15,26 @@ import type {
   VerifySmsCodePayload,
 } from "./types";
 
+function formatProBoostErrorMessage(
+  msg?: string | null,
+  code?: string | null,
+): string {
+  const text = msg?.trim() || "Request failed";
+  if (code && code !== "0") {
+    return `${text} (code: ${code})`;
+  }
+  return text;
+}
+
 function buildHeaders(): Headers {
   const headers = new Headers({
     "Content-Type": "application/json",
   });
 
   const token = getStoredAuthToken();
-  headers.set("Authorization", `Bearer ${token || "undefined"}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   return headers;
 }
 
@@ -113,12 +126,14 @@ async function postJson<T>(path: string, body: unknown): Promise<ProBoostRespons
 
   if (!response.ok || !json) {
     throw new Error(
-      json?.msg || `Request failed: ${response.status} ${response.statusText}`,
+      json
+        ? formatProBoostErrorMessage(json.msg, json.code)
+        : `Request failed: ${response.status} ${response.statusText}`,
     );
   }
 
   if (!json.success || json.code !== "0") {
-    throw new Error(json.msg || "Request failed");
+    throw new Error(formatProBoostErrorMessage(json.msg, json.code));
   }
 
   return json;

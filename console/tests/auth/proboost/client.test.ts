@@ -121,5 +121,29 @@ describe("proboost auth metadata client", () => {
       }),
     );
   });
+
+  it("includes upstream error code in thrown message for business failures", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({
+        success: false,
+        code: "100101107",
+        msg: "短信发送异常",
+        data: null,
+      }),
+    } as Response);
+
+    await expect(
+      sendSmsCode({
+        countryCode: "+86",
+        phone: "13800138000",
+        channelCode: null,
+        deepSeekChannelCode: null,
+      }),
+    ).rejects.toThrow("短信发送异常 (code: 100101107)");
+  });
 });
 

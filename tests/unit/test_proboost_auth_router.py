@@ -81,13 +81,13 @@ class ProBoostAuthRouterTests(unittest.TestCase):
         self.assertEqual(headers["Referer"], "https://proboost.microdata-inc.com/login")
         self.assertEqual(headers["Content-Type"], "application/json")
 
-    def test_build_proboost_headers_falls_back_to_default_auth(self) -> None:
+    def test_build_proboost_headers_omits_authorization_when_missing(self) -> None:
         module = load_module()
         request = make_request()
 
         headers = module._build_proboost_headers(request)
 
-        self.assertEqual(headers["Authorization"], "Bearer undefined")
+        self.assertNotIn("Authorization", headers)
         self.assertEqual(headers["language"], "zh_CN")
 
     def test_build_proboost_payload_injects_backend_website_id(self) -> None:
@@ -106,6 +106,26 @@ class ProBoostAuthRouterTests(unittest.TestCase):
                 "countryCode": "+81",
                 "phone": "12345678",
                 "password": "secret",
+                "webSiteId": "1",
+            },
+        )
+
+    def test_build_proboost_payload_excludes_none_fields(self) -> None:
+        module = load_module()
+        payload = module.SendSmsCodePayload(
+            countryCode="+86",
+            phone="13800138000",
+            channelCode=None,
+            deepSeekChannelCode=None,
+        )
+
+        data = module._build_proboost_payload(payload)
+
+        self.assertEqual(
+            data,
+            {
+                "countryCode": "+86",
+                "phone": "13800138000",
                 "webSiteId": "1",
             },
         )
@@ -167,6 +187,13 @@ class ProBoostAuthRouterTests(unittest.TestCase):
                 ],
             },
         )
+
+    def test_mask_phone_keeps_only_last_four_digits(self) -> None:
+        module = load_module()
+
+        self.assertEqual(module._mask_phone("13800138000"), "*******8000")
+        self.assertEqual(module._mask_phone("1234"), "****")
+        self.assertEqual(module._mask_phone(None), "")
 
 
 if __name__ == "__main__":
