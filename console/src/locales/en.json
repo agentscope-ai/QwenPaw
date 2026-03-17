@@ -739,7 +739,14 @@
       "allParams": "All parameters",
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "Detects 'rm' command that may cause data loss",
-        "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly"
+        "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly",
+        "TOOL_CMD_FS_DESTRUCTION": "Detects low-level disk formatting or wiping commands",
+        "TOOL_CMD_DOS_FORK_BOMB": "Detects classic Bash fork bombs and mass process termination",
+        "TOOL_CMD_PIPE_TO_SHELL": "Detects 'curl | bash' patterns used to download and immediately execute remote payloads",
+        "TOOL_CMD_REVERSE_SHELL": "Detects attempts to establish reverse shells or unauthorized network tunnels",
+        "TOOL_CMD_SYSTEM_TAMPERING": "Detects access to cron jobs, SSH keys, or sudo permissions (including reads and modifications)",
+        "TOOL_CMD_UNSAFE_PERMISSIONS": "Detects global permission downgrades (chmod 777) or setting immutable flags",
+        "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter"
       }
     },
     "skillScanner": {

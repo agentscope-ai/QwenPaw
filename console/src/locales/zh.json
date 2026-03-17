@@ -705,7 +705,14 @@
       "allParams": "所有参数",
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "检测可能导致数据丢失的 rm 命令",
-        "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令"
+        "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令",
+        "TOOL_CMD_FS_DESTRUCTION": "检测低级别磁盘格式化或擦除命令",
+        "TOOL_CMD_DOS_FORK_BOMB": "检测经典 Bash Fork 炸弹和批量进程终止",
+        "TOOL_CMD_PIPE_TO_SHELL": "检测通过 'curl | bash' 模式下载并立即执行远程载荷的行为",
+        "TOOL_CMD_REVERSE_SHELL": "检测建立反向 Shell 或未授权网络隧道的行为",
+        "TOOL_CMD_SYSTEM_TAMPERING": "检测对定时任务、SSH 密钥或 sudo 权限的访问（包括读取和修改）",
+        "TOOL_CMD_UNSAFE_PERMISSIONS": "检测全局权限降级（chmod 777）或设置不可变标志的操作",
+        "TOOL_CMD_OBFUSCATED_EXEC": "检测将 base64 编码字符串直接传递给 Shell 解释器执行的行为"
       }
     },
     "skillScanner": {

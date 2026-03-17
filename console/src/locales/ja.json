@@ -691,7 +691,14 @@
       "allParams": "すべてのパラメータ",
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "データ損失を引き起こす可能性のある rm コマンドを検出",
-        "TOOL_CMD_DANGEROUS_MV": "ファイルを意図せず移動・上書きする可能性のある mv コマンドを検出"
+        "TOOL_CMD_DANGEROUS_MV": "ファイルを意図せず移動・上書きする可能性のある mv コマンドを検出",
+        "TOOL_CMD_FS_DESTRUCTION": "低レベルのディスクフォーマットまたはワイプコマンドを検出",
+        "TOOL_CMD_DOS_FORK_BOMB": "Bash フォーク爆弾および大量プロセス終了を検出",
+        "TOOL_CMD_PIPE_TO_SHELL": "リモートペイロードをダウンロードして即座に実行する 'curl | bash' パターンを検出",
+        "TOOL_CMD_REVERSE_SHELL": "リバースシェルまたは不正なネットワークトンネルの確立を検出",
+        "TOOL_CMD_SYSTEM_TAMPERING": "cron ジョブ、SSH キー、sudo 権限へのアクセス（読み取り・変更を含む）を検出",
+        "TOOL_CMD_UNSAFE_PERMISSIONS": "グローバル権限の引き下げ（chmod 777）や不変フラグの設定を検出",
+        "TOOL_CMD_OBFUSCATED_EXEC": "base64 エンコード文字列をシェルインタプリタに直接渡して実行する操作を検出"
       }
     },
     "skillScanner": {
