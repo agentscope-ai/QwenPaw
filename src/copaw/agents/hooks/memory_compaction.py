@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from agentscope.agent import ReActAgent
+from agentscope.message import Msg, TextBlock
 from copaw.constant import MEMORY_COMPACT_KEEP_RECENT
 
 from ..utils import (
@@ -160,10 +161,34 @@ class MemoryCompactionHook:
                 messages=messages_to_compact,
             )
 
+            # Print start message
+            start_msg = Msg(
+                name=agent.name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text", text="🔄 Context compaction started..."
+                    )
+                ],
+            )
+            await agent.print(start_msg)
+
             compact_content = await self.memory_manager.compact_memory(
                 messages=messages_to_compact,
                 previous_summary=memory.get_compressed_summary(),
             )
+
+            # Print result message
+            result_msg = Msg(
+                name=agent.name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text", text="✅ Context compaction completed"
+                    )
+                ],
+            )
+            await agent.print(result_msg)
 
             await agent.memory.update_compressed_summary(compact_content)
             updated_count = await memory.mark_messages_compressed(

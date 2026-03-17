@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_copaw_token_counter
@@ -128,9 +128,9 @@ class MemoryManager(ReMeLight):
         if vector_enabled:
             logger.info(
                 f"Vector search enabled. "
-                f"embedding_api_key={embedding_api_key[:5]}..."
-                f"embedding_model_name={embedding_model_name}"
-                f"embedding_base_url={embedding_base_url}",
+                f"embedding_api_key={embedding_api_key[:5]}... "
+                f"embedding_model_name={embedding_model_name} "
+                f"embedding_base_url={embedding_base_url} ",
             )
         else:
             logger.warning(
@@ -287,6 +287,8 @@ class MemoryManager(ReMeLight):
         Returns:
             str: Comprehensive summary of the messages
         """
+        self.prepare_model_formatter()
+
         return await super().summary_memory(
             messages=messages,
             as_llm=self.chat_model,
@@ -296,6 +298,17 @@ class MemoryManager(ReMeLight):
             language=self._language,
             max_input_length=self._max_input_length,
             compact_ratio=self._memory_compact_ratio,
+        )
+
+    async def memory_search(self, query: str, max_results: int = 5, min_score: float = 0.1) -> ToolResponse:
+        if not self._started:
+            logger.warning("Application has not been started, report issue to github!")
+            await self.start()
+
+        return await super().memory_search(
+            query=query,
+            max_results=max_results,
+            min_score=min_score,
         )
 
     def get_in_memory_memory(self, **_kwargs):
