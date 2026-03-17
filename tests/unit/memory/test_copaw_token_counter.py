@@ -11,20 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 from unittest.mock import MagicMock
 from copaw.agents.utils.copaw_token_counter import (
     CopawTokenCounter,
     _get_copaw_token_counter,
 )
 import copaw.agents.utils.copaw_token_counter as token_counter_module
-
-
-# Mock google.genai before importing copaw modules
-sys.modules["google"] = type(sys)("google")
-sys.modules["google.genai"] = type(sys)("google.genai")
-sys.modules["google.genai.errors"] = type(sys)("google.genai.errors")
-sys.modules["google.genai.types"] = type(sys)("google.genai.types")
 
 
 def _create_mock_agent_config(
