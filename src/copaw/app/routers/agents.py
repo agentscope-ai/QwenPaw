@@ -181,7 +181,7 @@ async def create_agent(
         workspace_dir=str(workspace_dir),
         language=request.language,
         channels=ChannelConfig(),
-        mcp=MCPConfig(clients={}),
+        mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
     )

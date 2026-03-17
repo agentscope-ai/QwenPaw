@@ -106,6 +106,7 @@
   },
   "agent": {
     "management": "Agent Management",
+    "pageDescription": "Create, configure, and manage multiple AI agents with custom workspaces and identities.",
     "name": "Name",
     "id": "ID",
     "description": "Description",
@@ -655,6 +656,14 @@
     "tutorial": "Tutorial",
     "faq": "FAQ",
     "github": "GitHub"
+  },
+  "theme": {
+    "dark": "Dark",
+    "light": "Light",
+    "darkMode": "Dark mode",
+    "lightMode": "Light mode",
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode"
   },
   "sidebar": {
     "newVersion": "New version available: v{{version}}, click to upgrade",

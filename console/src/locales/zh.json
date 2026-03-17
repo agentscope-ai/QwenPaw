@@ -72,6 +72,7 @@
   },
   "agent": {
     "management": "智能体管理",
+    "pageDescription": "创建、配置和管理多个 AI 智能体，支持自定义工作空间和身份。",
     "name": "名称",
     "id": "ID",
     "description": "描述",
@@ -621,6 +622,14 @@
     "tutorial": "教程",
     "faq": "常见问题",
     "github": "GitHub"
+  },
+  "theme": {
+    "dark": "深色",
+    "light": "浅色",
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "switchToDark": "切换到深色模式",
+    "switchToLight": "切换到浅色模式"
   },
   "sidebar": {
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
