@@ -147,15 +147,7 @@ export const useAgentsData = () => {
   const fetchDailyMemories = async () => {
     try {
       const memoryList = await agentsApi.listAgentMemory(selectedAgent);
-      const formattedList = memoryList.map((file) => {
-        const date = file.filename.replace(".md", "");
-        return {
-          ...file,
-          date,
-          updated_at: new Date(file.modified_time).getTime(),
-        } as DailyMemoryFile;
-      });
-      setDailyMemories(formattedList);
+      setDailyMemories(memoryList);
     } catch (error) {
       console.error("Failed to fetch daily memories", error);
       message.error("Failed to load memory list");
