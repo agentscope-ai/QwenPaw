@@ -29,7 +29,8 @@ export function useAgents(): UseAgentsReturn {
       updateStoreAgents(data.agents);
     } catch (err) {
       console.error("Failed to load agents:", err);
-      const errorMsg = err instanceof Error ? err : new Error(t("agent.loadFailed"));
+      const errorMsg =
+        err instanceof Error ? err : new Error(t("agent.loadFailed"));
       setError(errorMsg);
       message.error(t("agent.loadFailed"));
     } finally {

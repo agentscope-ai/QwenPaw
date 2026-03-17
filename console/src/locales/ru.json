@@ -613,6 +613,14 @@
     "faq": "FAQ",
     "github": "GitHub"
   },
+  "theme": {
+    "dark": "Тёмная",
+    "light": "Светлая",
+    "darkMode": "Тёмный режим",
+    "lightMode": "Светлый режим",
+    "switchToDark": "Переключить на тёмный режим",
+    "switchToLight": "Переключить на светлый режим"
+  },
   "sidebar": {
     "newVersion": "Доступна новая версия: v{{version}}, нажмите для обновления",
     "updateModal": {

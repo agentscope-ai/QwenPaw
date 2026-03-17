@@ -69,16 +69,14 @@ export default function AgentsPage() {
       <PageHeader
         title={t("agent.management")}
         description={t("agent.pageDescription")}
-      />
-
-      <Card
-        className={styles.tableCard}
-        extra={
+        action={
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             {t("agent.create")}
           </Button>
         }
-      >
+      />
+
+      <Card className={styles.tableCard}>
         <AgentTable
           agents={agents}
           loading={loading}

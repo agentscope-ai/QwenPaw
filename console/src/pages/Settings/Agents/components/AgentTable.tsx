@@ -3,6 +3,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
 import type { AgentSummary } from "../../../api/types/agents";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 interface AgentTableProps {
@@ -19,6 +20,12 @@ export function AgentTable({
   onDelete,
 }: AgentTableProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
+
+  // Inline style for disabled buttons — CSS cannot reliably override AntD's disabled styles
+  const disabledStyle: React.CSSProperties = isDark
+    ? { color: "rgba(255,255,255,0.35)", opacity: 1 }
+    : {};
 
   const columns: ColumnsType<AgentSummary> = [
     {
@@ -61,6 +68,7 @@ export function AgentTable({
             icon={<EditOutlined />}
             onClick={() => onEdit(record)}
             disabled={record.id === "default"}
+            style={record.id === "default" ? disabledStyle : undefined}
             title={
               record.id === "default"
                 ? t("agent.defaultNotEditable")
@@ -83,6 +91,7 @@ export function AgentTable({
               danger
               icon={<DeleteOutlined />}
               disabled={record.id === "default"}
+              style={record.id === "default" ? disabledStyle : undefined}
               title={
                 record.id === "default"
                   ? t("agent.defaultNotDeletable")
@@ -106,8 +115,7 @@ export function AgentTable({
         rowKey="id"
         pagination={{
           pageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => t("common.total", { count: total }),
+          showSizeChanger: false,
         }}
       />
     </div>

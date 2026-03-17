@@ -9,6 +9,7 @@ import {
   message,
   Tooltip,
   Empty,
+  Tabs,
 } from "@agentscope-ai/design";
 import { Select, Space } from "antd";
 import { Trash2, ShieldCheck, Eye } from "lucide-react";
@@ -312,17 +313,6 @@ export function SkillScannerSection() {
 
   return (
     <>
-      <div className={styles.sectionHeader} style={{ marginTop: 40 }}>
-        <div>
-          <h2 className={styles.sectionTitle}>
-            {t("security.skillScanner.title")}
-          </h2>
-          <p className={styles.description}>
-            {t("security.skillScanner.description")}
-          </p>
-        </div>
-      </div>
-
       <Card className={styles.formCard}>
         <div className={styles.skillScannerConfig}>
           <div className={styles.skillScannerConfigItem}>
@@ -367,56 +357,78 @@ export function SkillScannerSection() {
         </div>
       </Card>
 
-      {/* Scan Alerts */}
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>
-          {t("security.skillScanner.scanAlerts.title")}
-        </h2>
-        {blockedHistory.length > 0 && (
-          <Button size="small" danger onClick={handleClearHistory}>
-            {t("security.skillScanner.scanAlerts.clearAll")}
-          </Button>
-        )}
-      </div>
-
-      <Card className={styles.tableCard}>
-        {blockedHistory.length === 0 ? (
-          <div className={styles.emptyState}>
-            <Empty description={t("security.skillScanner.scanAlerts.empty")} />
-          </div>
-        ) : (
-          <Table
-            dataSource={blockedHistory}
-            columns={blockedColumns}
-            rowKey={(_, idx) => String(idx)}
-            pagination={false}
-            size="small"
-          />
-        )}
-      </Card>
-
-      {/* Whitelist */}
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>
-          {t("security.skillScanner.whitelist.title")}
-        </h2>
-      </div>
-
-      <Card className={styles.tableCard}>
-        {whitelist.length === 0 ? (
-          <div className={styles.emptyState}>
-            <Empty description={t("security.skillScanner.whitelist.empty")} />
-          </div>
-        ) : (
-          <Table
-            dataSource={whitelist}
-            columns={whitelistColumns}
-            rowKey="skill_name"
-            pagination={false}
-            size="small"
-          />
-        )}
-      </Card>
+      <Tabs
+        className={styles.innerTabs}
+        items={[
+          {
+            key: "scanAlerts",
+            label: (
+              <span>
+                {t("security.skillScanner.scanAlerts.title")}
+                {blockedHistory.length > 0 && (
+                  <span className={styles.tabBadge}>{blockedHistory.length}</span>
+                )}
+              </span>
+            ),
+            children: (
+              <div className={styles.tabPanelContent}>
+                {blockedHistory.length > 0 && (
+                  <div className={styles.tabPanelHeader}>
+                    <Button size="small" danger onClick={handleClearHistory}>
+                      {t("security.skillScanner.scanAlerts.clearAll")}
+                    </Button>
+                  </div>
+                )}
+                <Card className={styles.tableCard}>
+                  {blockedHistory.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <Empty description={t("security.skillScanner.scanAlerts.empty")} />
+                    </div>
+                  ) : (
+                    <Table
+                      dataSource={blockedHistory}
+                      columns={blockedColumns}
+                      rowKey={(_, idx) => String(idx)}
+                      pagination={false}
+                      size="small"
+                    />
+                  )}
+                </Card>
+              </div>
+            ),
+          },
+          {
+            key: "whitelist",
+            label: (
+              <span>
+                {t("security.skillScanner.whitelist.title")}
+                {whitelist.length > 0 && (
+                  <span className={styles.tabBadge}>{whitelist.length}</span>
+                )}
+              </span>
+            ),
+            children: (
+              <div className={styles.tabPanelContent}>
+                <Card className={styles.tableCard}>
+                  {whitelist.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <Empty description={t("security.skillScanner.whitelist.empty")} />
+                    </div>
+                  ) : (
+                    <Table
+                      dataSource={whitelist}
+                      columns={whitelistColumns}
+                      rowKey="skill_name"
+                      pagination={false}
+                      size="small"
+                    />
+                  )}
+                </Card>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       <FindingsModal
         findings={findingsModal.findings}

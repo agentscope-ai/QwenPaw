@@ -622,6 +622,14 @@
     "faq": "FAQ",
     "github": "GitHub"
   },
+  "theme": {
+    "dark": "Dark",
+    "light": "Light",
+    "darkMode": "Dark mode",
+    "lightMode": "Light mode",
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode"
+  },
   "sidebar": {
     "newVersion": "New version available: v{{version}}, click to upgrade",
     "updateModal": {
