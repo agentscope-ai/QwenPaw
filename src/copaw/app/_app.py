@@ -8,7 +8,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
 
@@ -378,6 +377,7 @@ app.include_router(voice_router, tags=["voice"])
 # fallback.
 if os.path.isdir(_CONSOLE_STATIC_DIR):
     _console_path = Path(_CONSOLE_STATIC_DIR)
+    _assets_dir = _console_path / "assets"
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
@@ -401,13 +401,29 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
         raise HTTPException(status_code=404, detail="Not Found")
 
-    _assets_dir = _console_path / "assets"
-    if _assets_dir.is_dir():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(_assets_dir)),
-            name="assets",
-        )
+    def _serve_console_asset(asset_path: str):
+        if not _assets_dir.is_dir():
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        asset_file = (_assets_dir / asset_path).resolve()
+        if not asset_file.is_file() or _assets_dir.resolve() not in asset_file.parents:
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        return FileResponse(asset_file)
+
+    @app.get("/assets/{asset_path:path}")
+    def _assets(asset_path: str):
+        return _serve_console_asset(asset_path)
+
+    @app.get("/console/assets/{asset_path:path}")
+    def _console_prefixed_assets(asset_path: str):
+        return _serve_console_asset(asset_path)
+
+    if _BASE_URL_PREFIX:
+
+        @app.get(f"{_BASE_URL_PREFIX}/assets/{{asset_path:path}}")
+        def _base_url_prefixed_assets(asset_path: str):
+            return _serve_console_asset(asset_path)
 
     @app.get("/console")
     @app.get("/console/")
@@ -420,4 +436,3 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     def _console_spa(full_path: str):
         _ = full_path
         return _serve_console_index()
-
