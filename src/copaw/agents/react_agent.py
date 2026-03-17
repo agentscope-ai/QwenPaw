@@ -8,7 +8,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Type
+from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -22,12 +22,12 @@ from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
 from .prompt import build_system_prompt_from_working_dir
-from .tool_guard_mixin import ToolGuardMixin
 from .skills_manager import (
     ensure_skills_initialized,
     get_working_skills_dir,
     list_available_skills,
 )
+from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     desktop_screenshot,
@@ -43,12 +43,13 @@ from .tools import (
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
-from ..agents.memory import MemoryManager
-from ..config.config import load_agent_config
 from ..constant import (
-    MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
+
+if TYPE_CHECKING:
+    from ..agents.memory import MemoryManager
+    from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -78,68 +79,58 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
     def __init__(
         self,
+        agent_config: "AgentProfileConfig",
         env_context: Optional[str] = None,
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
-        memory_manager: MemoryManager | None = None,
+        memory_manager: "MemoryManager | None" = None,
         request_context: Optional[dict[str, str]] = None,
-        max_iters: int = 50,
-        max_input_length: int = 128 * 1024,  # 128K = 131072 tokens
         namesake_strategy: NamesakeStrategy = "skip",
-        memory_compact_threshold: int | None = None,
-        memory_compact_reserve: int | None = None,
-        enable_tool_result_compact: bool = False,
-        tool_result_compact_keep_n: int = 5,
-        language: str = "zh",
         workspace_dir: Path | None = None,
     ):
         """Initialize CoPawAgent.
 
         Args:
+            agent_config: Agent profile configuration containing all settings
+                including running config (max_iters, max_input_length,
+                memory_compact_threshold, etc.) and language setting.
             env_context: Optional environment context to prepend to
                 system prompt
             enable_memory_manager: Whether to enable memory manager
             mcp_clients: Optional list of MCP clients for tool
                 integration
             memory_manager: Optional memory manager instance
-            max_iters: Maximum number of reasoning-acting iterations
-                (default: 50)
-            max_input_length: Maximum input length in tokens for model
-                context window (default: 128K = 131072)
+            request_context: Optional request context with session_id,
+                user_id, channel, agent_id
             namesake_strategy: Strategy to handle namesake tool functions.
                 Options: "override", "skip", "raise", "rename"
                 (default: "skip")
-            memory_compact_threshold: Token threshold for memory
-                compaction (optional, uses default ratio if not set)
-            memory_compact_reserve: Reserve tokens for recent messages
-            enable_tool_result_compact: Enable tool result compaction
-            tool_result_compact_keep_n: Number of tool results to keep
-            language: Language setting for agent (default: "zh")
             workspace_dir: Workspace directory for reading prompt files
                 (if None, uses global WORKING_DIR)
         """
+        self._agent_config = agent_config
         self._env_context = env_context
         self._request_context = dict(request_context or {})
-        self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
-        self._language = language
         self._workspace_dir = workspace_dir
 
-        # Memory compaction settings: use provided or calculate defaults
+        # Extract configuration from agent_config
+        running_config = agent_config.running
+        self._max_input_length = running_config.max_input_length
+        self._language = agent_config.language
+
+        # Memory compaction settings from config
         self._memory_compact_threshold = (
-            memory_compact_threshold
-            if memory_compact_threshold is not None
-            else int(max_input_length * MEMORY_COMPACT_RATIO)
+            running_config.memory_compact_threshold
         )
-        # Calculate reserve as 40% of max_input_length if not provided
-        self._memory_compact_reserve = (
-            memory_compact_reserve
-            if memory_compact_reserve is not None
-            else int(max_input_length * 0.4)
+        self._memory_compact_reserve = running_config.memory_compact_reserve
+        self._enable_tool_result_compact = (
+            running_config.enable_tool_result_compact
         )
-        self._enable_tool_result_compact = enable_tool_result_compact
-        self._tool_result_compact_keep_n = tool_result_compact_keep_n
+        self._tool_result_compact_keep_n = (
+            running_config.tool_result_compact_keep_n
+        )
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
@@ -161,7 +152,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             toolkit=toolkit,
             memory=InMemoryMemory(),
             formatter=formatter,
-            max_iters=max_iters,
+            max_iters=running_config.max_iters,
         )
 
         # Setup memory manager
@@ -177,7 +168,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             memory=self.memory,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
-            max_input_length=max_input_length,
+            agent_config=agent_config,
         )
 
         # Register hooks
@@ -199,23 +190,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         toolkit = Toolkit()
 
-        # Check which tools are enabled (tools config is agent-specific)
+        # Check which tools are enabled from agent config
         enabled_tools = {}
         try:
-            # Get agent_id from request_context
-            agent_id = (
-                self._request_context.get("agent_id", "default")
-                if self._request_context
-                else "default"
-            )
-            agent_config = load_agent_config(agent_id)
-            if hasattr(agent_config, "tools") and hasattr(
-                agent_config.tools,
+            if hasattr(self._agent_config, "tools") and hasattr(
+                self._agent_config.tools,
                 "builtin_tools",
             ):
+                builtin_tools = self._agent_config.tools.builtin_tools
                 enabled_tools = {
-                    name: tool.enabled
-                    for name, tool in agent_config.tools.builtin_tools.items()
+                    name: tool.enabled for name, tool in builtin_tools.items()
                 }
         except Exception as e:
             logger.warning(
@@ -357,10 +341,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
-                memory_compact_threshold=self._memory_compact_threshold,
-                memory_compact_reserve=self._memory_compact_reserve,
-                enable_tool_result_compact=self._enable_tool_result_compact,
-                tool_result_compact_keep_n=self._tool_result_compact_keep_n,
+                agent_config=self._agent_config,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",

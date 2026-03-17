@@ -5,20 +5,14 @@ Tests cover:
 - Initialization with different model configurations
 - Token counting for text and messages
 - Estimation fallback
-- Singleton pattern with configuration change detection
+- Cache pattern with configuration-based lookup
 """
 from __future__ import annotations
 
 import asyncio
 import os
 import sys
-
-# Mock google.genai before importing copaw modules
-sys.modules["google"] = type(sys)("google")
-sys.modules["google.genai"] = type(sys)("google.genai")
-sys.modules["google.genai.errors"] = type(sys)("google.genai.errors")
-sys.modules["google.genai.types"] = type(sys)("google.genai.types")
-
+from unittest.mock import MagicMock
 from copaw.agents.utils.copaw_token_counter import (
     CopawTokenCounter,
     _get_copaw_token_counter,
@@ -26,10 +20,31 @@ from copaw.agents.utils.copaw_token_counter import (
 import copaw.agents.utils.copaw_token_counter as token_counter_module
 
 
+# Mock google.genai before importing copaw modules
+sys.modules["google"] = type(sys)("google")
+sys.modules["google.genai"] = type(sys)("google.genai")
+sys.modules["google.genai.errors"] = type(sys)("google.genai.errors")
+sys.modules["google.genai.types"] = type(sys)("google.genai.types")
+
+
+def _create_mock_agent_config(
+    token_count_model: str = "default",
+    token_count_use_mirror: bool = True,
+    token_count_estimate_divisor: float = 3.75,
+) -> MagicMock:
+    """Create a mock AgentProfileConfig for testing."""
+    mock_config = MagicMock()
+    mock_running = MagicMock()
+    mock_running.token_count_model = token_count_model
+    mock_running.token_count_use_mirror = token_count_use_mirror
+    mock_running.token_count_estimate_divisor = token_count_estimate_divisor
+    mock_config.running = mock_running
+    return mock_config
+
+
 def _reset_global_state() -> None:
-    """Reset global token counter state for test isolation."""
-    token_counter_module._token_counter = None
-    token_counter_module._token_counter_config = None
+    """Reset global token counter cache for test isolation."""
+    token_counter_module._token_counter_cache.clear()  # pylint: disable=protected-access
 
 
 def test_init_default_model() -> None:
@@ -240,9 +255,12 @@ async def test_count_with_text_parameter() -> None:
 def test_estimate_tokens() -> None:
     """Test token estimation fallback."""
     print("Testing: estimate tokens")
-    # Use the actual config
+    counter = CopawTokenCounter(
+        token_count_model="default",
+        token_count_use_mirror=True,
+    )
     text = "Hello world"
-    result = CopawTokenCounter.estimate_tokens(text)
+    result = counter.estimate_tokens(text)
     assert result > 0
     print(f"  PASSED: estimate returned {result} tokens for '{text}'")
 
@@ -250,21 +268,44 @@ def test_estimate_tokens() -> None:
 def test_estimate_tokens_chinese() -> None:
     """Test estimation for Chinese text (UTF-8 encoded)."""
     print("Testing: estimate Chinese tokens")
+    counter = CopawTokenCounter(
+        token_count_model="default",
+        token_count_use_mirror=True,
+    )
     text = "你好世界"
-    result = CopawTokenCounter.estimate_tokens(text)
+    result = counter.estimate_tokens(text)
     assert result > 0
     print(f"  PASSED: estimate returned {result} tokens for '{text}'")
 
 
-def test_singleton_returns_same_instance() -> None:
-    """Test that multiple calls return the same instance."""
-    print("Testing: singleton returns same instance")
+def test_cache_returns_same_instance_for_same_config() -> None:
+    """Test that same config returns same instance from cache."""
+    print("Testing: cache returns same instance for same config")
     _reset_global_state()
 
-    counter1 = _get_copaw_token_counter()
-    counter2 = _get_copaw_token_counter()
+    mock_config = _create_mock_agent_config()
+    counter1 = _get_copaw_token_counter(mock_config)
+    counter2 = _get_copaw_token_counter(mock_config)
     assert counter1 is counter2
-    print("  PASSED: singleton returns same instance")
+    print("  PASSED: same config returns same instance")
+
+    _reset_global_state()
+
+
+def test_different_config_creates_new_instance() -> None:
+    """Test that different config creates new instance."""
+    print("Testing: different config creates new instance")
+    _reset_global_state()
+
+    mock_config1 = _create_mock_agent_config(token_count_model="default")
+    mock_config2 = _create_mock_agent_config(
+        token_count_model="Qwen/Qwen2.5-7B-Instruct",
+    )
+
+    counter1 = _get_copaw_token_counter(mock_config1)
+    counter2 = _get_copaw_token_counter(mock_config2)
+    assert counter1 is not counter2
+    print("  PASSED: different config creates new instance")
 
     _reset_global_state()
 
@@ -347,7 +388,8 @@ def run_all_tests() -> None:
     test_count_text_code()
     test_estimate_tokens()
     test_estimate_tokens_chinese()
-    test_singleton_returns_same_instance()
+    test_cache_returns_same_instance_for_same_config()
+    test_different_config_creates_new_instance()
     test_tokenizer_handles_special_characters()
     test_tokenizer_consistency()
     test_tokenizer_different_models()

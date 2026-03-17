@@ -7,11 +7,12 @@ switching between different tokenizer models based on runtime configuration.
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from agentscope.token import HuggingFaceTokenCounter
 
-from ...config import load_config
+if TYPE_CHECKING:
+    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -24,24 +25,37 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
     as well as HuggingFace mirror for users in China.
 
     Attributes:
-        token_count_model: The tokenizer model path or "default" for local tokenizer.
+        token_count_model: The tokenizer model path or "default" for
+            local tokenizer.
         token_count_use_mirror: Whether to use HuggingFace mirror.
+        token_count_estimate_divisor: Divisor for character-based token
+            estimation.
     """
 
-    def __init__(self, token_count_model: str, token_count_use_mirror: bool, **kwargs):
+    def __init__(
+        self,
+        token_count_model: str,
+        token_count_use_mirror: bool,
+        token_count_estimate_divisor: float = 3.75,
+        **kwargs,
+    ):
         """Initialize the token counter with the specified configuration.
 
         Args:
-            token_count_model: The tokenizer model path. Use "default" for the
-                bundled local tokenizer, or provide a HuggingFace model identifier
-                or path to a custom tokenizer.
+            token_count_model: The tokenizer model path. Use "default"
+                for the bundled local tokenizer, or provide a HuggingFace
+                model identifier or path to a custom tokenizer.
             token_count_use_mirror: Whether to use the HuggingFace mirror
-                (https://hf-mirror.com) for downloading tokenizers. Useful for
-                users in China.
-            **kwargs: Additional keyword arguments passed to HuggingFaceTokenCounter.
+                (https://hf-mirror.com) for downloading tokenizers.
+                Useful for users in China.
+            token_count_estimate_divisor: Divisor for character-based token
+                estimation (default: 3.75).
+            **kwargs: Additional keyword arguments passed to
+                HuggingFaceTokenCounter.
         """
         self.token_count_model = token_count_model
         self.token_count_use_mirror = token_count_use_mirror
+        self.token_count_estimate_divisor = token_count_estimate_divisor
 
         # Set HuggingFace endpoint for mirror support
         if token_count_use_mirror:
@@ -52,7 +66,7 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
         # Resolve tokenizer path
         if token_count_model == "default":
             tokenizer_path = str(
-                Path(__file__).parent.parent.parent / "tokenizer"
+                Path(__file__).parent.parent.parent / "tokenizer",
             )
         else:
             tokenizer_path = token_count_model
@@ -87,10 +101,12 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             messages: List of message dictionaries in chat format.
             tools: Optional list of tool definitions for token counting.
             text: Optional text string to count tokens directly.
-            **kwargs: Additional keyword arguments passed to parent count method.
+            **kwargs: Additional keyword arguments passed to parent
+                count method.
 
         Returns:
-            The number of tokens, guaranteed to be at least the estimated minimum.
+            The number of tokens, guaranteed to be at least the
+            estimated minimum.
         """
         if text:
             if self._tokenizer_available:
@@ -98,19 +114,21 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
                     token_ids = self.tokenizer.encode(text)
                     return max(len(token_ids), self.estimate_tokens(text))
                 except Exception as e:
-                    logger.exception("Failed to encode text with tokenizer: %s", e)
+                    logger.exception(
+                        "Failed to encode text with tokenizer: %s",
+                        e,
+                    )
                     return self.estimate_tokens(text)
             else:
                 return self.estimate_tokens(text)
         else:
             return await super().count(messages, tools, **kwargs)
 
-    @staticmethod
-    def estimate_tokens(text: str) -> int:
+    def estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens in a text string.
 
-        Provides a fast character-based estimation as a fallback or lower bound.
-        Uses the configured divisor from agent settings.
+        Provides a fast character-based estimation as a fallback
+        or lower bound. Uses the configured divisor from agent settings.
 
         Args:
             text: The text string to estimate tokens for.
@@ -118,50 +136,57 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
         Returns:
             The estimated number of tokens in the text string.
         """
-        agent_config = load_config()
-        agent_running_config = agent_config.agents.running
-        token_count_estimate_divisor: float = agent_running_config.token_count_estimate_divisor
-        return int(len(text.encode("utf-8")) / token_count_estimate_divisor + 0.5)
+        return int(
+            len(text.encode("utf-8")) / self.token_count_estimate_divisor
+            + 0.5,
+        )
 
 
-# Global token counter instance and its configuration cache
-_token_counter: CopawTokenCounter | None = None
-_token_counter_config: dict | None = None
+# Global token counter instance cache (keyed by configuration tuple)
+_token_counter_cache: dict[tuple, CopawTokenCounter] = {}
 
 
-def _get_copaw_token_counter() -> CopawTokenCounter:
-    """Get or initialize the global token counter instance.
+def _get_copaw_token_counter(
+    agent_config: "AgentProfileConfig",
+) -> CopawTokenCounter:
+    """Get or create a token counter instance for the given agent conf.
 
-    This function implements a singleton pattern with configuration change detection.
-    If the configuration has changed since the last initialization, a new instance
-    will be created to reflect the updated settings.
+    This function implements a cache based on token counter configuration.
+    If a token counter with the same configuration already exists, it will be
+    reused. Otherwise, a new instance will be created.
+
+    Args:
+        agent_config: Agent profile configuration containing running
+            settings including token_count_model, token_count_use_mirror,
+            and token_count_estimate_divisor.
 
     Returns:
-        CopawTokenCounter: The global token counter instance.
+        CopawTokenCounter: A token counter instance for the given
+        configuration.
 
     Note:
-        The configuration is cached to avoid unnecessary re-initialization.
-        Changes to token_count_model or token_count_use_mirror will trigger
-        creation of a new token counter instance.
+        Token counters are cached by their configuration tuple to enable
+        reuse across agents with identical settings.
     """
-    global _token_counter, _token_counter_config
+    running_config = agent_config.running
+    config_key = (
+        running_config.token_count_model,
+        running_config.token_count_use_mirror,
+        running_config.token_count_estimate_divisor,
+    )
 
-    agent_config = load_config()
-    agent_running_config = agent_config.agents.running
-    current_config = {
-        "token_count_model": agent_running_config.token_count_model,
-        "token_count_use_mirror": agent_running_config.token_count_use_mirror,
-    }
-
-    if _token_counter is None or _token_counter_config != current_config:
-        _token_counter = CopawTokenCounter(
-            token_count_model=current_config["token_count_model"],
-            token_count_use_mirror=current_config["token_count_use_mirror"],
+    if config_key not in _token_counter_cache:
+        _token_counter_cache[config_key] = CopawTokenCounter(
+            token_count_model=running_config.token_count_model,
+            token_count_use_mirror=running_config.token_count_use_mirror,
+            token_count_estimate_divisor=(
+                running_config.token_count_estimate_divisor
+            ),
         )
-        _token_counter_config = current_config
         logger.debug(
-            "Token counter initialized with model=%s, mirror=%s",
-            current_config["token_count_model"],
-            current_config["token_count_use_mirror"],
+            "Token counter created with model=%s, mirror=%s, divisor=%s",
+            running_config.token_count_model,
+            running_config.token_count_use_mirror,
+            running_config.token_count_estimate_divisor,
         )
-    return _token_counter
+    return _token_counter_cache[config_key]

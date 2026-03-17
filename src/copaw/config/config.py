@@ -43,7 +43,7 @@ class IMessageChannelConfig(BaseChannelConfig):
     poll_sec: float = 1.0
     media_dir: Optional[str] = None
     max_decoded_size: int = (
-            10 * 1024 * 1024
+        10 * 1024 * 1024
     )  # 10MB default limit for Base64 data
 
 
@@ -227,7 +227,9 @@ class AgentsRunningConfig(BaseModel):
     token_count_estimate_divisor: float = Field(
         default=3.75,
         gt=1,
-        description="Divisor for character-based token estimation (len / divisor)",
+        description=(
+            "Divisor for character-based token estimation " "(len / divisor)"
+        ),
     )
 
     token_count_use_mirror: bool = Field(
@@ -460,9 +462,9 @@ class MCPClientConfig(BaseModel):
             payload["transport"] = payload["type"]
 
         if (
-                "transport" not in payload
-                and (payload.get("url") or payload.get("baseUrl"))
-                and not payload.get("command")
+            "transport" not in payload
+            and (payload.get("url") or payload.get("baseUrl"))
+            and not payload.get("command")
         ):
             payload["transport"] = "streamable_http"
 
@@ -567,7 +569,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="view_image",
             enabled=True,
             description="Load an image into LLM context "
-                        "for visual analysis",
+            "for visual analysis",
             display_to_user=False,
         ),
         "send_file_to_user": BuiltinToolConfig(
@@ -700,7 +702,7 @@ class Config(BaseModel):
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
-                    "Defaults to the system timezone.",
+        "Defaults to the system timezone.",
     )
 
 

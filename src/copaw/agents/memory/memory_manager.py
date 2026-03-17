@@ -11,6 +11,7 @@ Extends ReMeLight to provide memory management capabilities including:
 import logging
 import os
 import platform
+from typing import TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
@@ -19,7 +20,9 @@ from agentscope.tool import Toolkit
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_copaw_token_counter
-from copaw.config import load_config
+
+if TYPE_CHECKING:
+    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,22 +56,16 @@ class MemoryManager(ReMeLight):
     def __init__(
         self,
         working_dir: str,
-        max_input_length: int = 128 * 1024,
-        memory_compact_ratio: float = 0.7,
-        memory_reserve_ratio: float = 0.1,
-        language: str = "zh",
+        agent_config: "AgentProfileConfig",
     ):
         """Initialize MemoryManager with ReMeLight configuration.
 
         Args:
             working_dir: Working directory path for memory storage
-            max_input_length: Maximum input length in tokens for context
-                window (default: 128K = 131072)
-            memory_compact_ratio: Ratio for memory compaction
-                (default: 0.7)
-            memory_reserve_ratio: Ratio for memory reserve
-                (default: 0.1)
-            language: Language for memory operations (default: "zh")
+            agent_config: Agent profile configuration containing all settings
+                including running config (max_input_length,
+                memory_compact_ratio, memory_reserve_ratio, etc.)
+                and language setting.
 
         Environment Variables:
             EMBEDDING_API_KEY: API key for embedding service
@@ -89,11 +86,12 @@ class MemoryManager(ReMeLight):
             Vector search is enabled only when both EMBEDDING_API_KEY and
             EMBEDDING_MODEL_NAME are configured.
         """
-        # Store configuration parameters
-        self._max_input_length = max_input_length
-        self._memory_compact_ratio = memory_compact_ratio
-        self._memory_reserve_ratio = memory_reserve_ratio
-        self._language = language
+        # Extract configuration from agent_config
+        running_config = agent_config.running
+        self._max_input_length = running_config.max_input_length
+        self._memory_compact_ratio = running_config.memory_compact_ratio
+        self._memory_reserve_ratio = running_config.memory_reserve_ratio
+        self._language = agent_config.language
 
         if not _REME_AVAILABLE:
             logger.warning(
@@ -180,7 +178,7 @@ class MemoryManager(ReMeLight):
 
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
-        self.token_counter = _get_copaw_token_counter()
+        self.token_counter = _get_copaw_token_counter(agent_config)
 
     @staticmethod
     def _safe_str(key: str, default: str) -> str:
@@ -304,4 +302,6 @@ class MemoryManager(ReMeLight):
         Returns:
             The in-memory memory content with token counting support
         """
-        return super().get_in_memory_memory(as_token_counter=self.token_counter)
+        return super().get_in_memory_memory(
+            as_token_counter=self.token_counter,
+        )

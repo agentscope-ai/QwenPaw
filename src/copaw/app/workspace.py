@@ -21,7 +21,7 @@ from .mcp import MCPClientManager
 from .crons.manager import CronManager
 from .crons.repo.json_repo import JsonJobRepository
 from ..agents.memory import MemoryManager
-from ..config.config import load_agent_config, AgentsRunningConfig
+from ..config.config import load_agent_config
 
 if TYPE_CHECKING:
     from .channels.base import BaseChannel
@@ -130,18 +130,9 @@ class Workspace:
             # IMPORTANT: Create MemoryManager BEFORE runner.start() to prevent
             # init_handler from creating a duplicate MemoryManager
             async def init_memory():
-                # Get running config for memory manager
-                running_config = agent_config.running
-
-                if running_config is None:
-                    running_config = AgentsRunningConfig()
-
                 self._memory_manager = MemoryManager(
                     working_dir=str(self.workspace_dir),
-                    max_input_length=running_config.max_input_length,
-                    memory_compact_ratio=running_config.memory_compact_ratio,
-                    memory_reserve_ratio=running_config.memory_reserve_ratio,
-                    language=agent_config.language,
+                    agent_config=agent_config,
                 )
                 # Assign to runner BEFORE starting runner
                 self._runner.memory_manager = self._memory_manager

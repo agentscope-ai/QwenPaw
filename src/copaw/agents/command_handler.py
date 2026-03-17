@@ -5,18 +5,17 @@ This module handles system commands like /compact, /new, /clear, etc.
 """
 import json
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
-from ..config import load_config
 from ..constant import DEBUG_HISTORY_FILE, WORKING_DIR
 
 if TYPE_CHECKING:
     from .memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
+    from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         memory: "ReMeInMemoryMemory",
         memory_manager: "MemoryManager | None" = None,
         enable_memory_manager: bool = True,
-        max_input_length: int = 128 * 1024,
+        agent_config: "AgentProfileConfig | None" = None,
     ):
         """Initialize command handler.
 
@@ -75,14 +74,17 @@ class CommandHandler(ConversationCommandHandlerMixin):
             memory: Agent's ReMeInMemoryMemory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
-            max_input_length: Maximum input length in tokens for context
-                window (default: 128K = 131072)
+            agent_config: Agent profile configuration containing running
+                settings including max_input_length and history_max_length.
         """
         self.agent_name = agent_name
         self.memory = memory
-        self.max_input_length = max_input_length
         self.memory_manager = memory_manager
         self._enable_memory_manager = enable_memory_manager
+
+        # Extract configuration from agent_config
+        self._max_input_length = agent_config.running.max_input_length
+        self._history_max_length = agent_config.running.history_max_length
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -208,16 +210,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /history command."""
-        config = load_config()
-        max_input_length = config.agents.running.max_input_length
-        history_max_length = config.agents.running.history_max_length
         history_str = await self.memory.get_history_str(
-            max_input_length=self.max_input_length,
+            max_input_length=self._max_input_length,
         )
 
         # Truncate if too long
-        if len(history_str) > history_max_length:
-            half = history_max_length // 2
+        if len(history_str) > self._history_max_length:
+            half = self._history_max_length // 2
             history_str = f"{history_str[:half]}\n...\n{history_str[-half:]}"
 
         return await self._make_system_msg(history_str)
@@ -320,7 +319,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         try:
             with open(history_file, "w", encoding="utf-8") as f:
                 for msg in messages:
-                    f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n")
+                    f.write(
+                        json.dumps(msg.to_dict(), ensure_ascii=False) + "\n",
+                    )
 
             logger.info(f"Dumped {len(messages)} messages to {history_file}")
             return await self._make_system_msg(
@@ -331,8 +332,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         except Exception as e:
             logger.error(f"Failed to dump history: {e}")
             return await self._make_system_msg(
-                f"**Dump Failed**\n\n"
-                f"- Error: {e}",
+                f"**Dump Failed**\n\n" f"- Error: {e}",
             )
 
     async def _process_load_history(
@@ -368,11 +368,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
                         loaded_messages.append(Msg.from_dict(msg_dict))
 
             # Clear existing memory and add loaded messages
-            self.memory.clear_content()
+            self.memory.content.clear()
             for msg in loaded_messages:
                 self.memory.add(msg)
 
-            logger.info(f"Loaded {len(loaded_messages)} messages from {history_file}")
+            logger.info(
+                f"Loaded {len(loaded_messages)} messages from {history_file}",
+            )
             return await self._make_system_msg(
                 f"**History Loaded!**\n\n"
                 f"- Messages loaded: {len(loaded_messages)}\n"
@@ -382,8 +384,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         except Exception as e:
             logger.error(f"Failed to load history: {e}")
             return await self._make_system_msg(
-                f"**Load Failed**\n\n"
-                f"- Error: {e}",
+                f"**Load Failed**\n\n" f"- Error: {e}",
             )
 
     async def handle_conversation_command(self, query: str) -> Msg:

@@ -144,6 +144,12 @@ CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 # Local models directory
 MODELS_DIR = WORKING_DIR / "models"
 
+MEMORY_COMPACT_KEEP_RECENT = EnvVarLoader.get_int(
+    "COPAW_MEMORY_COMPACT_KEEP_RECENT",
+    3,
+    min_value=0,
+)
+
 # Memory compaction configuration
 MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     "COPAW_MEMORY_COMPACT_RATIO",

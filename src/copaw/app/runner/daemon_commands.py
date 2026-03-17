@@ -11,12 +11,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
+
+if TYPE_CHECKING:
+    from ...config.config import AgentProfileConfig
 
 RestartCallback = Callable[[], Awaitable[None]]
 logger = logging.getLogger(__name__)
@@ -96,7 +99,12 @@ def run_daemon_status(context: DaemonContext) -> str:
     try:
         cfg = context.load_config_fn()
         parts.append("- Config loaded: yes")
-        if getattr(cfg, "agents", None) and getattr(
+        # Support both AgentProfileConfig (has 'running' directly)
+        # and Config (has 'agents.running')
+        if hasattr(cfg, "running"):
+            max_in = getattr(cfg.running, "max_input_length", "N/A")
+            parts.append(f"- Max input length: {max_in}")
+        elif getattr(cfg, "agents", None) and getattr(
             cfg.agents,
             "running",
             None,
