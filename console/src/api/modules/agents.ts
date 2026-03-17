@@ -57,7 +57,7 @@ export const agentsApi = {
   // Agent memory files
   listAgentMemory: (agentId: string) =>
     request<MdFileInfo[]>(`/agents/${agentId}/memory`).then((files) =>
-      files.map((file) => {
+      (files || []).map((file) => {
         const date = file.filename.replace(".md", "");
         return {
           ...file,
