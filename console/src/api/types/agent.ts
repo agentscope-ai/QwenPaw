@@ -6,6 +6,43 @@ export interface AgentRequest {
   [key: string]: unknown;
 }
 
+export interface LocalEmbeddingConfig {
+  enabled: boolean;
+  model_id: string;
+  model_path: string | null;
+  device: string;
+  dtype: "fp16" | "bf16" | "fp32";
+  download_source: "modelscope" | "huggingface";
+}
+
+export interface EmbeddingModelInfo {
+  id: string;
+  type: "multimodal" | "text";
+  dimensions: number;
+  pooling: string;
+  mrl_enabled?: boolean;
+  mrl_min_dims?: number;
+}
+
+export interface EmbeddingPresetModels {
+  multimodal: EmbeddingModelInfo[];
+  text: EmbeddingModelInfo[];
+}
+
+export interface EmbeddingTestResult {
+  success: boolean;
+  message: string;
+  latency_ms?: number;
+  model_info?: Record<string, unknown>;
+}
+
+export interface ModelDownloadStatus {
+  status: "downloading" | "completed" | "error";
+  progress?: number;
+  message: string;
+  local_path?: string;
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
   max_input_length: number;
@@ -13,4 +50,5 @@ export interface AgentsRunningConfig {
   memory_reserve_ratio: number;
   enable_tool_result_compact: boolean;
   tool_result_compact_keep_n: number;
+  local_embedding: LocalEmbeddingConfig;
 }

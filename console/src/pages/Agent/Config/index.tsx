@@ -6,6 +6,7 @@ import {
   PageHeader,
   ReactAgentCard,
   ContextManagementCard,
+  EmbeddingConfigCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -90,6 +91,8 @@ function AgentConfigPage() {
           contextCompactThreshold={contextCompactThreshold}
           contextCompactReserveThreshold={contextCompactReserveThreshold}
         />
+
+        <EmbeddingConfigCard form={form} />
       </Form>
 
       <div className={styles.footerActions}>
