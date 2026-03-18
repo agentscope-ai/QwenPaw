@@ -71,6 +71,13 @@ MAX_QUICK_DISCONNECT_COUNT = 3
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+_BROAD_URL_PATTERN = re.compile(
+    r"https?://[^\s\]\)\uff09]+"
+    r"|ftp://[^\s\]\)\uff09]+"
+    r"|www\.[^\s\]\)\uff09]+"
+    r"|[a-zA-Z0-9][-a-zA-Z0-9]{0,62}\.(?:com|org|net|cn|io|dev|app|edu|gov|info|cc|me|tv|co|uk|jp|top|xyz|site|online|tech|store|cloud|ai)(?:[/\?#][^\s\]\)\uff09]*)?",
+    re.IGNORECASE,
+)
 _IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
@@ -88,14 +95,25 @@ class QQApiError(RuntimeError):
 
 
 def _sanitize_qq_text(text: str) -> tuple[str, bool]:
-    """QQ API disallows URL links in plain messages.
+    """QQ API disallows URL links in C2C / group messages.
+
+    Uses a broad pattern that covers http(s), ftp, www., and bare
+    domains with common TLDs — matching QQ's server-side URL detector.
+    Also strips markdown-style links ``[text](url)``.
 
     Return the sanitized text and whether any URL was removed.
     """
     if not text:
         return "", False
-    sanitized, count = _URL_PATTERN.subn("[链接已省略]", text)
-    return sanitized, count > 0
+    # First strip markdown links [text](url) -> text
+    md_link = re.compile(r"\[([^\]]*)]\(([^)]+)\)")
+    sanitized, md_count = md_link.subn(r"\1", text)
+    # Then strip remaining broad URL patterns
+    sanitized, url_count = _BROAD_URL_PATTERN.subn("", sanitized)
+    # Collapse any resulting multiple spaces / blank lines
+    sanitized = re.sub(r"[ \t]{2,}", " ", sanitized)
+    sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
+    return sanitized.strip(), (md_count + url_count) > 0
 
 
 def _as_bool(value: Any) -> bool:
@@ -112,6 +130,15 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
         return False
     if exc.status < 400 or exc.status >= 500:
         return False
+    err_code = None
+    if isinstance(exc.data, dict):
+        err_code = (
+            exc.data.get("code")
+            or exc.data.get("err_code")
+            or exc.data.get("errCode")
+        )
+    if str(err_code) == "40054010":
+        return True
     try:
         payload_text = json.dumps(exc.data, ensure_ascii=False).lower()
     except Exception:
@@ -121,6 +148,9 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
         or "msg_type" in payload_text
         or "msg type" in payload_text
         or "message type" in payload_text
+        or "不允许发送url" in payload_text
+        or "not allow send url" in payload_text
+        or "not allowed to send url" in payload_text
     )
 
 
@@ -680,6 +710,15 @@ class QQChannel(BaseChannel):
         image_urls = _IMAGE_TAG_PATTERN.findall(text)
         # Remove [Image: ] tags from text
         clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
+        # QQ C2C / group API blocks ALL URLs (even in markdown mode).
+        # Always sanitize for these message types.
+        if clean_text and message_type in ("c2c", "group"):
+            clean_text, had_url = _sanitize_qq_text(clean_text)
+            if had_url:
+                logger.info(
+                    "qq send: stripped URL content for c2c/group "
+                    "API compatibility",
+                )
 
         # Send text content if not empty
         text_sent = False
