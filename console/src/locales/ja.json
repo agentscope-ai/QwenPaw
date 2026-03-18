@@ -635,7 +635,12 @@
     "fileUploading": "ファイルをアップロードして処理中: {{name}}",
     "fileUploadSuccess": "ファイルをアップロードし、処理に送信しました: {{name}}",
     "fileUploadFailed": "ファイルのアップロードに失敗しました",
-    "fileTooLarge": "ファイルサイズが 100MB 制限を超えています。現在のファイル: {{size}}MB"
+    "fileTooLarge": "ファイルサイズが 100MB 制限を超えています。現在のファイル: {{size}}MB",
+    "uploadStatusUploading": "{{name}} をアップロード中",
+    "uploadStatusUploaded": "{{name}} をアップロードしました。処理待ちです",
+    "uploadStatusProcessing": "{{name}} を処理中",
+    "uploadStatusProcessingSlow": "{{name}} を引き続き処理中です。大きなファイルは時間がかかる場合があります",
+    "uploadStatusSuccess": "{{name}} の処理が完了しました"
   },
   "security": {
     "title": "セキュリティ",

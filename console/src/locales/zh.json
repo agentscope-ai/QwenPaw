@@ -649,7 +649,12 @@
     "fileUploading": "正在上传并处理文件：{{name}}",
     "fileUploadSuccess": "文件已上传并提交处理：{{name}}",
     "fileUploadFailed": "文件上传失败",
-    "fileTooLarge": "文件大小超过 100MB 限制。当前文件：{{size}}MB"
+    "fileTooLarge": "文件大小超过 100MB 限制。当前文件：{{size}}MB",
+    "uploadStatusUploading": "正在上传 {{name}}",
+    "uploadStatusUploaded": "已上传 {{name}}，等待开始处理",
+    "uploadStatusProcessing": "正在处理 {{name}}",
+    "uploadStatusProcessingSlow": "仍在处理 {{name}}，大文件可能需要一些时间",
+    "uploadStatusSuccess": "已完成 {{name}} 的处理"
   },
   "security": {
     "title": "安全",

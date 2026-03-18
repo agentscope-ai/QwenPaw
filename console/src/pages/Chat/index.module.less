@@ -27,6 +27,93 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
+.uploadStatusBanner {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.uploadStatusInfo {
+  background: rgba(239, 246, 255, 0.96);
+  border-color: rgba(96, 165, 250, 0.35);
+  color: #1d4ed8;
+}
+
+.uploadStatusSuccess {
+  background: rgba(240, 253, 244, 0.96);
+  border-color: rgba(74, 222, 128, 0.32);
+  color: #15803d;
+}
+
+.uploadStatusError {
+  background: rgba(254, 242, 242, 0.96);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #b91c1c;
+}
+
+.uploadStatusDot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.9;
+}
+
+.uploadStatusDotBusy {
+  animation: uploadStatusPulse 1.2s ease-in-out infinite;
+}
+
+.uploadStatusText {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+@keyframes uploadStatusPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+:global(.dark) .uploadStatusInfo,
+:global([data-theme="dark"]) .uploadStatusInfo {
+  background: rgba(30, 41, 59, 0.94);
+  border-color: rgba(96, 165, 250, 0.3);
+  color: #93c5fd;
+}
+
+:global(.dark) .uploadStatusSuccess,
+:global([data-theme="dark"]) .uploadStatusSuccess {
+  background: rgba(20, 83, 45, 0.9);
+  border-color: rgba(74, 222, 128, 0.22);
+  color: #86efac;
+}
+
+:global(.dark) .uploadStatusError,
+:global([data-theme="dark"]) .uploadStatusError {
+  background: rgba(127, 29, 29, 0.9);
+  border-color: rgba(248, 113, 113, 0.22);
+  color: #fca5a5;
+}
+
 .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
 .chatDisabledOverlay :global([class*="chat-input"]),
 .chatDisabledOverlay :global(textarea),
