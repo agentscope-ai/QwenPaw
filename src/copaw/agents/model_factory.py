@@ -34,6 +34,7 @@ from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import RetryChatModel
 from ..token_usage import TokenRecordingModelWrapper
+from ..local_models import create_local_chat_model
 
 
 def _file_url_to_path(url: str) -> str:
@@ -309,8 +310,6 @@ def create_model_and_formatter(
                 f"Provider '{model_slot.provider_id}' not found.",
             )
         if provider.is_local:
-            from agentscope.model import create_local_chat_model
-
             model = create_local_chat_model(
                 model_id=model_slot.model,
                 stream=True,
