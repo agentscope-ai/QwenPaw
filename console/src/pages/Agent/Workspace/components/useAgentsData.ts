@@ -7,6 +7,29 @@ import { workspaceApi } from "../../../../api/modules/workspace";
 import { agentsApi } from "../../../../api/modules/agents";
 import { useAgentStore } from "../../../../stores/agentStore";
 
+/**
+ * Extract workspace directory from a file path.
+ * Handles both Unix (/path/to/file) and Windows (C:\path\to\file) paths.
+ * Returns the directory path including the trailing separator.
+ */
+const extractWorkspacePath = (filePath: string): string => {
+  if (!filePath) {
+    return "";
+  }
+
+  const lastSlashIndex = filePath.lastIndexOf("/");
+  const lastBackslashIndex = filePath.lastIndexOf("\\");
+  const separatorIndex = Math.max(lastSlashIndex, lastBackslashIndex);
+
+  if (separatorIndex < 0) {
+    return ""; // No separator found
+  }
+
+
+  // This correctly returns the path including the trailing separator for all cases.
+  return filePath.substring(0, separatorIndex + 1);
+};
+
 export const useAgentsData = () => {
   const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
@@ -40,12 +63,7 @@ export const useAgentsData = () => {
 
       // Set workspace path
       if (fileList.length > 0) {
-        const path = fileList[0].path;
-        const workspace = path.substring(
-          0,
-          path.lastIndexOf("/") || path.lastIndexOf("\\"),
-        );
-        setWorkspacePath(workspace);
+        setWorkspacePath(extractWorkspacePath(fileList[0].path));
       }
 
       // Try to re-select the same file in new workspace
@@ -132,12 +150,7 @@ export const useAgentsData = () => {
       );
       setFiles(sortedFiles);
       if (fileList.length > 0) {
-        const path = fileList[0].path;
-        const workspace = path.substring(
-          0,
-          path.lastIndexOf("/") || path.lastIndexOf("\\"),
-        );
-        setWorkspacePath(workspace);
+        setWorkspacePath(extractWorkspacePath(fileList[0].path));
       }
     } catch (error) {
       console.error("Failed to fetch files", error);
