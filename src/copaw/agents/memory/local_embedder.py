@@ -165,9 +165,7 @@ class ModelMetadata:
         model_id_lower = model_id.lower()
 
         # Detect model type
-        if any(
-            x in model_id_lower for x in ["vl", "vision", "multimodal", "clip"]
-        ):
+        if any(x in model_id_lower for x in ["vl", "vision", "multimodal", "clip"]):
             model_type = "multimodal"
             dimensions = 1024  # Common for multimodal models
             pooling = "last_token"
@@ -244,10 +242,7 @@ class LocalEmbedder:
         # Auto-detect best available device
         if torch.cuda.is_available():
             return "cuda"
-        elif (
-            hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "mps"
         else:
             return "cpu"

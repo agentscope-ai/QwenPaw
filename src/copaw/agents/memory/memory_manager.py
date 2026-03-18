@@ -170,9 +170,7 @@ class MemoryManager(ReMeLight):
         # (local for Windows, chroma otherwise)
         memory_store_backend = os.environ.get("MEMORY_STORE_BACKEND", "auto")
         if memory_store_backend == "auto":
-            memory_backend = (
-                "local" if platform.system() == "Windows" else "chroma"
-            )
+            memory_backend = "local" if platform.system() == "Windows" else "chroma"
         else:
             memory_backend = memory_store_backend
 
