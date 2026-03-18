@@ -432,7 +432,7 @@ def agentscope_msg_to_message(
                     url = f"data:{media_type};base64,{base64_data}"
                     kwargs["file_url"] = url
                 elif isinstance(block.get("source"), str):
-                    url = _resolve_content_url(block.get("source"))
+                    url = _resolve_content_url(block.get("source", ""))
                     kwargs["file_url"] = url
 
                 file_content = FileContent(

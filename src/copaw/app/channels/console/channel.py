@@ -210,7 +210,9 @@ class ConsoleChannel(BaseChannel):
                     )
             elif content_type == ContentType.AUDIO:
                 url = getattr(part, "data", None) or getattr(
-                    part, "audio_url", None
+                    part,
+                    "audio_url",
+                    None,
                 )
                 if url:
                     # Todo: support local audio file
