@@ -25,6 +25,7 @@ from ..config.config import (
 )
 from ..constant import HEARTBEAT_DEFAULT_EVERY
 from ..providers import ProviderManager
+from ..constant import WORKING_DIR
 
 SECURITY_WARNING = """
 Security warning — please read.
@@ -193,7 +194,7 @@ def init_cmd(
     click.echo("✓ Default workspace initialized")
 
     # Get default workspace path for subsequent operations
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
 
     # --- config.json ---
     write_config = True

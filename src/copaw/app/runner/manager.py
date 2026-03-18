@@ -126,6 +126,7 @@ class ChatManager:
                 channel=channel,
                 name=name,
             )
+            logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
             await self._repo.upsert_chat(spec)
             logger.debug(

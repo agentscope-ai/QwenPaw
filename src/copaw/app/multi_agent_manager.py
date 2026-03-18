@@ -99,10 +99,20 @@ class MultiAgentManager:
             return True
 
     async def reload_agent(self, agent_id: str) -> bool:
-        """Reload a specific agent instance.
+        """Reload a specific agent instance with zero-downtime.
 
-        This stops the agent, removes it from cache, so it will be
-        recreated with fresh configuration on next access.
+        This method performs a seamless reload by:
+        1. Creating and fully starting a new workspace instance (no lock)
+        2. Atomically replacing the old instance with the new one (with lock)
+        3. Stopping the old instance after the new one is serving (no lock)
+
+        The lock is only held during the atomic swap to minimize blocking
+        time for other agent operations.
+
+        This ensures that:
+        - Ongoing chat requests continue using the old instance
+        - Other agents remain accessible during reload
+        - The manager stays responsive
 
         Args:
             agent_id: Agent ID to reload
@@ -110,6 +120,7 @@ class MultiAgentManager:
         Returns:
             bool: True if agent was reloaded, False if not running
         """
+        # Step 1: Check if agent exists (quick check with lock)
         async with self._lock:
             if agent_id not in self.agents:
                 logger.debug(
@@ -117,16 +128,77 @@ class MultiAgentManager:
                     f"request: {agent_id}",
                 )
                 return False
+            old_instance = self.agents[agent_id]
 
-            logger.info(f"Reloading agent: {agent_id}")
-            instance = self.agents[agent_id]
-            await instance.stop()
-            del self.agents[agent_id]
-            logger.info(
-                f"Agent stopped and removed from cache "
-                f"(will be reloaded on next request): {agent_id}",
+        logger.info(f"Reloading agent (zero-downtime): {agent_id}")
+
+        # Step 2: Load configuration (outside lock)
+        config = load_config()
+        if agent_id not in config.agents.profiles:
+            logger.error(
+                f"Agent '{agent_id}' not found in configuration "
+                f"during reload",
             )
-            return True
+            return False
+
+        agent_ref = config.agents.profiles[agent_id]
+
+        # Step 3: Create and start new workspace instance (outside lock)
+        # This is the slow part, but doesn't block other agents
+        logger.info(f"Creating new workspace instance: {agent_id}")
+        new_instance = Workspace(
+            agent_id=agent_id,
+            workspace_dir=agent_ref.workspace_dir,
+        )
+
+        try:
+            await new_instance.start()
+            logger.info(f"New workspace instance started: {agent_id}")
+        except Exception as e:
+            logger.exception(
+                f"Failed to start new workspace instance for {agent_id}: {e}",
+            )
+            # Try to clean up the failed new instance
+            try:
+                await new_instance.stop()
+            except Exception:
+                pass  # Best effort cleanup
+            # Old instance is still running and serving requests
+            return False
+
+        # Step 4: Atomic swap (minimal lock time)
+        # From this point, reload is considered successful
+        async with self._lock:
+            # Double-check agent still exists
+            if agent_id not in self.agents:
+                logger.warning(
+                    f"Agent {agent_id} was removed during reload, "
+                    f"stopping new instance",
+                )
+                await new_instance.stop()
+                return False
+
+            # Swap instances atomically
+            old_instance = self.agents[agent_id]
+            self.agents[agent_id] = new_instance
+            logger.info(f"Workspace instance replaced: {agent_id}")
+
+        # Step 5: Stop old instance (outside lock)
+        # If this fails, new instance is already serving, so we still succeed
+        try:
+            await old_instance.stop()
+            logger.info(
+                f"Old workspace instance stopped: {agent_id}. "
+                f"Zero-downtime reload completed.",
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to stop old workspace instance for {agent_id}: {e}. "
+                f"New instance is active and serving requests.",
+            )
+            # This is not a fatal error - new instance is already active
+
+        return True
 
     async def stop_all(self):
         """Stop all agent instances.

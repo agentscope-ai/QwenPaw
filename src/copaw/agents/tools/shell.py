@@ -137,6 +137,8 @@ async def execute_shell_command(
     error within <returncode></returncode>, <stdout></stdout> and
     <stderr></stderr> tags.
 
+    IMPORTANT: Always consider the operating system before choosing commands.
+
     Args:
         command (`str`):
             The shell command to execute.

@@ -22,6 +22,7 @@ import type {
   SkillScannerMode,
 } from "../../../../api/modules/security";
 import { skillApi } from "../../../../api/modules/skill";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 function FindingsModal({
@@ -82,6 +83,8 @@ function FindingsModal({
 
 export function SkillScannerSection() {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
+  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
   const {
     config,
     blockedHistory,
@@ -222,6 +225,7 @@ export function SkillScannerSection() {
             <Button
               type="text"
               size="middle"
+              style={darkBtnStyle}
               onClick={() =>
                 setFindingsModal({
                   open: true,
@@ -237,6 +241,7 @@ export function SkillScannerSection() {
             <Button
               type="text"
               size="middle"
+              style={darkBtnStyle}
               onClick={() => handleAllowSkill(record, index)}
             >
               <ShieldCheck size={14} />
@@ -385,9 +390,11 @@ export function SkillScannerSection() {
                   {blockedHistory.length === 0 ? (
                     <div className={styles.emptyState}>
                       <Empty
-                        description={t(
-                          "security.skillScanner.scanAlerts.empty",
-                        )}
+                        description={
+                          <span className={styles.emptyText}>
+                            {t("security.skillScanner.scanAlerts.empty")}
+                          </span>
+                        }
                       />
                     </div>
                   ) : (
@@ -419,7 +426,11 @@ export function SkillScannerSection() {
                   {whitelist.length === 0 ? (
                     <div className={styles.emptyState}>
                       <Empty
-                        description={t("security.skillScanner.whitelist.empty")}
+                        description={
+                          <span className={styles.emptyText}>
+                            {t("security.skillScanner.whitelist.empty")}
+                          </span>
+                        }
                       />
                     </div>
                   ) : (

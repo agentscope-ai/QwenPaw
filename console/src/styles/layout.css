@@ -626,6 +626,37 @@ html.dark-mode [class*="sender-content"] {
   background: #2a2a2a !important;
 }
 
+/* Chat message bubble text in dark mode */
+html.dark-mode [class*="message-item"] [class*="content"],
+html.dark-mode [class*="chat-anywhere"] [class*="message"] p,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] li,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h1,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h2,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h3,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h4,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h5,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] h6,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] span,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode [class*="chat-anywhere"] [class*="message"] strong,
+html.dark-mode [class*="chat-anywhere"] [class*="message"] b {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html.dark-mode [class*="chat-anywhere"] [class*="message"] code {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
+  color: #8b87f5 !important;
+}
+
 #root {
   height: 100%;
   overflow: hidden;

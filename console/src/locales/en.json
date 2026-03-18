@@ -148,7 +148,7 @@
     "enterSkillUrl": "Enter Skill URL",
     "supportedSkillUrlSources": "Currently supported skill URL sources:",
     "urlExamples": "URL examples:",
-    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, or https://github.com/",
+    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
     "source": "Source",
     "path": "Path",
     "skillDescription": "Description",
@@ -178,7 +178,10 @@
     "stopOptimize": "Stop",
     "optimizeSuccess": "Skill optimized successfully",
     "optimizeFailed": "Failed to optimize skill",
-    "noContentToOptimize": "No content to optimize"
+    "noContentToOptimize": "No content to optimize",
+    "cancelImport": "Cancel Import",
+    "importCancelled": "Skill import cancelled",
+    "importTimeout": "Skill import timed out. Please retry or check your network."
   },
   "mcp": {
     "title": "MCP Clients",
@@ -358,6 +361,13 @@
     "welcomeText": "Welcome Message",
     "welcomeTextTooltip": "Message automatically sent when a user enters a single chat session with the bot for the first time that day",
     "welcomeTextPlaceholder": "e.g. Hello! I'm CoPaw. How can I help you?",
+    "loginWeCom": "Authorize WeCom Bot via QR Code",
+    "wecomAuthHint": "Click the button to open the WeCom QR code window. After scanning and confirming, Bot ID and Secret will be filled in automatically.",
+    "wecomAuthSuccess": "WeCom bot authorized successfully",
+    "wecomWindowBlocked": "Popup blocked. Please allow popups and try again.",
+    "wecomCancelled": "Authorization cancelled",
+    "wecomAuthFailed": "Authorization failed: {{msg}}",
+    "wecomSdkLoadFailed": "Failed to load WeCom SDK",
     "voiceSetupGuide": "Set up a Twilio account, purchase a phone number, then enter your credentials below. Find your Account SID and Auth Token on the Twilio Console dashboard. The Phone Number SID is listed under Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Open Twilio Console",
     "xiaoyiSetupGuide": "Please create an agent on Huawei Developer Platform and get AK/SK and Agent ID. AK/SK can be found in the credential management page.",
@@ -772,7 +782,14 @@
       "allParams": "All parameters",
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "Detects 'rm' command that may cause data loss",
-        "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly"
+        "TOOL_CMD_DANGEROUS_MV": "Detects 'mv' command that may move or overwrite files unexpectedly",
+        "TOOL_CMD_FS_DESTRUCTION": "Detects low-level disk formatting or wiping commands",
+        "TOOL_CMD_DOS_FORK_BOMB": "Detects classic Bash fork bombs and mass process termination",
+        "TOOL_CMD_PIPE_TO_SHELL": "Detects 'curl | bash' patterns used to download and immediately execute remote payloads",
+        "TOOL_CMD_REVERSE_SHELL": "Detects attempts to establish reverse shells or unauthorized network tunnels",
+        "TOOL_CMD_SYSTEM_TAMPERING": "Detects access to cron jobs, SSH keys, or sudo permissions (including reads and modifications)",
+        "TOOL_CMD_UNSAFE_PERMISSIONS": "Detects global permission downgrades (chmod 777) or setting immutable flags",
+        "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter"
       }
     },
     "skillScanner": {
@@ -825,5 +842,24 @@
         "goToWhitelist": "Go to Whitelist"
       }
     }
+  },
+  "login": {
+    "title": "Login to CoPaw",
+    "registerTitle": "Create Account",
+    "firstUserHint": "Create your admin account to get started",
+    "usernamePlaceholder": "Username",
+    "passwordPlaceholder": "Password",
+    "usernameRequired": "Please enter your username",
+    "passwordRequired": "Please enter your password",
+    "submit": "Login",
+    "register": "Register",
+    "failed": "Login failed, please check your credentials",
+    "registerSuccess": "Registration successful",
+    "registerFailed": "Registration failed",
+    "authNotEnabled": "Authentication is not enabled",
+    "logout": "Logout",
+    "logoutSuccess": "Logged out successfully",
+    "sessionExpired": "Session expired, please login again",
+    "unauthorized": "Unauthorized, please login"
   }
 }

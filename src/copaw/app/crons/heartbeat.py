@@ -10,15 +10,16 @@ import asyncio
 import logging
 import re
 from datetime import datetime, time, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
     load_config,
 )
-from ...constant import HEARTBEAT_TARGET_LAST
+from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
 
 logger = logging.getLogger(__name__)
 
@@ -89,18 +90,32 @@ async def run_heartbeat_once(
     *,
     runner: Any,
     channel_manager: Any,
+    agent_id: Optional[str] = None,
+    workspace_dir: Optional[Path] = None,
 ) -> None:
     """
-    Run one heartbeat: read HEARTBEAT.md via config path, run agent,
+    Run one heartbeat: read HEARTBEAT.md from workspace, run agent,
     optionally dispatch to last channel (target=last).
+
+    Args:
+        runner: Agent runner instance
+        channel_manager: Channel manager instance
+        agent_id: Agent ID for loading config
+        workspace_dir: Workspace directory for reading HEARTBEAT.md
     """
-    config = load_config()
-    hb = get_heartbeat_config()
+    from ...config.config import load_agent_config
+
+    hb = get_heartbeat_config(agent_id)
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
 
-    path = get_heartbeat_query_path()
+    # Use workspace_dir if provided, otherwise fall back to global path
+    if workspace_dir:
+        path = Path(workspace_dir) / HEARTBEAT_FILE
+    else:
+        path = get_heartbeat_query_path()
+
     if not path.is_file():
         logger.debug("heartbeat skipped: no file at %s", path)
         return
@@ -122,9 +137,22 @@ async def run_heartbeat_once(
         "user_id": "main",
     }
 
+    # Get last_dispatch from agent config if agent_id provided
+    last_dispatch = None
+    if agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+            last_dispatch = agent_config.last_dispatch
+        except Exception:
+            pass
+    else:
+        # Legacy: try root config
+        config = load_config()
+        last_dispatch = config.last_dispatch
+
     target = (hb.target or "").strip().lower()
-    if target == HEARTBEAT_TARGET_LAST and config.last_dispatch:
-        ld = config.last_dispatch
+    if target == HEARTBEAT_TARGET_LAST and last_dispatch:
+        ld = last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:

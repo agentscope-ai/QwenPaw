@@ -8,19 +8,24 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+import asyncio
 import logging
 import os
 import platform
+from typing import TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_token_counter
 from copaw.config import load_config
 from .local_embedder import LocalEmbedder
+
+if TYPE_CHECKING:
+    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +59,16 @@ class MemoryManager(ReMeLight):
     def __init__(
         self,
         working_dir: str,
-        max_input_length: int = 128 * 1024,
-        memory_compact_ratio: float = 0.7,
-        memory_reserve_ratio: float = 0.1,
-        language: str = "zh",
+        agent_config: "AgentProfileConfig",
     ):
         """Initialize MemoryManager with ReMeLight configuration.
 
         Args:
             working_dir: Working directory path for memory storage
-            max_input_length: Maximum input length in tokens for context
-                window (default: 128K = 131072)
-            memory_compact_ratio: Ratio for memory compaction
-                (default: 0.7)
-            memory_reserve_ratio: Ratio for memory reserve
-                (default: 0.1)
-            language: Language for memory operations (default: "zh")
+            agent_config: Agent profile configuration containing all settings
+                including running config (max_input_length,
+                memory_compact_ratio, memory_reserve_ratio, etc.)
+                and language setting.
 
         Environment Variables:
             EMBEDDING_API_KEY: API key for embedding service
@@ -90,11 +89,12 @@ class MemoryManager(ReMeLight):
             Vector search is enabled only when both EMBEDDING_API_KEY and
             EMBEDDING_MODEL_NAME are configured.
         """
-        # Store configuration parameters
-        self._max_input_length = max_input_length
-        self._memory_compact_ratio = memory_compact_ratio
-        self._memory_reserve_ratio = memory_reserve_ratio
-        self._language = language
+        # Extract configuration from agent_config
+        running_config = agent_config.running
+        self._max_input_length = running_config.max_input_length
+        self._memory_compact_ratio = running_config.memory_compact_ratio
+        self._memory_reserve_ratio = running_config.memory_reserve_ratio
+        self._language = agent_config.language
 
         if not _REME_AVAILABLE:
             logger.warning(
@@ -108,10 +108,7 @@ class MemoryManager(ReMeLight):
 
         # Environment variables (for backward compatibility)
         embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
-        embedding_base_url = self._safe_str(
-            "EMBEDDING_BASE_URL",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        )
+        embedding_base_url = self._safe_str("EMBEDDING_BASE_URL", "")
         embedding_model_name = self._safe_str("EMBEDDING_MODEL_NAME", "")
         embedding_dimensions = self._safe_int("EMBEDDING_DIMENSIONS", 1024)
         embedding_cache_enabled = (
@@ -143,16 +140,21 @@ class MemoryManager(ReMeLight):
                 local_embedding_enabled = False
 
         # Determine if vector search should be enabled based on configuration
+        # Determine if vector search should be enabled based on configuration
         # Priority: local embedding > remote API > disabled
         vector_enabled = local_embedding_enabled or (
             bool(embedding_api_key) and bool(embedding_model_name)
         )
-        
+
         if vector_enabled:
             if self._local_embedder:
                 logger.info("Vector search enabled with local embedding model.")
             else:
                 logger.info("Vector search enabled with remote API.")
+        else:
+            logger.warning(
+                "Vector search disabled. Memory search functionality "
+                "will be restricted. "
         else:
             logger.warning(
                 "Vector search disabled. Memory search functionality "
@@ -204,7 +206,8 @@ class MemoryManager(ReMeLight):
 
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
-        self.token_counter = _get_token_counter()
+        self.token_counter = _get_copaw_token_counter(agent_config)
+        self._start_lock = asyncio.Lock()
 
     @staticmethod
     def _safe_str(key: str, default: str) -> str:
@@ -288,7 +291,7 @@ class MemoryManager(ReMeLight):
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            token_counter=self.token_counter,
+            as_token_counter=self.token_counter,
             language=self._language,
             max_input_length=self._max_input_length,
             compact_ratio=self._memory_compact_ratio,
@@ -308,15 +311,37 @@ class MemoryManager(ReMeLight):
         Returns:
             str: Comprehensive summary of the messages
         """
+        self.prepare_model_formatter()
+
         return await super().summary_memory(
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            token_counter=self.token_counter,
+            as_token_counter=self.token_counter,
             toolkit=self.summary_toolkit,
             language=self._language,
             max_input_length=self._max_input_length,
             compact_ratio=self._memory_compact_ratio,
+        )
+
+    async def memory_search(
+        self,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0.1,
+    ) -> ToolResponse:
+        if not self._started:
+            async with self._start_lock:
+                if not self._started:
+                    logger.warning(
+                        "ReMe is not started, report github issue!",
+                    )
+                    await self.start()
+
+        return await super().memory_search(
+            query=query,
+            max_results=max_results,
+            min_score=min_score,
         )
 
     def get_in_memory_memory(self, **_kwargs):
@@ -331,39 +356,3 @@ class MemoryManager(ReMeLight):
         return super().get_in_memory_memory(token_counter=self.token_counter)
 
     def encode_text(self, texts: list[str]) -> list[list[float]]:
-        """Encode texts to embeddings using local embedder.
-        
-        This method provides embeddings for vector memory search.
-        Uses local embedding model if enabled, otherwise falls back to
-        parent class behavior (remote API).
-        
-        Args:
-            texts: List of text strings to encode
-            
-        Returns:
-            List of embedding vectors
-            
-        Raises:
-            RuntimeError: If no embedding provider is available
-        """
-        if self._local_embedder is not None:
-            return self._local_embedder.encode_text(texts)
-        
-        # Fall back to parent class (remote API) if available
-        if hasattr(self, 'embedding_model') and self.embedding_model is not None:
-            return self.embedding_model.encode(texts)
-        
-        raise RuntimeError(
-            "No embedding provider available. "
-            "Please enable local embedding in settings or configure EMBEDDING_API_KEY."
-        )
-
-    def get_local_embedder_info(self) -> dict | None:
-        """Get information about local embedder if enabled.
-        
-        Returns:
-            Dictionary with model info, or None if not enabled
-        """
-        if self._local_embedder is None:
-            return None
-        return self._local_embedder.get_model_info()

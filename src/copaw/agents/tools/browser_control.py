@@ -11,13 +11,13 @@ wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 
 import asyncio
 import atexit
+from concurrent import futures
 import json
 import logging
 import os
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from agentscope.message import TextBlock
@@ -41,12 +41,12 @@ _USE_SYNC_PLAYWRIGHT = (
 )
 
 if _USE_SYNC_PLAYWRIGHT:
-    _executor: Optional[ThreadPoolExecutor] = None
+    _executor: Optional[futures.ThreadPoolExecutor] = None
 
-    def _get_executor() -> ThreadPoolExecutor:
+    def _get_executor() -> futures.ThreadPoolExecutor:
         global _executor
         if _executor is None:
-            _executor = ThreadPoolExecutor(
+            _executor = futures.ThreadPoolExecutor(
                 max_workers=1,
                 thread_name_prefix="playwright",
             )

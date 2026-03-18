@@ -3,15 +3,17 @@ import os
 import json
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal
+
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
 
-from ..providers.models import ModelSlotConfig
+from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    WORKING_DIR,
 )
-from .timezone import detect_system_timezone
+from ..providers.models import ModelSlotConfig
 
 
 def generate_short_agent_id() -> str:
@@ -258,6 +260,25 @@ class AgentsRunningConfig(BaseModel):
             "Maximum number of reasoning-acting iterations for ReAct agent"
         ),
     )
+
+    token_count_model: str = Field(
+        default="default",
+        description="Model to use for token counting",
+    )
+
+    token_count_estimate_divisor: float = Field(
+        default=3.75,
+        gt=1,
+        description=(
+            "Divisor for character-based token estimation " "(len / divisor)"
+        ),
+    )
+
+    token_count_use_mirror: bool = Field(
+        default=False,
+        description="Whether to use mirror token counting",
+    )
+
     max_input_length: int = Field(
         default=128 * 1024,  # 128K = 131072 tokens
         ge=1000,
@@ -281,17 +302,23 @@ class AgentsRunningConfig(BaseModel):
     )
 
     enable_tool_result_compact: bool = Field(
-        default=False,
+        default=True,
         description="Whether to compact tool result messages in memory",
     )
 
     tool_result_compact_keep_n: int = Field(
-        default=5,
+        default=3,
         ge=1,
         le=10,
         description=(
             "Number of tool result messages to keep in memory when compacting"
         ),
+    )
+
+    history_max_length: int = Field(
+        default=10000,
+        ge=1000,
+        description="Maximum length for /history command output",
     )
 
     @property
@@ -376,6 +403,10 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Heartbeat configuration for this agent",
     )
+    last_dispatch: Optional["LastDispatchConfig"] = Field(
+        default=None,
+        description="Last dispatch target for this agent",
+    )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
         description="Runtime configuration",
@@ -417,7 +448,7 @@ class AgentsConfig(BaseModel):
         default_factory=lambda: {
             "default": AgentProfileRef(
                 id="default",
-                workspace_dir="~/.copaw/workspaces/default",
+                workspace_dir=f"{WORKING_DIR}/workspaces/default",
             ),
         },
         description="Agent profile references (ID and workspace path only)",
@@ -859,6 +890,16 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     with open(agent_config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+    # This keeps COPAW_WORKING_DIR effective even if existing agent.json
+    # contains older hard-coded paths like "~/.copaw/media".
+    try:
+        from .utils import _normalize_working_dir_bound_paths
+
+        data = _normalize_working_dir_bound_paths(data)
+    except Exception:
+        pass
+
     return AgentProfileConfig(**data)
 
 
@@ -925,7 +966,7 @@ def migrate_legacy_config_to_multi_agent() -> bool:
     legacy_agents = config.agents
 
     # Create default agent workspace
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
 
     # Create default agent configuration from legacy settings
@@ -970,8 +1011,10 @@ def migrate_legacy_config_to_multi_agent() -> bool:
             indent=2,
         )
 
-    # Migrate existing workspace files to default agent workspace
-    old_workspace = Path("~/.copaw").expanduser()
+    # Migrate existing workspace files from legacy default working dir.
+    # When COPAW_WORKING_DIR is customized, historical data may still exist
+    # under "~/.copaw".
+    old_workspace = Path("~/.copaw").expanduser().resolve()
 
     # Move sessions, memory, and other workspace files
     for item_name in ["sessions", "memory", "jobs.json"]:
