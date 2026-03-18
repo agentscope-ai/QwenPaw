@@ -130,9 +130,9 @@ CoPaw supports optional web login authentication to protect the Console from una
 
 ### Environment variables
 
-| Variable              | Description                          | Required                    |
-| --------------------- | ------------------------------------ | --------------------------- |
-| `COPAW_AUTH_ENABLED`  | Set to `true` to enable auth         | Yes                         |
+| Variable              | Description                          | Required                     |
+| --------------------- | ------------------------------------ | ---------------------------- |
+| `COPAW_AUTH_ENABLED`  | Set to `true` to enable auth         | Yes                          |
 | `COPAW_AUTH_USERNAME` | Pre-set admin username on first boot | Optional (auto-registration) |
 | `COPAW_AUTH_PASSWORD` | Pre-set admin password on first boot | Optional (auto-registration) |
 
@@ -273,7 +273,7 @@ If a token expires (after 7 days) or becomes invalid, the Console automatically 
 | Token storage         | Browser localStorage, cleared on logout or 401 response                                    |
 | External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                    |
 | File permissions      | `auth.json` written with `0o600` (owner read/write only)                                   |
-| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth (CLI access unaffected)                       |
+| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth (CLI access unaffected)                        |
 | CORS preflight        | `OPTIONS` requests pass through without auth check                                         |
 | WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                      |
 | Protected routes      | Only `/api/*` routes require authentication                                                |

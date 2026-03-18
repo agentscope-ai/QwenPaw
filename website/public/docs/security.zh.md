@@ -130,11 +130,11 @@ CoPaw 支持可选的 Web 登录认证，保护控制台免受未授权访问。
 
 ### 环境变量
 
-| 变量                  | 说明                         | 是否必填                 |
-| --------------------- | ---------------------------- | ------------------------ |
-| `COPAW_AUTH_ENABLED`  | 设为 `true` 启用认证         | 是                       |
-| `COPAW_AUTH_USERNAME` | 首次启动时预设管理员用户名   | 可选（自动注册）         |
-| `COPAW_AUTH_PASSWORD` | 首次启动时预设管理员密码     | 可选（自动注册）         |
+| 变量                  | 说明                       | 是否必填         |
+| --------------------- | -------------------------- | ---------------- |
+| `COPAW_AUTH_ENABLED`  | 设为 `true` 启用认证       | 是               |
+| `COPAW_AUTH_USERNAME` | 首次启动时预设管理员用户名 | 可选（自动注册） |
+| `COPAW_AUTH_PASSWORD` | 首次启动时预设管理员密码   | 可选（自动注册） |
 
 - `COPAW_AUTH_ENABLED=true` 是启用认证唯一必需的变量。
 - `COPAW_AUTH_USERNAME` 和 `COPAW_AUTH_PASSWORD` 为可选项。当两者都设置且尚未注册过用户时，CoPaw 会在启动时自动创建管理员账户 — 适用于 Docker 编排、Kubernetes、服务器管理面板（1Panel、Portainer、CasaOS 等）及其他无法通过浏览器交互注册的自动化部署场景。
