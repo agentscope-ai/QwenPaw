@@ -8,7 +8,6 @@ encode(), encode_text(), get_model_info().
 from __future__ import annotations
 
 import pytest
-import numpy as np
 
 from copaw.config.config import LocalEmbeddingConfig
 from copaw.agents.memory.local_embedder import LocalEmbedder
@@ -16,6 +15,8 @@ from copaw.agents.memory.local_embedder import LocalEmbedder
 
 class TestLocalEmbedderPublicAPI:
     """Tests for LocalEmbedder public API contract."""
+
+    # pylint: disable=protected-access
 
     def test_embedder_initialization(self):
         """Test that LocalEmbedder can be initialized with config."""
@@ -153,7 +154,7 @@ class TestPresetModelsContract:
         """Test that preset models have all required fields."""
         from copaw.agents.memory.local_embedder import PRESET_MODELS
 
-        for model_id, model_data in PRESET_MODELS.items():
+        for _model_id, model_data in PRESET_MODELS.items():
             assert "type" in model_data
             assert "dimensions" in model_data
             assert "pooling" in model_data
@@ -164,7 +165,7 @@ class TestPresetModelsContract:
         """Test preset models have ModelScope and HuggingFace repo IDs."""
         from copaw.agents.memory.local_embedder import PRESET_MODELS
 
-        for model_id, model_data in PRESET_MODELS.items():
+        for _model_id, model_data in PRESET_MODELS.items():
             repo_id = model_data["repo_id"]
             assert "modelscope" in repo_id
             assert "huggingface" in repo_id

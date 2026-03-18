@@ -177,8 +177,6 @@ class TestPresetModelsIntegrity:
 
     def test_preset_models_have_valid_structure(self, running_app):
         """Test that preset-models endpoint returns valid structure."""
-        import httpx
-
         client = running_app
 
         response = client.get(

@@ -124,7 +124,7 @@ class TestModelMetadata:
 
     def test_repo_id_presence(self):
         """Test that preset models have repo_id for both sources."""
-        for model_id, model_data in PRESET_MODELS.items():
+        for _model_id, model_data in PRESET_MODELS.items():
             assert "repo_id" in model_data
             assert "modelscope" in model_data["repo_id"]
             assert "huggingface" in model_data["repo_id"]
@@ -132,6 +132,8 @@ class TestModelMetadata:
 
 class TestLocalEmbedderInitialization:
     """Tests for LocalEmbedder initialization without model loading."""
+
+    # pylint: disable=protected-access
 
     def test_embedder_init_multimodal(self):
         """Test embedder initialization for multimodal model."""
@@ -187,6 +189,8 @@ class TestLocalEmbedderInitialization:
 
 class TestLocalEmbedderWithMockedModel:
     """Tests for LocalEmbedder with mocked model loading."""
+
+    # pylint: disable=protected-access
 
     @pytest.fixture
     def mock_config(self):
@@ -252,8 +256,6 @@ class TestTorchDtypeMapping:
 
     def test_dtype_conversion(self):
         """Test that dtype string maps to correct torch dtype."""
-        from copaw.agents.memory.local_embedder import LocalEmbedder
-
         config_fp16 = LocalEmbeddingConfig(dtype="fp16", enabled=True)
         config_bf16 = LocalEmbeddingConfig(dtype="bf16", enabled=True)
         config_fp32 = LocalEmbeddingConfig(dtype="fp32", enabled=True)
@@ -334,6 +336,8 @@ class TestDownloadModelForConfig:
 
 class TestLocalEmbedderInternalPaths:
     """Tests for internal code paths in LocalEmbedder."""
+
+    # pylint: disable=protected-access
 
     def test_metadata_auto_detect_for_unknown_model(self):
         """Test that auto_detect is called for unknown model."""
