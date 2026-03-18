@@ -29,6 +29,7 @@ from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config import load_config, save_config
+from ...config.config import load_agent_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -328,6 +329,7 @@ class AgentRunner(Runner):
             max_iters = config.agents.running.max_iters
             max_input_length = config.agents.running.max_input_length
             effective_msgs = list(msgs or [])
+            agent_config = load_agent_config(self.agent_id)
 
             agent = CoPawAgent(
                 agent_config=agent_config,
@@ -406,6 +408,7 @@ class AgentRunner(Runner):
                 agents=[agent],
                 coroutine_task=agent(effective_msgs),
             ):
+                msg, last = stream_item
                 generated_messages.append(msg)
                 yield msg, last
 

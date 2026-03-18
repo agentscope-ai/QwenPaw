@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import shutil
 from pathlib import Path
 
-from ..agents.skills_manager import SkillService, sync_skill_dir_to_active
+from ..agents import skills_manager
 
 
 KNOWLEDGE_MODULE_SKILLS_DIR = Path(__file__).parent / "skills"
@@ -14,10 +15,12 @@ def sync_knowledge_module_skills(enabled: bool) -> None:
     for skill_name in KNOWLEDGE_MODULE_SKILL_NAMES:
         if enabled:
             skill_dir = KNOWLEDGE_MODULE_SKILLS_DIR / skill_name
-            if not sync_skill_dir_to_active(skill_dir, force=True):
+            if not skills_manager.sync_skill_dir_to_active(skill_dir, force=True):
                 raise RuntimeError(
                     f"Failed to enable knowledge module skill: {skill_name}"
                 )
             continue
 
-        SkillService.disable_skill(skill_name)
+        target_dir = skills_manager.ACTIVE_SKILLS_DIR / skill_name
+        if target_dir.exists():
+            shutil.rmtree(target_dir)

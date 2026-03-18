@@ -284,6 +284,65 @@ class AgentsRunningConfig(BaseModel):
         description="Maximum length for /history command output",
     )
 
+    knowledge_enabled: bool = Field(
+        default=True,
+        description="Whether knowledge runtime is enabled for the active agent.",
+    )
+
+    knowledge_retrieval_enabled: bool = Field(
+        default=True,
+        description="Whether tools can retrieve from indexed knowledge.",
+    )
+
+    knowledge_retrieval_top_k: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        description="Number of knowledge hits injected into chat context.",
+    )
+
+    knowledge_retrieval_max_context_chars: int = Field(
+        default=1800,
+        ge=300,
+        le=8000,
+        description="Maximum characters for injected retrieval context.",
+    )
+
+    knowledge_retrieval_min_score: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=100.0,
+        description="Minimum lexical score threshold for injected hits.",
+    )
+
+    knowledge_auto_collect_chat_files: bool = Field(
+        default=False,
+        description="Auto-collect file attachments from chat into knowledge.",
+    )
+
+    knowledge_auto_collect_chat_urls: bool = Field(
+        default=True,
+        description="Auto-collect URLs from chat messages into knowledge.",
+    )
+
+    knowledge_auto_collect_long_text: bool = Field(
+        default=False,
+        description="Auto-collect long chat text into knowledge as text sources.",
+    )
+
+    knowledge_long_text_min_chars: int = Field(
+        default=2000,
+        ge=200,
+        description="Minimum chars for long-text auto-collection.",
+    )
+
+    knowledge_chunk_size: int = Field(
+        default=1200,
+        ge=200,
+        le=8000,
+        description="Default chunk size used by knowledge indexing.",
+    )
+
     @property
     def memory_compact_reserve(self) -> int:
         """Memory compact reserve size (tokens)."""
@@ -587,31 +646,37 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="execute_shell_command",
             enabled=True,
             description="Execute shell commands",
+            display_to_user=True,
         ),
         "read_file": BuiltinToolConfig(
             name="read_file",
             enabled=True,
             description="Read file contents",
+            display_to_user=True,
         ),
         "write_file": BuiltinToolConfig(
             name="write_file",
             enabled=True,
             description="Write content to file",
+            display_to_user=True,
         ),
         "edit_file": BuiltinToolConfig(
             name="edit_file",
             enabled=True,
             description="Edit file using find-and-replace",
+            display_to_user=True,
         ),
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
             description="Browser automation and web interaction",
+            display_to_user=True,
         ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
             enabled=True,
             description="Capture desktop screenshots",
+            display_to_user=True,
         ),
         "view_image": BuiltinToolConfig(
             name="view_image",
@@ -624,21 +689,25 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="send_file_to_user",
             enabled=True,
             description="Send files to user",
+            display_to_user=True,
         ),
         "get_current_time": BuiltinToolConfig(
             name="get_current_time",
             enabled=True,
             description="Get current date and time",
+            display_to_user=True,
         ),
         "set_user_timezone": BuiltinToolConfig(
             name="set_user_timezone",
             enabled=True,
             description="Set user timezone",
+            display_to_user=True,
         ),
         "get_token_usage": BuiltinToolConfig(
             name="get_token_usage",
             enabled=True,
             description="Get llm token usage",
+            display_to_user=True,
         ),
     }
 
@@ -736,6 +805,96 @@ class SecurityConfig(BaseModel):
     )
 
 
+class KnowledgeSourceSpec(BaseModel):
+    """A single knowledge source definition."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+        description="Stable source id",
+    )
+    name: str = Field(..., min_length=1, max_length=120, description="Display name")
+    type: Literal["file", "directory", "url", "text", "chat"] = Field(
+        default="file",
+        description="Source type",
+    )
+    location: str = Field(
+        default="",
+        description="Filesystem path or URL location",
+    )
+    content: str = Field(
+        default="",
+        description="Inline text content when type is text",
+    )
+    enabled: bool = Field(default=True)
+    recursive: bool = Field(default=False)
+    tags: List[str] = Field(default_factory=list)
+    summary: str = Field(default="")
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.type in {"file", "directory", "url"} and not self.location.strip():
+            raise ValueError(
+                f"location is required for knowledge source type '{self.type}'",
+            )
+        if self.type == "text" and not (
+            self.content.strip() or self.location.strip()
+        ):
+            raise ValueError(
+                "content or location is required for knowledge source type 'text'",
+            )
+        return self
+
+
+class KnowledgeIndexConfig(BaseModel):
+    """Knowledge indexing behavior."""
+
+    chunk_size: int = Field(default=1200, ge=200, le=8000)
+    chunk_overlap: int = Field(default=150, ge=0, le=2000)
+    include_globs: List[str] = Field(default_factory=list)
+    exclude_globs: List[str] = Field(default_factory=list)
+    max_file_size: int = Field(
+        default=5 * 1024 * 1024,
+        ge=1024,
+        description="Max single-file size (bytes) for indexing/downloading.",
+    )
+
+
+class KnowledgeAutomationConfig(BaseModel):
+    """Deprecated legacy automation section for compatibility."""
+
+    knowledge_auto_collect_chat_files: bool = Field(default=False)
+    knowledge_auto_collect_chat_urls: bool = Field(default=True)
+    knowledge_auto_collect_long_text: bool = Field(default=False)
+    knowledge_long_text_min_chars: int = Field(default=2000, ge=200)
+    url_exclude_private_addresses: bool = Field(default=True)
+    url_exclude_token_params: bool = Field(default=True)
+    url_exclude_patterns: List[str] = Field(default_factory=list)
+
+
+class KnowledgeConfig(BaseModel):
+    """Knowledge feature configuration."""
+
+    version: int = Field(default=1, ge=1)
+    enabled: bool = Field(default=False)
+    engine: Literal["local_lexical", "cognee"] = Field(
+        default="local_lexical",
+    )
+    sources: List[KnowledgeSourceSpec] = Field(default_factory=list)
+    index: KnowledgeIndexConfig = Field(default_factory=KnowledgeIndexConfig)
+    automation: KnowledgeAutomationConfig = Field(
+        default_factory=KnowledgeAutomationConfig,
+    )
+    graph_query_enabled: bool = Field(default=False)
+    allow_cypher_query: bool = Field(default=False)
+    memify_enabled: bool = Field(default=False)
+    triplet_search_enabled: bool = Field(default=False)
+
+
 class SkillMarketSpec(BaseModel):
     """A single skills market entry."""
 
@@ -786,6 +945,7 @@ class Config(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     skills_market: SkillsMarketConfig = Field(
         default_factory=SkillsMarketConfig,
     )

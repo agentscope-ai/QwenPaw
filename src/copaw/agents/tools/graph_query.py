@@ -53,7 +53,8 @@ async def graph_query(
                 TextBlock(type="text", text="Error: knowledge is disabled in configuration."),
             ],
         )
-    if not bool(getattr(config.agents.running, "knowledge_enabled", True)):
+    running = getattr(getattr(config, "agents", None), "running", None)
+    if not bool(getattr(running, "knowledge_enabled", True)):
         return ToolResponse(
             content=[
                 TextBlock(type="text", text="Error: knowledge is disabled in agent runtime configuration."),
