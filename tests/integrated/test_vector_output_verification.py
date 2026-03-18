@@ -24,9 +24,7 @@ class TestVectorOutputProperties:
     """
 
     def test_encode_text_returns_list_of_lists(self, running_app):
-        """Test that encode_text returns a list of lists."""
-        import httpx
-
+        """Test encode_text returns a list of lists."""
         client = running_app
 
         # Use a simple config that should work on CPU
@@ -54,9 +52,7 @@ class TestVectorOutputProperties:
                 assert "dimensions" in data["model_info"]
 
     def test_model_info_contains_dimensions(self, running_app):
-        """Test that model_info contains correct dimensions."""
-        import httpx
-
+        """Test model_info contains correct dimensions."""
         client = running_app
 
         # Test multimodal model
@@ -91,8 +87,6 @@ class TestVectorSearchIntegration:
         self, running_app
     ):
         """Test vector search enabled when local embedding configured."""
-        import httpx
-
         client = running_app
 
         # Enable local embedding
@@ -125,9 +119,7 @@ class TestMultipleModelTypes:
     """
 
     def test_qwen_multimodal_model_config(self, running_app):
-        """Test that Qwen3-VL multimodal model can be configured."""
-        import httpx
-
+        """Test Qwen3-VL multimodal model can be configured."""
         client = running_app
 
         config = {
@@ -147,9 +139,7 @@ class TestMultipleModelTypes:
         assert data["model_id"] == "qwen/Qwen3-VL-Embedding-2B"
 
     def test_bge_text_model_config(self, running_app):
-        """Test that BGE text model can be configured."""
-        import httpx
-
+        """Test BGE text model can be configured."""
         client = running_app
 
         config = {

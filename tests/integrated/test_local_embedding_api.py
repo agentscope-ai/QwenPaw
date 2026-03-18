@@ -14,10 +14,10 @@ class TestEmbeddingApiEndpoints:
 
     def test_preset_models_returns_valid_structure(self, running_app):
         """Test that preset-models endpoint returns valid model list."""
-        import httpx
-
         client = running_app
-        response = client.get("/api/config/agents/local-embedding/preset-models")
+        response = client.get(
+            "/api/config/agents/local-embedding/preset-models"
+        )
 
         assert response.status_code == 200
         data = response.json()

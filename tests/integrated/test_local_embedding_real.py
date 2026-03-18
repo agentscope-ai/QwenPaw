@@ -26,9 +26,7 @@ class TestLocalEmbeddingRealModel:
     """
 
     def test_model_loads_successfully(self, running_app):
-        """Test that the embedding model can be loaded via API test endpoint."""
-        import httpx
-
+        """Test embedding model can be loaded via API test endpoint."""
         client = running_app
 
         test_config = {
@@ -47,7 +45,9 @@ class TestLocalEmbeddingRealModel:
         # With real model loaded, we expect either:
         # - 200: Success with latency info
         # - 500: CUDA/GPU error (common on unsupported architectures)
-        assert response.status_code in [200, 500], f"Unexpected status: {response.status_code}"
+        assert response.status_code in [200, 500], (
+            f"Unexpected status: {response.status_code}"
+        )
 
         if response.status_code == 200:
             data = response.json()
@@ -56,9 +56,7 @@ class TestLocalEmbeddingRealModel:
             assert data.get("latency_ms", 0) > 0
 
     def test_text_encoding_produces_valid_embedding(self, running_app):
-        """Test that text encoding produces valid embedding vector."""
-        import httpx
-
+        """Test text encoding produces valid embedding vector."""
         client = running_app
 
         # First get config to verify state
@@ -92,9 +90,7 @@ class TestLocalEmbeddingRealModel:
                 assert model_info.get("dimensions") == 2048
 
     def test_vector_search_enabled_with_local_embedding(self, running_app):
-        """Test that vector search is properly enabled after config update."""
-        import httpx
-
+        """Test vector search is properly enabled after config update."""
         client = running_app
 
         # Enable local embedding
@@ -128,9 +124,7 @@ class TestLocalEmbeddingBGETextModel:
     """
 
     def test_bge_model_encoding(self, running_app):
-        """Test that BGE text model can encode text."""
-        import httpx
-
+        """Test BGE text model can encode text."""
         client = running_app
 
         test_config = {
@@ -149,7 +143,9 @@ class TestLocalEmbeddingBGETextModel:
 
         # BGE-small is small enough that it should succeed even on CPU
         # but we accept failure if model needs downloading
-        assert response.status_code in [200, 500], f"Unexpected status: {response.status_code}"
+        assert response.status_code in [200, 500], (
+            f"Unexpected status: {response.status_code}"
+        )
 
         if response.status_code == 200:
             data = response.json()
