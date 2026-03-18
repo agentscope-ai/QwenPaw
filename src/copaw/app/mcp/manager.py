@@ -212,9 +212,7 @@ class MCPClientManager:
 
         headers = client_config.headers
         if headers:
-            headers = {
-                k: os.path.expandvars(v) for k, v in headers.items()
-            }
+            headers = {k: os.path.expandvars(v) for k, v in headers.items()}
 
         client = HttpStatefulClient(
             name=client_config.name,
