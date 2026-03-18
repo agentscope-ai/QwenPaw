@@ -152,16 +152,22 @@ class ModelMetadata:
                         },
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to read config.json from {local_path}: {e}")
+                    logger.warning(
+                        f"Failed to read config.json from {local_path}: {e}",
+                    )
 
         # Fallback: use model name heuristics
-        logger.warning(f"Model {model_id} not in presets, using name heuristics")
+        logger.warning(
+            f"Model {model_id} not in presets, using name heuristics",
+        )
 
         # Detect from model name patterns
         model_id_lower = model_id.lower()
 
         # Detect model type
-        if any(x in model_id_lower for x in ["vl", "vision", "multimodal", "clip"]):
+        if any(
+            x in model_id_lower for x in ["vl", "vision", "multimodal", "clip"]
+        ):
             model_type = "multimodal"
             dimensions = 1024  # Common for multimodal models
             pooling = "last_token"
@@ -238,7 +244,10 @@ class LocalEmbedder:
         # Auto-detect best available device
         if torch.cuda.is_available():
             return "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        elif (
+            hasattr(torch.backends, "mps")
+            and torch.backends.mps.is_available()
+        ):
             return "mps"
         else:
             return "cpu"
@@ -336,7 +345,9 @@ class LocalEmbedder:
             model_path = snapshot_download(repo_id, cache_dir=cache_dir)
             return model_path
         except ImportError:
-            logger.warning("modelscope not installed, falling back to huggingface")
+            logger.warning(
+                "modelscope not installed, falling back to huggingface",
+            )
             return self._download_from_huggingface(
                 self._metadata.repo_id.get("huggingface", repo_id),
                 cache_dir,
@@ -481,7 +492,9 @@ class _TextEmbedderImpl:
     ) -> List[List[float]]:
         """Encode texts to embeddings."""
         if images is not None:
-            logger.warning("Text model does not support images, ignoring images")
+            logger.warning(
+                "Text model does not support images, ignoring images",
+            )
 
         # Tokenize
         inputs = self.tokenizer(
@@ -509,8 +522,14 @@ class _TextEmbedderImpl:
             mask_expanded = attention_mask.unsqueeze(-1).expand(
                 outputs.last_hidden_state.size(),
             )
-            sum_embeddings = torch.sum(outputs.last_hidden_state * mask_expanded, 1)
-            embeddings = sum_embeddings / torch.clamp(mask_expanded.sum(1), min=1e-9)
+            sum_embeddings = torch.sum(
+                outputs.last_hidden_state * mask_expanded,
+                1,
+            )
+            embeddings = sum_embeddings / torch.clamp(
+                mask_expanded.sum(1),
+                min=1e-9,
+            )
         else:
             # Default to CLS
             embeddings = outputs.last_hidden_state[:, 0]
@@ -539,7 +558,9 @@ class _MultimodalEmbedderImpl:
         self.metadata = metadata
         self.device = device
 
-        logger.info(f"Loading Qwen3-VL from: {model_path}, dtype={torch_dtype}")
+        logger.info(
+            f"Loading Qwen3-VL from: {model_path}, dtype={torch_dtype}",
+        )
 
         # Set default dtype before loading model to ensure correct precision
         original_dtype = torch.get_default_dtype()
@@ -610,13 +631,18 @@ def download_model_for_config(config) -> str:
     # Get model metadata
     metadata = ModelMetadata.from_preset(config.model_id)
     if metadata is None:
-        metadata = ModelMetadata.auto_detect(config.model_id, config.model_path)
+        metadata = ModelMetadata.auto_detect(
+            config.model_id,
+            config.model_path,
+        )
 
     # Determine download source and repo_id
     source = config.download_source
     repo_id = metadata.repo_id.get(source, metadata.repo_id["modelscope"])
 
-    logger.info(f"Downloading model {config.model_id} from {source}: {repo_id}")
+    logger.info(
+        f"Downloading model {config.model_id} from {source}: {repo_id}",
+    )
 
     try:
         if source == "modelscope":
@@ -625,7 +651,9 @@ def download_model_for_config(config) -> str:
 
                 return snapshot_download(repo_id, cache_dir=cache_dir)
             except ImportError:
-                logger.warning("modelscope not installed, falling back to huggingface")
+                logger.warning(
+                    "modelscope not installed, falling back to huggingface",
+                )
                 source = "huggingface"
                 repo_id = metadata.repo_id.get("huggingface", repo_id)
 

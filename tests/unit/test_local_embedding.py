@@ -182,7 +182,10 @@ class TestLocalEmbedderInitialization:
             enabled=False,  # Disabled
         )
         embedder = LocalEmbedder(config)
-        with pytest.raises(RuntimeError, match="Local embedding is not enabled"):
+        with pytest.raises(
+            RuntimeError,
+            match="Local embedding is not enabled",
+        ):
             embedder.encode_text(["test"])
 
 
