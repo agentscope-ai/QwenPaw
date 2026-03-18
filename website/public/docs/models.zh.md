@@ -10,7 +10,7 @@ CoPaw 支持多种 LLM 提供商：**云提供商**（需 API Key，包括 Googl
 
 ## 配置云提供商
 
-云提供商（包括 ModelScope、DashScope、Aliyun Coding Plan、OpenAI、Azure OpenAI、Google Gemini, Venice.ai 和 MiniMax）通过 API 调用远程模型，需要配置 **API Key**。
+云提供商（包括 ModelScope、DashScope、Aliyun Coding Plan、OpenAI、Azure OpenAI、Google Gemini、Venice.ai 和 MiniMax）通过 API 调用远程模型，需要配置 **API Key**。
 
 **在控制台中配置：**
 

@@ -93,7 +93,7 @@ VENICE_MODELS: List[ModelInfo] = [
     ModelInfo(id="llama-3.3-70b", name="Llama 3.3 70B"),
     ModelInfo(id="qwen-2.5-coder-32b", name="Qwen 2.5 Coder 32B"),
 ]
-  
+
 MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
     ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
@@ -184,6 +184,7 @@ PROVIDER_VENICE = OpenAIProvider(
     base_url="https://api.venice.ai/api/v1",
     api_key_prefix="",
     models=VENICE_MODELS,
+    freeze_url=True,
 )
 
 PROVIDER_MINIMAX = AnthropicProvider(

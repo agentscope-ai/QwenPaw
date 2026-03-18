@@ -358,8 +358,8 @@ CoPaw 需要 LLM 提供商才能运行。有三种设置方式：
 | Anthropic              | `anthropic`         | `https://api.anthropic.com`                         | _（任意）_   |
 | Ollama                 | `ollama`            | `http://localhost:11434`                            | _（无需）_   |
 | LM Studio              | `lmstudio`          | `http://localhost:1234/v1`                          | _（无需）_   |
+| Venice.ai              | `venice`            | `https://api.venice.ai/api/v1`                      | _（任意）_   |
 | 自定义                 | `custom`            | _（你自己填）_                                      | _（任意）_   |
-| Venice.ai          | `venice`           | `https://api.venice.ai/api/v1`                      |              |
 
 每个提供商需要设置：
 
