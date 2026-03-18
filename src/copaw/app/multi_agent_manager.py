@@ -6,7 +6,7 @@ including lazy loading, lifecycle management, and hot reloading.
 """
 import asyncio
 import logging
-from typing import Dict
+from typing import Dict, Set
 
 from .workspace import Workspace
 from ..config.utils import load_config
@@ -28,6 +28,7 @@ class MultiAgentManager:
         """Initialize multi-agent manager."""
         self.agents: Dict[str, Workspace] = {}
         self._lock = asyncio.Lock()
+        self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
 
     async def get_agent(self, agent_id: str) -> Workspace:
@@ -106,7 +107,7 @@ class MultiAgentManager:
             async def delayed_cleanup():
                 """Wait for tasks to complete, then stop old instance."""
                 try:
-                    # Wait up to 5 minutes for tasks to complete
+                    # Wait up to 1 minutes for tasks to complete
                     completed = await old_instance.task_tracker.wait_all_done(
                         timeout=60.0,
                     )
@@ -132,8 +133,26 @@ class MultiAgentManager:
                         f"New instance is serving requests.",
                     )
 
-            # Create background task for delayed cleanup
-            asyncio.create_task(delayed_cleanup())
+            # Create background task for delayed cleanup and track it
+            cleanup_task = asyncio.create_task(delayed_cleanup())
+            self._cleanup_tasks.add(cleanup_task)
+
+            def _on_cleanup_done(task: asyncio.Task) -> None:
+                """Remove task from tracking set and log errors."""
+                self._cleanup_tasks.discard(task)
+                if task.cancelled():
+                    logger.info(
+                        f"Delayed cleanup task for {agent_id} was cancelled.",
+                    )
+                    return
+                exc = task.exception()
+                if exc is not None:
+                    logger.warning(
+                        f"Error in delayed cleanup task for {agent_id}: "
+                        f"{exc}.",
+                    )
+
+            cleanup_task.add_done_callback(_on_cleanup_done)
             logger.info(
                 f"Zero-downtime reload completed: {agent_id}. "
                 f"Old instance cleanup scheduled in background.",
@@ -272,12 +291,41 @@ class MultiAgentManager:
 
         return True
 
+    async def cancel_all_cleanup_tasks(self) -> None:
+        """Cancel and await all pending delayed cleanup tasks.
+
+        This ensures that any in-progress background cleanups are either
+        completed or cleanly cancelled before the manager is torn down.
+        Called by stop_all() during shutdown.
+        """
+        if not self._cleanup_tasks:
+            return
+
+        logger.info(
+            f"Cancelling {len(self._cleanup_tasks)} pending cleanup "
+            f"task(s)...",
+        )
+        tasks = list(self._cleanup_tasks)
+        self._cleanup_tasks.clear()
+
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+        # Await completion of all tasks, collecting exceptions
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info("All cleanup tasks cancelled/completed")
+
     async def stop_all(self):
         """Stop all agent instances.
 
         Called during application shutdown to clean up resources.
+        Cancels any pending delayed cleanup tasks and stops all agents.
         """
         logger.info(f"Stopping all agents ({len(self.agents)} running)...")
+
+        # First, cancel pending cleanup tasks to avoid orphaned instances
+        await self.cancel_all_cleanup_tasks()
 
         # Create list of agent IDs to avoid modifying dict during iteration
         agent_ids = list(self.agents.keys())

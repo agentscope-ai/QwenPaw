@@ -85,11 +85,14 @@ class TaskTracker:
         Returns:
             bool: True if all tasks completed, False if timeout occurred
         """
+
+        async def _wait_loop() -> None:
+            while await self.has_active_tasks():
+                await asyncio.sleep(0.5)
+
         try:
-            async with asyncio.timeout(timeout):
-                while await self.has_active_tasks():
-                    await asyncio.sleep(0.5)
-                return True
+            await asyncio.wait_for(_wait_loop(), timeout=timeout)
+            return True
         except asyncio.TimeoutError:
             return False
 
