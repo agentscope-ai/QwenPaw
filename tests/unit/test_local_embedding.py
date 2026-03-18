@@ -80,7 +80,11 @@ class TestPresetModels:
 
     def test_bge_text_presets(self):
         """Test BGE text model presets."""
-        text_models = ["BAAI/bge-small-zh", "BAAI/bge-large-zh-v1.5", "BAAI/bge-m3"]
+        text_models = [
+            "BAAI/bge-small-zh",
+            "BAAI/bge-large-zh-v1.5",
+            "BAAI/bge-m3",
+        ]
         for model_id in text_models:
             assert model_id in PRESET_MODELS
             model = PRESET_MODELS[model_id]
@@ -175,7 +179,9 @@ class TestLocalEmbedderInitialization:
             enabled=False,  # Disabled
         )
         embedder = LocalEmbedder(config)
-        with pytest.raises(RuntimeError, match="Local embedding is not enabled"):
+        with pytest.raises(
+            RuntimeError, match="Local embedding is not enabled"
+        ):
             embedder.encode_text(["test"])
 
 
@@ -193,7 +199,7 @@ class TestLocalEmbedderWithMockedModel:
         )
 
     def test_encode_text_fallback_path(self, mock_config):
-        """Test encode_text falls back correctly when model path doesn't exist."""
+        """Test encode_text falls back when model path doesn't exist."""
         # This test verifies the code path without actual model download
         embedder = LocalEmbedder(mock_config)
         # Since model_path doesn't exist and download will fail in test,
@@ -232,7 +238,11 @@ class TestMRLSupport:
 
     def test_mrl_not_in_bge(self):
         """Test that BGE models don't have MRL (text-only)."""
-        for model_id in ["BAAI/bge-small-zh", "BAAI/bge-large-zh-v1.5", "BAAI/bge-m3"]:
+        for model_id in [
+            "BAAI/bge-small-zh",
+            "BAAI/bge-large-zh-v1.5",
+            "BAAI/bge-m3",
+        ]:
             model = PRESET_MODELS[model_id]
             assert model.get("mrl_enabled") is not True
 
@@ -248,7 +258,7 @@ class TestTorchDtypeMapping:
         config_bf16 = LocalEmbeddingConfig(dtype="bf16", enabled=True)
         config_fp32 = LocalEmbeddingConfig(dtype="fp32", enabled=True)
 
-        # Verify configs are created correctly (actual torch conversion happens in impl)
+        # Verify configs created (actual torch conversion happens in impl)
         assert config_fp16.dtype == "fp16"
         assert config_bf16.dtype == "bf16"
         assert config_fp32.dtype == "fp32"
@@ -258,13 +268,17 @@ class TestDownloadModelForConfig:
     """Tests for download_model_for_config utility function."""
 
     def test_download_function_exists(self):
-        """Test that download_model_for_config function exists and is importable."""
-        from copaw.agents.memory.local_embedder import download_model_for_config
+        """Test download_model_for_config function exists and is importable."""
+        from copaw.agents.memory.local_embedder import (
+            download_model_for_config,
+        )
         assert callable(download_model_for_config)
 
     def test_download_returns_path_type(self):
-        """Test that download_model_for_config returns a string path."""
-        from copaw.agents.memory.local_embedder import download_model_for_config
+        """Test download_model_for_config returns string path."""
+        from copaw.agents.memory.local_embedder import (
+            download_model_for_config,
+        )
 
         config = LocalEmbeddingConfig(
             model_id="BAAI/bge-small-zh",
@@ -276,12 +290,14 @@ class TestDownloadModelForConfig:
             result = download_model_for_config(config)
             assert isinstance(result, str)
         except Exception:
-            # Network/download errors are acceptable in unit test environment
+            # Network/download errors acceptable in test environment
             pass
 
     def test_download_with_custom_model_path(self):
-        """Test download_model_for_config with a custom model path that doesn't exist."""
-        from copaw.agents.memory.local_embedder import download_model_for_config
+        """Test download_model_for_config with nonexistent path."""
+        from copaw.agents.memory.local_embedder import (
+            download_model_for_config,
+        )
 
         config = LocalEmbeddingConfig(
             model_id="BAAI/bge-large-zh-v1.5",
@@ -294,12 +310,14 @@ class TestDownloadModelForConfig:
             assert isinstance(result, str)
             assert len(result) > 0
         except Exception:
-            # Expected to fail in test environment without network
+            # Expected to fail in test without network
             pass
 
     def test_download_respects_download_source(self):
         """Test that download_source config is respected."""
-        from copaw.agents.memory.local_embedder import download_model_for_config
+        from copaw.agents.memory.local_embedder import (
+            download_model_for_config,
+        )
 
         config = LocalEmbeddingConfig(
             model_id="qwen/Qwen3-VL-Embedding-2B",
@@ -336,7 +354,7 @@ class TestLocalEmbedderInternalPaths:
             enabled=True,
         )
         embedder = LocalEmbedder(config)
-        # Should initialize but model_path doesn't exist so will attempt download
+        # Should init but model_path doesn't exist so will attempt download
         assert embedder.config.model_path == "."
 
 

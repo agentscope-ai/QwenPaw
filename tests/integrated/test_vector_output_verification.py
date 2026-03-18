@@ -16,7 +16,8 @@ pytestmark = [pytest.mark.integration, pytest.mark.slow]
 class TestVectorOutputProperties:
     """Tests for vector output properties.
 
-    These tests verify that encode_text() produces outputs with correct properties:
+    These tests verify encode_text() outputs have correct
+    properties:
     - Returns a list of lists
     - Vectors are normalized (L2)
     - Dimensions match model metadata
@@ -86,8 +87,10 @@ class TestVectorSearchIntegration:
     Verifies that enabling local embedding configures vector search correctly.
     """
 
-    def test_vector_search_enabled_with_config_update(self, running_app):
-        """Test that vector search is enabled when local embedding is configured."""
+    def test_vector_search_enabled_with_config_update(
+        self, running_app
+    ):
+        """Test vector search enabled when local embedding configured."""
         import httpx
 
         client = running_app
@@ -178,7 +181,9 @@ class TestPresetModelsIntegrity:
 
         client = running_app
 
-        response = client.get("/api/config/agents/local-embedding/preset-models")
+        response = client.get(
+            "/api/config/agents/local-embedding/preset-models"
+        )
         assert response.status_code == 200
 
         data = response.json()

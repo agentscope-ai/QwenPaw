@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Unit tests for LocalEmbedder public API contract.
 
-These tests verify the public API of LocalEmbedder without testing internal implementation.
-Only tests the public contract: encode(), encode_text(), get_model_info().
+These tests verify the public API of LocalEmbedder without testing
+internal implementation. Only tests the public contract:
+encode(), encode_text(), get_model_info().
 """
 from __future__ import annotations
 
@@ -80,13 +81,15 @@ class TestLocalEmbedderEncodeContract:
 
     def test_encode_text_method_exists(self):
         """Test that encode_text method exists on embedder."""
-        config = LocalEmbeddingConfig(model_id="BAAI/bge-small-zh", enabled=True)
+        config = LocalEmbeddingConfig(
+            model_id="BAAI/bge-small-zh", enabled=True
+        )
         embedder = LocalEmbedder(config)
         assert hasattr(embedder, "encode_text")
         assert callable(embedder.encode_text)
 
     def test_encode_text_raises_when_disabled(self):
-        """Test that encode_text raises RuntimeError when embedder is disabled."""
+        """Test encode_text raises RuntimeError when embedder disabled."""
         config = LocalEmbeddingConfig(
             model_id="BAAI/bge-small-zh",
             enabled=False,  # Disabled
@@ -98,7 +101,9 @@ class TestLocalEmbedderEncodeContract:
 
     def test_encode_text_raises_with_correct_message(self):
         """Test that RuntimeError has correct message."""
-        config = LocalEmbeddingConfig(model_id="BAAI/bge-small-zh", enabled=False)
+        config = LocalEmbeddingConfig(
+            model_id="BAAI/bge-small-zh", enabled=False
+        )
         embedder = LocalEmbedder(config)
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -156,7 +161,7 @@ class TestPresetModelsContract:
             assert model_data["type"] in ["multimodal", "text"]
 
     def test_preset_models_repo_id_has_both_sources(self):
-        """Test that preset models have both ModelScope and HuggingFace repo IDs."""
+        """Test preset models have ModelScope and HuggingFace repo IDs."""
         from copaw.agents.memory.local_embedder import PRESET_MODELS
 
         for model_id, model_data in PRESET_MODELS.items():
