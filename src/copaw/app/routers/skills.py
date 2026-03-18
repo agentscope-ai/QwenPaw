@@ -21,6 +21,7 @@ from ...agents.skills_hub import (
     install_skill_from_hub,
 )
 from ...security.skill_scanner import SkillScanError
+from ...config.config import SkillMarketSpec, SkillsMarketConfig
 
 
 logger = logging.getLogger(__name__)

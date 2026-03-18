@@ -12,9 +12,11 @@ from ...config import (
     save_config,
     AgentsRunningConfig,
 )
+from ...config.config import load_agent_config, save_agent_config
 from ...knowledge.module_skills import sync_knowledge_module_skills
-
-from ...agents.memory.agent_md_manager import AGENT_MD_MANAGER
+from ...agents.memory.agent_md_manager import AgentMdManager
+from ...agents.utils import copy_md_files
+from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
