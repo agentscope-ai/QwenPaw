@@ -12,6 +12,8 @@ Thank you for your interest in contributing to CoPaw! CoPaw is an open-source **
 
 To keep collaboration smooth and maintain quality, please follow these guidelines.
 
+> Branching recommendation: read the [Dual-Mainline Branching SOP (Local Collaboration)](DEV_BRANCHING_SOP.md) first.
+
 ### 1. Check Existing Plans and Issues
 
 Before starting:
