@@ -3,6 +3,7 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
+import { AgentScopeRuntimeRequestCard } from "../../components/UserMessageCopy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
@@ -564,6 +565,9 @@ export default function ChatPage() {
           },
         ],
         replace: true,
+      },
+      cards: {
+        AgentScopeRuntimeRequestCard,
       },
       customToolRenderConfig: {
         "weather search mock": Weather,
