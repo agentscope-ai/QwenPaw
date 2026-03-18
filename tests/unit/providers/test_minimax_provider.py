@@ -33,9 +33,14 @@ def test_minimax_provider_config() -> None:
 def test_minimax_models_list() -> None:
     """Verify MiniMax model definitions."""
     model_ids = [m.id for m in MINIMAX_MODELS]
+    assert "MiniMax-M2.7" in model_ids
+    assert "MiniMax-M2.7-highspeed" in model_ids
     assert "MiniMax-M2.5" in model_ids
     assert "MiniMax-M2.5-highspeed" in model_ids
-    assert len(MINIMAX_MODELS) == 2
+    assert len(MINIMAX_MODELS) == 4
+    # M2.7 should be first (default)
+    assert model_ids[0] == "MiniMax-M2.7"
+    assert model_ids[1] == "MiniMax-M2.7-highspeed"
 
 
 @pytest.fixture
@@ -80,9 +85,11 @@ async def test_minimax_check_connection_success(monkeypatch) -> None:
 
 
 def test_minimax_has_expected_models(isolated_secret_dir) -> None:
-    """Provider manager's MiniMax should include both models."""
+    """Provider manager's MiniMax should include all models."""
     manager = ProviderManager()
     provider = manager.get_provider("minimax")
+    assert provider.has_model("MiniMax-M2.7")
+    assert provider.has_model("MiniMax-M2.7-highspeed")
     assert provider.has_model("MiniMax-M2.5")
     assert provider.has_model("MiniMax-M2.5-highspeed")
 
