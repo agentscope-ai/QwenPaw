@@ -33,6 +33,33 @@ try:
 
     _REME_AVAILABLE = True
 
+    def _patch_reme_for_bge() -> None:
+        """Patch ReMe OpenAIEmbeddingModel to support BGE-M3 (dense_embedding).
+
+        BGE-M3 returns dense_embedding instead of embedding; ReMe expects embedding.
+        This patch uses dense_embedding as fallback when embedding is None.
+        """
+        from reme.core.embedding import openai_embedding_model as oem
+
+        async def _patched_get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float]]:
+            create_kwargs: dict = {
+                "model": self.model_name,
+                "input": input_text,
+                "encoding_format": self.encoding_format,
+                **getattr(self, "kwargs", {}),
+                **kwargs,
+            }
+            if getattr(self, "use_dimensions", False):
+                create_kwargs["dimensions"] = self.dimensions
+            completion = await self.client.embeddings.create(**create_kwargs)
+            result_emb: list[list[float]] = [[] for _ in range(len(input_text))]
+            for emb in completion.data:
+                vec = getattr(emb, "embedding", None) or getattr(emb, "dense_embedding", None)
+                result_emb[emb.index] = list(vec) if vec is not None else []
+            return result_emb
+
+        oem.OpenAIEmbeddingModel._get_embeddings = _patched_get_embeddings
+
 except ImportError as e:
     _REME_AVAILABLE = False
     logger.warning(f"reme package not installed. {e}")
@@ -128,6 +155,7 @@ class MemoryManager(ReMeLight):
             and bool(embedding_base_url)
         )
         if vector_enabled:
+            _patch_reme_for_bge()
             logger.info(
                 f"Vector search enabled. "
                 f"embedding_api_key={embedding_api_key[:5]}... "
