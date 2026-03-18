@@ -494,10 +494,6 @@ class ProviderManager:
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
 
-        builtin_provider = self.builtin_providers.get(provider_id)
-        if builtin_provider is not None:
-            return type(builtin_provider).model_validate(data)
-
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
