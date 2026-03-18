@@ -188,6 +188,20 @@ LLM_BACKOFF_CAP = EnvVarLoader.get_float(
     min_value=0.5,
 )
 
+LLM_REQUEST_TIMEOUT_SECONDS = EnvVarLoader.get_float(
+    "COPAW_LLM_REQUEST_TIMEOUT_SECONDS",
+    600.0,
+    min_value=1.0,
+    allow_inf=False,
+)
+
+CHANNEL_PROCESS_TIMEOUT_SECONDS = EnvVarLoader.get_float(
+    "COPAW_CHANNEL_PROCESS_TIMEOUT_SECONDS",
+    LLM_REQUEST_TIMEOUT_SECONDS + 60.0,
+    min_value=1.0,
+    allow_inf=False,
+)
+
 # Tool guard approval timeout (seconds).
 try:
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(

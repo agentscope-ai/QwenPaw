@@ -23,6 +23,7 @@ from typing import (
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
 from .registry import get_channel_registry
 from ...config import get_available_channels
+from ...constant import CHANNEL_PROCESS_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from ....config.config import Config
@@ -37,6 +38,7 @@ _CHANNEL_QUEUE_MAXSIZE = 1000
 
 # Workers per channel: drain same-session from queue and process in parallel
 _CONSUMER_WORKERS_PER_CHANNEL = 4
+_CHANNEL_PROCESS_TIMEOUT_SECONDS = CHANNEL_PROCESS_TIMEOUT_SECONDS
 
 
 def _drain_same_key(
@@ -62,8 +64,11 @@ def _drain_same_key(
     return batch
 
 
-async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
-    """Merge if needed and process one payload (native or request)."""
+def _resolve_batch_target(
+    ch: BaseChannel,
+    batch: List[Any],
+) -> Tuple[Any, bool]:
+    """Resolve a batch into one payload and its consume path."""
     if ch.channel == "dingtalk" and batch and ch._is_native_payload(batch[0]):
         first = batch[0] if isinstance(batch[0], dict) else {}
         logger.info(
@@ -78,17 +83,67 @@ async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
                 "manager _process_batch dingtalk merged: has_sw=%s",
                 bool(merged.get("session_webhook")),
             )
-        await ch._consume_one_request(merged)
-    elif len(batch) > 1:
+        return merged, False
+    if len(batch) > 1:
         merged = ch.merge_requests(batch)
         if merged is not None:
-            await ch._consume_one_request(merged)
-        else:
-            await ch.consume_one(batch[0])
-    elif ch._is_native_payload(batch[0]):
-        await ch._consume_one_request(batch[0])
-    else:
-        await ch.consume_one(batch[0])
+            return merged, False
+        return batch[0], True
+    payload = batch[0]
+    return payload, not ch._is_native_payload(payload)
+
+
+async def _notify_timeout_error(
+    ch: BaseChannel,
+    payload: Any,
+) -> None:
+    """Best-effort timeout reply so the user sees a terminal result."""
+    try:
+        request = ch._payload_to_request(payload)
+        if isinstance(payload, dict):
+            channel_meta = dict(payload.get("meta") or {})
+            if payload.get("session_webhook"):
+                channel_meta["session_webhook"] = payload["session_webhook"]
+            setattr(request, "channel_meta", channel_meta)
+        to_handle = ch.get_to_handle_from_request(request)
+        await ch._on_consume_error(
+            request,
+            to_handle,
+            "Request timed out while processing. Please try again.",
+        )
+    except Exception:
+        logger.exception(
+            "failed to send timeout error for channel=%s",
+            ch.channel,
+        )
+
+
+async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
+    """Merge if needed, enforce watchdog, and process one payload."""
+    payload, use_consume_one = _resolve_batch_target(ch, batch)
+
+    async def _run() -> None:
+        if use_consume_one:
+            await ch.consume_one(payload)
+            return
+        await ch._consume_one_request(payload)
+
+    try:
+        await asyncio.wait_for(
+            _run(),
+            timeout=_CHANNEL_PROCESS_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "channel batch timed out: channel=%s key=%s batch_len=%s "
+            "timeout=%.1fs",
+            ch.channel,
+            ch.get_debounce_key(payload),
+            len(batch),
+            _CHANNEL_PROCESS_TIMEOUT_SECONDS,
+        )
+        await _notify_timeout_error(ch, payload)
+        raise
 
 
 def _put_pending_merged(
@@ -321,6 +376,12 @@ class ChannelManager:
                     _put_pending_merged(ch, q, pending)
             except asyncio.CancelledError:
                 break
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "channel batch aborted after timeout: channel=%s worker=%s",
+                    channel_id,
+                    worker_index,
+                )
             except Exception:
                 logger.exception(
                     "channel consume_one failed: channel=%s worker=%s",

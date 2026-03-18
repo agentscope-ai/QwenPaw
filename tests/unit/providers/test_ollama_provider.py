@@ -174,6 +174,38 @@ async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
     assert msg == "Model connection failed for `qwen2:7b`: failed"
 
 
+async def test_get_chat_model_instance_injects_runtime_timeout(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"temperature": 0.4}
+    monkeypatch.setattr(
+        ollama_provider_module,
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        18.0,
+    )
+    captured: dict = {}
+
+    class FakeCompat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "copaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
+        FakeCompat,
+    )
+
+    model = provider.get_chat_model_instance("qwen2:7b")
+
+    assert isinstance(model, FakeCompat)
+    assert (
+        captured["client_kwargs"]["base_url"]
+        == "http://localhost:11434/v1"
+    )
+    assert captured["client_kwargs"]["timeout"] == 18.0
+    assert captured["generate_kwargs"] == {"temperature": 0.4}
+
+
 async def test_update_config_updates_non_none_values_and_get_info(
     monkeypatch,
 ) -> None:

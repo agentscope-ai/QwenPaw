@@ -9,6 +9,7 @@ from typing import Any, List
 from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 
+from copaw.constant import LLM_REQUEST_TIMEOUT_SECONDS
 from copaw.providers.provider import ModelInfo, Provider
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -114,7 +115,10 @@ class OpenAIProvider(Provider):
             CODING_DASHSCOPE_BASE_URL,
         ]
 
-        client_kwargs = {"base_url": self.base_url}
+        client_kwargs = {
+            "base_url": self.base_url,
+            "timeout": LLM_REQUEST_TIMEOUT_SECONDS,
+        }
 
         if self.base_url in dashscope_base_urls:
             client_kwargs["default_headers"] = {

@@ -147,6 +147,35 @@ async def test_check_model_connection_api_error_returns_false(
     assert msg == "API error when connecting to model 'gpt-4o-mini'"
 
 
+async def test_get_chat_model_instance_injects_runtime_timeout(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"temperature": 0.2}
+    monkeypatch.setattr(
+        openai_provider_module,
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        42.0,
+    )
+    captured: dict = {}
+
+    class FakeCompat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "copaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
+        FakeCompat,
+    )
+
+    model = provider.get_chat_model_instance("gpt-4o-mini")
+
+    assert isinstance(model, FakeCompat)
+    assert captured["client_kwargs"]["base_url"] == provider.base_url
+    assert captured["client_kwargs"]["timeout"] == 42.0
+    assert captured["generate_kwargs"] == {"temperature": 0.2}
+
+
 async def test_update_config_updates_non_none_values_and_get_info() -> None:
     provider = _make_provider()
 

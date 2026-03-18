@@ -13,6 +13,7 @@ except ImportError:
 
 from agentscope.model import ChatModelBase
 
+from copaw.constant import LLM_REQUEST_TIMEOUT_SECONDS
 from copaw.providers.provider import ModelInfo, Provider
 
 
@@ -173,6 +174,9 @@ class OllamaProvider(Provider):
             stream=True,
             api_key=self.api_key,
             stream_tool_parsing=False,
-            client_kwargs={"base_url": openai_compatible_url},
+            client_kwargs={
+                "base_url": openai_compatible_url,
+                "timeout": LLM_REQUEST_TIMEOUT_SECONDS,
+            },
             generate_kwargs=self.generate_kwargs,
         )

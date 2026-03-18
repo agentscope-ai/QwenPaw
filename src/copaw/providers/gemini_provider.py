@@ -11,6 +11,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
+from copaw.constant import LLM_REQUEST_TIMEOUT_SECONDS
 from copaw.providers.provider import ModelInfo, Provider
 
 
@@ -126,5 +127,10 @@ class GeminiProvider(Provider):
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
+            client_kwargs={
+                "http_options": genai_types.HttpOptions(
+                    timeout=int(LLM_REQUEST_TIMEOUT_SECONDS * 1000),
+                ),
+            },
             generate_kwargs=self.generate_kwargs,
         )

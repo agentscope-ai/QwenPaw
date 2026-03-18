@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import agentscope.model as agentscope_model
 import copaw.providers.anthropic_provider as anthropic_provider_module
 from copaw.providers.anthropic_provider import AnthropicProvider
 
@@ -173,3 +174,33 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider.api_key == "ant-new"
     assert provider.chat_model == "AnthropicChatModel"
     assert provider.api_key_prefix == "sk-ant-"
+
+
+async def test_get_chat_model_instance_injects_runtime_timeout(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"temperature": 0.1}
+    monkeypatch.setattr(
+        anthropic_provider_module,
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        33.0,
+    )
+    captured: dict = {}
+
+    class FakeAnthropicChatModel:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        agentscope_model,
+        "AnthropicChatModel",
+        FakeAnthropicChatModel,
+    )
+
+    model = provider.get_chat_model_instance("claude-3-5-haiku")
+
+    assert isinstance(model, FakeAnthropicChatModel)
+    assert captured["client_kwargs"]["base_url"] == provider.base_url
+    assert captured["client_kwargs"]["timeout"] == 33.0
+    assert captured["generate_kwargs"] == {"temperature": 0.1}

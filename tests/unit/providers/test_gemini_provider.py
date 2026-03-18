@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import agentscope.model as agentscope_model
 from google.genai import errors as genai_errors
 
+import copaw.providers.gemini_provider as gemini_provider_module
 from copaw.providers.gemini_provider import GeminiProvider
 
 
@@ -251,6 +253,35 @@ async def test_check_model_connection_generic_exception_returns_false(
 
     assert ok is False
     assert "Unknown exception" in msg
+
+
+async def test_get_chat_model_instance_injects_runtime_timeout(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"temperature": 0.3}
+    monkeypatch.setattr(
+        gemini_provider_module,
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        27.0,
+    )
+    captured: dict = {}
+
+    class FakeGeminiChatModel:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        agentscope_model,
+        "GeminiChatModel",
+        FakeGeminiChatModel,
+    )
+
+    model = provider.get_chat_model_instance("gemini-2.5-flash")
+
+    assert isinstance(model, FakeGeminiChatModel)
+    assert captured["client_kwargs"]["http_options"].timeout == 27000
+    assert captured["generate_kwargs"] == {"temperature": 0.3}
 
 
 # -- _normalize_models_payload ------------------------------------------------
