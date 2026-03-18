@@ -155,7 +155,8 @@ async function consumeEventStream(
           if (typeof parsed?.error === "string" && parsed.error) {
             streamError = parsed.error;
           }
-        } catch {
+        } catch (error) {
+          console.warn("Failed to parse SSE event payload:", payload, error);
           continue;
         }
       }
