@@ -20,7 +20,7 @@ from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
-from copaw.agents.utils import _get_token_counter
+from copaw.agents.utils import _get_copaw_token_counter
 from copaw.config import load_config
 from .local_embedder import LocalEmbedder
 
@@ -151,10 +151,6 @@ class MemoryManager(ReMeLight):
                 logger.info("Vector search enabled with local embedding model.")
             else:
                 logger.info("Vector search enabled with remote API.")
-        else:
-            logger.warning(
-                "Vector search disabled. Memory search functionality "
-                "will be restricted. "
         else:
             logger.warning(
                 "Vector search disabled. Memory search functionality "
@@ -353,6 +349,23 @@ class MemoryManager(ReMeLight):
         Returns:
             The in-memory memory content with token counting support
         """
-        return super().get_in_memory_memory(token_counter=self.token_counter)
+        return super().get_in_memory_memory(as_token_counter=self.token_counter)
 
     def encode_text(self, texts: list[str]) -> list[list[float]]:
+        """Encode texts using local embedder if available, otherwise fallback to parent.
+
+        Args:
+            texts: List of text strings to encode
+
+        Returns:
+            List of embedding vectors (each is a list of floats)
+        """
+        if self._local_embedder:
+            return self._local_embedder.encode_text(texts)
+        # Fall back to parent class (remote API)
+        if self.embedding_model:
+            return self.embedding_model.encode(texts)
+        raise RuntimeError(
+            "No embedding provider available. "
+            "Please enable local embedding in settings or configure EMBEDDING_API_KEY."
+        )

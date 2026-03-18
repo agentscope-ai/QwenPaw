@@ -441,7 +441,6 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
     ]
 
 
-<<<<<<< HEAD
 # ── Local Embedding ──────────────────────────────────────────────────
 
 
@@ -472,7 +471,10 @@ async def put_local_embedding(
     """
     config = load_config()
     config.agents.running.local_embedding = body
-=======
+    save_config(config)
+    return body
+
+
 # ── Security / Skill Scanner ────────────────────────────────────────
 
 
@@ -496,12 +498,10 @@ async def put_skill_scanner(
 ) -> SkillScannerConfig:
     config = load_config()
     config.security.skill_scanner = body
->>>>>>> upstream/main
     save_config(config)
     return body
 
 
-<<<<<<< HEAD
 @router.post(
     "/agents/local-embedding/test",
     response_model=LocalEmbeddingTestResult,
@@ -529,16 +529,29 @@ async def test_local_embedding(
         
         latency_ms = (time.time() - start_time) * 1000
         
+        # Get model info and unload to free resources
+        model_info = embedder.get_model_info()
+        embedder.unload()
+        
         return LocalEmbeddingTestResult(
             success=True,
             message=f"Model loaded and encoded successfully. Dimensions: {len(embeddings[0])}",
             latency_ms=round(latency_ms, 2),
-            model_info=embedder.get_model_info(),
+            model_info=model_info,
         )
     except Exception as e:
+        import traceback
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        error_detail = traceback.format_exc()
+        
+        # Log full traceback for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Embedding test failed: {error_msg}\n{error_detail}")
+        
         return LocalEmbeddingTestResult(
             success=False,
-            message=str(e),
+            message=f"{error_msg}. Check server logs for details.",
         )
 
 
@@ -595,7 +608,11 @@ async def get_preset_embedding_models() -> dict:
             if v.get("type") == "text"
         ],
     }
-=======
+
+
+# ── Security / Skill Scanner ────────────────────────────────────────
+
+
 @router.get(
     "/security/skill-scanner/blocked-history",
     summary="Get blocked skills history",
@@ -691,4 +708,3 @@ async def remove_from_whitelist(
         )
     save_config(config)
     return {"removed": True, "skill_name": skill_name}
->>>>>>> upstream/main
