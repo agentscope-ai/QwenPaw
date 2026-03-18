@@ -169,14 +169,20 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     models=AZURE_OPENAI_MODELS,
 )
 
-PROVIDER_MINIMAX = OpenAIProvider(
+PROVIDER_MINIMAX = AnthropicProvider(
     id="minimax",
-    name="MiniMax",
-    base_url="https://api.minimax.io/v1",
-    api_key_prefix="eyJ",
+    name="MiniMax International",
+    base_url="https://api.minimax.io/anthropic",
     models=MINIMAX_MODELS,
     freeze_url=True,
-    generate_kwargs={"temperature": 1.0},
+)
+
+PROVIDER_MINIMAX_CN = AnthropicProvider(
+    id="minimax-cn",
+    name="MiniMax China",
+    base_url="https://api.minimaxi.com/anthropic",
+    models=MINIMAX_MODELS,
+    freeze_url=True,
 )
 
 PROVIDER_DEEPSEEK = OpenAIProvider(
@@ -271,10 +277,11 @@ class ProviderManager:
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
-        self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
+        self._add_builtin(PROVIDER_MINIMAX_CN)
+        self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_LLAMACPP)
