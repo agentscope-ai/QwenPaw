@@ -84,9 +84,7 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
         pixel_values_videos: torch.FloatTensor,
         video_grid_thw: Optional[torch.LongTensor] = None,
     ):
-        return self.model.get_video_features(
-            pixel_values_videos, video_grid_thw
-        )
+        return self.model.get_video_features(pixel_values_videos, video_grid_thw)
 
     def get_image_features(
         self,
@@ -258,9 +256,7 @@ class Qwen3VLEmbedder:
     def format_model_input(  # noqa: E501  pylint: disable=too-many-branches,too-many-statements
         self,
         text: Optional[Union[List[str], str]] = None,
-        image: Optional[
-            Union[List[Union[str, Image.Image]], str, Image.Image]
-        ] = None,
+        image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,
         video: Optional[
             Union[
                 List[Union[str, List[Union[str, Image.Image]]]],
@@ -275,9 +271,9 @@ class Qwen3VLEmbedder:
 
         if instruction:
             instruction = instruction.strip()
-            if instruction and not unicodedata.category(
-                instruction[-1]
-            ).startswith("P"):
+            if instruction and not unicodedata.category(instruction[-1]).startswith(
+                "P"
+            ):
                 instruction = instruction + "."
 
         content = []
@@ -326,18 +322,14 @@ class Qwen3VLEmbedder:
             if isinstance(vid, list):
                 video_content = vid
                 if self.max_frames is not None:
-                    video_content = sample_frames(
-                        video_content, self.max_frames
-                    )
+                    video_content = sample_frames(video_content, self.max_frames)
                 video_content = [
                     ("file://" + ele if isinstance(ele, str) else ele)
                     for ele in video_content
                 ]
             elif isinstance(vid, str):
                 video_content = (
-                    vid
-                    if vid.startswith(("http://", "https://"))
-                    else "file://" + vid
+                    vid if vid.startswith(("http://", "https://")) else "file://" + vid
                 )
                 video_kwargs = {
                     "fps": fps or self.fps,
@@ -358,9 +350,7 @@ class Qwen3VLEmbedder:
                 image_content = img
             elif isinstance(img, str):
                 image_content = (
-                    img
-                    if img.startswith(("http://", "https://"))
-                    else "file://" + img
+                    img if img.startswith(("http://", "https://")) else "file://" + img
                 )
             else:
                 raise TypeError(f"Unrecognized image type: {type(img)}")

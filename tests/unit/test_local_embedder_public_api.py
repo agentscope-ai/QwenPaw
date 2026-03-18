@@ -83,9 +83,7 @@ class TestLocalEmbedderEncodeContract:
 
     def test_encode_text_method_exists(self):
         """Test that encode_text method exists on embedder."""
-        config = LocalEmbeddingConfig(
-            model_id="BAAI/bge-small-zh", enabled=True
-        )
+        config = LocalEmbeddingConfig(model_id="BAAI/bge-small-zh", enabled=True)
         embedder = LocalEmbedder(config)
         assert hasattr(embedder, "encode_text")
         assert callable(embedder.encode_text)
@@ -103,9 +101,7 @@ class TestLocalEmbedderEncodeContract:
 
     def test_encode_text_raises_with_correct_message(self):
         """Test that RuntimeError has correct message."""
-        config = LocalEmbeddingConfig(
-            model_id="BAAI/bge-small-zh", enabled=False
-        )
+        config = LocalEmbeddingConfig(model_id="BAAI/bge-small-zh", enabled=False)
         embedder = LocalEmbedder(config)
 
         with pytest.raises(RuntimeError) as exc_info:
