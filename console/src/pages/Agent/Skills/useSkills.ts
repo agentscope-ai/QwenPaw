@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { message, Modal } from "@agentscope-ai/design";
 import React from "react";
 import api from "../../../api";
-import type { SkillSpec } from "../../../api/types";
+import type {
+  MarketError,
+  MarketplaceItem,
+  MarketplaceMeta,
+  SkillSpec,
+  SkillsMarketsPayload,
+  SkillsMarketSpec,
+} from "../../../api/types";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -27,8 +34,18 @@ export function useSkills() {
   const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const [skills, setSkills] = useState<SkillSpec[]>([]);
+  const [markets, setMarkets] = useState<SkillsMarketSpec[]>([]);
+  const [marketConfig, setMarketConfig] =
+    useState<SkillsMarketsPayload | null>(null);
+  const [marketplace, setMarketplace] = useState<MarketplaceItem[]>([]);
+  const [marketErrors, setMarketErrors] = useState<MarketError[]>([]);
+  const [marketMeta, setMarketMeta] = useState<MarketplaceMeta | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [installingSkillKey, setInstallingSkillKey] = useState<string | null>(
+    null,
+  );
   const [importing, setImporting] = useState(false);
   const importTaskIdRef = useRef<string | null>(null);
   const importCancelReasonRef = useRef<"manual" | "timeout" | null>(null);
@@ -205,11 +222,93 @@ export function useSkills() {
     }
   };
 
+  const fetchMarkets = async () => {
+    try {
+      const data = await api.getSkillsMarkets();
+      setMarketConfig(data);
+      setMarkets(data?.markets ?? []);
+    } catch (error) {
+      console.error("Failed to load markets", error);
+      message.error("Failed to load markets");
+    }
+  };
+
+  const fetchMarketplace = async (refresh = false) => {
+    setMarketplaceLoading(true);
+    try {
+      const data = await api.getMarketplace(refresh);
+      setMarketplace(data.items ?? []);
+      setMarketErrors(data.market_errors ?? []);
+      setMarketMeta(data.meta ?? null);
+    } catch (error) {
+      console.error("Failed to load marketplace", error);
+      message.error("Failed to load marketplace");
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  };
+
+  const saveMarkets = async (payload: SkillsMarketsPayload) => {
+    try {
+      const data = await api.updateSkillsMarkets(payload);
+      setMarketConfig(data);
+      setMarkets(data.markets ?? []);
+      message.success("Markets updated");
+      return true;
+    } catch (error) {
+      console.error("Failed to update markets", error);
+      message.error("Failed to update markets");
+      return false;
+    }
+  };
+
+  const validateMarket = async (market: SkillsMarketSpec) => {
+    try {
+      const result = await api.validateSkillsMarket(market);
+      message.success(`Market validated: ${market.name || market.id}`);
+      return result;
+    } catch (error) {
+      console.error("Failed to validate market", error);
+      message.error("Failed to validate market");
+      return null;
+    }
+  };
+
+  const installMarketplaceSkill = async (
+    marketId: string,
+    skillId: string,
+    opts?: { enable?: boolean; overwrite?: boolean },
+  ) => {
+    const key = `${marketId}/${skillId}`;
+    setInstallingSkillKey(key);
+    try {
+      const result = await api.installMarketplaceSkill({
+        market_id: marketId,
+        skill_id: skillId,
+        enable: opts?.enable ?? true,
+        overwrite: opts?.overwrite ?? false,
+      });
+      if (result.installed) {
+        message.success(`Installed skill: ${result.name}`);
+        await fetchSkills();
+        await checkScanWarnings(result.name);
+        return true;
+      }
+      message.error("Install failed");
+      return false;
+    } catch (error) {
+      handleError(error, "Install failed");
+      return false;
+    } finally {
+      setInstallingSkillKey(null);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
     const loadSkills = async () => {
-      await fetchSkills();
+      await Promise.all([fetchSkills(), fetchMarkets(), fetchMarketplace()]);
     };
 
     if (mounted) {
@@ -397,10 +496,22 @@ export function useSkills() {
 
   return {
     skills,
+    markets,
+    marketConfig,
+    marketplace,
+    marketErrors,
+    marketMeta,
     loading,
     uploading,
+    marketplaceLoading,
+    installingSkillKey,
     importing,
     cancelImport,
+    fetchMarkets,
+    fetchMarketplace,
+    saveMarkets,
+    validateMarket,
+    installMarketplaceSkill,
     createSkill,
     uploadSkill,
     importFromHub,
