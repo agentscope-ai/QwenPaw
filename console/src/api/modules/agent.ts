@@ -114,5 +114,7 @@ export const agentApi = {
     }),
 
   getPresetEmbeddingModels: () =>
-    request<EmbeddingPresetModels>("/config/agents/local-embedding/preset-models"),
+    request<EmbeddingPresetModels>(
+      "/config/agents/local-embedding/preset-models",
+    ),
 };

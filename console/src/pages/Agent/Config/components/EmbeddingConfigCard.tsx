@@ -89,7 +89,8 @@ const FALLBACK_PRESET_MODELS: EmbeddingPresetModels = {
 export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(false);
-  const [presetModels, setPresetModels] = useState<EmbeddingPresetModels | null>(null);
+  const [presetModels, setPresetModels] =
+    useState<EmbeddingPresetModels | null>(null);
   const [loadingPresets, setLoadingPresets] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
@@ -98,7 +99,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
     type: "success" | "error";
     message: string;
   } | null>(null);
-  const [selectedModel, setSelectedModel] = useState<EmbeddingModelInfo | null>(null);
+  const [selectedModel, setSelectedModel] = useState<EmbeddingModelInfo | null>(
+    null,
+  );
 
   // Load preset models on mount
   useEffect(() => {
@@ -109,7 +112,12 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   useEffect(() => {
     try {
       const modelId = form?.getFieldValue?.(["local_embedding", "model_id"]);
-      if (presetModels && modelId && Array.isArray(presetModels.multimodal) && Array.isArray(presetModels.text)) {
+      if (
+        presetModels &&
+        modelId &&
+        Array.isArray(presetModels.multimodal) &&
+        Array.isArray(presetModels.text)
+      ) {
         const allModels = [...presetModels.multimodal, ...presetModels.text];
         const model = allModels.find((m) => m?.id === modelId);
         setSelectedModel(model || null);
@@ -137,19 +145,31 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
       console.log("Preset models API response:", data);
       // Validate data structure - API returns {multimodal: [...], text: [...]}
       if (data) {
-        const multimodal = Array.isArray(data.multimodal) ? data.multimodal : [];
+        const multimodal = Array.isArray(data.multimodal)
+          ? data.multimodal
+          : [];
         const text = Array.isArray(data.text) ? data.text : [];
         setPresetModels({ multimodal, text });
-        console.log("Loaded models from API - multimodal:", multimodal.length, "text:", text.length);
+        console.log(
+          "Loaded models from API - multimodal:",
+          multimodal.length,
+          "text:",
+          text.length,
+        );
       } else {
         console.warn("Empty preset models data, using fallback");
         setPresetModels(FALLBACK_PRESET_MODELS);
       }
     } catch (err) {
-      console.error("Failed to load preset models from API, using fallback:", err);
+      console.error(
+        "Failed to load preset models from API, using fallback:",
+        err,
+      );
       // Use fallback data when API fails (e.g., backend not updated)
       setPresetModels(FALLBACK_PRESET_MODELS);
-      setLoadError("后端 API 尚未更新，使用内置模型列表（建议重启服务到 feature 分支）");
+      setLoadError(
+        "后端 API 尚未更新，使用内置模型列表（建议重启服务到 feature 分支）",
+      );
     } finally {
       setLoadingPresets(false);
     }
@@ -179,9 +199,13 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
   const handleTest = async () => {
     try {
-      const values = form?.getFieldValue?.("local_embedding") as LocalEmbeddingConfig;
+      const values = form?.getFieldValue?.(
+        "local_embedding",
+      ) as LocalEmbeddingConfig;
       if (!values?.model_id) {
-        message.warning(t("agentConfig.embedding.modelRequired") || "请选择模型");
+        message.warning(
+          t("agentConfig.embedding.modelRequired") || "请选择模型",
+        );
         return;
       }
 
@@ -192,7 +216,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         if (result?.success) {
           setTestResult({
             type: "success",
-            message: `${result.message} (延迟: ${result.latency_ms?.toFixed?.(0) || "?"}ms)`,
+            message: `${result.message} (延迟: ${
+              result.latency_ms?.toFixed?.(0) || "?"
+            }ms)`,
           });
           message.success(t("agentConfig.embedding.testSuccess") || "测试成功");
         } else {
@@ -216,9 +242,13 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
   const handleDownload = async () => {
     try {
-      const values = form?.getFieldValue?.("local_embedding") as LocalEmbeddingConfig;
+      const values = form?.getFieldValue?.(
+        "local_embedding",
+      ) as LocalEmbeddingConfig;
       if (!values?.model_id) {
-        message.warning(t("agentConfig.embedding.modelRequired") || "请选择模型");
+        message.warning(
+          t("agentConfig.embedding.modelRequired") || "请选择模型",
+        );
         return;
       }
 
@@ -227,8 +257,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         const result = await api.downloadLocalEmbeddingModel(values);
         if (result?.status === "completed") {
           message.success(
-            (t("agentConfig.embedding.downloadSuccess") || "下载完成: {path}")
-              .replace("{path}", result.local_path || "")
+            (
+              t("agentConfig.embedding.downloadSuccess") || "下载完成: {path}"
+            ).replace("{path}", result.local_path || ""),
           );
         } else {
           message.error(result?.message || "下载失败");
@@ -267,7 +298,12 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const titleContent = (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span>{t("agentConfig.embedding.title") || "本地 Embedding 模型"}</span>
-      <Tooltip title={t("agentConfig.embedding.helpTooltip") || "配置本地 Embedding 模型用于向量记忆检索"}>
+      <Tooltip
+        title={
+          t("agentConfig.embedding.helpTooltip") ||
+          "配置本地 Embedding 模型用于向量记忆检索"
+        }
+      >
         <span style={{ cursor: "help", color: "#999" }}>ⓘ</span>
       </Tooltip>
     </div>
@@ -287,7 +323,10 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         label={t("agentConfig.embedding.enable") || "启用本地 Embedding"}
         name={["local_embedding", "enabled"]}
         valuePropName="checked"
-        tooltip={t("agentConfig.embedding.enableTooltip") || "开启后将使用本地模型生成文本向量"}
+        tooltip={
+          t("agentConfig.embedding.enableTooltip") ||
+          "开启后将使用本地模型生成文本向量"
+        }
       >
         <Switch onChange={handleEnabledChange} />
       </Form.Item>
@@ -303,7 +342,12 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         />
       )}
 
-      <div style={{ opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? "auto" : "none" }}>
+      <div
+        style={{
+          opacity: enabled ? 1 : 0.5,
+          pointerEvents: enabled ? "auto" : "none",
+        }}
+      >
         {testResult && (
           <Alert
             type={testResult.type}
@@ -317,11 +361,22 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         <Form.Item
           label={t("agentConfig.embedding.model") || "模型"}
           name={["local_embedding", "model_id"]}
-          rules={[{ required: true, message: t("agentConfig.embedding.modelRequired") || "请选择模型" }]}
-          tooltip={t("agentConfig.embedding.modelTooltip") || "支持的模型包括多模态和纯文本两种类型"}
+          rules={[
+            {
+              required: true,
+              message: t("agentConfig.embedding.modelRequired") || "请选择模型",
+            },
+          ]}
+          tooltip={
+            t("agentConfig.embedding.modelTooltip") ||
+            "支持的模型包括多模态和纯文本两种类型"
+          }
         >
           <Select
-            placeholder={t("agentConfig.embedding.modelPlaceholder") || "选择 Embedding 模型"}
+            placeholder={
+              t("agentConfig.embedding.modelPlaceholder") ||
+              "选择 Embedding 模型"
+            }
             loading={loadingPresets}
             showSearch
             optionFilterProp="children"
@@ -348,7 +403,11 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span>类型:</span>
-                  <Tag color={selectedModel.type === "multimodal" ? "blue" : "green"}>
+                  <Tag
+                    color={
+                      selectedModel.type === "multimodal" ? "blue" : "green"
+                    }
+                  >
                     {selectedModel.type === "multimodal" ? "多模态" : "纯文本"}
                   </Tag>
                 </div>
@@ -370,7 +429,10 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         <Form.Item
           label={t("agentConfig.embedding.downloadSource") || "下载源"}
           name={["local_embedding", "download_source"]}
-          tooltip={t("agentConfig.embedding.downloadSourceTooltip") || "ModelScope 适合中国大陆访问"}
+          tooltip={
+            t("agentConfig.embedding.downloadSourceTooltip") ||
+            "ModelScope 适合中国大陆访问"
+          }
         >
           <Select>
             {DOWNLOAD_SOURCE_OPTIONS.map((opt) => (
@@ -384,7 +446,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         <Form.Item
           label={t("agentConfig.embedding.device") || "运行设备"}
           name={["local_embedding", "device"]}
-          tooltip={t("agentConfig.embedding.deviceTooltip") || "auto 自动检测 GPU"}
+          tooltip={
+            t("agentConfig.embedding.deviceTooltip") || "auto 自动检测 GPU"
+          }
         >
           <Select>
             {DEVICE_OPTIONS.map((opt) => (
@@ -398,7 +462,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         <Form.Item
           label={t("agentConfig.embedding.dtype") || "数据精度"}
           name={["local_embedding", "dtype"]}
-          tooltip={t("agentConfig.embedding.dtypeTooltip") || "FP16 速度快且省显存"}
+          tooltip={
+            t("agentConfig.embedding.dtypeTooltip") || "FP16 速度快且省显存"
+          }
         >
           <Select>
             {DTYPE_OPTIONS.map((opt) => (
@@ -412,10 +478,16 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         <Form.Item
           label={t("agentConfig.embedding.modelPath") || "本地模型路径（可选）"}
           name={["local_embedding", "model_path"]}
-          tooltip={t("agentConfig.embedding.modelPathTooltip") || "留空自动下载到缓存目录"}
+          tooltip={
+            t("agentConfig.embedding.modelPathTooltip") ||
+            "留空自动下载到缓存目录"
+          }
         >
           <Input
-            placeholder={t("agentConfig.embedding.modelPathPlaceholder") || "留空自动下载到缓存目录"}
+            placeholder={
+              t("agentConfig.embedding.modelPathPlaceholder") ||
+              "留空自动下载到缓存目录"
+            }
             allowClear
           />
         </Form.Item>
@@ -427,7 +499,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
             disabled={testing || !enabled}
             type="default"
           >
-            {testing ? "测试中..." : (t("agentConfig.embedding.test") || "测试连接")}
+            {testing
+              ? "测试中..."
+              : t("agentConfig.embedding.test") || "测试连接"}
           </Button>
           <Button
             onClick={handleDownload}
@@ -436,8 +510,8 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
             type="primary"
           >
             {downloading
-              ? (t("agentConfig.embedding.downloading") || "下载中...")
-              : (t("agentConfig.embedding.download") || "下载模型")}
+              ? t("agentConfig.embedding.downloading") || "下载中..."
+              : t("agentConfig.embedding.download") || "下载模型"}
           </Button>
         </div>
 
@@ -447,9 +521,18 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
           message={t("agentConfig.embedding.noticeTitle") || "使用提示"}
           description={
             <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-              <li>{t("agentConfig.embedding.notice1") || "启用后需要重启应用才能生效"}</li>
-              <li>{t("agentConfig.embedding.notice2") || "首次使用会自动下载模型（约 1-2GB）"}</li>
-              <li>{t("agentConfig.embedding.notice3") || "Qwen3-VL-Embedding 支持图文混合检索"}</li>
+              <li>
+                {t("agentConfig.embedding.notice1") ||
+                  "启用后需要重启应用才能生效"}
+              </li>
+              <li>
+                {t("agentConfig.embedding.notice2") ||
+                  "首次使用会自动下载模型（约 1-2GB）"}
+              </li>
+              <li>
+                {t("agentConfig.embedding.notice3") ||
+                  "Qwen3-VL-Embedding 支持图文混合检索"}
+              </li>
             </ul>
           }
           style={{ marginTop: 16 }}
