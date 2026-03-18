@@ -36,6 +36,32 @@
   }
 }
 
+.agentAvatarPlaceholder {
+  background: linear-gradient(135deg, #f5f5ff 0%, #efefff 100%);
+  border: 1px solid rgba(97, 92, 237, 0.15);
+  color: #615ced;
+
+  :global(.ant-avatar-icon) {
+    color: inherit;
+  }
+}
+
+.agentAvatarHelp {
+  display: block;
+  margin-top: 6px;
+  color: inherit;
+}
+
+.agentAvatarMeta {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.agentNameCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sectionTitle {
@@ -44,6 +70,14 @@
 
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .agentAvatarHelp {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .agentAvatarMeta {
+    color: rgba(255, 255, 255, 0.65);
   }
 }
 

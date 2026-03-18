@@ -343,6 +343,7 @@ class AgentProfileConfig(BaseModel):
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Human-readable agent name")
     description: str = Field(default="", description="Agent description")
+    avatar: str = Field(default="", description="Relative path to agent avatar")
     workspace_dir: str = Field(
         default="",
         description="Path to agent's workspace (optional, for reference)",

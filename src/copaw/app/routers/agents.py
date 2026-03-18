@@ -6,9 +6,13 @@ Provides RESTful API for managing multiple agent instances.
 import asyncio
 import json
 import logging
+import mimetypes
 from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException, Request
+from urllib.parse import quote
+
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi import Path as PathParam
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ...config.config import (
@@ -35,6 +39,7 @@ class AgentSummary(BaseModel):
     name: str
     description: str
     workspace_dir: str
+    avatar_url: str | None = None
 
 
 class AgentListResponse(BaseModel):
@@ -68,6 +73,22 @@ class MdFileContent(BaseModel):
     content: str
 
 
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+_ALLOWED_AVATAR_EXTENSIONS = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+_CONTENT_TYPE_TO_EXTENSION = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
+_AVATAR_DIR = ".copaw"
+_AVATAR_NAME = "avatar"
+
+
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
     """Get MultiAgentManager from app state."""
     if not hasattr(request.app.state, "multi_agent_manager"):
@@ -76,6 +97,49 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
             detail="MultiAgentManager not initialized",
         )
     return request.app.state.multi_agent_manager
+
+
+def _resolve_avatar_path(
+    workspace_dir: Path,
+    avatar_rel_path: str,
+) -> Path | None:
+    """Resolve avatar path and prevent path traversal."""
+    if not avatar_rel_path:
+        return None
+
+    resolved = (workspace_dir / avatar_rel_path).resolve()
+    workspace_root = workspace_dir.resolve()
+    if workspace_root not in resolved.parents and resolved != workspace_root:
+        raise HTTPException(status_code=400, detail="Invalid avatar path")
+    return resolved
+
+
+def _build_avatar_url(agent_id: str, agent_config: AgentProfileConfig) -> str | None:
+    """Return a cache-busted avatar URL when the file exists."""
+    workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
+    avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
+    if not avatar_path or not avatar_path.is_file():
+        return None
+
+    version = int(avatar_path.stat().st_mtime_ns)
+    return f"/api/agents/{quote(agent_id)}/avatar?v={version}"
+
+
+def _detect_avatar_extension(file: UploadFile) -> str:
+    """Validate uploaded avatar type and determine output extension."""
+    file_ext = Path(file.filename or "").suffix.lower()
+    if file_ext in _ALLOWED_AVATAR_EXTENSIONS:
+        return file_ext
+
+    content_type = (file.content_type or "").lower()
+    ext = _CONTENT_TYPE_TO_EXTENSION.get(content_type)
+    if ext:
+        return ext
+
+    raise HTTPException(
+        status_code=400,
+        detail="Unsupported avatar format. Use PNG, JPEG, or WebP.",
+    )
 
 
 @router.get(
@@ -99,6 +163,7 @@ async def list_agents() -> AgentListResponse:
                     name=agent_config.name,
                     description=agent_config.description,
                     workspace_dir=agent_ref.workspace_dir,
+                    avatar_url=_build_avatar_url(agent_id, agent_config),
                 ),
             )
         except Exception:  # noqa: E722
@@ -109,6 +174,7 @@ async def list_agents() -> AgentListResponse:
                     name=agent_id.title(),
                     description="",
                     workspace_dir=agent_ref.workspace_dir,
+                    avatar_url=None,
                 ),
             )
 
@@ -287,6 +353,112 @@ async def delete_agent(
     # Users can manually delete it if needed
 
     return {"success": True, "agent_id": agentId}
+
+
+@router.post(
+    "/{agentId}/avatar",
+    response_model=dict,
+    summary="Upload agent avatar",
+    description="Upload or replace an avatar image for the specified agent",
+)
+async def upload_agent_avatar(
+    agentId: str = PathParam(...),
+    file: UploadFile = File(...),
+    request: Request = None,
+) -> dict:
+    """Upload avatar image into the agent workspace."""
+    manager = _get_multi_agent_manager(request)
+
+    try:
+        workspace = await manager.get_agent(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    extension = _detect_avatar_extension(file)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded avatar is empty")
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="Avatar file is too large. Max size is 2MB.",
+        )
+
+    agent_config = load_agent_config(agentId)
+    avatar_dir = workspace.workspace_dir / _AVATAR_DIR
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+
+    old_avatar_path = _resolve_avatar_path(
+        workspace.workspace_dir,
+        agent_config.avatar,
+    )
+    avatar_rel_path = f"{_AVATAR_DIR}/{_AVATAR_NAME}{extension}"
+    avatar_path = workspace.workspace_dir / avatar_rel_path
+    avatar_path.write_bytes(data)
+
+    if (
+        old_avatar_path
+        and old_avatar_path.is_file()
+        and old_avatar_path.resolve() != avatar_path.resolve()
+    ):
+        old_avatar_path.unlink(missing_ok=True)
+
+    agent_config.avatar = avatar_rel_path
+    save_agent_config(agentId, agent_config)
+
+    return {
+        "success": True,
+        "avatar": avatar_rel_path,
+        "avatar_url": _build_avatar_url(agentId, agent_config),
+    }
+
+
+@router.get(
+    "/{agentId}/avatar",
+    summary="Get agent avatar",
+    description="Return the avatar image for the specified agent",
+)
+async def get_agent_avatar(
+    agentId: str = PathParam(...),
+) -> FileResponse:
+    """Serve an agent avatar image."""
+    try:
+        agent_config = load_agent_config(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
+    avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
+    if not avatar_path or not avatar_path.is_file():
+        raise HTTPException(status_code=404, detail="Avatar not found")
+
+    media_type, _ = mimetypes.guess_type(avatar_path.name)
+    return FileResponse(avatar_path, media_type=media_type or "application/octet-stream")
+
+
+@router.delete(
+    "/{agentId}/avatar",
+    response_model=dict,
+    summary="Delete agent avatar",
+    description="Remove the avatar image for the specified agent",
+)
+async def delete_agent_avatar(
+    agentId: str = PathParam(...),
+) -> dict:
+    """Delete an agent avatar image."""
+    try:
+        agent_config = load_agent_config(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
+    avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
+    if avatar_path and avatar_path.exists():
+        avatar_path.unlink(missing_ok=True)
+
+    agent_config.avatar = ""
+    save_agent_config(agentId, agent_config)
+    return {"success": True}
 
 
 @router.get(

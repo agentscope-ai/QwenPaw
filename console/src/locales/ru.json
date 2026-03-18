@@ -77,6 +77,11 @@
     "nameRequired": "Пожалуйста, введите название агента",
     "namePlaceholder": "например: Мой агент",
     "descriptionPlaceholder": "Кратко опишите назначение этого агента...",
+    "avatar": "Аватар",
+    "avatarHelp": "Загрузите аватар, чтобы агента было проще узнавать в списках и чате.",
+    "avatarRecommended": "PNG, JPEG или WebP. Максимум 2 МБ.",
+    "avatarInvalidType": "Загрузите изображение PNG, JPEG или WebP",
+    "avatarTooLarge": "Размер аватара должен быть не больше 2 МБ",
     "workspaceHelp": "Оставьте пустым для автоматического создания в ~/.copaw/workspaces/<id>",
     "defaultNotEditable": "Агент по умолчанию не может быть отредактирован",
     "defaultNotDeletable": "Агент по умолчанию не может быть удалён"

@@ -103,6 +103,11 @@
     "nameRequired": "请输入智能体名称",
     "namePlaceholder": "例如：我的智能体",
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
+    "avatar": "头像",
+    "avatarHelp": "上传头像，方便在列表和对话中快速识别这个智能体。",
+    "avatarRecommended": "支持 PNG、JPEG、WebP，最大 2MB。",
+    "avatarInvalidType": "请上传 PNG、JPEG 或 WebP 格式图片",
+    "avatarTooLarge": "头像大小不能超过 2MB",
     "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
     "defaultNotEditable": "默认智能体不允许编辑",
     "defaultNotDeletable": "默认智能体不允许删除"

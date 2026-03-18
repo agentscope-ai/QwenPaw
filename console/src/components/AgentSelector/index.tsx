@@ -1,4 +1,4 @@
-import { Select, message, Badge } from "antd";
+import { Select, message, Badge, Avatar } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, Layers, CheckCircle } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
@@ -62,16 +62,26 @@ export default function AgentSelector() {
             value={agent.id}
             label={
               <div className={styles.selectedAgentLabel}>
-                <Bot size={14} strokeWidth={2} />
+                <Avatar
+                  size={20}
+                  shape="square"
+                  src={agent.avatar_url || undefined}
+                  icon={<Bot size={12} strokeWidth={2} />}
+                  className={styles.selectedAgentAvatar}
+                />
                 <span>{agent.name}</span>
               </div>
             }
           >
             <div className={styles.agentOption}>
               <div className={styles.agentOptionHeader}>
-                <div className={styles.agentOptionIcon}>
-                  <Bot size={16} strokeWidth={2} />
-                </div>
+                <Avatar
+                  size={30}
+                  shape="square"
+                  src={agent.avatar_url || undefined}
+                  icon={<Bot size={16} strokeWidth={2} />}
+                  className={styles.agentOptionAvatar}
+                />
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
                     <span>{agent.name}</span>

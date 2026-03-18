@@ -137,6 +137,11 @@
     "nameRequired": "Please enter agent name",
     "namePlaceholder": "e.g.: My Agent",
     "descriptionPlaceholder": "Briefly describe this agent's purpose...",
+    "avatar": "Avatar",
+    "avatarHelp": "Upload an avatar to make this agent easier to recognize in lists and chat.",
+    "avatarRecommended": "PNG, JPEG, or WebP. Max size 2MB.",
+    "avatarInvalidType": "Please upload a PNG, JPEG, or WebP image",
+    "avatarTooLarge": "Avatar must be 2MB or smaller",
     "workspaceHelp": "Leave empty to auto-generate in ~/.copaw/workspaces/<id>",
     "defaultNotEditable": "Default agent cannot be edited",
     "defaultNotDeletable": "Default agent cannot be deleted"

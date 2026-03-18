@@ -118,12 +118,16 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
+  const { selectedAgent, agents } = useAgentStore();
+  const currentAgent = useMemo(
+    () => agents.find((agent) => agent.id === selectedAgent),
+    [agents, selectedAgent],
+  );
   const chatId = useMemo(() => {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
-  const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
   const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
   const [, setReconnectStreaming] = useState(false);
@@ -453,9 +457,11 @@ export default function ChatPage() {
       },
       welcome: {
         ...i18nConfig.welcome,
-        avatar: isDark
-          ? `${import.meta.env.BASE_URL}copaw-dark.png`
-          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
+        avatar:
+          currentAgent?.avatar_url ||
+          (isDark
+            ? `${import.meta.env.BASE_URL}copaw-dark.png`
+            : `${import.meta.env.BASE_URL}copaw-symbol.svg`),
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -498,7 +504,14 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
+  }, [
+    wrappedSessionApi,
+    customFetch,
+    copyResponse,
+    t,
+    isDark,
+    currentAgent?.avatar_url,
+  ]);
 
   return (
     <div
