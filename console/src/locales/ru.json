@@ -318,6 +318,13 @@
     "welcomeGreeting": "Приветственное сообщение",
     "voiceSetupGuide": "Создайте аккаунт Twilio, купите номер телефона и затем введите данные ниже. Account SID и Auth Token находятся на панели Twilio Console. Phone Number SID указан в разделе Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Открыть Twilio Console",
+    "loginWeCom": "Авторизовать бота WeCom по QR-коду",
+    "wecomAuthHint": "Нажмите кнопку — откроется окно с QR-кодом WeCom. После сканирования Bot ID и Secret будут заполнены автоматически.",
+    "wecomAuthSuccess": "Бот WeCom успешно авторизован",
+    "wecomWindowBlocked": "Всплывающее окно заблокировано. Разрешите всплывающие окна и попробуйте снова.",
+    "wecomCancelled": "Авторизация отменена",
+    "wecomAuthFailed": "Ошибка авторизации: {{msg}}",
+    "wecomSdkLoadFailed": "Не удалось загрузить WeCom SDK",
     "filterAll": "Все",
     "builtin": "Встроенные",
     "custom": "Пользовательские"

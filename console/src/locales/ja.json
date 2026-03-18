@@ -313,6 +313,13 @@
     "welcomeGreeting": "ウェルカムメッセージ",
     "voiceSetupGuide": "Twilioアカウントを作成して電話番号を取得し、以下に認証情報を入力してください。アカウント SIDと認証トークンはTwilioコンソールのダッシュボードで確認できます。電話番号 SIDはPhone Numbers → Active Numbersに記載されています。",
     "voiceSetupLink": "Twilioコンソールを開く",
+    "loginWeCom": "QRコードでWeComボットを認証",
+    "wecomAuthHint": "ボタンをクリックするとWeComのQRコードウィンドウが開きます。スキャンして確認後、Bot IDとSecretが自動入力されます。",
+    "wecomAuthSuccess": "WeComボットの認証に成功しました",
+    "wecomWindowBlocked": "ポップアップがブロックされました。ポップアップを許可してから再試行してください。",
+    "wecomCancelled": "認証がキャンセルされました",
+    "wecomAuthFailed": "認証に失敗しました: {{msg}}",
+    "wecomSdkLoadFailed": "WeCom SDKの読み込みに失敗しました",
     "filterAll": "すべて",
     "builtin": "組み込み",
     "custom": "カスタム"
