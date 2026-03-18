@@ -323,9 +323,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.createEmptySession(sessionId);
   }
 
-  private async getAllChatMessages(chatId: string): Promise<Message[]> {
+  private async getAllChatMessages(
+    chatId: string,
+  ): Promise<{ messages: Message[]; status: "idle" | "running" }> {
     const allMessages: Message[] = [];
     let offset = 0;
+    let latestStatus: "idle" | "running" = "idle";
 
     while (true) {
       const chatHistory = await api.getChat(chatId, {
@@ -333,6 +336,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         limit: CHAT_HISTORY_PAGE_SIZE,
       });
       const pageMessages = chatHistory.messages || [];
+      latestStatus = chatHistory.status ?? latestStatus;
 
       allMessages.push(...pageMessages);
 
@@ -349,7 +353,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       offset += pageMessages.length;
     }
 
-    return allMessages;
+    return { messages: allMessages, status: latestStatus };
   }
 
   /**
@@ -428,7 +432,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       // If realId is already resolved, use it directly to fetch history.
       if (fromList?.realId) {
-        const messages = await this.getAllChatMessages(fromList.realId);
+        const { messages, status } = await this.getAllChatMessages(
+          fromList.realId,
+        );
         const session: ExtendedSession = {
           id: sessionId,
           name: fromList.name || DEFAULT_SESSION_NAME,
@@ -438,7 +444,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: convertMessages(messages),
           meta: fromList.meta || {},
           realId: fromList.realId,
-          status: chatHistory.status ?? "idle",
+          status,
         };
         this.updateWindowVariables(session);
         return session;
@@ -464,7 +470,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         | ExtendedSession
         | undefined;
       if (refreshed?.realId) {
-        const messages = await this.getAllChatMessages(refreshed.realId);
+        const { messages, status } = await this.getAllChatMessages(
+          refreshed.realId,
+        );
         const session: ExtendedSession = {
           id: sessionId,
           name: refreshed.name || DEFAULT_SESSION_NAME,
@@ -474,7 +482,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: convertMessages(messages),
           meta: refreshed.meta || {},
           realId: refreshed.realId,
-          status: chatHistory.status ?? "idle",
+          status,
         };
         this.updateWindowVariables(session);
         return session;
@@ -496,7 +504,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | ExtendedSession
       | undefined;
 
-    const messages = await this.getAllChatMessages(sessionId);
+    const { messages, status } = await this.getAllChatMessages(sessionId);
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
@@ -505,7 +513,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       channel: fromList?.channel || DEFAULT_CHANNEL,
       messages: convertMessages(messages),
       meta: fromList?.meta || {},
-      status: chatHistory.status ?? "idle",
+      status,
     };
 
     this.updateWindowVariables(session);

@@ -998,7 +998,7 @@ function SkillsPage() {
                         </div>
 
                         <div className={styles.marketTagList}>
-                          {item.tags.slice(0, 4).map((tag) => (
+                          {item.tags.slice(0, 4).map((tag: string) => (
                             <Tag key={`${key}-${tag}`}>{tag}</Tag>
                           ))}
                           {item.version ? <Tag color="green">v{item.version}</Tag> : null}

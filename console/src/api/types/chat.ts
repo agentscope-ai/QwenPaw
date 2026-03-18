@@ -20,6 +20,8 @@ export interface Message {
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+  has_more?: boolean;
+  total?: number;
 }
 
 export interface ChatDeleteResponse {

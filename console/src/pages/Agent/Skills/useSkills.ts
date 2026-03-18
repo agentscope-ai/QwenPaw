@@ -3,6 +3,13 @@ import { message, Modal } from "@agentscope-ai/design";
 import React from "react";
 import api from "../../../api";
 import type { SkillSpec } from "../../../api/types";
+import type {
+  MarketError,
+  MarketplaceItem,
+  MarketplaceMeta,
+  SkillsMarketSpec,
+  SkillsMarketsPayload,
+} from "../../../api/types/skill";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";

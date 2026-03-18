@@ -1,5 +1,5 @@
 import { Layout } from "antd";
-import { Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsoleCronBubble from "../../components/ConsoleCronBubble";
@@ -48,6 +48,7 @@ export default function MainLayout() {
   const location = useLocation();
   const currentPath = location.pathname;
   const selectedKey = pathToKey[currentPath] || "chat";
+  const isChatPage = currentPath === "/" || currentPath.startsWith("/chat");
 
   return (
     <Layout className={styles.mainLayout}>
@@ -76,11 +77,16 @@ export default function MainLayout() {
                 <Route path="/tools" element={<ToolsPage />} />
                 <Route path="/mcp" element={<MCPPage />} />
                 <Route path="/workspace" element={<WorkspacePage />} />
+                <Route path="/agents" element={<AgentsPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/environments" element={<EnvironmentsPage />} />
                 <Route path="/agent-config" element={<AgentConfigPage />} />
                 <Route path="/security" element={<SecurityPage />} />
                 <Route path="/token-usage" element={<TokenUsagePage />} />
+                <Route
+                  path="/voice-transcription"
+                  element={<VoiceTranscriptionPage />}
+                />
               </Routes>
             )}
           </div>

@@ -2,8 +2,8 @@ import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
   IAgentScopeRuntimeWebUIRef,
+  IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
-import type { ExtendedSession } from "./sessionApi";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
