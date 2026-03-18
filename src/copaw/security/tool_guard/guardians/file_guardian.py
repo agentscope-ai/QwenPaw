@@ -33,6 +33,7 @@ _SHELL_REDIRECT_OPERATORS = frozenset(
     {">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>", "<", "<<", "<<<"},
 )
 
+
 def _workspace_root() -> Path:
     """Return current workspace root for resolving relative paths."""
     return Path(get_current_workspace_dir() or WORKING_DIR)
