@@ -446,7 +446,8 @@ async def get_agent_avatar(
 
     media_type, _ = mimetypes.guess_type(avatar_path.name)
     return FileResponse(
-        avatar_path, media_type=media_type or "application/octet-stream"
+        avatar_path,
+        media_type=media_type or "application/octet-stream",
     )
 
 
