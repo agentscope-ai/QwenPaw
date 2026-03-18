@@ -46,6 +46,21 @@ In the [Console](./console), go to **Agent → Skills** to:
 
 Changes are synced to the working directory and affect the agent. Handy if you prefer not to edit files directly.
 
+### Skills Marketplace (Git repositories)
+
+In **Agent → Skills → Marketplace**, you can aggregate skills from multiple Git repositories.
+
+1. Click **Manage Markets** to add market entries.
+2. Fill in repository URL (`owner/repo`, `.git`, or GitHub tree URL are supported), then validate.
+3. Save the market list and click **Refresh Marketplace**.
+4. Install a marketplace skill with one click.
+
+Notes:
+
+- Market config is persisted in `~/.copaw/config.json` under `skills_market`.
+- `path` supports either `index.json` or a skills directory. If a directory is provided, CoPaw scans `SKILL.md` files and builds the index automatically.
+- Refresh uses cache + failure isolation: if one market fails, other markets can still be listed.
+
 ---
 
 ## Built-in skill: Cron (scheduled tasks)
@@ -73,7 +88,6 @@ You can import skills from these URL sources in the Console:
 - `https://lobehub.com/...`
 - `https://market.lobehub.com/...` (LobeHub direct download endpoint)
 - `https://github.com/...`
-- `https://modelscope.cn/skills/...`
 
 ### Steps
 
@@ -95,7 +109,7 @@ You can import skills from these URL sources in the Console:
 
 ### URL acquisition examples
 
-1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai`, `skillsmp.com`, `lobehub.com`, and `modelscope.cn`): open the corresponding marketplace page.
+1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai`, `skillsmp.com`, and `lobehub.com`): open the corresponding marketplace page.
 2. Pick the skill you need (for example, `find-skills`).
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)
