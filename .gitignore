@@ -88,4 +88,6 @@ CLAUDE.md
 *.tmp
 
 # Build cache
-.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+# Includes conda_unpack_wheels/ for Windows packaging workaround
+.cache/
+.smoke-cognee-working/
