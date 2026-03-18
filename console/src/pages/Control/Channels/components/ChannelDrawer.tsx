@@ -39,19 +39,16 @@ interface ChannelDrawerProps {
 
 // Doc URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
 const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
-  dingtalk:
-    "https://copaw.agentscope.io/docs/channels/#%E9%92%89%E9%92%89%E6%8E%A8%E8%8D%90",
-  feishu: "https://copaw.agentscope.io/docs/channels/#%E9%A3%9E%E4%B9%A6",
-  imessage:
-    "https://copaw.agentscope.io/docs/channels/#iMessage%E4%BB%85-macOS",
+  dingtalk: "https://copaw.agentscope.io/docs/channels/#DingTalk-recommended",
+  feishu: "https://copaw.agentscope.io/docs/channels/#Feishu-Lark",
+  imessage: "https://copaw.agentscope.io/docs/channels/#iMessage-macOS-only",
   discord: "https://copaw.agentscope.io/docs/channels/#Discord",
   qq: "https://copaw.agentscope.io/docs/channels/#QQ",
   telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
   mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
   mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
-  wecom:
-    "https://copaw.agentscope.io/docs/channels/#%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1",
+  wecom: "https://copaw.agentscope.io/docs/channels/#WeCom-WeChat-Work",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
@@ -68,7 +65,8 @@ export function ChannelDrawer({
   onClose,
   onSubmit,
 }: ChannelDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
 
   const renderAccessControlFields = () => (
@@ -623,7 +621,18 @@ export function ChannelDrawer({
               type="text"
               size="small"
               icon={<LinkOutlined />}
-              onClick={() => window.open(CHANNEL_DOC_URLS[activeKey], "_blank")}
+              onClick={() => {
+                const url = CHANNEL_DOC_URLS[activeKey]!;
+                // Only add lang parameter for copaw docs URLs
+                const isCopawDoc = url.includes(
+                  "copaw.agentscope.io/docs/channels/",
+                );
+                const finalUrl =
+                  isCopawDoc && currentLang === "zh"
+                    ? `${url.split("#")[0]}?lang=zh#${url.split("#")[1]}`
+                    : url;
+                window.open(finalUrl, "_blank");
+              }}
               className={styles.dingtalkDocBtn}
             >
               {label} Doc
