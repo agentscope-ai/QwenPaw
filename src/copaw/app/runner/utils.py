@@ -22,7 +22,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     MessageType,
 )
 
-from ...confgiig import load_config
+from ...config import load_config
 
 logger = logging.getLogger(__name__)
 

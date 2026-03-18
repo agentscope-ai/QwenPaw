@@ -644,7 +644,11 @@
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
-    "prompt2": "能告诉我你有哪些技能吗？"
+    "prompt2": "能告诉我你有哪些技能吗？",
+    "attachments": {
+      "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
+      "fileSizeLimit": "单文件不超过10MB"
+    }
   },
   "security": {
     "title": "安全",

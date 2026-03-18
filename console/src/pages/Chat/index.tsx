@@ -504,6 +504,7 @@ export default function ChatPage() {
               </Tooltip>
             );
           },
+          accept: "*/*",
           customRequest: async (options: {
             file: File;
             onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
@@ -517,11 +518,7 @@ export default function ChatPage() {
               const file = options.file as File;
               const isLt10M = file.size / 1024 / 1024 < 10;
               if (!isLt10M) {
-                message.error(
-                  t("chat.attachments.fileSizeLimit", {
-                    defaultValue: "单文件不超过10MB",
-                  }),
-                );
+                message.error(t("chat.attachments.fileSizeLimit"));
                 return options.onError?.(new Error("File size exceeds 10MB"));
               }
 

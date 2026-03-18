@@ -95,7 +95,7 @@
     "downloadSuccess": "Workspace downloaded successfully",
     "downloadFailed": "Workspace download failed",
     "zipOnly": "Only .zip files are supported for upload",
-    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB",
+    "fileSizeLimit": "File size exceeds 100MB limit. Current file: {{size}}MB",
     "systemPromptToggleTooltip": "Enable/disable this file in system prompt",
     "memoryFileWarning": "MEMORY.md is typically queried on-demand by the agent using tools. Loading it into the system prompt may cause the context to become too long.",
     "configUpdated": "System prompt configuration updated",
@@ -678,7 +678,11 @@
     "greeting": "Hello, how can I help you today?",
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
-    "prompt2": "Can you tell me what skills you have?"
+    "prompt2": "Can you tell me what skills you have?",
+    "attachments": {
+      "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
+      "fileSizeLimit": "Single file cannot exceed 10MB"
+    }
   },
   "security": {
     "title": "Security",
