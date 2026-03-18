@@ -6,17 +6,17 @@ https://github.com/QwenLM/Qwen3-VL-Embedding
 
 Licensed under Apache 2.0 License.
 """
+import logging
 import os
+import unicodedata
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-import unicodedata
-import numpy as np
-import logging
-
 from PIL import Image
-from urllib.parse import urlparse
-from dataclasses import dataclass
-from typing import Optional, List, Union, Dict, Any
 from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLPreTrainedModel, Qwen3VLModel, Qwen3VLConfig
 from transformers.models.qwen3_vl.processing_qwen3_vl import Qwen3VLProcessor
 from transformers.modeling_outputs import ModelOutput
@@ -86,20 +86,21 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
     def visual(self):
         return self.model.visual
 
-    def forward(self,
-                input_ids: torch.LongTensor = None,
-                attention_mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.LongTensor] = None,
-                past_key_values: Optional[Cache] = None,
-                inputs_embeds: Optional[torch.FloatTensor] = None,
-                pixel_values: Optional[torch.Tensor] = None,
-                pixel_values_videos: Optional[torch.FloatTensor] = None,
-                image_grid_thw: Optional[torch.LongTensor] = None,
-                video_grid_thw: Optional[torch.LongTensor] = None,
-                cache_position: Optional[torch.LongTensor] = None,
-                logits_to_keep: Union[int, torch.Tensor] = 0,
-                **kwargs: Unpack[TransformersKwargs],
-                ) -> Union[tuple, Qwen3VLForEmbeddingOutput]:
+    def forward(  # pylint: disable=unused-argument
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Cache] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        pixel_values: Optional[torch.Tensor] = None,
+        pixel_values_videos: Optional[torch.FloatTensor] = None,
+        image_grid_thw: Optional[torch.LongTensor] = None,
+        video_grid_thw: Optional[torch.LongTensor] = None,
+        cache_position: Optional[torch.LongTensor] = None,
+        logits_to_keep: Union[int, torch.Tensor] = 0,
+        **kwargs: Unpack[TransformersKwargs],
+    ) -> Union[tuple, Qwen3VLForEmbeddingOutput]:
         outputs = self.model(
             input_ids=input_ids,
             pixel_values=pixel_values,
@@ -219,7 +220,7 @@ class Qwen3VLEmbedder:
                 non_special_kept_count += 1
         return final_token_ids
 
-    def format_model_input(
+    def format_model_input(  # pylint: disable=too-many-branches,too-many-statements
         self,
         text: Optional[Union[List[str], str]] = None,
         image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,

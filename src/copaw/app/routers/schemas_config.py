@@ -10,10 +10,9 @@ from ...config.config import ActiveHoursConfig, LocalEmbeddingConfig
 
 class LocalEmbeddingBody(LocalEmbeddingConfig):
     """Request body for PUT /config/agents/local-embedding.
-    
+
     Inherits all fields from LocalEmbeddingConfig.
     """
-    pass
 
 
 class LocalEmbeddingTestResult(BaseModel):

@@ -45,6 +45,7 @@ def running_app() -> Generator[httpx.Client, None, None]:
     port = _find_free_port(host)
     log_lines: list[str] = []
 
+    # pylint: disable=consider-using-with
     process = subprocess.Popen(
         [
             sys.executable,

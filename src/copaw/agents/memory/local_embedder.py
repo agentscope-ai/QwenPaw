@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 import torch

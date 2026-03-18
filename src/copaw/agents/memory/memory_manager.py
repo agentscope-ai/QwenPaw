@@ -135,8 +135,8 @@ class MemoryManager(ReMeLight):
             try:
                 self._local_embedder = LocalEmbedder(local_embedding_config)
                 logger.info(f"Local embedding enabled with model: {local_embedding_config.model_id}")
-            except Exception as e:
-                logger.error(f"Failed to initialize local embedder: {e}")
+            except Exception as exc:
+                logger.error(f"Failed to initialize local embedder: {exc}")
                 local_embedding_enabled = False
 
         # Determine if vector search should be enabled based on configuration
