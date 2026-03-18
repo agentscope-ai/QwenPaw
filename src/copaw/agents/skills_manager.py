@@ -237,27 +237,8 @@ def sync_skills_to_working_dir(
             synced_count += 1
             continue
 
-        customized_dir = customized_skills / skill_name
-
-        # Builtin version upgrade (only when no customized override)
-        builtin_dir = builtin_skills / skill_name
-        if builtin_dir.exists() and not customized_dir.exists():
-            builtin_ver = _get_builtin_skill_version(builtin_dir)
-            if builtin_ver is not None:
-                active_ver = _get_builtin_skill_version(target_dir)
-                if active_ver is None or builtin_ver > active_ver:
-                    _replace_skill_dir(builtin_dir, target_dir)
-                    logger.debug(
-                        "Builtin skill '%s' updated in "
-                        "active_skills (v%s -> v%s).",
-                        skill_name,
-                        active_ver,
-                        builtin_ver,
-                    )
-                    synced_count += 1
-                    continue
-
         # Customized override: propagate customized → active
+        customized_dir = customized_skills / skill_name
         if customized_dir.exists() and _skill_md_differs(
             customized_dir,
             target_dir,
@@ -309,13 +290,30 @@ def sync_skills_from_active_to_customized(
         if skill_names is not None and skill_name not in skill_names:
             continue
 
-        # Skip builtin skills (dual check: version field + name match)
-        active_ver = _get_builtin_skill_version(skill_dir)
-        if active_ver is not None and skill_name in builtin_skills_dict:
-            skipped_count += 1
+        # Builtin skill: check version upgrade, skip back-sync
+        if skill_name in builtin_skills_dict:
+            builtin_dir = builtin_skills_dict[skill_name]
+            active_ver = _get_builtin_skill_version(skill_dir)
+            builtin_ver = _get_builtin_skill_version(builtin_dir)
+            if (
+                active_ver is not None
+                and builtin_ver is not None
+                and builtin_ver > active_ver
+            ):
+                _replace_skill_dir(builtin_dir, skill_dir)
+                logger.debug(
+                    "Builtin skill '%s' updated in "
+                    "active_skills (v%s -> v%s).",
+                    skill_name,
+                    active_ver,
+                    builtin_ver,
+                )
+                synced_count += 1
+            else:
+                skipped_count += 1
             continue
 
-        # Only back-sync when customized doesn't already exist
+        # Non-builtin: back-sync to customized (first-time only)
         target_dir = customized_skills / skill_name
         if target_dir.exists():
             skipped_count += 1
@@ -557,21 +555,6 @@ class SkillService:
         except Exception as e:
             logger.debug(
                 "Failed to back-sync skills: %s",
-                e,
-            )
-
-        try:
-            synced, _ = sync_skills_to_working_dir(
-                self.workspace_dir,
-            )
-            if synced > 0:
-                logger.debug(
-                    "Forward-synced %d skill(s) to active_skills",
-                    synced,
-                )
-        except Exception as e:
-            logger.debug(
-                "Failed to forward-sync skills: %s",
                 e,
             )
 

@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+import contextvars
 import base64
 import io
 import zipfile
@@ -16,6 +17,7 @@ from typing import Any
 from urllib.parse import quote, urlencode, urlparse, unquote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from contextlib import contextmanager
 
 import frontmatter
 import yaml
@@ -23,6 +25,10 @@ import yaml
 from .skills_manager import SkillService
 
 logger = logging.getLogger(__name__)
+
+_cancel_checker_ctx: contextvars.ContextVar[
+    Any | None
+] = contextvars.ContextVar("skills_hub_cancel_checker", default=None)
 
 
 @dataclass
@@ -39,6 +45,10 @@ class HubInstallResult:
     name: str
     enabled: bool
     source_url: str
+
+
+class SkillImportCancelled(RuntimeError):
+    """Raised when a skill import task is cancelled by user."""
 
 
 RETRYABLE_HTTP_STATUS = {
@@ -93,6 +103,29 @@ def _compute_backoff_seconds(attempt: int) -> float:
     base = _hub_http_backoff_base()
     cap = _hub_http_backoff_cap()
     return min(cap, base * (2 ** max(0, attempt - 1)))
+
+
+def _ensure_not_cancelled() -> None:
+    checker = _cancel_checker_ctx.get()
+    if checker is None:
+        return
+    try:
+        if bool(checker()):
+            raise SkillImportCancelled("Skill import cancelled by user")
+    except SkillImportCancelled:
+        raise
+    except Exception:
+        # Ignore checker failures and continue.
+        return
+
+
+@contextmanager
+def _with_cancel_checker(checker: Any | None):
+    token = _cancel_checker_ctx.set(checker)
+    try:
+        yield
+    finally:
+        _cancel_checker_ctx.reset(token)
 
 
 def _hub_base_url() -> str:
@@ -153,6 +186,7 @@ def _read_response_bytes(
     full_url: str,
     max_bytes: int | None = None,
 ) -> bytes:
+    _ensure_not_cancelled()
     if max_bytes is not None and max_bytes <= 0:
         raise ValueError("max_bytes must be greater than 0")
 
@@ -176,6 +210,7 @@ def _read_response_bytes(
 
     body = bytearray()
     while True:
+        _ensure_not_cancelled()
         chunk = resp.read(HTTP_READ_CHUNK_BYTES)
         if not chunk:
             return bytes(body)
@@ -194,6 +229,7 @@ def _http_fetch(
     accept: str = "application/json",
     max_bytes: int | None = None,
 ) -> bytes:
+    _ensure_not_cancelled()
     full_url = url
     if params:
         full_url = f"{url}?{urlencode(params)}"
@@ -204,6 +240,7 @@ def _http_fetch(
     attempts = retries + 1
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        _ensure_not_cancelled()
         try:
             with urlopen(req, timeout=timeout) as resp:
                 return _read_response_bytes(
@@ -240,6 +277,7 @@ def _http_fetch(
                     attempts,
                     delay,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -256,6 +294,7 @@ def _http_fetch(
                     delay,
                     e,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -963,10 +1002,12 @@ def _github_collect_tree_files(
     pending = [root] if root else [""]
     visited = 0
     while pending:
+        _ensure_not_cancelled()
         current_dir = pending.pop()
         target_dir = current_dir or ""
         entries = _github_get_dir_entries(owner, repo, target_dir, ref)
         for entry in entries:
+            _ensure_not_cancelled()
             entry_type = str(entry.get("type") or "")
             entry_path = str(entry.get("path") or "")
             if not entry_path:
@@ -1493,41 +1534,48 @@ def install_skill_from_hub(
     version: str = "",
     enable: bool = True,
     overwrite: bool = False,
+    cancel_checker: Any | None = None,
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
         raise ValueError("bundle_url must be a valid http(s) URL")
-    data, source_url = _resolve_bundle_from_url(bundle_url, version)
+    with _with_cancel_checker(cancel_checker):
+        _ensure_not_cancelled()
+        data, source_url = _resolve_bundle_from_url(bundle_url, version)
 
-    name, content, references, scripts, extra_files = _normalize_bundle(data)
-    if not name:
-        fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
-        name = _safe_fallback_name(fallback)
-    # Sanitize: "Excel / XLSX" etc. must not be used as dir name
-    name = _sanitize_skill_dir_name(name)
-
-    skill_service = SkillService(workspace_dir)
-    created = skill_service.create_skill(
-        name=name,
-        content=content,
-        overwrite=overwrite,
-        references=references,
-        scripts=scripts,
-        extra_files=extra_files,
-    )
-    if not created:
-        raise RuntimeError(
-            f"Failed to create skill '{name}'. "
-            "Try overwrite=true if it already exists.",
+        name, content, references, scripts, extra_files = _normalize_bundle(
+            data,
         )
+        if not name:
+            fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
+            name = _safe_fallback_name(fallback)
+        # Sanitize: "Excel / XLSX" etc. must not be used as dir name
+        name = _sanitize_skill_dir_name(name)
 
-    enabled = False
-    if enable:
-        enabled = skill_service.enable_skill(name, force=True)
-        if not enabled:
-            logger.warning("Skill '%s' imported but enable failed", name)
+        _ensure_not_cancelled()
+        skill_service = SkillService(workspace_dir)
+        created = skill_service.create_skill(
+            name=name,
+            content=content,
+            overwrite=overwrite,
+            references=references,
+            scripts=scripts,
+            extra_files=extra_files,
+        )
+        if not created:
+            raise RuntimeError(
+                f"Failed to create skill '{name}'. "
+                "Try overwrite=true if it already exists.",
+            )
 
-    return HubInstallResult(
-        name=name,
-        enabled=enabled,
-        source_url=source_url,
-    )
+        _ensure_not_cancelled()
+        enabled = False
+        if enable:
+            enabled = skill_service.enable_skill(name, force=True)
+            if not enabled:
+                logger.warning("Skill '%s' imported but enable failed", name)
+
+        return HubInstallResult(
+            name=name,
+            enabled=enabled,
+            source_url=source_url,
+        )
