@@ -445,7 +445,9 @@ async def get_agent_avatar(
         raise HTTPException(status_code=404, detail="Avatar not found")
 
     media_type, _ = mimetypes.guess_type(avatar_path.name)
-    return FileResponse(avatar_path, media_type=media_type or "application/octet-stream")
+    return FileResponse(
+        avatar_path, media_type=media_type or "application/octet-stream"
+    )
 
 
 @router.delete(
