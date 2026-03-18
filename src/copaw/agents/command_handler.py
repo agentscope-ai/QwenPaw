@@ -199,12 +199,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
         summary = self.memory.get_compressed_summary()
         if not summary:
             return await self._make_system_msg(
-                "**No Compact Abstract**\n\n"
+                "**No Compressed Summary**\n\n"
                 "- No summary has been generated yet\n"
                 "- Use /compact or wait for auto-compaction",
             )
         return await self._make_system_msg(
-            f"**Compact Abstract**\n\n{summary}",
+            f"**Compressed Summary**\n\n{summary}",
         )
 
     async def _process_history(

@@ -194,10 +194,10 @@ def _get_copaw_token_counter(
             ),
         )
         logger.info(
-            "Token counter created with model=%s, mirror=%s, divisor=%s",
-            running_config.token_count_model,
-            running_config.token_count_use_mirror,
-            running_config.token_count_estimate_divisor,
+            f"Token counter created with "
+            f"model={running_config.token_count_model}, "
+            f"mirror={running_config.token_count_use_mirror}, "
+            f"divisor={running_config.token_count_estimate_divisor}",
         )
     else:
         # Update estimate divisor for cached counter
