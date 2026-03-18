@@ -23,6 +23,10 @@ export interface DiscordConfig extends BaseChannelConfig {
 export interface DingTalkConfig extends BaseChannelConfig {
   client_id: string;
   client_secret: string;
+  message_type: string;
+  card_template_id: string;
+  card_template_key: string;
+  robot_code: string;
 }
 
 export interface FeishuConfig extends BaseChannelConfig {

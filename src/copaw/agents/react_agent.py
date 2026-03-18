@@ -7,7 +7,8 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
-from typing import Any, List, Literal, Optional, Type
+from pathlib import Path
+from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -21,12 +22,12 @@ from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
 from .prompt import build_system_prompt_from_working_dir
-from .tool_guard_mixin import ToolGuardMixin
 from .skills_manager import (
     ensure_skills_initialized,
     get_working_skills_dir,
     list_available_skills,
 )
+from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     desktop_screenshot,
@@ -36,16 +37,19 @@ from .tools import (
     get_token_usage,
     read_file,
     send_file_to_user,
+    set_user_timezone,
+    view_image,
     write_file,
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
-from ..agents.memory import MemoryManager
-from ..config import load_config
 from ..constant import (
-    MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
+from ..agents.memory import MemoryManager
+
+if TYPE_CHECKING:
+    from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -75,41 +79,57 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
     def __init__(
         self,
+        agent_config: "AgentProfileConfig",
         env_context: Optional[str] = None,
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
-        memory_manager: MemoryManager | None = None,
+        memory_manager: "MemoryManager | None" = None,
         request_context: Optional[dict[str, str]] = None,
-        max_iters: int = 50,
-        max_input_length: int = 128 * 1024,  # 128K = 131072 tokens
         namesake_strategy: NamesakeStrategy = "skip",
+        workspace_dir: Path | None = None,
     ):
         """Initialize CoPawAgent.
 
         Args:
+            agent_config: Agent profile configuration containing all settings
+                including running config (max_iters, max_input_length,
+                memory_compact_threshold, etc.) and language setting.
             env_context: Optional environment context to prepend to
                 system prompt
             enable_memory_manager: Whether to enable memory manager
             mcp_clients: Optional list of MCP clients for tool
                 integration
             memory_manager: Optional memory manager instance
-            max_iters: Maximum number of reasoning-acting iterations
-                (default: 50)
-            max_input_length: Maximum input length in tokens for model
-                context window (default: 128K = 131072)
+            request_context: Optional request context with session_id,
+                user_id, channel, agent_id
             namesake_strategy: Strategy to handle namesake tool functions.
                 Options: "override", "skip", "raise", "rename"
                 (default: "skip")
+            workspace_dir: Workspace directory for reading prompt files
+                (if None, uses global WORKING_DIR)
         """
+        self._agent_config = agent_config
         self._env_context = env_context
         self._request_context = dict(request_context or {})
-        self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
+        self._workspace_dir = workspace_dir
 
-        # Memory compaction threshold: configurable ratio of max_input_length
-        self._memory_compact_threshold = int(
-            max_input_length * MEMORY_COMPACT_RATIO,
+        # Extract configuration from agent_config
+        running_config = agent_config.running
+        self._max_input_length = running_config.max_input_length
+        self._language = agent_config.language
+
+        # Memory compaction settings from config
+        self._memory_compact_threshold = (
+            running_config.memory_compact_threshold
+        )
+        self._memory_compact_reserve = running_config.memory_compact_reserve
+        self._enable_tool_result_compact = (
+            running_config.enable_tool_result_compact
+        )
+        self._tool_result_compact_keep_n = (
+            running_config.tool_result_compact_keep_n
         )
 
         # Initialize toolkit with built-in tools
@@ -132,7 +152,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             toolkit=toolkit,
             memory=InMemoryMemory(),
             formatter=formatter,
-            max_iters=max_iters,
+            max_iters=running_config.max_iters,
         )
 
         # Setup memory manager
@@ -148,6 +168,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             memory=self.memory,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
+            agent_config=agent_config,
         )
 
         # Register hooks
@@ -169,14 +190,22 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         toolkit = Toolkit()
 
-        # Load config to check which tools are enabled
-        config = load_config()
+        # Check which tools are enabled from agent config
         enabled_tools = {}
-        if hasattr(config, "tools") and hasattr(config.tools, "builtin_tools"):
-            enabled_tools = {
-                name: tool_config.enabled
-                for name, tool_config in config.tools.builtin_tools.items()
-            }
+        try:
+            if hasattr(self._agent_config, "tools") and hasattr(
+                self._agent_config.tools,
+                "builtin_tools",
+            ):
+                builtin_tools = self._agent_config.tools.builtin_tools
+                enabled_tools = {
+                    name: tool.enabled for name, tool in builtin_tools.items()
+                }
+        except Exception as e:
+            logger.warning(
+                f"Failed to load agent tools config: {e}, "
+                "all tools will be disabled",
+            )
 
         # Map of tool functions
         tool_functions = {
@@ -186,8 +215,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "edit_file": edit_file,
             "browser_use": browser_use,
             "desktop_screenshot": desktop_screenshot,
+            "view_image": view_image,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
+            "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
         }
 
@@ -206,16 +237,18 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         return toolkit
 
     def _register_skills(self, toolkit: Toolkit) -> None:
-        """Load and register skills from working directory.
+        """Load and register skills from workspace directory.
 
         Args:
             toolkit: Toolkit to register skills to
         """
-        # Check skills initialization
-        ensure_skills_initialized()
+        workspace_dir = self._workspace_dir or WORKING_DIR
 
-        working_skills_dir = get_working_skills_dir()
-        available_skills = list_available_skills()
+        # Check skills initialization
+        ensure_skills_initialized(workspace_dir)
+
+        working_skills_dir = get_working_skills_dir(workspace_dir)
+        available_skills = list_available_skills(workspace_dir)
 
         for skill_name in available_skills:
             skill_dir = working_skills_dir / skill_name
@@ -236,9 +269,19 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Complete system prompt string
         """
-        sys_prompt = build_system_prompt_from_working_dir()
+        # Get agent_id from request_context
+        agent_id = (
+            self._request_context.get("agent_id")
+            if self._request_context
+            else None
+        )
+
+        sys_prompt = build_system_prompt_from_working_dir(
+            working_dir=self._workspace_dir,
+            agent_id=agent_id,
+        )
         if self._env_context is not None:
-            sys_prompt = self._env_context + "\n\n" + sys_prompt
+            sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
 
     def _setup_memory_manager(
@@ -279,10 +322,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
         # Bootstrap hook - checks BOOTSTRAP.md on first interaction
-        config = load_config()
+        # Use workspace_dir if available, else fallback to WORKING_DIR
+        working_dir = (
+            self._workspace_dir if self._workspace_dir else WORKING_DIR
+        )
         bootstrap_hook = BootstrapHook(
-            working_dir=WORKING_DIR,
-            language=config.agents.language,
+            working_dir=working_dir,
+            language=self._language,
         )
         self.register_instance_hook(
             hook_type="pre_reasoning",
@@ -295,6 +341,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
+                agent_config=self._agent_config,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
@@ -495,6 +542,146 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         except Exception:  # pylint: disable=broad-except
             return None
 
+    # ------------------------------------------------------------------
+    # Media-block fallback: strip unsupported media blocks (image, audio,
+    # video) from memory and retry when the model rejects them.
+    # ------------------------------------------------------------------
+
+    _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
+
+    async def _reasoning(
+        self,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
+    ) -> Msg:
+        """Override reasoning with media-block fallback.
+
+        If the model call fails with a bad-request error and memory
+        contains media blocks (image/audio/video), strip them all and
+        retry once.  Calls ``super()._reasoning`` to keep the
+        ToolGuardMixin interception active.
+        """
+        try:
+            return await super()._reasoning(tool_choice=tool_choice)
+        except Exception as e:
+            if not self._is_bad_request_or_media_error(e):
+                raise
+
+            n_stripped = self._strip_media_blocks_from_memory()
+            if n_stripped == 0:
+                raise
+
+            logger.warning(
+                "_reasoning failed (%s). "
+                "Stripped %d media block(s) from memory, retrying.",
+                e,
+                n_stripped,
+            )
+            return await super()._reasoning(tool_choice=tool_choice)
+
+    async def _summarizing(self) -> Msg:
+        """Override summarizing with the same media-block fallback."""
+        try:
+            return await super()._summarizing()
+        except Exception as e:
+            if not self._is_bad_request_or_media_error(e):
+                raise
+
+            n_stripped = self._strip_media_blocks_from_memory()
+            if n_stripped == 0:
+                raise
+
+            logger.warning(
+                "_summarizing failed (%s). "
+                "Stripped %d media block(s) from memory, retrying.",
+                e,
+                n_stripped,
+            )
+            return await super()._summarizing()
+
+    @staticmethod
+    def _is_bad_request_or_media_error(exc: Exception) -> bool:
+        """Return True for 400-class or media-related model errors.
+
+        Targets bad-request (400) errors because unsupported media
+        content typically causes request validation failures.  Keyword
+        matching provides an extra safety net for providers that use
+        non-standard status codes.
+        """
+        status = getattr(exc, "status_code", None)
+        if status == 400:
+            return True
+
+        error_str = str(exc).lower()
+        keywords = [
+            "image",
+            "audio",
+            "video",
+            "vision",
+            "multimodal",
+            "image_url",
+        ]
+        return any(kw in error_str for kw in keywords)
+
+    _MEDIA_PLACEHOLDER = (
+        "[Media content removed - model does not support this media type]"
+    )
+
+    def _strip_media_blocks_from_memory(self) -> int:
+        """Remove media blocks (image/audio/video) from all messages.
+
+        Also strips media blocks nested inside ToolResultBlock outputs.
+        Inserts placeholder text when stripping leaves content empty to
+        avoid malformed API requests.
+
+        Returns:
+            Total number of media blocks removed.
+        """
+        media_types = self._MEDIA_BLOCK_TYPES
+        total_stripped = 0
+
+        for msg, _marks in self.memory.content:
+            if not isinstance(msg.content, list):
+                continue
+
+            new_content = []
+            for block in msg.content:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") in media_types
+                ):
+                    total_stripped += 1
+                    continue
+
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "tool_result"
+                    and isinstance(block.get("output"), list)
+                ):
+                    original_len = len(block["output"])
+                    block["output"] = [
+                        item
+                        for item in block["output"]
+                        if not (
+                            isinstance(item, dict)
+                            and item.get("type") in media_types
+                        )
+                    ]
+                    stripped_count = original_len - len(block["output"])
+                    total_stripped += stripped_count
+                    if stripped_count > 0 and not block["output"]:
+                        block["output"] = self._MEDIA_PLACEHOLDER
+
+                new_content.append(block)
+
+            if not new_content and total_stripped > 0:
+                new_content.append(
+                    {"type": "text", "text": self._MEDIA_PLACEHOLDER},
+                )
+
+            msg.content = new_content
+
+        return total_stripped
+
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
@@ -509,6 +696,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
+        # Set workspace_dir in context for tool functions
+        from ..config.context import set_current_workspace_dir
+
+        set_current_workspace_dir(self._workspace_dir)
+
         # Process file and media blocks in messages
         if msg is not None:
             await process_file_and_media_blocks_in_message(msg)

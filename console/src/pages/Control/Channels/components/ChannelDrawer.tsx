@@ -7,12 +7,43 @@ import {
   Switch,
   Button,
   Select,
+  message,
 } from "@agentscope-ai/design";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
+import { useCallback, useRef } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
+import { useTheme } from "../../../../contexts/ThemeContext";
+
+const WECOM_SDK_URL =
+  "https://wwcdn.weixin.qq.com/node/wework/js/wecom-aibot-sdk@0.1.0.min.js";
+
+const WECOM_SOURCE = "copaw";
+
+interface WecomBotInfo {
+  botid: string;
+  secret: string;
+}
+
+interface WecomAuthError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+declare global {
+  interface Window {
+    WecomAIBotSDK?: {
+      openBotInfoAuthWindow: (options: {
+        source: string;
+        onCreated?: (bot: WecomBotInfo) => void;
+        onError?: (error: WecomAuthError) => void;
+      }) => Promise<WecomBotInfo> | void;
+    };
+  }
+}
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -23,6 +54,51 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mattermost",
   "matrix",
   "xiaoyi",
+];
+
+// Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
+  dingtalk:
+    "https://copaw.agentscope.io/docs/channels/?lang=en#DingTalk-recommended",
+  feishu: "https://copaw.agentscope.io/docs/channels/?lang=en#Feishu-Lark",
+  imessage:
+    "https://copaw.agentscope.io/docs/channels/?lang=en#iMessage-macOS-only",
+  discord: "https://copaw.agentscope.io/docs/channels/?lang=en#Discord",
+  qq: "https://copaw.agentscope.io/docs/channels/?lang=en#QQ",
+  telegram: "https://copaw.agentscope.io/docs/channels/?lang=en#Telegram",
+  mqtt: "https://copaw.agentscope.io/docs/channels/?lang=en#MQTT",
+  mattermost: "https://copaw.agentscope.io/docs/channels/?lang=en#Mattermost",
+  matrix: "https://copaw.agentscope.io/docs/channels/?lang=en#Matrix",
+  wecom: "https://copaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
+  xiaoyi:
+    "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+};
+
+// Doc ZH URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
+  dingtalk: "https://copaw.agentscope.io/docs/channels/?lang=zh#钉钉推荐",
+  feishu: "https://copaw.agentscope.io/docs/channels/?lang=zh#飞书",
+  imessage:
+    "https://copaw.agentscope.io/docs/channels/?lang=zh#iMessage仅-macOS",
+  discord: "https://copaw.agentscope.io/docs/channels/?lang=zh#Discord",
+  qq: "https://copaw.agentscope.io/docs/channels/?lang=zh#QQ",
+  telegram: "https://copaw.agentscope.io/docs/channels/?lang=zh#Telegram",
+  mqtt: "https://copaw.agentscope.io/docs/channels/?lang=zh#MQTT",
+  mattermost: "https://copaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
+  matrix: "https://copaw.agentscope.io/docs/channels/?lang=zh#Matrix",
+  wecom: "https://copaw.agentscope.io/docs/channels/?lang=zh#企业微信",
+  xiaoyi:
+    "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+};
+
+const TWILIO_CONSOLE_URL = "https://console.twilio.com";
+
+const BASE_FIELDS = [
+  "enabled",
+  "bot_prefix",
+  "filter_tool_messages",
+  "filter_thinking",
+  "isBuiltin",
 ];
 
 interface ChannelDrawerProps {
@@ -37,24 +113,6 @@ interface ChannelDrawerProps {
   onSubmit: (values: Record<string, unknown>) => void;
 }
 
-// Doc URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
-const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
-  dingtalk:
-    "https://copaw.agentscope.io/docs/channels/#%E9%92%89%E9%92%89%E6%8E%A8%E8%8D%90",
-  feishu: "https://copaw.agentscope.io/docs/channels/#%E9%A3%9E%E4%B9%A6",
-  imessage:
-    "https://copaw.agentscope.io/docs/channels/#iMessage%E4%BB%85-macOS",
-  discord: "https://copaw.agentscope.io/docs/channels/#Discord",
-  qq: "https://copaw.agentscope.io/docs/channels/#QQ",
-  telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
-  mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
-  mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
-  matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
-  xiaoyi:
-    "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
-};
-const twilioConsoleUrl = "https://console.twilio.com";
-
 export function ChannelDrawer({
   open,
   activeKey,
@@ -66,8 +124,72 @@ export function ChannelDrawer({
   onClose,
   onSubmit,
 }: ChannelDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { isDark } = useTheme();
+  const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
+  const sdkLoadedRef = useRef(false);
+
+  // Dynamically load the WeCom SDK script
+  const loadWecomSDK = useCallback((): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (window.WecomAIBotSDK || sdkLoadedRef.current) {
+        resolve();
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = WECOM_SDK_URL;
+      script.async = true;
+      script.onload = () => {
+        sdkLoadedRef.current = true;
+        resolve();
+      };
+      script.onerror = () => reject(new Error("Failed to load WeCom SDK"));
+      document.body.appendChild(script);
+    });
+  }, []);
+
+  // Handle WeCom scan-to-authorize button click; source is fixed to WECOM_SOURCE
+  const handleWecomAuth = useCallback(async () => {
+    try {
+      await loadWecomSDK();
+    } catch {
+      message.error(t("channels.wecomSdkLoadFailed"));
+      return;
+    }
+    if (!window.WecomAIBotSDK) {
+      message.error(t("channels.wecomSdkLoadFailed"));
+      return;
+    }
+    const result = window.WecomAIBotSDK.openBotInfoAuthWindow({
+      source: WECOM_SOURCE,
+    });
+    if (result && typeof result.then === "function") {
+      result.then(
+        (bot) => {
+          if (bot?.botid) {
+            form.setFieldsValue({ bot_id: bot.botid, secret: bot.secret });
+            message.success(t("channels.wecomAuthSuccess"));
+          }
+        },
+        (error: WecomAuthError) => {
+          if (error?.code === "WINDOW_BLOCKED") {
+            message.error(t("channels.wecomWindowBlocked"));
+          } else if (error?.code === "CANCELLED") {
+            message.info(t("channels.wecomCancelled"));
+          } else {
+            message.error(
+              t("channels.wecomAuthFailed", {
+                msg: error?.message || error?.code || "Unknown error",
+              }),
+            );
+          }
+        },
+      );
+    }
+  }, [loadWecomSDK, form, t]);
+
+  // ── Access control fields (shared across multiple channels) ──────────────
 
   const renderAccessControlFields = () => (
     <>
@@ -120,7 +242,8 @@ export function ChannelDrawer({
     </>
   );
 
-  // Renders builtin channel-specific fields
+  // ── Builtin channel-specific fields ─────────────────────────────────────
+
   const renderBuiltinExtraFields = (key: ChannelKey) => {
     switch (key) {
       case "matrix":
@@ -149,6 +272,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "imessage":
         return (
           <>
@@ -170,6 +294,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "discord":
         return (
           <>
@@ -184,6 +309,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "dingtalk":
         return (
           <>
@@ -193,8 +319,62 @@ export function ChannelDrawer({
             <Form.Item name="client_secret" label="Client Secret">
               <Input.Password />
             </Form.Item>
+            <Form.Item
+              name="message_type"
+              label="Message Type"
+              tooltip="markdown: regular messages; card: AI interactive card"
+            >
+              <Select
+                options={[
+                  { label: "markdown", value: "markdown" },
+                  { label: "card", value: "card" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, cur) =>
+                prev.message_type !== cur.message_type
+              }
+            >
+              {({ getFieldValue }) => {
+                if (getFieldValue("message_type") !== "card") return null;
+                return (
+                  <>
+                    <Form.Item
+                      name="card_template_id"
+                      label="Card Template ID"
+                      rules={[
+                        {
+                          required: true,
+                          message:
+                            "Please input card template id when message_type=card",
+                        },
+                      ]}
+                    >
+                      <Input placeholder="dt_card_template_xxx" />
+                    </Form.Item>
+                    <Form.Item
+                      name="card_template_key"
+                      label="Card Template Key"
+                      tooltip="Must exactly match the template variable name"
+                    >
+                      <Input placeholder="content" />
+                    </Form.Item>
+                    <Form.Item
+                      name="robot_code"
+                      label="Robot Code"
+                      tooltip="Recommended to configure explicitly for group chats"
+                    >
+                      <Input placeholder="robot code (default client_id)" />
+                    </Form.Item>
+                  </>
+                );
+              }}
+            </Form.Item>
           </>
         );
+
       case "feishu":
         return (
           <>
@@ -223,6 +403,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "qq":
         return (
           <>
@@ -234,6 +415,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "telegram":
         return (
           <>
@@ -255,6 +437,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "mqtt":
         return (
           <>
@@ -355,6 +538,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "mattermost":
         return (
           <>
@@ -387,6 +571,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "voice":
         return (
           <>
@@ -438,9 +623,25 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "wecom":
         return (
           <>
+            <Form.Item label=" " colon={false}>
+              <span
+                style={{
+                  display: "block",
+                  marginBottom: 8,
+                  fontSize: 13,
+                  color: isDark ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.45)",
+                }}
+              >
+                {t("channels.wecomAuthHint")}
+              </span>
+              <Button type="primary" block onClick={handleWecomAuth}>
+                {t("channels.loginWeCom")}
+              </Button>
+            </Form.Item>
             <Form.Item
               name="bot_id"
               label="Bot ID"
@@ -467,6 +668,7 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       case "xiaoyi":
         return (
           <>
@@ -502,44 +704,33 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
       default:
         return null;
     }
   };
 
-  // Renders custom channel fields as key-value editor
+  // ── Custom channel fields (key-value editor) ─────────────────────────────
+
   const renderCustomExtraFields = (
-    initialValues: Record<string, unknown> | undefined,
+    values: Record<string, unknown> | undefined,
   ) => {
-    if (!initialValues) return null;
-
-    // Get extra fields (exclude base fields)
-    const baseFields = [
-      "enabled",
-      "bot_prefix",
-      "filter_tool_messages",
-      "filter_thinking",
-      "isBuiltin",
-    ];
-    const extraKeys = Object.keys(initialValues).filter(
-      (k) => !baseFields.includes(k),
+    if (!values) return null;
+    const extraKeys = Object.keys(values).filter(
+      (k) => !BASE_FIELDS.includes(k),
     );
-
     if (extraKeys.length === 0) return null;
 
     return (
       <>
         <div style={{ marginBottom: 8, fontWeight: 500 }}>Custom Fields</div>
         {extraKeys.map((fieldKey) => {
-          const value = initialValues[fieldKey];
-          const isBoolean = typeof value === "boolean";
-          const isNumber = typeof value === "number";
-
+          const value = values[fieldKey];
           return (
             <Form.Item key={fieldKey} name={fieldKey} label={fieldKey}>
-              {isBoolean ? (
+              {typeof value === "boolean" ? (
                 <Switch />
-              ) : isNumber ? (
+              ) : typeof value === "number" ? (
                 <InputNumber style={{ width: "100%" }} />
               ) : (
                 <Input />
@@ -551,43 +742,63 @@ export function ChannelDrawer({
     );
   };
 
+  // ── Drawer title ─────────────────────────────────────────────────────────
+
+  const drawerTitle = (
+    <div className={styles.drawerTitle}>
+      <span>
+        {label
+          ? `${label} ${t("channels.settings")}`
+          : t("channels.channelSettings")}
+      </span>
+      {activeKey &&
+        CHANNEL_DOC_EN_URLS[activeKey] &&
+        CHANNEL_DOC_ZH_URLS[activeKey] && (
+          <Button
+            type="text"
+            size="small"
+            icon={<LinkOutlined />}
+            onClick={() => {
+              const url =
+                CHANNEL_DOC_EN_URLS[activeKey]! ||
+                CHANNEL_DOC_ZH_URLS[activeKey]!;
+              const isCopawDoc = url.includes(
+                "copaw.agentscope.io/docs/channels/",
+              );
+              const finalUrl =
+                isCopawDoc && currentLang === "zh"
+                  ? CHANNEL_DOC_ZH_URLS[activeKey]!
+                  : CHANNEL_DOC_EN_URLS[activeKey]!;
+              window.open(finalUrl, "_blank");
+            }}
+            className={styles.dingtalkDocBtn}
+          >
+            {label} Doc
+          </Button>
+        )}
+      {activeKey === "voice" && (
+        <Button
+          type="text"
+          size="small"
+          icon={<LinkOutlined />}
+          onClick={() =>
+            window.open(TWILIO_CONSOLE_URL, "_blank", "noopener,noreferrer")
+          }
+          className={styles.dingtalkDocBtn}
+        >
+          {t("channels.voiceSetupLink")}
+        </Button>
+      )}
+    </div>
+  );
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
   return (
     <Drawer
       width={420}
       placement="right"
-      title={
-        <div className={styles.drawerTitle}>
-          <span>
-            {label
-              ? `${label} ${t("channels.settings")}`
-              : t("channels.channelSettings")}
-          </span>
-          {activeKey && CHANNEL_DOC_URLS[activeKey] && (
-            <Button
-              type="text"
-              size="small"
-              icon={<LinkOutlined />}
-              onClick={() => window.open(CHANNEL_DOC_URLS[activeKey], "_blank")}
-              className={styles.dingtalkDocBtn}
-            >
-              {label} Doc
-            </Button>
-          )}
-          {activeKey === "voice" && (
-            <Button
-              type="text"
-              size="small"
-              icon={<LinkOutlined />}
-              onClick={() =>
-                window.open(twilioConsoleUrl, "_blank", "noopener,noreferrer")
-              }
-              className={styles.dingtalkDocBtn}
-            >
-              {t("channels.voiceSetupLink")}
-            </Button>
-          )}
-        </div>
-      }
+      title={drawerTitle}
       open={open}
       onClose={onClose}
       destroyOnClose

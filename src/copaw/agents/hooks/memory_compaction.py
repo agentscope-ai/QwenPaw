@@ -8,10 +8,10 @@ and the system prompt.
 import logging
 from typing import TYPE_CHECKING, Any
 
-from agentscope.agent._react_agent import _MemoryMark, ReActAgent
-
-from copaw.config import load_config
+from agentscope.agent import ReActAgent
+from agentscope.message import Msg, TextBlock
 from copaw.constant import MEMORY_COMPACT_KEEP_RECENT
+
 from ..utils import (
     check_valid_messages,
     safe_count_str_tokens,
@@ -20,6 +20,7 @@ from ..utils import (
 if TYPE_CHECKING:
     from ..memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
+    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +33,50 @@ class MemoryCompactionHook:
     messages while summarizing older conversation history.
     """
 
-    def __init__(self, memory_manager: "MemoryManager"):
+    def __init__(
+        self,
+        memory_manager: "MemoryManager",
+        agent_config: "AgentProfileConfig",
+    ):
         """Initialize memory compaction hook.
 
         Args:
             memory_manager: Memory manager instance for compaction
+            agent_config: Agent profile configuration containing running
+                settings including memory_compact_threshold,
+                memory_compact_reserve, enable_tool_result_compact,
+                and tool_result_compact_keep_n.
         """
         self.memory_manager = memory_manager
+
+        # Extract configuration from agent_config
+        running_config = agent_config.running
+        self.memory_compact_threshold = running_config.memory_compact_threshold
+        self.memory_compact_reserve = running_config.memory_compact_reserve
+        self.enable_tool_result_compact = (
+            running_config.enable_tool_result_compact
+        )
+        self.tool_result_compact_keep_n = (
+            running_config.tool_result_compact_keep_n
+        )
+
+    @staticmethod
+    async def _print_status_message(
+        agent: ReActAgent,
+        text: str,
+    ) -> None:
+        """Print a status message to the agent's output.
+
+        Args:
+            agent: The agent instance to print the message for.
+            text: The text content of the status message.
+        """
+        msg = Msg(
+            name=agent.name,
+            role="assistant",
+            content=[TextBlock(type="text", text=text)],
+        )
+        await agent.print(msg)
 
     async def __call__(
         self,
@@ -69,14 +107,13 @@ class MemoryCompactionHook:
             system_prompt = agent.sys_prompt
             compressed_summary = memory.get_compressed_summary()
             str_token_count = safe_count_str_tokens(
-                system_prompt + compressed_summary,
+                (system_prompt or "") + (compressed_summary or ""),
             )
 
-            config = load_config()
-            memory_compact_threshold = (
-                config.agents.running.memory_compact_threshold
+            # memory_compact_threshold is always available from config
+            left_compact_threshold = (
+                self.memory_compact_threshold - str_token_count
             )
-            left_compact_threshold = memory_compact_threshold - str_token_count
 
             if left_compact_threshold <= 0:
                 logger.warning(
@@ -91,19 +128,15 @@ class MemoryCompactionHook:
 
             messages = await memory.get_memory(prepend_summary=False)
 
-            enable_tool_result_compact = (
-                config.agents.running.enable_tool_result_compact
-            )
-            tool_result_compact_keep_n = (
-                config.agents.running.tool_result_compact_keep_n
-            )
-            if enable_tool_result_compact and tool_result_compact_keep_n > 0:
-                compact_msgs = messages[:-tool_result_compact_keep_n]
+            # Use configured values
+            if (
+                self.enable_tool_result_compact
+                and self.tool_result_compact_keep_n > 0
+            ):
+                compact_msgs = messages[: -self.tool_result_compact_keep_n]
                 await self.memory_manager.compact_tool_result(compact_msgs)
 
-            memory_compact_reserve = (
-                config.agents.running.memory_compact_reserve
-            )
+            # memory_compact_reserve is always available from config
             (
                 messages_to_compact,
                 _,
@@ -111,8 +144,8 @@ class MemoryCompactionHook:
             ) = await self.memory_manager.check_context(
                 messages=messages,
                 memory_compact_threshold=left_compact_threshold,
-                memory_compact_reserve=memory_compact_reserve,
-                token_counter=token_counter,
+                memory_compact_reserve=self.memory_compact_reserve,
+                as_token_counter=token_counter,
             )
 
             if not messages_to_compact:
@@ -145,21 +178,29 @@ class MemoryCompactionHook:
             self.memory_manager.add_async_summary_task(
                 messages=messages_to_compact,
             )
+            await self._print_status_message(
+                agent,
+                "🔄 Context compaction started...",
+            )
 
             compact_content = await self.memory_manager.compact_memory(
                 messages=messages_to_compact,
                 previous_summary=memory.get_compressed_summary(),
             )
 
+            await self._print_status_message(
+                agent,
+                "✅ Context compaction completed",
+            )
+
             await agent.memory.update_compressed_summary(compact_content)
-            updated_count = await memory.update_messages_mark(
-                new_mark=_MemoryMark.COMPRESSED,
-                msg_ids=[msg.id for msg in messages_to_compact],
+            updated_count = await memory.mark_messages_compressed(
+                messages_to_compact,
             )
             logger.info(f"Marked {updated_count} messages as compacted")
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Failed to compact memory in pre_reasoning hook: %s",
                 e,
                 exc_info=True,

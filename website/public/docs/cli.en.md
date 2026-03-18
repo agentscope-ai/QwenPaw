@@ -84,8 +84,11 @@ the app is not running).
 | `copaw daemon version`       | Version and paths                                                                         |
 | `copaw daemon logs [-n N]`   | Last N lines of log (default 100; from `copaw.log` in working dir)                        |
 
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+
 ```bash
-copaw daemon status
+copaw daemon status                     # Default agent status
+copaw daemon status --agent-id abc123   # Specific agent status
 copaw daemon version
 copaw daemon logs -n 50
 ```
@@ -227,26 +230,30 @@ subcommand); use `remove` to uninstall custom channels (no `uninstall`).
 | `copaw channels remove <key>`  | Remove a custom channel from `custom_channels/` (built-ins cannot be removed); `--keep-config` keeps config entry |
 | `copaw channels config`        | Interactively enable/disable channels and fill in credentials                                                     |
 
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+
 ```bash
-copaw channels list                    # See current status
+copaw channels list                    # See default agent's channels
+copaw channels list --agent-id abc123  # See specific agent's channels
 copaw channels install my_channel      # Create custom channel stub
 copaw channels install my_channel --path ./my_channel.py
 copaw channels add dingtalk            # Add DingTalk to config
 copaw channels remove my_channel       # Remove custom channel (and from config by default)
 copaw channels remove my_channel --keep-config   # Remove module only, keep config entry
-copaw channels config                 # Interactive configuration
+copaw channels config                  # Configure default agent
+copaw channels config --agent-id abc123 # Configure specific agent
 ```
 
 The interactive `config` flow lets you pick a channel, enable/disable it, and enter credentials. It loops until you choose "Save and exit".
 
-| Channel      | Fields to fill in                             |
-| ------------ | --------------------------------------------- |
-| **iMessage** | Bot prefix, database path, poll interval      |
-| **Discord**  | Bot prefix, Bot Token, HTTP proxy, proxy auth |
-| **DingTalk** | Bot prefix, Client ID, Client Secret          |
-| **Feishu**   | Bot prefix, App ID, App Secret                |
-| **QQ**       | Bot prefix, App ID, Client Secret             |
-| **Console**  | Bot prefix                                    |
+| Channel      | Fields to fill in                                                                    |
+| ------------ | ------------------------------------------------------------------------------------ |
+| **iMessage** | Bot prefix, database path, poll interval                                             |
+| **Discord**  | Bot prefix, Bot Token, HTTP proxy, proxy auth                                        |
+| **DingTalk** | Bot prefix, Client ID, Client Secret, Message Type, Card Template ID/Key, Robot Code |
+| **Feishu**   | Bot prefix, App ID, App Secret                                                       |
+| **QQ**       | Bot prefix, App ID, Client Secret                                                    |
+| **Console**  | Bot prefix                                                                           |
 
 > For platform-specific credential setup, see [Channels](./channels).
 
@@ -270,6 +277,8 @@ ask CoPaw and send the reply". **Requires `copaw app` to be running.**
 | `copaw cron resume <job_id>` | Resume a paused job                           |
 | `copaw cron run <job_id>`    | Run once immediately                          |
 
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+
 ### Creating jobs
 
 **Option 1 — CLI arguments (simple jobs)**
@@ -280,7 +289,7 @@ Two task types:
 - **agent** — ask CoPaw a question on schedule and deliver the reply.
 
 ```bash
-# Text: send "Good morning!" to DingTalk every day at 9:00
+# Text: send "Good morning!" to DingTalk every day at 9:00 (default agent)
 copaw cron create \
   --type text \
   --name "Daily 9am" \
@@ -290,8 +299,9 @@ copaw cron create \
   --target-session "session_id" \
   --text "Good morning!"
 
-# Agent: every 2 hours, ask CoPaw and forward the reply
+# Agent: create task for specific agent
 copaw cron create \
+  --agent-id abc123 \
   --type agent \
   --name "Check todos" \
   --cron "0 */2 * * *" \
@@ -314,12 +324,12 @@ JSON structure matches the output of `copaw cron get <job_id>`.
 
 ### Additional options
 
-| Option                       | Default | Description                                           |
-| ---------------------------- | ------- | ----------------------------------------------------- |
-| `--timezone`                 | `UTC`   | Timezone for the cron schedule                        |
-| `--enabled` / `--no-enabled` | enabled | Create enabled or disabled                            |
-| `--mode`                     | `final` | `stream` (incremental) or `final` (complete response) |
-| `--base-url`                 | auto    | Override the API base URL                             |
+| Option                       | Default       | Description                                                              |
+| ---------------------------- | ------------- | ------------------------------------------------------------------------ |
+| `--timezone`                 | user timezone | Timezone for the cron schedule (defaults to `user_timezone` from config) |
+| `--enabled` / `--no-enabled` | enabled       | Create enabled or disabled                                               |
+| `--mode`                     | `final`       | `stream` (incremental) or `final` (complete response)                    |
+| `--base-url`                 | auto          | Override the API base URL                                                |
 
 ### Cron expression cheat sheet
 
@@ -349,12 +359,15 @@ Manage chat sessions via the API. **Requires `copaw app` to be running.**
 | `copaw chats update <id> --name "..."` | Rename a session                                              |
 | `copaw chats delete <id>`              | Delete a session                                              |
 
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+
 ```bash
-copaw chats list
+copaw chats list                        # Default agent's chats
+copaw chats list --agent-id abc123      # Specific agent's chats
 copaw chats list --user-id alice --channel dingtalk
 copaw chats get 823845fe-dd13-43c2-ab8b-d05870602fd8
 copaw chats create --session-id "discord:alice" --user-id alice --name "My Chat"
-copaw chats create -f chat.json
+copaw chats create --agent-id abc123 -f chat.json
 copaw chats update <chat_id> --name "Renamed"
 copaw chats delete <chat_id>
 ```
@@ -372,9 +385,13 @@ Extend CoPaw's capabilities with skills (PDF reading, web search, etc.).
 | `copaw skills list`   | Show all skills and their enabled/disabled status |
 | `copaw skills config` | Interactively enable/disable skills (checkbox UI) |
 
+**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+
 ```bash
-copaw skills list     # See what's available
-copaw skills config   # Toggle skills on/off interactively
+copaw skills list                   # See default agent's skills
+copaw skills list --agent-id abc123 # See specific agent's skills
+copaw skills config                 # Configure default agent
+copaw skills config --agent-id abc123 # Configure specific agent
 ```
 
 In the interactive UI: ↑/↓ to navigate, Space to toggle, Enter to confirm.
@@ -416,16 +433,31 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## Working directory
 
-All config and data live in `~/.copaw` by default: `config.json`,
-`HEARTBEAT.md`, `jobs.json`, `chats.json`, skills, memory, and agent persona
-files.
+All config and data live in `~/.copaw` by default:
+
+- **Global config**: `config.json` (providers, environment variables, agent list)
+- **Agent workspaces**: `workspaces/{agent_id}/` (each agent's independent config and data)
+
+```
+~/.copaw/
+├── config.json              # Global config
+└── workspaces/
+    ├── default/             # Default agent workspace
+    │   ├── agent.json       # Agent config
+    │   ├── chats.json       # Conversation history
+    │   ├── jobs.json        # Cron jobs
+    │   ├── AGENTS.md        # Persona files
+    │   └── memory/          # Memory files
+    └── abc123/              # Other agent workspace
+        └── ...
+```
 
 | Variable            | Description                         |
 | ------------------- | ----------------------------------- |
 | `COPAW_WORKING_DIR` | Override the working directory path |
 | `COPAW_CONFIG_FILE` | Override the config file path       |
 
-See [Config & Working Directory](./config) for full details.
+See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-agent) for full details.
 
 ---
 
@@ -453,3 +485,4 @@ See [Config & Working Directory](./config) for full details.
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
+- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management

@@ -1,4 +1,4 @@
-import { getApiUrl, getApiToken } from "./config";
+import { getApiUrl, getApiToken, clearAuthToken } from "./config";
 
 function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   // Normalize extra to a Headers instance for consistent handling
@@ -18,6 +18,21 @@ function buildHeaders(method?: string, extra?: HeadersInit): Headers {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
+  // Add selected agent ID to all requests (for multi-agent support)
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const selectedAgent = parsed?.state?.selectedAgent;
+      if (selectedAgent) {
+        headers.set("X-Agent-Id", selectedAgent);
+      }
+    }
+  } catch (error) {
+    // Ignore localStorage errors
+    console.warn("Failed to get selected agent from storage:", error);
+  }
+
   return headers;
 }
 
@@ -35,6 +50,15 @@ export async function request<T = unknown>(
   });
 
   if (!response.ok) {
+    // Handle 401: clear token and redirect to login
+    if (response.status === 401) {
+      clearAuthToken();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+      throw new Error("Not authenticated");
+    }
+
     const text = await response.text().catch(() => "");
     throw new Error(
       `Request failed: ${response.status} ${response.statusText}${

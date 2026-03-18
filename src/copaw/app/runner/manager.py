@@ -35,6 +35,9 @@ class ChatManager:
         """
         self._repo = repo
         self._lock = asyncio.Lock()
+        logger.info(
+            f"ChatManager created with repo path: {repo.path}",
+        )
 
     # ----- Read Operations -----
 
@@ -53,6 +56,10 @@ class ChatManager:
             List of chat specifications
         """
         async with self._lock:
+            logger.debug(
+                f"list_chats: repo path={self._repo.path}, "
+                f"filters: user_id={user_id}, channel={channel}",
+            )
             return await self._repo.filter_chats(
                 user_id=user_id,
                 channel=channel,
@@ -92,21 +99,34 @@ class ChatManager:
         """
         async with self._lock:
             # Try to find existing by session_id
+            logger.debug(
+                f"get_or_create_chat: Searching for existing chat: "
+                f"session_id={session_id}, user_id={user_id}, "
+                f"channel={channel}",
+            )
             existing = await self._repo.get_chat_by_id(
                 session_id,
                 user_id,
                 channel,
             )
             if existing:
+                logger.debug(
+                    f"get_or_create_chat: Found existing chat: {existing.id}",
+                )
                 return existing
 
             # Create new
+            logger.debug(
+                f"get_or_create_chat: Creating new chat for "
+                f"session_id={session_id}",
+            )
             spec = ChatSpec(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
                 name=name,
             )
+            logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
             await self._repo.upsert_chat(spec)
             logger.debug(

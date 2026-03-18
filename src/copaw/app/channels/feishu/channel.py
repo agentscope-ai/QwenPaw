@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    # AudioContent,
+    AudioContent,
     FileContent,
     ImageContent,
     RunStatus,
@@ -37,6 +37,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
+from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
     ContentType,
@@ -161,7 +162,8 @@ class FeishuChannel(BaseChannel):
         bot_prefix: str,
         encrypt_key: str = "",
         verification_token: str = "",
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -190,7 +192,17 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
-        self._media_dir = Path(media_dir).expanduser()
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Any = None
         self._ws_client: Any = None
@@ -235,7 +247,7 @@ class FeishuChannel(BaseChannel):
             bot_prefix=os.getenv("FEISHU_BOT_PREFIX", "[BOT] "),
             encrypt_key=os.getenv("FEISHU_ENCRYPT_KEY", ""),
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
-            media_dir=os.getenv("FEISHU_MEDIA_DIR", "~/.copaw/media"),
+            media_dir=os.getenv("FEISHU_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("FEISHU_DM_POLICY", "open"),
             group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
@@ -253,6 +265,7 @@ class FeishuChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "FeishuChannel":
         return cls(
             process=process,
@@ -262,7 +275,8 @@ class FeishuChannel(BaseChannel):
             bot_prefix=config.bot_prefix or "[BOT] ",
             encrypt_key=config.encrypt_key or "",
             verification_token=config.verification_token or "",
-            media_dir=config.media_dir or "~/.copaw/media",
+            media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -754,11 +768,10 @@ class FeishuChannel(BaseChannel):
                         filename_hint="audio.opus",
                     )
                     if url_or_path:
-                        # TODO: change to audio block when as support opus
                         content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
+                            AudioContent(
+                                type=ContentType.AUDIO,
+                                data=url_or_path,
                             ),
                         )
                     else:
@@ -998,7 +1011,12 @@ class FeishuChannel(BaseChannel):
     def _receive_id_store_path(self) -> Path:
         """
         Path to persist receive_id mapping (for cron to resolve after restart).
+
+        Uses agent workspace directory if available, otherwise falls back
+        to global config directory for backward compatibility.
         """
+        if self._workspace_dir:
+            return self._workspace_dir / "feishu_receive_ids.json"
         return get_config_path().parent / "feishu_receive_ids.json"
 
     def _load_receive_id_store_from_disk(self) -> None:

@@ -1,7 +1,10 @@
+import type { RefObject } from "react";
 import {
   IAgentScopeRuntimeWebUISession,
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
+  IAgentScopeRuntimeWebUIRef,
+  IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec, type Message } from "../../../api";
 
@@ -60,6 +63,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   meta: Record<string, unknown>;
   /** Real backend UUID, used when id is overridden with a local timestamp. */
   realId?: string;
+  /** Conversation status: idle or running (for reconnect). */
+  status?: "idle" | "running";
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +195,7 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     channel: chat.channel,
     messages: [],
     meta: chat.meta || {},
+    status: chat.status ?? "idle",
   }) as ExtendedSession;
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
@@ -256,6 +262,35 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * the session id from the URL.
    */
   onSessionRemoved: ((removedId: string) => void) | null = null;
+
+  /**
+   * Ref to the chat component so we can trigger submit with reconnect flag
+   * (library will call customFetch with biz_params.reconnect and consume the SSE stream).
+   */
+  private chatRef: RefObject<IAgentScopeRuntimeWebUIRef> | null = null;
+
+  setChatRef(ref: RefObject<IAgentScopeRuntimeWebUIRef> | null): void {
+    this.chatRef = ref;
+  }
+
+  /**
+   * Programmatically trigger the library's submit with biz_params.reconnect so
+   * customFetch does POST /console/chat with reconnect:true and the library
+   * consumes the SSE stream (replay + live tail).
+   */
+  triggerReconnectSubmit(): void {
+    const ref = this.chatRef?.current;
+    if (!ref?.input?.submit) {
+      console.warn("triggerReconnectSubmit: chatRef not available");
+      return;
+    }
+    ref.input.submit({
+      query: "",
+      biz_params: {
+        reconnect: true,
+      } as IAgentScopeRuntimeWebUIInputData["biz_params"],
+    });
+  }
 
   private createEmptySession(sessionId: string): ExtendedSession {
     window.currentSessionId = sessionId;
@@ -342,7 +377,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.set(sessionId, requestPromise);
 
     try {
-      return await requestPromise;
+      const result = await requestPromise;
+      // Reconnect for running sessions is triggered by ChatPage when session
+      // status becomes "running" (useEffect on chatStatus), avoiding a fixed
+      // timeout and race conditions with the chat input ref.
+      return result;
     } finally {
       this.sessionRequests.delete(sessionId);
     }
@@ -369,6 +408,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: convertMessages(chatHistory.messages || []),
           meta: fromList.meta || {},
           realId: fromList.realId,
+          status: chatHistory.status ?? "idle",
         };
         this.updateWindowVariables(session);
         return session;
@@ -404,6 +444,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: convertMessages(chatHistory.messages || []),
           meta: refreshed.meta || {},
           realId: refreshed.realId,
+          status: chatHistory.status ?? "idle",
         };
         this.updateWindowVariables(session);
         return session;
@@ -434,6 +475,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       channel: fromList?.channel || DEFAULT_CHANNEL,
       messages: convertMessages(chatHistory.messages || []),
       meta: fromList?.meta || {},
+      status: chatHistory.status ?? "idle",
     };
 
     this.updateWindowVariables(session);
