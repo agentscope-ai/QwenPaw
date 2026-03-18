@@ -9,6 +9,11 @@
   margin-bottom: 16px;
 }
 
+.headerActions {
+  display: flex;
+  gap: 8px;
+}
+
 .headerInfo {
   display: flex;
   flex-direction: column;
@@ -24,6 +29,31 @@
   margin: 0;
   color: #999;
   font-size: 14px;
+}
+
+.viewSwitch {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid #eceff6;
+  background: #f7f8fc;
+  margin-bottom: 16px;
+}
+
+.viewButton {
+  border: none;
+  background: transparent;
+  color: #667085;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.viewButtonActive {
+  color: #1f2937;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.12);
 }
 
 .loading {
@@ -82,6 +112,369 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 24px;
+}
+
+.marketplaceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.refreshProgressWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.refreshProgressTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #eef2ff;
+  overflow: hidden;
+}
+
+.refreshProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #615ced, #34c3ff);
+  transition: width 0.2s ease;
+}
+
+.refreshProgressText {
+  font-size: 12px;
+  color: #667085;
+}
+
+.marketplaceToolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.marketStats {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.marketSearchInput {
+  width: 320px;
+  max-width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  outline: none;
+
+  &:focus {
+    border-color: #615ced;
+  }
+}
+
+.marketErrors {
+  border: 1px solid #ffd8bf;
+  background: #fff7e6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.marketErrorItem {
+  font-size: 12px;
+  color: #ad4e00;
+}
+
+.marketplaceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.marketplaceContentWrap {
+  position: relative;
+}
+
+.marketplaceGridLoading {
+  opacity: 0.48;
+  filter: grayscale(0.2);
+  pointer-events: none;
+}
+
+.marketplaceLoadingMask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
+  font-size: 13px;
+  color: #475467;
+}
+
+.marketCard {
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease-in-out;
+
+  &:hover {
+    border: 1px solid #615ced;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  :global(.ant-card-body) {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 16px 16px 12px;
+  }
+}
+
+.marketCardBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  height: 100%;
+  gap: 10px;
+}
+
+.marketCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.marketSkillName {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.marketSkillDescription {
+  margin: 0;
+  font-size: 13px;
+  color: #525866;
+  line-height: 1.45;
+  min-height: 64px;
+  max-height: 64px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  word-break: break-word;
+}
+
+.marketSkillMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.marketTagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 4px;
+  flex: 1 1 auto;
+}
+
+.marketCardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #f1f2f6;
+}
+
+.marketSourceLink {
+  font-size: 12px;
+  color: #615ced;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.marketManageFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.marketAutoParseToggle {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  color: #475467;
+  font-size: 13px;
+  white-space: nowrap;
+
+  input {
+    margin: 0;
+    flex: 0 0 auto;
+  }
+
+  span {
+    white-space: nowrap;
+    line-height: 1;
+  }
+}
+
+.marketManageList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.marketManageNotice {
+  border: 1px solid #d6e4ff;
+  background: #f0f5ff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #1d39c4;
+  font-size: 12px;
+}
+
+.marketManageCard {
+  border: 1px solid #eceff6;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fcfcfd;
+}
+
+.marketManageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+
+.marketManageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marketManageGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  > label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: #667085;
+  }
+}
+
+.marketManageFieldFull {
+  grid-column: 1 / -1;
+}
+
+.marketManageInput {
+  width: 100%;
+  height: 34px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 0 10px;
+  outline: none;
+
+  &:focus {
+    border-color: #615ced;
+  }
+}
+
+.marketUrlInputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.marketUrlExample {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #98a2b3;
+  line-height: 1.4;
+}
+
+.marketManageActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.marketValidationBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.marketValidationOk {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.marketValidationPending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.marketValidationWarnings {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ad6800;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.marketEnabledToggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: #475467;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .marketManageGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .marketUrlInputRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .skillCard {

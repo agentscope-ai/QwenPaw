@@ -166,6 +166,28 @@ automatically use defaults.
     "language": "zh",
     "installed_md_files_language": "zh"
   },
+  "skills_market": {
+    "version": 1,
+    "cache": {
+      "ttl_sec": 600
+    },
+    "install": {
+      "overwrite_default": false
+    },
+    "markets": [
+      {
+        "id": "community",
+        "name": "Community Skills",
+        "type": "git",
+        "url": "https://github.com/futuremeng/editor-skills.git",
+        "branch": "main",
+        "path": "index.json",
+        "enabled": true,
+        "order": 1,
+        "trust": "community"
+      }
+    ]
+  },
   "last_api": {
     "host": "127.0.0.1",
     "port": 8088
