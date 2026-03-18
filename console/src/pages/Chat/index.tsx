@@ -504,7 +504,14 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark, currentAgent?.avatar_url]);
+  }, [
+    wrappedSessionApi,
+    customFetch,
+    copyResponse,
+    t,
+    isDark,
+    currentAgent?.avatar_url,
+  ]);
 
   return (
     <div
