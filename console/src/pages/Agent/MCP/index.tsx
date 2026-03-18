@@ -17,6 +17,7 @@ function normalizeTransport(raw?: unknown): MCPTransport | undefined {
       return "sse";
     case "streamablehttp":
     case "streamable_http":
+    case "streamable-http":
     case "http":
       return "streamable_http";
     default:
