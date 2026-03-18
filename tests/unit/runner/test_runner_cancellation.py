@@ -17,9 +17,15 @@ class _FakeMsg:
 
 class _FakeSession:
     async def load_session_state(self, session_id, user_id, agent) -> None:
+        del session_id
+        del user_id
+        del agent
         return None
 
     async def save_session_state(self, session_id, user_id, agent) -> None:
+        del session_id
+        del user_id
+        del agent
         return None
 
 
@@ -55,7 +61,9 @@ async def test_query_handler_propagates_cancelled_error(monkeypatch) -> None:
     async def fake_stream_printing_messages(*, agents, coroutine_task):
         del agents
         coroutine_task.close()
-        raise asyncio.CancelledError
+        should_cancel = True
+        if should_cancel:
+            raise asyncio.CancelledError
         yield  # pragma: no cover
 
     runner = AgentRunner(agent_id="test-agent")

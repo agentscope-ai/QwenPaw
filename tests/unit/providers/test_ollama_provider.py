@@ -198,10 +198,7 @@ async def test_get_chat_model_instance_injects_runtime_timeout(
     model = provider.get_chat_model_instance("qwen2:7b")
 
     assert isinstance(model, FakeCompat)
-    assert (
-        captured["client_kwargs"]["base_url"]
-        == "http://localhost:11434/v1"
-    )
+    assert captured["client_kwargs"]["base_url"] == "http://localhost:11434/v1"
     assert captured["client_kwargs"]["timeout"] == 18.0
     assert captured["generate_kwargs"] == {"temperature": 0.4}
 

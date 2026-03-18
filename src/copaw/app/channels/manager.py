@@ -83,7 +83,9 @@ def _resolve_batch_target(
                 "manager _process_batch dingtalk merged: has_sw=%s",
                 bool(merged.get("session_webhook")),
             )
-        return merged, False
+        if merged is not None:
+            return merged, False
+        return batch[0], True
     if len(batch) > 1:
         merged = ch.merge_requests(batch)
         if merged is not None:
@@ -378,7 +380,8 @@ class ChannelManager:
                 break
             except asyncio.TimeoutError:
                 logger.warning(
-                    "channel batch aborted after timeout: channel=%s worker=%s",
+                    "channel batch aborted after timeout: "
+                    "channel=%s worker=%s",
                     channel_id,
                     worker_index,
                 )

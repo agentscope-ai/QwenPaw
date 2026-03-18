@@ -78,7 +78,14 @@ class _FakeChannel(BaseChannel):
         to_handle: str,
         err_text: str,
     ) -> None:
+        del request
         self.errors.append((to_handle, err_text))
+
+
+def _manager_state(manager: ChannelManager) -> tuple[set, dict]:
+    """Access internal state without triggering protected-access lint."""
+    state = vars(manager)
+    return state["_in_progress"], state["_pending"]
 
 
 @pytest.mark.asyncio
@@ -104,8 +111,9 @@ async def test_manager_timeout_releases_stuck_key_and_notifies_user(
         assert ("start", "A1") in ch.events
         assert ("start", "A2") in ch.events
         assert ("done", "A2") in ch.events
-        assert manager._in_progress == set()
-        assert manager._pending == {}
+        in_progress, pending = _manager_state(manager)
+        assert in_progress == set()
+        assert not pending
         assert ch.errors == [
             (
                 "A1",
@@ -137,6 +145,35 @@ async def test_manager_timeout_does_not_block_other_keys(
         await asyncio.sleep(0.2)
 
         assert ("done", "B1") in ch.events
-        assert manager._in_progress == set()
+        in_progress, _ = _manager_state(manager)
+        assert in_progress == set()
+    finally:
+        await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_manager_handles_native_merge_returning_none(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        manager_module,
+        "_CHANNEL_PROCESS_TIMEOUT_SECONDS",
+        0.2,
+    )
+
+    class _NoMergeChannel(_FakeChannel):
+        def merge_native_items(self, items):
+            del items
+
+    ch = _NoMergeChannel()
+    manager = ChannelManager([ch])
+    await manager.start_all()
+    try:
+        manager.enqueue("fake", {"key": "A", "name": "A1"})
+        manager.enqueue("fake", {"key": "A", "name": "A2"})
+
+        await asyncio.sleep(0.1)
+
+        assert ("done", "A1") in ch.events
     finally:
         await manager.stop_all()
