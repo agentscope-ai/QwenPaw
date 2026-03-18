@@ -254,6 +254,23 @@ class MultiAgentManager:
             workspace_dir=agent_ref.workspace_dir,
         )
 
+        # Step 3.5: Set reusable components from old instance (if any)
+        async with self._lock:
+            old_instance = self.agents.get(agent_id)
+
+        if old_instance:
+            # Get all reusable services from old instance's ServiceManager
+            # pylint: disable=protected-access
+            reusable = old_instance._service_manager.get_reusable_services()
+            # pylint: enable=protected-access
+
+            if reusable:
+                new_instance.set_reusable_components(reusable)
+                logger.info(
+                    f"Set reusable components for {agent_id}: "
+                    f"{list(reusable.keys())}",
+                )
+
         try:
             await new_instance.start()
             new_instance.set_manager(self)  # Set manager reference
