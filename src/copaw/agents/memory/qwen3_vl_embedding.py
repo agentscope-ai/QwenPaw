@@ -214,10 +214,13 @@ class Qwen3VLEmbedder:
         self.default_instruction = default_instruction
 
         self.model = Qwen3VLForEmbedding.from_pretrained(
-            model_name_or_path, trust_remote_code=True, **kwargs
+            model_name_or_path,
+            trust_remote_code=True,
+            **kwargs,
         ).to(self.device)
         self.processor = Qwen3VLProcessor.from_pretrained(
-            model_name_or_path, padding_side="right"
+            model_name_or_path,
+            padding_side="right",
         )
         self.model.eval()
 
@@ -272,7 +275,7 @@ class Qwen3VLEmbedder:
         if instruction:
             instruction = instruction.strip()
             if instruction and not unicodedata.category(instruction[-1]).startswith(
-                "P"
+                "P",
             ):
                 instruction = instruction + "."
 
@@ -284,7 +287,7 @@ class Qwen3VLEmbedder:
                     {
                         "type": "text",
                         "text": instruction or self.default_instruction,
-                    }
+                    },
                 ],
             },
             {"role": "user", "content": content},
@@ -340,7 +343,7 @@ class Qwen3VLEmbedder:
 
             if video_content:
                 content.append(
-                    {"type": "video", "video": video_content, **video_kwargs}
+                    {"type": "video", "video": video_content, **video_kwargs},
                 )
 
         for img in images:
@@ -362,7 +365,7 @@ class Qwen3VLEmbedder:
                         "image": image_content,
                         "min_pixels": self.min_pixels,
                         "max_pixels": self.max_pixels,
-                    }
+                    },
                 )
 
         for txt in texts:
@@ -371,10 +374,13 @@ class Qwen3VLEmbedder:
         return conversation
 
     def _preprocess_inputs(
-        self, conversations: List[List[Dict]]
+        self,
+        conversations: List[List[Dict]],
     ) -> Dict[str, torch.Tensor]:
         text = self.processor.apply_chat_template(
-            conversations, add_generation_prompt=True, tokenize=False
+            conversations,
+            add_generation_prompt=True,
+            tokenize=False,
         )
 
         try:
@@ -394,7 +400,7 @@ class Qwen3VLEmbedder:
                     {
                         "role": "user",
                         "content": [{"type": "text", "text": "NULL"}],
-                    }
+                    },
                 ],
                 add_generation_prompt=True,
                 tokenize=False,
@@ -423,7 +429,8 @@ class Qwen3VLEmbedder:
 
     @staticmethod
     def _pooling_last(
-        hidden_state: torch.Tensor, attention_mask: torch.Tensor
+        hidden_state: torch.Tensor,
+        attention_mask: torch.Tensor,
     ) -> torch.Tensor:
         flipped_tensor = attention_mask.flip(dims=[1])
         last_one_positions = flipped_tensor.argmax(dim=1)
@@ -432,7 +439,9 @@ class Qwen3VLEmbedder:
         return hidden_state[row, col]
 
     def process(
-        self, inputs: List[Dict[str, Any]], normalize: bool = True
+        self,
+        inputs: List[Dict[str, Any]],
+        normalize: bool = True,
     ) -> torch.Tensor:
         """Process inputs to generate normalized embeddings.
 
@@ -462,7 +471,8 @@ class Qwen3VLEmbedder:
 
         outputs = self.forward(processed_inputs)
         embeddings = self._pooling_last(
-            outputs["last_hidden_state"], outputs["attention_mask"]
+            outputs["last_hidden_state"],
+            outputs["attention_mask"],
         )
 
         if normalize:

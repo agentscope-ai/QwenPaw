@@ -136,7 +136,7 @@ class MemoryManager(ReMeLight):
             try:
                 self._local_embedder = LocalEmbedder(local_embedding_config)
                 logger.info(
-                    f"Local embedding: {local_embedding_config.model_id}"
+                    f"Local embedding: {local_embedding_config.model_id}",
                 )
             except Exception as exc:
                 logger.error(f"Failed to initialize local embedder: {exc}")
@@ -170,9 +170,7 @@ class MemoryManager(ReMeLight):
         # (local for Windows, chroma otherwise)
         memory_store_backend = os.environ.get("MEMORY_STORE_BACKEND", "auto")
         if memory_store_backend == "auto":
-            memory_backend = (
-                "local" if platform.system() == "Windows" else "chroma"
-            )
+            memory_backend = "local" if platform.system() == "Windows" else "chroma"
         else:
             memory_backend = memory_store_backend
 
@@ -353,7 +351,7 @@ class MemoryManager(ReMeLight):
             In-memory memory with token counting
         """
         return super().get_in_memory_memory(
-            as_token_counter=self.token_counter
+            as_token_counter=self.token_counter,
         )
 
     def encode_text(self, texts: list[str]) -> list[list[float]]:
@@ -372,5 +370,5 @@ class MemoryManager(ReMeLight):
             return self.embedding_model.encode(texts)
         raise RuntimeError(
             "No embedding provider. "
-            "Enable local embedding or set EMBEDDING_API_KEY."
+            "Enable local embedding or set EMBEDDING_API_KEY.",
         )

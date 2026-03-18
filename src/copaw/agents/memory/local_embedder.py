@@ -139,7 +139,7 @@ class ModelMetadata:
 
                     logger.info(
                         f"Auto-detected {model_id}: "
-                        f"type={model_type}, dims={dimensions}"
+                        f"type={model_type}, dims={dimensions}",
                     )
                     return cls(
                         model_id=model_id,
@@ -180,7 +180,7 @@ class ModelMetadata:
 
         logger.info(
             f"Fallback metadata for {model_id}: "
-            f"type={model_type}, dims={dimensions}, pooling={pooling}"
+            f"type={model_type}, dims={dimensions}, pooling={pooling}",
         )
         return cls(
             model_id=model_id,
@@ -210,7 +210,7 @@ class LocalEmbedder:
         logger.info(f"LocalEmbedder initialized with model: {config.model_id}")
         logger.info(
             f"  Type: {self._metadata.model_type}, "
-            f"Dims: {self._metadata.dimensions}"
+            f"Dims: {self._metadata.dimensions}",
         )
 
     def _get_metadata(self) -> ModelMetadata:
@@ -218,7 +218,8 @@ class LocalEmbedder:
         meta = ModelMetadata.from_preset(self.config.model_id)
         if meta is None:
             meta = ModelMetadata.auto_detect(
-                self.config.model_id, self.config.model_path
+                self.config.model_id,
+                self.config.model_path,
             )
         return meta
 
@@ -267,7 +268,8 @@ class LocalEmbedder:
             # Resolve device (auto -> cuda/mps/cpu)
             resolved_device = self._resolve_device(self.config.device)
             logger.info(
-                f"Using device: {resolved_device} " f"(requested: {self.config.device})"
+                f"Using device: {resolved_device} "
+                f"(requested: {self.config.device})",
             )
 
         # Get model path (download if needed)
@@ -308,7 +310,8 @@ class LocalEmbedder:
         """
         source = self.config.download_source
         repo_id = self._metadata.repo_id.get(
-            source, self._metadata.repo_id["modelscope"]
+            source,
+            self._metadata.repo_id["modelscope"],
         )
 
         # Support custom cache directory via environment variable
@@ -335,7 +338,8 @@ class LocalEmbedder:
         except ImportError:
             logger.warning("modelscope not installed, falling back to huggingface")
             return self._download_from_huggingface(
-                self._metadata.repo_id.get("huggingface", repo_id), cache_dir
+                self._metadata.repo_id.get("huggingface", repo_id),
+                cache_dir,
             )
 
     def _download_from_huggingface(self, repo_id: str, cache_dir: str) -> str:
@@ -349,7 +353,7 @@ class LocalEmbedder:
         except ImportError as exc:
             raise RuntimeError(
                 "Neither modelscope nor huggingface_hub installed. "
-                "Please install: pip install modelscope"
+                "Please install: pip install modelscope",
             ) from exc
 
     def encode(
@@ -503,7 +507,7 @@ class _TextEmbedderImpl:
             # Mean pooling
             attention_mask = inputs["attention_mask"]
             mask_expanded = attention_mask.unsqueeze(-1).expand(
-                outputs.last_hidden_state.size()
+                outputs.last_hidden_state.size(),
             )
             sum_embeddings = torch.sum(outputs.last_hidden_state * mask_expanded, 1)
             embeddings = sum_embeddings / torch.clamp(mask_expanded.sum(1), min=1e-9)

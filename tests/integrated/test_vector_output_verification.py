@@ -168,7 +168,7 @@ class TestPresetModelsIntegrity:
         client = running_app
 
         response = client.get(
-            "/api/config/agents/local-embedding/preset-models"
+            "/api/config/agents/local-embedding/preset-models",
         )
         assert response.status_code == 200
 
