@@ -262,7 +262,9 @@ class Qwen3VLEmbedder:
     def format_model_input(  # noqa: E501  pylint: disable=too-many-branches,too-many-statements
         self,
         text: Optional[Union[List[str], str]] = None,
-        image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,
+        image: Optional[
+            Union[List[Union[str, Image.Image]], str, Image.Image]
+        ] = None,
         video: Optional[
             Union[
                 List[Union[str, List[Union[str, Image.Image]]]],
@@ -339,7 +341,9 @@ class Qwen3VLEmbedder:
                 ]
             elif isinstance(vid, str):
                 video_content = (
-                    vid if vid.startswith(("http://", "https://")) else "file://" + vid
+                    vid
+                    if vid.startswith(("http://", "https://"))
+                    else "file://" + vid
                 )
                 video_kwargs = {
                     "fps": fps or self.fps,
@@ -360,7 +364,9 @@ class Qwen3VLEmbedder:
                 image_content = img
             elif isinstance(img, str):
                 image_content = (
-                    img if img.startswith(("http://", "https://")) else "file://" + img
+                    img
+                    if img.startswith(("http://", "https://"))
+                    else "file://" + img
                 )
             else:
                 raise TypeError(f"Unrecognized image type: {type(img)}")
