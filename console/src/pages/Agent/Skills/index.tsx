@@ -7,6 +7,31 @@ import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
+function getDefaultMarketTemplates(): SkillsMarketSpec[] {
+  return [
+    {
+      id: "community",
+      name: "Editor Skills",
+      url: "https://github.com/futuremeng/editor-skills.git",
+      branch: "main",
+      path: "index.json",
+      enabled: true,
+      order: 1,
+      trust: "community",
+    },
+    {
+      id: "jiulu_mcp",
+      name: "Jiulu MCP Skills",
+      url: "https://github.com/your-org/jiulu-mcp-skills.git",
+      branch: "main",
+      path: "skills",
+      enabled: false,
+      order: 2,
+      trust: "custom",
+    },
+  ];
+}
+
 function SkillsPage() {
   const { t } = useTranslation();
   const {
@@ -37,12 +62,21 @@ function SkillsPage() {
   const [editingSkill, setEditingSkill] = useState<SkillSpec | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [marketDrafts, setMarketDrafts] = useState<SkillsMarketSpec[]>([]);
+  const [marketCacheTtl, setMarketCacheTtl] = useState(600);
+  const [marketOverwriteDefault, setMarketOverwriteDefault] = useState(false);
   const [savingMarkets, setSavingMarkets] = useState(false);
   const [form] = Form.useForm<SkillSpec>();
 
   useEffect(() => {
     setMarketDrafts(markets || []);
   }, [markets]);
+
+  useEffect(() => {
+    setMarketCacheTtl(marketConfig?.cache?.ttl_sec ?? 600);
+    setMarketOverwriteDefault(
+      marketConfig?.install?.overwrite_default ?? false,
+    );
+  }, [marketConfig]);
 
   const supportedSkillUrlPrefixes = [
     "https://skills.sh/",
@@ -186,10 +220,10 @@ function SkillsPage() {
     const payload = {
       version: marketConfig?.version ?? 1,
       cache: {
-        ttl_sec: marketConfig?.cache?.ttl_sec ?? 600,
+        ttl_sec: marketCacheTtl,
       },
       install: {
-        overwrite_default: marketConfig?.install?.overwrite_default ?? false,
+        overwrite_default: marketOverwriteDefault,
       },
       markets: marketDrafts,
     };
@@ -203,6 +237,10 @@ function SkillsPage() {
     } finally {
       setSavingMarkets(false);
     }
+  };
+
+  const handleResetMarketTemplates = () => {
+    setMarketDrafts(getDefaultMarketTemplates());
   };
 
   return (
@@ -298,10 +336,8 @@ function SkillsPage() {
       <div className={styles.marketplacePanel}>
         <div className={styles.marketplaceHeader}>
           <div>
-            <h2 className={styles.marketplaceTitle}>Skills Marketplace</h2>
-            <p className={styles.marketplaceDesc}>
-              Install skills from configured markets.
-            </p>
+            <h2 className={styles.marketplaceTitle}>{t("skills.marketplaceTitle")}</h2>
+            <p className={styles.marketplaceDesc}>{t("skills.marketplaceDesc")}</p>
           </div>
           <Button
             onClick={() => {
@@ -309,15 +345,16 @@ function SkillsPage() {
             }}
             loading={marketplaceLoading}
           >
-            Refresh
+            {t("common.refresh")}
           </Button>
         </div>
 
         <div className={styles.marketEditor}>
           <div className={styles.marketEditorHeader}>
-            <h3 className={styles.marketEditorTitle}>Market Config</h3>
+            <h3 className={styles.marketEditorTitle}>{t("skills.marketConfigTitle")}</h3>
             <div className={styles.marketEditorActions}>
-              <Button onClick={handleAddMarket}>Add Market</Button>
+              <Button onClick={handleAddMarket}>{t("skills.marketAdd")}</Button>
+              <Button onClick={handleResetMarketTemplates}>{t("skills.marketResetTemplate")}</Button>
               <Button
                 type="primary"
                 loading={savingMarkets}
@@ -325,9 +362,34 @@ function SkillsPage() {
                   void handleSaveMarkets();
                 }}
               >
-                Save Config
+                {t("skills.marketSaveConfig")}
               </Button>
             </div>
+          </div>
+
+          <div className={styles.marketConfigRow}>
+            <label className={styles.marketConfigLabel}>
+              {t("skills.marketCacheTtlLabel")}
+              <input
+                className={styles.marketInputOrder}
+                type="number"
+                min={0}
+                value={marketCacheTtl}
+                onChange={(e) =>
+                  setMarketCacheTtl(
+                    Number.parseInt(e.target.value || "0", 10) || 0,
+                  )
+                }
+              />
+            </label>
+            <label className={styles.marketEnabledLabel}>
+              <input
+                type="checkbox"
+                checked={marketOverwriteDefault}
+                onChange={(e) => setMarketOverwriteDefault(e.target.checked)}
+              />
+              {t("skills.marketOverwriteDefaultLabel")}
+            </label>
           </div>
 
           <div className={styles.marketRows}>
@@ -340,7 +402,7 @@ function SkillsPage() {
                     onChange={(e) =>
                       handleUpdateMarket(idx, { id: e.target.value })
                     }
-                    placeholder="id"
+                    placeholder={t("skills.marketIdPlaceholder")}
                   />
                   <input
                     className={styles.marketInput}
@@ -348,7 +410,7 @@ function SkillsPage() {
                     onChange={(e) =>
                       handleUpdateMarket(idx, { name: e.target.value })
                     }
-                    placeholder="name"
+                    placeholder={t("skills.marketNamePlaceholder")}
                   />
                   <input
                     className={styles.marketInputWide}
@@ -356,7 +418,7 @@ function SkillsPage() {
                     onChange={(e) =>
                       handleUpdateMarket(idx, { url: e.target.value })
                     }
-                    placeholder="url (owner/repo or git url)"
+                    placeholder={t("skills.marketUrlPlaceholder")}
                   />
                   <input
                     className={styles.marketInput}
@@ -364,7 +426,7 @@ function SkillsPage() {
                     onChange={(e) =>
                       handleUpdateMarket(idx, { branch: e.target.value })
                     }
-                    placeholder="branch"
+                    placeholder={t("skills.marketBranchPlaceholder")}
                   />
                   <input
                     className={styles.marketInput}
@@ -372,7 +434,7 @@ function SkillsPage() {
                     onChange={(e) =>
                       handleUpdateMarket(idx, { path: e.target.value })
                     }
-                    placeholder="path"
+                    placeholder={t("skills.marketPathPlaceholder")}
                   />
                   <input
                     className={styles.marketInputOrder}
@@ -393,7 +455,7 @@ function SkillsPage() {
                         handleUpdateMarket(idx, { enabled: e.target.checked })
                       }
                     />
-                    enabled
+                    {t("common.enabled")}
                   </label>
                 </div>
                 <div className={styles.marketRowActions}>
@@ -403,29 +465,29 @@ function SkillsPage() {
                       void handleValidateMarket(idx);
                     }}
                   >
-                    Validate
+                    {t("skills.marketValidate")}
                   </Button>
                   <Button
                     size="small"
                     danger
                     onClick={() => handleRemoveMarket(idx)}
                   >
-                    Remove
+                    {t("skills.marketRemove")}
                   </Button>
                 </div>
               </div>
             ))}
             {marketDrafts.length === 0 ? (
-              <div className={styles.marketEmpty}>No markets configured.</div>
+              <div className={styles.marketEmpty}>{t("skills.marketEmptyConfig")}</div>
             ) : null}
           </div>
         </div>
 
         {marketMeta ? (
           <div className={styles.marketMetaRow}>
-            <span>Markets: {marketMeta.enabled_market_count}</span>
-            <span>Healthy: {marketMeta.success_market_count}</span>
-            <span>Items: {marketMeta.item_count}</span>
+            <span>{t("skills.marketMetaMarkets")}: {marketMeta.enabled_market_count}</span>
+            <span>{t("skills.marketMetaHealthy")}: {marketMeta.success_market_count}</span>
+            <span>{t("skills.marketMetaItems")}: {marketMeta.item_count}</span>
           </div>
         ) : null}
 
@@ -463,13 +525,13 @@ function SkillsPage() {
                     );
                   }}
                 >
-                  Install
+                  {t("skills.marketInstall")}
                 </Button>
               </div>
             );
           })}
           {marketplace.length === 0 && !marketplaceLoading ? (
-            <div className={styles.marketEmpty}>No marketplace items found.</div>
+            <div className={styles.marketEmpty}>{t("skills.marketEmptyItems")}</div>
           ) : null}
         </div>
       </div>
