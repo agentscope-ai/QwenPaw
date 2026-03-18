@@ -257,7 +257,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               .pop();
             return { version, uploadTime: latestUpload || "" };
           });
-        console.log(releases, versionsWithTime, "versionsWithTime");
         versionsWithTime.sort(
           (a, b) =>
             new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime(),
