@@ -134,7 +134,10 @@
     "frontmatterDescriptionRequired": "スキルに必須フィールド「description」がありません",
     "editNotSupported": "編集操作はバックエンドAPIでサポートされていません",
     "editNote": "注意: バックエンドAPIはスキルの編集をサポートしていません。表示または有効/無効の切り替えのみ可能です。",
-    "create": "作成"
+    "create": "作成",
+    "cancelImport": "インポートを中止",
+    "importCancelled": "スキルのインポートを中止しました",
+    "importTimeout": "スキルのインポートがタイムアウトしました。再試行するかネットワークを確認してください。"
   },
   "mcp": {
     "title": "MCPクライアント",

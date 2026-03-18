@@ -178,7 +178,10 @@
     "stopOptimize": "Stop",
     "optimizeSuccess": "Skill optimized successfully",
     "optimizeFailed": "Failed to optimize skill",
-    "noContentToOptimize": "No content to optimize"
+    "noContentToOptimize": "No content to optimize",
+    "cancelImport": "Cancel Import",
+    "importCancelled": "Skill import cancelled",
+    "importTimeout": "Skill import timed out. Please retry or check your network."
   },
   "mcp": {
     "title": "MCP Clients",

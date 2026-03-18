@@ -144,7 +144,10 @@
     "stopOptimize": "停止",
     "optimizeSuccess": "技能优化成功",
     "optimizeFailed": "技能优化失败",
-    "noContentToOptimize": "没有可优化的内容"
+    "noContentToOptimize": "没有可优化的内容",
+    "cancelImport": "取消导入",
+    "importCancelled": "已取消技能导入",
+    "importTimeout": "技能导入超时，请重试或检查网络。"
   },
   "mcp": {
     "title": "MCP 客户端",

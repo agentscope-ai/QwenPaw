@@ -139,7 +139,10 @@
     "stopOptimize": "Стоп",
     "optimizeSuccess": "Навык успешно оптимизирован",
     "optimizeFailed": "Не удалось оптимизировать навык",
-    "noContentToOptimize": "Нет содержимого для оптимизации"
+    "noContentToOptimize": "Нет содержимого для оптимизации",
+    "cancelImport": "Отменить импорт",
+    "importCancelled": "Импорт навыка отменён",
+    "importTimeout": "Время ожидания импорта навыка истекло. Повторите попытку или проверьте сеть."
   },
   "mcp": {
     "title": "MCP-клиенты",
