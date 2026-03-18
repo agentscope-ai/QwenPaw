@@ -31,14 +31,17 @@ def detect_system_timezone() -> str:
 
 
 def _detect_system_timezone_inner() -> str:  # noqa: R0911
-    for probe in (
-        _probe_python,
-        _probe_env,
-        _probe_etc_timezone,
-        _probe_localtime_link,
-        _probe_sysconfig_clock,
-        _probe_timedatectl,
-    ):
+    probes = [_probe_python, _probe_env]
+    if os.name == "nt":
+        probes.append(_probe_windows_registry)
+    else:
+        probes += [
+            _probe_etc_timezone,
+            _probe_localtime_link,
+            _probe_sysconfig_clock,
+            _probe_timedatectl,
+        ]
+    for probe in probes:
         result = probe()
         if result is not None:
             return result
@@ -64,6 +67,53 @@ def _probe_env() -> Optional[str]:
     """Check the ``$TZ`` environment variable."""
     tz = os.environ.get("TZ", "")
     return tz if _is_iana(tz) else None
+
+
+_WIN_TO_IANA = {
+    "China Standard Time": "Asia/Shanghai",
+    "Taipei Standard Time": "Asia/Taipei",
+    "Tokyo Standard Time": "Asia/Tokyo",
+    "Korea Standard Time": "Asia/Seoul",
+    "Singapore Standard Time": "Asia/Singapore",
+    "India Standard Time": "Asia/Kolkata",
+    "Arabian Standard Time": "Asia/Dubai",
+    "Russian Standard Time": "Europe/Moscow",
+    "W. Europe Standard Time": "Europe/Berlin",
+    "Romance Standard Time": "Europe/Paris",
+    "GMT Standard Time": "Europe/London",
+    "Eastern Standard Time": "America/New_York",
+    "Central Standard Time": "America/Chicago",
+    "Mountain Standard Time": "America/Denver",
+    "Pacific Standard Time": "America/Los_Angeles",
+    "US Mountain Standard Time": "America/Phoenix",
+    "Atlantic Standard Time": "America/Halifax",
+    "Hawaiian Standard Time": "Pacific/Honolulu",
+    "AUS Eastern Standard Time": "Australia/Sydney",
+    "New Zealand Standard Time": "Pacific/Auckland",
+    "Cen. Australia Standard Time": "Australia/Adelaide",
+    "E. Africa Standard Time": "Africa/Nairobi",
+    "SE Asia Standard Time": "Asia/Bangkok",
+    "West Pacific Standard Time": "Pacific/Port_Moresby",
+    "SA Eastern Standard Time": "America/Sao_Paulo",
+    "UTC": "UTC",
+}
+
+
+def _probe_windows_registry() -> Optional[str]:
+    """Read the current timezone from the Windows registry."""
+    try:
+        import winreg
+
+        reg_path = r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation"
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path)
+        try:
+            win_tz = winreg.QueryValueEx(key, "TimeZoneKeyName")[0]
+        finally:
+            winreg.CloseKey(key)
+        return _WIN_TO_IANA.get(win_tz)
+    except Exception:
+        pass
+    return None
 
 
 def _probe_etc_timezone() -> Optional[str]:
@@ -92,10 +142,7 @@ def _probe_localtime_link() -> Optional[str]:
 def _probe_sysconfig_clock() -> Optional[str]:
     """Parse ``/etc/sysconfig/clock`` (CentOS / RHEL ≤ 6)."""
     try:
-        with open(
-            "/etc/sysconfig/clock",
-            encoding="utf-8",
-        ) as fh:
+        with open("/etc/sysconfig/clock", encoding="utf-8") as fh:
             for raw in fh:
                 if raw.strip().startswith("ZONE="):
                     zone = raw.split("=", 1)[1].strip().strip('"').strip("'")
@@ -121,7 +168,7 @@ def _probe_timedatectl() -> Optional[str]:
                 "--value",
             ],
             text=True,
-            timeout=3,
+            timeout=1,
             stderr=subprocess.DEVNULL,
         ).strip()
         if _is_iana(out):
@@ -134,7 +181,7 @@ def _probe_timedatectl() -> Optional[str]:
         out = subprocess.check_output(
             ["timedatectl", "status"],
             text=True,
-            timeout=3,
+            timeout=1,
             stderr=subprocess.DEVNULL,
         )
         for line in out.splitlines():
