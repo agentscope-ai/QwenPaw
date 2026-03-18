@@ -187,6 +187,11 @@ class ChannelManager:
                 ch_cfg = (
                     SimpleNamespace(**raw) if isinstance(raw, dict) else raw
                 )
+            # Convert dict configs to SimpleNamespace for attribute access
+            # This enables custom channels defined as extra fields in Pydantic models
+            if isinstance(ch_cfg, dict):
+                from types import SimpleNamespace
+                ch_cfg = SimpleNamespace(**ch_cfg)
             if ch_cfg is None:
                 continue
 
