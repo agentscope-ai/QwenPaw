@@ -396,6 +396,20 @@ class AgentProfileConfig(BaseModel):
     )
 
 
+
+class ChannelRoutingRule(BaseModel):
+    """Route channel messages to specific agents based on meta fields."""
+
+    channel: str = Field(..., description="Channel type, e.g. 'feishu'")
+    match_field: str = Field(
+        ..., description="Dot-path into request meta, e.g. 'open_chat_id'"
+    )
+    match_value: str = Field(..., description="Value to match")
+    target_agent_id: str = Field(
+        ..., description="Agent ID to route to"
+    )
+
+
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
 
@@ -744,6 +758,10 @@ class Config(BaseModel):
     mcp: MCPConfig = MCPConfig()
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
+    channel_routing: List[ChannelRoutingRule] = Field(
+        default_factory=list,
+        description="Route channel messages to specific agents based on meta fields",
+    )
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)

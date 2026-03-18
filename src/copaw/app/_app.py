@@ -195,6 +195,19 @@ async def lifespan(
             default_agent.channel_manager,
         )
 
+
+    # Inject channel routing rules into default agent's channels
+    config = load_config(get_config_path())
+    routing_rules = config.agents.channel_routing
+    if routing_rules and default_agent.channel_manager:
+        for ch in default_agent.channel_manager.channels:
+            ch._channel_routing_rules = routing_rules
+            ch._multi_agent_manager = multi_agent_manager
+        logger.info(
+            "Channel routing: %d rules injected into default agent channels",
+            len(routing_rules),
+        )
+
     startup_elapsed = time.time() - startup_start_time
     logger.debug(
         f"Application startup completed in {startup_elapsed:.3f} seconds",

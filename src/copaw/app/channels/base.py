@@ -100,6 +100,8 @@ class BaseChannel(ABC):
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
         self._enqueue: EnqueueCallback = None
+        self._channel_routing_rules = []
+        self._multi_agent_manager = None
         cfg = load_config()
         internal_tools = frozenset(
             name
@@ -538,6 +540,28 @@ class BaseChannel(ABC):
         )
         await self._run_process_loop(request, to_handle, send_meta)
 
+    def _resolve_channel_routing(self, payload: Any) -> Optional[str]:
+        """Check channel_routing rules and return target agent_id or None."""
+        if not self._channel_routing_rules:
+            return None
+        meta = getattr(payload, "meta", None) or {}
+        for rule in self._channel_routing_rules:
+            if rule.channel == self.channel and meta.get(rule.match_field) == rule.match_value:
+                return rule.target_agent_id
+        return None
+
+    async def _get_routed_process(self, agent_id: str):
+        """Get process handler for a routed agent."""
+        if not self._multi_agent_manager:
+            return None
+        try:
+            workspace = await self._multi_agent_manager.get_agent(agent_id)
+            if workspace and hasattr(workspace, "process"):
+                return workspace.process
+        except Exception:
+            logger.exception("Failed to get routed agent %s", agent_id)
+        return None
+
     async def _run_process_loop(
         self,
         request: "AgentRequest",
@@ -548,9 +572,21 @@ class BaseChannel(ABC):
         Run _process and send events. Override to use channel-specific
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
+        process_fn = self._process
+        payload = getattr(request, "payload", request)
+        routed_agent_id = self._resolve_channel_routing(payload)
+        if routed_agent_id:
+            routed_process = await self._get_routed_process(routed_agent_id)
+            if routed_process:
+                process_fn = routed_process
+                logger.info(
+                    "Channel routing: %s -> agent %s",
+                    self.channel,
+                    routed_agent_id,
+                )
         last_response = None
         try:
-            async for event in self._process(request):
+            async for event in process_fn(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
                 if obj == "message" and status == RunStatus.Completed:

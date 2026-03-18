@@ -1734,14 +1734,24 @@ class FeishuChannel(BaseChannel):
         request: Any,
         to_handle: str,
         send_meta: Dict[str, Any],
+        payload: Any = None,
     ) -> None:
         """Override to track the last sent message_id across all events
         and add a DONE reaction after the full reply is complete.
         """
         last_message_id: Optional[str] = None
+        # Channel routing: check if message should go to another agent
+        process_fn = self._process
+        if payload is not None:
+            routed_agent_id = self._resolve_channel_routing(payload)
+            if routed_agent_id:
+                routed_process = await self._get_routed_process(routed_agent_id)
+                if routed_process:
+                    process_fn = routed_process
+                    logger.info("Feishu routing: %s -> agent %s", self.channel, routed_agent_id)
         last_response = None
         try:
-            async for event in self._process(request):
+            async for event in process_fn(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
                 if obj == "message" and status == RunStatus.Completed:
