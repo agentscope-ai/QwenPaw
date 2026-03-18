@@ -736,6 +736,12 @@ class SecurityConfig(BaseModel):
     )
 
 
+class TracingConfig(BaseModel):
+    enabled: bool = False
+    type: Literal["native", "third-party"] = "native"
+    url: str = "http://localhost:3000"
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -752,6 +758,7 @@ class Config(BaseModel):
         description="User IANA timezone (e.g. Asia/Shanghai). "
         "Defaults to the system timezone.",
     )
+    tracing: TracingConfig = TracingConfig()
 
 
 ChannelConfigUnion = Union[

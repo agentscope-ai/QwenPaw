@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+import agentscope
 from agentscope_runtime.engine.app import AgentApp
 
 from ..config import load_config  # pylint: disable=no-name-in-module
@@ -134,6 +135,20 @@ class DynamicMultiAgentRunner:
         return None
 
 
+config = load_config(get_config_path())
+
+if config.tracing.enabled:
+    agentscope.init(
+        project="CoPaw",
+        name="Friday",
+        studio_url=config.tracing.url
+        if config.tracing.type == "native"
+        else None,
+        tracing_url=config.tracing.url
+        if config.tracing.type == "third-party"
+        else None,
+    )
+
 # Use dynamic runner for AgentApp
 runner = DynamicMultiAgentRunner()
 
@@ -177,7 +192,6 @@ async def lifespan(
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
         if agent_id is None:
-            config = load_config(get_config_path())
             agent_id = config.agents.active_agent or "default"
         return await multi_agent_manager.get_agent(agent_id)
 
