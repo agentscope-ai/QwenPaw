@@ -114,10 +114,14 @@ def _resolve_avatar_path(
     return resolved
 
 
-def _build_avatar_url(agent_id: str, agent_config: AgentProfileConfig) -> str | None:
+def _build_avatar_url(
+    agent_id: str,
+    workspace_dir: str | Path,
+    avatar_rel_path: str,
+) -> str | None:
     """Return a cache-busted avatar URL when the file exists."""
-    workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
-    avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
+    workspace_root = Path(workspace_dir).expanduser().resolve()
+    avatar_path = _resolve_avatar_path(workspace_root, avatar_rel_path)
     if not avatar_path or not avatar_path.is_file():
         return None
 
@@ -163,7 +167,11 @@ async def list_agents() -> AgentListResponse:
                     name=agent_config.name,
                     description=agent_config.description,
                     workspace_dir=agent_ref.workspace_dir,
-                    avatar_url=_build_avatar_url(agent_id, agent_config),
+                    avatar_url=_build_avatar_url(
+                        agent_id,
+                        agent_ref.workspace_dir,
+                        agent_config.avatar,
+                    ),
                 ),
             )
         except Exception:  # noqa: E722
@@ -409,7 +417,11 @@ async def upload_agent_avatar(
     return {
         "success": True,
         "avatar": avatar_rel_path,
-        "avatar_url": _build_avatar_url(agentId, agent_config),
+        "avatar_url": _build_avatar_url(
+            agentId,
+            workspace.workspace_dir,
+            agent_config.avatar,
+        ),
     }
 
 

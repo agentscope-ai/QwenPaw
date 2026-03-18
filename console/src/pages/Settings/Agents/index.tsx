@@ -96,9 +96,24 @@ export default function AgentsPage() {
     form.resetFields();
   };
 
+  const saveAvatarChanges = async (agentId: string) => {
+    if (avatarMarkedForRemoval) {
+      await agentsApi.deleteAvatar(agentId);
+      return;
+    }
+
+    if (avatarFile) {
+      await agentsApi.uploadAvatar(agentId, avatarFile);
+    }
+  };
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : t("agent.saveFailed");
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      let successMessage = "";
 
       if (editingAgent) {
         const mergedConfig: AgentProfileConfig = {
@@ -107,25 +122,28 @@ export default function AgentsPage() {
         };
 
         await agentsApi.updateAgent(editingAgent.id, mergedConfig);
-        if (avatarMarkedForRemoval) {
-          await agentsApi.deleteAvatar(editingAgent.id);
-        } else if (avatarFile) {
-          await agentsApi.uploadAvatar(editingAgent.id, avatarFile);
+        try {
+          await saveAvatarChanges(editingAgent.id);
+        } catch (error) {
+          console.error("Failed to save avatar:", error);
         }
-        message.success(t("agent.updateSuccess"));
+        successMessage = t("agent.updateSuccess");
       } else {
         const result = await agentsApi.createAgent(values);
-        if (avatarFile) {
-          await agentsApi.uploadAvatar(result.id, avatarFile);
+        try {
+          await saveAvatarChanges(result.id);
+        } catch (error) {
+          console.error("Failed to save avatar:", error);
         }
-        message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
+        successMessage = `${t("agent.createSuccess")} (ID: ${result.id})`;
       }
 
-      await loadAgents();
       closeModal();
+      message.success(successMessage);
+      await loadAgents();
     } catch (error: any) {
       console.error("Failed to save agent:", error);
-      message.error(error.message || t("agent.saveFailed"));
+      message.error(getErrorMessage(error));
     }
   };
 

@@ -330,6 +330,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             return auth_header[7:]
+        if (
+            request.method in ("GET", "HEAD")
+            and request.url.path.startswith("/api/agents/")
+            and request.url.path.endswith("/avatar")
+        ):
+            query_token = request.query_params.get("token")
+            if query_token:
+                return query_token
         if "upgrade" in request.headers.get("connection", "").lower():
             return request.query_params.get("token")
         return None

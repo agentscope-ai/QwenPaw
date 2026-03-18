@@ -1,12 +1,31 @@
-import { getApiUrl } from "../config";
+import { getApiToken, getApiUrl } from "../config";
 import { request } from "../request";
 import type {
   AgentListResponse,
+  AgentSummary,
   AgentProfileConfig,
   CreateAgentRequest,
   AgentProfileRef,
 } from "../types/agents";
 import type { MdFileInfo, MdFileContent } from "../types/workspace";
+
+function appendAuthToken(url?: string | null): string | undefined {
+  if (!url) return undefined;
+
+  const token = getApiToken();
+  if (!token) return url;
+
+  const resolvedUrl = new URL(url, window.location.href);
+  resolvedUrl.searchParams.set("token", token);
+  return resolvedUrl.toString();
+}
+
+function normalizeAgentSummary(agent: AgentSummary): AgentSummary {
+  return {
+    ...agent,
+    avatar_url: appendAuthToken(agent.avatar_url),
+  };
+}
 
 export function buildAgentAvatarUrl(
   agentId: string,
@@ -16,16 +35,24 @@ export function buildAgentAvatarUrl(
   if (!avatar) return undefined;
 
   const url = getApiUrl(`/agents/${encodeURIComponent(agentId)}/avatar`);
-  if (cacheBuster === undefined || cacheBuster === null) {
-    return url;
-  }
-  return `${url}?v=${encodeURIComponent(String(cacheBuster))}`;
+  const resolvedUrl =
+    cacheBuster === undefined || cacheBuster === null
+      ? url
+      : `${url}?v=${encodeURIComponent(String(cacheBuster))}`;
+
+  return appendAuthToken(resolvedUrl);
 }
 
 // Multi-agent management API
 export const agentsApi = {
   // List all agents
-  listAgents: () => request<AgentListResponse>("/agents"),
+  listAgents: async () => {
+    const response = await request<AgentListResponse>("/agents");
+    return {
+      ...response,
+      agents: response.agents.map(normalizeAgentSummary),
+    };
+  },
 
   // Get agent details
   getAgent: (agentId: string) =>
