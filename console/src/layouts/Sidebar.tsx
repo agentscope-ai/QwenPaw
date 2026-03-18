@@ -235,8 +235,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .then((res) => res.json())
       .then((data) => {
         const releases = data?.releases ?? {};
-        const info = data?.info ?? {};
-        
+
         // Filter out pre-release versions (alpha, beta, rc, dev, etc.)
         const isStableVersion = (version: string) => {
           // Pre-release indicators: a, alpha, b, beta, rc, c, candidate, dev, post
@@ -258,7 +257,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               .pop();
             return { version, uploadTime: latestUpload || "" };
           });
-        console.log(releases, versionsWithTime, 'versionsWithTime');
+        console.log(releases, versionsWithTime, "versionsWithTime");
         versionsWithTime.sort(
           (a, b) =>
             new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime(),
