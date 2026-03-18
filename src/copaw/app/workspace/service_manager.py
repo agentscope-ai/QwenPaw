@@ -193,44 +193,12 @@ class ServiceManager:
             )
 
         try:
-            # Get or create service instance
-            if is_reused:
-                # Service already exists in self.services (set by set_reusable)
-                service = self.services.get(name)
-            else:
-                # Create new service instance
-                logger.debug(f"Creating service '{name}'...")
-
-                if descriptor.service_class:
-                    # Get init args from callable
-                    init_kwargs = {}
-                    if descriptor.init_args:
-                        init_kwargs = descriptor.init_args(self.workspace)
-
-                    # Instantiate service
-                    service = descriptor.service_class(**init_kwargs)
-                    self.services[name] = service
-                else:
-                    # No service class (lifecycle hook only)
-                    service = None
-
-            # Always call post_init (for wiring to new runner)
-            if descriptor.post_init:
-                result = descriptor.post_init(self.workspace, service)
-                if asyncio.iscoroutine(result):
-                    await result
-
-            # Call start method only for new services
-            if not is_reused and descriptor.start_method and service:
-                start_fn = getattr(service, descriptor.start_method)
-                if asyncio.iscoroutinefunction(start_fn):
-                    await start_fn()
-                else:
-                    start_fn()
-                logger.debug(
-                    f"Service '{name}' started for "
-                    f"{self.workspace.agent_id}",
-                )
+            service = await self._get_or_create_service(
+                descriptor,
+                is_reused,
+            )
+            service = await self._run_post_init(descriptor, service, name)
+            await self._run_start_method(descriptor, service, is_reused)
 
         except Exception as e:
             logger.exception(
@@ -238,6 +206,100 @@ class ServiceManager:
                 f"for {self.workspace.agent_id}: {e}",
             )
             raise
+
+    async def _get_or_create_service(
+        self,
+        descriptor: ServiceDescriptor,
+        is_reused: bool,
+    ) -> Any:
+        """Get existing or create new service instance.
+
+        Args:
+            descriptor: Service descriptor
+            is_reused: Whether service is being reused
+
+        Returns:
+            Service instance or None
+        """
+        if is_reused:
+            return self.services.get(descriptor.name)
+
+        logger.debug(f"Creating service '{descriptor.name}'...")
+
+        if not descriptor.service_class:
+            return None
+
+        # Get init args from callable
+        init_kwargs = {}
+        if descriptor.init_args:
+            init_kwargs = descriptor.init_args(self.workspace)
+
+        # Instantiate service
+        service = descriptor.service_class(**init_kwargs)
+        self.services[descriptor.name] = service
+        return service
+
+    async def _run_post_init(
+        self,
+        descriptor: ServiceDescriptor,
+        service: Any,
+        name: str,
+    ) -> Any:
+        """Run post_init hook and capture returned service.
+
+        Args:
+            descriptor: Service descriptor
+            service: Current service instance (may be None)
+            name: Service name
+
+        Returns:
+            Final service instance
+        """
+        if not descriptor.post_init:
+            return service
+
+        result = descriptor.post_init(self.workspace, service)
+        if asyncio.iscoroutine(result):
+            result = await result
+
+        # Capture service from post_init return value or self.services
+        if result is not None:
+            service = result
+            # Ensure it's registered in services dict
+            if name not in self.services:
+                self.services[name] = service
+        elif service is None:
+            # post_init might have registered service in self.services
+            service = self.services.get(name)
+
+        return service
+
+    async def _run_start_method(
+        self,
+        descriptor: ServiceDescriptor,
+        service: Any,
+        is_reused: bool,
+    ) -> None:
+        """Run start method on service if applicable.
+
+        Args:
+            descriptor: Service descriptor
+            service: Service instance
+            is_reused: Whether service is being reused
+        """
+        if is_reused or not descriptor.start_method or not service:
+            return
+
+        start_fn = getattr(service, descriptor.start_method)
+        if asyncio.iscoroutinefunction(start_fn):
+            await start_fn()
+        else:
+            start_fn()
+
+        logger.debug(
+            f"Service '{descriptor.name}' started for "
+            f"{self.workspace.agent_id}",
+        )
 
     async def stop_all(self) -> None:
         """Stop all services in reverse priority order.
