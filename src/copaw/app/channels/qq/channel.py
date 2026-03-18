@@ -116,11 +116,16 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
         payload_text = json.dumps(exc.data, ensure_ascii=False).lower()
     except Exception:
         payload_text = str(exc.data).lower()
+
+    # Check for markdown-related error messages or codes
     return (
         "markdown" in payload_text
         or "msg_type" in payload_text
         or "msg type" in payload_text
         or "message type" in payload_text
+        or "50056" in payload_text  # 不允许发送原生 markdown
+        or "不允许发送原生 markdown" in payload_text
+        or "40034012" in payload_text  # err_code for markdown not allowed
     )
 
 
@@ -253,14 +258,25 @@ async def _send_c2c_message_async(
     )
 
 
-async def _send_channel_message_async(
+async def _send_message_helper(
     session: Any,
     access_token: str,
-    channel_id: str,
+    endpoint_path: str,
     content: str,
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
 ) -> None:
+    """Helper function to send messages via QQ API.
+
+    Args:
+        session: aiohttp session
+        access_token: QQ access token
+        endpoint_path: API endpoint path (e.g.,
+            "/channels/{id}/messages" or "/dms/{id}/messages")
+        content: message content
+        msg_id: reply message id
+        use_markdown: whether to use markdown format
+    """
     body: Dict[str, Any] = (
         {"markdown": {"content": content}}
         if use_markdown
@@ -272,8 +288,26 @@ async def _send_channel_message_async(
         session,
         access_token,
         "POST",
-        f"/channels/{channel_id}/messages",
+        endpoint_path,
         body,
+    )
+
+
+async def _send_channel_message_async(
+    session: Any,
+    access_token: str,
+    channel_id: str,
+    content: str,
+    msg_id: Optional[str] = None,
+    use_markdown: bool = False,
+) -> None:
+    await _send_message_helper(
+        session,
+        access_token,
+        f"/channels/{channel_id}/messages",
+        content,
+        msg_id,
+        use_markdown,
     )
 
 
@@ -286,19 +320,13 @@ async def _send_dm_message_async(
     use_markdown: bool = False,
 ) -> None:
     """Send a direct message in a guild via /dms/{guild_id}/messages."""
-    body: Dict[str, Any] = (
-        {"markdown": {"content": content}}
-        if use_markdown
-        else {"content": content}
-    )
-    if msg_id:
-        body["msg_id"] = msg_id
-    await _api_request_async(
+    await _send_message_helper(
         session,
         access_token,
-        "POST",
         f"/dms/{guild_id}/messages",
-        body,
+        content,
+        msg_id,
+        use_markdown,
     )
 
 
@@ -1028,18 +1056,33 @@ class QQChannel(BaseChannel):
         except Exception as e:
             logger.exception("qq process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
+
+            # Try to send error message to user
             try:
                 fallback_handle = getattr(request, "user_id", "")
-                await self.send_content_parts(
-                    fallback_handle,
-                    [
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=f"Error: {err_msg}",
-                        ),
-                    ],
-                    getattr(request, "channel_meta", None) or {},
-                )
+                if not fallback_handle and hasattr(request, "sender_id"):
+                    fallback_handle = request.sender_id
+                if not fallback_handle:
+                    # Try to extract from channel_meta
+                    meta = getattr(request, "channel_meta", {}) or {}
+                    fallback_handle = meta.get("sender_id", "")
+
+                if fallback_handle:
+                    error_text = self.bot_prefix + f"Error: {err_msg}"
+                    await self.send_content_parts(
+                        fallback_handle,
+                        [
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=error_text,
+                            ),
+                        ],
+                        getattr(request, "channel_meta", None) or {},
+                    )
+                else:
+                    logger.warning(
+                        "Cannot determine user to send error message to",
+                    )
             except Exception:
                 logger.exception("send error message failed")
 
