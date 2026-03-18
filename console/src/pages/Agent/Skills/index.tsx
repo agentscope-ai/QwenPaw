@@ -9,32 +9,8 @@ import type { SkillSpec, SkillsMarketSpec } from "../../../api/types";
 import { SkillCard, SkillDrawer } from "./components";
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
+import { createDefaultSkillsMarketTemplates } from "../../../constants/skillsMarket";
 import styles from "./index.module.less";
-
-function getDefaultMarketTemplates(): SkillsMarketSpec[] {
-  return [
-    {
-      id: "community",
-      name: "Editor Skills",
-      url: "https://github.com/futuremeng/editor-skills.git",
-      branch: "main",
-      path: "index.json",
-      enabled: true,
-      order: 1,
-      trust: "community",
-    },
-    {
-      id: "jiulu_mcp",
-      name: "Jiulu MCP Skills",
-      url: "https://github.com/your-org/jiulu-mcp-skills.git",
-      branch: "main",
-      path: "skills",
-      enabled: false,
-      order: 2,
-      trust: "custom",
-    },
-  ];
-}
 
 function SkillsPage() {
   const { t } = useTranslation();
@@ -276,7 +252,7 @@ function SkillsPage() {
   };
 
   const handleResetMarketTemplates = () => {
-    setMarketDrafts(getDefaultMarketTemplates());
+    setMarketDrafts(createDefaultSkillsMarketTemplates());
   };
 
   return (
