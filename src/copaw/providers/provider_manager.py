@@ -174,6 +174,7 @@ PROVIDER_MINIMAX = AnthropicProvider(
     name="MiniMax International",
     base_url="https://api.minimax.io/anthropic",
     models=MINIMAX_MODELS,
+    chat_model="AnthropicChatModel",
     freeze_url=True,
 )
 
@@ -182,6 +183,7 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
     name="MiniMax China",
     base_url="https://api.minimaxi.com/anthropic",
     models=MINIMAX_MODELS,
+    chat_model="AnthropicChatModel",
     freeze_url=True,
 )
 
@@ -489,6 +491,10 @@ class ProviderManager:
         """Deserialize provider data to a concrete provider type."""
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
+
+        builtin_provider = self.builtin_providers.get(provider_id)
+        if builtin_provider is not None:
+            return type(builtin_provider).model_validate(data)
 
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
