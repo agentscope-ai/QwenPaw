@@ -109,7 +109,7 @@
     "enterSkillUrl": "Введите URL навыка",
     "supportedSkillUrlSources": "Сейчас поддерживаются следующие источники URL навыков:",
     "urlExamples": "Примеры URL:",
-    "invalidSkillUrlSource": "URL навыка должен начинаться с https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/ или https://github.com/",
+    "invalidSkillUrlSource": "URL навыка должен начинаться с https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/ или https://modelscope.cn/skills/",
     "source": "Источник",
     "path": "Путь",
     "skillDescription": "Описание",

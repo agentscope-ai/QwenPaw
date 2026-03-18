@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -9,8 +12,9 @@ from ...config import (
     save_config,
     AgentsRunningConfig,
 )
-
+from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
+from ...agents.utils import copy_md_files
 from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -179,10 +183,14 @@ async def write_memory_file(
     summary="Get agent language",
     description="Get the language setting for agent MD files (en/zh/ru)",
 )
-async def get_agent_language() -> dict:
-    """Get agent language setting."""
-    config = load_config()
-    return {"language": config.agents.language}
+async def get_agent_language(request: Request) -> dict:
+    """Get agent language setting for current agent."""
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    return {
+        "language": agent_config.language,
+        "agent_id": workspace.agent_id,
+    }
 
 
 @router.put(
@@ -190,16 +198,19 @@ async def get_agent_language() -> dict:
     summary="Update agent language",
     description=(
         "Update the language for agent MD files (en/zh/ru). "
-        "Optionally copies MD files for the new language."
+        "Optionally copies MD files for the new language to agent workspace."
     ),
 )
 async def put_agent_language(
+    request: Request,
     body: dict = Body(
         ...,
         description='Language setting, e.g. {"language": "zh"}',
     ),
 ) -> dict:
-    """Update agent language and optionally re-copy MD files."""
+    """
+    Update agent language and optionally re-copy MD files to agent workspace.
+    """
     language = (body.get("language") or "").strip().lower()
     valid = {"zh", "en", "ru"}
     if language not in valid:
@@ -210,24 +221,34 @@ async def put_agent_language(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    old_language = config.agents.language
-    config.agents.language = language
-    save_config(config)
+
+    # Get current agent's workspace
+    workspace = await get_agent_for_request(request)
+    agent_id = workspace.agent_id
+
+    # Load agent config
+    agent_config = load_agent_config(agent_id)
+    old_language = agent_config.language
+
+    # Update agent's language
+    agent_config.language = language
+    save_agent_config(agent_id, agent_config)
 
     copied_files: list[str] = []
     if old_language != language:
-        from ...agents.utils import copy_md_files
-
-        copied_files = copy_md_files(language) or []
-        if copied_files:
-            config = load_config()
-            config.agents.installed_md_files_language = language
-            save_config(config)
+        # Copy MD files to agent's workspace directory
+        copied_files = (
+            copy_md_files(
+                language,
+                workspace_dir=workspace.workspace_dir,
+            )
+            or []
+        )
 
     return {
         "language": language,
         "copied_files": copied_files,
+        "agent_id": agent_id,
     }
 
 
@@ -407,8 +428,6 @@ async def get_agents_running_config(
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
-    from ...config.config import load_agent_config
-
     agent_config = load_agent_config(workspace.agent_id)
     return agent_config.running or AgentsRunningConfig()
 
@@ -428,8 +447,6 @@ async def put_agents_running_config(
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
     workspace = await get_agent_for_request(request)
-    from ...config.config import load_agent_config, save_agent_config
-
     agent_config = load_agent_config(workspace.agent_id)
     agent_config.running = running_config
     save_agent_config(workspace.agent_id, agent_config)
@@ -437,8 +454,6 @@ async def put_agents_running_config(
     # Hot reload config (async, non-blocking)
     # IMPORTANT: Get manager and agent_id before creating background task
     # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
     manager = request.app.state.multi_agent_manager
     agent_id = workspace.agent_id
 
@@ -446,8 +461,6 @@ async def put_agents_running_config(
         try:
             await manager.reload_agent(agent_id)
         except Exception as e:
-            import logging
-
             logging.getLogger(__name__).warning(
                 f"Background reload failed: {e}",
             )
@@ -468,8 +481,6 @@ async def get_system_prompt_files(
 ) -> list[str]:
     """Get list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)
-    from ...config.config import load_agent_config
-
     agent_config = load_agent_config(workspace.agent_id)
     return agent_config.system_prompt_files or []
 
@@ -489,8 +500,6 @@ async def put_system_prompt_files(
 ) -> list[str]:
     """Update list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)
-    from ...config.config import load_agent_config, save_agent_config
-
     agent_config = load_agent_config(workspace.agent_id)
     agent_config.system_prompt_files = files
     save_agent_config(workspace.agent_id, agent_config)
@@ -498,8 +507,6 @@ async def put_system_prompt_files(
     # Hot reload config (async, non-blocking)
     # IMPORTANT: Get manager before creating background task to avoid
     # accessing request object after its lifecycle ends
-    import asyncio
-
     manager = request.app.state.multi_agent_manager
     agent_id = workspace.agent_id
 
@@ -507,8 +514,6 @@ async def put_system_prompt_files(
         try:
             await manager.reload_agent(agent_id)
         except Exception as e:
-            import logging
-
             logging.getLogger(__name__).warning(
                 f"Background reload failed: {e}",
             )

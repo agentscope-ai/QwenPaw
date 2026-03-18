@@ -109,7 +109,7 @@
     "enterSkillUrl": "スキルのURLを入力",
     "supportedSkillUrlSources": "現在サポートされているスキルURLのソース:",
     "urlExamples": "URLの例:",
-    "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、または https://github.com/ で始まる必要があります",
+    "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
     "source": "ソース",
     "path": "パス",
     "skillDescription": "説明",

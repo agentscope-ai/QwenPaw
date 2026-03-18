@@ -73,6 +73,7 @@ You can import skills from these URL sources in the Console:
 - `https://lobehub.com/...`
 - `https://market.lobehub.com/...` (LobeHub direct download endpoint)
 - `https://github.com/...`
+- `https://modelscope.cn/skills/...`
 
 ### Steps
 
@@ -94,7 +95,7 @@ You can import skills from these URL sources in the Console:
 
 ### URL acquisition examples
 
-1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai`, `skillsmp.com`, and `lobehub.com`): open the corresponding marketplace page.
+1. Use `skills.sh` as an example (the same URL acquisition flow applies to `clawhub.ai`, `skillsmp.com`, `lobehub.com`, and `modelscope.cn`): open the corresponding marketplace page.
 2. Pick the skill you need (for example, `find-skills`).
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)

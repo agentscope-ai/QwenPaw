@@ -33,6 +33,7 @@ function SkillsPage() {
     "https://lobehub.com/",
     "https://market.lobehub.com/",
     "https://github.com/",
+    "https://modelscope.cn/skills/",
   ];
 
   const isSupportedSkillUrl = (url: string) => {
@@ -177,6 +178,7 @@ function SkillsPage() {
             <li>https://lobehub.com/</li>
             <li>https://market.lobehub.com/</li>
             <li>https://github.com/</li>
+            <li>https://modelscope.cn/skills/</li>
           </ul>
           <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
           <ul className={styles.importHintList}>
@@ -188,6 +190,7 @@ function SkillsPage() {
             <li>
               https://github.com/anthropics/skills/tree/main/skills/skill-creator
             </li>
+            <li>https://modelscope.cn/skills/@anthropics/skill-creator</li>
           </ul>
         </div>
 

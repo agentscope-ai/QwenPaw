@@ -37,10 +37,12 @@ class CronManager:
         runner: Any,
         channel_manager: Any,
         timezone: str = "UTC",  # pylint: disable=redefined-outer-name
+        agent_id: Optional[str] = None,
     ):
         self._repo = repo
         self._runner = runner
         self._channel_manager = channel_manager
+        self._agent_id = agent_id
         self._scheduler = AsyncIOScheduler(timezone=timezone)
         self._executor = CronExecutor(
             runner=runner,
@@ -63,14 +65,18 @@ class CronManager:
                 await self._register_or_update(job)
 
             # Heartbeat: one interval job when enabled in config
-            hb = get_heartbeat_config()
-            if getattr(hb, "enabled", True):
+            hb = get_heartbeat_config(self._agent_id)
+            if getattr(hb, "enabled", False):
                 interval_seconds = parse_heartbeat_every(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
                     trigger=IntervalTrigger(seconds=interval_seconds),
                     id=HEARTBEAT_JOB_ID,
                     replace_existing=True,
+                )
+                logger.info(
+                    f"Heartbeat job scheduled for agent {self._agent_id}: "
+                    f"every={hb.every} (interval={interval_seconds}s)",
                 )
 
             self._started = True
@@ -118,14 +124,27 @@ class CronManager:
             self._scheduler.resume_job(job_id)
 
     async def reschedule_heartbeat(self) -> None:
-        """Reload heartbeat config and update or remove the heartbeat job."""
+        """Reload heartbeat config and update or remove the heartbeat job.
+
+        Note: CronManager should always be started during workspace
+        initialization, so this method assumes self._started is True.
+        """
         async with self._lock:
             if not self._started:
+                logger.warning(
+                    f"CronManager not started for agent {self._agent_id}, "
+                    f"cannot reschedule heartbeat. This should not happen.",
+                )
                 return
-            hb = get_heartbeat_config()
+
+            hb = get_heartbeat_config(self._agent_id)
+
+            # Remove existing heartbeat job if present
             if self._scheduler.get_job(HEARTBEAT_JOB_ID):
                 self._scheduler.remove_job(HEARTBEAT_JOB_ID)
-            if getattr(hb, "enabled", True):
+
+            # Add heartbeat job if enabled
+            if getattr(hb, "enabled", False):
                 interval_seconds = parse_heartbeat_every(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
@@ -258,9 +277,16 @@ class CronManager:
     async def _heartbeat_callback(self) -> None:
         """Run one heartbeat (HEARTBEAT.md as query, optional dispatch)."""
         try:
+            # Get workspace_dir from runner if available
+            workspace_dir = None
+            if hasattr(self._runner, "workspace_dir"):
+                workspace_dir = self._runner.workspace_dir
+
             await run_heartbeat_once(
                 runner=self._runner,
                 channel_manager=self._channel_manager,
+                agent_id=self._agent_id,
+                workspace_dir=workspace_dir,
             )
         except Exception:  # pylint: disable=broad-except
             logger.exception("heartbeat run failed")

@@ -148,7 +148,7 @@
     "enterSkillUrl": "Enter Skill URL",
     "supportedSkillUrlSources": "Currently supported skill URL sources:",
     "urlExamples": "URL examples:",
-    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, or https://github.com/",
+    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
     "source": "Source",
     "path": "Path",
     "skillDescription": "Description",

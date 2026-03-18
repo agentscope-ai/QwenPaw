@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
@@ -23,15 +24,17 @@ from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
-from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
-from ...config.config import load_agent_config, AgentsRunningConfig
+from ...config.config import load_agent_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
 )
 from ...security.tool_guard.approval import ApprovalDecision
+
+if TYPE_CHECKING:
+    from ...agents.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -236,16 +239,8 @@ class AgentRunner(Runner):
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
 
-            # Get running config with defaults
-            running_config = agent_config.running
-            if running_config is None:
-                running_config = AgentsRunningConfig()
-
-            max_iters = running_config.max_iters
-            max_input_length = running_config.max_input_length
-            language = agent_config.language
-
             agent = CoPawAgent(
+                agent_config=agent_config,
                 env_context=env_context,
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
@@ -255,19 +250,6 @@ class AgentRunner(Runner):
                     "channel": channel,
                     "agent_id": self.agent_id,
                 },
-                max_iters=max_iters,
-                max_input_length=max_input_length,
-                memory_compact_threshold=(
-                    running_config.memory_compact_threshold
-                ),
-                memory_compact_reserve=running_config.memory_compact_reserve,
-                enable_tool_result_compact=(
-                    running_config.enable_tool_result_compact
-                ),
-                tool_result_compact_keep_n=(
-                    running_config.tool_result_compact_keep_n
-                ),
-                language=language,
                 workspace_dir=self.workspace_dir,
             )
             await agent.register_mcp_clients()
@@ -504,26 +486,7 @@ class AgentRunner(Runner):
         )
         self.session = SafeJSONSession(save_dir=session_dir)
 
-        # Only create and start MemoryManager if not already set by Workspace
-        try:
-            if self.memory_manager is None:
-                self.memory_manager = MemoryManager(
-                    working_dir=(
-                        str(self.workspace_dir)
-                        if self.workspace_dir
-                        else str(WORKING_DIR)
-                    ),
-                )
-                await self.memory_manager.start()
-        except Exception as e:
-            logger.exception(f"MemoryManager start failed: {e}")
-
     async def shutdown_handler(self, *args, **kwargs):
         """
         Shutdown handler.
         """
-        try:
-            if self.memory_manager is not None:
-                await self.memory_manager.close()
-        except Exception as e:
-            logger.warning(f"MemoryManager stop failed: {e}")

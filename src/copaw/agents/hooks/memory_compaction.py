@@ -8,9 +8,9 @@ and the system prompt.
 import logging
 from typing import TYPE_CHECKING, Any
 
-from agentscope.agent._react_agent import _MemoryMark, ReActAgent
-
+from agentscope.agent import ReActAgent
 from copaw.constant import MEMORY_COMPACT_KEEP_RECENT
+
 from ..utils import (
     check_valid_messages,
     safe_count_str_tokens,
@@ -19,6 +19,7 @@ from ..utils import (
 if TYPE_CHECKING:
     from ..memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
+    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,25 +35,29 @@ class MemoryCompactionHook:
     def __init__(
         self,
         memory_manager: "MemoryManager",
-        memory_compact_threshold: int | None = None,
-        memory_compact_reserve: int | None = None,
-        enable_tool_result_compact: bool = False,
-        tool_result_compact_keep_n: int = 5,
+        agent_config: "AgentProfileConfig",
     ):
         """Initialize memory compaction hook.
 
         Args:
             memory_manager: Memory manager instance for compaction
-            memory_compact_threshold: Token threshold for compaction
-            memory_compact_reserve: Reserve tokens for recent messages
-            enable_tool_result_compact: Enable tool result compaction
-            tool_result_compact_keep_n: Number of tool results to keep
+            agent_config: Agent profile configuration containing running
+                settings including memory_compact_threshold,
+                memory_compact_reserve, enable_tool_result_compact,
+                and tool_result_compact_keep_n.
         """
         self.memory_manager = memory_manager
-        self.memory_compact_threshold = memory_compact_threshold
-        self.memory_compact_reserve = memory_compact_reserve
-        self.enable_tool_result_compact = enable_tool_result_compact
-        self.tool_result_compact_keep_n = tool_result_compact_keep_n
+
+        # Extract configuration from agent_config
+        running_config = agent_config.running
+        self.memory_compact_threshold = running_config.memory_compact_threshold
+        self.memory_compact_reserve = running_config.memory_compact_reserve
+        self.enable_tool_result_compact = (
+            running_config.enable_tool_result_compact
+        )
+        self.tool_result_compact_keep_n = (
+            running_config.tool_result_compact_keep_n
+        )
 
     async def __call__(
         self,
@@ -86,15 +91,10 @@ class MemoryCompactionHook:
                 (system_prompt or "") + (compressed_summary or ""),
             )
 
-            # memory_compact_threshold must be provided
-            if self.memory_compact_threshold is None:
-                raise ValueError(
-                    "memory_compact_threshold is required but not provided "
-                    "to MemoryCompactionHook",
-                )
-            memory_compact_threshold = self.memory_compact_threshold
-
-            left_compact_threshold = memory_compact_threshold - str_token_count
+            # memory_compact_threshold is always available from config
+            left_compact_threshold = (
+                self.memory_compact_threshold - str_token_count
+            )
 
             if left_compact_threshold <= 0:
                 logger.warning(
@@ -110,19 +110,14 @@ class MemoryCompactionHook:
             messages = await memory.get_memory(prepend_summary=False)
 
             # Use configured values
-            enable_tool_result_compact = self.enable_tool_result_compact
-            tool_result_compact_keep_n = self.tool_result_compact_keep_n
-            if enable_tool_result_compact and tool_result_compact_keep_n > 0:
-                compact_msgs = messages[:-tool_result_compact_keep_n]
+            if (
+                self.enable_tool_result_compact
+                and self.tool_result_compact_keep_n > 0
+            ):
+                compact_msgs = messages[: -self.tool_result_compact_keep_n]
                 await self.memory_manager.compact_tool_result(compact_msgs)
 
-            # memory_compact_reserve must be provided
-            if self.memory_compact_reserve is None:
-                raise ValueError(
-                    "memory_compact_reserve is required but not provided "
-                    "to MemoryCompactionHook",
-                )
-            memory_compact_reserve = self.memory_compact_reserve
+            # memory_compact_reserve is always available from config
             (
                 messages_to_compact,
                 _,
@@ -130,8 +125,8 @@ class MemoryCompactionHook:
             ) = await self.memory_manager.check_context(
                 messages=messages,
                 memory_compact_threshold=left_compact_threshold,
-                memory_compact_reserve=memory_compact_reserve,
-                token_counter=token_counter,
+                memory_compact_reserve=self.memory_compact_reserve,
+                as_token_counter=token_counter,
             )
 
             if not messages_to_compact:
@@ -171,14 +166,13 @@ class MemoryCompactionHook:
             )
 
             await agent.memory.update_compressed_summary(compact_content)
-            updated_count = await memory.update_messages_mark(
-                new_mark=_MemoryMark.COMPRESSED,
-                msg_ids=[msg.id for msg in messages_to_compact],
+            updated_count = await memory.mark_messages_compressed(
+                messages_to_compact,
             )
             logger.info(f"Marked {updated_count} messages as compacted")
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Failed to compact memory in pre_reasoning hook: %s",
                 e,
                 exc_info=True,

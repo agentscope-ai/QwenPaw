@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from .runner import AgentRunner
+from .runner.task_tracker import TaskTracker
 from .channels.utils import make_process_from_runner
 from .mcp import MCPClientManager
 from .crons.manager import CronManager
 from .crons.repo.json_repo import JsonJobRepository
 from ..agents.memory import MemoryManager
-from ..config.config import load_agent_config, AgentsRunningConfig
+from ..config.config import load_agent_config
 
 if TYPE_CHECKING:
     from .channels.base import BaseChannel
@@ -63,6 +64,7 @@ class Workspace:
         self._config = None
         self._config_watcher = None
         self._mcp_config_watcher = None
+        self._task_tracker = TaskTracker()
         self._started = False
 
         logger.debug(
@@ -100,6 +102,11 @@ class Workspace:
         return self._chat_manager
 
     @property
+    def task_tracker(self) -> TaskTracker:
+        """Get task tracker for background chat and reconnect."""
+        return self._task_tracker
+
+    @property
     def config(self):
         """Get agent configuration."""
         if self._config is None:
@@ -130,63 +137,72 @@ class Workspace:
             # IMPORTANT: Create MemoryManager BEFORE runner.start() to prevent
             # init_handler from creating a duplicate MemoryManager
             async def init_memory():
-                # Get running config for memory manager
-                running_config = agent_config.running
-
-                if running_config is None:
-                    running_config = AgentsRunningConfig()
-
-                self._memory_manager = MemoryManager(
-                    working_dir=str(self.workspace_dir),
-                    max_input_length=running_config.max_input_length,
-                    memory_compact_ratio=running_config.memory_compact_ratio,
-                    memory_reserve_ratio=running_config.memory_reserve_ratio,
-                    language=agent_config.language,
-                )
-                # Assign to runner BEFORE starting runner
-                self._runner.memory_manager = self._memory_manager
-                await self._memory_manager.start()
-                logger.debug(
-                    f"MemoryManager started for agent: {self.agent_id}",
-                )
+                try:
+                    self._memory_manager = MemoryManager(
+                        working_dir=str(self.workspace_dir),
+                        agent_config=agent_config,
+                    )
+                    # Assign to runner BEFORE starting runner
+                    self._runner.memory_manager = self._memory_manager
+                    await self._memory_manager.start()
+                    logger.debug(
+                        f"MemoryManager started for agent: {self.agent_id}",
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"Failed to initialize MemoryManager for agent "
+                        f"{self.agent_id}: {e}",
+                    )
 
             async def init_mcp():
-                self._mcp_manager = MCPClientManager()
-                if agent_config.mcp:
-                    try:
-                        await self._mcp_manager.init_from_config(
-                            agent_config.mcp,
-                        )
-                        logger.debug(
-                            f"MCP clients initialized for agent: "
-                            f"{self.agent_id}",
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to initialize MCP for agent "
-                            f"{self.agent_id}: {e}",
-                        )
-                self._runner.set_mcp_manager(self._mcp_manager)
+                try:
+                    self._mcp_manager = MCPClientManager()
+                    if agent_config.mcp:
+                        try:
+                            await self._mcp_manager.init_from_config(
+                                agent_config.mcp,
+                            )
+                            logger.debug(
+                                f"MCP clients initialized for agent: "
+                                f"{self.agent_id}",
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to initialize MCP for agent "
+                                f"{self.agent_id}: {e}",
+                            )
+                    self._runner.set_mcp_manager(self._mcp_manager)
+                except Exception as e:
+                    logger.exception(
+                        f"Failed to initialize MCPClientManager for agent "
+                        f"{self.agent_id}: {e}",
+                    )
 
             async def init_chat():
-                from .runner.manager import ChatManager
-                from .runner.repo.json_repo import JsonChatRepository
+                try:
+                    from .runner.manager import ChatManager
+                    from .runner.repo.json_repo import JsonChatRepository
 
-                chats_path = str(self.workspace_dir / "chats.json")
-                chat_repo = JsonChatRepository(chats_path)
-                self._chat_manager = ChatManager(repo=chat_repo)
-                self._runner.set_chat_manager(self._chat_manager)
-                logger.info(
-                    f"ChatManager started for agent {self.agent_id}: "
-                    f"chats.json={chats_path}",
-                )
-
-            # Run Memory, MCP, and Chat initialization concurrently
-            await asyncio.gather(init_memory(), init_mcp(), init_chat())
+                    chats_path = str(self.workspace_dir / "chats.json")
+                    chat_repo = JsonChatRepository(chats_path)
+                    self._chat_manager = ChatManager(repo=chat_repo)
+                    self._runner.set_chat_manager(self._chat_manager)
+                    logger.info(
+                        f"ChatManager started for agent {self.agent_id}: "
+                        f"chats.json={chats_path}",
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"Failed to initialize ChatManager for agent "
+                        f"{self.agent_id}: {e}",
+                    )
 
             # Now start the runner (after MemoryManager is set)
             await self._runner.start()
             logger.debug(f"Runner started for agent: {self.agent_id}")
+
+            # Run Memory, MCP, and Chat initialization concurrently
+            await asyncio.gather(init_memory(), init_mcp(), init_chat())
 
             # Set up restart callback for /daemon restart command
             from .workspace_restart import create_restart_callback
@@ -204,10 +220,23 @@ class Workspace:
 
                 temp_config = Config(channels=agent_config.channels)
 
+                # Create a closure to bind agent_id to update_last_dispatch
+                def on_last_dispatch_with_agent_id(
+                    channel: str,
+                    user_id: str,
+                    session_id: str,
+                ) -> None:
+                    update_last_dispatch(
+                        channel=channel,
+                        user_id=user_id,
+                        session_id=session_id,
+                        agent_id=self.agent_id,
+                    )
+
                 self._channel_manager = ChannelManager.from_config(
                     process=make_process_from_runner(self._runner),
                     config=temp_config,
-                    on_last_dispatch=update_last_dispatch,
+                    on_last_dispatch=on_last_dispatch_with_agent_id,
                     workspace_dir=self.workspace_dir,
                 )
                 await self._channel_manager.start_all()
@@ -215,7 +244,7 @@ class Workspace:
                     f"ChannelManager started for agent: {self.agent_id}",
                 )
 
-            # 5. Start CronManager (always create for API access)
+            # 5. Start CronManager (always start for API access and cron jobs)
             job_repo = JsonJobRepository(
                 str(self.workspace_dir / "jobs.json"),
             )
@@ -224,18 +253,21 @@ class Workspace:
                 runner=self._runner,
                 channel_manager=self._channel_manager,
                 timezone="UTC",
+                agent_id=self.agent_id,
             )
-            # Only start background tasks if heartbeat is enabled
-            if agent_config.heartbeat and agent_config.heartbeat.enabled:
-                await self._cron_manager.start()
-                logger.debug(
-                    f"CronManager started with heartbeat: {self.agent_id}",
-                )
-            else:
-                logger.debug(
-                    f"CronManager created (heartbeat disabled): "
-                    f"{self.agent_id}",
-                )
+            # Always start CronManager (it will register cron jobs and
+            # optionally add heartbeat based on config)
+            await self._cron_manager.start()
+
+            heartbeat_status = (
+                "enabled"
+                if (agent_config.heartbeat and agent_config.heartbeat.enabled)
+                else "disabled"
+            )
+            logger.debug(
+                f"CronManager started for agent {self.agent_id} "
+                f"(heartbeat: {heartbeat_status})",
+            )
 
             # 6. Start config watchers for hot-reload (non-blocking)
             await self._start_config_watchers()
