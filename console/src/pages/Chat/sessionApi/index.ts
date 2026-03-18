@@ -6,7 +6,7 @@ import {
   IAgentScopeRuntimeWebUIRef,
   IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
-import api, { type ChatSpec, type ChatHistory, type Message } from "../../../api";
+import api, { type ChatSpec, type ChatHistory, type ChatStatus, type Message } from "../../../api";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -63,8 +63,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   meta: Record<string, unknown>;
   /** Real backend UUID, used when id is overridden with a local timestamp. */
   realId?: string;
-  /** Conversation status: idle or running (for reconnect). */
-  status?: "idle" | "running";
+  /** Conversation status from backend. */
+  status?: ChatStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,8 +204,7 @@ const isLocalTimestamp = (id: string): boolean => /^\d+$/.test(id);
 /** Detect if backend is still generating content for this chat. */
 const isGenerating = (chatHistory: ChatHistory): boolean => {
   if (chatHistory.status === "running") return true;
-  if (chatHistory.status === "completed" || chatHistory.status === "failed")
-    return false;
+  if (chatHistory.status === "idle") return false;
   const msgs = chatHistory.messages || [];
   if (msgs.length === 0) return false;
   const last = msgs[msgs.length - 1];

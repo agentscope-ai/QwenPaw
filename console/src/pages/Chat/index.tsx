@@ -15,10 +15,7 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import { chatApi } from "../../api/modules/chat";
-<<<<<<< HEAD
-=======
 import api from "../../api";
->>>>>>> main
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
