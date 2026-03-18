@@ -2,14 +2,16 @@
 
 **Magic commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
 
-| Command        | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
-| -------------- | ------ | ------------------ | ------------------ | ----------------------------- |
-| `/history`     | ⚡ No  | -                  | -                  | 📋 Message list + Token stats |
-| `/message`     | ⚡ No  | -                  | -                  | 📄 Specified message details  |
-| `/compact_str` | ⚡ No  | -                  | -                  | 📝 Compressed summary content |
-| `/compact`     | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
-| `/new`         | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
-| `/clear`       | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
+| Command         | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
+| --------------- | ------ | ------------------ | ------------------ | ----------------------------- |
+| `/history`      | ⚡ No  | -                  | -                  | 📋 Message list + Token stats |
+| `/message`      | ⚡ No  | -                  | -                  | 📄 Specified message details  |
+| `/compact_str`  | ⚡ No  | -                  | -                  | 📝 Compressed summary content |
+| `/compact`      | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
+| `/new`          | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
+| `/clear`        | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
+| `/dump_history` | ⚡ No  | 💾 Save            | -                  | 📁 Exported history file path |
+| `/load_history` | ⚡ No  | 📥 Restore         | -                  | ✅ History load result        |
 
 ---
 
@@ -174,6 +176,58 @@ User requested help building a user authentication system, login endpoint implem
 ```
 
 > ⚠️ **Warning**: `/clear` is **irreversible**! Unlike `/new`, cleared content will not be saved.
+
+---
+
+## /dump_history — Export Conversation History
+
+Save current conversation history (including compressed summary) to a JSONL file for debugging and backup.
+
+```
+/dump_history
+```
+
+**Example response:**
+
+```
+**History Dumped!**
+
+- Messages saved: 15
+- Has summary: true
+- File: `/path/to/workspace/debug_history.jsonl`
+```
+
+> 💡 **Tip**: The exported file can be used with `/load_history` to restore conversation history, or for debugging analysis.
+
+---
+
+## /load_history — Load Conversation History
+
+Load conversation history from a JSONL file into current memory. **Existing memory will be cleared first**.
+
+```
+/load_history
+```
+
+**Example response:**
+
+```
+**History Loaded!**
+
+- Messages loaded: 15
+- Has summary: true
+- File: `/path/to/workspace/debug_history.jsonl`
+- Memory cleared before loading
+```
+
+**Notes:**
+
+- File source: Loaded from `debug_history.jsonl` in the workspace directory
+- Maximum load: 10,000 messages
+- If the first message in the file contains a compressed summary marker, the summary will be restored automatically
+- Current memory is **cleared before loading** — make sure to backup important content
+
+> ⚠️ **Warning**: `/load_history` clears current memory before loading. Existing conversation will be lost!
 
 ---
 
