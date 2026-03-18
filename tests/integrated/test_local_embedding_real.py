@@ -9,10 +9,10 @@ before submitting PRs. They require:
 - GPU with CUDA support (or CPU fallback, slower)
 - Pre-downloaded model at ~/.cache/copaw/models
 """
+
 from __future__ import annotations
 
 import pytest
-
 
 # Mark all tests in this module as slow integration tests
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -45,9 +45,10 @@ class TestLocalEmbeddingRealModel:
         # With real model loaded, we expect either:
         # - 200: Success with latency info
         # - 500: CUDA/GPU error (common on unsupported architectures)
-        assert response.status_code in [200, 500], (
-            f"Unexpected status: {response.status_code}"
-        )
+        assert response.status_code in [
+            200,
+            500,
+        ], f"Unexpected status: {response.status_code}"
 
         if response.status_code == 200:
             data = response.json()
@@ -143,9 +144,10 @@ class TestLocalEmbeddingBGETextModel:
 
         # BGE-small is small enough that it should succeed even on CPU
         # but we accept failure if model needs downloading
-        assert response.status_code in [200, 500], (
-            f"Unexpected status: {response.status_code}"
-        )
+        assert response.status_code in [
+            200,
+            500,
+        ], f"Unexpected status: {response.status_code}"
 
         if response.status_code == 200:
             data = response.json()

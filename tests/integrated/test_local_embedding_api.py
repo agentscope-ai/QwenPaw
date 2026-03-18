@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Integration tests for local embedding API endpoints."""
+
 from __future__ import annotations
 
 import pytest
-
 
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration

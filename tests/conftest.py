@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Pytest configuration and shared fixtures for CoPaw tests."""
+
 from __future__ import annotations
 
 import socket
@@ -112,7 +113,8 @@ def running_app() -> Generator[httpx.Client, None, None]:
 
         # Create client for tests
         test_client = httpx.Client(
-            base_url=f"http://{host}:{port}", timeout=30.0)
+            base_url=f"http://{host}:{port}", timeout=30.0
+        )
         yield test_client
         test_client.close()
 

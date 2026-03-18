@@ -4,6 +4,7 @@
 Supports both multimodal (Qwen3-VL) and text-only (BGE/GTE) models.
 Default download source is ModelScope for better China mainland access.
 """
+
 from __future__ import annotations
 
 import logging
@@ -12,11 +13,11 @@ import threading
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from dataclasses import dataclass
 
-if TYPE_CHECKING:
-    from copaw.config.config import LocalEmbeddingConfig
-
 import torch
 from PIL import Image
+
+if TYPE_CHECKING:
+    from copaw.config.config import LocalEmbeddingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ PRESET_MODELS: Dict[str, Dict[str, Any]] = {
 @dataclass
 class ModelMetadata:
     """Model metadata."""
+
     model_id: str
     model_type: str  # "multimodal" or "text"
     dimensions: int
@@ -112,15 +114,20 @@ class ModelMetadata:
             if os.path.exists(config_path):
                 try:
                     import json
-                    with open(config_path, 'r', encoding='utf-8') as f:
+
+                    with open(config_path, "r", encoding="utf-8") as f:
                         config = json.load(f)
 
                     # Detect model type from architecture
                     architectures = config.get("architectures", [])
-                    model_type = "multimodal" if any(
-                        "vision" in arch.lower() or "vl" in arch.lower()
-                        for arch in architectures
-                    ) else "text"
+                    model_type = (
+                        "multimodal"
+                        if any(
+                            "vision" in arch.lower() or "vl" in arch.lower()
+                            for arch in architectures
+                        )
+                        else "text"
+                    )
 
                     # Get hidden size for dimensions
                     dimensions = config.get("hidden_size", 768)
@@ -146,11 +153,13 @@ class ModelMetadata:
                     )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to read config.json from {local_path}: {e}")
+                        f"Failed to read config.json from {local_path}: {e}"
+                    )
 
         # Fallback: use model name heuristics
         logger.warning(
-            f"Model {model_id} not in presets, using name heuristics")
+            f"Model {model_id} not in presets, using name heuristics"
+        )
 
         # Detect from model name patterns
         model_id_lower = model_id.lower()
@@ -207,14 +216,16 @@ class LocalEmbedder:
         logger.info(f"LocalEmbedder initialized with model: {config.model_id}")
         logger.info(
             f"  Type: {self._metadata.model_type}, "
-            f"Dims: {self._metadata.dimensions}")
+            f"Dims: {self._metadata.dimensions}"
+        )
 
     def _get_metadata(self) -> ModelMetadata:
         """Get model metadata from presets or auto-detect."""
         meta = ModelMetadata.from_preset(self.config.model_id)
         if meta is None:
             meta = ModelMetadata.auto_detect(
-                self.config.model_id, self.config.model_path)
+                self.config.model_id, self.config.model_path
+            )
         return meta
 
     def _resolve_device(self, device: str) -> str:
@@ -233,7 +244,7 @@ class LocalEmbedder:
         if torch.cuda.is_available():
             return "cuda"
         elif (
-            hasattr(torch.backends, 'mps')
+            hasattr(torch.backends, "mps")
             and torch.backends.mps.is_available()
         ):
             return "mps"
@@ -266,7 +277,8 @@ class LocalEmbedder:
             resolved_device = self._resolve_device(self.config.device)
             logger.info(
                 f"Using device: {resolved_device} "
-                f"(requested: {self.config.device})")
+                f"(requested: {self.config.device})"
+            )
 
         # Get model path (download if needed)
         model_path = self._get_model_path()
@@ -306,7 +318,8 @@ class LocalEmbedder:
         """
         source = self.config.download_source
         repo_id = self._metadata.repo_id.get(
-            source, self._metadata.repo_id["modelscope"])
+            source, self._metadata.repo_id["modelscope"]
+        )
 
         # Support custom cache directory via environment variable
         cache_dir = os.environ.get("COPAW_MODEL_CACHE_DIR")
@@ -325,21 +338,23 @@ class LocalEmbedder:
         """Download model from ModelScope."""
         try:
             from modelscope import snapshot_download
+
             logger.info(f"Downloading model from ModelScope: {repo_id}")
             model_path = snapshot_download(repo_id, cache_dir=cache_dir)
             return model_path
         except ImportError:
             logger.warning(
-                "modelscope not installed, falling back to huggingface")
+                "modelscope not installed, falling back to huggingface"
+            )
             return self._download_from_huggingface(
-                self._metadata.repo_id.get("huggingface", repo_id),
-                cache_dir
+                self._metadata.repo_id.get("huggingface", repo_id), cache_dir
             )
 
     def _download_from_huggingface(self, repo_id: str, cache_dir: str) -> str:
         """Download model from HuggingFace."""
         try:
             from huggingface_hub import snapshot_download
+
             logger.info(f"Downloading model from HuggingFace: {repo_id}")
             model_path = snapshot_download(repo_id, cache_dir=cache_dir)
             return model_path
@@ -413,11 +428,11 @@ class LocalEmbedder:
                 logger.info(f"Unloading model: {self.config.model_id}")
 
                 # Explicitly delete model implementation
-                if hasattr(self._impl, 'model'):
+                if hasattr(self._impl, "model"):
                     del self._impl.model
-                if hasattr(self._impl, 'embedder'):
+                if hasattr(self._impl, "embedder"):
                     del self._impl.embedder
-                if hasattr(self._impl, 'tokenizer'):
+                if hasattr(self._impl, "tokenizer"):
                     del self._impl.tokenizer
 
                 self._impl = None
@@ -425,6 +440,7 @@ class LocalEmbedder:
 
                 # Force garbage collection and clear CUDA cache
                 import gc
+
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -474,7 +490,8 @@ class _TextEmbedderImpl:
         """Encode texts to embeddings."""
         if images is not None:
             logger.warning(
-                "Text model does not support images, ignoring images")
+                "Text model does not support images, ignoring images"
+            )
 
         # Tokenize
         inputs = self.tokenizer(
@@ -499,12 +516,15 @@ class _TextEmbedderImpl:
         elif self.metadata.pooling == "mean":
             # Mean pooling
             attention_mask = inputs["attention_mask"]
-            mask_expanded = attention_mask.unsqueeze(
-                -1).expand(outputs.last_hidden_state.size())
+            mask_expanded = attention_mask.unsqueeze(-1).expand(
+                outputs.last_hidden_state.size()
+            )
             sum_embeddings = torch.sum(
-                outputs.last_hidden_state * mask_expanded, 1)
-            embeddings = sum_embeddings / \
-                torch.clamp(mask_expanded.sum(1), min=1e-9)
+                outputs.last_hidden_state * mask_expanded, 1
+            )
+            embeddings = sum_embeddings / torch.clamp(
+                mask_expanded.sum(1), min=1e-9
+            )
         else:
             # Default to CLS
             embeddings = outputs.last_hidden_state[:, 0]
@@ -534,7 +554,8 @@ class _MultimodalEmbedderImpl:
         self.device = device
 
         logger.info(
-            f"Loading Qwen3-VL from: {model_path}, dtype={torch_dtype}")
+            f"Loading Qwen3-VL from: {model_path}, dtype={torch_dtype}"
+        )
 
         # Set default dtype before loading model to ensure correct precision
         original_dtype = torch.get_default_dtype()
@@ -606,28 +627,33 @@ def download_model_for_config(config) -> str:
     metadata = ModelMetadata.from_preset(config.model_id)
     if metadata is None:
         metadata = ModelMetadata.auto_detect(
-            config.model_id, config.model_path)
+            config.model_id, config.model_path
+        )
 
     # Determine download source and repo_id
     source = config.download_source
     repo_id = metadata.repo_id.get(source, metadata.repo_id["modelscope"])
 
     logger.info(
-        f"Downloading model {config.model_id} from {source}: {repo_id}")
+        f"Downloading model {config.model_id} from {source}: {repo_id}"
+    )
 
     try:
         if source == "modelscope":
             try:
                 from modelscope import snapshot_download
+
                 return snapshot_download(repo_id, cache_dir=cache_dir)
             except ImportError:
                 logger.warning(
-                    "modelscope not installed, falling back to huggingface")
+                    "modelscope not installed, falling back to huggingface"
+                )
                 source = "huggingface"
                 repo_id = metadata.repo_id.get("huggingface", repo_id)
 
         if source == "huggingface":
             from huggingface_hub import snapshot_download
+
             return snapshot_download(repo_id, cache_dir=cache_dir)
 
     except Exception as e:

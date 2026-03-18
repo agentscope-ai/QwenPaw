@@ -555,11 +555,13 @@ async def test_local_embedding(
         )
     except Exception as e:
         import traceback
+
         error_msg = f"{type(e).__name__}: {str(e)}"
         error_detail = traceback.format_exc()
 
         # Log full traceback for debugging
         import logging
+
         logger = logging.getLogger(__name__)
         logger.error(f"Embedding test failed: {error_msg}\n{error_detail}")
 

@@ -4,10 +4,10 @@
 These tests verify that MemoryManager correctly integrates with LocalEmbedder
 and that vector search is properly configured when local embedding is enabled.
 """
+
 from __future__ import annotations
 
 import pytest
-
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
@@ -33,9 +33,9 @@ class TestMemoryManagerLocalEmbedderIntegration:
             json=enable_config,
         )
 
-        assert response.status_code == 200, (
-            f"Config update failed: {response.text}"
-        )
+        assert (
+            response.status_code == 200
+        ), f"Config update failed: {response.text}"
 
         # Verify the config was saved
         get_response = client.get("/api/config/agents/local-embedding")

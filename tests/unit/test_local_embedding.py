@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for local embedding functionality."""
+
 from __future__ import annotations
 
 import pytest
@@ -274,6 +275,7 @@ class TestDownloadModelForConfig:
         from copaw.agents.memory.local_embedder import (
             download_model_for_config,
         )
+
         assert callable(download_model_for_config)
 
     def test_download_returns_path_type(self):

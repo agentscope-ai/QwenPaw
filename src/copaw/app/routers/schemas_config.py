@@ -17,6 +17,7 @@ class LocalEmbeddingBody(LocalEmbeddingConfig):
 
 class LocalEmbeddingTestResult(BaseModel):
     """Response for POST /config/agents/local-embedding/test."""
+
     success: bool
     message: str
     latency_ms: Optional[float] = None
@@ -25,6 +26,7 @@ class LocalEmbeddingTestResult(BaseModel):
 
 class ModelDownloadStatus(BaseModel):
     """Response for model download operations."""
+
     status: str  # "downloading", "completed", "error"
     progress: Optional[float] = None  # 0-100
     message: str

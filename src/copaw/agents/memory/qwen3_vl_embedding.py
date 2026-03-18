@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
+# mypy: ignore-errors
 """Qwen3-VL-Embedding model implementation.
 
 This file is adapted from the official Qwen3-VL-Embedding repository:
@@ -7,6 +8,7 @@ https://github.com/QwenLM/Qwen3-VL-Embedding
 
 Licensed under Apache 2.0 License.
 """
+
 import logging
 import os
 import unicodedata
@@ -48,12 +50,14 @@ PAD_TOKEN = "<|endoftext|>"
 @dataclass
 class Qwen3VLForEmbeddingOutput(ModelOutput):
     """Output structure for embeddings."""
+
     last_hidden_state: Optional[torch.FloatTensor] = None
     attention_mask: Optional[torch.Tensor] = None
 
 
 class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
     """Model class to compute embeddings."""
+
     _checkpoint_conversion_mapping = {}
     accepts_loss_kwargs = False
     config: Qwen3VLConfig
@@ -149,11 +153,17 @@ def sample_frames(
 
 def is_image_path(path: str) -> bool:
     image_extensions = {
-        '.jpg', '.jpeg', '.png', '.gif',
-        '.bmp', '.webp', '.tiff', '.svg',
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".tiff",
+        ".svg",
     }
 
-    if path.startswith(('http://', 'https://')):
+    if path.startswith(("http://", "https://")):
         parsed_url = urlparse(path)
         clean_path = parsed_url.path
     else:
@@ -191,7 +201,7 @@ class Qwen3VLEmbedder:
         max_frames: int = MAX_FRAMES,
         default_instruction: str = "Represent the user's input.",
         device: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -209,7 +219,7 @@ class Qwen3VLEmbedder:
             model_name_or_path, trust_remote_code=True, **kwargs
         ).to(self.device)
         self.processor = Qwen3VLProcessor.from_pretrained(
-            model_name_or_path, padding_side='right'
+            model_name_or_path, padding_side="right"
         )
         self.model.eval()
 
@@ -217,8 +227,8 @@ class Qwen3VLEmbedder:
     def forward(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         outputs = self.model(**inputs)
         return {
-            'last_hidden_state': outputs.last_hidden_state,
-            'attention_mask': inputs.get('attention_mask')
+            "last_hidden_state": outputs.last_hidden_state,
+            "attention_mask": inputs.get("attention_mask"),
         }
 
     def _truncate_tokens(
@@ -229,12 +239,9 @@ class Qwen3VLEmbedder:
         if len(token_ids) <= max_length:
             return token_ids
 
-        special_token_ids = set(
-            self.processor.tokenizer.all_special_ids
-        )
+        special_token_ids = set(self.processor.tokenizer.all_special_ids)
         num_special = sum(
-            1 for token_idx in token_ids
-            if token_idx in special_token_ids
+            1 for token_idx in token_ids if token_idx in special_token_ids
         )
         num_non_special_to_keep = max_length - num_special
 
@@ -268,14 +275,23 @@ class Qwen3VLEmbedder:
 
         if instruction:
             instruction = instruction.strip()
-            if instruction and not unicodedata.category(instruction[-1]).startswith('P'):
-                instruction = instruction + '.'
+            if instruction and not unicodedata.category(
+                instruction[-1]
+            ).startswith("P"):
+                instruction = instruction + "."
 
         content = []
         conversation = [
-            {"role": "system", "content": [
-                {"type": "text", "text": instruction or self.default_instruction}]},
-            {"role": "user", "content": content}
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": instruction or self.default_instruction,
+                    }
+                ],
+            },
+            {"role": "user", "content": content},
         ]
 
         if text is None:
@@ -300,38 +316,40 @@ class Qwen3VLEmbedder:
             videos = video
 
         if not texts and not images and not videos:
-            content.append({'type': 'text', 'text': "NULL"})
+            content.append({"type": "text", "text": "NULL"})
             return conversation
 
         for vid in videos:
             video_content = None
-            video_kwargs = {'total_pixels': self.total_pixels}
+            video_kwargs = {"total_pixels": self.total_pixels}
 
             if isinstance(vid, list):
                 video_content = vid
                 if self.max_frames is not None:
                     video_content = sample_frames(
-                        video_content, self.max_frames)
+                        video_content, self.max_frames
+                    )
                 video_content = [
-                    ('file://' + ele if isinstance(ele, str) else ele)
+                    ("file://" + ele if isinstance(ele, str) else ele)
                     for ele in video_content
                 ]
             elif isinstance(vid, str):
-                video_content = vid if vid.startswith(
-                    ('http://', 'https://')) else 'file://' + vid
+                video_content = (
+                    vid
+                    if vid.startswith(("http://", "https://"))
+                    else "file://" + vid
+                )
                 video_kwargs = {
-                    'fps': fps or self.fps,
-                    'max_frames': max_frames or self.max_frames,
+                    "fps": fps or self.fps,
+                    "max_frames": max_frames or self.max_frames,
                 }
             else:
                 raise TypeError(f"Unrecognized video type: {type(vid)}")
 
             if video_content:
-                content.append({
-                    'type': 'video',
-                    'video': video_content,
-                    **video_kwargs
-                })
+                content.append(
+                    {"type": "video", "video": video_content, **video_kwargs}
+                )
 
         for img in images:
             image_content = None
@@ -339,42 +357,57 @@ class Qwen3VLEmbedder:
             if isinstance(img, Image.Image):
                 image_content = img
             elif isinstance(img, str):
-                image_content = img if img.startswith(
-                    ('http://', 'https://')) else 'file://' + img
+                image_content = (
+                    img
+                    if img.startswith(("http://", "https://"))
+                    else "file://" + img
+                )
             else:
                 raise TypeError(f"Unrecognized image type: {type(img)}")
 
             if image_content:
-                content.append({
-                    'type': 'image',
-                    'image': image_content,
-                    "min_pixels": self.min_pixels,
-                    "max_pixels": self.max_pixels
-                })
+                content.append(
+                    {
+                        "type": "image",
+                        "image": image_content,
+                        "min_pixels": self.min_pixels,
+                        "max_pixels": self.max_pixels,
+                    }
+                )
 
         for txt in texts:
-            content.append({'type': 'text', 'text': txt})
+            content.append({"type": "text", "text": txt})
 
         return conversation
 
-    def _preprocess_inputs(self, conversations: List[List[Dict]]) -> Dict[str, torch.Tensor]:
+    def _preprocess_inputs(
+        self, conversations: List[List[Dict]]
+    ) -> Dict[str, torch.Tensor]:
         text = self.processor.apply_chat_template(
             conversations, add_generation_prompt=True, tokenize=False
         )
 
         try:
             images, video_inputs, video_kwargs = process_vision_info(
-                conversations, image_patch_size=16,
-                return_video_metadata=True, return_video_kwargs=True
+                conversations,
+                image_patch_size=16,
+                return_video_metadata=True,
+                return_video_kwargs=True,
             )
         except Exception as e:
             logger.error(f"Error in processing vision info: {e}")
             images = None
             video_inputs = None
-            video_kwargs = {'do_sample_frames': False}
+            video_kwargs = {"do_sample_frames": False}
             text = self.processor.apply_chat_template(
-                [{'role': 'user', 'content': [{'type': 'text', 'text': 'NULL'}]}],
-                add_generation_prompt=True, tokenize=False
+                [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "NULL"}],
+                    }
+                ],
+                add_generation_prompt=True,
+                tokenize=False,
             )
 
         if video_inputs is not None:
@@ -385,21 +418,32 @@ class Qwen3VLEmbedder:
             videos, video_metadata = None, None
 
         inputs = self.processor(
-            text=text, images=images, videos=videos, video_metadata=video_metadata,
-            truncation=True, max_length=self.max_length, padding=True,
-            do_resize=False, return_tensors='pt', **video_kwargs
+            text=text,
+            images=images,
+            videos=videos,
+            video_metadata=video_metadata,
+            truncation=True,
+            max_length=self.max_length,
+            padding=True,
+            do_resize=False,
+            return_tensors="pt",
+            **video_kwargs,
         )
         return inputs
 
     @staticmethod
-    def _pooling_last(hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def _pooling_last(
+        hidden_state: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
         flipped_tensor = attention_mask.flip(dims=[1])
         last_one_positions = flipped_tensor.argmax(dim=1)
         col = attention_mask.shape[1] - last_one_positions - 1
         row = torch.arange(hidden_state.shape[0], device=hidden_state.device)
         return hidden_state[row, col]
 
-    def process(self, inputs: List[Dict[str, Any]], normalize: bool = True) -> torch.Tensor:
+    def process(
+        self, inputs: List[Dict[str, Any]], normalize: bool = True
+    ) -> torch.Tensor:
         """Process inputs to generate normalized embeddings.
 
         Args:
@@ -409,14 +453,17 @@ class Qwen3VLEmbedder:
         Returns:
             Tensor of shape (batch_size, hidden_dim) containing embeddings
         """
-        conversations = [self.format_model_input(
-            text=ele.get('text'),
-            image=ele.get('image'),
-            video=ele.get('video'),
-            instruction=ele.get('instruction'),
-            fps=ele.get('fps'),
-            max_frames=ele.get('max_frames')
-        ) for ele in inputs]
+        conversations = [
+            self.format_model_input(
+                text=ele.get("text"),
+                image=ele.get("image"),
+                video=ele.get("video"),
+                instruction=ele.get("instruction"),
+                fps=ele.get("fps"),
+                max_frames=ele.get("max_frames"),
+            )
+            for ele in inputs
+        ]
 
         processed_inputs = self._preprocess_inputs(conversations)
         processed_inputs = {
@@ -425,7 +472,8 @@ class Qwen3VLEmbedder:
 
         outputs = self.forward(processed_inputs)
         embeddings = self._pooling_last(
-            outputs['last_hidden_state'], outputs['attention_mask'])
+            outputs["last_hidden_state"], outputs["attention_mask"]
+        )
 
         if normalize:
             embeddings = F.normalize(embeddings, p=2, dim=-1)

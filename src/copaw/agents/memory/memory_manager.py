@@ -8,6 +8,7 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+
 import asyncio
 import logging
 import os
@@ -365,9 +366,7 @@ class MemoryManager(ReMeLight):
             List of embedding vectors
         """
         if self._local_embedder:
-            return self._local_embedder.encode_text(
-                texts
-            )
+            return self._local_embedder.encode_text(texts)
         # Fall back to parent class (remote API)
         if self.embedding_model:
             return self.embedding_model.encode(texts)

@@ -5,6 +5,7 @@ These tests verify the public API of LocalEmbedder without testing
 internal implementation. Only tests the public contract:
 encode(), encode_text(), get_model_info().
 """
+
 from __future__ import annotations
 
 import pytest

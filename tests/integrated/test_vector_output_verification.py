@@ -4,10 +4,10 @@
 These tests verify that the embedding models produce correct vector outputs
 without testing internal implementation details.
 """
+
 from __future__ import annotations
 
 import pytest
-
 
 # Mark all tests in this module as slow integration tests
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -83,9 +83,7 @@ class TestVectorSearchIntegration:
     Verifies that enabling local embedding configures vector search correctly.
     """
 
-    def test_vector_search_enabled_with_config_update(
-        self, running_app
-    ):
+    def test_vector_search_enabled_with_config_update(self, running_app):
         """Test vector search enabled when local embedding configured."""
         client = running_app
 
