@@ -84,14 +84,14 @@ function toDisplayUrl(url: string | undefined): string {
 }
 
 /** Map backend message content to request card content (text + image + file). */
-function contentToRequestParts(content: unknown): Array<Record<string, unknown>> {
+function contentToRequestParts(
+  content: unknown,
+): Array<Record<string, unknown>> {
   if (typeof content === "string") {
     return [{ type: "text", text: content, status: "created" }];
   }
   if (!Array.isArray(content)) {
-    return [
-      { type: "text", text: String(content || ""), status: "created" },
-    ];
+    return [{ type: "text", text: String(content || ""), status: "created" }];
   }
   const parts: Array<Record<string, unknown>> = [];
   for (const c of content as ContentItem[]) {
@@ -107,7 +107,7 @@ function contentToRequestParts(content: unknown): Array<Record<string, unknown>>
       parts.push({
         type: "file",
         file_url: toDisplayUrl((c.file_url as string) || (c.file_id as string)),
-        file_name: (c.file_name as string) || "file",
+        file_name: (c.filename as string) || (c.file_name as string) || "file",
         status: "created",
       });
     }

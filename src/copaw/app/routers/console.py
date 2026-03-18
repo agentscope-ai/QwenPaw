@@ -79,7 +79,6 @@ async def post_console_chat(
     """Stream agent response. Run continues in background after disconnect.
     Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
     """
-    logger.warning(f"request_data: {request_data}")
     workspace = await get_agent_for_request(request)
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
@@ -159,13 +158,14 @@ async def post_console_chat_stop(
     workspace = await get_agent_for_request(request)
     stopped = await workspace.task_tracker.request_stop(chat_id)
     return {"stopped": stopped}
+
+
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
 async def post_console_upload(
     request: Request,
     file: UploadFile = File(..., description="File to attach"),
 ) -> dict:
     """Save to console channel media_dir."""
-    from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
     console_channel = await workspace.channel_manager.get_channel("console")
@@ -200,7 +200,6 @@ async def get_console_file(
     filename: str,
 ):
     """Serve file from console channel media_dir."""
-    from ..agent_context import get_agent_for_request
 
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")

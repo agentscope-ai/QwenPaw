@@ -20,6 +20,9 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import "./index.module.less";
+import { Tooltip } from "antd";
+import { IconButton } from "@agentscope-ai/design";
+import { SparkAttachmentLine } from "@agentscope-ai/icons";
 
 type CopyableContent = {
   type?: string;
@@ -417,26 +420,30 @@ export default function ChatPage() {
       const rewrittenInput =
         lastMsg?.content && Array.isArray(lastMsg.content)
           ? [
-            {
-              ...lastMsg,
-              content: lastMsg.content.map((part: any) => {
-                const p = { ...part };
-                const toStoredName = (v: string) => {
-                  const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-                  if (m1) return m1[1];
-                  const m2 = v.match(/^[^/]+\/(.+)$/);
-                  if (m2) return m2[1];
-                  return v;
-                };
-                if (p.type === "image" && typeof p.image_url === "string") p.image_url = toStoredName(p.image_url);
-                if (p.type === "file" && typeof p.file_url === "string") p.file_url = toStoredName(p.file_url);
-                if (p.type === "audio" && typeof p.audio_url === "string") p["data"] = toStoredName(p.audio_url);
-                if (p.type === "video" && typeof p.video_url === "string") p.video_url = toStoredName(p.video_url);
+              {
+                ...lastMsg,
+                content: lastMsg.content.map((part: any) => {
+                  const p = { ...part };
+                  const toStoredName = (v: string) => {
+                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                    if (m1) return m1[1];
+                    const m2 = v.match(/^[^/]+\/(.+)$/);
+                    if (m2) return m2[1];
+                    return v;
+                  };
+                  if (p.type === "image" && typeof p.image_url === "string")
+                    p.image_url = toStoredName(p.image_url);
+                  if (p.type === "file" && typeof p.file_url === "string")
+                    p.file_url = toStoredName(p.file_url);
+                  if (p.type === "audio" && typeof p.audio_url === "string")
+                    p["data"] = toStoredName(p.audio_url);
+                  if (p.type === "video" && typeof p.video_url === "string")
+                    p.video_url = toStoredName(p.video_url);
 
-                return p;
-              }),
-            },
-          ]
+                  return p;
+                }),
+              },
+            ]
           : lastInput;
 
       const requestBody = {
@@ -486,8 +493,17 @@ export default function ChatPage() {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         attachments: {
-          accept:
-            "*/*",
+          trigger: function (props: any) {
+            return (
+              <Tooltip title={t("chat.attachments.tooltip")}>
+                <IconButton
+                  disabled={props?.disabled}
+                  icon={<SparkAttachmentLine />}
+                  bordered={false}
+                />
+              </Tooltip>
+            );
+          },
           customRequest: async (options: {
             file: File;
             onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
@@ -495,7 +511,20 @@ export default function ChatPage() {
             onProgress?: (e: { percent?: number }) => void;
           }) => {
             try {
-              console.log('options.file', options.file);
+              console.log("options.file", options.file);
+
+              // Check file size limit (10MB)
+              const file = options.file as File;
+              const isLt10M = file.size / 1024 / 1024 < 10;
+              if (!isLt10M) {
+                message.error(
+                  t("chat.attachments.fileSizeLimit", {
+                    defaultValue: "单文件不超过10MB",
+                  }),
+                );
+                return options.onError?.(new Error("File size exceeds 10MB"));
+              }
+
               options.onProgress?.({ percent: 0 });
               const res = await chatApi.uploadFile(options.file);
               options.onProgress?.({ percent: 100 });

@@ -25,7 +25,6 @@ from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
-    AudioContent,
     BaseChannel,
     ContentType,
     FileContent,
@@ -34,7 +33,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
     VideoContent,
-    TextContent
+    TextContent,
 )
 
 
@@ -194,29 +193,41 @@ class ConsoleChannel(BaseChannel):
             return content_parts
 
         def resolve_one(part: Any) -> Optional[OutgoingContentPart]:
-            type = getattr(part, "type", None)
-            if type == ContentType.IMAGE:
+            content_type = getattr(part, "type", None)
+            if content_type == ContentType.IMAGE:
                 url = getattr(part, "image_url", None)
                 if url:
-                    return ImageContent(type=ContentType.IMAGE,
-                                        image_url=str(self._media_dir / url))
-            elif type == ContentType.VIDEO:
+                    return ImageContent(
+                        type=ContentType.IMAGE,
+                        image_url=str(self._media_dir / url),
+                    )
+            elif content_type == ContentType.VIDEO:
                 url = getattr(part, "video_url", None)
                 if url:
-                    return VideoContent(type=ContentType.VIDEO,
-                                video_url=str(self._media_dir / url))
-            elif type == ContentType.AUDIO:
-                url = getattr(part, "data", None)
+                    return VideoContent(
+                        type=ContentType.VIDEO,
+                        video_url=str(self._media_dir / url),
+                    )
+            elif content_type == ContentType.AUDIO:
+                url = getattr(part, "data", None) or getattr(
+                    part, "audio_url", None
+                )
                 if url:
-                    # Todo: support local file
-                    return FileContent(type=ContentType.FILE,
-                                        file_url=str(self._media_dir / url))
-            elif type == ContentType.FILE:
+                    # Todo: support local audio file
+                    return FileContent(
+                        type=ContentType.FILE,
+                        filename=getattr(part, "filename", None) or url,
+                        file_url=str(self._media_dir / url),
+                    )
+            elif content_type == ContentType.FILE:
                 url = getattr(part, "file_url", None)
                 if url:
-                    return FileContent(type=ContentType.FILE,
-                                        file_url=str(self._media_dir / url))
-            elif type == ContentType.TEXT:
+                    return FileContent(
+                        type=ContentType.FILE,
+                        filename=getattr(part, "filename", None) or url,
+                        file_url=str(self._media_dir / url),
+                    )
+            elif content_type == ContentType.TEXT:
                 return TextContent(type=ContentType.TEXT, text=part.text)
             return part
 
@@ -238,8 +249,6 @@ class ConsoleChannel(BaseChannel):
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
         content_parts = self._resolve_console_upload_refs(content_parts)
-
-        logger.error(f"content_parts: {content_parts}")
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
         request = self.build_agent_request_from_user_content(

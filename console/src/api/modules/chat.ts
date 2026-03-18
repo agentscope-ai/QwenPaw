@@ -60,7 +60,9 @@ export const chatApi = {
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       throw new Error(
-        `Upload failed: ${response.status} ${response.statusText}${text ? ` - ${text}` : ""}`,
+        `Upload failed: ${response.status} ${response.statusText}${
+          text ? ` - ${text}` : ""
+        }`,
       );
     }
     return response.json();
@@ -69,9 +71,13 @@ export const chatApi = {
   /** Build full API URL for a console file. Backend returns filename only; agent_id from header/context (selectedAgent). */
   fileUrl: (filename: string): string => {
     if (!filename) return "";
-    if (filename.startsWith("http://") || filename.startsWith("https://")) return filename;
+    if (filename.startsWith("http://") || filename.startsWith("https://"))
+      return filename;
     const agentId = getSelectedAgentId() || "default";
-    const path = `${CONSOLE_FILES_PREFIX}/${agentId}/${filename.replace(/^\/+/, "")}`;
+    const path = `${CONSOLE_FILES_PREFIX}/${agentId}/${filename.replace(
+      /^\/+/,
+      "",
+    )}`;
     return getApiUrl(path);
   },
   listChats: (params?: { user_id?: string; channel?: string }) => {
