@@ -8,22 +8,19 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
-import asyncio
 import logging
 import os
 import platform
-from typing import TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
+
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_copaw_token_counter
-
-if TYPE_CHECKING:
-    from copaw.config.config import AgentProfileConfig
+from copaw.config.config import AgentProfileConfig, load_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +33,7 @@ try:
 except ImportError as e:
     _REME_AVAILABLE = False
     logger.warning(f"reme package not installed. {e}")
+
 
     class ReMeLight:  # type: ignore
         """Placeholder when reme is not available."""
@@ -55,9 +53,9 @@ class MemoryManager(ReMeLight):
     """
 
     def __init__(
-        self,
-        working_dir: str,
-        agent_config: "AgentProfileConfig",
+            self,
+            working_dir: str,
+            agent_id: str,
     ):
         """Initialize MemoryManager with ReMeLight configuration.
 
@@ -88,11 +86,7 @@ class MemoryManager(ReMeLight):
             EMBEDDING_MODEL_NAME are configured.
         """
         # Extract configuration from agent_config
-        running_config = agent_config.running
-        self._max_input_length = running_config.max_input_length
-        self._memory_compact_ratio = running_config.memory_compact_ratio
-        self._memory_reserve_ratio = running_config.memory_reserve_ratio
-        self._language = agent_config.language
+        self.agent_id: str = agent_id
 
         if not _REME_AVAILABLE:
             logger.warning(
@@ -105,7 +99,7 @@ class MemoryManager(ReMeLight):
         embedding_model_name = self._safe_str("EMBEDDING_MODEL_NAME", "")
         embedding_dimensions = self._safe_int("EMBEDDING_DIMENSIONS", 1024)
         embedding_cache_enabled = (
-            self._safe_str("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
+                self._safe_str("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
         )
         embedding_max_cache_size = self._safe_int(
             "EMBEDDING_MAX_CACHE_SIZE",
@@ -123,9 +117,9 @@ class MemoryManager(ReMeLight):
         # Determine if vector search should be enabled based on configuration
         # Vector search requires either an API key or a local model name
         vector_enabled = (
-            bool(embedding_api_key)
-            and bool(embedding_model_name)
-            and bool(embedding_base_url)
+                bool(embedding_api_key)
+                and bool(embedding_model_name)
+                and bool(embedding_base_url)
         )
         if vector_enabled:
             logger.info(
@@ -188,7 +182,10 @@ class MemoryManager(ReMeLight):
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
         self.token_counter = _get_copaw_token_counter(agent_config)
-        self._start_lock = asyncio.Lock()
+
+    @property
+    def agent_config(self) -> AgentProfileConfig:
+        return load_agent_config(self.agent_id)
 
     @staticmethod
     def _safe_str(key: str, default: str) -> str:
@@ -251,10 +248,10 @@ class MemoryManager(ReMeLight):
                 self.formatter = formatter
 
     async def compact_memory(
-        self,
-        messages: list[Msg],
-        previous_summary: str = "",
-        **_kwargs,
+            self,
+            messages: list[Msg],
+            previous_summary: str = "",
+            **_kwargs,
     ) -> str:
         """Compact a list of messages into a condensed summary.
 
@@ -306,18 +303,20 @@ class MemoryManager(ReMeLight):
         )
 
     async def memory_search(
-        self,
-        query: str,
-        max_results: int = 5,
-        min_score: float = 0.1,
+            self,
+            query: str,
+            max_results: int = 5,
+            min_score: float = 0.1,
     ) -> ToolResponse:
         if not self._started:
-            async with self._start_lock:
-                if not self._started:
-                    logger.warning(
-                        "ReMe is not started, report github issue!",
-                    )
-                    await self.start()
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="ReMe is not started, report github issue!",
+                    ),
+                ],
+            )
 
         return await super().memory_search(
             query=query,
