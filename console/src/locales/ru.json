@@ -640,7 +640,12 @@
     "fileUploading": "Загрузка и обработка файла: {{name}}",
     "fileUploadSuccess": "Файл загружен и отправлен на обработку: {{name}}",
     "fileUploadFailed": "Не удалось загрузить файл",
-    "fileTooLarge": "Размер файла превышает лимит 100 МБ. Текущий файл: {{size}} МБ"
+    "fileTooLarge": "Размер файла превышает лимит 100 МБ. Текущий файл: {{size}} МБ",
+    "uploadStatusUploading": "Загрузка {{name}}",
+    "uploadStatusUploaded": "{{name}} загружен. Ожидание обработки",
+    "uploadStatusProcessing": "Обработка {{name}}",
+    "uploadStatusProcessingSlow": "{{name}} всё ещё обрабатывается. Большие файлы могут занять некоторое время",
+    "uploadStatusSuccess": "Обработка {{name}} завершена"
   },
   "security": {
     "title": "Безопасность",

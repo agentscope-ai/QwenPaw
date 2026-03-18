@@ -683,7 +683,12 @@
     "fileUploading": "Uploading and processing file: {{name}}",
     "fileUploadSuccess": "File uploaded and submitted for processing: {{name}}",
     "fileUploadFailed": "File upload failed",
-    "fileTooLarge": "File exceeds the 100MB limit. Current file: {{size}}MB"
+    "fileTooLarge": "File exceeds the 100MB limit. Current file: {{size}}MB",
+    "uploadStatusUploading": "Uploading {{name}}",
+    "uploadStatusUploaded": "Uploaded {{name}}. Waiting for processing",
+    "uploadStatusProcessing": "Processing {{name}}",
+    "uploadStatusProcessingSlow": "Still processing {{name}}. Large files can take a while",
+    "uploadStatusSuccess": "Finished processing {{name}}"
   },
   "security": {
     "title": "Security",

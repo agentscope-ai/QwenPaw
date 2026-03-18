@@ -21,6 +21,18 @@ import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import {
+  createUploadStatusState,
+  markProcessingSlow,
+  markProcessingStarted,
+  markUploadCompleted,
+  markUploadFailed,
+  markUploadSucceeded,
+  shouldShowUploadToast,
+  type UploadStatusMessages,
+  type UploadStatusPhase,
+  type UploadStatusState,
+} from "./uploadStatus";
 import styles from "./index.module.less";
 
 type CopyableContent = {
@@ -47,7 +59,9 @@ interface CustomWindow extends Window {
 declare const window: CustomWindow;
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
-const FILE_UPLOAD_MESSAGE_KEY = "chat-file-upload";
+const SLOW_PROCESSING_DELAY_MS = 8000;
+const STATUS_RESET_DELAY_MS = 4000;
+const ERROR_STATUS_RESET_DELAY_MS = 8000;
 
 function getSelectedAgentId(): string | null {
   try {
@@ -92,13 +106,21 @@ function findSenderActionsMountNode(root: ParentNode = document): HTMLElement | 
   return fuzzyMatch instanceof HTMLElement ? fuzzyMatch : null;
 }
 
-async function consumeEventStream(response: Response): Promise<void> {
+type EventStreamCallbacks = {
+  onFirstEvent?: () => void;
+};
+
+async function consumeEventStream(
+  response: Response,
+  callbacks: EventStreamCallbacks = {},
+): Promise<void> {
   if (!response.body) return;
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let streamError: string | null = null;
+  let hasSeenEvent = false;
 
   const processChunk = (chunk: string) => {
     const events = chunk.split("\n\n");
@@ -115,6 +137,11 @@ async function consumeEventStream(response: Response): Promise<void> {
 
         const payload = line.slice(5).trim();
         if (!payload) continue;
+
+        if (!hasSeenEvent) {
+          hasSeenEvent = true;
+          callbacks.onFirstEvent?.();
+        }
 
         try {
           const parsed = JSON.parse(payload);
@@ -213,6 +240,17 @@ function buildModelError(): Response {
   );
 }
 
+function getUploadStatusTone(phase: UploadStatusPhase): string {
+  switch (phase) {
+    case "success":
+      return styles.uploadStatusSuccess;
+    case "error":
+      return styles.uploadStatusError;
+    default:
+      return styles.uploadStatusInfo;
+  }
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -226,9 +264,12 @@ export default function ChatPage() {
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatusState | null>(null);
   const [uploadButtonMountNode, setUploadButtonMountNode] =
     useState<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processingSlowTimerRef = useRef<number | null>(null);
+  const clearStatusTimerRef = useRef<number | null>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -284,6 +325,23 @@ export default function ChatPage() {
       document.removeEventListener("keypress", handleKeyPress, true);
     };
   }, []);
+
+  const clearUploadStatusTimers = useCallback(() => {
+    if (processingSlowTimerRef.current !== null) {
+      window.clearTimeout(processingSlowTimerRef.current);
+      processingSlowTimerRef.current = null;
+    }
+    if (clearStatusTimerRef.current !== null) {
+      window.clearTimeout(clearStatusTimerRef.current);
+      clearStatusTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearUploadStatusTimers();
+    };
+  }, [clearUploadStatusTimers]);
 
   useEffect(() => {
     let mountNode: HTMLSpanElement | null = null;
@@ -473,6 +531,30 @@ export default function ChatPage() {
     return newSessionId;
   }, []);
 
+  const uploadStatusMessages = useMemo<UploadStatusMessages>(
+    () => ({
+      uploading: (name) => t("chat.uploadStatusUploading", { name }),
+      uploaded: (name) => t("chat.uploadStatusUploaded", { name }),
+      processing: (name) => t("chat.uploadStatusProcessing", { name }),
+      processingSlow: (name) => t("chat.uploadStatusProcessingSlow", { name }),
+      success: (name) => t("chat.uploadStatusSuccess", { name }),
+    }),
+    [t],
+  );
+
+  const scheduleStatusReset = useCallback(
+    (delayMs: number) => {
+      if (clearStatusTimerRef.current !== null) {
+        window.clearTimeout(clearStatusTimerRef.current);
+      }
+      clearStatusTimerRef.current = window.setTimeout(() => {
+        setUploadStatus(null);
+        clearStatusTimerRef.current = null;
+      }, delayMs);
+    },
+    [],
+  );
+
   const handleFileUpload = useCallback(
     async (file: File) => {
       if (!(await ensureModelConfigured())) {
@@ -494,13 +576,10 @@ export default function ChatPage() {
         return;
       }
 
+      clearUploadStatusTimers();
       setIsUploadingFile(true);
-      message.open({
-        type: "loading",
-        content: t("chat.fileUploading", { name: file.name }),
-        key: FILE_UPLOAD_MESSAGE_KEY,
-        duration: 0,
-      });
+      const initialStatus = createUploadStatusState(file.name, uploadStatusMessages);
+      setUploadStatus(initialStatus);
 
       try {
         const sessionId = await ensureActiveSessionId();
@@ -526,23 +605,73 @@ export default function ChatPage() {
           );
         }
 
-        await consumeEventStream(response);
+        setUploadStatus((current) =>
+          markUploadCompleted(
+            current ?? createUploadStatusState(file.name, uploadStatusMessages),
+            uploadStatusMessages,
+          ),
+        );
+
+        processingSlowTimerRef.current = window.setTimeout(() => {
+          setUploadStatus((current) => {
+            if (!current || !current.busy || current.phase !== "processing") {
+              return current;
+            }
+            return markProcessingSlow(current, uploadStatusMessages);
+          });
+          processingSlowTimerRef.current = null;
+        }, SLOW_PROCESSING_DELAY_MS);
+
+        await consumeEventStream(response, {
+          onFirstEvent: () => {
+            setUploadStatus((current) =>
+              markProcessingStarted(
+                current ??
+                  markUploadCompleted(
+                    createUploadStatusState(file.name, uploadStatusMessages),
+                    uploadStatusMessages,
+                  ),
+                uploadStatusMessages,
+              ),
+            );
+          },
+        });
+
+        clearUploadStatusTimers();
+        setUploadStatus((current) =>
+          markUploadSucceeded(
+            current ??
+              markProcessingStarted(
+                markUploadCompleted(
+                  createUploadStatusState(file.name, uploadStatusMessages),
+                  uploadStatusMessages,
+                ),
+                uploadStatusMessages,
+              ),
+            uploadStatusMessages,
+          ),
+        );
+        scheduleStatusReset(STATUS_RESET_DELAY_MS);
         await sessionApi.updateSession({ id: sessionId });
         await sessionApi.getSession(sessionId);
         setRefreshKey((prev) => prev + 1);
-
-        message.success({
-          content: t("chat.fileUploadSuccess", { name: file.name }),
-          key: FILE_UPLOAD_MESSAGE_KEY,
-        });
       } catch (error) {
         console.error("File upload failed:", error);
         const errorMessage =
           error instanceof Error ? error.message : t("chat.fileUploadFailed");
-        message.error({
-          content: `${t("chat.fileUploadFailed")}: ${errorMessage}`,
-          key: FILE_UPLOAD_MESSAGE_KEY,
-        });
+        clearUploadStatusTimers();
+        setUploadStatus((current) =>
+          markUploadFailed(
+            current ?? createUploadStatusState(file.name, uploadStatusMessages),
+            errorMessage,
+          ),
+        );
+        scheduleStatusReset(ERROR_STATUS_RESET_DELAY_MS);
+        if (shouldShowUploadToast("error")) {
+          message.error({
+            content: `${t("chat.fileUploadFailed")}: ${errorMessage}`,
+          });
+        }
       } finally {
         setIsUploadingFile(false);
         if (fileInputRef.current) {
@@ -550,7 +679,14 @@ export default function ChatPage() {
         }
       }
     },
-    [ensureActiveSessionId, ensureModelConfigured, t],
+    [
+      clearUploadStatusTimers,
+      ensureActiveSessionId,
+      ensureModelConfigured,
+      scheduleStatusReset,
+      t,
+      uploadStatusMessages,
+    ],
   );
 
   const handleFileInputChange = useCallback(
@@ -655,6 +791,20 @@ export default function ChatPage() {
     <div
       className={showModelPrompt ? styles.chatDisabledOverlay : styles.chatPage}
     >
+      {uploadStatus ? (
+        <div
+          className={`${styles.uploadStatusBanner} ${getUploadStatusTone(uploadStatus.phase)}`}
+          aria-live="polite"
+        >
+          <span
+            className={`${styles.uploadStatusDot} ${
+              uploadStatus.busy ? styles.uploadStatusDotBusy : ""
+            }`}
+          />
+          <span className={styles.uploadStatusText}>{uploadStatus.label}</span>
+        </div>
+      ) : null}
+
       <AgentScopeRuntimeWebUI key={refreshKey} options={options} />
 
       {uploadButtonMountNode
