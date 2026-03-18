@@ -62,7 +62,17 @@ class CronManager:
 
             self._scheduler.start()
             for job in jobs_file.jobs:
-                await self._register_or_update(job)
+                try:
+                    await self._register_or_update(job)
+                except Exception as e:  # pylint: disable=broad-except
+                    self._mark_job_error(job.id, e)
+                    logger.warning(
+                        "cron startup: skipping invalid persisted job "
+                        "job_id=%s name=%s error=%s",
+                        job.id,
+                        job.name,
+                        repr(e),
+                    )
 
             # Heartbeat: one interval job when enabled in config
             hb = get_heartbeat_config(self._agent_id)
@@ -103,9 +113,10 @@ class CronManager:
 
     async def create_or_replace_job(self, spec: CronJobSpec) -> None:
         async with self._lock:
+            trigger = self._build_trigger(spec)
             await self._repo.upsert_job(spec)
             if self._started:
-                await self._register_or_update(spec)
+                await self._register_or_update(spec, trigger=trigger)
 
     async def delete_job(self, job_id: str) -> bool:
         async with self._lock:
@@ -212,13 +223,25 @@ class CronManager:
 
     # ----- internal -----
 
-    async def _register_or_update(self, spec: CronJobSpec) -> None:
+    def _mark_job_error(self, job_id: str, error: Exception) -> None:
+        st = self._states.get(job_id, CronJobState())
+        st.next_run_at = None
+        st.last_status = "error"
+        st.last_error = repr(error)
+        self._states[job_id] = st
+
+    async def _register_or_update(
+        self,
+        spec: CronJobSpec,
+        *,
+        trigger: CronTrigger | None = None,
+    ) -> None:
         # per-job concurrency semaphore
         self._rt[spec.id] = _Runtime(
             sem=asyncio.Semaphore(spec.runtime.max_concurrency),
         )
 
-        trigger = self._build_trigger(spec)
+        trigger = trigger or self._build_trigger(spec)
 
         # replace existing
         if self._scheduler.get_job(spec.id):
