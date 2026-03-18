@@ -739,7 +739,7 @@ class BaseChannel(ABC):
             ):
                 body += f"\n[File: {m.file_url or m.file_id}]"
             elif t == ContentType.AUDIO and getattr(m, "data", None):
-                body += "\n[Audio]"
+                body += f"\n[Audio: {m.data}]"
         if body.strip():
             logger.debug(
                 f"channel send_content_parts: to_handle={to_handle} "

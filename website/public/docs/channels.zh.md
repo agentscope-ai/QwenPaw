@@ -431,6 +431,23 @@
 
 ![1](https://img.alicdn.com/imgextra/i1/O1CN01kK9tSJ1MHpZmGR2o9_!!6000000001410-2-tps-4082-2126.png)
 
+### 多媒体支持
+
+QQ 频道支持图片、视频、语音、文件的发送（仅限单聊 C2C 和群聊场景）。
+
+**接收**：接收图片已支持。接收视频/语音/文件尚未完整验证（🚧）。
+
+**发送**：Agent 回复中的多媒体内容会通过 [QQ 富媒体 API](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html) 发送给用户：
+
+| 类型 | 支持格式             | 说明                                      |
+| ---- | -------------------- | ----------------------------------------- |
+| 图片 | png、jpg             | 其他格式（svg、gif 等）自动降级为文件发送 |
+| 视频 | mp4                  | —                                         |
+| 语音 | silk、wav、mp3、flac | —                                         |
+| 文件 | 任意格式             | 通过 base64 上传，携带原始文件名          |
+
+> **注意**：富媒体发送仅支持单聊（C2C）和群聊，频道（guild）消息暂不支持。本地文件路径（`file://` 或绝对路径）和远程 HTTP URL 均可直接使用。
+
 ---
 
 ## 企业微信
@@ -749,7 +766,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | 飞书       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
-| QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| QQ         | ✓        | ✓        | 🚧       | 🚧       | 🚧       | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
@@ -762,7 +779,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **飞书**：WebSocket 长连接收消息，Open API 发送；支持文本 / 图片 / 文件收发；群聊时在消息 metadata 中带 `feishu_chat_id`、`feishu_message_id` 便于下游去重与群上下文。
 - **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
-- **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
+- **QQ**：支持单聊（C2C）和群聊场景下图片（png/jpg）、视频（mp4）、语音（silk/wav/mp3/flac）、文件的发送；接收图片已支持。其他图片格式（svg、gif 等）自动降级为文件类型发送。频道（guild）消息暂不支持富媒体发送。接收视频/语音/文件尚未完整验证（🚧）。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。

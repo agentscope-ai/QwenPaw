@@ -435,6 +435,23 @@ You can also fill them in the Console UI.
 
 ![1](https://img.alicdn.com/imgextra/i1/O1CN013zS1dF1hLal9IM4rc_!!6000000004261-2-tps-4082-2126.png)
 
+### Rich media support
+
+QQ channel supports sending image, video, audio, and files (C2C and group chat only).
+
+**Receiving**: Images sent by users are supported. Receiving video / audio / file is 🚧 (not yet verified).
+
+**Sending**: Multimodal content in Agent replies is delivered via the [QQ Rich Media API](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html):
+
+| Type  | Supported formats    | Notes                                                 |
+| ----- | -------------------- | ----------------------------------------------------- |
+| Image | png, jpg             | Other formats (svg, gif, etc.) fall back to file type |
+| Video | mp4                  | —                                                     |
+| Audio | silk, wav, mp3, flac | —                                                     |
+| File  | any                  | Uploaded as base64 with original filename             |
+
+> **Note**: Rich media sending is only available in C2C and group chat; guild messages are not supported. Both local file paths (`file://` or absolute path) and remote HTTP URLs are accepted.
+
 ---
 
 ## WeCom (WeChat Work)
@@ -759,7 +776,7 @@ done). **✗** = not supported (not possible on this channel).
 | Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
-| QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| QQ         | ✓         | ✓          | 🚧         | 🚧         | 🚧        | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
@@ -777,8 +794,11 @@ Notes:
   agent; sending real media is 🚧 (currently link-only in reply).
 - **iMessage**: imsg + database polling; text only; attachments are ✗ (not
   possible on this channel).
-- **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
-  currently text + link-only.
+- **QQ**: Receiving images is supported. Sending image (png/jpg), video (mp4),
+  audio (silk/wav/mp3/flac), and files of any format are supported in C2C and
+  group chat. Other image formats (svg, gif, etc.) fall back to file type
+  automatically. Guild messages do not support rich media sending. Receiving
+  video / audio / file is 🚧 (not yet verified).
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
