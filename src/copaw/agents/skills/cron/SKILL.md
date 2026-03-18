@@ -18,20 +18,20 @@ copaw cron list
 copaw cron list --agent-id abc123
 
 # 查看任务详情
-copaw cron get <job_id>
+copaw cron get <job_id> --agent-id <agent_id>
 
 # 查看任务状态
-copaw cron state <job_id>
+copaw cron state <job_id> --agent-id <agent_id>
 
 # 删除任务
-copaw cron delete <job_id>
+copaw cron delete <job_id> --agent-id <agent_id>
 
 # 暂停/恢复任务
-copaw cron pause <job_id>
-copaw cron resume <job_id>
+copaw cron pause <job_id> --agent-id <agent_id>
+copaw cron resume <job_id> --agent-id <agent_id>
 
 # 立即执行一次
-copaw cron run <job_id>
+copaw cron run <job_id> --agent-id <agent_id>
 ```
 
 **注意**：所有命令都支持 `--agent-id` 参数，默认为 `default`。如果需要操作特定 agent 的任务，请指定对应的 agent ID。
