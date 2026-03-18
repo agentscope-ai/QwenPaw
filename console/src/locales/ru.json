@@ -524,6 +524,7 @@
     "testConnectionError": "Произошла ошибка при проверке подключения",
     "discoverModels": "Обнаружить модели",
     "discoverModelsFailed": "Не удалось обнаружить модели",
+    "ollamaFetchModelsFailed": "Не удалось получить список моделей Ollama. Проверьте подробности ошибки.",
     "modelTestFailed": "Проверка модели не пройдена, проверьте корректность ID модели",
     "modelTestFailedConfirm": "Тест подключения модели не пройден: {{message}}. Всё равно добавить эту модель?",
     "autoDiscoveredAndAdded": "Автоматически обнаружено {{count}} моделей и добавлено {{added}} новых",

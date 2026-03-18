@@ -567,6 +567,7 @@
     "testConnectionError": "An error occurred while testing connection",
     "discoverModels": "Discover Models",
     "discoverModelsFailed": "Failed to discover models",
+    "ollamaFetchModelsFailed": "Failed to fetch Ollama models. Please check the error details.",
     "modelTestFailed": "Model validation failed, please check if the model ID is correct",
     "modelTestFailedConfirm": "Model connection test failed: {{message}}. Do you still want to add this model?",
     "autoDiscoveredAndAdded": "Auto-discovered {{count}} models and added {{added}} new model(s)",

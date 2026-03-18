@@ -519,6 +519,7 @@
     "testConnectionError": "接続テスト中にエラーが発生しました",
     "discoverModels": "モデルを検出",
     "discoverModelsFailed": "モデルの検出に失敗しました",
+    "ollamaFetchModelsFailed": "Ollamaモデルの取得に失敗しました。エラーの詳細を確認してください。",
     "modelTestFailed": "モデルの検証に失敗しました。モデルIDが正しいか確認してください",
     "modelTestFailedConfirm": "モデルの接続テストに失敗しました: {{message}}。このモデルを追加しますか？",
     "autoDiscoveredAndAdded": "{{count}} 件のモデルを自動検出し、{{added}} 件の新規モデルを追加しました",
