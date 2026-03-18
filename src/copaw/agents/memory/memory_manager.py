@@ -134,12 +134,14 @@ class MemoryManager(ReMeLight):
         if local_embedding_enabled:
             try:
                 self._local_embedder = LocalEmbedder(local_embedding_config)
-                logger.info(f"Local embedding enabled with model: {local_embedding_config.model_id}")
+                logger.info(
+                    f"Local embedding: {local_embedding_config.model_id}"
+                )
             except Exception as exc:
                 logger.error(f"Failed to initialize local embedder: {exc}")
                 local_embedding_enabled = False
 
-        # Determine if vector search should be enabled based on configuration
+        # Determine vector search based on configuration
         # Determine if vector search should be enabled based on configuration
         # Priority: local embedding > remote API > disabled
         vector_enabled = local_embedding_enabled or (
@@ -148,9 +150,9 @@ class MemoryManager(ReMeLight):
 
         if vector_enabled:
             if self._local_embedder:
-                logger.info("Vector search enabled with local embedding model.")
+                logger.info("Vector search enabled (local).")
             else:
-                logger.info("Vector search enabled with remote API.")
+                logger.info("Vector search enabled (API).")
         else:
             logger.warning(
                 "Vector search disabled. Memory search functionality "
@@ -347,25 +349,29 @@ class MemoryManager(ReMeLight):
             **kwargs: Additional keyword arguments (passed to parent)
 
         Returns:
-            The in-memory memory content with token counting support
+            In-memory memory with token counting
         """
-        return super().get_in_memory_memory(as_token_counter=self.token_counter)
+        return super().get_in_memory_memory(
+            as_token_counter=self.token_counter
+        )
 
     def encode_text(self, texts: list[str]) -> list[list[float]]:
-        """Encode texts using local embedder if available, otherwise fallback to parent.
+        """Encode texts using local embedder if available.
 
         Args:
             texts: List of text strings to encode
 
         Returns:
-            List of embedding vectors (each is a list of floats)
+            List of embedding vectors
         """
         if self._local_embedder:
-            return self._local_embedder.encode_text(texts)
+            return self._local_embedder.encode_text(
+                texts
+            )
         # Fall back to parent class (remote API)
         if self.embedding_model:
             return self.embedding_model.encode(texts)
         raise RuntimeError(
-            "No embedding provider available. "
-            "Please enable local embedding in settings or configure EMBEDDING_API_KEY."
+            "No embedding provider. "
+            "Enable local embedding or set EMBEDDING_API_KEY."
         )

@@ -36,7 +36,12 @@ from ...config.config import (
     WecomConfig,
 )
 
-from .schemas_config import HeartbeatBody, LocalEmbeddingBody, LocalEmbeddingTestResult, ModelDownloadStatus
+from .schemas_config import (
+    HeartbeatBody,
+    LocalEmbeddingBody,
+    LocalEmbeddingTestResult,
+    ModelDownloadStatus,
+)
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -460,13 +465,16 @@ async def get_local_embedding() -> LocalEmbeddingConfig:
     "/agents/local-embedding",
     response_model=LocalEmbeddingConfig,
     summary="Update local embedding config",
-    description="Update local embedding configuration (requires restart to take effect)",
+    description=(
+        "Update local embedding configuration "
+        "(requires restart to take effect)"
+    ),
 )
 async def put_local_embedding(
     body: LocalEmbeddingBody = Body(...),
 ) -> LocalEmbeddingConfig:
     """Update local embedding config.
-    
+
     Note: Changes take effect after application restart.
     """
     config = load_config()
@@ -506,12 +514,15 @@ async def put_skill_scanner(
     "/agents/local-embedding/test",
     response_model=LocalEmbeddingTestResult,
     summary="Test local embedding configuration",
-    description="Test if the configured local embedding model can be loaded and used",
+    description=(
+        "Test if the configured local embedding model can be loaded and used"
+    ),
 )
 async def test_local_embedding(
     body: LocalEmbeddingBody = Body(...),
 ) -> LocalEmbeddingTestResult:
-    """Test local embedding configuration by loading model and encoding sample text."""
+    """Test local embedding configuration by loading model and encoding
+    sample text."""
     import time
     from ...agents.memory.local_embedder import LocalEmbedder
 
@@ -522,20 +533,23 @@ async def test_local_embedding(
     try:
         start_time = time.time()
         embedder = LocalEmbedder(test_config)
-        
+
         # Try to encode a sample text
         sample_texts = ["This is a test sentence for embedding validation."]
         embeddings = embedder.encode_text(sample_texts)
-        
+
         latency_ms = (time.time() - start_time) * 1000
-        
+
         # Get model info and unload to free resources
         model_info = embedder.get_model_info()
         embedder.unload()
-        
+
         return LocalEmbeddingTestResult(
             success=True,
-            message=f"Model loaded and encoded successfully. Dimensions: {len(embeddings[0])}",
+            message=(
+                f"Model loaded and encoded successfully. "
+                f"Dimensions: {len(embeddings[0])}"
+            ),
             latency_ms=round(latency_ms, 2),
             model_info=model_info,
         )
@@ -543,12 +557,12 @@ async def test_local_embedding(
         import traceback
         error_msg = f"{type(e).__name__}: {str(e)}"
         error_detail = traceback.format_exc()
-        
+
         # Log full traceback for debugging
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Embedding test failed: {error_msg}\n{error_detail}")
-        
+
         return LocalEmbeddingTestResult(
             success=False,
             message=f"{error_msg}. Check server logs for details.",
@@ -573,7 +587,7 @@ async def download_local_embedding_model(
         test_config.enabled = True
 
         local_path = download_model_for_config(test_config)
-        
+
         return ModelDownloadStatus(
             status="completed",
             progress=100.0,
@@ -595,7 +609,7 @@ async def download_local_embedding_model(
 async def get_preset_embedding_models() -> dict:
     """Return preset embedding models information."""
     from ...agents.memory.local_embedder import PRESET_MODELS
-    
+
     return {
         "multimodal": [
             {"id": k, **v}

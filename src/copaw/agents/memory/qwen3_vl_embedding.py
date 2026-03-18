@@ -17,7 +17,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLPreTrainedModel, Qwen3VLModel, Qwen3VLConfig
+from transformers.models.qwen3_vl.modeling_qwen3_vl import (
+    Qwen3VLPreTrainedModel,
+    Qwen3VLModel,
+    Qwen3VLConfig,
+)
 from transformers.models.qwen3_vl.processing_qwen3_vl import Qwen3VLProcessor
 from transformers.modeling_outputs import ModelOutput
 from transformers.processing_utils import Unpack
@@ -70,12 +74,20 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
     def get_decoder(self):
         return self.model.get_decoder()
 
-    def get_video_features(self, pixel_values_videos: torch.FloatTensor,
-                          video_grid_thw: Optional[torch.LongTensor] = None):
-        return self.model.get_video_features(pixel_values_videos, video_grid_thw)
+    def get_video_features(
+        self,
+        pixel_values_videos: torch.FloatTensor,
+        video_grid_thw: Optional[torch.LongTensor] = None,
+    ):
+        return self.model.get_video_features(
+            pixel_values_videos, video_grid_thw
+        )
 
-    def get_image_features(self, pixel_values: torch.FloatTensor,
-                          image_grid_thw: Optional[torch.LongTensor] = None):
+    def get_image_features(
+        self,
+        pixel_values: torch.FloatTensor,
+        image_grid_thw: Optional[torch.LongTensor] = None,
+    ):
         return self.model.get_image_features(pixel_values, image_grid_thw)
 
     @property
@@ -120,7 +132,10 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
         )
 
 
-def sample_frames(frames: List[Union[str, Image.Image]], max_segments: int) -> List[Union[str, Image.Image]]:
+def sample_frames(
+    frames: List[Union[str, Image.Image]],
+    max_segments: int,
+) -> List[Union[str, Image.Image]]:
     duration = len(frames)
     if duration <= max_segments:
         return frames
@@ -132,7 +147,10 @@ def sample_frames(frames: List[Union[str, Image.Image]], max_segments: int) -> L
 
 
 def is_image_path(path: str) -> bool:
-    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+    image_extensions = {
+        '.jpg', '.jpeg', '.png', '.gif',
+        '.bmp', '.webp', '.tiff', '.svg',
+    }
 
     if path.startswith(('http://', 'https://')):
         parsed_url = urlparse(path)
@@ -202,12 +220,21 @@ class Qwen3VLEmbedder:
             'attention_mask': inputs.get('attention_mask')
         }
 
-    def _truncate_tokens(self, token_ids: List[int], max_length: int) -> List[int]:
+    def _truncate_tokens(
+        self,
+        token_ids: List[int],
+        max_length: int,
+    ) -> List[int]:
         if len(token_ids) <= max_length:
             return token_ids
 
-        special_token_ids = set(self.processor.tokenizer.all_special_ids)
-        num_special = sum(1 for token_idx in token_ids if token_idx in special_token_ids)
+        special_token_ids = set(
+            self.processor.tokenizer.all_special_ids
+        )
+        num_special = sum(
+            1 for token_idx in token_ids
+            if token_idx in special_token_ids
+        )
         num_non_special_to_keep = max_length - num_special
 
         final_token_ids = []
@@ -220,14 +247,22 @@ class Qwen3VLEmbedder:
                 non_special_kept_count += 1
         return final_token_ids
 
-    def format_model_input(  # pylint: disable=too-many-branches,too-many-statements
+    def format_model_input(  # pylint: disable=too-many-branches
         self,
         text: Optional[Union[List[str], str]] = None,
-        image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,
-        video: Optional[Union[List[Union[str, List[Union[str, Image.Image]]]], str, List[Union[str, Image.Image]]]] = None,
+        image: Optional[
+            Union[List[Union[str, Image.Image]], str, Image.Image]
+        ] = None,
+        video: Optional[
+            Union[
+                List[Union[str, List[Union[str, Image.Image]]]],
+                str,
+                List[Union[str, Image.Image]],
+            ]
+        ] = None,
         instruction: Optional[str] = None,
         fps: Optional[float] = None,
-        max_frames: Optional[int] = None
+        max_frames: Optional[int] = None,
     ) -> List[Dict]:
 
         if instruction:
@@ -237,7 +272,8 @@ class Qwen3VLEmbedder:
 
         content = []
         conversation = [
-            {"role": "system", "content": [{"type": "text", "text": instruction or self.default_instruction}]},
+            {"role": "system", "content": [
+                {"type": "text", "text": instruction or self.default_instruction}]},
             {"role": "user", "content": content}
         ]
 
@@ -273,14 +309,19 @@ class Qwen3VLEmbedder:
             if isinstance(vid, list):
                 video_content = vid
                 if self.max_frames is not None:
-                    video_content = sample_frames(video_content, self.max_frames)
+                    video_content = sample_frames(
+                        video_content, self.max_frames)
                 video_content = [
                     ('file://' + ele if isinstance(ele, str) else ele)
                     for ele in video_content
                 ]
             elif isinstance(vid, str):
-                video_content = vid if vid.startswith(('http://', 'https://')) else 'file://' + vid
-                video_kwargs = {'fps': fps or self.fps, 'max_frames': max_frames or self.max_frames}
+                video_content = vid if vid.startswith(
+                    ('http://', 'https://')) else 'file://' + vid
+                video_kwargs = {
+                    'fps': fps or self.fps,
+                    'max_frames': max_frames or self.max_frames,
+                }
             else:
                 raise TypeError(f"Unrecognized video type: {type(vid)}")
 
@@ -297,7 +338,8 @@ class Qwen3VLEmbedder:
             if isinstance(img, Image.Image):
                 image_content = img
             elif isinstance(img, str):
-                image_content = img if img.startswith(('http://', 'https://')) else 'file://' + img
+                image_content = img if img.startswith(
+                    ('http://', 'https://')) else 'file://' + img
             else:
                 raise TypeError(f"Unrecognized image type: {type(img)}")
 
@@ -358,11 +400,11 @@ class Qwen3VLEmbedder:
 
     def process(self, inputs: List[Dict[str, Any]], normalize: bool = True) -> torch.Tensor:
         """Process inputs to generate normalized embeddings.
-        
+
         Args:
             inputs: List of dicts, each containing text/image/video/instruction
             normalize: Whether to L2 normalize embeddings
-            
+
         Returns:
             Tensor of shape (batch_size, hidden_dim) containing embeddings
         """
@@ -376,10 +418,13 @@ class Qwen3VLEmbedder:
         ) for ele in inputs]
 
         processed_inputs = self._preprocess_inputs(conversations)
-        processed_inputs = {k: v.to(self.model.device) for k, v in processed_inputs.items()}
+        processed_inputs = {
+            k: v.to(self.model.device) for k, v in processed_inputs.items()
+        }
 
         outputs = self.forward(processed_inputs)
-        embeddings = self._pooling_last(outputs['last_hidden_state'], outputs['attention_mask'])
+        embeddings = self._pooling_last(
+            outputs['last_hidden_state'], outputs['attention_mask'])
 
         if normalize:
             embeddings = F.normalize(embeddings, p=2, dim=-1)

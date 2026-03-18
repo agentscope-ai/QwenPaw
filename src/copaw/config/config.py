@@ -215,7 +215,7 @@ class AgentsDefaultsConfig(BaseModel):
 
 class LocalEmbeddingConfig(BaseModel):
     """Local embedding model configuration for vector memory search.
-    
+
     Supports both multimodal (Qwen3-VL) and text-only (BGE/GTE) models.
     Default download source is ModelScope for better China mainland access.
     """
@@ -333,7 +333,9 @@ class AgentsRunningConfig(BaseModel):
 
     local_embedding: LocalEmbeddingConfig = Field(
         default_factory=LocalEmbeddingConfig,
-        description="Local embedding model configuration for vector memory search",
+        description=(
+            "Local embedding model configuration for vector memory search"
+        ),
     )
 
 
