@@ -119,7 +119,6 @@ class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
-    media_dir: Optional[str] = None
 
 
 class WecomConfig(BaseChannelConfig):
@@ -413,6 +412,10 @@ class ChannelRoutingRule(BaseModel):
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
 
+    channel_routing: List[ChannelRoutingRule] = Field(
+        default_factory=list,
+        description="Route channel messages to specific agents based on meta fields",
+    )
     active_agent: str = Field(
         default="default",
         description="Currently active agent ID",
@@ -758,10 +761,6 @@ class Config(BaseModel):
     mcp: MCPConfig = MCPConfig()
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
-    channel_routing: List[ChannelRoutingRule] = Field(
-        default_factory=list,
-        description="Route channel messages to specific agents based on meta fields",
-    )
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)

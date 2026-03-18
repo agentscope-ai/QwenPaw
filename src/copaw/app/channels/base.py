@@ -540,24 +540,23 @@ class BaseChannel(ABC):
         )
         await self._run_process_loop(request, to_handle, send_meta)
 
-    def _resolve_channel_routing(self, payload: Any) -> Optional[str]:
-        """Check channel_routing rules and return target agent_id or None."""
+    def _resolve_channel_routing(self, meta: Dict[str, Any]) -> Optional[str]:
+        """Check channel_routing rules against meta dict and return target agent_id or None."""
         if not self._channel_routing_rules:
             return None
-        meta = getattr(payload, "meta", None) or {}
         for rule in self._channel_routing_rules:
             if rule.channel == self.channel and meta.get(rule.match_field) == rule.match_value:
                 return rule.target_agent_id
         return None
 
     async def _get_routed_process(self, agent_id: str):
-        """Get process handler for a routed agent."""
+        """Get process handler (runner.stream_query) for a routed agent."""
         if not self._multi_agent_manager:
             return None
         try:
             workspace = await self._multi_agent_manager.get_agent(agent_id)
-            if workspace and hasattr(workspace, "process"):
-                return workspace.process
+            if workspace and workspace.runner and hasattr(workspace.runner, "stream_query"):
+                return workspace.runner.stream_query
         except Exception:
             logger.exception("Failed to get routed agent %s", agent_id)
         return None
@@ -573,8 +572,7 @@ class BaseChannel(ABC):
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
         process_fn = self._process
-        payload = getattr(request, "payload", request)
-        routed_agent_id = self._resolve_channel_routing(payload)
+        routed_agent_id = self._resolve_channel_routing(send_meta)
         if routed_agent_id:
             routed_process = await self._get_routed_process(routed_agent_id)
             if routed_process:
