@@ -13,6 +13,7 @@ export const CHANNEL_COLORS: Record<string, string> = {
   telegram: "geekblue",
   mqtt: "gold",
   console: "green",
+  nextcloud_talk: "#0082c9", // Nextcloud brand blue
 } as const;
 
 /**

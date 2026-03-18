@@ -25,6 +25,7 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "telegram": (".telegram", "TelegramChannel"),
     "mattermost": (".mattermost", "MattermostChannel"),
     "mqtt": (".mqtt", "MQTTChannel"),
+    "nextcloud_talk": (".nextcloud_talk", "NextcloudTalkChannel"),
     "console": (".console", "ConsoleChannel"),
     "matrix": (".matrix", "MatrixChannel"),
     "voice": (".voice", "VoiceChannel"),

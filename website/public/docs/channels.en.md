@@ -727,22 +727,106 @@ The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over Web
 
 ---
 
+## Nextcloud Talk
+
+Nextcloud Talk (formerly Spreed) is Nextcloud's built-in chat application. CoPaw receives messages via the **Webhook Bot API** and sends replies via the **Bot API**, supporting both direct messages and group chats.
+
+### Prerequisites
+
+- Admin access to your Nextcloud server (or ask an admin to install the Bot)
+- Nextcloud Talk app enabled
+
+### Install the Bot
+
+1. On your Nextcloud server, run the following command as an admin to install the Bot:
+
+   ```bash
+   ./occ talk:bot:install copaw \
+     "http://your-server:8765/webhook/nextcloud_talk" \
+     --secret=your-secret
+   ```
+
+   Parameters:
+
+   - `copaw` — Bot name (customizable)
+   - `http://your-server:8765/webhook/nextcloud_talk` — Webhook URL; replace `your-server` with the address of the server running CoPaw
+   - `--secret=your-secret` — Secret for signature verification (customizable; recommend using a random string)
+
+2. Note the **Bot ID** returned after installation.
+
+### Get Nextcloud credentials
+
+To support receiving images, files, and other media, CoPaw needs to download files from the Nextcloud server via WebDAV:
+
+1. Prepare a Nextcloud user account (can be a regular user)
+2. Note the **username** and **password** (or an app password)
+
+> **Tip:** It's recommended to create an **app password** in Nextcloud personal settings instead of using the account's main password.
+
+### Configure the channel
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Nextcloud Talk**, enable it and fill in:
+
+- **Webhook Secret** — The secret set when installing the Bot
+- **Webhook Host** — Webhook listening address, default `0.0.0.0` (listen on all interfaces)
+- **Webhook Port** — Webhook port, default `8765`
+- **Webhook Path** — Webhook path, default `/webhook/nextcloud_talk`
+- **Username** — Nextcloud username (for downloading media files)
+- **Password** — Nextcloud password or app password
+
+**Method 2:** Edit `~/.copaw/config.json`
+
+Find `channels.nextcloud_talk` in `config.json`:
+
+```json
+"nextcloud_talk": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "webhook_secret": "your-secret",
+  "webhook_host": "0.0.0.0",
+  "webhook_port": 8765,
+  "webhook_path": "/webhook/nextcloud_talk",
+  "username": "nextcloud-username",
+  "password": "nextcloud-password"
+}
+```
+
+Save the file; the channel will reload automatically if CoPaw is already running.
+
+### Verify the setup
+
+1. Start CoPaw: `copaw app`
+2. Find the installed Bot in Nextcloud Talk and send a message
+3. CoPaw should reply automatically
+
+### Notes
+
+- **Network reachability:** The Nextcloud server must be able to reach CoPaw's webhook address. If CoPaw runs on an internal network, configure port forwarding or a reverse proxy.
+- **Firewall:** Ensure the webhook port (default 8765) is open in your firewall.
+- **Media files:** To receive images, files, etc., you must configure `username` and `password`; otherwise, media downloads will fail.
+- **Signature verification:** The `webhook_secret` must match the `--secret` parameter set when installing the Bot, otherwise signature verification will fail.
+
+---
+
 ## Appendix
 
 ### Config overview
 
-| Channel    | Config key | Main fields                                                             |
-| ---------- | ---------- | ----------------------------------------------------------------------- |
-| DingTalk   | dingtalk   | client_id, client_secret                                                |
-| Feishu     | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
-| iMessage   | imessage   | db_path, poll_sec (macOS only)                                          |
-| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
-| QQ         | qq         | app_id, client_secret                                                   |
-| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
-| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
-| Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
-| Matrix     | matrix     | homeserver, user_id, access_token                                       |
-| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                       |
+| Channel       | Config key     | Main fields                                                             |
+|---------------|----------------|-------------------------------------------------------------------------|
+| DingTalk      | dingtalk       | client_id, client_secret                                                |
+| Feishu        | feishu         | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
+| iMessage      | imessage       | db_path, poll_sec (macOS only)                                          |
+| Discord       | discord        | bot_token; optional http_proxy, http_proxy_auth                         |
+| QQ            | qq             | app_id, client_secret                                                   |
+| WeCom         | wecom          | bot_id, secret; optional media_dir, max_reconnect_attempts              |
+| Telegram      | telegram       | bot_token; optional http_proxy, http_proxy_auth                         |
+| Mattermost    | mattermost     | url, bot_token; optional show_typing, dm_policy, allow_from             |
+| Matrix        | matrix         | homeserver, user_id, access_token                                       |
+| XiaoYi        | xiaoyi         | ak, sk, agent_id; optional ws_url                                       |
+| NextcloudTalk | nextcloud_talk | webhook_secret; optional webhook_host, webhook_port, username, password |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -753,18 +837,19 @@ video, audio, and file varies by channel.
 **✓** = supported. **🚧** = under construction (implementable but not yet
 done). **✗** = not supported (not possible on this channel).
 
-| Channel    | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
-| ---------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
-| DingTalk   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
-| QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
-| Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| XiaoYi     | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Channel       | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
+|---------------|-----------|------------|------------|------------|-----------|-----------|------------|------------|------------|-----------|
+| DingTalk      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Feishu        | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Discord       | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| iMessage      | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
+| QQ            | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeCom         | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Telegram      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Mattermost    | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
+| Matrix        | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| XiaoYi        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| NextcloudTalk | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 
 Notes:
 
@@ -783,6 +868,7 @@ Notes:
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Text only; media support is 🚧.
+- **NextcloudTalk**: Receives messages via Webhook; images/files are downloaded via WebDAV; sending media attachments is 🚧 (currently text-only replies).
 
 ### Changing config via HTTP
 

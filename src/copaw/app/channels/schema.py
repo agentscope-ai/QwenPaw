@@ -29,14 +29,17 @@ class ChannelAddress:
 
 # Built-in channel type identifiers. Plugin channels use arbitrary str keys.
 BUILTIN_CHANNEL_TYPES = (
-    "imessage",
-    "discord",
+    "console",
     "dingtalk",
+    "discord",
     "feishu",
+    "imessage",
+    "matrix",
+    "mattermost",
+    "mqtt",
+    "nextcloud_talk",
     "qq",
     "telegram",
-    "mqtt",
-    "console",
     "voice",
     "xiaoyi",
 )

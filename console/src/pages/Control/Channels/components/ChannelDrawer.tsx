@@ -22,6 +22,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wecom",
   "mattermost",
   "matrix",
+  "nextcloud_talk",
   "xiaoyi",
 ];
 
@@ -573,6 +574,60 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="ws_url" label="WebSocket URL">
               <Input placeholder="wss://hag.cloud.huawei.com/openclaw/v1/ws/link" />
+            </Form.Item>
+          </>
+        );
+      case "nextcloud_talk":
+        return (
+          <>
+            <Form.Item
+              name="webhook_secret"
+              label="Webhook Secret"
+              rules={[{ required: true }]}
+              tooltip="Must match the secret used when installing the Nextcloud bot"
+            >
+              <Input.Password placeholder="Generate with: openssl rand -hex 32" />
+            </Form.Item>
+            <Form.Item
+              name="webhook_host"
+              label="Webhook Host"
+              tooltip="Listen address for the webhook server"
+            >
+              <Input placeholder="0.0.0.0" />
+            </Form.Item>
+            <Form.Item
+              name="webhook_port"
+              label="Webhook Port"
+              rules={[{ required: true }]}
+              tooltip="Port for the webhook server"
+            >
+              <InputNumber
+                min={1}
+                max={65535}
+                style={{ width: "100%" }}
+                placeholder="8765"
+              />
+            </Form.Item>
+            <Form.Item
+              name="webhook_path"
+              label="Webhook Path"
+              tooltip="Endpoint path for Nextcloud webhook"
+            >
+              <Input placeholder="/webhook/nextcloud_talk" />
+            </Form.Item>
+            <Form.Item
+              name="username"
+              label="Username"
+              tooltip="Nextcloud username for WebDAV file download (usually the bot account)"
+            >
+              <Input placeholder="copaw" />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="Password"
+              tooltip="Nextcloud app password for WebDAV authentication"
+            >
+              <Input.Password placeholder="App password from Nextcloud Security settings" />
             </Form.Item>
           </>
         );

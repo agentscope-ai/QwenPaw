@@ -12,6 +12,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   mqtt: "MQTT",
   mattermost: "Mattermost",
   matrix: "Matrix",
+  nextcloud_talk: "Nextcloud Talk",
   console: "Console",
   voice: "Twilio",
   wecom: "WeCom",

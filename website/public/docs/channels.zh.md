@@ -720,21 +720,106 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ---
 
+## Nextcloud Talk
+
+Nextcloud Talk（原名 Spreed）是 Nextcloud 的内置聊天应用。CoPaw 通过 **Webhook Bot API** 接收消息，通过 **Bot API** 发送回复，支持私聊和群聊。
+
+### 前提条件
+
+- 拥有 Nextcloud 服务器的管理员权限（或联系管理员安装 Bot）
+- Nextcloud Talk 应用已启用
+
+### 安装 Bot
+
+1. 在 Nextcloud 服务器上，以管理员身份运行以下命令安装 Bot：
+
+   ```bash
+   ./occ talk:bot:install copaw \
+   "http://your-server:8765/webhook/nextcloud_talk" \
+   --secret=your-secret
+   ```
+
+   参数说明：
+
+   - `copaw` — Bot 名称（可自定义）
+   - `http://your-server:8765/webhook/nextcloud_talk` — Webhook URL，`your-server` 替换为运行 CoPaw 的服务器地址
+   - `--secret=your-secret` — 用于签名验证的密钥（可自定义，建议使用随机字符串）
+
+2. 记录安装完成后返回的 **Bot ID**。
+
+### 获取 Nextcloud 凭证
+
+为了支持接收图片、文件等媒体内容，CoPaw 需要通过 WebDAV 下载 Nextcloud 服务器上的文件：
+
+1. 准备一个 Nextcloud 用户账号（可以是普通用户）
+2. 记录该用户的 **用户名** 和 **密码**（或应用密码）
+
+> **提示：** 建议在 Nextcloud 个人设置中创建 **应用密码**，而非使用账号主密码。
+
+### 配置频道
+
+**方式一：** 在 Console 中配置
+
+前往 **控制 → 频道**，点击 **Nextcloud Talk**，启用后填写：
+
+- **Webhook Secret** — 安装 Bot 时设置的密钥
+- **Webhook Host** — Webhook 监听地址，默认 `0.0.0.0`（监听所有网卡）
+- **Webhook Port** — Webhook 端口，默认 `8765`
+- **Webhook Path** — Webhook 路径，默认 `/webhook/nextcloud_talk`
+- **Username** — Nextcloud 用户名（用于下载媒体文件）
+- **Password** — Nextcloud 密码或应用密码
+
+**方式二：** 编辑 `~/.copaw/config.json`
+
+在 `config.json` 中找到 `channels.nextcloud_talk`：
+
+```json
+"nextcloud_talk": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "webhook_secret": "your-secret",
+  "webhook_host": "0.0.0.0",
+  "webhook_port": 8765,
+  "webhook_path": "/webhook/nextcloud_talk",
+  "username": "nextcloud-username",
+  "password": "nextcloud-password"
+}
+```
+
+保存后，若 CoPaw 已在运行，频道会自动重载。
+
+### 验证配置
+
+1. 启动 CoPaw：`copaw app`
+2. 在 Nextcloud Talk 中找到安装的 Bot，发送消息
+3. CoPaw 应该会自动回复
+
+### 注意事项
+
+- **网络可达性**：Nextcloud 服务器必须能够访问 CoPaw 的 Webhook 地址。如果 CoPaw 运行在内网，需要配置端口转发或反向代理。
+- **防火墙**：确保 Webhook 端口（默认 8765）在防火墙中开放。
+- **媒体文件**：如需接收图片、文件等，必须配置 `username` 和 `password`，否则媒体下载会失败。
+- **签名验证**：`webhook_secret` 必须与安装 Bot 时设置的 `--secret` 参数一致，否则签名验证会失败。
+
+---
+
 ## 附录
 
 ### 配置总览
 
-| 频道       | 配置键     | 必填/主要字段                                                                           |
-| ---------- | ---------- | --------------------------------------------------------------------------------------- |
-| 钉钉       | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code |
-| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir                     |
-| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                           |
-| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                             |
-| QQ         | qq         | app_id, client_secret                                                                   |
-| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
-| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
-| Matrix     | matrix     | homeserver, user_id, access_token                                                       |
-| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                           |
+| 频道          | 配置键         | 必填/主要字段                                                                           |
+|---------------|----------------|-----------------------------------------------------------------------------------------|
+| 钉钉          | dingtalk       | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code |
+| 飞书          | feishu         | app_id, app_secret；可选 encrypt_key, verification_token, media_dir                     |
+| iMessage      | imessage       | db_path, poll_sec（仅 macOS）                                                           |
+| Discord       | discord        | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| QQ            | qq             | app_id, client_secret                                                                   |
+| 企业微信      | wecom          | bot_id, secret；可选 media_dir, max_reconnect_attempts                                  |
+| Telegram      | telegram       | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| Mattermost    | mattermost     | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
+| Matrix        | matrix         | homeserver, user_id, access_token                                                       |
+| 小艺          | xiaoyi         | ak, sk, agent_id；可选 ws_url                                                           |
+| NextcloudTalk | nextcloud_talk | webhook_secret；可选 webhook_host, webhook_port, username, password                     |
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 
@@ -743,18 +828,19 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 不同频道对「文本 / 图片 / 视频 / 音频 / 文件」的**接收**（用户发给机器人）与**发送**（机器人回复用户）支持程度如下。
 「✓」= 已支持；「🚧」= 施工中（可实现但尚未实现）；「✗」= 不支持（该频道本身无法支持）。
 
-| 频道       | 接收文本 | 接收图片 | 接收视频 | 接收音频 | 接收文件 | 发送文本 | 发送图片 | 发送视频 | 发送音频 | 发送文件 |
-| ---------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
-| 钉钉       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
-| 飞书       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
-| Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
-| iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
-| QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
-| 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
-| Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
-| Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
-| Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
-| 小艺       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 频道          | 接收文本 | 接收图片 | 接收视频 | 接收音频 | 接收文件 | 发送文本 | 发送图片 | 发送视频 | 发送音频 | 发送文件 |
+|---------------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|
+| 钉钉          | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| 飞书          | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| Discord       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| iMessage      | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
+| QQ            | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 企业微信      | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| Telegram      | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| Mattermost    | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
+| Matrix        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| 小艺          | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| NextcloudTalk | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 
 说明：
 
@@ -767,6 +853,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 - **小艺**：当前仅支持文本。
+- **NextcloudTalk**：通过 Webhook 接收消息；接收图片/文件通过 WebDAV 下载；发送侧媒体附件为 🚧 施工中，当前仅支持文本回复。
 
 ### 通过 HTTP 修改配置
 

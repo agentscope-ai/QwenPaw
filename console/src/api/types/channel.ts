@@ -71,6 +71,15 @@ export interface MatrixConfig extends BaseChannelConfig {
   access_token: string;
 }
 
+export interface NextcloudTalkConfig extends BaseChannelConfig {
+  webhook_secret: string;
+  webhook_host: string;
+  webhook_port: number;
+  webhook_path: string;
+  username: string;
+  password: string;
+}
+
 export type ConsoleConfig = BaseChannelConfig;
 
 export interface VoiceChannelConfig extends BaseChannelConfig {
@@ -102,6 +111,7 @@ export interface ChannelConfig {
   telegram: TelegramConfig;
   mqtt: MQTTConfig;
   matrix: MatrixConfig;
+  nextcloud_talk: NextcloudTalkConfig;
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
@@ -117,5 +127,6 @@ export type SingleChannelConfig =
   | TelegramConfig
   | MQTTConfig
   | MatrixConfig
+  | NextcloudTalkConfig
   | VoiceChannelConfig
   | XiaoYiConfig;
