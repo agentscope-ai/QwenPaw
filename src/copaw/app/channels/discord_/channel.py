@@ -283,26 +283,22 @@ class DiscordChannel(BaseChannel):
             require_mention=config.require_mention,
         )
 
-    async def _resolve_target(self, to_handle, meta):
+    async def _resolve_target(self, to_handle, _meta):
         """Resolve a Discord Messageable from meta or to_handle."""
-        meta = meta or {}
-        if not meta.get("channel_id") and not meta.get("user_id"):
-            meta.update(self._route_from_handle(to_handle))
-        channel_id = meta.get("channel_id")
-        user_id = meta.get("user_id")
+        route = self._route_from_handle(to_handle)
+        channel_id = route.get("channel_id")
+        user_id = route.get("user_id")
         if channel_id:
-            ch = self._client.get_channel(int(channel_id))
+            cid = int(channel_id)
+            ch = self._client.get_channel(cid)
             if ch is None:
-                ch = await self._client.fetch_channel(
-                    int(channel_id),
-                )
+                ch = await self._client.fetch_channel(cid)
             return ch
         if user_id:
-            user = self._client.get_user(int(user_id))
+            uid = int(user_id)
+            user = self._client.get_user(uid)
             if user is None:
-                user = await self._client.fetch_user(
-                    int(user_id),
-                )
+                user = await self._client.fetch_user(uid)
             return user.dm_channel or await user.create_dm()
         return None
 

@@ -25,6 +25,7 @@ from ..config.config import (
 )
 from ..constant import HEARTBEAT_DEFAULT_EVERY
 from ..providers import ProviderManager
+from ..constant import WORKING_DIR
 
 SECURITY_WARNING = """
 Security warning — please read.
@@ -140,6 +141,9 @@ def init_cmd(
     accept_security: bool,
 ) -> None:
     """Create working dir with config.json and HEARTBEAT.md (interactive)."""
+    from pathlib import Path
+    from ..app.migration import ensure_default_agent_exists
+
     config_path = get_config_path()
     working_dir = config_path.parent
     heartbeat_path = get_heartbeat_query_path()
@@ -183,6 +187,14 @@ def init_cmd(
                     click.echo("✓ Thank you!")
             else:
                 mark_telemetry_collected(working_dir)
+
+    # --- Ensure default agent workspace exists ---
+    click.echo("\n=== Default Workspace Initialization ===")
+    ensure_default_agent_exists()
+    click.echo("✓ Default workspace initialized")
+
+    # Get default workspace path for subsequent operations
+    default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
 
     # --- config.json ---
     write_config = True
@@ -242,6 +254,11 @@ def init_cmd(
         existing = (
             load_config(config_path) if config_path.is_file() else Config()
         )
+        # Ensure agents.defaults exists
+        if existing.agents.defaults is None:
+            from ..config.config import AgentsDefaultsConfig
+
+            existing.agents.defaults = AgentsDefaultsConfig()
         existing.agents.defaults.heartbeat = hb
 
         # --- show_tool_details ---
@@ -261,6 +278,32 @@ def init_cmd(
                 default=existing.agents.language,
             )
             existing.agents.language = language
+
+        # --- audio mode selection ---
+        if not use_defaults:
+            audio_mode = prompt_choice(
+                "Select audio mode for voice messages:\n"
+                "  auto   - transcribe if provider available, else file placeholder\n"
+                "  native - send audio directly to model (needs ffmpeg)\n"
+                "Audio mode:",
+                options=["auto", "native"],
+                default=existing.agents.audio_mode,
+            )
+            existing.agents.audio_mode = audio_mode
+
+        # --- transcription provider type selection ---
+        if not use_defaults and audio_mode != "native":
+            provider_type = prompt_choice(
+                "Select transcription provider:\n"
+                "  disabled       - no transcription\n"
+                "  whisper_api    - remote Whisper API endpoint\n"
+                "  local_whisper  - locally installed openai-whisper\n"
+                "                   (requires ffmpeg + openai-whisper)\n"
+                "Provider:",
+                options=["disabled", "whisper_api", "local_whisper"],
+                default=existing.agents.transcription_provider_type,
+            )
+            existing.agents.transcription_provider_type = provider_type
 
         # --- channels (interactive when not --defaults) ---
         if not use_defaults and prompt_confirm(
@@ -306,6 +349,7 @@ def init_cmd(
 
         click.echo("Enabling all skills by default (skip existing)...")
         synced, skipped = sync_skills_to_working_dir(
+            workspace_dir=default_workspace,
             skill_names=None,
             force=False,
         )
@@ -328,6 +372,7 @@ def init_cmd(
 
             click.echo("Enabling all skills...")
             synced, skipped = sync_skills_to_working_dir(
+                workspace_dir=default_workspace,
                 skill_names=None,
                 force=False,
             )
@@ -351,14 +396,20 @@ def init_cmd(
     from ..agents.utils import copy_md_files
 
     config = load_config(config_path) if config_path.is_file() else Config()
-    current_language = config.agents.language
+    current_language = (
+        config.agents.language or "zh"
+    )  # Default to "zh" if None
     installed_language = config.agents.installed_md_files_language
 
     if use_defaults:
         # --defaults: always attempt copy, skip files that already exist
-        # in WORKING_DIR (handles freshly mounted empty volumes).
+        # in default workspace (handles freshly mounted empty volumes).
         click.echo(f"\nChecking MD files [language: {current_language}]...")
-        copied = copy_md_files(current_language, skip_existing=True)
+        copied = copy_md_files(
+            current_language,
+            skip_existing=True,
+            workspace_dir=default_workspace,
+        )
         if copied:
             config.agents.installed_md_files_language = current_language
             save_config(config, config_path)
@@ -373,7 +424,10 @@ def init_cmd(
             click.echo(
                 f"Language changed: {installed_language} → {current_language}",
             )
-        copied = copy_md_files(current_language)
+        copied = copy_md_files(
+            current_language,
+            workspace_dir=default_workspace,
+        )
         if copied:
             config.agents.installed_md_files_language = current_language
             save_config(config, config_path)

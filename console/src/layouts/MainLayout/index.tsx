@@ -1,6 +1,5 @@
 import { Layout } from "antd";
-import { useEffect } from "react";
-import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate } from "react-router-dom";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsoleCronBubble from "../../components/ConsoleCronBubble";
@@ -20,6 +19,8 @@ import ModelsPage from "../../pages/Settings/Models";
 import EnvironmentsPage from "../../pages/Settings/Environments";
 import SecurityPage from "../../pages/Settings/Security";
 import TokenUsagePage from "../../pages/Settings/TokenUsage";
+import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
+import AgentsPage from "../../pages/Settings/Agents";
 
 const { Content } = Layout;
 
@@ -40,20 +41,13 @@ const pathToKey: Record<string, string> = {
   "/agent-config": "agent-config",
   "/security": "security",
   "/token-usage": "token-usage",
+  "/voice-transcription": "voice-transcription",
 };
 
 export default function MainLayout() {
   const location = useLocation();
-  const navigate = useNavigate();
   const currentPath = location.pathname;
   const selectedKey = pathToKey[currentPath] || "chat";
-  const isChatPage = currentPath === "/" || currentPath.startsWith("/chat");
-
-  useEffect(() => {
-    if (currentPath === "/") {
-      navigate("/chat", { replace: true });
-    }
-  }, [currentPath, navigate]);
 
   return (
     <Layout className={styles.mainLayout}>

@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import logging
 from typing import AsyncIterator
+from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
-from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
 
 from .daemon_commands import (
     DaemonContext,
@@ -17,10 +17,12 @@ from .daemon_commands import (
     parse_daemon_query,
 )
 from ...agents.command_handler import CommandHandler
-from ...agents.utils.token_counting import _get_token_counter
-from ...config import load_config
+from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .runner import AgentRunner
 
 
 def _get_last_user_text(msgs) -> str | None:
@@ -61,7 +63,7 @@ def _is_command(query: str | None) -> bool:
 async def run_command_path(
     request,
     msgs,
-    runner,
+    runner: AgentRunner,
 ) -> AsyncIterator[tuple]:
     """Run command path and yield (msg, last) for each response.
 
@@ -106,8 +108,10 @@ async def run_command_path(
                 ],
             )
             yield hint, True
+
+        agent_id = runner.agent_id
         context = DaemonContext(
-            load_config_fn=load_config,
+            load_config_fn=lambda: load_agent_config(agent_id),
             memory_manager=runner.memory_manager,
             restart_callback=restart_cb,
             session_id=session_id,
@@ -118,19 +122,21 @@ async def run_command_path(
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    memory = ReMeInMemoryMemory(token_counter=_get_token_counter())
+    memory = runner.memory_manager.get_in_memory_memory()
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
     )
-    memory_state = session_state.get("agent", {}).get("memory")
-    memory.load_state_dict(memory_state)
+    memory_state = session_state.get("agent", {}).get("memory", {})
+    memory.load_state_dict(memory_state, strict=False)
 
+    agent_config = load_agent_config(runner.agent_id)
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=memory,
         memory_manager=runner.memory_manager,
         enable_memory_manager=runner.memory_manager is not None,
+        agent_config=agent_config,
     )
     try:
         response_msg = await conv_handler.handle_conversation_command(query)

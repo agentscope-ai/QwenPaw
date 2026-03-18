@@ -19,8 +19,10 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "dingtalk",
   "discord",
   "feishu",
+  "wecom",
   "mattermost",
   "matrix",
+  "xiaoyi",
 ];
 
 interface ChannelDrawerProps {
@@ -35,20 +37,41 @@ interface ChannelDrawerProps {
   onSubmit: (values: Record<string, unknown>) => void;
 }
 
-// Doc URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
-const CHANNEL_DOC_URLS: Partial<Record<ChannelKey, string>> = {
+// Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   dingtalk:
-    "https://copaw.agentscope.io/docs/channels/#%E9%92%89%E9%92%89%E6%8E%A8%E8%8D%90",
-  feishu: "https://copaw.agentscope.io/docs/channels/#%E9%A3%9E%E4%B9%A6",
+    "https://copaw.agentscope.io/docs/channels/?lang=en#DingTalk-recommended",
+  feishu: "https://copaw.agentscope.io/docs/channels/?lang=en#Feishu-Lark",
   imessage:
-    "https://copaw.agentscope.io/docs/channels/#iMessage%E4%BB%85-macOS",
-  discord: "https://copaw.agentscope.io/docs/channels/#Discord",
-  qq: "https://copaw.agentscope.io/docs/channels/#QQ",
-  telegram: "https://copaw.agentscope.io/docs/channels/#Telegram",
-  mqtt: "https://copaw.agentscope.io/docs/channels/#MQTT",
-  mattermost: "https://copaw.agentscope.io/docs/channels/#Mattermost",
-  matrix: "https://copaw.agentscope.io/docs/channels/#Matrix",
+    "https://copaw.agentscope.io/docs/channels/?lang=en#iMessage-macOS-only",
+  discord: "https://copaw.agentscope.io/docs/channels/?lang=en#Discord",
+  qq: "https://copaw.agentscope.io/docs/channels/?lang=en#QQ",
+  telegram: "https://copaw.agentscope.io/docs/channels/?lang=en#Telegram",
+  mqtt: "https://copaw.agentscope.io/docs/channels/?lang=en#MQTT",
+  mattermost: "https://copaw.agentscope.io/docs/channels/?lang=en#Mattermost",
+  matrix: "https://copaw.agentscope.io/docs/channels/?lang=en#Matrix",
+  wecom: "https://copaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
+  xiaoyi:
+    "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
+
+// Doc ZH URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
+  dingtalk: "https://copaw.agentscope.io/docs/channels/?lang=zh#钉钉推荐",
+  feishu: "https://copaw.agentscope.io/docs/channels/?lang=zh#飞书",
+  imessage:
+    "https://copaw.agentscope.io/docs/channels/?lang=zh#iMessage仅-macOS",
+  discord: "https://copaw.agentscope.io/docs/channels/?lang=zh#Discord",
+  qq: "https://copaw.agentscope.io/docs/channels/?lang=zh#QQ",
+  telegram: "https://copaw.agentscope.io/docs/channels/?lang=zh#Telegram",
+  mqtt: "https://copaw.agentscope.io/docs/channels/?lang=zh#MQTT",
+  mattermost: "https://copaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
+  matrix: "https://copaw.agentscope.io/docs/channels/?lang=zh#Matrix",
+  wecom: "https://copaw.agentscope.io/docs/channels/?lang=zh#企业微信",
+  xiaoyi:
+    "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+};
+
 const twilioConsoleUrl = "https://console.twilio.com";
 
 export function ChannelDrawer({
@@ -62,7 +85,8 @@ export function ChannelDrawer({
   onClose,
   onSubmit,
 }: ChannelDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
 
   const renderAccessControlFields = () => (
@@ -188,6 +212,60 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="client_secret" label="Client Secret">
               <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="message_type"
+              label="Message Type"
+              tooltip="markdown: regular messages; card: AI interactive card"
+            >
+              <Select
+                options={[
+                  { label: "markdown", value: "markdown" },
+                  { label: "card", value: "card" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, cur) =>
+                prev.message_type !== cur.message_type
+              }
+            >
+              {({ getFieldValue }) => {
+                const isCard = getFieldValue("message_type") === "card";
+                if (!isCard) return null;
+                return (
+                  <>
+                    <Form.Item
+                      name="card_template_id"
+                      label="Card Template ID"
+                      rules={[
+                        {
+                          required: true,
+                          message:
+                            "Please input card template id when message_type=card",
+                        },
+                      ]}
+                    >
+                      <Input placeholder="dt_card_template_xxx" />
+                    </Form.Item>
+                    <Form.Item
+                      name="card_template_key"
+                      label="Card Template Key"
+                      tooltip="Must exactly match the template variable name"
+                    >
+                      <Input placeholder="content" />
+                    </Form.Item>
+                    <Form.Item
+                      name="robot_code"
+                      label="Robot Code"
+                      tooltip="Recommended to configure explicitly for group chats"
+                    >
+                      <Input placeholder="robot code (default client_id)" />
+                    </Form.Item>
+                  </>
+                );
+              }}
             </Form.Item>
           </>
         );
@@ -434,6 +512,70 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+      case "wecom":
+        return (
+          <>
+            <Form.Item
+              name="bot_id"
+              label="Bot ID"
+              rules={[{ required: true, message: "Please input Bot ID" }]}
+            >
+              <Input placeholder="Bot ID from WeCom backend" />
+            </Form.Item>
+            <Form.Item
+              name="secret"
+              label="Secret"
+              rules={[{ required: true, message: "Please input Secret" }]}
+            >
+              <Input.Password placeholder="Secret from WeCom backend" />
+            </Form.Item>
+            <Form.Item name="media_dir" label="Media Dir">
+              <Input placeholder="~/.copaw/media" />
+            </Form.Item>
+            <Form.Item
+              name="welcome_text"
+              label={t("channels.welcomeText")}
+              tooltip={t("channels.welcomeTextTooltip")}
+            >
+              <Input placeholder={t("channels.welcomeTextPlaceholder")} />
+            </Form.Item>
+          </>
+        );
+      case "xiaoyi":
+        return (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              message={t("channels.xiaoyiSetupGuide")}
+              style={{ marginBottom: 16 }}
+            />
+            <Form.Item
+              name="ak"
+              label="Access Key (AK)"
+              rules={[{ required: true, message: "Please input Access Key" }]}
+            >
+              <Input placeholder="Access Key from Huawei Developer Platform" />
+            </Form.Item>
+            <Form.Item
+              name="sk"
+              label="Secret Key (SK)"
+              rules={[{ required: true, message: "Please input Secret Key" }]}
+            >
+              <Input.Password placeholder="Secret Key from Huawei Developer Platform" />
+            </Form.Item>
+            <Form.Item
+              name="agent_id"
+              label="Agent ID"
+              rules={[{ required: true, message: "Please input Agent ID" }]}
+            >
+              <Input placeholder="Agent ID from XiaoYi platform" />
+            </Form.Item>
+            <Form.Item name="ws_url" label="WebSocket URL">
+              <Input placeholder="wss://hag.cloud.huawei.com/openclaw/v1/ws/link" />
+            </Form.Item>
+          </>
+        );
       default:
         return null;
     }
@@ -494,17 +636,32 @@ export function ChannelDrawer({
               ? `${label} ${t("channels.settings")}`
               : t("channels.channelSettings")}
           </span>
-          {activeKey && CHANNEL_DOC_URLS[activeKey] && (
-            <Button
-              type="text"
-              size="small"
-              icon={<LinkOutlined />}
-              onClick={() => window.open(CHANNEL_DOC_URLS[activeKey], "_blank")}
-              className={styles.dingtalkDocBtn}
-            >
-              {label} Doc
-            </Button>
-          )}
+          {activeKey &&
+            CHANNEL_DOC_EN_URLS[activeKey] &&
+            CHANNEL_DOC_ZH_URLS[activeKey] && (
+              <Button
+                type="text"
+                size="small"
+                icon={<LinkOutlined />}
+                onClick={() => {
+                  const url =
+                    CHANNEL_DOC_EN_URLS[activeKey]! ||
+                    CHANNEL_DOC_ZH_URLS[activeKey]!;
+                  // Only add lang parameter for copaw docs URLs
+                  const isCopawDoc = url.includes(
+                    "copaw.agentscope.io/docs/channels/",
+                  );
+                  const finalUrl =
+                    isCopawDoc && currentLang === "zh"
+                      ? CHANNEL_DOC_ZH_URLS[activeKey]!
+                      : CHANNEL_DOC_EN_URLS[activeKey]!;
+                  window.open(finalUrl, "_blank");
+                }}
+                className={styles.dingtalkDocBtn}
+              >
+                {label} Doc
+              </Button>
+            )}
           {activeKey === "voice" && (
             <Button
               type="text"

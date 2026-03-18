@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
@@ -13,7 +14,12 @@ import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
+import { chatApi } from "../../api/modules/chat";
+import api from "../../api";
 import ModelSelector from "./ModelSelector";
+import { useTheme } from "../../contexts/ThemeContext";
+import { useAgentStore } from "../../stores/agentStore";
+import "./index.module.less";
 
 type CopyableContent = {
   type?: string;
@@ -111,11 +117,18 @@ export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark } = useTheme();
   const chatId = useMemo(() => {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
+  const { selectedAgent } = useAgentStore();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
+  const [, setReconnectStreaming] = useState(false);
+  const reconnectTriggeredForRef = useRef<string | null>(null);
+  const prevChatIdRef = useRef<string | undefined>(undefined);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -125,8 +138,14 @@ export default function ChatPage() {
   const lastSessionIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
+  const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
+
+  useEffect(() => {
+    sessionApi.setChatRef(chatRef);
+    return () => sessionApi.setChatRef(null);
+  }, []);
 
   useEffect(() => {
     const handleCompositionStart = () => {
@@ -194,6 +213,48 @@ export default function ChatPage() {
       sessionApi.onSessionRemoved = null;
     };
   }, []);
+
+  // Fetch chat status when viewing a chat (for running indicator and reconnect)
+  useEffect(() => {
+    if (!chatId || chatId === "undefined" || chatId === "null") {
+      setChatStatus("idle");
+      return;
+    }
+    const realId = sessionApi.getRealIdForSession(chatId) ?? chatId;
+    api.getChat(realId).then(
+      (res) => setChatStatus((res.status as "idle" | "running") ?? "idle"),
+      () => setChatStatus("idle"),
+    );
+  }, [chatId]);
+
+  // Trigger reconnect when session status becomes "running" so the library
+  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
+  // run after React has updated and the chat input ref is ready, avoiding
+  // a fixed timeout and race conditions.
+  useEffect(() => {
+    if (prevChatIdRef.current !== chatId) {
+      prevChatIdRef.current = chatId;
+      reconnectTriggeredForRef.current = null;
+    }
+    if (!chatId || chatStatus !== "running") return;
+    if (reconnectTriggeredForRef.current === chatId) return;
+    reconnectTriggeredForRef.current = chatId;
+    sessionApi.triggerReconnectSubmit();
+  }, [chatId, chatStatus]);
+
+  // Refresh chat when selectedAgent changes
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  useEffect(() => {
+    // Only refresh if selectedAgent actually changed (not initial mount)
+    if (
+      prevSelectedAgentRef.current !== selectedAgent &&
+      prevSelectedAgentRef.current !== undefined
+    ) {
+      // Force re-render by updating refresh key
+      setRefreshKey((prev) => prev + 1);
+    }
+    prevSelectedAgentRef.current = selectedAgent;
+  }, [selectedAgent]);
 
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
@@ -265,10 +326,76 @@ export default function ChatPage() {
 
   const customFetch = useCallback(
     async (data: {
-      input: any[];
+      input?: any[];
       biz_params?: any;
       signal?: AbortSignal;
+      reconnect?: boolean;
+      session_id?: string;
+      user_id?: string;
+      channel?: string;
     }): Promise<Response> => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const token = getApiToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const agentStorage = localStorage.getItem("copaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          const selectedAgent = parsed?.state?.selectedAgent;
+          if (selectedAgent) {
+            headers["X-Agent-Id"] = selectedAgent;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to get selected agent from storage:", error);
+      }
+
+      const shouldReconnect =
+        data.reconnect || data.biz_params?.reconnect === true;
+      const reconnectSessionId =
+        data.session_id ?? window.currentSessionId ?? "";
+      if (shouldReconnect && reconnectSessionId) {
+        const res = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            reconnect: true,
+            session_id: reconnectSessionId,
+            user_id: data.user_id ?? window.currentUserId ?? "default",
+            channel: data.channel ?? window.currentChannel ?? "console",
+          }),
+        });
+        if (!res.ok || !res.body) return res;
+        const onStreamEnd = () => {
+          setChatStatus("idle");
+          setReconnectStreaming(false);
+        };
+        const stream = res.body;
+        const transformed = new ReadableStream({
+          start(controller) {
+            const reader = stream.getReader();
+            function pump() {
+              reader.read().then(({ done, value }) => {
+                if (done) {
+                  controller.close();
+                  onStreamEnd();
+                  return;
+                }
+                controller.enqueue(value);
+                return pump();
+              });
+            }
+            pump();
+          },
+        });
+        return new Response(transformed, {
+          headers: res.headers,
+          status: res.status,
+        });
+      }
+
       try {
         const activeModels = await providerApi.getActiveModels();
         if (
@@ -283,32 +410,27 @@ export default function ChatPage() {
         return buildModelError();
       }
 
-      const { input, biz_params } = data;
+      const { input = [], biz_params } = data;
       const session = input[input.length - 1]?.session || {};
+      const sessionId = window.currentSessionId || session?.session_id || "";
 
       const requestBody = {
         input: input.slice(-1),
-        session_id: window.currentSessionId || session?.session_id || "",
+        session_id: sessionId,
         user_id: window.currentUserId || session?.user_id || "default",
         channel: window.currentChannel || session?.channel || "console",
         stream: true,
         ...biz_params,
       };
 
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/agent/process"), {
+      return fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
     },
-    [],
+    [setChatStatus, setReconnectStreaming],
   );
 
   const options = useMemo(() => {
@@ -323,7 +445,17 @@ export default function ChatPage() {
       ...i18nConfig,
       theme: {
         ...defaultConfig.theme,
+        darkMode: isDark,
+        leftHeader: {
+          ...defaultConfig.theme.leftHeader,
+        },
         rightHeader: <ModelSelector />,
+      },
+      welcome: {
+        ...i18nConfig.welcome,
+        avatar: isDark
+          ? `${import.meta.env.BASE_URL}copaw-dark.png`
+          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -334,7 +466,17 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          console.log(data);
+          const chatIdForStop = data?.session_id
+            ? sessionApi.getRealIdForSession(data.session_id) ?? data.session_id
+            : "";
+          if (chatIdForStop) {
+            chatApi.stopConsoleChat(chatIdForStop).then(
+              () => setChatStatus("idle"),
+              (err) => {
+                console.error("stopConsoleChat failed:", err);
+              },
+            );
+          }
         },
       },
       actions: {
@@ -356,11 +498,24 @@ export default function ChatPage() {
         "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t]);
+  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
 
   return (
-    <div style={{ height: "100%", width: "100%" }}>
-      <AgentScopeRuntimeWebUI options={options} />
+    <div
+      style={{
+        height: "100%",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <AgentScopeRuntimeWebUI
+          ref={chatRef}
+          key={refreshKey}
+          options={options}
+        />
+      </div>
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result

@@ -16,27 +16,55 @@ By default, all config and data live in one folder — the **working directory**
 
 - **`~/.copaw`** (the `.copaw` folder under your home directory)
 
-When you run `copaw init`, this directory is created automatically. Here's what
-you'll find inside:
+Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run `copaw init`, the new structure looks like:
 
-| File / Directory     | Purpose                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `config.json`        | Channel on/off and credentials, heartbeat settings, language, etc. |
-| `HEARTBEAT.md`       | Prompt content used each heartbeat run                             |
-| `jobs.json`          | Cron job list (managed via `copaw cron` or API)                    |
-| `chats.json`         | Chat/session list (file storage mode)                              |
-| `token_usage.json`   | LLM token usage records (by date and model)                        |
-| `active_skills/`     | Skills currently active and used by the agent                      |
-| `customized_skills/` | User-created custom skills                                         |
-| `memory/`            | Agent memory files (auto-managed)                                  |
-| `SOUL.md`            | _(required)_ Core identity and behavioral principles               |
-| `AGENTS.md`          | _(required)_ Detailed workflows, rules, and guidelines             |
+```
+~/.copaw/
+├── config.json              # Global config (providers, environment variables)
+└── workspaces/
+    ├── default/             # Default agent workspace
+    │   ├── agent.json       # Agent config
+    │   ├── chats.json       # Conversation history
+    │   ├── jobs.json        # Cron jobs
+    │   ├── AGENTS.md        # Detailed workflows, rules, and guidelines
+    │   ├── SOUL.md          # Core identity and behavioral principles
+    │   ├── active_skills/   # Enabled skills
+    │   ├── customized_skills/ # Custom skills
+    │   └── memory/          # Memory files
+    └── abc123/              # Other agent workspace
+        └── ...
+```
+
+### Directory Explanation
+
+**Global Directory (`~/.copaw/`)**
+
+| File / Directory | Purpose                                               |
+| ---------------- | ----------------------------------------------------- |
+| `config.json`    | Global config (model providers, env vars, agent list) |
+| `workspaces/`    | All agent workspace directories                       |
+
+**Agent Workspace (`~/.copaw/workspaces/{agent_id}/`)**
+
+| File / Directory     | Purpose                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| `agent.json`         | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
+| `chats.json`         | Conversation history                                         |
+| `jobs.json`          | Cron job list                                                |
+| `token_usage.json`   | Token usage records                                          |
+| `AGENTS.md`          | _(required)_ Detailed workflows, rules, and guidelines       |
+| `SOUL.md`            | _(required)_ Core identity and behavioral principles         |
+| `active_skills/`     | Currently enabled skills                                     |
+| `customized_skills/` | User-created custom skills                                   |
+| `memory/`            | Memory files (auto-managed)                                  |
 
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
 > generic "You are a helpful assistant" prompt. Run `copaw init` to auto-copy
 > them based on your language choice (`zh` / `en` / `ru`). You can also
 > change the language later via the Console (Agent → Configuration).
+
+> **Multi-Agent Workspace:** See the [Multi-Agent Workspace](./multi-agent) documentation for details.
 
 ---
 
@@ -142,6 +170,7 @@ automatically use defaults.
     "host": "127.0.0.1",
     "port": 8088
   },
+  "user_timezone": "Asia/Shanghai",
   "last_dispatch": null,
   "show_tool_details": true
 }
@@ -179,10 +208,14 @@ Each channel has a common base and channel-specific fields.
 
 **`channels.dingtalk`** — DingTalk (钉钉)
 
-| Field           | Type   | Default | Description                |
-| --------------- | ------ | ------- | -------------------------- |
-| `client_id`     | string | `""`    | DingTalk app Client ID     |
-| `client_secret` | string | `""`    | DingTalk app Client Secret |
+| Field               | Type   | Default      | Description                                                                |
+| ------------------- | ------ | ------------ | -------------------------------------------------------------------------- |
+| `client_id`         | string | `""`         | DingTalk app Client ID                                                     |
+| `client_secret`     | string | `""`         | DingTalk app Client Secret                                                 |
+| `message_type`      | string | `"markdown"` | Message mode: `markdown` (default) or `card` (AI interactive card)         |
+| `card_template_id`  | string | `""`         | DingTalk AI Card template ID (required when `message_type` is `card`)      |
+| `card_template_key` | string | `"content"`  | AI Card variable key; must exactly match your template variable name       |
+| `robot_code`        | string | `""`         | Robot code (recommended explicit config for group card delivery scenarios) |
 
 **`channels.feishu`** — Feishu / Lark (飞书)
 
@@ -213,14 +246,33 @@ Each channel has a common base and channel-specific fields.
 
 ---
 
-#### `agents` — Agent behavior settings
+#### `agents` — Multi-agent configuration
 
-| Field                                | Type           | Default   | Description                                                             |
-| ------------------------------------ | -------------- | --------- | ----------------------------------------------------------------------- |
-| `agents.defaults.heartbeat`          | object \| null | See below | Heartbeat configuration                                                 |
-| `agents.running`                     | object         | See below | Agent runtime behavior configuration                                    |
-| `agents.language`                    | string         | `"zh"`    | Language for agent MD files (`"zh"` / `"en"` / `"ru"`)                  |
-| `agents.installed_md_files_language` | string \| null | `null`    | Tracks which language's MD files are installed; managed by `copaw init` |
+From **v0.1.0**, the `agents` section now contains agent profiles:
+
+| Field                 | Type   | Default     | Description                                   |
+| --------------------- | ------ | ----------- | --------------------------------------------- |
+| `agents.active_agent` | string | `"default"` | Currently active agent ID                     |
+| `agents.profiles`     | object | `{}`        | Dictionary of agent profiles (key = agent ID) |
+
+**`agents.profiles[agent_id]`** — Agent profile reference
+
+| Field         | Type   | Required | Description                  |
+| ------------- | ------ | -------- | ---------------------------- |
+| `id`          | string | Yes      | Agent unique ID              |
+| `name`        | string | Yes      | Agent display name           |
+| `description` | string | No       | Agent description            |
+| `enabled`     | bool   | Yes      | Whether the agent is enabled |
+
+Each agent's detailed configuration is stored in `~/.copaw/workspaces/{agent_id}/agent.json`:
+
+| Field                         | Type           | Default   | Description                                                             |
+| ----------------------------- | -------------- | --------- | ----------------------------------------------------------------------- |
+| `channels`                    | object         | See below | Channel configurations                                                  |
+| `heartbeat`                   | object \| null | See below | Heartbeat configuration                                                 |
+| `running`                     | object         | See below | Agent runtime behavior configuration                                    |
+| `language`                    | string         | `"zh"`    | Language for agent MD files (`"zh"` / `"en"` / `"ru"`)                  |
+| `installed_md_files_language` | string \| null | `null`    | Tracks which language's MD files are installed; managed by `copaw init` |
 
 **`agents.running`** — Agent runtime behavior
 
@@ -245,6 +297,23 @@ Each channel has a common base and channel-specific fields.
 | `end`   | string | `"22:00"` | End time (HH:MM, 24-hour)   |
 
 > See [Heartbeat](./heartbeat) for a detailed guide.
+
+---
+
+#### `user_timezone` — User timezone
+
+| Field           | Type   | Default             | Description                                                                                                            |
+| --------------- | ------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `user_timezone` | string | _(system timezone)_ | IANA timezone name (e.g. `"Asia/Shanghai"`, `"America/New_York"`). Defaults to the system timezone detected at startup |
+
+This timezone is used for:
+
+- Displaying the current time in the agent's system prompt
+- The `get_current_time` tool
+- Default timezone for new cron jobs (CLI and console)
+- Heartbeat active hours evaluation
+
+You can also change it via the Console (Agent → Configuration).
 
 ---
 
@@ -400,15 +469,18 @@ Memory search relies on vector embeddings for semantic retrieval. Configure via 
 
 - Everything lives under **`~/.copaw`** by default; override with
   `COPAW_WORKING_DIR` (and related env vars) if needed.
-- Day-to-day you edit **config.json** (channels, heartbeat, language) and
+- From **v0.1.0**, configuration is split into:
+  - **Global config** (`~/.copaw/config.json`) — providers, environment variables, agent list
+  - **Agent config** (`~/.copaw/workspaces/{agent_id}/agent.json`) — per-agent settings
+- Day-to-day you edit agent-specific **agent.json** (channels, heartbeat, language) and
   **HEARTBEAT.md** (what to ask on each heartbeat tick); manage cron jobs
-  via CLI/API.
-- Agent personality is defined by Markdown files in the working directory:
+  via CLI/API with `--agent-id` parameter.
+- Each agent's personality is defined by Markdown files in its workspace directory:
   **SOUL.md** + **AGENTS.md** (required).
-- LLM providers are configured via `copaw init` or the console UI.
+- LLM providers are globally configured via `copaw init` or the console UI.
 - Config changes to channels are **auto-reloaded** without restart (polled
   every 2 seconds).
-- Call the Agent API: **POST** `/agent/process`, JSON body, SSE streaming;
+- Call the Agent API: **POST** `/agent/process` with `X-Agent-Id` header, JSON body, SSE streaming;
   see [Quick start — Verify install](./quickstart#verify-install-optional) for
   examples.
 
@@ -419,6 +491,7 @@ Memory search relies on vector embeddings for semantic retrieval. Configure via 
 - [Introduction](./intro) — What the project can do
 - [Channels](./channels) — How to fill in channels in config
 - [Heartbeat](./heartbeat) — How to fill in heartbeat in config
+- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
 
 ---
 
@@ -431,7 +504,7 @@ Memory search relies on vector embeddings for semantic retrieval. Configure via 
 | File             | Core Purpose                                             | Read/Write                                                                      | Key Contents                                                                                                         |
 | ---------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **SOUL.md**      | Defines the agent's **values and behavioral principles** | Read-only (predefined by developer/user)                                        | Be genuinely helpful; have your own opinions; try before asking; respect privacy boundaries                          |
-| **PROFILE.md**   | Records the agent's **identity** and **user profile**    | Read-write (auto-generated by BOOTSTRAP, then editable manually or via console) | Agent side: name, role, style, capabilities; User side: name, timezone, preferences, background                      |
+| **PROFILE.md**   | Records the agent's **identity** and **user profile**    | Read-write (auto-generated by BOOTSTRAP, then editable manually or via console) | Agent side: name, role, style, capabilities; User side: name, preferences, background                                |
 | **BOOTSTRAP.md** | **First-run onboarding** flow for new agents             | One-time (self-deletes after completion ✂️)                                     | ① Self-introduction → ② Learn about user → ③ Write PROFILE.md → ④ Read SOUL.md → ⑤ Self-delete                       |
 | **AGENTS.md**    | Agent's **complete operating manual**                    | Read-only (core runtime reference)                                              | Memory system read/write rules; security & permissions; tool usage specs; heartbeat triggers; operational boundaries |
 | **MEMORY.md**    | Stores agent's **tool settings and lessons learned**     | Read-write (maintained by agent, also manually editable)                        | SSH config & connections; local environment paths/versions; user personalization & preferences                       |

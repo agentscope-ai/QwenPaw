@@ -79,7 +79,7 @@ async def test_check_connection_error_returns_false(monkeypatch) -> None:
     ok, msg = await provider.check_connection(timeout=1.0)
 
     assert ok is False
-    assert msg == f"Unknown exception when connecting to `{provider.base_url}`"
+    assert msg == f"Failed to connect to Ollama at `{provider.base_url}`: boom"
 
 
 async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
@@ -171,7 +171,7 @@ async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
     ok, msg = await provider.check_model_connection("qwen2:7b", timeout=4.0)
 
     assert ok is False
-    assert msg == "Unknown exception when connecting to `qwen2:7b`"
+    assert msg == "Model connection failed for `qwen2:7b`: failed"
 
 
 async def test_update_config_updates_non_none_values_and_get_info(

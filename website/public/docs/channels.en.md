@@ -79,12 +79,18 @@ In `config.json`, find `channels.dingtalk` and fill in the corresponding informa
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "your Client ID",
-  "client_secret": "your Client Secret"
+  "client_secret": "your Client Secret",
+  "message_type": "markdown",
+  "card_template_id": "",
+  "card_template_key": "content",
+  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
 
 - Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
+- AI Card mode: set `message_type` to `card`, then configure `card_template_id`; keep `card_template_key` consistent with your DingTalk template variable (default `content`).
+- `robot_code` is recommended in group scenarios; if empty, CoPaw falls back to `client_id`.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run
 `copaw app`.
@@ -431,6 +437,66 @@ You can also fill them in the Console UI.
 
 ---
 
+## WeCom (WeChat Work)
+
+### Create a new enterprise
+
+Individual users can visit the [WeCom official website](https://work.weixin.qq.com) to register an account, create a new enterprise, and become an enterprise administrator.
+
+![Create enterprise](https://img.alicdn.com/imgextra/i2/O1CN01Xg8B3i1EQWAKt5xj0_!!6000000000346-2-tps-2938-1588.png)
+
+Fill in the enterprise information and administrator information, and bind your WeChat account.
+
+![New account](https://img.alicdn.com/imgextra/i4/O1CN01uRF1Mv1TX87bOQ045_!!6000000002391-2-tps-1538-905.png)
+
+Once registered, you can log in to WeCom and start using it.
+
+If you already have a WeCom account or are a regular employee of an enterprise, you can directly create an API-mode robot in your current enterprise.
+
+### Create a bot
+
+In the Workplace, click Smart Robot → Create Robot, select API Mode → Configure via Long Connection.
+
+![Create robot 1](https://img.alicdn.com/imgextra/i3/O1CN01lcA2rX1fm2P19SLcB_!!6000000004048-2-tps-1440-814.png)
+
+![Create robot 2](https://img.alicdn.com/imgextra/i1/O1CN014R3a0f1mnb3qbycMV_!!6000000004999-2-tps-1440-814.png)
+
+![Create robot 3](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
+
+Obtain the `Bot ID` and `Secret`.
+
+![Create robot 4](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
+
+### Bind the bot
+
+You can bind the bot by filling in the Bot ID and Secret in the Console or `config.json`.
+
+**Method 1:** Fill in the Console
+
+![Bind robot](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
+
+**Method 2:** Fill in `config.json` (default file path is `~/.copaw/config.json`)
+
+Find `wecom` and fill in the corresponding information, for example:
+
+```json
+"wecom": {
+  "enabled": true,
+  "dm_policy": "open",
+  "group_policy": "open",
+  "bot_id": "your bot_id",
+  "secret": "your secret",
+  "media_dir": "~/.copaw/media",
+  "max_reconnect_attempts": -1
+}
+```
+
+### Start chatting with the bot in WeCom
+
+![Start using](https://img.alicdn.com/imgextra/i3/O1CN01ZsmpYr1tq4ViIbO80_!!6000000005952-2-tps-1308-1130.png)
+
+---
+
 ## Telegram
 
 ### Get Telegram bot credentials
@@ -641,6 +707,26 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 
 ---
 
+## XiaoYi
+
+The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over WebSocket to Huawei's AI assistant platform.
+
+### Get credentials
+
+1. Create an agent in the XiaoYi Open Platform.
+2. Obtain **AK** (Access Key), **SK** (Secret Key), and **Agent ID**.
+
+### Core Config
+
+| Field        | Description             | Default                                          |
+| ------------ | ----------------------- | ------------------------------------------------ |
+| **ak**       | Access Key              | -                                                |
+| **sk**       | Secret Key              | -                                                |
+| **agent_id** | Agent unique identifier | -                                                |
+| **ws_url**   | WebSocket URL           | `wss://hag.cloud.huawei.com/openclaw/v1/ws/link` |
+
+---
+
 ## Appendix
 
 ### Config overview
@@ -652,9 +738,11 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 | iMessage   | imessage   | db_path, poll_sec (macOS only)                                          |
 | Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
 | QQ         | qq         | app_id, client_secret                                                   |
+| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                       |
+| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                       |
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -672,9 +760,11 @@ done). **✗** = not supported (not possible on this channel).
 | Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| XiaoYi     | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 
 Notes:
 
@@ -690,7 +780,9 @@ Notes:
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
+- **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
+- **XiaoYi**: Text only; media support is 🚧.
 
 ### Changing config via HTTP
 

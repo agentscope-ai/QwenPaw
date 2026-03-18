@@ -44,6 +44,8 @@ from .tool_message_utils import (
     extract_tool_ids,
 )
 
+from .copaw_token_counter import _get_copaw_token_counter
+
 __all__ = [
     # File handling
     "download_file_from_base64",
@@ -66,4 +68,5 @@ __all__ = [
     "_sanitize_tool_messages",
     "check_valid_messages",
     "extract_tool_ids",
+    "_get_copaw_token_counter",
 ]

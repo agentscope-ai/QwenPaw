@@ -43,6 +43,13 @@ export const chatApi = {
         body: JSON.stringify(chatIds),
       },
     ),
+
+  /** Stop a running console chat (only stop when user clicks stop). chat_id = ChatSpec.id */
+  stopConsoleChat: (chatId: string) =>
+    request<{ stopped: boolean }>(
+      `/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`,
+      { method: "POST" },
+    ),
 };
 
 export const sessionApi = {

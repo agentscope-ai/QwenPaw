@@ -79,6 +79,9 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Default media directory for channels (cross-platform)
+DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
+
 JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
@@ -94,6 +97,13 @@ HEARTBEAT_FILE = EnvVarLoader.get_str("COPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_TARGET_LAST = "last"
+
+# Debug history file for /dump_history and /load_history commands
+DEBUG_HISTORY_FILE = EnvVarLoader.get_str(
+    "COPAW_DEBUG_HISTORY_FILE",
+    "debug_history.jsonl",
+)
+MAX_LOAD_HISTORY_COUNT = 10000
 
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"
@@ -135,13 +145,13 @@ CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 # Local models directory
 MODELS_DIR = WORKING_DIR / "models"
 
-# Memory compaction configuration
 MEMORY_COMPACT_KEEP_RECENT = EnvVarLoader.get_int(
     "COPAW_MEMORY_COMPACT_KEEP_RECENT",
     3,
     min_value=0,
 )
 
+# Memory compaction configuration
 MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     "COPAW_MEMORY_COMPACT_RATIO",
     0.7,
