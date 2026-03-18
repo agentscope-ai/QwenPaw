@@ -409,6 +409,34 @@ copaw app # 启动服务
 
 ---
 
+## Skills 市场配置示例
+
+你可以在 Console 中添加社区技能市场，也可以直接写入 `config.json`。
+
+以下是 `editor-skills` 仓库的示例配置：
+
+```json
+{
+  "skills_market": {
+    "markets": [
+      {
+        "id": "editor_skills",
+        "name": "Editor Skills",
+        "type": "git",
+        "url": "https://github.com/futuremeng/editor-skills",
+        "branch": "main",
+        "path": "skills",
+        "enabled": true,
+        "order": 1,
+        "trust": "community"
+      }
+    ]
+  }
+}
+```
+
+---
+
 ## 文档
 
 | 主题                                                      | 说明                                 |

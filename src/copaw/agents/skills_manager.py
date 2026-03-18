@@ -135,42 +135,45 @@ def _collect_skills_from_dir(directory: Path) -> dict[str, Path]:
     return skills
 
 
-def sync_skill_dir_to_active(
-    skill_dir: Path,
-    force: bool = False,
-) -> bool:
-    """Sync a single skill directory into active_skills."""
+def _get_builtin_skill_version(skill_dir: Path) -> Version | None:
+    """Read ``builtin_skill_version`` from SKILL.md front matter."""
     skill_md = skill_dir / "SKILL.md"
-    if not skill_dir.is_dir() or not skill_md.exists():
-        logger.warning("Skill directory is invalid or missing SKILL.md: %s", skill_dir)
-        return False
-
-    active_skills = get_active_skills_dir()
-    active_skills.mkdir(parents=True, exist_ok=True)
-
-    target_dir = active_skills / skill_dir.name
-    if target_dir.exists():
-        if _directories_match_ignoring_runtime_artifacts(skill_dir, target_dir):
-            return True
-        if not force:
-            logger.debug(
-                "Skill '%s' already exists in active_skills with different content, skipping.",
-                skill_dir.name,
-            )
-            return False
-        shutil.rmtree(target_dir)
-
+    if not skill_md.exists():
+        return None
     try:
-        shutil.copytree(skill_dir, target_dir)
-        logger.debug("Synced skill '%s' to active_skills.", skill_dir.name)
-        return True
+        content = skill_md.read_text(encoding="utf-8")
+        post = frontmatter.loads(content)
+        metadata = post.get("metadata") or {}
+        ver = metadata.get("builtin_skill_version")
+        if ver is not None:
+            return Version(str(ver))
     except Exception as e:
-        logger.error(
-            "Failed to sync skill directory '%s' to active_skills: %s",
-            skill_dir,
+        logger.warning(
+            "Could not parse version for skill '%s' from '%s': %s",
+            skill_dir.name,
+            skill_md,
             e,
         )
-        return False
+    return None
+
+
+def _replace_skill_dir(source: Path, target: Path) -> None:
+    """Remove *target* (if it exists) and copy *source* in its place."""
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
+def _skill_md_differs(dir_a: Path, dir_b: Path) -> bool:
+    """Return True when the SKILL.md files in two dirs have different
+    content (or one side is missing)."""
+    md_a = dir_a / "SKILL.md"
+    md_b = dir_b / "SKILL.md"
+    if not md_a.exists() or not md_b.exists():
+        return True
+    return md_a.read_text(encoding="utf-8") != md_b.read_text(
+        encoding="utf-8",
+    )
 
 
 def sync_skills_to_working_dir(
@@ -234,14 +237,21 @@ def sync_skills_to_working_dir(
             synced_count += 1
             continue
 
-        # Copy skill directory
-        try:
-            if sync_skill_dir_to_active(skill_dir, force=True):
-                synced_count += 1
-            else:
-                skipped_count += 1
-        except Exception as e:
-            logger.error("Failed to sync skill '%s': %s", skill_name, e)
+        # Customized override: propagate customized → active
+        customized_dir = customized_skills / skill_name
+        if customized_dir.exists() and _skill_md_differs(
+            customized_dir,
+            target_dir,
+        ):
+            _replace_skill_dir(customized_dir, target_dir)
+            logger.debug(
+                "Customized skill '%s' updated in active_skills.",
+                skill_name,
+            )
+            synced_count += 1
+            continue
+
+        skipped_count += 1
 
     return synced_count, skipped_count
 
@@ -280,13 +290,30 @@ def sync_skills_from_active_to_customized(
         if skill_names is not None and skill_name not in skill_names:
             continue
 
-        # Skip builtin skills (dual check: version field + name match)
-        active_ver = _get_builtin_skill_version(skill_dir)
-        if active_ver is not None and skill_name in builtin_skills_dict:
-            skipped_count += 1
+        # Builtin skill: check version upgrade, skip back-sync
+        if skill_name in builtin_skills_dict:
+            builtin_dir = builtin_skills_dict[skill_name]
+            active_ver = _get_builtin_skill_version(skill_dir)
+            builtin_ver = _get_builtin_skill_version(builtin_dir)
+            if (
+                active_ver is not None
+                and builtin_ver is not None
+                and builtin_ver > active_ver
+            ):
+                _replace_skill_dir(builtin_dir, skill_dir)
+                logger.debug(
+                    "Builtin skill '%s' updated in "
+                    "active_skills (v%s -> v%s).",
+                    skill_name,
+                    active_ver,
+                    builtin_ver,
+                )
+                synced_count += 1
+            else:
+                skipped_count += 1
             continue
 
-        # Only back-sync when customized doesn't already exist
+        # Non-builtin: back-sync to customized (first-time only)
         target_dir = customized_skills / skill_name
         if target_dir.exists():
             skipped_count += 1
@@ -528,21 +555,6 @@ class SkillService:
         except Exception as e:
             logger.debug(
                 "Failed to back-sync skills: %s",
-                e,
-            )
-
-        try:
-            synced, _ = sync_skills_to_working_dir(
-                self.workspace_dir,
-            )
-            if synced > 0:
-                logger.debug(
-                    "Forward-synced %d skill(s) to active_skills",
-                    synced,
-                )
-        except Exception as e:
-            logger.debug(
-                "Failed to forward-sync skills: %s",
                 e,
             )
 

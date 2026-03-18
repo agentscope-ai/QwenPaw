@@ -23,6 +23,7 @@ export interface SkillsMarketSpec {
   path: string;
   enabled: boolean;
   order: number;
+  trust?: "official" | "community" | "custom" | null;
 }
 
 export interface SkillsMarketsPayload {
@@ -61,10 +62,9 @@ export interface MarketplaceItem {
 }
 
 export interface MarketplaceMeta {
-  refreshed_at: number;
-  cache_hit: boolean;
   enabled_market_count: number;
   success_market_count: number;
+  item_count: number;
 }
 
 export interface MarketplaceResponse {

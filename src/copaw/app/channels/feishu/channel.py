@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    # AudioContent,
+    AudioContent,
     FileContent,
     ImageContent,
     RunStatus,
@@ -768,11 +768,10 @@ class FeishuChannel(BaseChannel):
                         filename_hint="audio.opus",
                     )
                     if url_or_path:
-                        # TODO: change to audio block when as support opus
                         content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
+                            AudioContent(
+                                type=ContentType.AUDIO,
+                                data=url_or_path,
                             ),
                         )
                     else:

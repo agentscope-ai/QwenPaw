@@ -404,6 +404,34 @@ copaw app # start the server
 
 ---
 
+## Skills Marketplace Example
+
+You can add a community skills market source in Console or in your `config.json`.
+
+Example source for the `editor-skills` repository:
+
+```json
+{
+  "skills_market": {
+    "markets": [
+      {
+        "id": "editor_skills",
+        "name": "Editor Skills",
+        "type": "git",
+        "url": "https://github.com/futuremeng/editor-skills",
+        "branch": "main",
+        "path": "skills",
+        "enabled": true,
+        "order": 1,
+        "trust": "community"
+      }
+    ]
+  }
+}
+```
+
+---
+
 ## Documentation
 
 | Topic                                                                 | Description                                      |

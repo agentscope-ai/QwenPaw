@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { message, Modal } from "@agentscope-ai/design";
 import React from "react";
 import api from "../../../api";
-import type { SkillSpec } from "../../../api/types";
 import type {
   MarketError,
   MarketplaceItem,
   MarketplaceMeta,
-  SkillsMarketSpec,
+  SkillSpec,
   SkillsMarketsPayload,
-} from "../../../api/types/skill";
+  SkillsMarketSpec,
+} from "../../../api/types";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -35,9 +35,8 @@ export function useSkills() {
   const { selectedAgent } = useAgentStore();
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [markets, setMarkets] = useState<SkillsMarketSpec[]>([]);
-  const [marketConfig, setMarketConfig] = useState<SkillsMarketsPayload | null>(
-    null,
-  );
+  const [marketConfig, setMarketConfig] =
+    useState<SkillsMarketsPayload | null>(null);
   const [marketplace, setMarketplace] = useState<MarketplaceItem[]>([]);
   const [marketErrors, setMarketErrors] = useState<MarketError[]>([]);
   const [marketMeta, setMarketMeta] = useState<MarketplaceMeta | null>(null);
@@ -47,6 +46,8 @@ export function useSkills() {
     null,
   );
   const [importing, setImporting] = useState(false);
+  const importTaskIdRef = useRef<string | null>(null);
+  const importCancelReasonRef = useRef<"manual" | "timeout" | null>(null);
 
   const showScanErrorModal = useCallback(
     (scanError: SecurityScanErrorResponse) => {
@@ -218,6 +219,88 @@ export function useSkills() {
     }
   };
 
+  const fetchMarkets = async () => {
+    try {
+      const data = await api.getSkillsMarkets();
+      setMarketConfig(data);
+      setMarkets(data?.markets ?? []);
+    } catch (error) {
+      console.error("Failed to load markets", error);
+      message.error("Failed to load markets");
+    }
+  };
+
+  const fetchMarketplace = async (refresh = false) => {
+    setMarketplaceLoading(true);
+    try {
+      const data = await api.getMarketplace(refresh);
+      setMarketplace(data.items ?? []);
+      setMarketErrors(data.market_errors ?? []);
+      setMarketMeta(data.meta ?? null);
+    } catch (error) {
+      console.error("Failed to load marketplace", error);
+      message.error("Failed to load marketplace");
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  };
+
+  const saveMarkets = async (payload: SkillsMarketsPayload) => {
+    try {
+      const data = await api.updateSkillsMarkets(payload);
+      setMarketConfig(data);
+      setMarkets(data.markets ?? []);
+      message.success("Markets updated");
+      return true;
+    } catch (error) {
+      console.error("Failed to update markets", error);
+      message.error("Failed to update markets");
+      return false;
+    }
+  };
+
+  const validateMarket = async (market: SkillsMarketSpec) => {
+    try {
+      const result = await api.validateSkillsMarket(market);
+      message.success(`Market validated: ${market.name || market.id}`);
+      return result;
+    } catch (error) {
+      console.error("Failed to validate market", error);
+      message.error("Failed to validate market");
+      return null;
+    }
+  };
+
+  const installMarketplaceSkill = async (
+    marketId: string,
+    skillId: string,
+    opts?: { enable?: boolean; overwrite?: boolean },
+  ) => {
+    const key = `${marketId}/${skillId}`;
+    setInstallingSkillKey(key);
+    try {
+      const result = await api.installMarketplaceSkill({
+        market_id: marketId,
+        skill_id: skillId,
+        enable: opts?.enable ?? true,
+        overwrite: opts?.overwrite ?? false,
+      });
+      if (result.installed) {
+        message.success(`Installed skill: ${result.name}`);
+        await fetchSkills();
+        await checkScanWarnings(result.name);
+        return true;
+      }
+      message.error("Install failed");
+      return false;
+    } catch (error) {
+      handleError(error, "Install failed");
+      return false;
+    } finally {
+      setInstallingSkillKey(null);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -233,73 +316,6 @@ export function useSkills() {
       mounted = false;
     };
   }, [selectedAgent]);
-
-  const fetchMarkets = async () => {
-    try {
-      const data = await api.getSkillsMarkets();
-      setMarketConfig(data);
-      setMarkets(data?.markets ?? []);
-    } catch (error) {
-      console.error("Failed to load markets", error);
-      message.error(t("skills.loadMarketsFailed"));
-    }
-  };
-
-  const validateMarket = async (market: SkillsMarketSpec) => {
-    try {
-      const result = await api.validateSkillsMarket(market);
-      message.success(
-        t("skills.validateMarketSuccess", {
-          name: market.name || market.id,
-        }),
-      );
-      return result;
-    } catch (error) {
-      console.error("Failed to validate market", error);
-      message.error(t("skills.validateMarketFailed"));
-      return null;
-    }
-  };
-
-  const saveMarkets = async (nextMarkets: SkillsMarketSpec[]) => {
-    const config = marketConfig ?? {
-      version: 1,
-      cache: { ttl_sec: 600 },
-      install: { overwrite_default: false },
-      markets: [],
-    };
-    try {
-      const payload: SkillsMarketsPayload = {
-        ...config,
-        markets: nextMarkets,
-      };
-      const updated = await api.updateSkillsMarkets(payload);
-      setMarketConfig(updated);
-      setMarkets(updated.markets);
-      message.success(t("skills.saveMarketsSuccess"));
-      await fetchMarketplace(true);
-      return true;
-    } catch (error) {
-      console.error("Failed to save markets", error);
-      message.error(t("skills.saveMarketsFailed"));
-      return false;
-    }
-  };
-
-  const fetchMarketplace = async (refresh = false) => {
-    try {
-      setMarketplaceLoading(true);
-      const data = await api.getMarketplace(refresh);
-      setMarketplace(data?.items ?? []);
-      setMarketErrors(data?.market_errors ?? []);
-      setMarketMeta(data?.meta ?? null);
-    } catch (error) {
-      console.error("Failed to load marketplace", error);
-      message.error(t("skills.loadMarketplaceFailed"));
-    } finally {
-      setMarketplaceLoading(false);
-    }
-  };
 
   const createSkill = async (name: string, content: string) => {
     try {
@@ -326,25 +342,67 @@ export function useSkills() {
       );
       return false;
     }
+    const timeoutMs = 90_000;
+    const pollMs = 1_000;
+    const startedAt = Date.now();
     try {
       setImporting(true);
+      importCancelReasonRef.current = null;
       const payload = { bundle_url: text, enable: true, overwrite: false };
-      const result = await api.installHubSkill(payload);
-      if (result?.installed) {
-        message.success(`Imported skill: ${result.name}`);
-        await fetchSkills();
-        if (result.name) await checkScanWarnings(result.name);
-        return true;
+      const task = await api.startHubSkillInstall(payload);
+      importTaskIdRef.current = task.task_id;
+
+      while (importTaskIdRef.current) {
+        const status = await api.getHubSkillInstallStatus(task.task_id);
+
+        if (status.status === "completed" && status.result?.installed) {
+          message.success(`Imported skill: ${status.result.name}`);
+          await fetchSkills();
+          if (status.result.name) await checkScanWarnings(status.result.name);
+          return true;
+        }
+
+        if (status.status === "failed") {
+          throw new Error(status.error || "Import failed");
+        }
+
+        if (status.status === "cancelled") {
+          message.warning(
+            t(
+              importCancelReasonRef.current === "timeout"
+                ? "skills.importTimeout"
+                : "skills.importCancelled",
+            ),
+          );
+          return false;
+        }
+
+        if (Date.now() - startedAt >= timeoutMs) {
+          importCancelReasonRef.current = "timeout";
+          await api.cancelHubSkillInstall(task.task_id);
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, pollMs));
       }
-      message.error("Import failed");
+
       return false;
     } catch (error) {
       handleError(error, "Import failed");
       return false;
     } finally {
+      importTaskIdRef.current = null;
+      importCancelReasonRef.current = null;
       setImporting(false);
     }
   };
+
+  const cancelImport = useCallback(() => {
+    if (!importing) return;
+    importCancelReasonRef.current = "manual";
+    const taskId = importTaskIdRef.current;
+    if (!taskId) return;
+    void api.cancelHubSkillInstall(taskId);
+  }, [importing]);
 
   const toggleEnabled = async (skill: SkillSpec) => {
     try {
@@ -405,60 +463,20 @@ export function useSkills() {
     }
   };
 
-  const installFromMarketplace = async (item: MarketplaceItem) => {
-    const skillKey = `${item.market_id}/${item.skill_id}`;
-
-    // Check if a skill with the same name is already installed
-    const alreadyInstalled = skills.some(
-      (s) => s.name === item.skill_id || s.name === item.name,
-    );
-
-    let overwrite = false;
-    if (alreadyInstalled) {
-      const confirmed = await new Promise<boolean>((resolve) => {
-        Modal.confirm({
-          title: t("skills.overwriteConfirmTitle"),
-          content: t("skills.overwriteConfirmContent", { name: item.name }),
-          okText: t("skills.overwriteConfirmOk"),
-          okType: "danger",
-          cancelText: t("skills.overwriteConfirmCancel"),
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
-      });
-      if (!confirmed) return false;
-      overwrite = true;
-    }
-
+  const deleteSkillDirect = async (skill: SkillSpec) => {
     try {
-      setInstallingSkillKey(skillKey);
-      const result = await api.installMarketplaceSkill({
-        market_id: item.market_id,
-        skill_id: item.skill_id,
-        enable: true,
-        overwrite,
-      });
-      if (result?.installed) {
-        message.success(
-          t("skills.installMarketplaceSuccess", { name: result.name }),
-        );
-        await fetchSkills();
-        return true;
-      }
-      message.error(t("skills.installMarketplaceFailed"));
-      return false;
+      const result = await api.deleteSkill(skill.name);
+      return result.deleted ?? false;
     } catch (error) {
-      console.error("Failed to install marketplace skill", error);
-      message.error(t("skills.installMarketplaceFailed"));
+      console.error("Failed to delete skill", error);
       return false;
-    } finally {
-      setInstallingSkillKey(null);
     }
   };
 
   return {
     skills,
     markets,
+    marketConfig,
     marketplace,
     marketErrors,
     marketMeta,
@@ -466,13 +484,17 @@ export function useSkills() {
     marketplaceLoading,
     installingSkillKey,
     importing,
+    cancelImport,
+    fetchMarkets,
+    fetchMarketplace,
+    saveMarkets,
+    validateMarket,
+    installMarketplaceSkill,
     createSkill,
     importFromHub,
-    validateMarket,
-    saveMarkets,
-    fetchMarketplace,
-    installFromMarketplace,
     toggleEnabled,
     deleteSkill,
+    deleteSkillDirect,
+    fetchSkills,
   };
 }

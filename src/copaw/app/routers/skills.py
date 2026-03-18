@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import json
 import logging
 import re
@@ -6,8 +7,10 @@ import subprocess
 import tempfile
 import threading
 import time
-from pathlib import Path
+import uuid
+from enum import Enum
 from typing import Any
+from urllib.parse import unquote, urlparse
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -17,11 +20,18 @@ from ...agents.skills_manager import (
     SkillInfo,
 )
 from ...agents.skills_hub import (
+    SkillImportCancelled,
     search_hub_skills,
     install_skill_from_hub,
 )
+from ...config import load_config, save_config
+from ...config.config import (
+    SkillMarketSpec,
+    SkillsMarketCacheConfig,
+    SkillsMarketConfig,
+    SkillsMarketInstallConfig,
+)
 from ...security.skill_scanner import SkillScanError
-from ...config.config import SkillMarketSpec, SkillsMarketConfig
 
 
 logger = logging.getLogger(__name__)
@@ -129,6 +139,32 @@ class InstallMarketplaceRequest(BaseModel):
     overwrite: bool = False
 
 
+class HubInstallTaskStatus(str, Enum):
+    PENDING = "pending"
+    IMPORTING = "importing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class HubInstallTask(BaseModel):
+    task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    bundle_url: str
+    version: str = ""
+    enable: bool = True
+    overwrite: bool = False
+    status: HubInstallTaskStatus = HubInstallTaskStatus.PENDING
+    error: str | None = None
+    result: dict[str, Any] | None = None
+    created_at: float = Field(default_factory=time.time)
+    updated_at: float = Field(default_factory=time.time)
+
+
+_hub_install_tasks: dict[str, HubInstallTask] = {}
+_hub_install_runtime_tasks: dict[str, asyncio.Task] = {}
+_hub_install_cancel_events: dict[str, threading.Event] = {}
+_hub_install_lock = asyncio.Lock()
+
 _OWNER_REPO_PATTERN = re.compile(r"^[\w.-]+/[\w.-]+$")
 _MARKETPLACE_CACHE_LOCK = threading.Lock()
 _MARKETPLACE_CACHE: dict[str, Any] = {
@@ -137,6 +173,9 @@ _MARKETPLACE_CACHE: dict[str, Any] = {
     "errors": [],
     "meta": {},
 }
+
+
+router = APIRouter(prefix="/skills", tags=["skills"])
 
 
 def _extract_github_market_spec(
@@ -163,15 +202,10 @@ def _extract_github_market_spec(
     return repo_url, branch, path
 
 
-def _market_repo_web_url(url: str) -> str:
+def _normalize_market_url(url: str) -> str:
     raw = (url or "").strip()
-    if raw.startswith("git@github.com:"):
-        repo = raw[len("git@github.com:") :]
-        if repo.endswith(".git"):
-            repo = repo[: -len(".git")]
-        return f"https://github.com/{repo}"
-    if raw.endswith(".git"):
-        return raw[: -len(".git")]
+    if _OWNER_REPO_PATTERN.fullmatch(raw):
+        return f"https://github.com/{raw}.git"
     return raw
 
 
@@ -190,16 +224,8 @@ def _normalize_market_spec(market: SkillMarketSpec) -> SkillMarketSpec:
         ):
             normalized.path = path
         return normalized
-
     normalized.url = _normalize_market_url(normalized.url)
     return normalized
-
-
-def _normalize_market_url(url: str) -> str:
-    raw = (url or "").strip()
-    if _OWNER_REPO_PATTERN.fullmatch(raw):
-        return f"https://github.com/{raw}.git"
-    return raw
 
 
 def _validate_market_url(url: str) -> bool:
@@ -223,22 +249,6 @@ def _validate_market_path(path: str) -> bool:
     if p.is_absolute():
         return False
     return ".." not in p.parts
-
-
-def _run_git_command(
-    args: list[str],
-    *,
-    cwd: str | None = None,
-    timeout_sec: int = 30,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout_sec,
-    )
 
 
 def _validate_market_ids(markets: list[SkillMarketSpec]) -> None:
@@ -283,300 +293,261 @@ def _payload_to_market_config(payload: SkillsMarketPayload) -> SkillsMarketConfi
             )
         normalized_markets.append(normalized_market)
 
-    ttl = int(payload.cache.get("ttl_sec", 600))
+    ttl_sec = int(payload.cache.get("ttl_sec", 600))
     overwrite_default = bool(payload.install.get("overwrite_default", False))
     return SkillsMarketConfig(
-        version=max(1, int(payload.version or 1)),
+        version=max(1, int(payload.version)),
         markets=normalized_markets,
-        cache=SkillsMarketCacheConfig(
-            ttl_sec=max(0, min(ttl, 24 * 3600)),
-        ),
+        cache=SkillsMarketCacheConfig(ttl_sec=ttl_sec),
         install=SkillsMarketInstallConfig(
             overwrite_default=overwrite_default,
         ),
     )
 
 
-def _coerce_tags(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
+def _run_git_command(
+    args: list[str],
+    *,
+    cwd: str | None = None,
+    timeout_sec: int = 30,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout_sec,
+        check=False,
+    )
+
+
+def _market_repo_web_url(url: str) -> str:
+    raw = (url or "").strip()
+    if raw.startswith("git@github.com:"):
+        repo = raw[len("git@github.com:") :]
+        if repo.endswith(".git"):
+            repo = repo[: -len(".git")]
+        return f"https://github.com/{repo}"
+    if raw.endswith(".git"):
+        return raw[: -len(".git")]
+    return raw
 
 
 def _generate_market_index_from_directory(
     market: SkillMarketSpec,
-    repo_dir: Path,
     skills_dir: Path,
+    *,
     effective_branch: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
     repo_web_url = _market_repo_web_url(market.url)
     branch = effective_branch or market.branch or "main"
-    skill_dirs: list[Path] = []
-
-    if (skills_dir / "SKILL.md").exists():
-        skill_dirs.append(skills_dir)
-    else:
-        for skill_md in sorted(skills_dir.rglob("SKILL.md")):
-            skill_dirs.append(skill_md.parent)
-
+    warnings: list[str] = []
     skills: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    for skill_dir in skill_dirs:
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
+    for sub in sorted(skills_dir.iterdir()):
+        if not sub.is_dir():
             continue
-        relative_dir = skill_dir.relative_to(repo_dir).as_posix()
-        skill_id = skill_dir.name.strip()
-        if not skill_id or skill_id in seen_ids:
+        if not (sub / "SKILL.md").exists():
             continue
-        seen_ids.add(skill_id)
-
-        content = skill_md.read_text(encoding="utf-8")
-        try:
-            post = frontmatter.loads(content)
-        except Exception:
-            post = None
-
-        description_value = ""
-        version_value = ""
-        tags_value: list[str] = []
-        display_name = skill_id
-        if post is not None:
-            display_name = str(post.get("name") or skill_id)
-            description_value = _coerce_description(post.get("description"))
-            version_value = str(post.get("version") or "")
-            tags_value = _coerce_tags(post.get("tags"))
-
+        rel_path = sub.relative_to(skills_dir.parent).as_posix()
         skills.append(
             {
-                "skill_id": skill_id,
-                "name": display_name,
-                "description": description_value,
-                "version": version_value,
-                "tags": tags_value,
+                "skill_id": sub.name,
+                "name": sub.name,
+                "description": "",
+                "version": "",
                 "source": {
                     "type": "git",
                     "url": market.url,
                     "branch": branch,
-                    "path": relative_dir,
+                    "path": rel_path,
                 },
-                "homepage": f"{repo_web_url}/tree/{branch}/{relative_dir}",
+                "tags": [],
             },
         )
-
-    return {"skills": skills}
+    if not skills:
+        warnings.append("No SKILL.md folders found in market directory")
+    return {"skills": skills}, warnings
 
 
 def _load_market_index(
     market: SkillMarketSpec,
 ) -> tuple[dict[str, Any], list[str]]:
-    market_url = _normalize_market_url(market.url)
+    normalized_market = _normalize_market_spec(market)
+    market_url = _normalize_market_url(normalized_market.url)
     with tempfile.TemporaryDirectory(prefix="copaw-market-") as tmp:
         repo_dir = Path(tmp) / "repo"
         clone_args = ["clone", "--depth", "1"]
-        if market.branch:
-            clone_args += ["--branch", market.branch]
+        if normalized_market.branch:
+            clone_args += ["--branch", normalized_market.branch]
         clone_args += [market_url, str(repo_dir)]
-        clone_result = _run_git_command(clone_args, timeout_sec=45)
+        clone_result = _run_git_command(clone_args, timeout_sec=40)
         if clone_result.returncode != 0:
             raise RuntimeError(
                 "MARKET_UNREACHABLE: "
                 + (clone_result.stderr.strip() or "clone failed")
             )
 
-        effective_branch = (market.branch or "").strip()
+        # Resolve branch from local clone when user did not specify one.
+        effective_branch = (normalized_market.branch or "").strip()
         if not effective_branch:
-            head_result = _run_git_command(
-                ["branch", "--show-current"],
+            branch_result = _run_git_command(
+                ["rev-parse", "--abbrev-ref", "HEAD"],
                 cwd=str(repo_dir),
                 timeout_sec=10,
             )
-            if head_result.returncode == 0:
-                effective_branch = head_result.stdout.strip()
+            if branch_result.returncode == 0:
+                effective_branch = branch_result.stdout.strip()
 
-        target_path = repo_dir / (market.path or "index.json")
-        if target_path.exists() and target_path.is_file():
-            with open(target_path, "r", encoding="utf-8") as f:
-                return json.load(f), []
-
-        if target_path.exists() and target_path.is_dir():
-            return (
-                _generate_market_index_from_directory(
-                    market,
-                    repo_dir,
-                    target_path,
-                    effective_branch,
-                ),
-                [
-                    "MARKET_INDEX_GENERATED_FROM_DIRECTORY: "
-                    f"{target_path.relative_to(repo_dir).as_posix()}"
-                ],
+        target_path = repo_dir / (normalized_market.path or "index.json")
+        warnings: list[str] = []
+        if target_path.is_file():
+            return json.loads(target_path.read_text(encoding="utf-8")), warnings
+        if target_path.is_dir():
+            return _generate_market_index_from_directory(
+                normalized_market,
+                target_path,
+                effective_branch=effective_branch,
             )
-
-        if target_path.name == "index.json" and target_path.parent.is_dir():
-            return (
-                _generate_market_index_from_directory(
-                    market,
-                    repo_dir,
-                    target_path.parent,
-                    effective_branch,
-                ),
-                [
-                    "MARKET_INDEX_GENERATED_FROM_DIRECTORY: "
-                    f"{target_path.parent.relative_to(repo_dir).as_posix()}"
-                ],
-            )
-
+        if target_path.suffix.lower() == ".json":
+            parent_dir = target_path.parent
+            if parent_dir.is_dir():
+                return _generate_market_index_from_directory(
+                    normalized_market,
+                    parent_dir,
+                    effective_branch=effective_branch,
+                )
         raise ValueError(
-            f"MARKET_INDEX_INVALID: index or skills directory not found at {market.path}"
+            "MARKET_INDEX_INVALID: index or skills directory not found at "
+            f"{normalized_market.path}"
         )
-
-
-def _coerce_description(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return str(value.get("zh") or value.get("en") or "")
-    return ""
 
 
 def _extract_market_items(
     market: SkillMarketSpec,
     index_doc: dict[str, Any],
 ) -> tuple[list[MarketplaceItem], list[MarketError]]:
-    skills = index_doc.get("skills")
-    if not isinstance(skills, list):
+    errors: list[MarketError] = []
+    raw_skills = index_doc.get("skills", [])
+    if not isinstance(raw_skills, list):
         return [], [
             MarketError(
                 market_id=market.id,
                 code="MARKET_INDEX_INVALID",
-                message="skills must be a list",
+                message="'skills' must be a list",
                 retryable=False,
             ),
         ]
 
     items: list[MarketplaceItem] = []
-    errors: list[MarketError] = []
-    seen_ids: set[str] = set()
-    for raw in skills:
+    for raw in raw_skills:
         if not isinstance(raw, dict):
             errors.append(
                 MarketError(
                     market_id=market.id,
                     code="MARKET_INDEX_INVALID",
-                    message="invalid skill entry type",
+                    message="Each skill entry must be an object",
                     retryable=False,
                 ),
             )
             continue
 
         skill_id = str(raw.get("skill_id") or "").strip()
-        if not skill_id:
-            errors.append(
-                MarketError(
-                    market_id=market.id,
-                    code="MARKET_INDEX_INVALID",
-                    message="missing skill_id",
-                    retryable=False,
-                ),
-            )
-            continue
-        if skill_id in seen_ids:
-            errors.append(
-                MarketError(
-                    market_id=market.id,
-                    code="MARKET_INDEX_INVALID",
-                    message=f"duplicated skill_id: {skill_id}",
-                    retryable=False,
-                ),
-            )
-            continue
-        seen_ids.add(skill_id)
-
-        source = raw.get("source")
-        if not isinstance(source, dict):
-            errors.append(
-                MarketError(
-                    market_id=market.id,
-                    code="MARKET_INDEX_INVALID",
-                    message=f"invalid source for {skill_id}",
-                    retryable=False,
-                ),
-            )
-            continue
-
-        source_type = str(source.get("type") or "").strip().lower()
-        source_url = str(source.get("url") or "").strip()
-        if source_type != "git" or not source_url:
-            errors.append(
-                MarketError(
-                    market_id=market.id,
-                    code="MARKET_INDEX_INVALID",
-                    message=f"unsupported source for {skill_id}",
-                    retryable=False,
-                ),
-            )
-            continue
-
-        source_branch = str(source.get("branch") or "").strip()
+        name = str(raw.get("name") or "").strip() or skill_id
+        source_raw = raw.get("source")
+        source: dict[str, Any] = source_raw if isinstance(source_raw, dict) else {}
+        source_url = str(source.get("url") or market.url).strip()
+        source_branch = str(source.get("branch") or market.branch or "main").strip()
         source_path = str(source.get("path") or "").strip()
-        install_url = source_url
-        if source_path:
-            branch = source_branch or "main"
-            source_url = source_url.replace(".git", "")
-            if "github.com/" in source_url:
-                install_url = (
-                    f"{source_url}/tree/{branch}/{source_path.lstrip('/')}"
-                )
+        if not skill_id or not source_url:
+            errors.append(
+                MarketError(
+                    market_id=market.id,
+                    code="MARKET_ITEM_INVALID",
+                    message="skill_id/source.url is required",
+                    retryable=False,
+                ),
+            )
+            continue
 
-        tags = raw.get("tags")
+        repo_web_url = _market_repo_web_url(source_url)
+        install_url = (
+            f"{repo_web_url}/tree/{source_branch}/{source_path}"
+            if source_path
+            else repo_web_url
+        )
+
+        description = raw.get("description", "")
+        if isinstance(description, dict):
+            description = (
+                description.get("zh")
+                or description.get("en")
+                or next(iter(description.values()), "")
+            )
+
+        tags_raw = raw.get("tags")
+        tags: list[Any] = tags_raw if isinstance(tags_raw, list) else []
         items.append(
             MarketplaceItem(
                 market_id=market.id,
                 skill_id=skill_id,
-                name=str(raw.get("name") or skill_id),
-                description=_coerce_description(raw.get("description")),
+                name=name,
+                description=str(description or ""),
                 version=str(raw.get("version") or ""),
                 source_url=source_url,
                 install_url=install_url,
-                tags=tags if isinstance(tags, list) else [],
+                tags=[str(tag) for tag in tags],
             ),
         )
-
     return items, errors
 
 
 def _aggregate_marketplace(
     market_cfg: SkillsMarketConfig,
     *,
-    refresh: bool,
+    refresh: bool = False,
 ) -> tuple[list[MarketplaceItem], list[MarketError], dict[str, Any]]:
     now = time.time()
     with _MARKETPLACE_CACHE_LOCK:
-        cache_expired = now >= float(_MARKETPLACE_CACHE.get("expires_at", 0.0))
-        if not refresh and not cache_expired:
+        if (
+            not refresh
+            and _MARKETPLACE_CACHE["expires_at"] > now
+            and _MARKETPLACE_CACHE["items"]
+        ):
             return (
-                list(_MARKETPLACE_CACHE.get("items", [])),
-                list(_MARKETPLACE_CACHE.get("errors", [])),
-                dict(_MARKETPLACE_CACHE.get("meta", {})),
+                _MARKETPLACE_CACHE["items"],
+                _MARKETPLACE_CACHE["errors"],
+                _MARKETPLACE_CACHE["meta"],
             )
 
+    items: list[MarketplaceItem] = []
+    errors: list[MarketError] = []
+    success_count = 0
     enabled_markets = sorted(
         [m for m in market_cfg.markets if m.enabled],
-        key=lambda x: (x.order, x.id),
+        key=lambda m: m.order,
     )
-    all_items: list[MarketplaceItem] = []
-    all_errors: list[MarketError] = []
-    success_count = 0
     for market in enabled_markets:
+        normalized_market = _normalize_market_spec(market)
         try:
-            index_doc, _ = _load_market_index(market)
-            items, errors = _extract_market_items(market, index_doc)
-            all_items.extend(items)
-            all_errors.extend(errors)
+            index_doc, warnings = _load_market_index(normalized_market)
+            extracted_items, extracted_errors = _extract_market_items(
+                normalized_market,
+                index_doc,
+            )
+            items.extend(extracted_items)
+            errors.extend(extracted_errors)
+            for warning in warnings:
+                errors.append(
+                    MarketError(
+                        market_id=market.id,
+                        code="MARKET_INDEX_WARNING",
+                        message=warning,
+                        retryable=False,
+                    ),
+                )
             success_count += 1
         except ValueError as e:
-            all_errors.append(
+            errors.append(
                 MarketError(
                     market_id=market.id,
                     code="MARKET_INDEX_INVALID",
@@ -585,7 +556,7 @@ def _aggregate_marketplace(
                 ),
             )
         except RuntimeError as e:
-            all_errors.append(
+            errors.append(
                 MarketError(
                     market_id=market.id,
                     code="MARKET_UNREACHABLE",
@@ -593,32 +564,27 @@ def _aggregate_marketplace(
                     retryable=True,
                 ),
             )
-        except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as e:
-            all_errors.append(
+        except (subprocess.SubprocessError, OSError) as e:
+            errors.append(
                 MarketError(
                     market_id=market.id,
-                    code="MARKET_INDEX_INVALID",
+                    code="MARKET_UNREACHABLE",
                     message=str(e),
                     retryable=True,
                 ),
             )
 
     meta = {
-        "refreshed_at": int(now),
-        "cache_hit": False,
         "enabled_market_count": len(enabled_markets),
         "success_market_count": success_count,
+        "item_count": len(items),
     }
     with _MARKETPLACE_CACHE_LOCK:
+        _MARKETPLACE_CACHE["items"] = items
+        _MARKETPLACE_CACHE["errors"] = errors
+        _MARKETPLACE_CACHE["meta"] = meta
         _MARKETPLACE_CACHE["expires_at"] = now + market_cfg.cache.ttl_sec
-        _MARKETPLACE_CACHE["items"] = list(all_items)
-        _MARKETPLACE_CACHE["errors"] = list(all_errors)
-        _MARKETPLACE_CACHE["meta"] = dict(meta)
-
-    return all_items, all_errors, meta
-
-
-router = APIRouter(prefix="/skills", tags=["skills"])
+    return items, errors, meta
 
 
 @router.get("")
@@ -731,7 +697,7 @@ async def put_markets(payload: SkillsMarketPayload) -> SkillsMarketPayload:
 
 
 @router.post("/markets/validate")
-async def validate_market(payload: ValidateMarketRequest):
+async def validate_market(payload: ValidateMarketRequest) -> dict[str, Any]:
     normalized = _normalize_market_spec(payload)
     if not _validate_market_url(normalized.url):
         raise HTTPException(
@@ -775,6 +741,7 @@ async def validate_market(payload: ValidateMarketRequest):
             status_code=502,
             detail=f"MARKET_UNREACHABLE: {e}",
         ) from e
+
     return {
         "ok": True,
         "normalized": normalized.model_dump(mode="json"),
@@ -783,7 +750,7 @@ async def validate_market(payload: ValidateMarketRequest):
 
 
 @router.get("/marketplace")
-async def get_marketplace(refresh: bool = False):
+async def get_marketplace(refresh: bool = False) -> dict[str, Any]:
     config = load_config()
     items, errors, meta = _aggregate_marketplace(
         config.skills_market,
@@ -806,59 +773,135 @@ def _github_token_hint(bundle_url: str) -> str:
     return ""
 
 
-@router.post("/marketplace/install")
-async def install_from_marketplace(request: InstallMarketplaceRequest):
-    config = load_config()
-    overwrite = request.overwrite or bool(
-        config.skills_market.install.overwrite_default,
-    )
-    items, _, _ = _aggregate_marketplace(config.skills_market, refresh=False)
-    selected = None
-    for item in items:
-        if (
-            item.market_id == request.market_id
-            and item.skill_id == request.skill_id
-        ):
-            selected = item
-            break
+async def _hub_task_set_status(
+    task_id: str,
+    status: HubInstallTaskStatus,
+    *,
+    error: str | None = None,
+    result: dict[str, Any] | None = None,
+) -> None:
+    async with _hub_install_lock:
+        task = _hub_install_tasks.get(task_id)
+        if task is None:
+            return
+        task.status = status
+        task.updated_at = time.time()
+        if error is not None:
+            task.error = error
+        if result is not None:
+            task.result = result
 
-    if selected is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"MARKET_ITEM_NOT_FOUND: "
-                f"{request.market_id}/{request.skill_id}"
+
+async def _hub_task_get(task_id: str) -> HubInstallTask | None:
+    async with _hub_install_lock:
+        return _hub_install_tasks.get(task_id)
+
+
+async def _hub_task_register_runtime(task_id: str, task: asyncio.Task) -> None:
+    async with _hub_install_lock:
+        _hub_install_runtime_tasks[task_id] = task
+
+
+async def _hub_task_pop_runtime(task_id: str) -> asyncio.Task | None:
+    async with _hub_install_lock:
+        return _hub_install_runtime_tasks.pop(task_id, None)
+
+
+def _cleanup_imported_skill(workspace_dir: Path, skill_name: str) -> None:
+    """Best-effort cleanup for cancelled skill imports."""
+    if not skill_name:
+        return
+    try:
+        skill_service = SkillService(workspace_dir)
+        skill_service.disable_skill(skill_name)
+        skill_service.delete_skill(skill_name)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.warning(
+            "Cleanup after cancelled import failed for '%s': %s",
+            skill_name,
+            e,
+        )
+
+
+async def _run_hub_install_task(
+    *,
+    task_id: str,
+    workspace_dir: Path,
+    body: HubInstallRequest,
+    cancel_event: threading.Event,
+) -> None:
+    await _hub_task_set_status(task_id, HubInstallTaskStatus.IMPORTING)
+    result_payload: dict[str, Any] | None = None
+    imported_skill_name: str | None = None
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: install_skill_from_hub(
+                workspace_dir=workspace_dir,
+                bundle_url=body.bundle_url,
+                version=body.version,
+                enable=body.enable,
+                overwrite=body.overwrite,
+                cancel_checker=cancel_event.is_set,
             ),
         )
-
-    try:
-        result = install_skill_from_hub(
-            bundle_url=selected.install_url,
-            version="",
-            enable=request.enable,
-            overwrite=overwrite,
+        result_payload = {
+            "installed": True,
+            "name": result.name,
+            "enabled": result.enabled,
+            "source_url": result.source_url,
+        }
+        imported_skill_name = result.name
+        if cancel_event.is_set():
+            _cleanup_imported_skill(workspace_dir, result.name)
+            await _hub_task_set_status(
+                task_id,
+                HubInstallTaskStatus.CANCELLED,
+                result={
+                    "installed": False,
+                    "name": result.name,
+                    "enabled": False,
+                    "source_url": result.source_url,
+                },
+            )
+            return
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.COMPLETED,
+            result=result_payload,
+        )
+    except SkillImportCancelled:
+        if imported_skill_name:
+            _cleanup_imported_skill(workspace_dir, imported_skill_name)
+        await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+    except SkillScanError as e:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(e),
         )
     except ValueError as e:
-        detail = str(e)
-        if "already exists" in detail.lower() and not overwrite:
-            raise HTTPException(
-                status_code=409,
-                detail=f"SKILL_NAME_CONFLICT: {detail}",
-            ) from e
-        raise HTTPException(status_code=400, detail=detail) from e
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(e),
+        )
     except RuntimeError as e:
-        detail = str(e) + _github_token_hint(selected.install_url)
-        raise HTTPException(status_code=502, detail=detail) from e
-    except Exception as e:
-        detail = f"Skill market install failed: {e}"
-        raise HTTPException(status_code=502, detail=detail) from e
-
-    return {
-        "installed": True,
-        "name": result.name,
-        "enabled": result.enabled,
-        "source_url": result.source_url,
-    }
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(e) + _github_token_hint(body.bundle_url),
+        )
+    except Exception as e:  # pylint: disable=broad-except
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=f"Skill hub import failed: {e}"
+            + _github_token_hint(body.bundle_url),
+        )
+    finally:
+        await _hub_task_pop_runtime(task_id)
 
 
 @router.post("/hub/install")
@@ -908,6 +951,135 @@ async def install_from_hub(
         "enabled": result.enabled,
         "source_url": result.source_url,
     }
+
+
+@router.post("/marketplace/install")
+async def install_from_marketplace(
+    request_body: InstallMarketplaceRequest,
+    request: Request,
+):
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    config = load_config()
+    overwrite = request_body.overwrite or bool(
+        config.skills_market.install.overwrite_default,
+    )
+    items, _, _ = _aggregate_marketplace(config.skills_market, refresh=False)
+    selected = None
+    for item in items:
+        if (
+            item.market_id == request_body.market_id
+            and item.skill_id == request_body.skill_id
+        ):
+            selected = item
+            break
+
+    if selected is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"MARKET_ITEM_NOT_FOUND: "
+                f"{request_body.market_id}/{request_body.skill_id}"
+            ),
+        )
+
+    try:
+        result = install_skill_from_hub(
+            workspace_dir=workspace_dir,
+            bundle_url=selected.install_url,
+            version="",
+            enable=request_body.enable,
+            overwrite=overwrite,
+        )
+    except SkillScanError as e:
+        return _scan_error_response(e)
+    except ValueError as e:
+        detail = str(e)
+        if "already exists" in detail.lower() and not overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail=f"SKILL_NAME_CONFLICT: {detail}",
+            ) from e
+        raise HTTPException(status_code=400, detail=detail) from e
+    except RuntimeError as e:
+        detail = str(e) + _github_token_hint(selected.install_url)
+        raise HTTPException(status_code=502, detail=detail) from e
+    except Exception as e:  # pylint: disable=broad-except
+        detail = f"Skill market install failed: {e}"
+        raise HTTPException(status_code=502, detail=detail) from e
+
+    return {
+        "installed": True,
+        "name": result.name,
+        "enabled": result.enabled,
+        "source_url": result.source_url,
+    }
+
+
+@router.post("/hub/install/start", response_model=HubInstallTask)
+async def start_install_from_hub(
+    request_body: HubInstallRequest,
+    request: Request,
+) -> HubInstallTask:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    task = HubInstallTask(
+        bundle_url=request_body.bundle_url,
+        version=request_body.version,
+        enable=request_body.enable,
+        overwrite=request_body.overwrite,
+    )
+    cancel_event = threading.Event()
+    async with _hub_install_lock:
+        _hub_install_tasks[task.task_id] = task
+        _hub_install_cancel_events[task.task_id] = cancel_event
+
+    runtime_task = asyncio.create_task(
+        _run_hub_install_task(
+            task_id=task.task_id,
+            workspace_dir=workspace_dir,
+            body=request_body,
+            cancel_event=cancel_event,
+        ),
+        name=f"skill-hub-install-{task.task_id}",
+    )
+    await _hub_task_register_runtime(task.task_id, runtime_task)
+    return task
+
+
+@router.get("/hub/install/status/{task_id}", response_model=HubInstallTask)
+async def get_hub_install_status(task_id: str) -> HubInstallTask:
+    task = await _hub_task_get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="install task not found")
+    return task
+
+
+@router.post("/hub/install/cancel/{task_id}")
+async def cancel_hub_install(task_id: str) -> dict[str, Any]:
+    async with _hub_install_lock:
+        task = _hub_install_tasks.get(task_id)
+        if task is None:
+            raise HTTPException(
+                status_code=404,
+                detail="install task not found",
+            )
+        if task.status in (
+            HubInstallTaskStatus.COMPLETED,
+            HubInstallTaskStatus.FAILED,
+            HubInstallTaskStatus.CANCELLED,
+        ):
+            return {"task_id": task_id, "status": task.status.value}
+        cancel_event = _hub_install_cancel_events.get(task_id)
+        if cancel_event is not None:
+            cancel_event.set()
+        task.status = HubInstallTaskStatus.CANCELLED
+        task.updated_at = time.time()
+    return {"task_id": task_id, "status": "cancelled"}
 
 
 @router.post("/batch-disable")
@@ -987,12 +1159,11 @@ async def create_skill(
 @router.post("/{skill_name}/disable")
 async def disable_skill(
     skill_name: str,
-    request: Request = None,
+    request: Request,
 ):
     """Disable skill for active agent."""
     from ..agent_context import get_agent_for_request
     import shutil
-    import asyncio
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
@@ -1023,7 +1194,7 @@ async def disable_skill(
 @router.post("/{skill_name}/enable")
 async def enable_skill(
     skill_name: str,
-    request: Request = None,
+    request: Request,
 ):
     """Enable skill for active agent."""
     from ..agent_context import get_agent_for_request
@@ -1076,8 +1247,6 @@ async def enable_skill(
     # Hot reload config (async, non-blocking)
     # IMPORTANT: Get manager and agent_id before creating background task
     # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
     manager = request.app.state.multi_agent_manager
     agent_id = workspace.agent_id
 

@@ -278,70 +278,10 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
-    knowledge_enabled: bool = Field(
-        default=True,
-        description="Master switch for knowledge features and operations",
-    )
-
-    knowledge_auto_collect_chat_files: bool = Field(
-        default=True,
-        description=(
-            "Automatically collect file references in chat turns into knowledge sources"
-        ),
-    )
-
-    knowledge_auto_collect_chat_urls: bool = Field(
-        default=True,
-        description=(
-            "Automatically collect URLs mentioned in chat turns into knowledge sources"
-        ),
-    )
-
-    knowledge_auto_collect_long_text: bool = Field(
-        default=True,
-        description=(
-            "Automatically save long chat passages into text knowledge sources"
-        ),
-    )
-
-    knowledge_long_text_min_chars: int = Field(
-        default=2000,
-        ge=200,
-        le=20000,
-        description="Minimum character count for auto-saving long text",
-    )
-
-    knowledge_chunk_size: int = Field(
-        default=1200,
-        ge=200,
-        le=8000,
-        description="Chunk size for knowledge indexing",
-    )
-
-    knowledge_retrieval_enabled: bool = Field(
-        default=True,
-        description="Enable chat-time retrieval augmentation from indexed knowledge",
-    )
-
-    knowledge_retrieval_top_k: int = Field(
-        default=4,
-        ge=1,
-        le=20,
-        description="Number of knowledge hits injected into chat context",
-    )
-
-    knowledge_retrieval_max_context_chars: int = Field(
-        default=1800,
-        ge=300,
-        le=8000,
-        description="Maximum characters for injected retrieval context",
-    )
-
-    knowledge_retrieval_min_score: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=100.0,
-        description="Minimum lexical score threshold for injected knowledge hits",
+    history_max_length: int = Field(
+        default=10000,
+        ge=1000,
+        description="Maximum length for /history command output",
     )
 
     @property
@@ -527,14 +467,12 @@ class AgentsConfig(BaseModel):
     )
 
 
-
 class LastDispatchConfig(BaseModel):
     """Last channel/user/session that received a user-originated reply."""
 
     channel: str = ""
     user_id: str = ""
     session_id: str = ""
-    dispatched_at: str = ""
 
 
 class MCPClientConfig(BaseModel):
@@ -709,78 +647,7 @@ class ToolsConfig(BaseModel):
     """Built-in tools management configuration."""
 
     builtin_tools: Dict[str, BuiltinToolConfig] = Field(
-        default_factory=lambda: {
-            "execute_shell_command": BuiltinToolConfig(
-                name="execute_shell_command",
-                enabled=True,
-                description="Execute shell commands",
-            ),
-            "read_file": BuiltinToolConfig(
-                name="read_file",
-                enabled=True,
-                description="Read file contents",
-            ),
-            "write_file": BuiltinToolConfig(
-                name="write_file",
-                enabled=True,
-                description="Write content to file",
-            ),
-            "edit_file": BuiltinToolConfig(
-                name="edit_file",
-                enabled=True,
-                description="Edit file using find-and-replace",
-            ),
-            "browser_use": BuiltinToolConfig(
-                name="browser_use",
-                enabled=True,
-                description="Browser automation and web interaction",
-            ),
-            "desktop_screenshot": BuiltinToolConfig(
-                name="desktop_screenshot",
-                enabled=True,
-                description="Capture desktop screenshots",
-            ),
-            "send_file_to_user": BuiltinToolConfig(
-                name="send_file_to_user",
-                enabled=True,
-                description="Send files to user",
-            ),
-            "get_current_time": BuiltinToolConfig(
-                name="get_current_time",
-                enabled=True,
-                description="Get current date and time",
-            ),
-            "get_token_usage": BuiltinToolConfig(
-                name="get_token_usage",
-                enabled=True,
-                description="Get llm token usage",
-            ),
-            "knowledge_search": BuiltinToolConfig(
-                name="knowledge_search",
-                enabled=True,
-                description="Search indexed knowledge sources",
-            ),
-            "graph_query": BuiltinToolConfig(
-                name="graph_query",
-                enabled=False,
-                description="Run graph-oriented knowledge query",
-            ),
-            "memify_run": BuiltinToolConfig(
-                name="memify_run",
-                enabled=False,
-                description="Trigger memify enrichment jobs",
-            ),
-            "memify_status": BuiltinToolConfig(
-                name="memify_status",
-                enabled=False,
-                description="Query memify enrichment job status",
-            ),
-            "triplet_focus_search": BuiltinToolConfig(
-                name="triplet_focus_search",
-                enabled=False,
-                description="Run triplet-focused graph retrieval",
-            ),
-        },
+        default_factory=_default_builtin_tools,
     )
 
     @model_validator(mode="after")
@@ -868,6 +735,7 @@ class SecurityConfig(BaseModel):
         default_factory=SkillScannerConfig,
     )
 
+
 class SkillMarketSpec(BaseModel):
     """A single skills market entry."""
 
@@ -910,108 +778,6 @@ class SkillsMarketConfig(BaseModel):
     )
 
 
-class KnowledgeSourceSpec(BaseModel):
-    """A configured knowledge source."""
-
-    id: str = Field(
-        ...,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-    )
-    name: str = Field(..., min_length=1, max_length=120)
-    type: Literal["file", "directory", "url", "text", "chat"] = Field(
-        default="file",
-    )
-    location: str = Field(default="")
-    content: str = Field(default="")
-    enabled: bool = Field(default=True)
-    recursive: bool = Field(default=True)
-    tags: List[str] = Field(default_factory=list)
-    summary: str = Field(default="")
-
-    @model_validator(mode="after")
-    def validate_source(self):
-        if self.type in {"file", "directory", "url"} and not self.location.strip():
-            raise ValueError(
-                f"location is required for knowledge source type '{self.type}'",
-            )
-        if self.type == "text" and not (
-            self.content.strip() or self.location.strip()
-        ):
-            raise ValueError(
-                "content or location is required for knowledge source type 'text'",
-            )
-        return self
-
-
-class KnowledgeIndexConfig(BaseModel):
-    """Indexing behavior for knowledge sources."""
-
-    chunk_size: int = Field(default=1200, ge=200, le=8000)
-    chunk_overlap: int = Field(default=150, ge=0, le=2000)
-    max_file_size: int = Field(default=512 * 1024, ge=1024, le=20 * 1024 * 1024)
-    include_globs: List[str] = Field(
-        default_factory=lambda: [
-            "**/*.md",
-            "**/*.txt",
-            "**/*.rst",
-            "**/*.json",
-            "**/*.yaml",
-            "**/*.yml",
-            "**/*.toml",
-            "**/*.py",
-        ],
-    )
-    exclude_globs: List[str] = Field(
-        default_factory=lambda: [
-            ".git/**",
-            "node_modules/**",
-            ".venv/**",
-            "dist/**",
-            "build/**",
-            "__pycache__/**",
-        ],
-    )
-
-
-class KnowledgeAutomationConfig(BaseModel):
-    """Passive knowledge collection during chat turns."""
-
-    knowledge_auto_collect_chat_files: bool = Field(default=True)
-    knowledge_auto_collect_chat_urls: bool = Field(default=True)
-    knowledge_auto_collect_long_text: bool = Field(default=True)
-    knowledge_long_text_min_chars: int = Field(default=2000, ge=200, le=20000)
-
-    url_exclude_private_addresses: bool = Field(
-        default=True,
-        description="Auto-exclude localhost and private IP/intranet URLs (127.x, 192.168.x, 10.x, etc.)",
-    )
-    url_exclude_token_params: bool = Field(
-        default=True,
-        description="Auto-exclude URLs whose query string contains credential params (access_token, api_key, etc.)",
-    )
-    url_exclude_patterns: List[str] = Field(
-        default_factory=list,
-        description="Additional URL exclusion patterns; each entry is a URL prefix or glob (e.g. 'https://hooks.slack.com/')",
-    )
-
-
-class KnowledgeConfig(BaseModel):
-    """Root config for the knowledge layer."""
-
-    version: int = Field(default=1, ge=1)
-    enabled: bool = Field(default=False)
-    engine: Literal["local_lexical", "cognee"] = Field(default="local_lexical")
-    graph_query_enabled: bool = Field(default=False)
-    triplet_search_enabled: bool = Field(default=False)
-    memify_enabled: bool = Field(default=False)
-    allow_cypher_query: bool = Field(default=False)
-    sources: List[KnowledgeSourceSpec] = Field(default_factory=list)
-    index: KnowledgeIndexConfig = Field(default_factory=KnowledgeIndexConfig)
-    automation: KnowledgeAutomationConfig = Field(
-        default_factory=KnowledgeAutomationConfig,
-    )
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -1020,7 +786,6 @@ class Config(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
-    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     skills_market: SkillsMarketConfig = Field(
         default_factory=SkillsMarketConfig,
     )
