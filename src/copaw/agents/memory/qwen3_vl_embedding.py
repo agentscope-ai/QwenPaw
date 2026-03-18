@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 """Qwen3-VL-Embedding model implementation.
 
 This file is adapted from the official Qwen3-VL-Embedding repository:
@@ -247,7 +248,7 @@ class Qwen3VLEmbedder:
                 non_special_kept_count += 1
         return final_token_ids
 
-    def format_model_input(  # pylint: disable=too-many-branches
+    def format_model_input(  # noqa: E501  pylint: disable=too-many-branches,too-many-statements
         self,
         text: Optional[Union[List[str], str]] = None,
         image: Optional[
