@@ -151,6 +151,11 @@ async def lifespan(
     startup_start_time = time.time()
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
 
+    # Auto-register admin from env vars (for automated deployments)
+    from .auth import auto_register_from_env
+
+    auto_register_from_env()
+
     # --- Multi-agent migration and initialization ---
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
