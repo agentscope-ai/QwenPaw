@@ -23,6 +23,7 @@ import time
 from typing import Any
 
 from .guardians import BaseToolGuardian
+from .guardians.file_guardian import FilePathToolGuardian
 from .guardians.rule_guardian import RuleBasedToolGuardian
 from .models import ToolGuardResult
 
@@ -84,6 +85,13 @@ class ToolGuardEngine:
     def _default_guardians() -> list[BaseToolGuardian]:
         """Return the default set of guardians."""
         guardians: list[BaseToolGuardian] = []
+        try:
+            guardians.append(FilePathToolGuardian())
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "Failed to initialise FilePathToolGuardian: %s",
+                exc,
+            )
         try:
             guardians.append(RuleBasedToolGuardian())
         except Exception as exc:  # pragma: no cover
