@@ -1,11 +1,11 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Form, Modal, message } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   PlusOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import type { SkillSpec } from "../../../api/types";
+import type { SkillSpec, SkillsMarketSpec } from "../../../api/types";
 import { SkillCard, SkillDrawer } from "./components";
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,8 @@ function SkillsPage() {
   const { t } = useTranslation();
   const {
     skills,
+    markets,
+    marketConfig,
     marketplace,
     marketErrors,
     marketMeta,
@@ -24,7 +26,9 @@ function SkillsPage() {
     installingSkillKey,
     importing,
     cancelImport,
+    validateMarket,
     fetchMarketplace,
+    saveMarkets,
     installMarketplaceSkill,
     createSkill,
     uploadSkill,
@@ -38,6 +42,8 @@ function SkillsPage() {
   const [importUrlError, setImportUrlError] = useState("");
   const [editingSkill, setEditingSkill] = useState<SkillSpec | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const [marketDrafts, setMarketDrafts] = useState<SkillsMarketSpec[]>([]);
+  const [savingMarkets, setSavingMarkets] = useState(false);
   const [form] = Form.useForm<SkillSpec>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,6 +75,10 @@ function SkillsPage() {
 
     await uploadSkill(file);
   };
+
+  useEffect(() => {
+    setMarketDrafts(markets || []);
+  }, [markets]);
 
   const supportedSkillUrlPrefixes = [
     "https://skills.sh/",
@@ -170,6 +180,65 @@ function SkillsPage() {
       enable: true,
       overwrite: false,
     });
+  };
+
+  const handleAddMarket = () => {
+    const next: SkillsMarketSpec = {
+      id: `market-${Date.now()}`,
+      name: "",
+      url: "",
+      branch: "",
+      path: "index.json",
+      enabled: true,
+      order: marketDrafts.length + 1,
+      trust: "community",
+    };
+    setMarketDrafts((prev) => [...prev, next]);
+  };
+
+  const handleRemoveMarket = (idx: number) => {
+    setMarketDrafts((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleUpdateMarket = (
+    idx: number,
+    patch: Partial<SkillsMarketSpec>,
+  ) => {
+    setMarketDrafts((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const handleValidateMarket = async (idx: number) => {
+    const current = marketDrafts[idx];
+    if (!current) return;
+    const result = await validateMarket(current);
+    if (result?.normalized) {
+      handleUpdateMarket(idx, result.normalized);
+    }
+  };
+
+  const handleSaveMarkets = async () => {
+    const payload = {
+      version: marketConfig?.version ?? 1,
+      cache: {
+        ttl_sec: marketConfig?.cache?.ttl_sec ?? 600,
+      },
+      install: {
+        overwrite_default: marketConfig?.install?.overwrite_default ?? false,
+      },
+      markets: marketDrafts,
+    };
+
+    setSavingMarkets(true);
+    try {
+      const ok = await saveMarkets(payload);
+      if (ok) {
+        await fetchMarketplace(true);
+      }
+    } finally {
+      setSavingMarkets(false);
+    }
   };
 
   return (
@@ -294,6 +363,114 @@ function SkillsPage() {
           >
             Refresh
           </Button>
+        </div>
+
+        <div className={styles.marketEditor}>
+          <div className={styles.marketEditorHeader}>
+            <h3 className={styles.marketEditorTitle}>Market Config</h3>
+            <div className={styles.marketEditorActions}>
+              <Button onClick={handleAddMarket}>Add Market</Button>
+              <Button
+                type="primary"
+                loading={savingMarkets}
+                onClick={() => {
+                  void handleSaveMarkets();
+                }}
+              >
+                Save Config
+              </Button>
+            </div>
+          </div>
+
+          <div className={styles.marketRows}>
+            {marketDrafts.map((market, idx) => (
+              <div key={`${market.id}-${idx}`} className={styles.marketRow}>
+                <div className={styles.marketRowFields}>
+                  <input
+                    className={styles.marketInput}
+                    value={market.id}
+                    onChange={(e) =>
+                      handleUpdateMarket(idx, { id: e.target.value })
+                    }
+                    placeholder="id"
+                  />
+                  <input
+                    className={styles.marketInput}
+                    value={market.name}
+                    onChange={(e) =>
+                      handleUpdateMarket(idx, { name: e.target.value })
+                    }
+                    placeholder="name"
+                  />
+                  <input
+                    className={styles.marketInputWide}
+                    value={market.url}
+                    onChange={(e) =>
+                      handleUpdateMarket(idx, { url: e.target.value })
+                    }
+                    placeholder="url (owner/repo or git url)"
+                  />
+                  <input
+                    className={styles.marketInput}
+                    value={market.branch ?? ""}
+                    onChange={(e) =>
+                      handleUpdateMarket(idx, { branch: e.target.value })
+                    }
+                    placeholder="branch"
+                  />
+                  <input
+                    className={styles.marketInput}
+                    value={market.path}
+                    onChange={(e) =>
+                      handleUpdateMarket(idx, { path: e.target.value })
+                    }
+                    placeholder="path"
+                  />
+                  <input
+                    className={styles.marketInputOrder}
+                    type="number"
+                    value={market.order}
+                    onChange={(e) =>
+                      handleUpdateMarket(idx, {
+                        order: Number.parseInt(e.target.value || "0", 10) || 0,
+                      })
+                    }
+                    placeholder="order"
+                  />
+                  <label className={styles.marketEnabledLabel}>
+                    <input
+                      type="checkbox"
+                      checked={market.enabled}
+                      onChange={(e) =>
+                        handleUpdateMarket(idx, { enabled: e.target.checked })
+                      }
+                    />
+                    enabled
+                  </label>
+                </div>
+                <div className={styles.marketRowActions}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      void handleValidateMarket(idx);
+                    }}
+                  >
+                    Validate
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    onClick={() => handleRemoveMarket(idx)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {marketDrafts.length === 0 ? (
+              <div className={styles.marketEmpty}>No markets configured.</div>
+            ) : null}
+          </div>
         </div>
 
         {marketMeta ? (
