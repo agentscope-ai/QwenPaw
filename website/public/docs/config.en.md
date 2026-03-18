@@ -450,18 +450,18 @@ Memory files are stored in two locations:
 
 Memory search relies on vector embeddings for semantic retrieval. Configure via these environment variables:
 
-| Variable                     | Description                       | Default                                             |
-| ---------------------------- | --------------------------------- | --------------------------------------------------- |
-| `EMBEDDING_API_KEY`          | API key for the embedding service | ``                                                  |
-| `EMBEDDING_BASE_URL`         | Embedding service URL             | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `EMBEDDING_MODEL_NAME`       | Embedding model name              | `text-embedding-v4`                                 |
-| `EMBEDDING_DIMENSIONS`       | Vector dimensions                 | `1024`                                              |
-| `EMBEDDING_CACHE_ENABLED`    | Enable Embedding cache            | `true`                                              |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Max cache entries for Embedding   | `2000`                                              |
-| `EMBEDDING_MAX_INPUT_LENGTH` | Max input length per Embedding    | `8192`                                              |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Max batch size for Embedding      | `10`                                                |
+| Variable                     | Description                       | Default |
+| ---------------------------- | --------------------------------- | ------- |
+| `EMBEDDING_API_KEY`          | API key for the embedding service | ``      |
+| `EMBEDDING_BASE_URL`         | Embedding service URL             | ``      |
+| `EMBEDDING_MODEL_NAME`       | Embedding model name              | ``      |
+| `EMBEDDING_DIMENSIONS`       | Vector dimensions                 | `1024`  |
+| `EMBEDDING_CACHE_ENABLED`    | Enable Embedding cache            | `true`  |
+| `EMBEDDING_MAX_CACHE_SIZE`   | Max cache entries for Embedding   | `2000`  |
+| `EMBEDDING_MAX_INPUT_LENGTH` | Max input length per Embedding    | `8192`  |
+| `EMBEDDING_MAX_BATCH_SIZE`   | Max batch size for Embedding      | `10`    |
 
-> Both `EMBEDDING_API_KEY` and `EMBEDDING_MODEL_NAME` must be non-empty to enable vector search in hybrid retrieval.
+> `EMBEDDING_API_KEY`, `EMBEDDING_MODEL_NAME`, and `EMBEDDING_BASE_URL` must all be non-empty to enable vector search in hybrid retrieval.
 
 ---
 

@@ -315,7 +315,7 @@ if ($FromSource) {
     if ($Version) { $package = "copaw==$Version" }
 
     Write-Info "Installing ${package}${ExtrasSuffix} from PyPI..."
-    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet
+    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet --refresh-package copaw
     if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation failed" }
 }
 

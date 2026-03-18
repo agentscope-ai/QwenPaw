@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional, TYPE_CHECKING
+from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
@@ -20,8 +20,8 @@ from ...config import load_config
 
 if TYPE_CHECKING:
     from ...config.config import AgentProfileConfig
+    from ..multi_agent_manager import MultiAgentManager
 
-RestartCallback = Callable[[], Awaitable[None]]
 logger = logging.getLogger(__name__)
 
 
@@ -52,8 +52,9 @@ class DaemonContext:
     working_dir: Path = WORKING_DIR
     load_config_fn: Callable[[], Any] = load_config
     memory_manager: Optional[Any] = None
-    # Optional: async restart (channels, cron, MCP) in-process.
-    restart_callback: Optional[RestartCallback] = None
+    # For /daemon restart: manager and agent_id for zero-downtime reload
+    manager: Optional["MultiAgentManager"] = None
+    agent_id: Optional[str] = None
     # Session ID for approval commands.
     session_id: str = ""
 
@@ -123,25 +124,27 @@ def run_daemon_status(context: DaemonContext) -> str:
 
 
 async def run_daemon_restart(context: DaemonContext) -> str:
-    """Trigger in-process restart (channels, cron, MCP) or instruct user."""
-    if context.restart_callback is not None:
+    """Trigger zero-downtime agent reload or instruct user."""
+    if context.manager is not None and context.agent_id is not None:
         try:
-            await context.restart_callback()
-            return (
-                "**Restart completed**\n\n"
-                "- Channels, cron and MCP reloaded in-process (no exit)."
-            )
-        except RestartInProgressError:
-            return (
-                "**Restart skipped**\n\n"
-                "- A restart is already in progress. Please wait for it to "
-                "finish."
-            )
+            success = await context.manager.reload_agent(context.agent_id)
+            if success:
+                return (
+                    "**Restart completed**\n\n"
+                    "- Agent reloaded with zero-downtime "
+                    "(channels, cron, MCP)."
+                )
+            else:
+                return (
+                    "**Restart skipped**\n\n"
+                    "- Agent not currently loaded. "
+                    "Will reload on next request."
+                )
         except Exception as e:
             return f"**Restart failed**\n\n- {e}"
     return (
         "**Restart**\n\n"
-        "- No restart callback (e.g. not running inside app). "
+        "- Not running inside app. "
         "Run the app (e.g. `copaw app`) and use /daemon restart in chat, "
         "or restart the process with systemd/supervisor/docker."
     )

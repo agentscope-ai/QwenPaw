@@ -51,6 +51,51 @@ class TaskTracker:
             return "idle"
         return "running"
 
+    async def has_active_tasks(self) -> bool:
+        """Check if any tasks are currently running.
+
+        Returns:
+            bool: True if any tasks are active, False otherwise
+        """
+        async with self._lock:
+            for state in self._runs.values():
+                if not state.task.done():
+                    return True
+            return False
+
+    async def list_active_tasks(self) -> list[str]:
+        """List all currently running task keys.
+
+        Returns:
+            list[str]: List of active run_keys
+        """
+        async with self._lock:
+            return [
+                run_key
+                for run_key, state in self._runs.items()
+                if not state.task.done()
+            ]
+
+    async def wait_all_done(self, timeout: float = 300.0) -> bool:
+        """Wait for all active tasks to complete.
+
+        Args:
+            timeout: Maximum time to wait in seconds (default: 300s = 5min)
+
+        Returns:
+            bool: True if all tasks completed, False if timeout occurred
+        """
+
+        async def _wait_loop() -> None:
+            while await self.has_active_tasks():
+                await asyncio.sleep(0.5)
+
+        try:
+            await asyncio.wait_for(_wait_loop(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 

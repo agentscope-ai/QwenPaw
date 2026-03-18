@@ -470,7 +470,8 @@ class AgentRunner(Runner):
         Init handler.
         """
         # Load environment variables from .env file
-        env_path = Path(__file__).resolve().parents[4] / ".env"
+        # env_path = Path(__file__).resolve().parents[4] / ".env"
+        env_path = Path("./") / ".env"
         if env_path.exists():
             load_dotenv(env_path)
             logger.debug(f"Loaded environment variables from {env_path}")

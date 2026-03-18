@@ -48,12 +48,15 @@ export const skillApi = {
       `/skills/hub/search?q=${encodeURIComponent(query)}&limit=${limit}`,
     ),
 
-  installHubSkill: (payload: {
-    bundle_url: string;
-    version?: string;
-    enable?: boolean;
-    overwrite?: boolean;
-  }) =>
+  installHubSkill: (
+    payload: {
+      bundle_url: string;
+      version?: string;
+      enable?: boolean;
+      overwrite?: boolean;
+    },
+    options?: { signal?: AbortSignal },
+  ) =>
     request<{
       installed: boolean;
       name: string;
@@ -62,7 +65,62 @@ export const skillApi = {
     }>("/skills/hub/install", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal: options?.signal,
     }),
+
+  startHubSkillInstall: (payload: {
+    bundle_url: string;
+    version?: string;
+    enable?: boolean;
+    overwrite?: boolean;
+  }) =>
+    request<{
+      task_id: string;
+      bundle_url: string;
+      version: string;
+      enable: boolean;
+      overwrite: boolean;
+      status: "pending" | "importing" | "completed" | "failed" | "cancelled";
+      error: string | null;
+      result: {
+        installed: boolean;
+        name: string;
+        enabled: boolean;
+        source_url: string;
+      } | null;
+      created_at: number;
+      updated_at: number;
+    }>("/skills/hub/install/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getHubSkillInstallStatus: (taskId: string) =>
+    request<{
+      task_id: string;
+      bundle_url: string;
+      version: string;
+      enable: boolean;
+      overwrite: boolean;
+      status: "pending" | "importing" | "completed" | "failed" | "cancelled";
+      error: string | null;
+      result: {
+        installed: boolean;
+        name: string;
+        enabled: boolean;
+        source_url: string;
+      } | null;
+      created_at: number;
+      updated_at: number;
+    }>(`/skills/hub/install/status/${encodeURIComponent(taskId)}`),
+
+  cancelHubSkillInstall: (taskId: string) =>
+    request<{ task_id: string; status: string }>(
+      `/skills/hub/install/cancel/${encodeURIComponent(taskId)}`,
+      {
+        method: "POST",
+      },
+    ),
 
   // Stream optimize skill with SSE (supports abort via signal)
   streamOptimizeSkill: async function (

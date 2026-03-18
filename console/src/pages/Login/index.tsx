@@ -86,7 +86,7 @@ export default function LoginPage() {
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src="/logo.png"
+            src={`${import.meta.env.BASE_URL}logo.png`}
             alt="CoPaw"
             style={{ height: 48, marginBottom: 12 }}
           />

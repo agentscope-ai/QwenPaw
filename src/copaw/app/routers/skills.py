@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import logging
+import threading
+import time
+import uuid
+from enum import Enum
 from typing import Any
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
@@ -10,6 +15,7 @@ from ...agents.skills_manager import (
     SkillInfo,
 )
 from ...agents.skills_hub import (
+    SkillImportCancelled,
     search_hub_skills,
     install_skill_from_hub,
 )
@@ -81,6 +87,33 @@ class HubInstallRequest(BaseModel):
         default=False,
         description="Overwrite existing customized skill",
     )
+
+
+class HubInstallTaskStatus(str, Enum):
+    PENDING = "pending"
+    IMPORTING = "importing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class HubInstallTask(BaseModel):
+    task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    bundle_url: str
+    version: str = ""
+    enable: bool = True
+    overwrite: bool = False
+    status: HubInstallTaskStatus = HubInstallTaskStatus.PENDING
+    error: str | None = None
+    result: dict[str, Any] | None = None
+    created_at: float = Field(default_factory=time.time)
+    updated_at: float = Field(default_factory=time.time)
+
+
+_hub_install_tasks: dict[str, HubInstallTask] = {}
+_hub_install_runtime_tasks: dict[str, asyncio.Task] = {}
+_hub_install_cancel_events: dict[str, threading.Event] = {}
+_hub_install_lock = asyncio.Lock()
 
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -188,6 +221,137 @@ def _github_token_hint(bundle_url: str) -> str:
     return ""
 
 
+async def _hub_task_set_status(
+    task_id: str,
+    status: HubInstallTaskStatus,
+    *,
+    error: str | None = None,
+    result: dict[str, Any] | None = None,
+) -> None:
+    async with _hub_install_lock:
+        task = _hub_install_tasks.get(task_id)
+        if task is None:
+            return
+        task.status = status
+        task.updated_at = time.time()
+        if error is not None:
+            task.error = error
+        if result is not None:
+            task.result = result
+
+
+async def _hub_task_get(task_id: str) -> HubInstallTask | None:
+    async with _hub_install_lock:
+        return _hub_install_tasks.get(task_id)
+
+
+async def _hub_task_register_runtime(task_id: str, task: asyncio.Task) -> None:
+    async with _hub_install_lock:
+        _hub_install_runtime_tasks[task_id] = task
+
+
+async def _hub_task_pop_runtime(task_id: str) -> asyncio.Task | None:
+    async with _hub_install_lock:
+        return _hub_install_runtime_tasks.pop(task_id, None)
+
+
+def _cleanup_imported_skill(workspace_dir: Path, skill_name: str) -> None:
+    """Best-effort cleanup for cancelled skill imports."""
+    if not skill_name:
+        return
+    try:
+        skill_service = SkillService(workspace_dir)
+        skill_service.disable_skill(skill_name)
+        skill_service.delete_skill(skill_name)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.warning(
+            "Cleanup after cancelled import failed for '%s': %s",
+            skill_name,
+            e,
+        )
+
+
+async def _run_hub_install_task(
+    *,
+    task_id: str,
+    workspace_dir: Path,
+    body: HubInstallRequest,
+    cancel_event: threading.Event,
+) -> None:
+    await _hub_task_set_status(task_id, HubInstallTaskStatus.IMPORTING)
+    result_payload: dict[str, Any] | None = None
+    imported_skill_name: str | None = None
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: install_skill_from_hub(
+                workspace_dir=workspace_dir,
+                bundle_url=body.bundle_url,
+                version=body.version,
+                enable=body.enable,
+                overwrite=body.overwrite,
+                cancel_checker=cancel_event.is_set,
+            ),
+        )
+        result_payload = {
+            "installed": True,
+            "name": result.name,
+            "enabled": result.enabled,
+            "source_url": result.source_url,
+        }
+        imported_skill_name = result.name
+        if cancel_event.is_set():
+            _cleanup_imported_skill(workspace_dir, result.name)
+            await _hub_task_set_status(
+                task_id,
+                HubInstallTaskStatus.CANCELLED,
+                result={
+                    "installed": False,
+                    "name": result.name,
+                    "enabled": False,
+                    "source_url": result.source_url,
+                },
+            )
+            return
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.COMPLETED,
+            result=result_payload,
+        )
+    except SkillImportCancelled:
+        if imported_skill_name:
+            _cleanup_imported_skill(workspace_dir, imported_skill_name)
+        await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+    except SkillScanError as e:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(e),
+        )
+    except ValueError as e:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(e),
+        )
+    except RuntimeError as e:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(e) + _github_token_hint(body.bundle_url),
+        )
+    except Exception as e:  # pylint: disable=broad-except
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=f"Skill hub import failed: {e}"
+            + _github_token_hint(body.bundle_url),
+        )
+    finally:
+        await _hub_task_pop_runtime(task_id)
+
+
 @router.post("/hub/install")
 async def install_from_hub(
     request_body: HubInstallRequest,
@@ -235,6 +399,70 @@ async def install_from_hub(
         "enabled": result.enabled,
         "source_url": result.source_url,
     }
+
+
+@router.post("/hub/install/start", response_model=HubInstallTask)
+async def start_install_from_hub(
+    request_body: HubInstallRequest,
+    request: Request,
+) -> HubInstallTask:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    task = HubInstallTask(
+        bundle_url=request_body.bundle_url,
+        version=request_body.version,
+        enable=request_body.enable,
+        overwrite=request_body.overwrite,
+    )
+    cancel_event = threading.Event()
+    async with _hub_install_lock:
+        _hub_install_tasks[task.task_id] = task
+        _hub_install_cancel_events[task.task_id] = cancel_event
+
+    runtime_task = asyncio.create_task(
+        _run_hub_install_task(
+            task_id=task.task_id,
+            workspace_dir=workspace_dir,
+            body=request_body,
+            cancel_event=cancel_event,
+        ),
+        name=f"skill-hub-install-{task.task_id}",
+    )
+    await _hub_task_register_runtime(task.task_id, runtime_task)
+    return task
+
+
+@router.get("/hub/install/status/{task_id}", response_model=HubInstallTask)
+async def get_hub_install_status(task_id: str) -> HubInstallTask:
+    task = await _hub_task_get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="install task not found")
+    return task
+
+
+@router.post("/hub/install/cancel/{task_id}")
+async def cancel_hub_install(task_id: str) -> dict[str, Any]:
+    async with _hub_install_lock:
+        task = _hub_install_tasks.get(task_id)
+        if task is None:
+            raise HTTPException(
+                status_code=404,
+                detail="install task not found",
+            )
+        if task.status in (
+            HubInstallTaskStatus.COMPLETED,
+            HubInstallTaskStatus.FAILED,
+            HubInstallTaskStatus.CANCELLED,
+        ):
+            return {"task_id": task_id, "status": task.status.value}
+        cancel_event = _hub_install_cancel_events.get(task_id)
+        if cancel_event is not None:
+            cancel_event.set()
+        task.status = HubInstallTaskStatus.CANCELLED
+        task.updated_at = time.time()
+    return {"task_id": task_id, "status": "cancelled"}
 
 
 @router.post("/batch-disable")
@@ -319,7 +547,6 @@ async def disable_skill(
     """Disable skill for active agent."""
     from ..agent_context import get_agent_for_request
     import shutil
-    import asyncio
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
@@ -403,8 +630,6 @@ async def enable_skill(
     # Hot reload config (async, non-blocking)
     # IMPORTANT: Get manager and agent_id before creating background task
     # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
     manager = request.app.state.multi_agent_manager
     agent_id = workspace.agent_id
 

@@ -86,11 +86,11 @@ async def run_command_path(
     parsed = parse_daemon_query(query)
     if parsed is not None:
         handler = DaemonCommandHandlerMixin()
-        restart_cb = getattr(runner, "_restart_callback", None)
+        manager = getattr(runner, "_manager", None)
         if parsed[0] == "restart":
             logger.info(
-                "run_command_path: daemon restart, callback=%s",
-                "set" if restart_cb is not None else "None",
+                "run_command_path: daemon restart, manager=%s",
+                "set" if manager is not None else "None",
             )
             # Yield hint first so user sees it before restart runs.
             hint = Msg(
@@ -101,7 +101,7 @@ async def run_command_path(
                         type="text",
                         text=(
                             "**Restart in progress**\n\n"
-                            "- The service may be unresponsive for a while. "
+                            "- Reloading agent with zero-downtime. "
                             "Please wait."
                         ),
                     ),
@@ -113,7 +113,8 @@ async def run_command_path(
         context = DaemonContext(
             load_config_fn=lambda: load_agent_config(agent_id),
             memory_manager=runner.memory_manager,
-            restart_callback=restart_cb,
+            manager=manager,
+            agent_id=agent_id,
             session_id=session_id,
         )
         msg = await handler.handle_daemon_command(query, context)
