@@ -12,6 +12,15 @@ interface ModelsSectionProps {
     name: string;
     models?: Array<{ id: string; name: string }>;
     extra_models?: Array<{ id: string; name: string }>;
+    auth?: {
+      mode?: "api_key" | "oauth_browser";
+      status?:
+        | "unauthorized"
+        | "authorizing"
+        | "authorized"
+        | "expired"
+        | "error";
+    };
     base_url?: string;
     api_key?: string;
     is_custom: boolean;
@@ -50,9 +59,12 @@ export function ModelsSection({
         const hasModels =
           (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
         if (!hasModels) return false;
+        const isOauthAuthorized =
+          p.auth?.mode === "oauth_browser" && p.auth?.status === "authorized";
         if (p.is_local) return true;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
+        if (isOauthAuthorized) return true;
         if (p.require_api_key ?? true) return !!p.api_key;
         return true;
       }),

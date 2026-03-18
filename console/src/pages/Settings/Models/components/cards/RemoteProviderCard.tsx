@@ -58,6 +58,9 @@ export function RemoteProviderCard({
   };
 
   const totalCount = provider.models.length + provider.extra_models.length;
+  const isOauthAuthorized =
+    provider.auth?.mode === "oauth_browser" &&
+    provider.auth?.status === "authorized";
 
   let isConfigured = false;
 
@@ -66,6 +69,8 @@ export function RemoteProviderCard({
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
   } else if (provider.require_api_key === false) {
+    isConfigured = true;
+  } else if (isOauthAuthorized) {
     isConfigured = true;
   } else if (provider.require_api_key && provider.api_key) {
     isConfigured = true;
@@ -156,8 +161,15 @@ export function RemoteProviderCard({
             )}
           </div>
           <div className={styles.infoRow}>
-            <span className={styles.infoLabel}>{t("models.apiKey")}:</span>
-            {provider.api_key ? (
+            <span className={styles.infoLabel}>
+              {t("models.authentication")}:
+            </span>
+            {provider.auth?.mode === "oauth_browser" ? (
+              <span className={styles.infoValue}>
+                {t("models.authModeBrowser")}
+                {provider.auth.identity ? ` · ${provider.auth.identity}` : ""}
+              </span>
+            ) : provider.api_key ? (
               <span className={styles.infoValue}>{provider.api_key}</span>
             ) : (
               <span className={styles.infoEmpty}>{t("models.notSet")}</span>

@@ -71,9 +71,12 @@ export default function ModelSelector() {
       const hasModels =
         (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
       if (!hasModels) return false;
+      const isOauthAuthorized =
+        p.auth?.mode === "oauth_browser" && p.auth?.status === "authorized";
       if (p.is_local) return true;
       if (p.id === "ollama") return !!p.base_url;
       if (p.is_custom) return !!p.base_url;
+      if (isOauthAuthorized) return true;
       return !!p.api_key;
     })
     .map((p) => ({

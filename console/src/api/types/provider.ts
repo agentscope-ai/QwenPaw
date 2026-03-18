@@ -3,6 +3,16 @@ export interface ModelInfo {
   name: string;
 }
 
+export interface ProviderAuth {
+  mode: "api_key" | "oauth_browser";
+  status: "unauthorized" | "authorizing" | "authorized" | "expired" | "error";
+  identity: string;
+  account_id: string;
+  expires_at: string;
+  last_refresh: string;
+  error: string;
+}
+
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -23,11 +33,14 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  auth_modes: Array<"api_key" | "oauth_browser">;
+  auth: ProviderAuth;
 }
 
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
+  auth_mode?: "api_key" | "oauth_browser";
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
 }
@@ -124,6 +137,7 @@ export interface TestConnectionResponse {
 export interface TestProviderRequest {
   api_key?: string;
   base_url?: string;
+  auth_mode?: "api_key" | "oauth_browser";
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
 }
@@ -137,4 +151,14 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   added_count: number;
+}
+
+export interface ProviderAuthSessionResponse {
+  session_id: string;
+  provider_id: string;
+  status: "authorizing" | "authorized" | "error";
+  auth_url: string;
+  error: string;
+  created_at: string;
+  auth?: ProviderAuth;
 }

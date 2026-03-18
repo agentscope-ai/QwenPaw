@@ -35,6 +35,17 @@ CoPaw 支持多种 LLM 提供商：**云提供商**（需 API Key，包括 Googl
 >
 > ![cancel](https://img.alicdn.com/imgextra/i2/O1CN01LM3rBG1MejNjEeXs1_!!6000000001460-2-tps-3412-1952.png)
 
+### OpenAI 浏览器登录
+
+OpenAI 提供商除了 API Key 之外，也支持 **ChatGPT 登录**。在
+**设置 → 模型 → OpenAI → 设置** 中，将 **认证方式** 切换为
+**ChatGPT 登录**，点击 **使用 ChatGPT 登录**，在浏览器中完成授权，
+再保存提供商配置。授权成功后，可通过 **模型** 按钮发现当前 ChatGPT
+账号可用的模型列表。
+
+该流程依赖 **Codex CLI**。请先完成安装，并确保 shell 环境里可以直接使用
+`codex` 命令，否则无法启动浏览器登录。
+
 ## Google Gemini 提供商
 
 Google Gemini 提供商通过 Google 原生 Gemini API（使用 `google-genai` SDK）访问 Gemini 模型。内置模型包括 Gemini 3.1 Pro Preview、Gemini 3 Flash Preview、Gemini 3.1 Flash Lite Preview、Gemini 2.5 Pro、Gemini 2.5 Flash、Gemini 2.5 Flash Lite 和 Gemini 2.0 Flash。还可通过 API 自动发现更多模型。
