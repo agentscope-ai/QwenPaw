@@ -345,6 +345,23 @@ export default function ChatPage() {
     };
   }, []);
 
+  const clearUploadStatusTimers = useCallback(() => {
+    if (processingSlowTimerRef.current !== null) {
+      window.clearTimeout(processingSlowTimerRef.current);
+      processingSlowTimerRef.current = null;
+    }
+    if (clearStatusTimerRef.current !== null) {
+      window.clearTimeout(clearStatusTimerRef.current);
+      clearStatusTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearUploadStatusTimers();
+    };
+  }, [clearUploadStatusTimers]);
+
   useEffect(() => {
     let mountNode: HTMLSpanElement | null = null;
     let frameId = 0;
