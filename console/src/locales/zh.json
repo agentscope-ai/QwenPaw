@@ -114,7 +114,7 @@
     "enterSkillUrl": "输入技能URL",
     "supportedSkillUrlSources": "当前支持的技能 URL 来源：",
     "urlExamples": "URL 示例：",
-    "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/ 或 https://github.com/ 开头",
+    "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/ 或 https://modelscope.cn/skills/ 开头",
     "source": "来源",
     "path": "路径",
     "skillDescription": "描述",
@@ -144,7 +144,10 @@
     "stopOptimize": "停止",
     "optimizeSuccess": "技能优化成功",
     "optimizeFailed": "技能优化失败",
-    "noContentToOptimize": "没有可优化的内容"
+    "noContentToOptimize": "没有可优化的内容",
+    "cancelImport": "取消导入",
+    "importCancelled": "已取消技能导入",
+    "importTimeout": "技能导入超时，请重试或检查网络。"
   },
   "mcp": {
     "title": "MCP 客户端",
@@ -307,7 +310,7 @@
     "policyOpen": "开放",
     "policyAllowlist": "白名单",
     "allowFrom": "白名单用户",
-    "allowFromTooltip": "允许与机器人交互的用户 ID 列表（格式：昵称#后4位，如 张三#1234）",
+    "allowFromTooltip": "允许与机器人交互的用户 ID 列表。启用白名单后，用户私聊机器人即可在拒绝消息中看到自己的 ID",
     "allowFromPlaceholder": "输入用户ID后按回车添加",
     "denyMessage": "拒绝访问消息",
     "denyMessageTooltip": "自定义消息，当用户被拒绝访问时显示",
@@ -324,6 +327,13 @@
     "welcomeText": "欢迎消息",
     "welcomeTextTooltip": "用户当天首次进入机器人单聊会话时机器人自动发送的消息",
     "welcomeTextPlaceholder": "例如：你好！我是 CoPaw，有什么可以帮你的？",
+    "loginWeCom": "扫码授权企业微信机器人",
+    "wecomAuthHint": "点击按钮后会弹出企业微信二维码窗口，扫码确认后 Bot ID 与 Secret 将自动填入。",
+    "wecomAuthSuccess": "企业微信机器人授权成功",
+    "wecomWindowBlocked": "弹窗被浏览器拦截，请允许弹窗后重试。",
+    "wecomCancelled": "授权已取消",
+    "wecomAuthFailed": "授权失败：{{msg}}",
+    "wecomSdkLoadFailed": "WeCom SDK 加载失败",
     "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",
     "voiceSetupLink": "打开 Twilio 控制台",
     "xiaoyiSetupGuide": "请在华为开发者平台创建智能体并获取 AK/SK 和 Agent ID。AK/SK 可在凭证管理页面找到。",
@@ -533,6 +543,7 @@
     "testConnectionError": "测试连接时发生错误",
     "discoverModels": "自动获取模型",
     "discoverModelsFailed": "自动获取模型失败",
+    "ollamaFetchModelsFailed": "获取 Ollama 模型列表失败，请查看错误详情。",
     "modelTestFailed": "模型验证失败，请检查模型ID是否正确",
     "modelTestFailedConfirm": "模型连接测试失败：{{message}}。是否仍要添加此模型？",
     "autoDiscoveredAndAdded": "已自动获取 {{count}} 个模型，并新增 {{added}} 个到可选列表",
@@ -644,7 +655,11 @@
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
-    "prompt2": "能告诉我你有哪些技能吗？"
+    "prompt2": "能告诉我你有哪些技能吗？",
+    "attachments": {
+      "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
+      "fileSizeLimit": "单文件不超过10MB"
+    }
   },
   "security": {
     "title": "安全",
@@ -705,7 +720,14 @@
       "allParams": "所有参数",
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "检测可能导致数据丢失的 rm 命令",
-        "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令"
+        "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令",
+        "TOOL_CMD_FS_DESTRUCTION": "检测低级别磁盘格式化或擦除命令",
+        "TOOL_CMD_DOS_FORK_BOMB": "检测经典 Bash Fork 炸弹和批量进程终止",
+        "TOOL_CMD_PIPE_TO_SHELL": "检测通过 'curl | bash' 模式下载并立即执行远程载荷的行为",
+        "TOOL_CMD_REVERSE_SHELL": "检测建立反向 Shell 或未授权网络隧道的行为",
+        "TOOL_CMD_SYSTEM_TAMPERING": "检测对定时任务、SSH 密钥或 sudo 权限的访问（包括读取和修改）",
+        "TOOL_CMD_UNSAFE_PERMISSIONS": "检测全局权限降级（chmod 777）或设置不可变标志的操作",
+        "TOOL_CMD_OBFUSCATED_EXEC": "检测将 base64 编码字符串直接传递给 Shell 解释器执行的行为"
       }
     },
     "skillScanner": {

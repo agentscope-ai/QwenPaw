@@ -6,7 +6,7 @@ including lazy loading, lifecycle management, and hot reloading.
 """
 import asyncio
 import logging
-from typing import Dict
+from typing import Dict, Set
 
 from .workspace import Workspace
 from ..config.utils import load_config
@@ -28,6 +28,7 @@ class MultiAgentManager:
         """Initialize multi-agent manager."""
         self.agents: Dict[str, Workspace] = {}
         self._lock = asyncio.Lock()
+        self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
 
     async def get_agent(self, agent_id: str) -> Workspace:
@@ -71,12 +72,110 @@ class MultiAgentManager:
 
             try:
                 await instance.start()
+                instance.set_manager(self)  # Set manager reference
                 self.agents[agent_id] = instance
                 logger.info(f"Workspace created and started: {agent_id}")
                 return instance
             except Exception as e:
                 logger.error(f"Failed to start workspace {agent_id}: {e}")
                 raise
+
+    async def _graceful_stop_old_instance(
+        self,
+        old_instance: Workspace,
+        agent_id: str,
+    ) -> None:
+        """Gracefully stop old instance after checking for active tasks.
+
+        If active tasks exist, schedule delayed cleanup in background.
+        Otherwise, stop immediately.
+
+        Args:
+            old_instance: The old workspace instance to stop
+            agent_id: Agent ID for logging
+        """
+        has_active = await old_instance.task_tracker.has_active_tasks()
+
+        if has_active:
+            # Active tasks - schedule delayed cleanup in background
+            active_tasks = await old_instance.task_tracker.list_active_tasks()
+            logger.info(
+                f"Old workspace instance has {len(active_tasks)} active "
+                f"task(s): {active_tasks}. Scheduling delayed cleanup for "
+                f"{agent_id}.",
+            )
+
+            async def delayed_cleanup():
+                """Wait for tasks to complete, then stop old instance."""
+                try:
+                    # Wait up to 1 minutes for tasks to complete
+                    completed = await old_instance.task_tracker.wait_all_done(
+                        timeout=60.0,
+                    )
+                    if completed:
+                        logger.info(
+                            f"All tasks completed for old instance "
+                            f"{agent_id}. Stopping now.",
+                        )
+                    else:
+                        logger.warning(
+                            f"Timeout waiting for tasks to complete for "
+                            f"{agent_id}. Forcing stop after 5 minutes.",
+                        )
+
+                    await old_instance.stop(final=False)
+                    logger.info(
+                        f"Old workspace instance stopped: {agent_id}. "
+                        f"Delayed cleanup completed.",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error during delayed cleanup for {agent_id}: {e}. "
+                        f"New instance is serving requests.",
+                    )
+
+            # Create background task for delayed cleanup and track it
+            cleanup_task = asyncio.create_task(delayed_cleanup())
+            self._cleanup_tasks.add(cleanup_task)
+
+            def _on_cleanup_done(task: asyncio.Task) -> None:
+                """Remove task from tracking set and log errors."""
+                self._cleanup_tasks.discard(task)
+                if task.cancelled():
+                    logger.info(
+                        f"Delayed cleanup task for {agent_id} was cancelled.",
+                    )
+                    return
+                exc = task.exception()
+                if exc is not None:
+                    logger.warning(
+                        f"Error in delayed cleanup task for {agent_id}: "
+                        f"{exc}.",
+                    )
+
+            cleanup_task.add_done_callback(_on_cleanup_done)
+            logger.info(
+                f"Zero-downtime reload completed: {agent_id}. "
+                f"Old instance cleanup scheduled in background.",
+            )
+        else:
+            # No active tasks - stop immediately
+            logger.debug(
+                f"No active tasks in old instance {agent_id}. "
+                f"Stopping immediately.",
+            )
+            try:
+                await old_instance.stop(final=False)
+                logger.info(
+                    f"Old workspace instance stopped: {agent_id}. "
+                    f"Zero-downtime reload completed.",
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to stop old workspace instance for "
+                    f"{agent_id}: {e}. "
+                    f"New instance is active and serving requests.",
+                )
 
     async def stop_agent(self, agent_id: str) -> bool:
         """Stop a specific agent instance.
@@ -99,10 +198,24 @@ class MultiAgentManager:
             return True
 
     async def reload_agent(self, agent_id: str) -> bool:
-        """Reload a specific agent instance.
+        """Reload a specific agent instance with zero-downtime.
 
-        This stops the agent, removes it from cache, so it will be
-        recreated with fresh configuration on next access.
+        This method performs a seamless reload by:
+        1. Creating and fully starting a new workspace instance (no lock)
+        2. Atomically replacing the old instance with the new one (with lock)
+        3. Gracefully stopping the old instance (no lock):
+           - If active tasks exist: schedule delayed cleanup in background
+           - If no active tasks: stop immediately
+
+        The lock is only held during the atomic swap to minimize blocking
+        time for other agent operations.
+
+        This ensures that:
+        - New requests are immediately handled by the new instance
+        - Ongoing SSE/streaming tasks continue uninterrupted
+        - Other agents remain accessible during reload
+        - The manager returns quickly without waiting for old tasks
+        - Old instance is automatically cleaned up after tasks complete
 
         Args:
             agent_id: Agent ID to reload
@@ -110,6 +223,7 @@ class MultiAgentManager:
         Returns:
             bool: True if agent was reloaded, False if not running
         """
+        # Step 1: Check if agent exists (quick check with lock)
         async with self._lock:
             if agent_id not in self.agents:
                 logger.debug(
@@ -117,23 +231,120 @@ class MultiAgentManager:
                     f"request: {agent_id}",
                 )
                 return False
+            old_instance = self.agents[agent_id]
 
-            logger.info(f"Reloading agent: {agent_id}")
-            instance = self.agents[agent_id]
-            await instance.stop()
-            del self.agents[agent_id]
-            logger.info(
-                f"Agent stopped and removed from cache "
-                f"(will be reloaded on next request): {agent_id}",
+        logger.info(f"Reloading agent (zero-downtime): {agent_id}")
+
+        # Step 2: Load configuration (outside lock)
+        config = load_config()
+        if agent_id not in config.agents.profiles:
+            logger.error(
+                f"Agent '{agent_id}' not found in configuration "
+                f"during reload",
             )
-            return True
+            return False
+
+        agent_ref = config.agents.profiles[agent_id]
+
+        # Step 3: Create and start new workspace instance (outside lock)
+        # This is the slow part, but doesn't block other agents
+        logger.info(f"Creating new workspace instance: {agent_id}")
+        new_instance = Workspace(
+            agent_id=agent_id,
+            workspace_dir=agent_ref.workspace_dir,
+        )
+
+        # Step 3.5: Set reusable components from old instance (if any)
+        async with self._lock:
+            old_instance = self.agents.get(agent_id)
+
+        if old_instance:
+            # Get all reusable services from old instance's ServiceManager
+            # pylint: disable=protected-access
+            reusable = old_instance._service_manager.get_reusable_services()
+            # pylint: enable=protected-access
+
+            if reusable:
+                new_instance.set_reusable_components(reusable)
+                logger.info(
+                    f"Set reusable components for {agent_id}: "
+                    f"{list(reusable.keys())}",
+                )
+
+        try:
+            await new_instance.start()
+            new_instance.set_manager(self)  # Set manager reference
+            logger.info(f"New workspace instance started: {agent_id}")
+        except Exception as e:
+            logger.exception(
+                f"Failed to start new workspace instance for {agent_id}: {e}",
+            )
+            # Try to clean up the failed new instance
+            try:
+                await new_instance.stop()
+            except Exception:
+                pass  # Best effort cleanup
+            # Old instance is still running and serving requests
+            return False
+
+        # Step 4: Atomic swap (minimal lock time)
+        # From this point, reload is considered successful
+        async with self._lock:
+            # Double-check agent still exists
+            if agent_id not in self.agents:
+                logger.warning(
+                    f"Agent {agent_id} was removed during reload, "
+                    f"stopping new instance",
+                )
+                await new_instance.stop()
+                return False
+
+            # Swap instances atomically
+            old_instance = self.agents[agent_id]
+            self.agents[agent_id] = new_instance
+            logger.info(f"Workspace instance replaced: {agent_id}")
+
+        # Step 5: Gracefully stop old instance (outside lock)
+        # Delegates to helper method to avoid too-many-statements
+        await self._graceful_stop_old_instance(old_instance, agent_id)
+
+        return True
+
+    async def cancel_all_cleanup_tasks(self) -> None:
+        """Cancel and await all pending delayed cleanup tasks.
+
+        This ensures that any in-progress background cleanups are either
+        completed or cleanly cancelled before the manager is torn down.
+        Called by stop_all() during shutdown.
+        """
+        if not self._cleanup_tasks:
+            return
+
+        logger.info(
+            f"Cancelling {len(self._cleanup_tasks)} pending cleanup "
+            f"task(s)...",
+        )
+        tasks = list(self._cleanup_tasks)
+        self._cleanup_tasks.clear()
+
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+        # Await completion of all tasks, collecting exceptions
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info("All cleanup tasks cancelled/completed")
 
     async def stop_all(self):
         """Stop all agent instances.
 
         Called during application shutdown to clean up resources.
+        Cancels any pending delayed cleanup tasks and stops all agents.
         """
         logger.info(f"Stopping all agents ({len(self.agents)} running)...")
+
+        # First, cancel pending cleanup tasks to avoid orphaned instances
+        await self.cancel_all_cleanup_tasks()
 
         # Create list of agent IDs to avoid modifying dict during iteration
         agent_ids = list(self.agents.keys())

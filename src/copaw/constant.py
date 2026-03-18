@@ -98,6 +98,13 @@ HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_TARGET_LAST = "last"
 
+# Debug history file for /dump_history and /load_history commands
+DEBUG_HISTORY_FILE = EnvVarLoader.get_str(
+    "COPAW_DEBUG_HISTORY_FILE",
+    "debug_history.jsonl",
+)
+MAX_LOAD_HISTORY_COUNT = 10000
+
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"
 
@@ -122,12 +129,6 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
 # (dev only; keep False in prod).
 DOCS_ENABLED = EnvVarLoader.get_bool("COPAW_OPENAPI_DOCS", False)
 
-# Skills directories
-# Active skills directory (activated skills that agents use)
-ACTIVE_SKILLS_DIR = WORKING_DIR / "active_skills"
-# Customized skills directory (user-created skills)
-CUSTOMIZED_SKILLS_DIR = WORKING_DIR / "customized_skills"
-
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
 
@@ -138,13 +139,13 @@ CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 # Local models directory
 MODELS_DIR = WORKING_DIR / "models"
 
-# Memory compaction configuration
 MEMORY_COMPACT_KEEP_RECENT = EnvVarLoader.get_int(
     "COPAW_MEMORY_COMPACT_KEEP_RECENT",
     3,
     min_value=0,
 )
 
+# Memory compaction configuration
 MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     "COPAW_MEMORY_COMPACT_RATIO",
     0.7,

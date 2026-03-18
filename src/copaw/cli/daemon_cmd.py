@@ -40,7 +40,8 @@ def _context(agent_id: str) -> DaemonContext:
     return DaemonContext(
         working_dir=working_dir,
         memory_manager=None,
-        restart_callback=None,
+        manager=None,  # CLI has no access to MultiAgentManager
+        agent_id=agent_id,
     )
 
 

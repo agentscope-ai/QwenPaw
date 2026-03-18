@@ -137,13 +137,14 @@ class DingTalkChannel(BaseChannel):
         self.card_template_id = card_template_id or ""
         self.card_template_key = card_template_key or "content"
         self.robot_code = robot_code or self.client_id
-        self._active_cards: Dict[str, ActiveAICard] = {}
-        self._active_cards_lock = asyncio.Lock()
-        self._card_store = AICardPendingStore(
-            get_config_path().parent / "dingtalk-active-cards.json",
-        )
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        self._active_cards: Dict[str, ActiveAICard] = {}
+        self._active_cards_lock = asyncio.Lock()
+        cards_dir = self._workspace_dir or get_config_path().parent
+        self._card_store = AICardPendingStore(
+            cards_dir / "dingtalk-active-cards.json",
         )
         # Use workspace-specific media dir if workspace_dir is provided
         if not media_dir and self._workspace_dir:

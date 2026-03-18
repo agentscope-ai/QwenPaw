@@ -17,7 +17,14 @@ from ..constant import (
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
 )
-from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+from .config import (
+    Config,
+    HeartbeatConfig,
+    LastApiConfig,
+    LastDispatchConfig,
+    load_agent_config,
+    save_agent_config,
+)
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -324,17 +331,30 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    copaw.channels), filtered by COPAW_ENABLED_CHANNELS or
+    COPAW_DISABLED_CHANNELS when set.
+
+    * COPAW_ENABLED_CHANNELS — whitelist (only these channels are active).
+    * COPAW_DISABLED_CHANNELS — blacklist (all channels *except* these).
+    * If both are set, COPAW_ENABLED_CHANNELS takes precedence.
+    * If neither is set, all discovered channels are returned.
     """
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
     all_keys = tuple(registry.keys())
-    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
-    if not raw:
-        return all_keys
-    enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())
-    return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_enabled = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    if raw_enabled:
+        enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_disabled = os.environ.get("COPAW_DISABLED_CHANNELS", "").strip()
+    if raw_disabled:
+        disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k not in disabled) or all_keys
+
+    return all_keys
 
 
 def is_running_in_container() -> bool:
@@ -397,15 +417,60 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
         )
 
 
-def get_heartbeat_config() -> HeartbeatConfig:
-    """Return effective heartbeat config (from file or default 30m/main)."""
+def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
+    """Return effective heartbeat config (from agent config or default).
+
+    Args:
+        agent_id: Agent ID to load config from. If None, tries to load from
+                  root config.agents.defaults (legacy behavior).
+
+    Returns:
+        HeartbeatConfig: Heartbeat configuration or default.
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            hb = agent_config.heartbeat
+            return hb if hb is not None else HeartbeatConfig()
+        except Exception:
+            return HeartbeatConfig()
+
+    # Legacy: try to load from root config
     config = load_config()
+    if config.agents.defaults is None:
+        return HeartbeatConfig()
     hb = config.agents.defaults.heartbeat
     return hb if hb is not None else HeartbeatConfig()
 
 
-def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:
-    """Persist last user-reply dispatch target (user send+reply only)."""
+def update_last_dispatch(
+    channel: str,
+    user_id: str,
+    session_id: str,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Persist last user-reply dispatch target (user send+reply only).
+
+    Args:
+        channel: Channel name
+        user_id: User ID
+        session_id: Session ID
+        agent_id: Agent ID to update. If None, updates root config (legacy).
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            agent_config.last_dispatch = LastDispatchConfig(
+                channel=channel,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            save_agent_config(agent_id, agent_config)
+            return
+        except Exception:
+            pass
+
+    # Legacy: update root config
     config = load_config()
     config.last_dispatch = LastDispatchConfig(
         channel=channel,

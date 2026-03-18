@@ -13,6 +13,7 @@ function SkillsPage() {
     skills,
     loading,
     importing,
+    cancelImport,
     createSkill,
     importFromHub,
     toggleEnabled,
@@ -33,6 +34,7 @@ function SkillsPage() {
     "https://lobehub.com/",
     "https://market.lobehub.com/",
     "https://github.com/",
+    "https://modelscope.cn/skills/",
   ];
 
   const isSupportedSkillUrl = (url: string) => {
@@ -148,11 +150,10 @@ function SkillsPage() {
         footer={
           <div style={{ textAlign: "right" }}>
             <Button
-              onClick={closeImportModal}
+              onClick={importing ? cancelImport : closeImportModal}
               style={{ marginRight: 8 }}
-              disabled={importing}
             >
-              {t("common.cancel")}
+              {t(importing ? "skills.cancelImport" : "common.cancel")}
             </Button>
             <Button
               type="primary"
@@ -177,6 +178,7 @@ function SkillsPage() {
             <li>https://lobehub.com/</li>
             <li>https://market.lobehub.com/</li>
             <li>https://github.com/</li>
+            <li>https://modelscope.cn/skills/</li>
           </ul>
           <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
           <ul className={styles.importHintList}>
@@ -188,6 +190,7 @@ function SkillsPage() {
             <li>
               https://github.com/anthropics/skills/tree/main/skills/skill-creator
             </li>
+            <li>https://modelscope.cn/skills/@anthropics/skill-creator</li>
           </ul>
         </div>
 

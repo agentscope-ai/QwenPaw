@@ -235,9 +235,19 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .then((res) => res.json())
       .then((data) => {
         const releases = data?.releases ?? {};
-        // Sort versions by upload_time (newest first)
-        const versionsWithTime = Object.entries(releases).map(
-          ([version, files]) => {
+
+        // Filter out pre-release versions (alpha, beta, rc, dev, etc.)
+        const isStableVersion = (version: string) => {
+          // Pre-release indicators: a, alpha, b, beta, rc, c, candidate, dev, post
+          const preReleasePattern = /(a|alpha|b|beta|rc|c|candidate|dev)\d*/i;
+          // Also check for prerelease field in package info
+          return !preReleasePattern.test(version);
+        };
+
+        // Sort versions by upload_time (newest first), only include stable versions
+        const versionsWithTime = Object.entries(releases)
+          .filter(([version]) => isStableVersion(version))
+          .map(([version, files]) => {
             const fileList = files as Array<{ upload_time_iso_8601?: string }>;
             // Get the latest upload time among all files for this version
             const latestUpload = fileList
@@ -246,8 +256,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               .sort()
               .pop();
             return { version, uploadTime: latestUpload || "" };
-          },
-        );
+          });
         versionsWithTime.sort(
           (a, b) =>
             new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime(),
@@ -408,7 +417,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {!collapsed && (
           <div className={styles.logoWrapper}>
             <img
-              src={isDark ? "/dark-logo.png" : "/logo.png"}
+              src={
+                isDark
+                  ? `${import.meta.env.BASE_URL}dark-logo.png`
+                  : `${import.meta.env.BASE_URL}logo.png`
+              }
               alt="CoPaw"
               className={styles.logoImg}
             />

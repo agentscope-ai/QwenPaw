@@ -1,3 +1,5 @@
+export type ChatStatus = "idle" | "running";
+
 export interface ChatSpec {
   id: string; // Chat UUID identifier
   session_id: string; // Session identifier (channel:user_id format)
@@ -6,6 +8,7 @@ export interface ChatSpec {
   created_at: string | null; // Chat creation timestamp (ISO 8601)
   updated_at: string | null; // Chat last update timestamp (ISO 8601)
   meta?: Record<string, unknown>; // Additional metadata
+  status?: ChatStatus; // Conversation status: idle or running
 }
 
 export interface Message {
@@ -16,6 +19,7 @@ export interface Message {
 
 export interface ChatHistory {
   messages: Message[];
+  status?: ChatStatus; // Conversation status: idle or running
 }
 
 export interface ChatDeleteResponse {

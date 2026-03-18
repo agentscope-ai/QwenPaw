@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
@@ -10,13 +11,18 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
+import { chatApi } from "../../api/modules/chat";
 import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
+import api from "../../api";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import "./index.module.less";
+import { Tooltip } from "antd";
+import { IconButton } from "@agentscope-ai/design";
+import { SparkAttachmentLine } from "@agentscope-ai/icons";
 
 type CopyableContent = {
   type?: string;
@@ -122,6 +128,10 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
+  const [, setReconnectStreaming] = useState(false);
+  const reconnectTriggeredForRef = useRef<string | null>(null);
+  const prevChatIdRef = useRef<string | undefined>(undefined);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -131,8 +141,14 @@ export default function ChatPage() {
   const lastSessionIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
+  const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
+
+  useEffect(() => {
+    sessionApi.setChatRef(chatRef);
+    return () => sessionApi.setChatRef(null);
+  }, []);
 
   useEffect(() => {
     const handleCompositionStart = () => {
@@ -200,6 +216,34 @@ export default function ChatPage() {
       sessionApi.onSessionRemoved = null;
     };
   }, []);
+
+  // Fetch chat status when viewing a chat (for running indicator and reconnect)
+  useEffect(() => {
+    if (!chatId || chatId === "undefined" || chatId === "null") {
+      setChatStatus("idle");
+      return;
+    }
+    const realId = sessionApi.getRealIdForSession(chatId) ?? chatId;
+    api.getChat(realId).then(
+      (res) => setChatStatus((res.status as "idle" | "running") ?? "idle"),
+      () => setChatStatus("idle"),
+    );
+  }, [chatId]);
+
+  // Trigger reconnect when session status becomes "running" so the library
+  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
+  // run after React has updated and the chat input ref is ready, avoiding
+  // a fixed timeout and race conditions.
+  useEffect(() => {
+    if (prevChatIdRef.current !== chatId) {
+      prevChatIdRef.current = chatId;
+      reconnectTriggeredForRef.current = null;
+    }
+    if (!chatId || chatStatus !== "running") return;
+    if (reconnectTriggeredForRef.current === chatId) return;
+    reconnectTriggeredForRef.current = chatId;
+    sessionApi.triggerReconnectSubmit();
+  }, [chatId, chatStatus]);
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -285,10 +329,76 @@ export default function ChatPage() {
 
   const customFetch = useCallback(
     async (data: {
-      input: any[];
+      input?: any[];
       biz_params?: any;
       signal?: AbortSignal;
+      reconnect?: boolean;
+      session_id?: string;
+      user_id?: string;
+      channel?: string;
     }): Promise<Response> => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const token = getApiToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const agentStorage = localStorage.getItem("copaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          const selectedAgent = parsed?.state?.selectedAgent;
+          if (selectedAgent) {
+            headers["X-Agent-Id"] = selectedAgent;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to get selected agent from storage:", error);
+      }
+
+      const shouldReconnect =
+        data.reconnect || data.biz_params?.reconnect === true;
+      const reconnectSessionId =
+        data.session_id ?? window.currentSessionId ?? "";
+      if (shouldReconnect && reconnectSessionId) {
+        const res = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            reconnect: true,
+            session_id: reconnectSessionId,
+            user_id: data.user_id ?? window.currentUserId ?? "default",
+            channel: data.channel ?? window.currentChannel ?? "console",
+          }),
+        });
+        if (!res.ok || !res.body) return res;
+        const onStreamEnd = () => {
+          setChatStatus("idle");
+          setReconnectStreaming(false);
+        };
+        const stream = res.body;
+        const transformed = new ReadableStream({
+          start(controller) {
+            const reader = stream.getReader();
+            function pump() {
+              reader.read().then(({ done, value }) => {
+                if (done) {
+                  controller.close();
+                  onStreamEnd();
+                  return;
+                }
+                controller.enqueue(value);
+                return pump();
+              });
+            }
+            pump();
+          },
+        });
+        return new Response(transformed, {
+          headers: res.headers,
+          status: res.status,
+        });
+      }
+
       try {
         const activeModels = await providerApi.getActiveModels();
         if (
@@ -303,11 +413,41 @@ export default function ChatPage() {
         return buildModelError();
       }
 
-      const { input, biz_params } = data;
+      const { input = [], biz_params } = data;
       const session = input[input.length - 1]?.session || {};
+      const lastInput = input.slice(-1);
+      const lastMsg = lastInput[0];
+      const rewrittenInput =
+        lastMsg?.content && Array.isArray(lastMsg.content)
+          ? [
+              {
+                ...lastMsg,
+                content: lastMsg.content.map((part: any) => {
+                  const p = { ...part };
+                  const toStoredName = (v: string) => {
+                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                    if (m1) return m1[1];
+                    const m2 = v.match(/^[^/]+\/(.+)$/);
+                    if (m2) return m2[1];
+                    return v;
+                  };
+                  if (p.type === "image" && typeof p.image_url === "string")
+                    p.image_url = toStoredName(p.image_url);
+                  if (p.type === "file" && typeof p.file_url === "string")
+                    p.file_url = toStoredName(p.file_url);
+                  if (p.type === "audio" && typeof p.audio_url === "string")
+                    p["data"] = toStoredName(p.audio_url);
+                  if (p.type === "video" && typeof p.video_url === "string")
+                    p.video_url = toStoredName(p.video_url);
+
+                  return p;
+                }),
+              },
+            ]
+          : lastInput;
 
       const requestBody = {
-        input: input.slice(-1),
+        input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || "default",
         channel: window.currentChannel || session?.channel || "console",
@@ -315,34 +455,14 @@ export default function ChatPage() {
         ...biz_params,
       };
 
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      // Add selected agent ID for multi-agent support
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
-      }
-
-      return fetch(defaultConfig?.api?.baseURL || getApiUrl("/console/chat"), {
+      return fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
     },
-    [],
+    [setChatStatus, setReconnectStreaming],
   );
 
   const options = useMemo(() => {
@@ -372,13 +492,62 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
+        attachments: {
+          trigger: function (props: any) {
+            return (
+              <Tooltip title={t("chat.attachments.tooltip")}>
+                <IconButton
+                  disabled={props?.disabled}
+                  icon={<SparkAttachmentLine />}
+                  bordered={false}
+                />
+              </Tooltip>
+            );
+          },
+          accept: "*/*",
+          customRequest: async (options: {
+            file: File;
+            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+            onError?: (e: Error) => void;
+            onProgress?: (e: { percent?: number }) => void;
+          }) => {
+            try {
+              console.log("options.file", options.file);
+
+              // Check file size limit (10MB)
+              const file = options.file as File;
+              const isLt10M = file.size / 1024 / 1024 < 10;
+              if (!isLt10M) {
+                message.error(t("chat.attachments.fileSizeLimit"));
+                return options.onError?.(new Error("File size exceeds 10MB"));
+              }
+
+              options.onProgress?.({ percent: 0 });
+              const res = await chatApi.uploadFile(options.file);
+              options.onProgress?.({ percent: 100 });
+              options.onSuccess({ url: chatApi.fileUrl(res.url) });
+            } catch (e) {
+              options.onError?.(e instanceof Error ? e : new Error(String(e)));
+            }
+          },
+        },
       },
       session: { multiple: true, api: wrappedSessionApi },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          console.log(data);
+          const chatIdForStop = data?.session_id
+            ? sessionApi.getRealIdForSession(data.session_id) ?? data.session_id
+            : "";
+          if (chatIdForStop) {
+            chatApi.stopConsoleChat(chatIdForStop).then(
+              () => setChatStatus("idle"),
+              (err) => {
+                console.error("stopConsoleChat failed:", err);
+              },
+            );
+          }
         },
       },
       actions: {
@@ -403,8 +572,21 @@ export default function ChatPage() {
   }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
 
   return (
-    <div style={{ height: "100%", width: "100%" }}>
-      <AgentScopeRuntimeWebUI key={refreshKey} options={options} />
+    <div
+      style={{
+        height: "100%",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <AgentScopeRuntimeWebUI
+          ref={chatRef}
+          key={refreshKey}
+          options={options}
+        />
+      </div>
 
       <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
         <Result

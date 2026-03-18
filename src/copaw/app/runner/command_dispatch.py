@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from typing import AsyncIterator
+from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
@@ -16,10 +17,12 @@ from .daemon_commands import (
     parse_daemon_query,
 )
 from ...agents.command_handler import CommandHandler
-from ...agents.utils.token_counting import _get_token_counter
-from ...config import load_config
+from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .runner import AgentRunner
 
 
 def _get_last_user_text(msgs) -> str | None:
@@ -60,7 +63,7 @@ def _is_command(query: str | None) -> bool:
 async def run_command_path(
     request,
     msgs,
-    runner,
+    runner: AgentRunner,
 ) -> AsyncIterator[tuple]:
     """Run command path and yield (msg, last) for each response.
 
@@ -83,11 +86,11 @@ async def run_command_path(
     parsed = parse_daemon_query(query)
     if parsed is not None:
         handler = DaemonCommandHandlerMixin()
-        restart_cb = getattr(runner, "_restart_callback", None)
+        manager = getattr(runner, "_manager", None)
         if parsed[0] == "restart":
             logger.info(
-                "run_command_path: daemon restart, callback=%s",
-                "set" if restart_cb is not None else "None",
+                "run_command_path: daemon restart, manager=%s",
+                "set" if manager is not None else "None",
             )
             # Yield hint first so user sees it before restart runs.
             hint = Msg(
@@ -98,17 +101,20 @@ async def run_command_path(
                         type="text",
                         text=(
                             "**Restart in progress**\n\n"
-                            "- The service may be unresponsive for a while. "
+                            "- Reloading agent with zero-downtime. "
                             "Please wait."
                         ),
                     ),
                 ],
             )
             yield hint, True
+
+        agent_id = runner.agent_id
         context = DaemonContext(
-            load_config_fn=load_config,
+            load_config_fn=lambda: load_agent_config(agent_id),
             memory_manager=runner.memory_manager,
-            restart_callback=restart_cb,
+            manager=manager,
+            agent_id=agent_id,
             session_id=session_id,
         )
         msg = await handler.handle_daemon_command(query, context)
@@ -117,24 +123,21 @@ async def run_command_path(
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    # Lazy import to avoid module-level dependency errors
-    from reme.memory.file_based.reme_in_memory_memory import (
-        ReMeInMemoryMemory,
-    )
-
-    memory = ReMeInMemoryMemory(token_counter=_get_token_counter())
+    memory = runner.memory_manager.get_in_memory_memory()
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
     )
-    memory_state = session_state.get("agent", {}).get("memory")
-    memory.load_state_dict(memory_state)
+    memory_state = session_state.get("agent", {}).get("memory", {})
+    memory.load_state_dict(memory_state, strict=False)
 
+    agent_config = load_agent_config(runner.agent_id)
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=memory,
         memory_manager=runner.memory_manager,
         enable_memory_manager=runner.memory_manager is not None,
+        agent_config=agent_config,
     )
     try:
         response_msg = await conv_handler.handle_conversation_command(query)
