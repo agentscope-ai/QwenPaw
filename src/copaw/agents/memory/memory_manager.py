@@ -8,6 +8,7 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+
 import asyncio
 import logging
 import os
@@ -21,6 +22,7 @@ from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_copaw_token_counter
+from copaw.config import load_config
 
 if TYPE_CHECKING:
     from copaw.config.config import AgentProfileConfig
@@ -152,9 +154,7 @@ class MemoryManager(ReMeLight):
         # (local for Windows, chroma otherwise)
         memory_store_backend = os.environ.get("MEMORY_STORE_BACKEND", "auto")
         if memory_store_backend == "auto":
-            memory_backend = (
-                "local" if platform.system() == "Windows" else "chroma"
-            )
+            memory_backend = "local" if platform.system() == "Windows" else "chroma"
         else:
             memory_backend = memory_store_backend
 
@@ -294,6 +294,9 @@ class MemoryManager(ReMeLight):
         """
         self.prepare_model_formatter()
 
+        config = load_config()
+        user_tz = getattr(config, "user_timezone", None) or None
+
         return await super().summary_memory(
             messages=messages,
             as_llm=self.chat_model,
@@ -303,6 +306,7 @@ class MemoryManager(ReMeLight):
             language=self._language,
             max_input_length=self._max_input_length,
             compact_ratio=self._memory_compact_ratio,
+            timezone=user_tz,
         )
 
     async def memory_search(
