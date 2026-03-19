@@ -71,7 +71,8 @@ class TestStrictLocalMode:
         self,
         monkeypatch,
     ):
-        """Test difference between strict and non-strict when remote available."""
+        """Test difference between strict and non-strict "
+        "when remote available."""
         # Set up remote embedding env vars
         monkeypatch.setenv("EMBEDDING_API_KEY", "test-key")
         monkeypatch.setenv("EMBEDDING_BASE_URL", "https://api.example.com")
@@ -118,7 +119,8 @@ class TestStrictLocalMode:
         assert adapter.strict_local is False
 
     def test_strict_mode_with_local_enabled_but_unavailable(self):
-        """Test strict mode when local is enabled but unavailable raises exception."""
+        """Test strict mode when local is enabled "
+        "but unavailable raises exception."""
         # Create config that enables local
         config = LocalEmbeddingConfig(
             enabled=True,
@@ -138,7 +140,8 @@ class TestStrictLocalMode:
         assert "Local embedding failed in strict mode" in str(exc_info.value)
 
     def test_get_reme_config_in_strict_mode(self, monkeypatch):
-        """Test getting ReMe config when local disabled in strict mode uses remote."""
+        """Test getting ReMe config when local disabled "
+        "in strict mode uses remote."""
         # Set up remote to ensure we have a fallback
         monkeypatch.setenv("EMBEDDING_API_KEY", "test-key")
         monkeypatch.setenv("EMBEDDING_BASE_URL", "https://api.example.com")

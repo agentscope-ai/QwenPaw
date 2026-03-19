@@ -108,7 +108,8 @@ class EmbeddingAdapter:
             if not hasattr(R.embedding_models, "register"):
                 return (
                     False,
-                    "ReMe embedding_models registry does not have register method",
+                    "ReMe embedding_models registry "
+                    "does not have register method",
                 )
 
             return True, None
@@ -198,11 +199,13 @@ class EmbeddingAdapter:
             if not os.path.exists(self.local_config.model_path):
                 return (
                     False,
-                    f"Local model path does not exist: {self.local_config.model_path}",
+                    "Local model path does not exist: "
+                    f"{self.local_config.model_path}",
                 )
             return True, None
 
-        # Otherwise, assume it can be downloaded (we'll verify during actual load)
+        # Otherwise, assume it can be downloaded
+        # (we'll verify during actual load)
         # The LocalEmbedder will handle model download/checking
         # We just do basic validation here
         if not self.local_config.model_id:
@@ -315,8 +318,9 @@ class EmbeddingAdapter:
         if self.strict_local and self.local_config.enabled:
             # Strict mode: fail immediately (fail-fast per ADR-002)
             error_msg = (
-                f"Local embedding failed in strict mode: {local_error}. "
-                f"To enable fallback to remote, set COPAW_STRICT_LOCAL_EMBEDDING=false"
+                f"Local embedding failed in strict mode: "
+                f"{local_error}. To enable fallback to remote, "
+                "set COPAW_STRICT_LOCAL_EMBEDDING=false"
             )
             logger.error(
                 "Embedding initialization failed in strict mode",
@@ -494,7 +498,8 @@ def create_embedding_adapter(
 
     Args:
         local_config: Optional local embedding configuration.
-        strict_local: If True, fail when local is unavailable instead of fallback.
+        strict_local: If True, fail when local is unavailable
+            instead of fallback.
 
     Returns:
         Initialized EmbeddingAdapter instance.
@@ -505,7 +510,8 @@ def create_embedding_adapter(
         ...     strict_local=False,
         ... )
         >>> result = adapter.determine_mode()
-        >>> print(f"Mode: {result.mode}, Vector enabled: {result.vector_enabled}")
+        >>> print(f"Mode: {result.mode}, "
+        ...       f"Vector enabled: {result.vector_enabled}")
     """
     adapter = EmbeddingAdapter(local_config, strict_local)
     # Note: We don't auto-register here to allow lazy registration

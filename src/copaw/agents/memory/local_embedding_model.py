@@ -62,9 +62,11 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
         Args:
             api_key: Not used for local models (for API compatibility).
             base_url: Not used for local models (for API compatibility).
-            model_name: Name of the embedding model (model_id in LocalEmbeddingConfig).
+            model_name: Name of the embedding model
+                (model_id in LocalEmbeddingConfig).
             dimensions: Expected dimensions of the embeddings.
-            use_dimensions: Whether to use dimensions parameter (not used locally).
+            use_dimensions: Whether to use dimensions parameter
+                (not used locally).
             max_batch_size: Maximum batch size for embedding requests.
             max_retries: Maximum number of retry attempts on failure.
             raise_exception: Whether to raise exceptions on failure.
@@ -124,7 +126,7 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
     def _get_embeddings_sync(
         self,
         input_text: list[str],
-        **kwargs,
+        **kwargs,  # pylint: disable=unused-argument
     ) -> list[list[float]]:
         """Synchronous embedding generation.
 
@@ -143,7 +145,10 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
             if self._embedder is None:
                 self._embedder = LocalEmbedder(self._local_config)
 
-            logger.debug("Generating embeddings for %d texts", len(input_text))
+            logger.debug(
+                "Generating embeddings for %d texts",
+                len(input_text),
+            )
             embeddings = self._embedder.encode_text(input_text)
             logger.debug("Generated %d embeddings", len(embeddings))
 
@@ -171,7 +176,7 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
     async def _get_embeddings(
         self,
         input_text: list[str],
-        **kwargs,
+        **kwargs,  # pylint: disable=unused-argument
     ) -> list[list[float]]:
         """Async embedding generation (runs sync in thread pool).
 
