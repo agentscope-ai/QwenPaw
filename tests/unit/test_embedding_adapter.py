@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
+import os  # noqa: E402
 import pytest  # noqa: E402
 
 from copaw.agents.memory.embedding_adapter import (  # noqa: E402

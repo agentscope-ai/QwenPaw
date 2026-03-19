@@ -22,7 +22,7 @@ from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
-from copaw.agents.utils import _get_copaw_token_counter
+from copaw.agents.utils import get_copaw_token_counter
 from copaw.agents.memory.embedding_adapter import create_embedding_adapter
 from copaw.config.config import load_agent_config
 
@@ -283,7 +283,7 @@ class MemoryManager(ReMeLight):
 
         # pylint: disable=no-member
         agent_config = load_agent_config(self.agent_id)
-        token_counter = _get_copaw_token_counter(agent_config)
+        token_counter = get_copaw_token_counter(agent_config)
 
         return await super().compact_memory(
             messages=messages,
@@ -313,7 +313,7 @@ class MemoryManager(ReMeLight):
 
         # pylint: disable=no-member
         agent_config = load_agent_config(self.agent_id)
-        token_counter = _get_copaw_token_counter(agent_config)
+        token_counter = get_copaw_token_counter(agent_config)
 
         return await super().summary_memory(
             messages=messages,
@@ -374,7 +374,7 @@ class MemoryManager(ReMeLight):
         """
         # pylint: disable=no-member
         agent_config = load_agent_config(self.agent_id)
-        token_counter = _get_copaw_token_counter(agent_config)
+        token_counter = get_copaw_token_counter(agent_config)
 
         return super().get_in_memory_memory(
             as_token_counter=token_counter,
