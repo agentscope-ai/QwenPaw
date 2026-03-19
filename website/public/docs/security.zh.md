@@ -128,16 +128,31 @@ CoPaw 支持可选的 Web 登录认证，保护控制台免受未授权访问。
 5. 登录后，签名令牌（有效期 7 天）存储在浏览器的 localStorage 中，所有 API 请求自动携带该令牌。
 6. 来自**本地**（`127.0.0.1` / `::1`）的请求自动跳过认证，因此 CLI 命令（`copaw app`、`copaw chat` 等）无需令牌即可正常工作。
 
+### 环境变量
+
+| 变量                  | 说明                       | 是否必填         |
+| --------------------- | -------------------------- | ---------------- |
+| `COPAW_AUTH_ENABLED`  | 设为 `true` 启用认证       | 是               |
+| `COPAW_AUTH_USERNAME` | 首次启动时预设管理员用户名 | 可选（自动注册） |
+| `COPAW_AUTH_PASSWORD` | 首次启动时预设管理员密码   | 可选（自动注册） |
+
+- `COPAW_AUTH_ENABLED=true` 是启用认证唯一必需的变量。
+- `COPAW_AUTH_USERNAME` 和 `COPAW_AUTH_PASSWORD` 为可选项。当两者都设置且尚未注册过用户时，CoPaw 会在启动时自动创建管理员账户 — 适用于 Docker 编排、Kubernetes、服务器管理面板（1Panel、Portainer、CasaOS 等）及其他无法通过浏览器交互注册的自动化部署场景。
+- 如果不设置自动注册变量，首次访问时通过网页注册第一个用户（原有行为不变）。
+
 ### 启用认证
 
 #### 脚本安装 / pip 安装
 
-在启动前设置环境变量：
+在启动前设置环境变量。如需自动创建管理员账户，可同时设置 `COPAW_AUTH_USERNAME` 和 `COPAW_AUTH_PASSWORD`。
 
 **Linux / macOS：**
 
 ```bash
 export COPAW_AUTH_ENABLED=true
+# 可选：预设管理员凭据，实现自动注册
+# export COPAW_AUTH_USERNAME=admin
+# export COPAW_AUTH_PASSWORD=mypassword
 copaw app
 ```
 
@@ -147,6 +162,9 @@ copaw app
 
 ```cmd
 set COPAW_AUTH_ENABLED=true
+rem 可选：预设管理员凭据，实现自动注册
+rem set COPAW_AUTH_USERNAME=admin
+rem set COPAW_AUTH_PASSWORD=mypassword
 copaw app
 ```
 
@@ -154,6 +172,9 @@ copaw app
 
 ```powershell
 $env:COPAW_AUTH_ENABLED = "true"
+# 可选：预设管理员凭据，实现自动注册
+# $env:COPAW_AUTH_USERNAME = "admin"
+# $env:COPAW_AUTH_PASSWORD = "mypassword"
 copaw app
 ```
 
@@ -163,13 +184,17 @@ copaw app
 
 ```bash
 docker run -e COPAW_AUTH_ENABLED=true \
+  -e COPAW_AUTH_USERNAME=admin \
+  -e COPAW_AUTH_PASSWORD=mypassword \
   -p 127.0.0.1:8088:8088 \
   -v copaw-data:/app/working \
   -v copaw-secrets:/app/working.secret \
   agentscope/copaw:latest
 ```
 
-或使用 `docker-compose.yml`：
+> 如果希望首次访问时通过网页注册，移除 `COPAW_AUTH_USERNAME` 和 `COPAW_AUTH_PASSWORD` 即可。
+
+#### docker-compose.yml
 
 ```yaml
 services:
@@ -179,6 +204,8 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       - COPAW_AUTH_ENABLED=true
+      - COPAW_AUTH_USERNAME=admin
+      - COPAW_AUTH_PASSWORD=mypassword
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret
@@ -190,6 +217,8 @@ services:
 
 ```
 COPAW_AUTH_ENABLED=true
+COPAW_AUTH_USERNAME=admin
+COPAW_AUTH_PASSWORD=mypassword
 ```
 
 然后通过 `--env-file .env` 传递给 Docker，或在运行 `copaw app` 前在 shell 中 source 该文件。
