@@ -1,4 +1,4 @@
-import { Card, Tooltip, Button } from "@agentscope-ai/design";
+import { Card, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
@@ -10,7 +10,6 @@ interface ChannelCardProps {
   onClick: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-  onToggleEnabled: (e: React.MouseEvent) => void;
 }
 
 export function ChannelCard({
@@ -20,7 +19,6 @@ export function ChannelCard({
   onClick,
   onMouseEnter,
   onMouseLeave,
-  onToggleEnabled,
 }: ChannelCardProps) {
   const { t } = useTranslation();
   const enabled = Boolean(config.enabled);
@@ -82,14 +80,6 @@ export function ChannelCard({
 
       <div className={styles.cardFooter}>
         <span className={styles.cardHint}>{t("channels.clickCardToEdit")}</span>
-        <Button
-          type="link"
-          size="small"
-          onClick={onToggleEnabled}
-          className={styles.actionButton}
-        >
-          {enabled ? t("common.disable") : t("common.enable")}
-        </Button>
       </div>
     </Card>
   );

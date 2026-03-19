@@ -298,7 +298,11 @@ export function ChannelDrawer({
       case "discord":
         return (
           <>
-            <Form.Item name="bot_token" label="Bot Token">
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+            >
               <Input.Password placeholder="Discord bot token" />
             </Form.Item>
             <Form.Item name="http_proxy" label="HTTP Proxy">
@@ -313,10 +317,18 @@ export function ChannelDrawer({
       case "dingtalk":
         return (
           <>
-            <Form.Item name="client_id" label="Client ID">
+            <Form.Item
+              name="client_id"
+              label="Client ID"
+              rules={[{ required: true }]}
+            >
               <Input />
             </Form.Item>
-            <Form.Item name="client_secret" label="Client Secret">
+            <Form.Item
+              name="client_secret"
+              label="Client Secret"
+              rules={[{ required: true }]}
+            >
               <Input.Password />
             </Form.Item>
             <Form.Item
@@ -407,10 +419,18 @@ export function ChannelDrawer({
       case "qq":
         return (
           <>
-            <Form.Item name="app_id" label="App ID">
+            <Form.Item
+              name="app_id"
+              label="App ID"
+              rules={[{ required: true }]}
+            >
               <Input />
             </Form.Item>
-            <Form.Item name="client_secret" label="Client Secret">
+            <Form.Item
+              name="client_secret"
+              label="Client Secret"
+              rules={[{ required: true }]}
+            >
               <Input.Password />
             </Form.Item>
           </>
@@ -419,7 +439,11 @@ export function ChannelDrawer({
       case "telegram":
         return (
           <>
-            <Form.Item name="bot_token" label="Bot Token">
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+            >
               <Input.Password placeholder="Telegram bot token from BotFather" />
             </Form.Item>
             <Form.Item name="http_proxy" label="HTTP Proxy">
@@ -549,7 +573,11 @@ export function ChannelDrawer({
             >
               <Input placeholder="https://mattermost.example.com" />
             </Form.Item>
-            <Form.Item name="bot_token" label="Bot Token">
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+            >
               <Input.Password placeholder="Mattermost bot token" />
             </Form.Item>
             <Form.Item name="media_dir" label="Media Dir">
@@ -586,12 +614,14 @@ export function ChannelDrawer({
             <Form.Item
               name="twilio_account_sid"
               label={t("channels.twilioAccountSid")}
+              rules={[{ required: true }]}
             >
               <Input placeholder="ACxxxxxxxx" />
             </Form.Item>
             <Form.Item
               name="twilio_auth_token"
               label={t("channels.twilioAuthToken")}
+              rules={[{ required: true }]}
             >
               <Input.Password />
             </Form.Item>
@@ -824,6 +854,14 @@ export function ChannelDrawer({
           initialValues={initialValues}
           onFinish={onSubmit}
         >
+          <Form.Item
+            name="enabled"
+            label={t("common.enabled")}
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+
           {activeKey !== "voice" && (
             <Form.Item name="bot_prefix" label="Bot Prefix">
               <Input placeholder="@bot" />
