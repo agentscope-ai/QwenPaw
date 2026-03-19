@@ -37,6 +37,9 @@ CoPaw 支持三种 JSON 格式导入 MCP 客户端：
 {
   "mcpServers": {
     "client-name": {
+      "name": "My MCP Client",
+      "description": "Optional client description",
+      "transport": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem"],
       "env": {
@@ -52,6 +55,7 @@ CoPaw 支持三种 JSON 格式导入 MCP 客户端：
 ```json
 {
   "client-name": {
+    "description": "Optional client description",
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem"],
     "env": {
@@ -67,6 +71,7 @@ CoPaw 支持三种 JSON 格式导入 MCP 客户端：
 {
   "key": "client-name",
   "name": "My MCP Client",
+  "description": "Optional client description",
   "command": "npx",
   "args": ["-y", "@modelcontextprotocol/server-filesystem"],
   "env": {
@@ -74,6 +79,21 @@ CoPaw 支持三种 JSON 格式导入 MCP 客户端：
   }
 }
 ```
+
+### 常用字段说明（含 description）
+
+- `name`：显示名称（可选，不填时通常使用 key）
+- `description`：描述信息（可选，建议填写，便于识别用途）
+- `enabled`：是否启用（可选，默认 `true`）
+- `transport`：传输类型（可选，支持 `stdio` / `streamable_http` / `sse`）
+- `command`、`args`、`env`、`cwd`：本地命令类 MCP 常用字段
+- `url`、`headers`：远程 MCP 常用字段
+
+传输类型校验规则：
+
+- `transport=stdio`：必须提供非空 `command`
+- `transport=streamable_http` 或 `sse`：必须提供非空 `url`
+- 若省略 `transport`：有 `url` 时默认按 `streamable_http` 处理；否则默认按 `stdio` 处理
 
 ---
 
@@ -95,6 +115,24 @@ CoPaw 支持三种 JSON 格式导入 MCP 客户端：
 ```
 
 > 将 `/Users/username/Documents` 替换为你希望智能体访问的目录路径。
+
+远程 MCP 示例（含 `description`）：
+
+```json
+{
+  "mcpServers": {
+    "example_mcp": {
+      "name": "Example Mcp Server",
+      "description": "Remote MCP endpoint over HTTP",
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:8585/mcp",
+      "headers": {
+        "Authorization": "Bearer <YOUR_TOKEN>"
+      }
+    }
+  }
+}
+```
 
 ---
 

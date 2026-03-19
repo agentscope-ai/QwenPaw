@@ -37,6 +37,9 @@ CoPaw supports three JSON formats for importing MCP clients:
 {
   "mcpServers": {
     "client-name": {
+      "name": "My MCP Client",
+      "description": "Optional client description",
+      "transport": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem"],
       "env": {
@@ -52,6 +55,7 @@ CoPaw supports three JSON formats for importing MCP clients:
 ```json
 {
   "client-name": {
+    "description": "Optional client description",
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem"],
     "env": {
@@ -67,6 +71,7 @@ CoPaw supports three JSON formats for importing MCP clients:
 {
   "key": "client-name",
   "name": "My MCP Client",
+  "description": "Optional client description",
   "command": "npx",
   "args": ["-y", "@modelcontextprotocol/server-filesystem"],
   "env": {
@@ -74,6 +79,21 @@ CoPaw supports three JSON formats for importing MCP clients:
   }
 }
 ```
+
+### Common fields (including description)
+
+- `name`: display name (optional, key is used if omitted)
+- `description`: free-text description (optional, recommended for clarity)
+- `enabled`: whether the client is enabled (optional, default `true`)
+- `transport`: transport type (optional, supports `stdio` / `streamable_http` / `sse`)
+- `command`, `args`, `env`, `cwd`: common fields for local command-based MCP
+- `url`, `headers`: common fields for remote MCP
+
+Transport validation rules:
+
+- `transport=stdio`: requires non-empty `command`
+- `transport=streamable_http` or `sse`: requires non-empty `url`
+- if `transport` is omitted: config with `url` defaults to `streamable_http`; otherwise defaults to `stdio`
 
 ---
 
@@ -95,6 +115,24 @@ CoPaw supports three JSON formats for importing MCP clients:
 ```
 
 > Replace `/Users/username/Documents` with the directory path you want the agent to access.
+
+Remote MCP example (with `description`):
+
+```json
+{
+  "mcpServers": {
+    "example_mcp": {
+      "name": "Example Mcp Server",
+      "description": "Remote MCP endpoint over HTTP",
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:8585/mcp",
+      "headers": {
+        "Authorization": "Bearer <YOUR_TOKEN>"
+      }
+    }
+  }
+}
+```
 
 ---
 
