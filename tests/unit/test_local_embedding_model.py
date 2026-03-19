@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=wrong-import-position,wrong-import-order,protected-access,unused-import
+# flake8: noqa: E402
 """Unit tests for LocalEmbeddingModel."""
 
 import sys

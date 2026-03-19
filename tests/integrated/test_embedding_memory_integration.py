@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=wrong-import-position,wrong-import-order,protected-access
+# flake8: noqa: E402
 """Integration tests verifying embedding actually works with memory system.
 
 These tests verify that:

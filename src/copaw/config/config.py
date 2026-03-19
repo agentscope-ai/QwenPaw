@@ -285,6 +285,7 @@ class LocalEmbeddingConfig(BaseModel):
     _model_type: Optional[str] = None  # "multimodal" or "text"
     _dimensions: Optional[int] = None
 
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
