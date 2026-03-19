@@ -41,12 +41,21 @@ class ChatSpec(BaseModel):
         default_factory=dict,
         description="Additional metadata",
     )
+    status: str = Field(
+        default="idle",
+        description="Conversation status: idle or running",
+        exclude=True,
+    )
 
 
 class ChatHistory(BaseModel):
     """Complete chat view with spec and state."""
 
     messages: list[Message] = Field(default_factory=list)
+    status: str = Field(
+        default="idle",
+        description="Conversation status: idle or running",
+    )
 
 
 class ChatsFile(BaseModel):

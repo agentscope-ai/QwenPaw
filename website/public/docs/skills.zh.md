@@ -68,6 +68,7 @@
 - `https://lobehub.com/...`
 - `https://market.lobehub.com/...`（LobeHub 直链下载地址）
 - `https://github.com/...`
+- `https://modelscope.cn/skills/...`
 
 ### 步骤
 
@@ -89,7 +90,7 @@
 
 ### URL 获取示例
 
-1. 以 `skills.sh` 为例（`clawhub.ai`、`skillsmp.com` 和 `lobehub.com` 获取 Skill URL 的方式相同），进入对应技能市场页面。
+1. 以 `skills.sh` 为例（`clawhub.ai`、`skillsmp.com`、`lobehub.com` 和 `modelscope.cn` 获取 Skill URL 的方式类似），进入对应技能市场页面。
 2. 选择你需要的 Skill（以 `find-skills` 为例）。
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)

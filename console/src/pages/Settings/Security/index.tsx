@@ -6,12 +6,23 @@ import {
   Card,
   Select,
   message,
+  Tabs,
 } from "@agentscope-ai/design";
-import { PlusCircleOutlined } from "@ant-design/icons";
+import {
+  PlusCircleOutlined,
+  SafetyOutlined,
+  ScanOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
-import { PageHeader, RuleTable, RuleModal, PreviewModal } from "./components";
+import {
+  PageHeader,
+  RuleTable,
+  RuleModal,
+  PreviewModal,
+  SkillScannerSection,
+} from "./components";
 import styles from "./index.module.less";
 
 const BUILTIN_TOOLS = [
@@ -19,6 +30,7 @@ const BUILTIN_TOOLS = [
   "execute_python_code",
   "browser_use",
   "desktop_screenshot",
+  "view_image",
   "read_file",
   "write_file",
   "edit_file",
@@ -203,94 +215,139 @@ function SecurityPage() {
       <div className={styles.content}>
         <PageHeader />
 
-        <Card className={styles.formCard}>
-          <Form
-            form={form}
-            layout="vertical"
-            className={styles.form}
-            initialValues={{
-              enabled: config?.enabled ?? true,
-              guarded_tools: config?.guarded_tools ?? [],
-              denied_tools: config?.denied_tools ?? [],
-            }}
-          >
-            <Form.Item
-              label={t("security.enabled")}
-              name="enabled"
-              valuePropName="checked"
-              tooltip={t("security.enabledTooltip")}
-            >
-              <Switch onChange={(val) => setEnabled(val)} />
-            </Form.Item>
+        <Tabs
+          className={styles.mainTabs}
+          items={[
+            {
+              key: "toolGuard",
+              label: (
+                <span className={styles.tabLabel}>
+                  <SafetyOutlined />
+                  {t("security.toolGuardTitle")}
+                </span>
+              ),
+              children: (
+                <div className={styles.tabContent}>
+                  <p className={styles.tabDescription}>
+                    {t("security.toolGuardDescription")}
+                  </p>
 
-            <Form.Item
-              label={t("security.guardedTools")}
-              name="guarded_tools"
-              tooltip={t("security.guardedToolsTooltip")}
-            >
-              <Select
-                mode="tags"
-                options={toolOptions}
-                placeholder={t("security.guardedToolsPlaceholder")}
-                disabled={!enabled}
-                allowClear
-                style={{ width: "100%" }}
-              />
-            </Form.Item>
+                  <Card className={styles.formCard}>
+                    <Form
+                      form={form}
+                      layout="vertical"
+                      className={styles.form}
+                      initialValues={{
+                        enabled: config?.enabled ?? true,
+                        guarded_tools: config?.guarded_tools ?? [],
+                        denied_tools: config?.denied_tools ?? [],
+                      }}
+                    >
+                      <Form.Item
+                        label={t("security.enabled")}
+                        name="enabled"
+                        valuePropName="checked"
+                        tooltip={t("security.enabledTooltip")}
+                      >
+                        <Switch onChange={(val) => setEnabled(val)} />
+                      </Form.Item>
 
-            <Form.Item
-              label={t("security.deniedTools")}
-              name="denied_tools"
-              tooltip={t("security.deniedToolsTooltip")}
-            >
-              <Select
-                mode="tags"
-                options={toolOptions}
-                placeholder={t("security.deniedToolsPlaceholder")}
-                disabled={!enabled}
-                allowClear
-                style={{ width: "100%" }}
-              />
-            </Form.Item>
-          </Form>
-        </Card>
+                      <Form.Item
+                        label={t("security.guardedTools")}
+                        name="guarded_tools"
+                        tooltip={t("security.guardedToolsTooltip")}
+                      >
+                        <Select
+                          mode="tags"
+                          options={toolOptions}
+                          placeholder={t("security.guardedToolsPlaceholder")}
+                          disabled={!enabled}
+                          allowClear
+                          style={{ width: "100%" }}
+                        />
+                      </Form.Item>
 
-        <div className={styles.sectionHeader}>
-          <h2 className={styles.sectionTitle}>{t("security.rules.title")}</h2>
-          <Button
-            type="primary"
-            icon={<PlusCircleOutlined />}
-            onClick={openAddRule}
-            disabled={!enabled}
-            size="middle"
-          >
-            {t("security.rules.add")}
-          </Button>
-        </div>
+                      <Form.Item
+                        label={t("security.deniedTools")}
+                        name="denied_tools"
+                        tooltip={t("security.deniedToolsTooltip")}
+                      >
+                        <Select
+                          mode="tags"
+                          options={toolOptions}
+                          placeholder={t("security.deniedToolsPlaceholder")}
+                          disabled={!enabled}
+                          allowClear
+                          style={{ width: "100%" }}
+                        />
+                      </Form.Item>
+                    </Form>
+                  </Card>
 
-        <Card className={styles.tableCard}>
-          <RuleTable
-            rules={mergedRules}
-            enabled={enabled}
-            onToggleRule={toggleRule}
-            onPreviewRule={setPreviewRule}
-            onEditRule={openEditRule}
-            onDeleteRule={deleteCustomRule}
-          />
-        </Card>
+                  <div className={styles.sectionHeader}>
+                    <h2 className={styles.sectionTitle}>
+                      {t("security.rules.title")}
+                    </h2>
+                    <Button
+                      type="primary"
+                      icon={<PlusCircleOutlined />}
+                      onClick={openAddRule}
+                      disabled={!enabled}
+                      size="middle"
+                    >
+                      {t("security.rules.add")}
+                    </Button>
+                  </div>
 
-        <div className={styles.footerButtons}>
-          <Button
-            onClick={handleReset}
-            disabled={saving}
-            style={{ marginRight: 8 }}
-          >
-            {t("common.reset")}
-          </Button>
-          <Button type="primary" onClick={handleSave} loading={saving}>
-            {t("common.save")}
-          </Button>
-        </div>
+                  <Card className={styles.tableCard}>
+                    <RuleTable
+                      rules={mergedRules}
+                      enabled={enabled}
+                      onToggleRule={toggleRule}
+                      onPreviewRule={setPreviewRule}
+                      onEditRule={openEditRule}
+                      onDeleteRule={deleteCustomRule}
+                    />
+                  </Card>
+
+                  <div className={styles.footerButtons}>
+                    <Button
+                      onClick={handleReset}
+                      disabled={saving}
+                      style={{ marginRight: 8 }}
+                    >
+                      {t("common.reset")}
+                    </Button>
+                    <Button
+                      type="primary"
+                      onClick={handleSave}
+                      loading={saving}
+                    >
+                      {t("common.save")}
+                    </Button>
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: "skillScanner",
+              label: (
+                <span className={styles.tabLabel}>
+                  <ScanOutlined />
+                  {t("security.skillScanner.title")}
+                </span>
+              ),
+              children: (
+                <div className={styles.tabContent}>
+                  <p className={styles.tabDescription}>
+                    {t("security.skillScanner.description")}
+                  </p>
+                  <SkillScannerSection />
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <RuleModal

@@ -12,17 +12,21 @@ export function useAgentConfig() {
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<string>("zh");
   const [savingLang, setSavingLang] = useState(false);
+  const [timezone, setTimezone] = useState<string>("UTC");
+  const [savingTimezone, setSavingTimezone] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp] = await Promise.all([
+      const [config, langResp, tzResp] = await Promise.all([
         api.getAgentRunningConfig(),
         api.getAgentLanguage(),
+        api.getUserTimezone(),
       ]);
       form.setFieldsValue(config);
       setLanguage(langResp.language);
+      setTimezone(tzResp.timezone || "UTC");
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.loadFailed");
@@ -93,6 +97,27 @@ export function useAgentConfig() {
     [language, t],
   );
 
+  const handleTimezoneChange = useCallback(
+    async (value: string) => {
+      if (value === timezone) return;
+      setSavingTimezone(true);
+      try {
+        await api.updateUserTimezone(value);
+        setTimezone(value);
+        message.success(t("agentConfig.timezoneSaveSuccess"));
+      } catch (err) {
+        const errMsg =
+          err instanceof Error
+            ? err.message
+            : t("agentConfig.timezoneSaveFailed");
+        message.error(errMsg);
+      } finally {
+        setSavingTimezone(false);
+      }
+    },
+    [timezone, t],
+  );
+
   return {
     form,
     loading,
@@ -100,8 +125,11 @@ export function useAgentConfig() {
     error,
     language,
     savingLang,
+    timezone,
+    savingTimezone,
     fetchConfig,
     handleSave,
     handleLanguageChange,
+    handleTimezoneChange,
   };
 }

@@ -28,7 +28,7 @@ If the user doesn't answer directly, set some conventional defaults yourself. Do
 Update `PROFILE.md` with what you learned (saved in your workspace), writing to the corresponding sections:
 
 - **"Identity" section** — your name, nature, vibe, and other things
-- **"User Profile" section** — their name, how to address them, timezone, notes
+- **"User Profile" section** — their name, how to address them, notes
 
 Then open `SOUL.md` together and talk with the user about:
 

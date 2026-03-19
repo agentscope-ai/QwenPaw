@@ -1,9 +1,13 @@
+import type { RefObject } from "react";
 import {
   IAgentScopeRuntimeWebUISession,
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
+  IAgentScopeRuntimeWebUIRef,
+  IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec, type Message } from "../../../api";
+import { chatApi } from "../../../api/modules/chat";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -60,6 +64,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   meta: Record<string, unknown>;
   /** Real backend UUID, used when id is overridden with a local timestamp. */
   realId?: string;
+  /** Conversation status: idle or running (for reconnect). */
+  status?: "idle" | "running";
 }
 
 // ---------------------------------------------------------------------------
@@ -70,16 +76,47 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-/** Extract plain text from a message's content array. */
-const extractTextFromContent = (content: unknown): string => {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return String(content || "");
-  return (content as ContentItem[])
-    .filter((c) => c.type === "text")
-    .map((c) => c.text || "")
-    .filter(Boolean)
-    .join("\n");
-};
+/** Turn a backend content URL (path or full URL) into a full URL for display. */
+function toDisplayUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return chatApi.fileUrl(url.startsWith("/") ? url : `/${url}`);
+}
+
+/** Map backend message content to request card content (text + image + file). */
+function contentToRequestParts(
+  content: unknown,
+): Array<Record<string, unknown>> {
+  if (typeof content === "string") {
+    return [{ type: "text", text: content, status: "created" }];
+  }
+  if (!Array.isArray(content)) {
+    return [{ type: "text", text: String(content || ""), status: "created" }];
+  }
+  const parts: Array<Record<string, unknown>> = [];
+  for (const c of content as ContentItem[]) {
+    if (c.type === "text") {
+      if (c.text) parts.push({ type: "text", text: c.text, status: "created" });
+    } else if (c.type === "image" && c.image_url) {
+      parts.push({
+        type: "image",
+        image_url: toDisplayUrl(c.image_url as string),
+        status: "created",
+      });
+    } else if (c.type === "file" && (c.file_url || c.file_id)) {
+      parts.push({
+        type: "file",
+        file_url: toDisplayUrl((c.file_url as string) || (c.file_id as string)),
+        file_name: (c.filename as string) || (c.file_name as string) || "file",
+        status: "created",
+      });
+    }
+  }
+  if (parts.length === 0) {
+    parts.push({ type: "text", text: "", status: "created" });
+  }
+  return parts;
+}
 
 /**
  * Convert a backend message to a response output message.
@@ -96,7 +133,7 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
 function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
-  const text = extractTextFromContent(msg.content);
+  const contentParts = contentToRequestParts(msg.content);
   return {
     id: (msg.id as string) || generateId(),
     role: "user",
@@ -108,7 +145,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
             {
               role: "user",
               type: "message",
-              content: [{ type: "text", text, status: "created" }],
+              content: contentParts,
             },
           ],
         },
@@ -190,6 +227,7 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     channel: chat.channel,
     messages: [],
     meta: chat.meta || {},
+    status: chat.status ?? "idle",
   }) as ExtendedSession;
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
@@ -256,6 +294,35 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * the session id from the URL.
    */
   onSessionRemoved: ((removedId: string) => void) | null = null;
+
+  /**
+   * Ref to the chat component so we can trigger submit with reconnect flag
+   * (library will call customFetch with biz_params.reconnect and consume the SSE stream).
+   */
+  private chatRef: RefObject<IAgentScopeRuntimeWebUIRef> | null = null;
+
+  setChatRef(ref: RefObject<IAgentScopeRuntimeWebUIRef> | null): void {
+    this.chatRef = ref;
+  }
+
+  /**
+   * Programmatically trigger the library's submit with biz_params.reconnect so
+   * customFetch does POST /console/chat with reconnect:true and the library
+   * consumes the SSE stream (replay + live tail).
+   */
+  triggerReconnectSubmit(): void {
+    const ref = this.chatRef?.current;
+    if (!ref?.input?.submit) {
+      console.warn("triggerReconnectSubmit: chatRef not available");
+      return;
+    }
+    ref.input.submit({
+      query: "",
+      biz_params: {
+        reconnect: true,
+      } as IAgentScopeRuntimeWebUIInputData["biz_params"],
+    });
+  }
 
   private createEmptySession(sessionId: string): ExtendedSession {
     window.currentSessionId = sessionId;
@@ -342,7 +409,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.set(sessionId, requestPromise);
 
     try {
-      return await requestPromise;
+      const result = await requestPromise;
+      // Reconnect for running sessions is triggered by ChatPage when session
+      // status becomes "running" (useEffect on chatStatus), avoiding a fixed
+      // timeout and race conditions with the chat input ref.
+      return result;
     } finally {
       this.sessionRequests.delete(sessionId);
     }
@@ -369,6 +440,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: convertMessages(chatHistory.messages || []),
           meta: fromList.meta || {},
           realId: fromList.realId,
+          status: chatHistory.status ?? "idle",
         };
         this.updateWindowVariables(session);
         return session;
@@ -404,6 +476,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           messages: convertMessages(chatHistory.messages || []),
           meta: refreshed.meta || {},
           realId: refreshed.realId,
+          status: chatHistory.status ?? "idle",
         };
         this.updateWindowVariables(session);
         return session;
@@ -434,6 +507,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       channel: fromList?.channel || DEFAULT_CHANNEL,
       messages: convertMessages(chatHistory.messages || []),
       meta: fromList?.meta || {},
+      status: chatHistory.status ?? "idle",
     };
 
     this.updateWindowVariables(session);

@@ -184,6 +184,19 @@
   margin-bottom: 12px;
 }
 
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.actionButton {
+  padding: 0;
+  height: auto;
+  font-size: 12px;
+}
+
 .cardHint {
   font-size: 12px;
   color: #bbb;
@@ -206,5 +219,85 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
+}
+
+.formTopActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.drawerHeaderActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .filterTabs {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .filterTab {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.75);
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .filterTabActive {
+    background: #2a2a2a;
+    color: #8b87f0;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  }
+
+  .loadingText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Card background and text */
+  .channelCard {
+    &.normal {
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  .cardTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusContainer {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .statusDot.disabled {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .cardDescription {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .cardHint {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .drawerHeaderActions {
+    .cancelBtn {
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
 }

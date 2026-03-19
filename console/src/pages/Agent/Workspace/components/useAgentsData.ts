@@ -4,9 +4,18 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { workspaceApi } from "../../../../api/modules/workspace";
+import { agentsApi } from "../../../../api/modules/agents";
+import { useAgentStore } from "../../../../stores/agentStore";
+
+// Returns the parent directory of a file path, supporting both '/' and '\' separators.
+const getParentDir = (filePath: string): string => {
+  const match = filePath.match(/^(.*)[/\\]/);
+  return match ? match[1] : filePath;
+};
 
 export const useAgentsData = () => {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<MarkdownFile | null>(null);
   const [dailyMemories, setDailyMemories] = useState<DailyMemoryFile[]>([]);
@@ -14,17 +23,53 @@ export const useAgentsData = () => {
   const [fileContent, setFileContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [loading, setLoading] = useState(false);
-  const [workspacePath, setWorkspacePath] = useState("");
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
 
   useEffect(() => {
     const initializeData = async () => {
+      // Remember currently selected file name
+      const previouslySelectedFilename = selectedFile?.filename;
+
+      // Clear content first
+      setFileContent("");
+      setOriginalContent("");
+      setExpandedMemory(false);
+
       const enabled = await fetchEnabledFiles();
-      await fetchFiles(enabled);
+      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const sortedFiles = sortFilesByEnabled(
+        fileList as unknown as MarkdownFile[],
+        enabled,
+      );
+      setFiles(sortedFiles);
+
+      // Set workspace path (handle both Unix '/' and Windows '\' separators)
+      if (fileList.length > 0) {
+        setWorkspacePath(getParentDir(fileList[0].path));
+      } else {
+        setWorkspacePath("");
+      }
+
+      // Try to re-select the same file in new workspace
+      if (previouslySelectedFilename) {
+        const sameFile = sortedFiles.find(
+          (f) => f.filename === previouslySelectedFilename,
+        );
+        if (sameFile) {
+          // Auto-load the same file from new workspace
+          await handleFileClick(sameFile);
+        } else {
+          // File doesn't exist in new workspace, clear selection
+          setSelectedFile(null);
+        }
+      } else {
+        setSelectedFile(null);
+      }
     };
     initializeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedAgent]);
 
   // Re-sort when enabledFiles changes (for toggle/reorder operations)
   useEffect(() => {
@@ -82,19 +127,18 @@ export const useAgentsData = () => {
       const enabled = Array.isArray(latestEnabledFiles)
         ? latestEnabledFiles
         : await fetchEnabledFiles();
-      const fileList = await api.listFiles();
+      // Use agent-specific API
+      const fileList = await agentsApi.listAgentFiles(selectedAgent);
       const sortedFiles = sortFilesByEnabled(
-        fileList as MarkdownFile[],
+        fileList as unknown as MarkdownFile[],
         enabled,
       );
       setFiles(sortedFiles);
+      // Set workspace path (handle both Unix '/' and Windows '\' separators)
       if (fileList.length > 0) {
-        const path = fileList[0].path;
-        const workspace = path.substring(
-          0,
-          path.lastIndexOf("/") || path.lastIndexOf("\\"),
-        );
-        setWorkspacePath(workspace);
+        setWorkspacePath(getParentDir(fileList[0].path));
+      } else {
+        setWorkspacePath("");
       }
     } catch (error) {
       console.error("Failed to fetch files", error);
@@ -126,7 +170,8 @@ export const useAgentsData = () => {
     setSelectedFile(file);
     setLoading(true);
     try {
-      const data = await api.loadFile(file.filename);
+      // Use agent-specific API
+      const data = await agentsApi.readAgentFile(selectedAgent, file.filename);
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {

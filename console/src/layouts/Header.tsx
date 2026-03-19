@@ -1,5 +1,7 @@
 import { Layout, Space } from "antd";
 import LanguageSwitcher from "../components/LanguageSwitcher";
+import ThemeToggleButton from "../components/ThemeToggleButton";
+import AgentSelector from "../components/AgentSelector";
 import { useTranslation } from "react-i18next";
 import {
   FileTextOutlined,
@@ -9,50 +11,29 @@ import {
 } from "@ant-design/icons";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import styles from "./index.module.less";
+import {
+  GITHUB_URL,
+  KEY_TO_LABEL,
+  getDocsUrl,
+  getFaqUrl,
+  getReleaseNotesUrl,
+} from "./constants";
 
 const { Header: AntHeader } = Layout;
-
-// Navigation URLs
-const NAV_URLS = {
-  docs: "https://copaw.agentscope.io/docs/intro",
-  faq: "https://copaw.agentscope.io/docs/faq",
-  changelog: "https://github.com/agentscope-ai/CoPaw/releases",
-  github: "https://github.com/agentscope-ai/CoPaw",
-} as const;
-
-const keyToLabel: Record<string, string> = {
-  chat: "nav.chat",
-  channels: "nav.channels",
-  sessions: "nav.sessions",
-  "cron-jobs": "nav.cronJobs",
-  heartbeat: "nav.heartbeat",
-  skills: "nav.skills",
-  tools: "nav.tools",
-  mcp: "nav.mcp",
-  "agent-config": "nav.agentConfig",
-  workspace: "nav.workspace",
-  models: "nav.models",
-  environments: "nav.environments",
-  security: "nav.security",
-  "token-usage": "nav.tokenUsage",
-};
 
 interface HeaderProps {
   selectedKey: string;
 }
 
 export default function Header({ selectedKey }: HeaderProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const handleNavClick = (url: string) => {
     if (url) {
-      // Check if running in pywebview environment
       const pywebview = (window as any).pywebview;
-      if (pywebview && pywebview.api) {
-        // Use pywebview API to open external link in system browser
+      if (pywebview?.api) {
         pywebview.api.open_external_link(url);
       } else {
-        // Normal browser environment
         window.open(url, "_blank");
       }
     }
@@ -61,14 +42,15 @@ export default function Header({ selectedKey }: HeaderProps) {
   return (
     <AntHeader className={styles.header}>
       <span className={styles.headerTitle}>
-        {t(keyToLabel[selectedKey] || "nav.chat")}
+        {t(KEY_TO_LABEL[selectedKey] || "nav.chat")}
       </span>
       <Space size="middle">
+        <AgentSelector />
         <Tooltip title={t("header.changelog")}>
           <Button
             icon={<FileTextOutlined />}
             type="text"
-            onClick={() => handleNavClick(NAV_URLS.changelog)}
+            onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
           >
             {t("header.changelog")}
           </Button>
@@ -77,7 +59,7 @@ export default function Header({ selectedKey }: HeaderProps) {
           <Button
             icon={<BookOutlined />}
             type="text"
-            onClick={() => handleNavClick(NAV_URLS.docs)}
+            onClick={() => handleNavClick(getDocsUrl(i18n.language))}
           >
             {t("header.docs")}
           </Button>
@@ -86,7 +68,7 @@ export default function Header({ selectedKey }: HeaderProps) {
           <Button
             icon={<QuestionCircleOutlined />}
             type="text"
-            onClick={() => handleNavClick(NAV_URLS.faq)}
+            onClick={() => handleNavClick(getFaqUrl(i18n.language))}
           >
             {t("header.faq")}
           </Button>
@@ -95,12 +77,13 @@ export default function Header({ selectedKey }: HeaderProps) {
           <Button
             icon={<GithubOutlined />}
             type="text"
-            onClick={() => handleNavClick(NAV_URLS.github)}
+            onClick={() => handleNavClick(GITHUB_URL)}
           >
             {t("header.github")}
           </Button>
         </Tooltip>
         <LanguageSwitcher />
+        <ThemeToggleButton />
       </Space>
     </AntHeader>
   );

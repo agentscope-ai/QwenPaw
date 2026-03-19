@@ -22,7 +22,45 @@ from .config import (
     HeartbeatConfig,
     LastApiConfig,
     LastDispatchConfig,
+    load_agent_config,
+    save_agent_config,
 )
+
+
+def _normalize_working_dir_bound_paths(data: object) -> object:
+    """Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+
+    This keeps COPAW_WORKING_DIR effective even if user config files contain
+    older hard-coded paths like "~/.copaw/media" or
+    "/Users/x/.copaw/workspaces/...".
+    Only rewrites known working-dir-bound keys.
+    """
+    legacy_root_tilde = "~/.copaw"
+    legacy_root_abs = str(Path(legacy_root_tilde).expanduser().resolve())
+    new_root_abs = str(WORKING_DIR)
+
+    def _rewrite_path_value(v: object) -> object:
+        if not isinstance(v, str) or not v:
+            return v
+        if v.startswith(legacy_root_tilde):
+            return new_root_abs + v[len(legacy_root_tilde) :]
+        if v.startswith(legacy_root_abs):
+            return new_root_abs + v[len(legacy_root_abs) :]
+        return v
+
+    def _walk(obj: object, key: str | None = None) -> object:
+        if isinstance(obj, dict):
+            out: dict = {}
+            for k, v in obj.items():
+                out[k] = _walk(v, str(k))
+            return out
+        if isinstance(obj, list):
+            return [_walk(x, key) for x in obj]
+        if key in {"workspace_dir", "media_dir"}:
+            return _rewrite_path_value(obj)
+        return obj
+
+    return _walk(data, None)
 
 
 def _discover_system_chromium_path() -> Optional[str]:
@@ -293,17 +331,30 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    copaw.channels), filtered by COPAW_ENABLED_CHANNELS or
+    COPAW_DISABLED_CHANNELS when set.
+
+    * COPAW_ENABLED_CHANNELS — whitelist (only these channels are active).
+    * COPAW_DISABLED_CHANNELS — blacklist (all channels *except* these).
+    * If both are set, COPAW_ENABLED_CHANNELS takes precedence.
+    * If neither is set, all discovered channels are returned.
     """
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
     all_keys = tuple(registry.keys())
-    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
-    if not raw:
-        return all_keys
-    enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())
-    return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_enabled = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    if raw_enabled:
+        enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_disabled = os.environ.get("COPAW_DISABLED_CHANNELS", "").strip()
+    if raw_disabled:
+        disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k not in disabled) or all_keys
+
+    return all_keys
 
 
 def is_running_in_container() -> bool:
@@ -341,6 +392,7 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         return Config()
     with open(config_path, "r", encoding="utf-8") as file:
         data = json.load(file)
+    data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
@@ -365,15 +417,60 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
         )
 
 
-def get_heartbeat_config() -> HeartbeatConfig:
-    """Return effective heartbeat config (from file or default 30m/main)."""
+def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
+    """Return effective heartbeat config (from agent config or default).
+
+    Args:
+        agent_id: Agent ID to load config from. If None, tries to load from
+                  root config.agents.defaults (legacy behavior).
+
+    Returns:
+        HeartbeatConfig: Heartbeat configuration or default.
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            hb = agent_config.heartbeat
+            return hb if hb is not None else HeartbeatConfig()
+        except Exception:
+            return HeartbeatConfig()
+
+    # Legacy: try to load from root config
     config = load_config()
+    if config.agents.defaults is None:
+        return HeartbeatConfig()
     hb = config.agents.defaults.heartbeat
     return hb if hb is not None else HeartbeatConfig()
 
 
-def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:
-    """Persist last user-reply dispatch target (user send+reply only)."""
+def update_last_dispatch(
+    channel: str,
+    user_id: str,
+    session_id: str,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Persist last user-reply dispatch target (user send+reply only).
+
+    Args:
+        channel: Channel name
+        user_id: User ID
+        session_id: Session ID
+        agent_id: Agent ID to update. If None, updates root config (legacy).
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            agent_config.last_dispatch = LastDispatchConfig(
+                channel=channel,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            save_agent_config(agent_id, agent_config)
+            return
+        except Exception:
+            pass
+
+    # Legacy: update root config
     config = load_config()
     config.last_dispatch = LastDispatchConfig(
         channel=channel,

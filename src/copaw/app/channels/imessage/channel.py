@@ -21,6 +21,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import IMessageChannelConfig
+from ....constant import DEFAULT_MEDIA_DIR
 from ..utils import file_url_to_local_path
 from ....agents.utils.file_handling import download_file_from_url
 
@@ -44,7 +45,7 @@ class IMessageChannel(BaseChannel):
         db_path: str,
         poll_sec: float,
         bot_prefix: str,
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
         max_decoded_size: int = 10 * 1024 * 1024,  # 10MB default
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -64,7 +65,9 @@ class IMessageChannel(BaseChannel):
         self.bot_prefix = bot_prefix
 
         # Create media directory for downloaded files
-        self._media_dir = Path(media_dir).expanduser()
+        self._media_dir = (
+            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        )
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
         # Base64 data size limit
@@ -89,7 +92,7 @@ class IMessageChannel(BaseChannel):
             ),
             poll_sec=float(os.getenv("IMESSAGE_POLL_SEC", "1.0")),
             bot_prefix=os.getenv("IMESSAGE_BOT_PREFIX", "[BOT] "),
-            media_dir=os.getenv("IMESSAGE_MEDIA_DIR", "~/.copaw/media"),
+            media_dir=os.getenv("IMESSAGE_MEDIA_DIR", ""),
             max_decoded_size=int(
                 os.getenv("IMESSAGE_MAX_DECODED_SIZE", "10485760"),
             ),  # 10MB
@@ -112,7 +115,7 @@ class IMessageChannel(BaseChannel):
             db_path=config.db_path or "~/Library/Messages/chat.db",
             poll_sec=config.poll_sec,
             bot_prefix=config.bot_prefix or "[BOT] ",
-            media_dir=config.media_dir or "~/.copaw/media",
+            media_dir=config.media_dir if config.media_dir else "",
             max_decoded_size=config.max_decoded_size,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,

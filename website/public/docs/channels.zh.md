@@ -13,6 +13,11 @@
 - **bot_prefix** — 机器人回复前缀（如 `[BOT]`），方便区分
 - **filter_tool_messages** — （可选，默认 `false`）过滤工具调用和输出消息，不发送给用户。设为 `true` 可隐藏工具执行详情。
 - **filter_thinking** — （可选，默认 `false`）过滤模型的思考/推理内容，不发送给用户。设为 `true` 可隐藏 thinking 内容。
+- **dm_policy** — （可选，默认 `"open"`）私聊访问策略。`"open"` 允许所有用户；`"allowlist"` 仅允许 `allow_from` 中的用户。
+- **group_policy** — （可选，默认 `"open"`）群聊访问策略。`"open"` 允许所有用户；`"allowlist"` 仅允许 `allow_from` 中的用户。
+- **allow_from** — （可选，默认 `[]`）允许与机器人交互的用户 ID 列表。仅当 `dm_policy` 或 `group_policy` 设为 `"allowlist"` 时生效。
+- **deny_message** — （可选，默认 `""`）被白名单拒绝的用户收到的自动回复消息。留空则不回复。
+- **require_mention** — （可选，默认 `false`）设为 `true` 时，机器人在群聊中仅响应被 @提及 的消息。白名单检查（`allow_from`）优先执行，通过后再检查是否被提及。
 
 下面按频道说明如何获取凭证并填写配置。
 
@@ -78,12 +83,18 @@
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
-  "client_secret": "你的 Client Secret"
+  "client_secret": "你的 Client Secret",
+  "message_type": "markdown",
+  "card_template_id": "",
+  "card_template_key": "content",
+  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
 
 - 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
+- AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致（默认 `content`）。
+- 群聊场景建议显式配置 `robot_code`；留空时 CoPaw 会回退使用 `client_id`。
 
 保存后若服务已运行会自动重载；未运行则执行 `copaw app` 启动。
 
@@ -169,7 +180,7 @@
 
 7. 在「事件与回调」中，点击「事件配置」，选择订阅方式为**长连接（WebSocket）** 模式（无需公网 IP）
 
-> 注：**操作顺序**为先配置 App ID/Secret → 启动 `copaw app` → 再在开放平台配置长连接，如果此处仍显示错误，尝试先暂停copaw服务并重新启动 `copaw app`。
+> 注：**操作顺序**为先配置 App ID/Secret → 启动 `copaw app` → 再在开放平台配置长连接，如果此处仍显示错误，尝试先暂停 CoPaw 服务并重新启动 `copaw app`。
 
 ![websocket](https://img.alicdn.com/imgextra/i2/O1CN01LQwKON1x7QMNP41kC_!!6000000006396-2-tps-4082-2126.png)
 
@@ -204,7 +215,7 @@
 
 其他字段（encrypt_key、verification_token、media_dir）可选，WebSocket 模式可不填，有默认值。依赖：`pip install lark-oapi`，然后 `copaw app`。如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
-> 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启copaw服务，才能继续配置长链接的操作。
+> 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 CoPaw 服务，才能继续配置长链接的操作。
 > ![console](https://img.alicdn.com/imgextra/i2/O1CN01k7UVrP1E2hZBAn0oF_!!6000000000294-2-tps-4082-2126.png)
 
 ### 机器人权限建议
@@ -429,26 +440,46 @@
 
 ## 企业微信
 
+### 注意事项
+
+> **SDK 说明**：企业微信频道当前使用的是第三方 SDK [wecom-aibot-sdk 1.0.3](https://pypi.org/project/wecom-aibot-sdk/)。待企业微信官方发布正式 SDK 后，我们将及时跟进更新。
+
+> **Python 版本**：受 SDK 限制，建议将 Python 版本升级至 **3.11 及以上**，以确保功能正常运行。
+
 ### 创建新企业
 
-个人使用者可先注册账号，创建新企业，成为企业管理员。
+个人使用者可以访问[企业微信官网](https://work.weixin.qq.com)注册账号，创建新企业，成为企业管理员。
+
 ![创建企业](https://img.alicdn.com/imgextra/i2/O1CN01Xg8B3i1EQWAKt5xj0_!!6000000000346-2-tps-2938-1588.png)
-![新建账号](https://img.alicdn.com/imgextra/i2/O1CN01QzuScv26w6je9Yypg_!!6000000007725-2-tps-2938-1592.png)
+
+填写企业信息与管理员信息，并绑定微信账号
+
+![新建账号](https://img.alicdn.com/imgextra/i4/O1CN01uRF1Mv1TX87bOQ045_!!6000000002391-2-tps-1538-905.png)
+
+注册成功之后即可登陆企业微信开始使用。
 
 若已经有企业微信账号或是企业普通员工，可以直接在当前企业创建API模式机器人。
 
 ### 创建机器人
 
-可在管理后台点击管理工具-智能机器人-创建机器人，选择API模式创建-通过长链接配置
-![创建机器人1](https://img.alicdn.com/imgextra/i2/O1CN01n4qAEI1deajLveo2B_!!6000000003761-2-tps-2938-1590.png)
-![新建机器人2](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
-![新建机器人3](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
+可在工作台点击智能机器人-创建机器人，选择API模式创建-通过长链接配置
+
+![创建机器人1](https://img.alicdn.com/imgextra/i3/O1CN01lcA2rX1fm2P19SLcB_!!6000000004048-2-tps-1440-814.png)
+
+![新建机器人2](https://img.alicdn.com/imgextra/i1/O1CN014R3a0f1mnb3qbycMV_!!6000000004999-2-tps-1440-814.png)
+
+![新建机器人3](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
+
+获取`Bot ID`和`Secret`
+
+![新建机器人4](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
 
 ### 绑定bot
 
 可以在Console或是`config.json`填写Bot ID和Secret绑定bot
 
 **方法一**在console填写
+
 ![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
 
 **方法二**在`config.json`填写(默认文件路径为`~/.copaw/config.json`)
@@ -516,7 +547,7 @@
 
 ### 备注
 
-目前telegram白名单机制仍在施工中，推荐个人场景部署，不暴露username到公共环境中。
+可使用本页顶部介绍的通用访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）控制谁可以与机器人交互。仍建议不要将 bot username 暴露到公共环境中。
 
 建议在 `@BotFather` 设置：
 
@@ -706,18 +737,19 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ### 配置总览
 
-| 频道       | 配置键     | 必填/主要字段                                                       |
-| ---------- | ---------- | ------------------------------------------------------------------- |
-| 钉钉       | dingtalk   | client_id, client_secret                                            |
-| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir |
-| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                       |
-| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                         |
-| QQ         | qq         | app_id, client_secret                                               |
-| 企业微信   | wecom      | bot_id, secret；可选 media_dir, max_reconnect_attempts              |
-| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                         |
-| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from             |
-| Matrix     | matrix     | homeserver, user_id, access_token                                   |
-| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                       |
+| 频道       | 配置键     | 必填/主要字段                                                                           |
+| ---------- | ---------- | --------------------------------------------------------------------------------------- |
+| 钉钉       | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code |
+| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir                     |
+| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                           |
+| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| QQ         | qq         | app_id, client_secret                                                                   |
+| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
+| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
+| Matrix     | matrix     | homeserver, user_id, access_token                                                       |
+| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                           |
+
+所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。
 
 各频道字段与完整结构见上文表格及 [配置与工作目录](./config)。
 

@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Agent markdown manager for reading and writing markdown files in working
+"""Agent Markdown manager for reading and writing markdown files in working
 and memory directories."""
 from datetime import datetime
 from pathlib import Path
-
-from ...constant import WORKING_DIR
 
 
 class AgentMdManager:
@@ -123,6 +121,3 @@ class AgentMdManager:
             md_name += ".md"
         file_path = self.memory_dir / md_name
         file_path.write_text(content, encoding="utf-8")
-
-
-AGENT_MD_MANAGER = AgentMdManager(working_dir=WORKING_DIR)
