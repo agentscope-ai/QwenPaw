@@ -214,6 +214,41 @@ class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
 
 
+class EmbeddingConfig(BaseModel):
+    """Embedding model configuration."""
+
+    model_config = ConfigDict(extra="allow")
+
+    backend: str = Field(
+        default="openai",
+        description="Embedding backend (openai, etc.)",
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for embedding provider",
+    )
+    base_url: str = Field(default="", description="Base URL for embedding API")
+    model_name: str = Field(default="", description="Embedding model name")
+    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    enable_cache: bool = Field(
+        default=True,
+        description="Whether to enable embedding cache",
+    )
+    use_dimensions: bool = Field(
+        default=False,
+        description="Whether to use custom dimensions",
+    )
+    max_cache_size: int = Field(default=2000, description="Maximum cache size")
+    max_input_length: int = Field(
+        default=8192,
+        description="Maximum input length for embedding",
+    )
+    max_batch_size: int = Field(
+        default=10,
+        description="Maximum batch size for embedding",
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -283,6 +318,11 @@ class AgentsRunningConfig(BaseModel):
         default=10000,
         ge=1000,
         description="Maximum length for /history command output",
+    )
+
+    embedding_config: EmbeddingConfig = Field(
+        default_factory=EmbeddingConfig,
+        description="Embedding model configuration",
     )
 
     @property

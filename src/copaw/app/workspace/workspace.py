@@ -164,7 +164,7 @@ class Workspace:
                 service_class=MemoryManager,
                 init_args=lambda ws: {
                     "working_dir": str(ws.workspace_dir),
-                    "agent_config": ws._config,
+                    "agent_id": ws.agent_id,
                 },
                 post_init=lambda ws, mm: setattr(
                     ws._service_manager.services["runner"],
