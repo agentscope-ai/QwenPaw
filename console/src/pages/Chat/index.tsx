@@ -11,6 +11,7 @@ import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import { copyText } from "../../utils/clipboard";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
 import Weather from "./Weather";
@@ -78,33 +79,6 @@ function extractCopyableText(response: CopyableResponse): string {
   };
 
   return collectText(true) || JSON.stringify(response);
-}
-
-async function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-
-  let copied = false;
-  try {
-    textarea.focus();
-    textarea.select();
-    copied = document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
-
-  if (!copied) {
-    throw new Error("Failed to copy text");
-  }
 }
 
 function buildModelError(): Response {

@@ -3,6 +3,7 @@ import { Bubble } from "@agentscope-ai/chat";
 import { SparkCopyLine } from "@agentscope-ai/icons";
 import { Tooltip, message } from "antd";
 import { useTranslation } from "react-i18next";
+import { copyText } from "../../utils/clipboard";
 
 // Types - defined locally since they're not exported from @agentscope-ai/chat
 const AgentScopeRuntimeContentType = {
@@ -103,26 +104,7 @@ export default function AgentScopeRuntimeRequestCard(props: RequestCardProps) {
     if (!textContent) return;
 
     try {
-      if (
-        typeof window !== "undefined" &&
-        window.isSecureContext &&
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === "function"
-      ) {
-        await navigator.clipboard.writeText(textContent);
-      } else if (typeof document !== "undefined") {
-        const textArea = document.createElement("textarea");
-        textArea.value = textContent;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textArea);
-      } else {
-        throw new Error("Clipboard not supported");
-      }
+      await copyText(textContent);
       message.success(t?.("common.copied") || "Copied to clipboard");
     } catch {
       message.error(t?.("common.copyFailed") || "Failed to copy to clipboard");
