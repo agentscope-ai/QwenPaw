@@ -120,20 +120,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Extract configuration from agent_config
         running_config = agent_config.running
-        self._max_input_length = running_config.max_input_length
         self._language = agent_config.language
-
-        # Memory compaction settings from config
-        self._memory_compact_threshold = (
-            running_config.memory_compact_threshold
-        )
-        self._memory_compact_reserve = running_config.memory_compact_reserve
-        self._enable_tool_result_compact = (
-            running_config.enable_tool_result_compact
-        )
-        self._tool_result_compact_keep_n = (
-            running_config.tool_result_compact_keep_n
-        )
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
