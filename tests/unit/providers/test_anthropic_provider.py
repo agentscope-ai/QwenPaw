@@ -7,13 +7,14 @@ import copaw.providers.anthropic_provider as anthropic_provider_module
 from copaw.providers.anthropic_provider import AnthropicProvider
 
 
-def _make_provider() -> AnthropicProvider:
+def _make_provider(is_custom: bool = False) -> AnthropicProvider:
     return AnthropicProvider(
         id="anthropic",
         name="Anthropic",
         base_url="https://mock-anthropic.local",
         api_key="ant-test",
         chat_model="AnthropicChatModel",
+        is_custom=is_custom,
     )
 
 
@@ -156,13 +157,13 @@ async def test_check_model_connection_api_error_returns_false(
 
 
 async def test_update_config_updates_only_non_none_values() -> None:
-    provider = _make_provider()
+    provider = _make_provider(is_custom=True)
 
     provider.update_config(
         {
             "name": "Anthropic Custom",
             "base_url": "https://new.example",
-            "api_key": "ant-new",
+            "api_key": "sk-ant-new",
             "chat_model": "AnthropicChatModel",
             "api_key_prefix": "sk-ant-",
         },
@@ -170,6 +171,16 @@ async def test_update_config_updates_only_non_none_values() -> None:
 
     assert provider.name == "Anthropic Custom"
     assert provider.base_url == "https://new.example"
-    assert provider.api_key == "ant-new"
+    assert provider.api_key == "sk-ant-new"
     assert provider.chat_model == "AnthropicChatModel"
     assert provider.api_key_prefix == "sk-ant-"
+
+    provider_info = await provider.get_info()
+
+    assert provider_info.name == "Anthropic Custom"
+    assert provider_info.base_url == "https://new.example"
+    assert provider_info.api_key == "sk-ant-******"
+    assert provider_info.chat_model == "AnthropicChatModel"
+    assert provider_info.api_key_prefix == "sk-ant-"
+    assert provider_info.is_custom
+    assert not provider_info.support_connection_check
