@@ -135,11 +135,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             previous_summary=self.memory.get_compressed_summary(),
         )
         await self.memory.update_compressed_summary(compact_content)
-        updated_count = await self.memory.mark_messages_compressed(messages)
-        logger.info(
-            f"Marked {updated_count} messages as compacted "
-            f"with:\n{compact_content}",
-        )
+        updated_count = len(messages)
+        self.memory.clear_content()
         return await self._make_system_msg(
             f"**Compact Complete!**\n\n"
             f"- Messages compacted: {updated_count}\n"
@@ -167,8 +164,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self.memory_manager.add_async_summary_task(messages=messages)
         self.memory.clear_compressed_summary()
 
-        updated_count = await self.memory.mark_messages_compressed(messages)
-        logger.info(f"Marked {updated_count} messages as compacted")
+        self.memory.clear_content()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
