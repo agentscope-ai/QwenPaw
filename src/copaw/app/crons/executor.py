@@ -9,6 +9,10 @@ from .models import CronJobSpec
 
 logger = logging.getLogger(__name__)
 
+# Default retry settings
+_MAX_RETRIES = 2
+_RETRY_DELAY = 5  # seconds
+
 
 class CronExecutor:
     def __init__(self, *, runner: Any, channel_manager: Any):
@@ -21,6 +25,8 @@ class CronExecutor:
         - task_type text: send fixed text to channel
         - task_type agent: ask agent with prompt, send reply to channel (
             stream_query + send_event)
+
+        Retries up to _MAX_RETRIES times on timeout or cancellation.
         """
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
@@ -72,4 +78,27 @@ class CronExecutor:
                     meta=dispatch_meta,
                 )
 
-        await asyncio.wait_for(_run(), timeout=job.runtime.timeout_seconds)
+        last_exc = None
+        for attempt in range(1, _MAX_RETRIES + 2):  # 1 + retries
+            try:
+                await asyncio.wait_for(
+                    _run(), timeout=job.runtime.timeout_seconds,
+                )
+                return  # success
+            except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+                last_exc = exc
+                if attempt <= _MAX_RETRIES:
+                    logger.warning(
+                        "cron retry %d/%d: job_id=%s error=%s, "
+                        "waiting %ds before retry",
+                        attempt, _MAX_RETRIES, job.id,
+                        type(exc).__name__, _RETRY_DELAY,
+                    )
+                    await asyncio.sleep(_RETRY_DELAY)
+                else:
+                    logger.error(
+                        "cron failed after %d attempts: job_id=%s error=%s",
+                        attempt, job.id, type(exc).__name__,
+                    )
+        if last_exc is not None:
+            raise last_exc
