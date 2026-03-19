@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=wrong-import-position,wrong-import-order
-# -*- coding: utf-8 -*-
 """Unit tests for LocalEmbeddingModel."""
-
-import pytest
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+import pytest  # noqa: E402
 
 from copaw.agents.memory.local_embedding_model import (
     LocalEmbeddingModel,

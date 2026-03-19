@@ -158,10 +158,6 @@ class MemoryManager(ReMeLight):
             "fts_enabled": fts_enabled,
         }
 
-        # Get remote embedding credentials (for ReMeLight compatibility)
-        embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
-        embedding_base_url = self._safe_str("EMBEDDING_BASE_URL", "")
-
         # Initialize parent ReMeLight class
         # For local mode, we still pass empty API credentials for compatibility
         super().__init__(

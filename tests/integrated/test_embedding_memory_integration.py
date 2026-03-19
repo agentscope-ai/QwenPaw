@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=wrong-import-position,wrong-import-order
-# -*- coding: utf-8 -*-
 """Integration tests verifying embedding actually works with memory system.
 
 These tests verify that:
@@ -31,8 +30,6 @@ from copaw.agents.memory.local_embedding_model import (
 )  # noqa: E402
 from copaw.config.config import (  # noqa: E402
     LocalEmbeddingConfig,
-    AgentsRunningConfig,
-    AgentProfileConfig,
 )
 
 
@@ -90,21 +87,11 @@ class TestMemoryManagerUsesLocalEmbedding:
             MemoryManager,
         )  # noqa: E402
 
-        # Create mock agent config
-        running_config = AgentsRunningConfig(
-            local_embedding=LocalEmbeddingConfig(enabled=False),
-        )
-        agent_config = AgentProfileConfig(
-            id="test-agent-id",
-            name="test_agent",
-            running=running_config,
-        )
-
-        # This should create adapter even without ReMe fully configured
+        # This should create MemoryManager even without ReMe fully configured
         try:
             mm = MemoryManager(
                 working_dir="/tmp/test",
-                agent_config=agent_config,
+                agent_id="test-agent-id",
             )
             # Verify adapter was created
             assert hasattr(mm, "_embedding_adapter")
@@ -123,19 +110,10 @@ class TestMemoryManagerUsesLocalEmbedding:
             MemoryManager,
         )  # noqa: E402
 
-        running_config = AgentsRunningConfig(
-            local_embedding=LocalEmbeddingConfig(enabled=False),
-        )
-        agent_config = AgentProfileConfig(
-            id="test-agent-id",
-            name="test_agent",
-            running=running_config,
-        )
-
         try:
             mm = MemoryManager(
                 working_dir="/tmp/test",
-                agent_config=agent_config,
+                agent_id="test-agent-id",
             )
             # Verify vector_enabled is set and is boolean
             assert hasattr(
@@ -161,12 +139,6 @@ class TestMemoryManagerUsesLocalEmbedding:
             enabled=True,
             model_id="BAAI/bge-small-zh",
         )
-        running_config = AgentsRunningConfig(local_embedding=local_embedding)
-        agent_config = AgentProfileConfig(
-            id="test-agent-id",
-            name="test_agent",
-            running=running_config,
-        )
         fake_adapter = MagicMock()
         fake_adapter.determine_mode.return_value = SimpleNamespace(
             mode="disabled",
@@ -189,7 +161,7 @@ class TestMemoryManagerUsesLocalEmbedding:
                 return_value=None,
             ),
         ):
-            MemoryManager(working_dir="/tmp/test", agent_config=agent_config)
+            MemoryManager(working_dir="/tmp/test", agent_id="test-agent-id")
 
         passed_local_config = mock_create_adapter.call_args.kwargs[
             "local_config"
@@ -319,19 +291,10 @@ class TestEmbeddingUsedInMemorySearch:
             MemoryManager,
         )  # noqa: E402
 
-        running_config = AgentsRunningConfig(
-            local_embedding=LocalEmbeddingConfig(enabled=False),
-        )
-        agent_config = AgentProfileConfig(
-            id="test-agent-id",
-            name="test_agent",
-            running=running_config,
-        )
-
         try:
             mm = MemoryManager(
                 working_dir="/tmp/test",
-                agent_config=agent_config,
+                agent_id="test-agent-id",
             )
 
             # Mock the parent's memory_search to verify it's called
@@ -358,19 +321,10 @@ class TestEmbeddingUsedInMemorySearch:
             MemoryManager,
         )  # noqa: E402
 
-        running_config = AgentsRunningConfig(
-            local_embedding=LocalEmbeddingConfig(enabled=False),
-        )
-        agent_config = AgentProfileConfig(
-            id="test-agent-id",
-            name="test_agent",
-            running=running_config,
-        )
-
         try:
             mm = MemoryManager(
                 working_dir="/tmp/test",
-                agent_config=agent_config,
+                agent_id="test-agent-id",
             )
 
             # Check if embedding model is accessible

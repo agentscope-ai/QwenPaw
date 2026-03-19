@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=wrong-import-position,wrong-import-order
-# -*- coding: utf-8 -*-
 """Unit tests for strict local embedding mode.
 
 Tests the strict mode behavior where local embedding failures
@@ -12,7 +11,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-import os  # noqa: E402
 import pytest  # noqa: E402
 
 from copaw.agents.memory.embedding_adapter import (  # noqa: E402
