@@ -97,6 +97,65 @@ full = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--tb=short",
+    "-q",
+]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "unit: marks tests as unit tests (fast, isolated)",
+    "integration: marks tests as integration tests (test component interactions)",
+    "e2e: marks tests as end-to-end tests (full system tests)",
+    "s_module: marks tests for S-level modules (utils, constant, tokenizer, security/tool_guard)",
+    "a_module: marks tests for A-level modules (providers, config)",
+    "b_module: marks tests for B-level modules (channels, agents/tools, skills)",
+    "security: marks security-related tests",
 ]
+
+# Coverage configuration for different module levels
+# S级: Critical modules requiring high coverage
+# A级: Core modules with good coverage expected
+# B级: Modules with contract tests, no strict coverage threshold
+# C级: Experimental/refactoring modules, excluded from coverage
+[tool.coverage.paths]
+source = ["src"]
+
+[tool.coverage.run]
+source = ["src/copaw"]
+branch = true
+parallel = true
+omit = [
+    "*/tests/*",
+    "*/test/*",
+    "*/__pycache__/*",
+    "src/copaw/agents/memory/*",
+    "src/copaw/cli/commands/command_handler.py",
+    "src/copaw/console/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "pass",
+]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
