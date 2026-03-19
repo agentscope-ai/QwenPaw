@@ -107,8 +107,10 @@ export function useSkills() {
         showScanErrorModal(scanError);
         return true;
       }
+      const msg =
+        error instanceof Error && error.message ? error.message : defaultMsg;
       console.error(defaultMsg, error);
-      message.error(defaultMsg);
+      message.error(msg);
       return false;
     },
     [showScanErrorModal],

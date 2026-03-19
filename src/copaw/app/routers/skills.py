@@ -211,16 +211,6 @@ async def search_hub(
     ]
 
 
-def _github_token_hint(bundle_url: str) -> str:
-    """Hint to set GITHUB_TOKEN when URL is from GitHub/skills.sh."""
-    if not bundle_url:
-        return ""
-    lower = bundle_url.lower()
-    if "skills.sh" in lower or "github.com" in lower:
-        return " Tip: set GITHUB_TOKEN (or GH_TOKEN) to avoid rate limits."
-    return ""
-
-
 async def _hub_task_set_status(
     task_id: str,
     status: HubInstallTaskStatus,
@@ -339,14 +329,13 @@ async def _run_hub_install_task(
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
-            error=str(e) + _github_token_hint(body.bundle_url),
+            error=str(e),
         )
     except Exception as e:  # pylint: disable=broad-except
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
-            error=f"Skill hub import failed: {e}"
-            + _github_token_hint(body.bundle_url),
+            error=f"Skill hub import failed: {e}",
         )
     finally:
         await _hub_task_pop_runtime(task_id)
@@ -381,16 +370,14 @@ async def install_from_hub(
         )
         raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
-        detail = str(e) + _github_token_hint(request_body.bundle_url)
+        detail = str(e)
         logger.exception(
             "Skill hub install failed (upstream/rate limit): %s",
             e,
         )
         raise HTTPException(status_code=502, detail=detail) from e
     except Exception as e:
-        detail = f"Skill hub import failed: {e}" + _github_token_hint(
-            request_body.bundle_url,
-        )
+        detail = f"Skill hub import failed: {e}"
         logger.exception("Skill hub import failed: %s", e)
         raise HTTPException(status_code=502, detail=detail) from e
     return {
