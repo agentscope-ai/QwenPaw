@@ -573,6 +573,13 @@ class BaseChannel(ABC):
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
+        except asyncio.CancelledError:
+            logger.info("_run_process_loop: interrupted by user")
+            await self._on_consume_error(
+                request,
+                to_handle,
+                "\u26a1 Task interrupted",
+            )
         except Exception:
             logger.exception("channel consume_one failed")
             await self._on_consume_error(
