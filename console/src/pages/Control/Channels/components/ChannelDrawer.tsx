@@ -1,5 +1,4 @@
 import {
-  Alert,
   Drawer,
   Form,
   Input,
@@ -9,6 +8,7 @@ import {
   Select,
   message,
 } from "@agentscope-ai/design";
+import { Alert, ConfigProvider } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
@@ -575,12 +575,14 @@ export function ChannelDrawer({
       case "voice":
         return (
           <>
-            <Alert
-              type="info"
-              showIcon
-              message={t("channels.voiceSetupGuide")}
-              style={{ marginBottom: 16 }}
-            />
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.voiceSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
             <Form.Item
               name="twilio_account_sid"
               label={t("channels.twilioAccountSid")}
@@ -672,12 +674,14 @@ export function ChannelDrawer({
       case "xiaoyi":
         return (
           <>
-            <Alert
-              type="info"
-              showIcon
-              message={t("channels.xiaoyiSetupGuide")}
-              style={{ marginBottom: 16 }}
-            />
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.xiaoyiSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
             <Form.Item
               name="ak"
               label="Access Key (AK)"
@@ -794,6 +798,15 @@ export function ChannelDrawer({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
+  const drawerFooter = (
+    <div className={styles.formActions}>
+      <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button type="primary" loading={saving} onClick={() => form.submit()}>
+        {t("common.save")}
+      </Button>
+    </div>
+  );
+
   return (
     <Drawer
       width={420}
@@ -802,6 +815,7 @@ export function ChannelDrawer({
       open={open}
       onClose={onClose}
       destroyOnClose
+      footer={drawerFooter}
     >
       {activeKey && (
         <Form
@@ -810,10 +824,6 @@ export function ChannelDrawer({
           initialValues={initialValues}
           onFinish={onSubmit}
         >
-          <Form.Item name="enabled" label="Enabled" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-
           {activeKey !== "voice" && (
             <Form.Item name="bot_prefix" label="Bot Prefix">
               <Input placeholder="@bot" />
@@ -847,15 +857,6 @@ export function ChannelDrawer({
 
           {CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) &&
             renderAccessControlFields()}
-
-          <Form.Item>
-            <div className={styles.formActions}>
-              <Button onClick={onClose}>{t("common.cancel")}</Button>
-              <Button type="primary" htmlType="submit" loading={saving}>
-                {t("common.save")}
-              </Button>
-            </div>
-          </Form.Item>
         </Form>
       )}
     </Drawer>

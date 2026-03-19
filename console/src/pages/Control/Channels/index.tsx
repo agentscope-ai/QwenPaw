@@ -50,6 +50,29 @@ function ChannelsPage() {
     return [...enabledCards, ...disabledCards];
   }, [channels, orderedKeys, filter, isBuiltin]);
 
+  const handleToggleEnabled = async (key: ChannelKey, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const channelConfig = channels[key] || { enabled: false };
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { isBuiltin: _isBuiltin, ...savedConfig } = channelConfig;
+    const updatedChannel: Record<string, unknown> = {
+      ...savedConfig,
+      enabled: !channelConfig.enabled,
+    };
+    try {
+      await api.updateChannelConfig(
+        key,
+        updatedChannel as unknown as Parameters<
+          typeof api.updateChannelConfig
+        >[1],
+      );
+      await fetchChannels();
+    } catch (error) {
+      console.error("Failed to toggle channel:", error);
+      message.error(t("channels.configFailed"));
+    }
+  };
+
   const handleCardClick = (key: ChannelKey) => {
     setActiveKey(key);
     setDrawerOpen(true);
@@ -143,6 +166,7 @@ function ChannelsPage() {
               onClick={() => handleCardClick(key)}
               onMouseEnter={() => setHoverKey(key)}
               onMouseLeave={() => setHoverKey(null)}
+              onToggleEnabled={(e) => handleToggleEnabled(key, e)}
             />
           ))}
         </div>
