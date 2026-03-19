@@ -1,10 +1,7 @@
-import type { RefObject } from "react";
 import {
   IAgentScopeRuntimeWebUISession,
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
-  IAgentScopeRuntimeWebUIRef,
-  IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec, type ChatHistory, type ChatStatus, type Message } from "../../../api";
 
@@ -238,11 +235,47 @@ const resolveRealId = (
 };
 
 // ---------------------------------------------------------------------------
+// Per-session user message persistence (survives page refresh)
+// ---------------------------------------------------------------------------
+
+const STORAGE_PREFIX = "copaw_pending_user_msg_";
+
+function savePendingUserMessage(sessionId: string, text: string): void {
+  try {
+    sessionStorage.setItem(`${STORAGE_PREFIX}${sessionId}`, text);
+  } catch { /* quota exceeded – ignore */ }
+}
+
+function loadPendingUserMessage(sessionId: string): string {
+  try {
+    return sessionStorage.getItem(`${STORAGE_PREFIX}${sessionId}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+function clearPendingUserMessage(sessionId: string): void {
+  try {
+    sessionStorage.removeItem(`${STORAGE_PREFIX}${sessionId}`);
+  } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
 // SessionApi
 // ---------------------------------------------------------------------------
 
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
+
+  /**
+   * Cache the latest user message for a chat so it can be patched into
+   * history during reconnect (the backend only persists it after generation
+   * completes). Persisted to sessionStorage so it survives page refresh.
+   */
+  setLastUserMessage(sessionId: string, text: string): void {
+    if (!sessionId || !text) return;
+    savePendingUserMessage(sessionId, text);
+  }
 
   /**
    * Deduplicates concurrent getSessionList calls so that two parallel
@@ -274,32 +307,37 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   onSessionRemoved: ((removedId: string) => void) | null = null;
 
   /**
-   * Ref to the chat component so we can trigger submit with reconnect flag
-   * (library will call customFetch with biz_params.reconnect and consume the SSE stream).
+   * When reconnecting to a running conversation, the backend history may not
+   * include the latest user message (it's only persisted after generation
+   * completes). If generating, look up the cached text from sessionStorage
+   * and patch it into the message list.
+   *
+   * When not generating the conversation is done — clear the cached entry.
    */
-  private chatRef: RefObject<IAgentScopeRuntimeWebUIRef> | null = null;
-
-  setChatRef(ref: RefObject<IAgentScopeRuntimeWebUIRef> | null): void {
-    this.chatRef = ref;
-  }
-
-  /**
-   * Programmatically trigger the library's submit with biz_params.reconnect so
-   * customFetch does POST /console/chat with reconnect:true and the library
-   * consumes the SSE stream (replay + live tail).
-   */
-  triggerReconnectSubmit(): void {
-    const ref = this.chatRef?.current;
-    if (!ref?.input?.submit) {
-      console.warn("triggerReconnectSubmit: chatRef not available");
+  private patchLastUserMessage(
+    messages: IAgentScopeRuntimeWebUIMessage[],
+    generating: boolean,
+    backendSessionId: string,
+  ): void {
+    if (!generating) {
+      clearPendingUserMessage(backendSessionId);
       return;
     }
-    ref.input.submit({
-      query: "",
-      biz_params: {
-        reconnect: true,
-      } as IAgentScopeRuntimeWebUIInputData["biz_params"],
-    });
+
+    const cachedText = loadPendingUserMessage(backendSessionId);
+    if (!cachedText) return;
+
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === ROLE_USER) {
+      const text = extractTextFromContent(
+        lastMsg?.cards?.[0]?.data?.input?.[0]?.content,
+      );
+      if (!text) {
+        lastMsg.cards = buildUserCard({ content: [{ type: "text", text: cachedText }], role: ROLE_USER } as Message).cards;
+      }
+    } else {
+      messages.push(buildUserCard({ content: [{ type: "text", text: cachedText }], role: ROLE_USER } as Message));
+    }
   }
 
   private createEmptySession(sessionId: string): ExtendedSession {
@@ -409,16 +447,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // If realId is already resolved, use it directly to fetch history.
       if (fromList?.realId) {
         const chatHistory = await api.getChat(fromList.realId);
+        const generating = isGenerating(chatHistory);
+        const messages = convertMessages(chatHistory.messages || []);
+        this.patchLastUserMessage(messages, generating, fromList.realId);
         const session: ExtendedSession = {
           id: sessionId,
           name: fromList.name || DEFAULT_SESSION_NAME,
           sessionId: fromList.sessionId || sessionId,
           userId: fromList.userId || DEFAULT_USER_ID,
           channel: fromList.channel || DEFAULT_CHANNEL,
-          messages: convertMessages(chatHistory.messages || []),
+          messages,
           meta: fromList.meta || {},
           realId: fromList.realId,
-          generating: isGenerating(chatHistory),
+          generating,
         };
         this.updateWindowVariables(session);
         return session;
@@ -445,16 +486,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         | undefined;
       if (refreshed?.realId) {
         const chatHistory = await api.getChat(refreshed.realId);
+        const generating = isGenerating(chatHistory);
+        const messages = convertMessages(chatHistory.messages || []);
+        this.patchLastUserMessage(messages, generating, refreshed.realId);
         const session: ExtendedSession = {
           id: sessionId,
           name: refreshed.name || DEFAULT_SESSION_NAME,
           sessionId: refreshed.sessionId || sessionId,
           userId: refreshed.userId || DEFAULT_USER_ID,
           channel: refreshed.channel || DEFAULT_CHANNEL,
-          messages: convertMessages(chatHistory.messages || []),
+          messages,
           meta: refreshed.meta || {},
           realId: refreshed.realId,
-          generating: isGenerating(chatHistory),
+          generating,
         };
         this.updateWindowVariables(session);
         return session;
@@ -477,15 +521,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | undefined;
 
     const chatHistory = await api.getChat(sessionId);
+    const generating = isGenerating(chatHistory);
+    const messages = convertMessages(chatHistory.messages || []);
+    this.patchLastUserMessage(messages, generating, sessionId);
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
       sessionId: fromList?.sessionId || sessionId,
       userId: fromList?.userId || DEFAULT_USER_ID,
       channel: fromList?.channel || DEFAULT_CHANNEL,
-      messages: convertMessages(chatHistory.messages || []),
+      messages,
       meta: fromList?.meta || {},
-      generating: isGenerating(chatHistory),
+      generating,
     };
 
     this.updateWindowVariables(session);

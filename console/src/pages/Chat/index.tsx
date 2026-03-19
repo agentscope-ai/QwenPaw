@@ -15,7 +15,6 @@ import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import { chatApi } from "../../api/modules/chat";
-import api from "../../api";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -125,11 +124,6 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
-  const [, setReconnectStreaming] = useState(false);
-  const reconnectTriggeredForRef = useRef<string | null>(null);
-  const prevChatIdRef = useRef<string | undefined>(undefined);
-
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
@@ -141,11 +135,6 @@ export default function ChatPage() {
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
-
-  useEffect(() => {
-    sessionApi.setChatRef(chatRef);
-    return () => sessionApi.setChatRef(null);
-  }, []);
 
   useEffect(() => {
     const handleCompositionStart = () => {
@@ -214,33 +203,6 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Fetch chat status when viewing a chat (for running indicator and reconnect)
-  useEffect(() => {
-    if (!chatId || chatId === "undefined" || chatId === "null") {
-      setChatStatus("idle");
-      return;
-    }
-    const realId = sessionApi.getRealIdForSession(chatId) ?? chatId;
-    api.getChat(realId).then(
-      (res) => setChatStatus((res.status as "idle" | "running") ?? "idle"),
-      () => setChatStatus("idle"),
-    );
-  }, [chatId]);
-
-  // Trigger reconnect when session status becomes "running" so the library
-  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
-  // run after React has updated and the chat input ref is ready, avoiding
-  // a fixed timeout and race conditions.
-  useEffect(() => {
-    if (prevChatIdRef.current !== chatId) {
-      prevChatIdRef.current = chatId;
-      reconnectTriggeredForRef.current = null;
-    }
-    if (!chatId || chatStatus !== "running") return;
-    if (reconnectTriggeredForRef.current === chatId) return;
-    reconnectTriggeredForRef.current = chatId;
-    sessionApi.triggerReconnectSubmit();
-  }, [chatId, chatStatus]);
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -329,10 +291,6 @@ export default function ChatPage() {
       input?: any[];
       biz_params?: any;
       signal?: AbortSignal;
-      reconnect?: boolean;
-      session_id?: string;
-      user_id?: string;
-      channel?: string;
     }): Promise<Response> => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -350,50 +308,6 @@ export default function ChatPage() {
         }
       } catch (error) {
         console.warn("Failed to get selected agent from storage:", error);
-      }
-
-      const shouldReconnect =
-        data.reconnect || data.biz_params?.reconnect === true;
-      const reconnectSessionId =
-        data.session_id ?? window.currentSessionId ?? "";
-      if (shouldReconnect && reconnectSessionId) {
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            reconnect: true,
-            session_id: reconnectSessionId,
-            user_id: data.user_id ?? window.currentUserId ?? "default",
-            channel: data.channel ?? window.currentChannel ?? "console",
-          }),
-        });
-        if (!res.ok || !res.body) return res;
-        const onStreamEnd = () => {
-          setChatStatus("idle");
-          setReconnectStreaming(false);
-        };
-        const stream = res.body;
-        const transformed = new ReadableStream({
-          start(controller) {
-            const reader = stream.getReader();
-            function pump() {
-              reader.read().then(({ done, value }) => {
-                if (done) {
-                  controller.close();
-                  onStreamEnd();
-                  return;
-                }
-                controller.enqueue(value);
-                return pump();
-              });
-            }
-            pump();
-          },
-        });
-        return new Response(transformed, {
-          headers: res.headers,
-          status: res.status,
-        });
       }
 
       try {
@@ -414,6 +328,13 @@ export default function ChatPage() {
       const session = input[input.length - 1]?.session || {};
       const sessionId = window.currentSessionId || session?.session_id || "";
 
+      // Persist the latest user message text per chat so reconnect can
+      // patch it into history (backend only persists after generation completes).
+      const lastUserInput = [...input].reverse().find((m: any) => m.role === "user");
+      const userText = lastUserInput?.content?.find?.((c: any) => c.type === "text")?.text || "";
+      const chatUUID = chatIdRef.current || sessionApi.getRealIdForSession(sessionId) || sessionId;
+      if (userText && chatUUID) sessionApi.setLastUserMessage(chatUUID, userText);
+
       const requestBody = {
         input: input.slice(-1),
         session_id: sessionId,
@@ -430,7 +351,7 @@ export default function ChatPage() {
         signal: data.signal,
       });
     },
-    [setChatStatus, setReconnectStreaming],
+    [],
   );
 
   const options = useMemo(() => {
@@ -474,10 +395,6 @@ export default function ChatPage() {
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
-          const chatId =
-            sessionApi.getRealIdForSession(data.session_id) ??
-            data.session_id;
-
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
           };
@@ -489,7 +406,7 @@ export default function ChatPage() {
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: chatId,
+              session_id: window.currentSessionId || data.session_id,
               user_id: window.currentUserId || "default",
               channel: window.currentChannel || "console",
             }),
