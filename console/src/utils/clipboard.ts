@@ -19,8 +19,9 @@ export async function copyText(text: string): Promise<void> {
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", ""); // Prevent mobile keyboard
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
+  textarea.style.position = "fixed";
+  textarea.style.left = "-999999px";
+  textarea.style.top = "-999999px";
   document.body.appendChild(textarea);
 
   let copied = false;
@@ -29,7 +30,7 @@ export async function copyText(text: string): Promise<void> {
     textarea.select();
     copied = document.execCommand("copy");
   } finally {
-    document.body.removeChild(textarea);
+    textarea.remove();
   }
 
   if (!copied) {

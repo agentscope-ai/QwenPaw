@@ -49,6 +49,7 @@ interface RequestCardProps {
 export default function AgentScopeRuntimeRequestCard(props: RequestCardProps) {
   const { t } = useTranslation();
 
+  // Transform content to cards while preserving original order
   const cards = useMemo(() => {
     return props.data.input[0].content.reduce<any[]>((p, c) => {
       if (c.type === AgentScopeRuntimeContentType.TEXT) {
@@ -66,25 +67,17 @@ export default function AgentScopeRuntimeRequestCard(props: RequestCardProps) {
           },
         });
       } else if (c.type === AgentScopeRuntimeContentType.FILE) {
-        const fileCard = p.find((item: any) => item.code === "Files");
-        if (!fileCard) {
-          p.push({
-            code: "Files",
-            data: [
-              {
-                url: (c as IFileContent).file_url,
-                name: (c as IFileContent).file_name,
-                size: (c as IFileContent).file_size,
-              },
-            ],
-          });
-        } else {
-          fileCard.data.push({
-            url: (c as IFileContent).file_url,
-            name: (c as IFileContent).file_name,
-            size: (c as IFileContent).file_size,
-          });
-        }
+        // Keep each file as a separate card to preserve order
+        p.push({
+          code: "Files",
+          data: [
+            {
+              url: (c as IFileContent).file_url,
+              name: (c as IFileContent).file_name,
+              size: (c as IFileContent).file_size,
+            },
+          ],
+        });
       }
       return p;
     }, []);
@@ -111,7 +104,17 @@ export default function AgentScopeRuntimeRequestCard(props: RequestCardProps) {
     }
   };
 
-  if (!cards?.length) return null;
+  // Always render user message content, even if no supported types
+  // This ensures user messages are never completely hidden
+  if (!cards?.length) {
+    // Fallback: render a basic bubble with stringified content
+    return (
+      <Bubble
+        role="user"
+        content={JSON.stringify(props.data.input[0].content)}
+      />
+    );
+  }
 
   // Only show copy button when there is text content
   if (!hasTextContent) {
