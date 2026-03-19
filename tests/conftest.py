@@ -81,8 +81,9 @@ def running_app() -> Generator[httpx.Client, None, None]:
         start_time = time.time()
         backend_ready = False
         last_error = None
+        last_status_code = None
 
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=10.0, trust_env=False) as client:
             while time.time() - start_time < max_wait:
                 if process.poll() is not None:
                     logs = "".join(log_lines)[-4000:]
@@ -97,6 +98,7 @@ def running_app() -> Generator[httpx.Client, None, None]:
 
                 try:
                     response = client.get(f"http://{host}:{port}/api/version")
+                    last_status_code = response.status_code
                     if response.status_code == 200:
                         backend_ready = True
                         break
@@ -108,13 +110,15 @@ def running_app() -> Generator[httpx.Client, None, None]:
                 logs = "".join(log_lines)[-4000:]
                 raise RuntimeError(
                     "Backend did not start within timeout period. "
-                    f"Last error: {last_error}\nLogs:\n{logs}",
+                    f"Last error: {last_error}; "
+                    f"Last status: {last_status_code}\nLogs:\n{logs}",
                 )
 
         # Create client for tests
         test_client = httpx.Client(
             base_url=f"http://{host}:{port}",
             timeout=30.0,
+            trust_env=False,
         )
         yield test_client
         test_client.close()

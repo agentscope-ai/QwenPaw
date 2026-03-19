@@ -261,7 +261,9 @@ class LocalEmbedder:
         if self._model_loaded:
             return
 
-        # Slow path: acquire lock and check again
+        # Slow path: acquire lock and keep the full load inside lock.
+        # This prevents concurrent first-time requests from loading
+        # the same large model multiple times.
         with self._load_lock:
             if self._model_loaded:
                 return
@@ -280,28 +282,27 @@ class LocalEmbedder:
                 f"Using device: {resolved_device} "
                 f"(requested: {self.config.device})",
             )
+            # Get model path (download if needed)
+            model_path = self._get_model_path()
 
-        # Get model path (download if needed)
-        model_path = self._get_model_path()
+            # Create implementation based on model type
+            if self._metadata.model_type == "multimodal":
+                self._impl = _MultimodalEmbedderImpl(
+                    model_path=model_path,
+                    device=resolved_device,
+                    torch_dtype=torch_dtype,
+                    metadata=self._metadata,
+                )
+            else:
+                self._impl = _TextEmbedderImpl(
+                    model_path=model_path,
+                    device=resolved_device,
+                    torch_dtype=torch_dtype,
+                    metadata=self._metadata,
+                )
 
-        # Create implementation based on model type
-        if self._metadata.model_type == "multimodal":
-            self._impl = _MultimodalEmbedderImpl(
-                model_path=model_path,
-                device=resolved_device,
-                torch_dtype=torch_dtype,
-                metadata=self._metadata,
-            )
-        else:
-            self._impl = _TextEmbedderImpl(
-                model_path=model_path,
-                device=resolved_device,
-                torch_dtype=torch_dtype,
-                metadata=self._metadata,
-            )
-
-        self._model_loaded = True
-        logger.info(f"Model loaded: {model_path}")
+            self._model_loaded = True
+            logger.info(f"Model loaded: {model_path}")
 
     def _get_model_path(self) -> str:
         """Get local model path (download if needed)."""
@@ -394,7 +395,7 @@ class LocalEmbedder:
             raise ValueError("All items in texts must be strings")
 
         if not self.config.enabled:
-            raise RuntimeError("Local embedding not enabled")
+            raise RuntimeError("Local embedding is not enabled")
 
         # Lazy load model on first use (thread-safe)
         self._load_model()

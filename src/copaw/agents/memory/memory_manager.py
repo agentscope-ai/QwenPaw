@@ -22,10 +22,10 @@ from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import _get_copaw_token_counter
-from copaw.config import load_config
-from .local_embedder import LocalEmbedder
+from copaw.agents.memory.embedding_adapter import create_embedding_adapter
 
 if TYPE_CHECKING:
+    from copaw.agents.memory.embedding_adapter import EmbeddingAdapter
     from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ try:
 
 except ImportError as e:
     _REME_AVAILABLE = False
-    logger.warning(f"reme package not installed. {e}")
+    logger.warning("reme package not installed. %s", e)
 
     class ReMeLight:  # type: ignore
         """Placeholder when reme is not available."""
@@ -103,66 +103,47 @@ class MemoryManager(ReMeLight):
             )
             return
 
-        # Load config for local embedding settings
-        config = load_config()
-        local_embedding_config = config.agents.running.local_embedding
+        # Use agent runtime config to avoid cross-agent config leakage.
+        local_embedding_config = running_config.local_embedding
 
-        # Environment variables (for backward compatibility)
-        embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
-        embedding_base_url = self._safe_str("EMBEDDING_BASE_URL", "")
-        embedding_model_name = self._safe_str("EMBEDDING_MODEL_NAME", "")
-        embedding_dimensions = self._safe_int("EMBEDDING_DIMENSIONS", 1024)
-        embedding_cache_enabled = (
-            self._safe_str("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
-        )
-        embedding_max_cache_size = self._safe_int(
-            "EMBEDDING_MAX_CACHE_SIZE",
-            2000,
-        )
-        embedding_max_input_length = self._safe_int(
-            "EMBEDDING_MAX_INPUT_LENGTH",
-            8192,
-        )
-        embedding_max_batch_size = self._safe_int(
-            "EMBEDDING_MAX_BATCH_SIZE",
-            10,
+        # Create embedding adapter and determine mode
+        # This handles local backend registration, fallback logic, etc.
+        strict_local = self._safe_str(
+            "COPAW_STRICT_LOCAL_EMBEDDING",
+            "false",
+        ).lower() in ("true", "1", "yes")
+
+        self._embedding_adapter = create_embedding_adapter(
+            local_config=local_embedding_config,
+            strict_local=strict_local,
         )
 
-        # Initialize local embedder if enabled
-        self._local_embedder: LocalEmbedder | None = None
-        local_embedding_enabled = local_embedding_config.enabled
+        # Determine embedding mode and get configurations
+        mode_result = self._embedding_adapter.determine_mode()
 
-        if local_embedding_enabled:
-            try:
-                self._local_embedder = LocalEmbedder(local_embedding_config)
-                logger.info(
-                    f"Local embedding: {local_embedding_config.model_id}",
-                )
-            except Exception as exc:
-                logger.error(f"Failed to initialize local embedder: {exc}")
-                local_embedding_enabled = False
-
-        # Determine vector search based on configuration
-        # Determine if vector search should be enabled based on configuration
-        # Priority: local embedding > remote API > disabled
-        vector_enabled = local_embedding_enabled or (
-            bool(embedding_api_key) and bool(embedding_model_name)
+        # Log embedding mode decision with structured fields per ADR-002
+        logger.info(
+            "Embedding mode determined",
+            extra={
+                "embedding_mode": mode_result.mode,
+                "effective_embedding_backend": mode_result.mode,
+                "vector_enabled": mode_result.vector_enabled,
+                "fallback_applied": mode_result.fallback_applied,
+                "fallback_reason": mode_result.fallback_reason,
+                "local_backend_registered": (
+                    self._embedding_adapter.is_local_registered
+                ),
+                "strict_local_embedding": self._embedding_adapter.strict_local,
+            },
         )
 
-        if vector_enabled:
-            if self._local_embedder:
-                logger.info("Vector search enabled (local).")
-            else:
-                logger.info("Vector search enabled (API).")
-        else:
-            logger.warning(
-                "Vector search disabled. Memory search functionality "
-                "will be restricted. "
-                "To enable, configure local embedding in settings or set: "
-                "EMBEDDING_API_KEY, EMBEDDING_BASE_URL, EMBEDDING_MODEL_NAME.",
-            )
+        # Get ReMe configurations from adapter
+        embedding_model_config = (
+            self._embedding_adapter.get_reme_embedding_config()
+        )
 
-        # Check if full-text search (FTS) is enabled via environment variable
+        # Environment variables for backward compatibility
+        # (only used in remote mode)
         fts_enabled = os.environ.get("FTS_ENABLED", "true").lower() == "true"
 
         # Determine the memory store backend to use
@@ -176,27 +157,31 @@ class MemoryManager(ReMeLight):
         else:
             memory_backend = memory_store_backend
 
-        # Initialize parent ReMeCopaw class
+        # Build file store config
+        default_file_store_config = {
+            "backend": memory_backend,
+            "store_name": "copaw",
+            "vector_enabled": mode_result.vector_enabled,
+            "fts_enabled": fts_enabled,
+        }
+
+        # Get remote embedding credentials (for ReMeLight compatibility)
+        embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
+        embedding_base_url = self._safe_str("EMBEDDING_BASE_URL", "")
+
+        # Initialize parent ReMeLight class
+        # For local mode, we still pass empty API credentials for compatibility
         super().__init__(
             embedding_api_key=embedding_api_key,
             embedding_base_url=embedding_base_url,
             working_dir=working_dir,
-            default_embedding_model_config={
-                "model_name": embedding_model_name,
-                "dimensions": embedding_dimensions,
-                "enable_cache": embedding_cache_enabled,
-                "use_dimensions": False,
-                "max_cache_size": embedding_max_cache_size,
-                "max_input_length": embedding_max_input_length,
-                "max_batch_size": embedding_max_batch_size,
-            },
-            default_file_store_config={
-                "backend": memory_backend,
-                "store_name": "copaw",
-                "vector_enabled": vector_enabled,
-                "fts_enabled": fts_enabled,
-            },
+            default_embedding_model_config=embedding_model_config,
+            default_file_store_config=default_file_store_config,
         )
+
+        # Store effective mode for later reference
+        self._effective_embedding_mode = mode_result.mode
+        self._vector_enabled = mode_result.vector_enabled
 
         self.summary_toolkit = Toolkit()
         self.summary_toolkit.register_tool_function(read_file)
@@ -207,6 +192,33 @@ class MemoryManager(ReMeLight):
         self.formatter: FormatterBase | None = None
         self.token_counter = _get_copaw_token_counter(agent_config)
         self._start_lock = asyncio.Lock()
+
+    @property
+    def effective_embedding_mode(self) -> str:
+        """Get the effective embedding mode.
+
+        Returns:
+            The embedding mode: 'local', 'remote', or 'disabled'.
+        """
+        return getattr(self, "_effective_embedding_mode", "disabled")
+
+    @property
+    def vector_enabled(self) -> bool:
+        """Check if vector search is enabled.
+
+        Returns:
+            True if vector search is enabled.
+        """
+        return getattr(self, "_vector_enabled", False)
+
+    @property
+    def embedding_adapter(self):
+        """Get the embedding adapter.
+
+        Returns:
+            The embedding adapter instance or None.
+        """
+        return getattr(self, "_embedding_adapter", None)
 
     @staticmethod
     def _safe_str(key: str, default: str) -> str:
@@ -286,6 +298,7 @@ class MemoryManager(ReMeLight):
         """
         self.prepare_model_formatter()
 
+        # pylint: disable=no-member
         return await super().compact_memory(
             messages=messages,
             as_llm=self.chat_model,
@@ -312,6 +325,7 @@ class MemoryManager(ReMeLight):
         """
         self.prepare_model_formatter()
 
+        # pylint: disable=no-member
         return await super().summary_memory(
             messages=messages,
             as_llm=self.chat_model,
@@ -337,6 +351,7 @@ class MemoryManager(ReMeLight):
                     )
                     await self.start()
 
+        # pylint: disable=no-member
         return await super().memory_search(
             query=query,
             max_results=max_results,
@@ -352,6 +367,7 @@ class MemoryManager(ReMeLight):
         Returns:
             In-memory memory with token counting
         """
+        # pylint: disable=no-member
         return super().get_in_memory_memory(
             as_token_counter=self.token_counter,
         )
@@ -365,7 +381,9 @@ class MemoryManager(ReMeLight):
         Returns:
             List of embedding vectors
         """
-        if self._local_embedder:
+        # pylint: disable=no-member
+        # Note: _local_embedder is provided by ReMeLight parent class
+        if hasattr(self, "_local_embedder") and self._local_embedder:
             return self._local_embedder.encode_text(texts)
         # Fall back to parent class (remote API)
         if self.embedding_model:

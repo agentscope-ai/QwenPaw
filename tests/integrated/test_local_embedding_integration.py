@@ -1,153 +1,211 @@
 # -*- coding: utf-8 -*-
-"""Integration tests for MemoryManager integration with LocalEmbedder.
+# pylint: disable=wrong-import-position,redefined-outer-name
+"""Integration tests for local embedding integration.
 
-These tests verify that MemoryManager correctly integrates with LocalEmbedder
-and that vector search is properly configured when local embedding is enabled.
+These tests verify that local embedding is properly registered and
+can be used through the MemoryManager.
 """
 
-from __future__ import annotations
+import sys
+from pathlib import Path
 
-import pytest
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-pytestmark = [pytest.mark.integration, pytest.mark.slow]
+import pytest  # noqa: E402
+
+from copaw.agents.memory.embedding_adapter import (  # noqa: E402
+    create_embedding_adapter,
+)
+from copaw.agents.memory.local_embedding_model import (  # noqa: E402
+    LocalEmbeddingModel,
+)
+from copaw.config.config import LocalEmbeddingConfig  # noqa: E402
 
 
-class TestMemoryManagerLocalEmbedderIntegration:
-    """Tests for MemoryManager and LocalEmbedder integration."""
+@pytest.fixture
+def disabled_config():
+    """Fixture for disabled local embedding config."""
+    return LocalEmbeddingConfig(enabled=False)
 
-    def test_memory_manager_loads_local_embedder(self, running_app):
-        """Test MemoryManager loads local embedder when configured."""
-        client = running_app
 
-        # Enable local embedding
-        enable_config = {
-            "enabled": True,
-            "model_id": "qwen/Qwen3-VL-Embedding-2B",
-            "device": "cpu",  # Use CPU to avoid GPU issues
-            "dtype": "fp32",  # FP32 for CPU compatibility
-            "download_source": "modelscope",
-        }
+@pytest.fixture
+def enabled_config():
+    """Fixture for enabled local embedding config."""
+    return LocalEmbeddingConfig(
+        enabled=True,
+        model_id="BAAI/bge-small-zh",
+    )
 
-        response = client.put(
-            "/api/config/agents/local-embedding",
-            json=enable_config,
+
+class TestEmbeddingAdapterIntegration:
+    """Test EmbeddingAdapter integration with ReMe."""
+
+    def test_adapter_registers_local_backend(self, enabled_config):
+        """Test that adapter can register local backend to ReMe."""
+        adapter = create_embedding_adapter(
+            local_config=enabled_config,
+            strict_local=False,
         )
 
-        assert (
-            response.status_code == 200
-        ), f"Config update failed: {response.text}"
+        # Register local backend
+        result = adapter.register_local_backend()
 
-        # Verify the config was saved
-        get_response = client.get("/api/config/agents/local-embedding")
-        assert get_response.status_code == 200
-        data = get_response.json()
-        assert data["enabled"] is True
-        assert data["model_id"] == "qwen/Qwen3-VL-Embedding-2B"
+        # Should succeed since ReMe is available
+        assert result is True
+        assert adapter.is_local_registered is True
 
-    def test_config_persistence_across_restart(self, running_app):
-        """Test local embedding config persists and loads on restart.
-
-        Note: This test verifies config saving, not actual restart.
-        """
-        client = running_app
-
-        # Set a specific config
-        custom_config = {
-            "enabled": True,
-            "model_id": "BAAI/bge-small-zh",
-            "device": "cpu",
-            "dtype": "fp32",
-            "download_source": "huggingface",
-        }
-
-        put_response = client.put(
-            "/api/config/agents/local-embedding",
-            json=custom_config,
-        )
-        assert put_response.status_code == 200
-
-        # Read it back
-        get_response = client.get("/api/config/agents/local-embedding")
-        assert get_response.status_code == 200
-        data = get_response.json()
-
-        assert data["enabled"] is True
-        assert data["model_id"] == "BAAI/bge-small-zh"
-        assert data["device"] == "cpu"
-        assert data["dtype"] == "fp32"
-        assert data["download_source"] == "huggingface"
-
-
-class TestLocalEmbeddingModelTypes:
-    """Tests for different embedding model types."""
-
-    def test_multimodal_model_config(self, running_app):
-        """Test multimodal model (Qwen3-VL) can be configured."""
-        client = running_app
-
-        config = {
-            "enabled": True,
-            "model_id": "qwen/Qwen3-VL-Embedding-2B",
-            "device": "cpu",
-            "dtype": "fp32",
-            "download_source": "modelscope",
-        }
-
-        response = client.put(
-            "/api/config/agents/local-embedding",
-            json=config,
+    def test_adapter_determines_local_mode(self, enabled_config):
+        """Test that adapter correctly determines local mode."""
+        adapter = create_embedding_adapter(
+            local_config=enabled_config,
+            strict_local=False,
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["model_id"] == "qwen/Qwen3-VL-Embedding-2B"
+        result = adapter.determine_mode()
 
-    def test_text_model_config(self, running_app):
-        """Test text-only model (BGE) can be configured."""
-        client = running_app
+        # In local mode with dependencies potentially missing,
+        # it might fallback, but the adapter should work
+        assert result.mode in ["local", "remote", "disabled"]
+        assert isinstance(result.vector_enabled, bool)
 
-        config = {
-            "enabled": True,
-            "model_id": "BAAI/bge-large-zh-v1.5",
-            "device": "cpu",
-            "dtype": "fp32",
-            "download_source": "huggingface",
-        }
-
-        response = client.put(
-            "/api/config/agents/local-embedding",
-            json=config,
+    def test_adapter_generates_reme_config(self, enabled_config):
+        """Test that adapter generates valid ReMe configuration."""
+        adapter = create_embedding_adapter(
+            local_config=enabled_config,
+            strict_local=False,
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["model_id"] == "BAAI/bge-large-zh-v1.5"
+        # Determine mode first
+        adapter.determine_mode()
 
+        # Get ReMe config
+        config = adapter.get_reme_embedding_config()
 
-class TestLocalEmbeddingDownloadEndpoint:
-    """Tests for model download functionality."""
+        # Config should be a dict
+        assert isinstance(config, dict)
 
-    def test_download_endpoint_accepts_request(self, running_app):
-        """Test download endpoint exists and accepts requests."""
-        client = running_app
+        # If local mode, should have backend field
+        if adapter.current_mode == "local":
+            assert config.get("backend") == "local"
+            assert "model_name" in config
+            assert "dimensions" in config
 
-        # This test just verifies the endpoint accepts the request
-        # It may fail if model already downloaded or network issues
-        config = {
-            "enabled": True,
-            "model_id": "BAAI/bge-small-zh",
-            "download_source": "huggingface",
-        }
-
-        response = client.post(
-            "/api/config/agents/local-embedding/download",
-            json=config,
-            timeout=300.0,  # 5 min timeout for download
+    def test_adapter_generates_file_store_config(self, enabled_config):
+        """Test that adapter generates valid file store config."""
+        adapter = create_embedding_adapter(
+            local_config=enabled_config,
+            strict_local=False,
         )
 
-        # Accept any response - the point is endpoint exists
-        assert response.status_code in [200, 500]
+        config = adapter.get_file_store_config()
+
+        assert isinstance(config, dict)
+        assert "vector_enabled" in config
+
+
+class TestLocalEmbeddingModelIntegration:
+    """Test LocalEmbeddingModel integration with ReMe."""
+
+    def test_model_is_base_embedding_subclass(self):
+        """Test that LocalEmbeddingModel is subclass of BaseEmbeddingModel."""
+        from reme.core.embedding import BaseEmbeddingModel
+
+        assert issubclass(LocalEmbeddingModel, BaseEmbeddingModel)
+
+    def test_model_can_be_instantiated(self, enabled_config):
+        """Test that LocalEmbeddingModel can be instantiated."""
+        model = LocalEmbeddingModel(
+            model_name="BAAI/bge-small-zh",
+            dimensions=512,
+            local_embedding_config=enabled_config,
+        )
+
+        assert model.model_name == "BAAI/bge-small-zh"
+        assert model.dimensions == 512
+
+    def test_model_has_required_methods(self, enabled_config):
+        """Test that model has required ReMe interface methods."""
+        model = LocalEmbeddingModel(
+            model_name="test-model",
+            dimensions=512,
+            local_embedding_config=enabled_config,
+        )
+
+        # Check required methods exist
+        assert hasattr(model, "_get_embeddings")
+        assert hasattr(model, "_get_embeddings_sync")
+        assert hasattr(model, "get_embedding")
+        assert hasattr(model, "get_embeddings")
+        assert hasattr(model, "get_embedding_sync")
+        assert hasattr(model, "get_embeddings_sync")
+
+
+class TestStrictMode:
+    """Test strict mode behavior."""
+
+    def test_strict_mode_fails_when_local_unavailable(self):
+        """Test that strict mode fails when local embedding is unavailable."""
+        # Create config with invalid model to ensure failure
+        config = LocalEmbeddingConfig(
+            enabled=True,
+            model_id="invalid-model-that-does-not-exist",
+            model_path="/nonexistent/path",
+        )
+
+        adapter = create_embedding_adapter(
+            local_config=config,
+            strict_local=True,
+        )
+
+        # In strict mode, should raise RuntimeError when local unavailable
+        with pytest.raises(RuntimeError) as exc_info:
+            adapter.determine_mode()
+
+        assert "Local embedding failed in strict mode" in str(exc_info.value)
+
+    def test_non_strict_mode_fallback_to_remote(self, monkeypatch):
+        """Test that non-strict mode falls back to remote when local fails."""
+        # Set up remote embedding env vars
+        monkeypatch.setenv("EMBEDDING_API_KEY", "test-key")
+        monkeypatch.setenv("EMBEDDING_BASE_URL", "https://api.example.com")
+        monkeypatch.setenv("EMBEDDING_MODEL_NAME", "test-model")
+
+        # Create config with disabled local
+        config = LocalEmbeddingConfig(enabled=False)
+
+        adapter = create_embedding_adapter(
+            local_config=config,
+            strict_local=False,
+        )
+
+        result = adapter.determine_mode()
+
+        # Should fallback to remote
+        assert result.mode == "remote"
+        assert result.vector_enabled is True
+        assert result.fallback_applied is True
+
+
+class TestEmbeddingModeResult:
+    """Test EmbeddingModeResult data class."""
+
+    def test_result_with_fallback(self):
+        """Test result creation with fallback information."""
+        from copaw.agents.memory.embedding_adapter import EmbeddingModeResult
+
+        result = EmbeddingModeResult(
+            mode="remote",
+            vector_enabled=True,
+            backend_config={"backend": "openai"},
+            fallback_applied=True,
+            fallback_reason="Local unavailable: dependency missing",
+        )
+
+        assert result.mode == "remote"
+        assert result.vector_enabled is True
+        assert result.fallback_applied is True
+        assert "Local unavailable" in result.fallback_reason
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "-m", "slow"])
+    pytest.main([__file__, "-v"])

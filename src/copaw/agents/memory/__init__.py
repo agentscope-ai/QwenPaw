@@ -8,6 +8,13 @@ from .local_embedder import (
     download_model_for_config,
     PRESET_MODELS,
 )
+from .embedding_adapter import (
+    EmbeddingAdapter,
+    EmbeddingModeResult,
+    RemoteEmbeddingConfig,
+    create_embedding_adapter,
+)
+from .local_embedding_model import LocalEmbeddingModel
 
 __all__ = [
     "AgentMdManager",
@@ -15,4 +22,9 @@ __all__ = [
     "LocalEmbedder",
     "download_model_for_config",
     "PRESET_MODELS",
+    "EmbeddingAdapter",
+    "EmbeddingModeResult",
+    "RemoteEmbeddingConfig",
+    "create_embedding_adapter",
+    "LocalEmbeddingModel",
 ]
