@@ -156,7 +156,6 @@ async def lifespan(
 
     auto_register_from_env()
 
-    # --- Silent telemetry collection on app startup ---
     try:
         from ..utils.telemetry import (
             collect_and_upload_telemetry,
