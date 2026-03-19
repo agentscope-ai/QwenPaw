@@ -444,6 +444,12 @@ You can also fill them in the Console UI.
 
 ## WeCom (WeChat Work)
 
+### Notes
+
+> **SDK Notice**: The WeCom channel currently uses the third-party SDK [wecom-aibot-sdk 1.0.3](https://pypi.org/project/wecom-aibot-sdk/). Once WeCom releases an official SDK, we will update accordingly.
+
+> **Python Version**: Due to SDK limitations, it is recommended to upgrade Python to **3.11 or above** to ensure proper functionality.
+
 ### Create a new enterprise
 
 Individual users can visit the [WeCom official website](https://work.weixin.qq.com) to register an account, create a new enterprise, and become an enterprise administrator.

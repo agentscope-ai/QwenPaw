@@ -509,10 +509,12 @@ class WecomChannel(BaseChannel):
         if not self._client:
             return None
         try:
-            data, filename = await self._client.download_file(
+            result = await self._client.download_file(
                 url,
                 aes_key or None,
             )
+            data = result["buffer"]
+            filename = result.get("filename")
             fn = filename or filename_hint
             # Determine extension from hint if file has none
             hint_ext = Path(filename_hint).suffix

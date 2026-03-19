@@ -448,20 +448,17 @@ Memory files are stored in two locations:
 
 ### Embedding Configuration
 
-Memory search relies on vector embeddings for semantic retrieval. Configure via these environment variables:
+Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
 
-| Variable                     | Description                       | Default |
-| ---------------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`          | API key for the embedding service | ``      |
-| `EMBEDDING_BASE_URL`         | Embedding service URL             | ``      |
-| `EMBEDDING_MODEL_NAME`       | Embedding model name              | ``      |
-| `EMBEDDING_DIMENSIONS`       | Vector dimensions                 | `1024`  |
-| `EMBEDDING_CACHE_ENABLED`    | Enable Embedding cache            | `true`  |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Max cache entries for Embedding   | `2000`  |
-| `EMBEDDING_MAX_INPUT_LENGTH` | Max input length per Embedding    | `8192`  |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Max batch size for Embedding      | `10`    |
+Recommended to configure in `agent.json` under `running.embedding_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
 
-> `EMBEDDING_API_KEY`, `EMBEDDING_MODEL_NAME`, and `EMBEDDING_BASE_URL` must all be non-empty to enable vector search in hybrid retrieval.
+| Variable (Fallback)    | Description                       | Default |
+| ---------------------- | --------------------------------- | ------- |
+| `EMBEDDING_API_KEY`    | API key for the embedding service | ``      |
+| `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
+| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
+
+> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval. See [Memory](./memory.en.md#embedding-configuration-optional) for full configuration details.
 
 ---
 

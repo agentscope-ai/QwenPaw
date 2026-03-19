@@ -28,6 +28,7 @@ export function useSkills() {
   const { selectedAgent } = useAgentStore();
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [importing, setImporting] = useState(false);
   const importTaskIdRef = useRef<string | null>(null);
   const importCancelReasonRef = useRef<"manual" | "timeout" | null>(null);
@@ -231,6 +232,34 @@ export function useSkills() {
     }
   };
 
+  const uploadSkill = async (file: File) => {
+    try {
+      setUploading(true);
+      const result = await api.uploadSkill(file, {
+        enable: false,
+        overwrite: false,
+      });
+      if (result?.count > 0) {
+        message.success(
+          t("skills.uploadSuccess") + `: ${result.imported.join(", ")}`,
+        );
+        await fetchSkills();
+        for (const name of result.imported) {
+          await checkScanWarnings(name);
+        }
+        return true;
+      }
+      message.warning(t("skills.uploadNoChange"));
+      await fetchSkills();
+      return true;
+    } catch (error) {
+      handleError(error, t("skills.uploadFailed"));
+      return false;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const importFromHub = async (input: string) => {
     const text = (input || "").trim();
     if (!text) {
@@ -367,9 +396,11 @@ export function useSkills() {
   return {
     skills,
     loading,
+    uploading,
     importing,
     cancelImport,
     createSkill,
+    uploadSkill,
     importFromHub,
     toggleEnabled,
     deleteSkill,

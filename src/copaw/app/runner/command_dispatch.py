@@ -131,13 +131,11 @@ async def run_command_path(
     memory_state = session_state.get("agent", {}).get("memory", {})
     memory.load_state_dict(memory_state, strict=False)
 
-    agent_config = load_agent_config(runner.agent_id)
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=memory,
         memory_manager=runner.memory_manager,
         enable_memory_manager=runner.memory_manager is not None,
-        agent_config=agent_config,
     )
     try:
         response_msg = await conv_handler.handle_conversation_command(query)

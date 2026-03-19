@@ -156,6 +156,23 @@ async def lifespan(
 
     auto_register_from_env()
 
+    try:
+        from ..utils.telemetry import (
+            collect_and_upload_telemetry,
+            has_telemetry_been_collected,
+            is_telemetry_opted_out,
+        )
+
+        if not is_telemetry_opted_out(
+            WORKING_DIR,
+        ) and not has_telemetry_been_collected(WORKING_DIR):
+            collect_and_upload_telemetry(WORKING_DIR)
+    except Exception:
+        logger.debug(
+            "Telemetry collection skipped due to error",
+            exc_info=True,
+        )
+
     # --- Multi-agent migration and initialization ---
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()

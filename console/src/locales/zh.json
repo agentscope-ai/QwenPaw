@@ -147,7 +147,13 @@
     "noContentToOptimize": "没有可优化的内容",
     "cancelImport": "取消导入",
     "importCancelled": "已取消技能导入",
-    "importTimeout": "技能导入超时，请重试或检查网络。"
+    "importTimeout": "技能导入超时，请重试或检查网络。",
+    "uploadSkill": "上传技能",
+    "uploadSuccess": "技能上传成功",
+    "uploadFailed": "技能上传失败",
+    "uploadNoChange": "没有导入新技能，可能已存在相同技能",
+    "zipOnly": "仅支持上传 .zip 文件",
+    "fileSizeExceeded": "文件大小超过 100MB 限制。当前文件：{{size}}MB"
   },
   "mcp": {
     "title": "MCP 客户端",
@@ -618,8 +624,8 @@
     "allDisabled": "所有工具已处于禁用状态"
   },
   "modelConfig": {
-    "promptTitle": "需要配置 LLM 模型",
-    "promptMessage": "聊天功能需要 LLM 模型才能运行。未配置模型时，对话和消息无法发送到后端进行处理和保存，刷新页面后将会丢失。是否立即配置模型？",
+    "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
+    "promptMessage": "聊天功能需要 LLM 模型才能运行。请先配置模型，配置完成后在 Chat 页面顶部的模型选择器中选择即可使用。",
     "configureButton": "配置模型",
     "skipButton": "跳过",
     "chatDisabledTitle": "聊天已禁用",

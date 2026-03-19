@@ -137,7 +137,13 @@
     "create": "作成",
     "cancelImport": "インポートを中止",
     "importCancelled": "スキルのインポートを中止しました",
-    "importTimeout": "スキルのインポートがタイムアウトしました。再試行するかネットワークを確認してください。"
+    "importTimeout": "スキルのインポートがタイムアウトしました。再試行するかネットワークを確認してください。",
+    "uploadSkill": "スキルをアップロード",
+    "uploadSuccess": "スキルのアップロードに成功しました",
+    "uploadFailed": "スキルのアップロードに失敗しました",
+    "uploadNoChange": "新しいスキルはインポートされませんでした。既に存在する可能性があります",
+    "zipOnly": "アップロードは .zip ファイルのみ対応しています",
+    "fileSizeExceeded": "ファイルサイズが100MBの制限を超えています。現在のファイル: {{size}}MB"
   },
   "mcp": {
     "title": "MCPクライアント",
@@ -604,8 +610,8 @@
     "allDisabled": "すべてのツールは既に無効です"
   },
   "modelConfig": {
-    "promptTitle": "LLMモデルが必要です",
-    "promptMessage": "チャット機能にはLLMモデルが必要です。モデルが設定されていない場合、会話やメッセージをバックエンドに送信して処理・保存することができず、ページを更新すると失われます。今すぐモデルを設定しますか？",
+    "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
+    "promptMessage": "チャット機能にはLLMモデルが必要です。まずモデルを設定し、設定完了後にChatページ上部のモデルセレクターで選択してください。",
     "configureButton": "モデルを設定",
     "skipButton": "スキップ",
     "chatDisabledTitle": "チャット無効",

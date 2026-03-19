@@ -588,11 +588,33 @@ export default function ChatPage() {
         />
       </div>
 
-      <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
+      <Modal
+        open={showModelPrompt}
+        closable={false}
+        footer={null}
+        width={480}
+        styles={{
+          content: isDark
+            ? { background: "#1f1f1f", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }
+            : undefined,
+        }}
+      >
         <Result
           icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-          title={t("modelConfig.promptTitle")}
-          subTitle={t("modelConfig.promptMessage")}
+          title={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+            >
+              {t("modelConfig.promptTitle")}
+            </span>
+          }
+          subTitle={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+            >
+              {t("modelConfig.promptMessage")}
+            </span>
+          }
           extra={[
             <Button key="skip" onClick={() => setShowModelPrompt(false)}>
               {t("modelConfig.skipButton")}
