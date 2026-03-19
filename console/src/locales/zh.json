@@ -624,8 +624,8 @@
     "allDisabled": "所有工具已处于禁用状态"
   },
   "modelConfig": {
-    "promptTitle": "需要配置 LLM 模型",
-    "promptMessage": "聊天功能需要 LLM 模型才能运行。未配置模型时，对话和消息无法发送到后端进行处理和保存，刷新页面后将会丢失。是否立即配置模型？",
+    "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
+    "promptMessage": "聊天功能需要 LLM 模型才能运行。请先配置模型，配置完成后在 Chat 页面顶部的模型选择器中选择即可使用。",
     "configureButton": "配置模型",
     "skipButton": "跳过",
     "chatDisabledTitle": "聊天已禁用",

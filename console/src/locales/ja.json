@@ -610,8 +610,8 @@
     "allDisabled": "すべてのツールは既に無効です"
   },
   "modelConfig": {
-    "promptTitle": "LLMモデルが必要です",
-    "promptMessage": "チャット機能にはLLMモデルが必要です。モデルが設定されていない場合、会話やメッセージをバックエンドに送信して処理・保存することができず、ページを更新すると失われます。今すぐモデルを設定しますか？",
+    "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
+    "promptMessage": "チャット機能にはLLMモデルが必要です。まずモデルを設定し、設定完了後にChatページ上部のモデルセレクターで選択してください。",
     "configureButton": "モデルを設定",
     "skipButton": "スキップ",
     "chatDisabledTitle": "チャット無効",

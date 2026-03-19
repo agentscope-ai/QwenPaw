@@ -658,8 +658,8 @@
     "allDisabled": "All tools are already disabled"
   },
   "modelConfig": {
-    "promptTitle": "LLM Model Required",
-    "promptMessage": "Chat requires an LLM model to function. Without a configured model, conversations and messages cannot be sent to the backend for processing and storage, and will be lost after a page refresh. Would you like to configure a model now?",
+    "promptTitle": "LLM Model Required — Select in Chat After Configuration",
+    "promptMessage": "Chat requires an LLM model to function. Please configure a model first, then select it from the model selector at the top of the Chat page.",
     "configureButton": "Configure Model",
     "skipButton": "Skip",
     "chatDisabledTitle": "Chat Disabled",
