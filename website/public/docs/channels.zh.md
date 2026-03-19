@@ -440,6 +440,12 @@
 
 ## 企业微信
 
+### 注意事项
+
+> **SDK 说明**：企业微信频道当前使用的是第三方 SDK [wecom-aibot-sdk 1.0.3](https://pypi.org/project/wecom-aibot-sdk/)。待企业微信官方发布正式 SDK 后，我们将及时跟进更新。
+
+> **Python 版本**：受 SDK 限制，建议将 Python 版本升级至 **3.11 及以上**，以确保功能正常运行。
+
 ### 创建新企业
 
 个人使用者可以访问[企业微信官网](https://work.weixin.qq.com)注册账号，创建新企业，成为企业管理员。
@@ -459,7 +465,9 @@
 可在工作台点击智能机器人-创建机器人，选择API模式创建-通过长链接配置
 
 ![创建机器人1](https://img.alicdn.com/imgextra/i3/O1CN01lcA2rX1fm2P19SLcB_!!6000000004048-2-tps-1440-814.png)
+
 ![新建机器人2](https://img.alicdn.com/imgextra/i1/O1CN014R3a0f1mnb3qbycMV_!!6000000004999-2-tps-1440-814.png)
+
 ![新建机器人3](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
 
 获取`Bot ID`和`Secret`
