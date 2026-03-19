@@ -196,7 +196,7 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
 
 PROVIDER_MINIMAX = AnthropicProvider(
     id="minimax",
-    name="MiniMax International",
+    name="MiniMax (International)",
     base_url="https://api.minimax.io/anthropic",
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
@@ -205,7 +205,7 @@ PROVIDER_MINIMAX = AnthropicProvider(
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
     id="minimax-cn",
-    name="MiniMax China",
+    name="MiniMax (China)",
     base_url="https://api.minimaxi.com/anthropic",
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
@@ -216,7 +216,7 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
 
 PROVIDER_KIMI_CN = OpenAIProvider(
     id="kimi-cn",
-    name="Kimi (CN)",
+    name="Kimi (China)",
     base_url="https://api.moonshot.cn/v1",
     api_key_prefix="",
     models=KIMI_MODELS,

@@ -26,7 +26,7 @@ def test_kimi_providers_are_openai_compatible() -> None:
 def test_kimi_provider_configs() -> None:
     """Verify Kimi provider configuration defaults."""
     assert PROVIDER_KIMI_CN.id == "kimi-cn"
-    assert PROVIDER_KIMI_CN.name == "Kimi (CN)"
+    assert PROVIDER_KIMI_CN.name == "Kimi (China)"
     assert PROVIDER_KIMI_CN.base_url == "https://api.moonshot.cn/v1"
     assert PROVIDER_KIMI_CN.freeze_url is True
 
@@ -74,7 +74,7 @@ async def test_kimi_check_connection_success(monkeypatch) -> None:
     """Kimi check_connection should delegate to OpenAI client."""
     provider = OpenAIProvider(
         id="kimi-cn",
-        name="Kimi (CN)",
+        name="Kimi (China)",
         base_url="https://api.moonshot.cn/v1",
         api_key="test-key",
     )
