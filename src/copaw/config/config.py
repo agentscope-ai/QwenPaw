@@ -787,6 +787,73 @@ class SecurityConfig(BaseModel):
     )
 
 
+class AgentsSquareSourceSpec(BaseModel):
+    """A single Agents Square source entry."""
+
+    id: str = Field(..., description="Stable source id")
+    name: str = Field(..., description="Display name")
+    type: Literal["git"] = Field(default="git")
+    provider: Literal["agency_markdown_repo", "index_json_repo"] = Field(
+        default="agency_markdown_repo",
+    )
+    url: str = Field(..., description="Git repository URL")
+    branch: str = Field(default="", description="Optional branch")
+    path: str = Field(
+        default=".",
+        description="Path to source root in repository",
+    )
+    enabled: bool = Field(default=True)
+    order: int = Field(default=999)
+    trust: Optional[Literal["official", "community", "custom"]] = None
+    license_hint: str = Field(default="")
+    pinned: bool = Field(
+        default=False,
+        description="Pinned sources cannot be removed via API",
+    )
+
+
+class AgentsSquareCacheConfig(BaseModel):
+    """Cache policy for Agents Square item aggregation."""
+
+    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
+
+
+class AgentsSquareInstallConfig(BaseModel):
+    """Default install behavior for Agents Square imports."""
+
+    overwrite_default: bool = Field(default=False)
+    preserve_workspace_files: bool = Field(default=True)
+
+
+class AgentsSquareConfig(BaseModel):
+    """Agents Square root config."""
+
+    version: int = Field(default=1, ge=1)
+    sources: List[AgentsSquareSourceSpec] = Field(
+        default_factory=lambda: [
+            AgentsSquareSourceSpec(
+                id="agency-agents",
+                name="agency-agents",
+                provider="agency_markdown_repo",
+                url="https://github.com/msitarzewski/agency-agents.git",
+                branch="main",
+                path=".",
+                enabled=True,
+                order=1,
+                trust="official",
+                license_hint="MIT",
+                pinned=True,
+            ),
+        ],
+    )
+    cache: AgentsSquareCacheConfig = Field(
+        default_factory=AgentsSquareCacheConfig,
+    )
+    install: AgentsSquareInstallConfig = Field(
+        default_factory=AgentsSquareInstallConfig,
+    )
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -795,6 +862,9 @@ class Config(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    agents_square: AgentsSquareConfig = Field(
+        default_factory=AgentsSquareConfig,
+    )
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     show_tool_details: bool = True
