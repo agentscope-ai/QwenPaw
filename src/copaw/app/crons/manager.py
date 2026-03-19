@@ -311,6 +311,9 @@ class CronManager:
                 agent_id=self._agent_id,
                 workspace_dir=workspace_dir,
             )
+        except asyncio.CancelledError:
+            logger.info("heartbeat cancelled")
+            raise
         except Exception:  # pylint: disable=broad-except
             logger.exception("heartbeat run failed")
 
@@ -333,6 +336,14 @@ class CronManager:
                     "cron _execute_once: job_id=%s status=success",
                     job.id,
                 )
+            except asyncio.CancelledError:
+                st.last_status = "cancelled"
+                st.last_error = "Job was cancelled"
+                logger.info(
+                    "cron _execute_once: job_id=%s status=cancelled",
+                    job.id,
+                )
+                raise
             except Exception as e:  # pylint: disable=broad-except
                 st.last_status = "error"
                 st.last_error = repr(e)
