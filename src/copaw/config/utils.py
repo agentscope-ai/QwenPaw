@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
+from pydantic import ValidationError
 
 from ..constant import (
     HEARTBEAT_FILE,
@@ -440,8 +441,6 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             la["host"] = data.get("last_api_host")
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
-
-    from pydantic import ValidationError
 
     try:
         return Config.model_validate(data)
