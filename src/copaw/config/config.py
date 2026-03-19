@@ -644,6 +644,16 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Edit file using find-and-replace",
         ),
+        "grep_search": BuiltinToolConfig(
+            name="grep_search",
+            enabled=True,
+            description="Search file contents by pattern",
+        ),
+        "glob_search": BuiltinToolConfig(
+            name="glob_search",
+            enabled=True,
+            description="Find files matching a glob pattern",
+        ),
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
