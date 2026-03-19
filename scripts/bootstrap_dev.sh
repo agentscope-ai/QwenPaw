@@ -24,6 +24,11 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --extras)
+            if [[ $# -lt 2 ]]; then
+                echo "Missing value for --extras" >&2
+                usage >&2
+                exit 1
+            fi
             EXTRAS="$2"
             shift 2
             ;;
