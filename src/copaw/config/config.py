@@ -1119,7 +1119,14 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         return fallback_config
 
     with open(agent_config_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        raw_data = json.load(f)
+
+    if not isinstance(raw_data, dict):
+        raise ValueError(
+            f"Invalid agent config format for '{agent_id}': expected object",
+        )
+
+    data = raw_data
 
     # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
     # This keeps COPAW_WORKING_DIR effective even if existing agent.json
@@ -1131,7 +1138,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     except Exception:
         pass
 
-    return AgentProfileConfig(**data)
+    return AgentProfileConfig.model_validate(data)
 
 
 def save_agent_config(
