@@ -11,42 +11,15 @@ import {
 } from "@ant-design/icons";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import styles from "./index.module.less";
+import {
+  GITHUB_URL,
+  KEY_TO_LABEL,
+  getDocsUrl,
+  getFaqUrl,
+  getReleaseNotesUrl,
+} from "./constants";
 
 const { Header: AntHeader } = Layout;
-
-// Constants
-const GITHUB_URL = "https://github.com/agentscope-ai/CoPaw" as const;
-
-const keyToLabel: Record<string, string> = {
-  chat: "nav.chat",
-  channels: "nav.channels",
-  sessions: "nav.sessions",
-  "cron-jobs": "nav.cronJobs",
-  heartbeat: "nav.heartbeat",
-  skills: "nav.skills",
-  tools: "nav.tools",
-  mcp: "nav.mcp",
-  "agent-config": "nav.agentConfig",
-  workspace: "nav.workspace",
-  models: "nav.models",
-  environments: "nav.environments",
-  security: "nav.security",
-  "token-usage": "nav.tokenUsage",
-  agents: "nav.agents",
-};
-
-// URL helper functions
-const getWebsiteLang = (lang: string): string =>
-  lang.startsWith("zh") ? "zh" : "en";
-
-const getDocsUrl = (lang: string): string =>
-  `https://copaw.agentscope.io/docs/intro?lang=${getWebsiteLang(lang)}`;
-
-const getFaqUrl = (lang: string): string =>
-  `https://copaw.agentscope.io/docs/faq?lang=${getWebsiteLang(lang)}`;
-
-const getReleaseNotesUrl = (lang: string): string =>
-  `https://copaw.agentscope.io/release-notes?lang=${getWebsiteLang(lang)}`;
 
 interface HeaderProps {
   selectedKey: string;
@@ -69,7 +42,7 @@ export default function Header({ selectedKey }: HeaderProps) {
   return (
     <AntHeader className={styles.header}>
       <span className={styles.headerTitle}>
-        {t(keyToLabel[selectedKey] || "nav.chat")}
+        {t(KEY_TO_LABEL[selectedKey] || "nav.chat")}
       </span>
       <Space size="middle">
         <AgentSelector />

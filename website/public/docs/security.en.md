@@ -128,25 +128,43 @@ CoPaw supports optional web login authentication to protect the Console from una
 5. After login, a signed token (valid for 7 days) is stored in the browser's localStorage. All API requests include this token automatically.
 6. Requests from **localhost** (`127.0.0.1` / `::1`) bypass authentication entirely, so CLI commands (`copaw app`, `copaw chat`, etc.) continue to work without a token.
 
+### Environment variables
+
+| Variable              | Description                          | Required                     |
+| --------------------- | ------------------------------------ | ---------------------------- |
+| `COPAW_AUTH_ENABLED`  | Set to `true` to enable auth         | Yes                          |
+| `COPAW_AUTH_USERNAME` | Pre-set admin username on first boot | Optional (auto-registration) |
+| `COPAW_AUTH_PASSWORD` | Pre-set admin password on first boot | Optional (auto-registration) |
+
+- `COPAW_AUTH_ENABLED=true` is the only variable required to turn on authentication.
+- `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` are optional. When both are set and no user has been registered yet, CoPaw automatically creates the admin account on startup — useful for Docker orchestration, Kubernetes, server management panels (1Panel, Portainer, CasaOS, etc.), and other automated deployments where interactive web registration is not practical.
+- If the auto-registration variables are not set, the first user registers through the web UI on first visit (the original behavior).
+
 ### Enable authentication
 
 #### Script install / pip install
 
-Set the environment variable before starting:
+Set the environment variable before starting. Add `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` if you want the admin account created automatically.
 
 **Linux / macOS:**
 
 ```bash
 export COPAW_AUTH_ENABLED=true
+# Optional: pre-set admin credentials for automated setup
+# export COPAW_AUTH_USERNAME=admin
+# export COPAW_AUTH_PASSWORD=mypassword
 copaw app
 ```
 
-To make it permanent, add the `export` line to your `~/.bashrc`, `~/.zshrc`, or equivalent.
+To make it permanent, add the `export` lines to your `~/.bashrc`, `~/.zshrc`, or equivalent.
 
 **Windows (CMD):**
 
 ```cmd
 set COPAW_AUTH_ENABLED=true
+rem Optional: pre-set admin credentials for automated setup
+rem set COPAW_AUTH_USERNAME=admin
+rem set COPAW_AUTH_PASSWORD=mypassword
 copaw app
 ```
 
@@ -154,22 +172,29 @@ copaw app
 
 ```powershell
 $env:COPAW_AUTH_ENABLED = "true"
+# Optional: pre-set admin credentials for automated setup
+# $env:COPAW_AUTH_USERNAME = "admin"
+# $env:COPAW_AUTH_PASSWORD = "mypassword"
 copaw app
 ```
 
 #### Docker
 
-Pass the environment variable with `-e`:
+Pass the environment variables with `-e`:
 
 ```bash
 docker run -e COPAW_AUTH_ENABLED=true \
+  -e COPAW_AUTH_USERNAME=admin \
+  -e COPAW_AUTH_PASSWORD=mypassword \
   -p 127.0.0.1:8088:8088 \
   -v copaw-data:/app/working \
   -v copaw-secrets:/app/working.secret \
   agentscope/copaw:latest
 ```
 
-Or use `docker-compose.yml`:
+> Remove the `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` lines if you prefer to register through the web UI on first visit.
+
+#### docker-compose.yml
 
 ```yaml
 services:
@@ -179,6 +204,8 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       - COPAW_AUTH_ENABLED=true
+      - COPAW_AUTH_USERNAME=admin
+      - COPAW_AUTH_PASSWORD=mypassword
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret
@@ -190,6 +217,8 @@ You can also use a `.env` file:
 
 ```
 COPAW_AUTH_ENABLED=true
+COPAW_AUTH_USERNAME=admin
+COPAW_AUTH_PASSWORD=mypassword
 ```
 
 Then pass it to Docker with `--env-file .env`, or source it in your shell before running `copaw app`.

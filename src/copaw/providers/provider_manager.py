@@ -94,6 +94,27 @@ MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(id="MiniMax-M2.7-highspeed", name="MiniMax M2.7 Highspeed"),
 ]
 
+KIMI_MODELS: List[ModelInfo] = [
+    ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
+    ModelInfo(
+        id="kimi-k2-0905-preview",
+        name="Kimi K2 0905 Preview",
+    ),
+    ModelInfo(
+        id="kimi-k2-0711-preview",
+        name="Kimi K2 0711 Preview",
+    ),
+    ModelInfo(
+        id="kimi-k2-turbo-preview",
+        name="Kimi K2 Turbo Preview",
+    ),
+    ModelInfo(id="kimi-k2-thinking", name="Kimi K2 Thinking"),
+    ModelInfo(
+        id="kimi-k2-thinking-turbo",
+        name="Kimi K2 Thinking Turbo",
+    ),
+]
+
 DEEPSEEK_MODELS: List[ModelInfo] = [
     ModelInfo(id="deepseek-chat", name="DeepSeek Chat"),
     ModelInfo(id="deepseek-reasoner", name="DeepSeek Reasoner"),
@@ -138,6 +159,8 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
     freeze_url=True,
 )
 
@@ -173,7 +196,7 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
 
 PROVIDER_MINIMAX = AnthropicProvider(
     id="minimax",
-    name="MiniMax International",
+    name="MiniMax (International)",
     base_url="https://api.minimax.io/anthropic",
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
@@ -182,10 +205,30 @@ PROVIDER_MINIMAX = AnthropicProvider(
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
     id="minimax-cn",
-    name="MiniMax China",
+    name="MiniMax (China)",
     base_url="https://api.minimaxi.com/anthropic",
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
+    freeze_url=True,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
+)
+
+PROVIDER_KIMI_CN = OpenAIProvider(
+    id="kimi-cn",
+    name="Kimi (China)",
+    base_url="https://api.moonshot.cn/v1",
+    api_key_prefix="",
+    models=KIMI_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_KIMI_INTL = OpenAIProvider(
+    id="kimi-intl",
+    name="Kimi (International)",
+    base_url="https://api.moonshot.ai/v1",
+    api_key_prefix="",
+    models=KIMI_MODELS,
     freeze_url=True,
 )
 
@@ -281,6 +324,8 @@ class ProviderManager:
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
+        self._add_builtin(PROVIDER_KIMI_CN)
+        self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
@@ -386,6 +431,9 @@ class ProviderManager:
         provider = self._provider_from_data(
             provider_payload,
         )  # Validate provider data
+        # For custom providers, we assume they don't support connection check
+        # without model config, to avoid false negatives in the UI.
+        provider.support_connection_check = False
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
         return await provider.get_info()

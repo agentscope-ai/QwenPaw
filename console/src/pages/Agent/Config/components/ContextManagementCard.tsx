@@ -1,4 +1,4 @@
-import { Form, InputNumber, Input, Switch, Card } from "@agentscope-ai/design";
+import { Form, InputNumber, Input, Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
@@ -114,30 +114,82 @@ export function ContextManagementCard({
       </Form.Item>
 
       <Form.Item
-        label={t("agentConfig.enableToolResultCompact")}
-        name="enable_tool_result_compact"
-        valuePropName="checked"
-        tooltip={t("agentConfig.enableToolResultCompactTooltip")}
-      >
-        <Switch />
-      </Form.Item>
-
-      <Form.Item
-        label={t("agentConfig.toolResultCompactKeepN")}
-        name="tool_result_compact_keep_n"
+        label={t("agentConfig.toolResultCompactRecentN")}
+        name="tool_result_compact_recent_n"
         rules={[
           {
             required: true,
-            message: t("agentConfig.toolResultCompactKeepNRequired"),
+            message: t("agentConfig.toolResultCompactRecentNRequired"),
           },
         ]}
-        tooltip={t("agentConfig.toolResultCompactKeepNTooltip")}
+        tooltip={t("agentConfig.toolResultCompactRecentNTooltip")}
       >
         <SliderWithValue
           min={1}
           max={10}
           step={1}
           marks={{ 1: "1", 5: "5", 10: "10" }}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.toolResultCompactOldThreshold")}
+        name="tool_result_compact_old_threshold"
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactOldThresholdRequired"),
+          },
+        ]}
+        tooltip={t("agentConfig.toolResultCompactOldThresholdTooltip")}
+      >
+        <InputNumber
+          style={{ width: "100%" }}
+          min={100}
+          step={100}
+          placeholder={t(
+            "agentConfig.toolResultCompactOldThresholdPlaceholder",
+          )}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.toolResultCompactRecentThreshold")}
+        name="tool_result_compact_recent_threshold"
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactRecentThresholdRequired"),
+          },
+        ]}
+        tooltip={t("agentConfig.toolResultCompactRecentThresholdTooltip")}
+      >
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1000}
+          step={1000}
+          placeholder={t(
+            "agentConfig.toolResultCompactRecentThresholdPlaceholder",
+          )}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.toolResultCompactRetentionDays")}
+        name="tool_result_compact_retention_days"
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactRetentionDaysRequired"),
+          },
+        ]}
+        tooltip={t("agentConfig.toolResultCompactRetentionDaysTooltip")}
+      >
+        <SliderWithValue
+          min={1}
+          max={30}
+          step={1}
+          marks={{ 1: "1", 7: "7", 14: "14", 30: "30" }}
         />
       </Form.Item>
     </Card>

@@ -57,6 +57,13 @@ class ProviderInfo(BaseModel):
             " from the provider's API"
         ),
     )
+    support_connection_check: bool = Field(
+        default=True,
+        description=(
+            "Whether this provider supports checking connection to the API "
+            "without model configuration"
+        ),
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
@@ -185,6 +192,9 @@ class Provider(ProviderInfo, ABC):
             is_local=self.is_local,
             is_custom=self.is_custom,
             support_model_discovery=self.support_model_discovery,
+            # custom providers are assumed to not support connection check
+            support_connection_check=self.support_connection_check
+            and not self.is_custom,
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,

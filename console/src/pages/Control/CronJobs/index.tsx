@@ -28,6 +28,7 @@ function CronJobsPage() {
   } = useCronJobs();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<CronJob>();
   const userTimezoneRef = useRef("UTC");
 
@@ -173,10 +174,15 @@ function CronJobsPage() {
     }
 
     let success = false;
-    if (editingJob) {
-      success = await updateJob(editingJob.id, processedValues);
-    } else {
-      success = await createJob(processedValues);
+    setSaving(true);
+    try {
+      if (editingJob) {
+        success = await updateJob(editingJob.id, processedValues);
+      } else {
+        success = await createJob(processedValues);
+      }
+    } finally {
+      setSaving(false);
     }
     if (success) {
       setDrawerOpen(false);
@@ -222,6 +228,7 @@ function CronJobsPage() {
         open={drawerOpen}
         editingJob={editingJob}
         form={form}
+        saving={saving}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />
