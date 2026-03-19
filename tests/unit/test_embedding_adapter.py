@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=protected-access,unused-import
 """Unit tests for embedding adapter."""
 
 import sys
