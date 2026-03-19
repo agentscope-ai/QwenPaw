@@ -158,6 +158,48 @@ export function SkillDrawer({
     }
   };
 
+  const drawerFooter = !editingSkill ? (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        width: "100%",
+      }}
+    >
+      <div>
+        {!optimizing ? (
+          <Button
+            type="default"
+            icon={<ThunderboltOutlined />}
+            onClick={handleOptimize}
+            disabled={!contentValue.trim()}
+          >
+            {t("skills.optimizeWithAI")}
+          </Button>
+        ) : (
+          <Button
+            type="default"
+            danger
+            icon={<StopOutlined />}
+            onClick={handleStopOptimize}
+          >
+            {t("skills.stopOptimize")}
+          </Button>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Button onClick={onClose}>{t("common.cancel")}</Button>
+        <Button type="primary" onClick={() => form.submit()}>
+          {t("skills.create")}
+        </Button>
+      </div>
+    </div>
+  ) : (
+    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <Button onClick={onClose}>{t("common.cancel")}</Button>
+    </div>
+  );
+
   return (
     <Drawer
       width={520}
@@ -166,6 +208,7 @@ export function SkillDrawer({
       open={open}
       onClose={onClose}
       destroyOnClose
+      footer={drawerFooter}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit}>
         {!editingSkill && (
@@ -194,44 +237,6 @@ export function SkillDrawer({
                   rows: 12,
                 }}
               />
-            </Form.Item>
-
-            <Form.Item>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginTop: 16,
-                }}
-              >
-                <div style={{ display: "flex", gap: 8 }}>
-                  {!optimizing ? (
-                    <Button
-                      type="default"
-                      icon={<ThunderboltOutlined />}
-                      onClick={handleOptimize}
-                      disabled={!contentValue.trim()}
-                    >
-                      {t("skills.optimizeWithAI")}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="default"
-                      danger
-                      icon={<StopOutlined />}
-                      onClick={handleStopOptimize}
-                    >
-                      {t("skills.stopOptimize")}
-                    </Button>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <Button onClick={onClose}>{t("common.cancel")}</Button>
-                  <Button type="primary" htmlType="submit">
-                    {t("skills.create")}
-                  </Button>
-                </div>
-              </div>
             </Form.Item>
           </>
         )}

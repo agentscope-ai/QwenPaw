@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-statements,too-many-branches
+# pylint: disable=too-many-statements,too-many-branches,protected-access
 # pylint: disable=too-many-return-statements,unused-argument
 """Feishu (Lark) Channel.
 
@@ -208,6 +208,8 @@ class FeishuChannel(BaseChannel):
         self._ws_client: Any = None
         self._ws_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._closed = False
         self._stop_event = threading.Event()
 
         self._tenant_access_token: Optional[str] = None
@@ -587,6 +589,8 @@ class FeishuChannel(BaseChannel):
 
     def _on_message_sync(self, data: "P2ImMessageReceiveV1") -> None:
         """Sync handler (called from WebSocket thread)."""
+        if self._closed:
+            return
         if not self._loop:
             logger.warning("feishu: main loop not set, drop message")
             return
@@ -1835,29 +1839,99 @@ class FeishuChannel(BaseChannel):
             )
 
     def _run_ws_forever(self) -> None:
-        # lark-oapi ws.Client uses a module-level event loop; when start() runs
-        # in this thread it must use this thread's loop, not the main thread's.
-        ws_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(ws_loop)
+        # lark-oapi ws.Client uses a module-level event loop; when start()
+        # runs in this thread it must use this thread's loop, not main's.
+        self._ws_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._ws_loop)
+        old_ws_client_loop = None
         try:
             import lark_oapi.ws.client as ws_client
 
-            ws_client.loop = ws_loop
+            # Save old loop value to restore later (for multi-instance)
+            old_ws_client_loop = getattr(ws_client, "loop", None)
+            ws_client.loop = self._ws_loop
         except ImportError:
             pass
         try:
             if self._ws_client:
                 logger.info("feishu WebSocket connecting (long connection)...")
                 self._ws_client.start()
+        except RuntimeError as e:
+            # Normal shutdown: loop.stop() causes run_until_complete to raise
+            # "Event loop stopped before Future completed."
+            if "Event loop stopped" in str(e):
+                logger.debug("feishu WebSocket stopped normally: %s", e)
+            else:
+                logger.exception("feishu WebSocket thread failed")
         except Exception:
             logger.exception("feishu WebSocket thread failed")
         finally:
+            # Graceful cleanup: disconnect, cancel tasks, close loop
+            if self._ws_loop and not self._ws_loop.is_closed():
+                try:
+                    # 1. Disconnect WebSocket
+                    if self._ws_client and hasattr(
+                        self._ws_client,
+                        "_disconnect",
+                    ):
+                        try:
+                            self._ws_loop.run_until_complete(
+                                self._ws_client._disconnect(),
+                            )
+                            logger.debug(
+                                "feishu WebSocket disconnected gracefully",
+                            )
+                        except Exception:
+                            logger.debug(
+                                "feishu ws disconnect failed",
+                                exc_info=True,
+                            )
+
+                    # 2. Cancel all running tasks
+                    pending = [
+                        t
+                        for t in asyncio.all_tasks(self._ws_loop)
+                        if not t.done()
+                    ]
+                    for task in pending:
+                        task.cancel()
+                    if pending:
+                        self._ws_loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True),
+                        )
+                        logger.debug(f"feishu cancelled {len(pending)} tasks")
+                except Exception:
+                    logger.debug("feishu ws cleanup failed", exc_info=True)
+
+            # Restore ws_client.loop to avoid affecting other instances.
+            # ws_client.loop is a module-level global variable shared
+            # across all FeishuChannel instances. We must restore it to
+            # the previous value (or None if it was our loop) to avoid
+            # breaking other running instances or new instances during
+            # reload.
+            try:
+                import lark_oapi.ws.client as ws_client
+
+                # Only restore if current loop is still ours
+                if getattr(ws_client, "loop", None) is self._ws_loop:
+                    ws_client.loop = old_ws_client_loop
+            except Exception:
+                pass
+
+            # Close event loop
+            try:
+                if self._ws_loop and not self._ws_loop.is_closed():
+                    self._ws_loop.close()
+            except Exception:
+                logger.debug("feishu ws loop close failed", exc_info=True)
+            self._ws_loop = None
             self._stop_event.set()
 
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("feishu channel disabled")
             return
+        self._closed = False
         self._load_receive_id_store_from_disk()
         if lark is None:
             raise RuntimeError(
@@ -1916,17 +1990,29 @@ class FeishuChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
+
+        self._closed = True
         self._stop_event.set()
-        if self._ws_client:
+
+        # Stop the WebSocket event loop - cleanup happens in _run_ws_forever
+        # finally block (disconnect, cancel tasks, close loop)
+        if self._ws_loop and not self._ws_loop.is_closed():
             try:
-                self._ws_client.stop()
+                self._ws_loop.call_soon_threadsafe(self._ws_loop.stop)
             except Exception:
-                pass
+                logger.debug("feishu ws_loop.stop failed", exc_info=True)
+
         if self._ws_thread:
             self._ws_thread.join(timeout=5)
+            if self._ws_thread.is_alive():
+                logger.warning("feishu ws thread did not stop within timeout")
+
         if self._http is not None:
             await self._http.close()
             self._http = None
+
         self._client = None
         self._ws_client = None
+        self._ws_thread = None
+        self._ws_loop = None
         logger.info("feishu channel stopped")
