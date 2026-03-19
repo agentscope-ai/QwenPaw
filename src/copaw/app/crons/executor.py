@@ -82,7 +82,8 @@ class CronExecutor:
         for attempt in range(1, _MAX_RETRIES + 2):  # 1 + retries
             try:
                 await asyncio.wait_for(
-                    _run(), timeout=job.runtime.timeout_seconds,
+                    _run(),
+                    timeout=job.runtime.timeout_seconds,
                 )
                 return  # success
             except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
@@ -91,14 +92,19 @@ class CronExecutor:
                     logger.warning(
                         "cron retry %d/%d: job_id=%s error=%s, "
                         "waiting %ds before retry",
-                        attempt, _MAX_RETRIES, job.id,
-                        type(exc).__name__, _RETRY_DELAY,
+                        attempt,
+                        _MAX_RETRIES,
+                        job.id,
+                        type(exc).__name__,
+                        _RETRY_DELAY,
                     )
                     await asyncio.sleep(_RETRY_DELAY)
                 else:
                     logger.error(
                         "cron failed after %d attempts: job_id=%s error=%s",
-                        attempt, job.id, type(exc).__name__,
+                        attempt,
+                        job.id,
+                        type(exc).__name__,
                     )
         if last_exc is not None:
             raise last_exc
