@@ -114,15 +114,18 @@ class MemoryCompactionHook:
 
             messages = await memory.get_memory(prepend_summary=False)
 
-            # Use configured values
-            if (
-                running_config.enable_tool_result_compact
-                and running_config.tool_result_compact_keep_n > 0
-            ):
-                compact_msgs = messages[
-                    : -running_config.tool_result_compact_keep_n
-                ]
-                await self.memory_manager.compact_tool_result(compact_msgs)
+            # Compact tool results with configured thresholds
+            recent_threshold = (
+                running_config.tool_result_compact_recent_threshold
+            )
+            retention_days = running_config.tool_result_compact_retention_days
+            await self.memory_manager.compact_tool_result(
+                messages=messages,
+                recent_n=running_config.tool_result_compact_recent_n,
+                old_threshold=running_config.tool_result_compact_old_threshold,
+                recent_threshold=recent_threshold,
+                retention_days=retention_days,
+            )
 
             # memory_compact_reserve is always available from config
             (

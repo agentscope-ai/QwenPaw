@@ -8,7 +8,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
 from ..config.config import load_agent_config
@@ -475,7 +474,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
             RuntimeError: If command is not recognized
         """
         messages = await self.memory.get_memory(
-            exclude_mark=_MemoryMark.COMPRESSED,
             prepend_summary=False,
         )
         # Parse command and arguments

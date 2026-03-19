@@ -252,6 +252,8 @@ class EmbeddingConfig(BaseModel):
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
+    model_config = ConfigDict(extra="allow")
+
     max_iters: int = Field(
         default=50,
         ge=1,
@@ -300,18 +302,32 @@ class AgentsRunningConfig(BaseModel):
         description="Ratio of memory to reserve when compact memory",
     )
 
-    enable_tool_result_compact: bool = Field(
-        default=True,
-        description="Whether to compact tool result messages in memory",
-    )
-
-    tool_result_compact_keep_n: int = Field(
-        default=3,
+    tool_result_compact_recent_n: int = Field(
+        default=1,
         ge=1,
         le=10,
-        description=(
-            "Number of tool result messages to keep in memory when compacting"
-        ),
+        description="Number of recent messages to use recent_threshold for",
+    )
+
+    tool_result_compact_old_threshold: int = Field(
+        default=500,
+        ge=100,
+        description="Character threshold for old messages "
+        "in tool result compaction",
+    )
+
+    tool_result_compact_recent_threshold: int = Field(
+        default=30000,
+        ge=1000,
+        description="Character threshold for recent messages "
+        "in tool result compaction",
+    )
+
+    tool_result_compact_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        description="Number of days to retain tool result files",
     )
 
     history_max_length: int = Field(
