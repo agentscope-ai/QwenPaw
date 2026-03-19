@@ -131,6 +131,8 @@ class ChannelManager:
         # [image1, text] are not split across workers (avoids no-text
         # debounce reordering and duplicate content in AgentRequest).
         self._key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+        # Track current processing tasks for interrupt support
+        self._current_tasks: Dict[Tuple[str, str], asyncio.Task] = {}
 
     @classmethod
     def from_env(
@@ -248,6 +250,19 @@ class ChannelManager:
 
         return cls(channels)
 
+    @staticmethod
+    def _extract_text_from_payload(payload: Any) -> str:
+        """Extract text from native payload for interrupt detection."""
+        if isinstance(payload, dict):
+            parts = payload.get("content_parts", [])
+            if parts:
+                first = parts[0]
+                if hasattr(first, "text"):
+                    return first.text or ""
+                if isinstance(first, str):
+                    return first
+        return ""
+
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
         """Return a callback that enqueues payload for the given channel."""
 
@@ -284,6 +299,21 @@ class ChannelManager:
                 else "queue",
             )
         if (channel_id, key) in self._in_progress:
+            # Interrupt: cancel running task if "!!" prefix detected
+            text = self._extract_text_from_payload(payload)
+            if text and (
+                text.startswith("!!") or text.startswith("\uff01\uff01")
+            ):
+                task = self._current_tasks.get((channel_id, key))
+                if task and not task.done():
+                    logger.info(
+                        "interrupt: cancelling task for"
+                        " channel=%s key=%s text='%s'",
+                        channel_id,
+                        key,
+                        text[:50],
+                    )
+                    task.cancel()
             self._pending.setdefault((channel_id, key), []).append(payload)
             return
         q.put_nowait(payload)
@@ -335,7 +365,25 @@ class ChannelManager:
                     self._in_progress.add((channel_id, key))
                     batch = _drain_same_key(q, ch, key, payload)
                 try:
-                    await _process_batch(ch, batch)
+                    task = asyncio.create_task(
+                        _process_batch(ch, batch),
+                        name=f"process_{channel_id}_{key}",
+                    )
+                    self._current_tasks[(channel_id, key)] = task
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        logger.info(
+                            "interrupt: process_batch cancelled"
+                            " channel=%s key=%s",
+                            channel_id,
+                            key,
+                        )
+                    finally:
+                        self._current_tasks.pop(
+                            (channel_id, key),
+                            None,
+                        )
                 finally:
                     self._in_progress.discard((channel_id, key))
                     pending = self._pending.pop((channel_id, key), [])
