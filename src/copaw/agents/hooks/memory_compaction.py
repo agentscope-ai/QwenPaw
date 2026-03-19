@@ -14,13 +14,13 @@ from copaw.constant import MEMORY_COMPACT_KEEP_RECENT
 
 from ..utils import (
     check_valid_messages,
-    safe_count_str_tokens,
+    get_copaw_token_counter,
 )
+from ...config.config import load_agent_config
 
 if TYPE_CHECKING:
     from ..memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
-    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,32 +33,13 @@ class MemoryCompactionHook:
     messages while summarizing older conversation history.
     """
 
-    def __init__(
-        self,
-        memory_manager: "MemoryManager",
-        agent_config: "AgentProfileConfig",
-    ):
+    def __init__(self, memory_manager: "MemoryManager"):
         """Initialize memory compaction hook.
 
         Args:
             memory_manager: Memory manager instance for compaction
-            agent_config: Agent profile configuration containing running
-                settings including memory_compact_threshold,
-                memory_compact_reserve, enable_tool_result_compact,
-                and tool_result_compact_keep_n.
         """
         self.memory_manager = memory_manager
-
-        # Extract configuration from agent_config
-        running_config = agent_config.running
-        self.memory_compact_threshold = running_config.memory_compact_threshold
-        self.memory_compact_reserve = running_config.memory_compact_reserve
-        self.enable_tool_result_compact = (
-            running_config.enable_tool_result_compact
-        )
-        self.tool_result_compact_keep_n = (
-            running_config.tool_result_compact_keep_n
-        )
 
     @staticmethod
     async def _print_status_message(
@@ -101,18 +82,23 @@ class MemoryCompactionHook:
             None (hook doesn't modify kwargs)
         """
         try:
+            # Get hot-reloaded agent config
+            agent_config = load_agent_config(self.memory_manager.agent_id)
+            running_config = agent_config.running
+            token_counter = get_copaw_token_counter(agent_config)
+
             memory: "ReMeInMemoryMemory" = agent.memory
-            token_counter = self.memory_manager.token_counter
 
             system_prompt = agent.sys_prompt
             compressed_summary = memory.get_compressed_summary()
-            str_token_count = safe_count_str_tokens(
-                (system_prompt or "") + (compressed_summary or ""),
+            str_token_count = await token_counter.count(
+                messages=[],
+                text=(system_prompt or "") + (compressed_summary or ""),
             )
 
             # memory_compact_threshold is always available from config
             left_compact_threshold = (
-                self.memory_compact_threshold - str_token_count
+                running_config.memory_compact_threshold - str_token_count
             )
 
             if left_compact_threshold <= 0:
@@ -130,10 +116,12 @@ class MemoryCompactionHook:
 
             # Use configured values
             if (
-                self.enable_tool_result_compact
-                and self.tool_result_compact_keep_n > 0
+                running_config.enable_tool_result_compact
+                and running_config.tool_result_compact_keep_n > 0
             ):
-                compact_msgs = messages[: -self.tool_result_compact_keep_n]
+                compact_msgs = messages[
+                    : -running_config.tool_result_compact_keep_n
+                ]
                 await self.memory_manager.compact_tool_result(compact_msgs)
 
             # memory_compact_reserve is always available from config
@@ -144,7 +132,7 @@ class MemoryCompactionHook:
             ) = await self.memory_manager.check_context(
                 messages=messages,
                 memory_compact_threshold=left_compact_threshold,
-                memory_compact_reserve=self.memory_compact_reserve,
+                memory_compact_reserve=running_config.memory_compact_reserve,
                 as_token_counter=token_counter,
             )
 

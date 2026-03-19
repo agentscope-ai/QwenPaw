@@ -238,6 +238,38 @@ def register_user(username: str, password: str) -> Optional[str]:
     return create_token(username)
 
 
+def auto_register_from_env() -> None:
+    """Auto-register admin user from environment variables.
+
+    Called once during application startup.  If ``COPAW_AUTH_ENABLED``
+    is truthy and both ``COPAW_AUTH_USERNAME`` and ``COPAW_AUTH_PASSWORD``
+    are set, the admin account is created automatically — useful for
+    Docker, Kubernetes, server-panel, and other automated deployments
+    where interactive web registration is not practical.
+
+    Skips silently when:
+    - authentication is not enabled
+    - a user has already been registered
+    - either env var is missing or empty
+    """
+    if not is_auth_enabled():
+        return
+    if has_registered_users():
+        return
+
+    username = os.environ.get("COPAW_AUTH_USERNAME", "").strip()
+    password = os.environ.get("COPAW_AUTH_PASSWORD", "").strip()
+    if not username or not password:
+        return
+
+    token = register_user(username, password)
+    if token:
+        logger.info(
+            "Auto-registered user '%s' from environment variables",
+            username,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------

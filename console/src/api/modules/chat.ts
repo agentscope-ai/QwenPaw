@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { getApiUrl } from "../config";
 import type {
   ChatSpec,
   ChatHistory,
@@ -6,7 +7,79 @@ import type {
   Session,
 } from "../types";
 
+/** Response from POST /console/upload. url = filename only; agent_id from header. */
+export interface ChatUploadResponse {
+  url: string;
+  file_name: string;
+  stored_name?: string;
+}
+
+const CONSOLE_FILES_PREFIX = "/console/files";
+
+function buildChatUploadHeaders(): HeadersInit {
+  const headers: Record<string, string> = {};
+  const token = localStorage.getItem("copaw_auth_token");
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const selectedAgent = parsed?.state?.selectedAgent;
+      if (selectedAgent) headers["X-Agent-Id"] = selectedAgent;
+    }
+  } catch {
+    // ignore
+  }
+  return headers;
+}
+
+function getSelectedAgentId(): string {
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const id = parsed?.state?.selectedAgent;
+      if (id) return id;
+    }
+  } catch {
+    // ignore
+  }
+  return "";
+}
+
 export const chatApi = {
+  /** Upload a file for chat attachment. Returns URL path for content. */
+  uploadFile: async (file: File): Promise<ChatUploadResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(getApiUrl("/console/upload"), {
+      method: "POST",
+      headers: buildChatUploadHeaders(),
+      body: formData,
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Upload failed: ${response.status} ${response.statusText}${
+          text ? ` - ${text}` : ""
+        }`,
+      );
+    }
+    return response.json();
+  },
+
+  /** Build full API URL for a console file. Backend returns filename only; agent_id from header/context (selectedAgent). */
+  fileUrl: (filename: string): string => {
+    if (!filename) return "";
+    if (filename.startsWith("http://") || filename.startsWith("https://"))
+      return filename;
+    const agentId = getSelectedAgentId() || "default";
+    const path = `${CONSOLE_FILES_PREFIX}/${agentId}/${filename.replace(
+      /^\/+/,
+      "",
+    )}`;
+    return getApiUrl(path);
+  },
   listChats: (params?: { user_id?: string; channel?: string }) => {
     const searchParams = new URLSearchParams();
     if (params?.user_id) searchParams.append("user_id", params.user_id);

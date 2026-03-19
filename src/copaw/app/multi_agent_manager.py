@@ -265,7 +265,7 @@ class MultiAgentManager:
             # pylint: enable=protected-access
 
             if reusable:
-                new_instance.set_reusable_components(reusable)
+                await new_instance.set_reusable_components(reusable)
                 logger.info(
                     f"Set reusable components for {agent_id}: "
                     f"{list(reusable.keys())}",

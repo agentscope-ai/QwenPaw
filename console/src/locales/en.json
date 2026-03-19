@@ -95,7 +95,7 @@
     "downloadSuccess": "Workspace downloaded successfully",
     "downloadFailed": "Workspace download failed",
     "zipOnly": "Only .zip files are supported for upload",
-    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB",
+    "fileSizeLimit": "File size exceeds 100MB limit. Current file: {{size}}MB",
     "systemPromptToggleTooltip": "Enable/disable this file in system prompt",
     "memoryFileWarning": "MEMORY.md is typically queried on-demand by the agent using tools. Loading it into the system prompt may cause the context to become too long.",
     "configUpdated": "System prompt configuration updated",
@@ -181,7 +181,13 @@
     "noContentToOptimize": "No content to optimize",
     "cancelImport": "Cancel Import",
     "importCancelled": "Skill import cancelled",
-    "importTimeout": "Skill import timed out. Please retry or check your network."
+    "importTimeout": "Skill import timed out. Please retry or check your network.",
+    "uploadSkill": "Upload Skill",
+    "uploadSuccess": "Skill uploaded successfully",
+    "uploadFailed": "Skill upload failed",
+    "uploadNoChange": "No new skills were imported. They may already exist.",
+    "zipOnly": "Only .zip files are supported for upload",
+    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB"
   },
   "mcp": {
     "title": "MCP Clients",
@@ -652,8 +658,8 @@
     "allDisabled": "All tools are already disabled"
   },
   "modelConfig": {
-    "promptTitle": "LLM Model Required",
-    "promptMessage": "Chat requires an LLM model to function. Without a configured model, conversations and messages cannot be sent to the backend for processing and storage, and will be lost after a page refresh. Would you like to configure a model now?",
+    "promptTitle": "LLM Model Required — Select in Chat After Configuration",
+    "promptMessage": "Chat requires an LLM model to function. Please configure a model first, then select it from the model selector at the top of the Chat page.",
     "configureButton": "Configure Model",
     "skipButton": "Skip",
     "chatDisabledTitle": "Chat Disabled",
@@ -689,7 +695,11 @@
     "greeting": "Hello, how can I help you today?",
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
-    "prompt2": "Can you tell me what skills you have?"
+    "prompt2": "Can you tell me what skills you have?",
+    "attachments": {
+      "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
+      "fileSizeLimit": "Single file cannot exceed 10MB"
+    }
   },
   "security": {
     "title": "Security",
