@@ -229,11 +229,20 @@ async def update_agent(
             detail=f"Agent '{agentId}' not found",
         )
 
-    # Ensure ID doesn't change
-    agent_config.id = agentId
+    # Load existing complete configuration
+    existing_config = load_agent_config(agentId)
 
-    # Save agent configuration
-    save_agent_config(agentId, agent_config)
+    # Merge updates: only update fields that are explicitly set
+    update_data = agent_config.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if key != "id":
+            setattr(existing_config, key, value)
+
+    # Ensure ID doesn't change
+    existing_config.id = agentId
+
+    # Save merged configuration
+    save_agent_config(agentId, existing_config)
 
     # Trigger hot reload if agent is running (async, non-blocking)
     # IMPORTANT: Get manager before creating background task to avoid

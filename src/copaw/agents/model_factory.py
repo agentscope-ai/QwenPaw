@@ -34,6 +34,7 @@ from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import RetryChatModel
 from ..token_usage import TokenRecordingModelWrapper
+from ..local_models import create_local_chat_model
 
 
 def _file_url_to_path(url: str) -> str:
@@ -126,6 +127,20 @@ def _create_file_block_support_formatter(
                         and "extra_content" in block
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
+
+            # Convert file:// URLs to paths,
+            # TODO: remove this after AgentScope updated
+            for msg in msgs:
+                for block in msg.get_content_blocks():
+                    if block.get("type") == "audio":
+                        source = block.get("source")
+                        if (
+                            isinstance(source, dict)
+                            and source.get("type") == "url"
+                            and isinstance(source.get("url"), str)
+                            and source["url"].startswith("file://")
+                        ):
+                            source["url"] = _file_url_to_path(source["url"])
 
             messages = await super()._format(msgs)
 
@@ -309,8 +324,6 @@ def create_model_and_formatter(
                 f"Provider '{model_slot.provider_id}' not found.",
             )
         if provider.is_local:
-            from agentscope.model import create_local_chat_model
-
             model = create_local_chat_model(
                 model_id=model_slot.model,
                 stream=True,

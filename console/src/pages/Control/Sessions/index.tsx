@@ -30,6 +30,7 @@ function SessionsPage() {
   const [filteredSessions, setFilteredSessions] = useState<Session[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<Session>();
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -120,13 +121,18 @@ function SessionsPage() {
 
   const handleSubmit = async (values: Session) => {
     if (editingSession) {
-      const updated = {
-        ...editingSession,
-        name: values.name,
-      };
-      const success = await updateSession(editingSession.id, updated);
-      if (success) {
-        setDrawerOpen(false);
+      setSaving(true);
+      try {
+        const updated = {
+          ...editingSession,
+          name: values.name,
+        };
+        const success = await updateSession(editingSession.id, updated);
+        if (success) {
+          setDrawerOpen(false);
+        }
+      } finally {
+        setSaving(false);
       }
     }
   };
@@ -192,6 +198,7 @@ function SessionsPage() {
         open={drawerOpen}
         editingSession={editingSession}
         form={form}
+        saving={saving}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />

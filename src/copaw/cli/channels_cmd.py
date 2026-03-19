@@ -83,12 +83,16 @@ class CustomChannel(BaseChannel):
         bot_prefix="",
         on_reply_sent=None,
         show_tool_details=True,
+        filter_tool_messages=False,
+        filter_thinking=False,
         **kwargs,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix or ""
@@ -100,6 +104,7 @@ class CustomChannel(BaseChannel):
         config,
         on_reply_sent=None,
         show_tool_details=True,
+        **kwargs,
     ):
         return cls(
             process=process,
@@ -107,6 +112,14 @@ class CustomChannel(BaseChannel):
             bot_prefix=getattr(config, "bot_prefix", ""),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
+            filter_tool_messages=kwargs.get(
+                "filter_tool_messages",
+                getattr(config, "filter_tool_messages", False),
+            ),
+            filter_thinking=kwargs.get(
+                "filter_thinking",
+                getattr(config, "filter_thinking", False),
+            ),
         )
 
     @classmethod

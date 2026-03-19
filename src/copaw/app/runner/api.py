@@ -140,6 +140,7 @@ async def get_chat(
     """Get detailed information about a specific chat by UUID.
 
     Args:
+        request: FastAPI request (for agent context)
         chat_id: Chat UUID
         mgr: Chat manager dependency
         session: SafeJSONSession dependency

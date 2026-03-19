@@ -1,7 +1,9 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
-  IAgentScopeRuntimeWebUIRef,
+  type IAgentScopeRuntimeWebUIMessage,
+  type IAgentScopeRuntimeWebUIRef,
+  Stream,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
@@ -11,15 +13,21 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
+import { chatApi } from "../../api/modules/chat";
 import Weather from "./Weather";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
-import { chatApi } from "../../api/modules/chat";
 import api from "../../api";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
+import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
+import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
 import "./index.module.less";
+import { Tooltip } from "antd";
+import { IconButton } from "@agentscope-ai/design";
+import { SparkAttachmentLine } from "@agentscope-ai/icons";
 
 type CopyableContent = {
   type?: string;
@@ -34,6 +42,28 @@ type CopyableMessage = {
 
 type CopyableResponse = {
   output?: CopyableMessage[];
+};
+
+type RuntimeUiMessage = IAgentScopeRuntimeWebUIMessage & {
+  msgStatus?: string;
+  role?: string;
+  cards?: Array<{
+    code: string;
+    data: unknown;
+  }>;
+  history?: boolean;
+};
+
+type StreamResponseData = {
+  status?: string;
+  output?: Array<{
+    content?: unknown[];
+  }>;
+};
+
+type RuntimeLoadingBridgeApi = {
+  getLoading?: () => boolean | string;
+  setLoading?: (loading: boolean | string) => void;
 };
 
 interface CustomWindow extends Window {
@@ -113,6 +143,101 @@ function buildModelError(): Response {
   );
 }
 
+function cloneRuntimeMessages(
+  messages: RuntimeUiMessage[],
+): RuntimeUiMessage[] {
+  return JSON.parse(JSON.stringify(messages)) as RuntimeUiMessage[];
+}
+
+function cloneValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isFinalResponseStatus(status?: string): boolean {
+  return (
+    status === AgentScopeRuntimeRunStatus.Completed ||
+    status === AgentScopeRuntimeRunStatus.Failed ||
+    status === AgentScopeRuntimeRunStatus.Canceled
+  );
+}
+
+function hasRenderableOutput(response: StreamResponseData): boolean {
+  if (response.status === AgentScopeRuntimeRunStatus.Failed) {
+    return true;
+  }
+
+  return (
+    response.output?.some((message) => (message.content?.length ?? 0) > 0) ??
+    false
+  );
+}
+
+function getResponseCardData(
+  message?: RuntimeUiMessage,
+): StreamResponseData | null {
+  const responseCard = message?.cards?.find(
+    (card) => card.code === "AgentScopeRuntimeResponseCard",
+  );
+
+  if (!responseCard?.data) {
+    return null;
+  }
+
+  return cloneValue(responseCard.data as StreamResponseData);
+}
+
+function getStreamingAssistantMessageId(
+  messages: RuntimeUiMessage[],
+): string | null {
+  return (
+    [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          (message.msgStatus === "generating" ||
+            (message.cards?.length ?? 0) === 0),
+      )?.id ||
+    [...messages].reverse().find((message) => message.role === "assistant")
+      ?.id ||
+    null
+  );
+}
+
+function RuntimeLoadingBridge({
+  bridgeRef,
+}: {
+  bridgeRef: { current: RuntimeLoadingBridgeApi | null };
+}) {
+  const { setLoading, getLoading } = useChatAnywhereInput(
+    (value) =>
+      ({
+        setLoading: value.setLoading,
+        getLoading: value.getLoading,
+      }) as RuntimeLoadingBridgeApi,
+  );
+
+  useEffect(() => {
+    if (!setLoading || !getLoading) {
+      bridgeRef.current = null;
+      return;
+    }
+
+    bridgeRef.current = {
+      setLoading,
+      getLoading,
+    };
+
+    return () => {
+      if (bridgeRef.current?.setLoading === setLoading) {
+        bridgeRef.current = null;
+      }
+    };
+  }, [getLoading, setLoading, bridgeRef]);
+
+  return null;
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -129,6 +254,7 @@ export default function ChatPage() {
   const [, setReconnectStreaming] = useState(false);
   const reconnectTriggeredForRef = useRef<string | null>(null);
   const prevChatIdRef = useRef<string | undefined>(undefined);
+  const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -293,7 +419,7 @@ export default function ChatPage() {
 
   const createSessionWrapped = useCallback(async (session: any) => {
     const result = await sessionApi.createSession(session);
-    const newSessionId = result[0]?.id;
+    const newSessionId = session?.id || result[0]?.id;
     if (isChatActiveRef.current && newSessionId) {
       lastSessionIdRef.current = newSessionId;
       navigateRef.current(`/chat/${newSessionId}`, { replace: true });
@@ -322,6 +448,137 @@ export default function ChatPage() {
       }
     },
     [t],
+  );
+
+  const persistSessionMessages = useCallback(
+    async (sessionId: string, messages: RuntimeUiMessage[]) => {
+      if (!sessionId) return;
+      await sessionApi.updateSession({
+        id: sessionId,
+        messages: cloneRuntimeMessages(messages),
+      });
+    },
+    [],
+  );
+
+  const releaseStaleLoadingState = useCallback((sessionId: string) => {
+    const activeChatId = chatIdRef.current;
+    const realSessionId = sessionApi.getRealIdForSession(sessionId);
+    const isBackgroundSession =
+      activeChatId !== sessionId && activeChatId !== realSessionId;
+
+    if (!isBackgroundSession) {
+      return;
+    }
+
+    if (sessionApi.hasLiveMessagesForSession(activeChatId)) {
+      return;
+    }
+
+    runtimeLoadingBridgeRef.current?.setLoading?.(false);
+  }, []);
+
+  const persistStreamSession = useCallback(
+    (sessionId: string, readableStream: ReadableStream<Uint8Array>) => {
+      const initialMessages = cloneRuntimeMessages(
+        (chatRef.current?.messages.getMessages() as RuntimeUiMessage[]) || [],
+      );
+      const assistantMessageId =
+        getStreamingAssistantMessageId(initialMessages) ||
+        `stream-${sessionId}`;
+      const responseBuilder = new AgentScopeRuntimeResponseBuilder({
+        id: "",
+        status: AgentScopeRuntimeRunStatus.Created,
+        created_at: 0,
+      });
+
+      void (async () => {
+        let cachedMessages = initialMessages;
+        let hasStreamActivity = false;
+        let didReleaseLoading = false;
+
+        try {
+          for await (const chunk of Stream({ readableStream })) {
+            let chunkData: unknown;
+            try {
+              chunkData = JSON.parse(chunk.data);
+            } catch {
+              continue;
+            }
+
+            hasStreamActivity = true;
+            const responseData = responseBuilder.handle(
+              chunkData as never,
+            ) as StreamResponseData;
+            const isFinalChunk = isFinalResponseStatus(responseData.status);
+            const existingAssistantMessage = cachedMessages.find(
+              (message) => message.id === assistantMessageId,
+            );
+            const previousResponseData = getResponseCardData(
+              existingAssistantMessage,
+            );
+
+            let nextResponseData: StreamResponseData | null = null;
+            if (hasRenderableOutput(responseData)) {
+              nextResponseData = cloneValue(responseData);
+            } else if (isFinalChunk && previousResponseData) {
+              nextResponseData = {
+                ...previousResponseData,
+                status: responseData.status ?? previousResponseData.status,
+              };
+            }
+
+            if (nextResponseData) {
+              const assistantMessage: RuntimeUiMessage = {
+                ...(existingAssistantMessage || {
+                  id: assistantMessageId,
+                  role: "assistant",
+                }),
+                id: assistantMessageId,
+                role: "assistant",
+                cards: [
+                  {
+                    code: "AgentScopeRuntimeResponseCard",
+                    data: nextResponseData,
+                  },
+                ],
+                msgStatus: isFinalChunk ? "finished" : "generating",
+              };
+
+              const assistantIndex = cachedMessages.findIndex(
+                (message) => message.id === assistantMessageId,
+              );
+              cachedMessages =
+                assistantIndex >= 0
+                  ? [
+                      ...cachedMessages.slice(0, assistantIndex),
+                      assistantMessage,
+                      ...cachedMessages.slice(assistantIndex + 1),
+                    ]
+                  : [...cachedMessages, assistantMessage];
+
+              await persistSessionMessages(sessionId, cachedMessages);
+            }
+
+            if (!isFinalChunk) {
+              continue;
+            }
+
+            releaseStaleLoadingState(sessionId);
+            didReleaseLoading = true;
+          }
+        } catch (error) {
+          console.error("Failed to persist background chat stream:", error);
+        } finally {
+          if (!hasStreamActivity || didReleaseLoading) {
+            return;
+          }
+
+          releaseStaleLoadingState(sessionId);
+        }
+      })();
+    },
+    [persistSessionMessages, releaseStaleLoadingState],
   );
 
   const customFetch = useCallback(
@@ -412,25 +669,67 @@ export default function ChatPage() {
 
       const { input = [], biz_params } = data;
       const session = input[input.length - 1]?.session || {};
-      const sessionId = window.currentSessionId || session?.session_id || "";
+      const lastInput = input.slice(-1);
+      const lastMsg = lastInput[0];
+      const rewrittenInput =
+        lastMsg?.content && Array.isArray(lastMsg.content)
+          ? [
+              {
+                ...lastMsg,
+                content: lastMsg.content.map((part: any) => {
+                  const p = { ...part };
+                  const toStoredName = (v: string) => {
+                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                    if (m1) return m1[1];
+                    const m2 = v.match(/^[^/]+\/(.+)$/);
+                    if (m2) return m2[1];
+                    return v;
+                  };
+                  if (p.type === "image" && typeof p.image_url === "string")
+                    p.image_url = toStoredName(p.image_url);
+                  if (p.type === "file" && typeof p.file_url === "string")
+                    p.file_url = toStoredName(p.file_url);
+                  if (p.type === "audio" && typeof p.audio_url === "string")
+                    p["data"] = toStoredName(p.audio_url);
+                  if (p.type === "video" && typeof p.video_url === "string")
+                    p.video_url = toStoredName(p.video_url);
+
+                  return p;
+                }),
+              },
+            ]
+          : lastInput;
 
       const requestBody = {
-        input: input.slice(-1),
-        session_id: sessionId,
+        input: rewrittenInput,
+        session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || "default",
         channel: window.currentChannel || session?.channel || "console",
         stream: true,
         ...biz_params,
       };
 
-      return fetch(getApiUrl("/console/chat"), {
+      const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
+
+      if (!response.ok || !response.body || !requestBody.session_id) {
+        return response;
+      }
+
+      const [uiStream, cacheStream] = response.body.tee();
+      persistStreamSession(requestBody.session_id, cacheStream);
+
+      return new Response(uiStream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     },
-    [setChatStatus, setReconnectStreaming],
+    [persistStreamSession, setChatStatus, setReconnectStreaming],
   );
 
   const options = useMemo(() => {
@@ -449,7 +748,12 @@ export default function ChatPage() {
         leftHeader: {
           ...defaultConfig.theme.leftHeader,
         },
-        rightHeader: <ModelSelector />,
+        rightHeader: (
+          <>
+            <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+            <ModelSelector />
+          </>
+        ),
       },
       welcome: {
         ...i18nConfig.welcome,
@@ -460,6 +764,45 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
+        attachments: {
+          trigger: function (props: any) {
+            return (
+              <Tooltip title={t("chat.attachments.tooltip")}>
+                <IconButton
+                  disabled={props?.disabled}
+                  icon={<SparkAttachmentLine />}
+                  bordered={false}
+                />
+              </Tooltip>
+            );
+          },
+          accept: "*/*",
+          customRequest: async (options: {
+            file: File;
+            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+            onError?: (e: Error) => void;
+            onProgress?: (e: { percent?: number }) => void;
+          }) => {
+            try {
+              console.log("options.file", options.file);
+
+              // Check file size limit (10MB)
+              const file = options.file as File;
+              const isLt10M = file.size / 1024 / 1024 < 10;
+              if (!isLt10M) {
+                message.error(t("chat.attachments.fileSizeLimit"));
+                return options.onError?.(new Error("File size exceeds 10MB"));
+              }
+
+              options.onProgress?.({ percent: 0 });
+              const res = await chatApi.uploadFile(options.file);
+              options.onProgress?.({ percent: 100 });
+              options.onSuccess({ url: chatApi.fileUrl(res.url) });
+            } catch (e) {
+              options.onError?.(e instanceof Error ? e : new Error(String(e)));
+            }
+          },
+        },
       },
       session: { multiple: true, api: wrappedSessionApi },
       api: {
@@ -517,11 +860,33 @@ export default function ChatPage() {
         />
       </div>
 
-      <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
+      <Modal
+        open={showModelPrompt}
+        closable={false}
+        footer={null}
+        width={480}
+        styles={{
+          content: isDark
+            ? { background: "#1f1f1f", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }
+            : undefined,
+        }}
+      >
         <Result
           icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-          title={t("modelConfig.promptTitle")}
-          subTitle={t("modelConfig.promptMessage")}
+          title={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+            >
+              {t("modelConfig.promptTitle")}
+            </span>
+          }
+          subTitle={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+            >
+              {t("modelConfig.promptMessage")}
+            </span>
+          }
           extra={[
             <Button key="skip" onClick={() => setShowModelPrompt(false)}>
               {t("modelConfig.skipButton")}

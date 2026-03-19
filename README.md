@@ -106,7 +106,7 @@ copaw app
 
 Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01z9VY6z1uMad7pgrCj_!!6000000006023-2-tps-3822-2064.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01VYsFVo23aAvIM3GXB_!!6000000007271-2-tps-3328-1860.png)
 
 ### Script install
 

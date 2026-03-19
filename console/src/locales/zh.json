@@ -147,7 +147,13 @@
     "noContentToOptimize": "没有可优化的内容",
     "cancelImport": "取消导入",
     "importCancelled": "已取消技能导入",
-    "importTimeout": "技能导入超时，请重试或检查网络。"
+    "importTimeout": "技能导入超时，请重试或检查网络。",
+    "uploadSkill": "上传技能",
+    "uploadSuccess": "技能上传成功",
+    "uploadFailed": "技能上传失败",
+    "uploadNoChange": "没有导入新技能，可能已存在相同技能",
+    "zipOnly": "仅支持上传 .zip 文件",
+    "fileSizeExceeded": "文件大小超过 100MB 限制。当前文件：{{size}}MB"
   },
   "mcp": {
     "title": "MCP 客户端",
@@ -577,13 +583,20 @@
     "contextCompactReserveThreshold": "上下文保留阈值",
     "contextCompactReserveThresholdTooltip": "上下文保留阈值（token 数），根据最大输入长度和上下文保留比例自动计算",
     "contextCompactReserveThresholdPlaceholder": "自动计算",
-    "enableToolResultCompact": "启用工具结果压缩",
-    "enableToolResultCompactTooltip": "是否压缩上下文中的工具结果消息",
-    "toolResultCompactKeepN": "工具结果保留数量",
-    "toolResultCompactKeepNTooltip": "压缩时保留的工具结果消息数量",
-    "toolResultCompactKeepNPlaceholder": "请输入保留数量",
-    "toolResultCompactKeepNRequired": "工具结果保留数量为必填项",
-    "toolResultCompactKeepNMin": "工具结果保留数量必须大于等于 1",
+    "toolResultCompactRecentN": "工具调用结果recent_n",
+    "toolResultCompactRecentNTooltip": "使用最近消息阈值的工具调用结果数量",
+    "toolResultCompactRecentNRequired": "工具调用结果recent_n为必填项",
+    "toolResultCompactOldThreshold": "超出recent_n的工具调用结果的最大字符数",
+    "toolResultCompactOldThresholdTooltip": "超出recent_n范围的工具调用结果，超过此字符数将被压缩",
+    "toolResultCompactOldThresholdPlaceholder": "请输入字符阈值",
+    "toolResultCompactOldThresholdRequired": "超出recent_n的工具调用结果最大字符数为必填项",
+    "toolResultCompactRecentThreshold": "recent_n内的工具调用结果的最大字符数",
+    "toolResultCompactRecentThresholdTooltip": "recent_n范围内的工具调用结果，超过此字符数将被压缩",
+    "toolResultCompactRecentThresholdPlaceholder": "请输入字符阈值",
+    "toolResultCompactRecentThresholdRequired": "recent_n内的工具调用结果最大字符数为必填项",
+    "toolResultCompactRetentionDays": "工具调用的文件保留天数",
+    "toolResultCompactRetentionDaysTooltip": "压缩后的工具结果文件保留天数，过期自动清理",
+    "toolResultCompactRetentionDaysRequired": "工具调用的文件保留天数为必填项",
     "language": "智能体语言",
     "languageTooltip": "智能体人设文件（SOUL.md、AGENTS.md 等）使用的语言。切换语言后将自动重新复制对应语言的 MD 文件。",
     "languageConfirmTitle": "切换智能体语言",
@@ -618,8 +631,8 @@
     "allDisabled": "所有工具已处于禁用状态"
   },
   "modelConfig": {
-    "promptTitle": "需要配置 LLM 模型",
-    "promptMessage": "聊天功能需要 LLM 模型才能运行。未配置模型时，对话和消息无法发送到后端进行处理和保存，刷新页面后将会丢失。是否立即配置模型？",
+    "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
+    "promptMessage": "聊天功能需要 LLM 模型才能运行。请先配置模型，配置完成后在 Chat 页面顶部的模型选择器中选择即可使用。",
     "configureButton": "配置模型",
     "skipButton": "跳过",
     "chatDisabledTitle": "聊天已禁用",
@@ -655,7 +668,11 @@
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
-    "prompt2": "能告诉我你有哪些技能吗？"
+    "prompt2": "能告诉我你有哪些技能吗？",
+    "attachments": {
+      "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
+      "fileSizeLimit": "单文件不超过10MB"
+    }
   },
   "security": {
     "title": "安全",

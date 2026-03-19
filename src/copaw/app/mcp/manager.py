@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -209,11 +210,15 @@ class MCPClientManager:
             setattr(client, "_copaw_rebuild_info", rebuild_info)
             return client
 
+        headers = client_config.headers
+        if headers:
+            headers = {k: os.path.expandvars(v) for k, v in headers.items()}
+
         client = HttpStatefulClient(
             name=client_config.name,
             transport=client_config.transport,
             url=client_config.url,
-            headers=client_config.headers or None,
+            headers=headers or None,
         )
         setattr(client, "_copaw_rebuild_info", rebuild_info)
         return client

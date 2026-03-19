@@ -27,7 +27,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ImageContent,
     TextContent,
 )
-from wecom_aibot_sdk import WSClient, generate_req_id
+from aibot import WSClient, WSClientOptions, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
@@ -779,11 +779,12 @@ class WecomChannel(BaseChannel):
             )
 
         self._loop = asyncio.get_running_loop()
-        self._client = WSClient(
+        options = WSClientOptions(
             bot_id=self.bot_id,
             secret=self.secret,
             max_reconnect_attempts=self._max_reconnect_attempts,
         )
+        self._client = WSClient(options)
 
         # Register event handlers
         self._client.on("message", self._on_message_sync)
