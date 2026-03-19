@@ -412,7 +412,7 @@ def test_init_from_storage_migrates_with_different_provider(
     # url / name / chatmodel should be updated
     assert provider.base_url == "https://api.minimax.io/anthropic"
     assert provider.chat_model == "AnthropicChatModel"
-    assert provider.name == "MiniMax International"
+    assert provider.name == "MiniMax (International)"
     # api key should be preserved
     assert provider.api_key == "sk-legacy-minimax"
 
