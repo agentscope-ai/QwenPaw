@@ -114,7 +114,9 @@ class MemoryManager(ReMeLight):
         # (local for Windows, chroma otherwise)
         memory_store_backend = os.environ.get("MEMORY_STORE_BACKEND", "auto")
         if memory_store_backend == "auto":
-            memory_backend = "local" if platform.system() == "Windows" else "chroma"
+            memory_backend = (
+                "local" if platform.system() == "Windows" else "chroma"
+            )
         else:
             memory_backend = memory_store_backend
 
@@ -157,7 +159,8 @@ class MemoryManager(ReMeLight):
             "backend": cfg.backend,
             "api_key": cfg.api_key or os.getenv("EMBEDDING_API_KEY", ""),
             "base_url": cfg.base_url or os.getenv("EMBEDDING_BASE_URL", ""),
-            "model_name": cfg.model_name or os.getenv("EMBEDDING_MODEL_NAME", ""),
+            "model_name": cfg.model_name
+            or os.getenv("EMBEDDING_MODEL_NAME", ""),
             "dimensions": cfg.dimensions,
             "enable_cache": cfg.enable_cache,
             "use_dimensions": cfg.use_dimensions,
