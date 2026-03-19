@@ -381,3 +381,59 @@ def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:
     )
 
     assert isinstance(provider, OpenAIProvider)
+
+
+def test_init_from_storage_migrates_with_different_provider(
+    isolated_secret_dir,
+) -> None:
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    builtin_path.mkdir(parents=True, exist_ok=True)
+
+    legacy_minimax_provider = {
+        "id": "minimax",
+        "name": "MiniMax",
+        "base_url": "https://api.minimax.io/v1",
+        "api_key": "sk-legacy-minimax",
+        "chat_model": "OpenAIChatModel",
+        "models": [{"id": "MiniMax-M2.5", "name": "MiniMax M2.5"}],
+        "generate_kwargs": {"temperature": 1.0},
+    }
+    (builtin_path / "minimax.json").write_text(
+        json.dumps(legacy_minimax_provider, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+
+    provider = manager.get_provider("minimax")
+
+    assert provider is not None
+    assert isinstance(provider, AnthropicProvider)
+    # url / name / chatmodel should be updated
+    assert provider.base_url == "https://api.minimax.io/anthropic"
+    assert provider.chat_model == "AnthropicChatModel"
+    assert provider.name == "MiniMax (International)"
+    # api key should be preserved
+    assert provider.api_key == "sk-legacy-minimax"
+
+    from agentscope.model import AnthropicChatModel
+
+    assert provider.get_chat_model_cls() == AnthropicChatModel
+
+    legacy_ollama_provider = {
+        "id": "ollama",
+        "name": "Ollama New",
+        "base_url": "http://legacy-ollama:11434",
+        "api_key": "sk-legacy-ollama",
+        "chat_model": "OpenAIChatModel",
+        "models": [],
+    }
+    (builtin_path / "ollama.json").write_text(
+        json.dumps(legacy_ollama_provider, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    manager = ProviderManager()
+    assert manager.get_provider("ollama") is not None
+    assert (
+        manager.get_provider("ollama").base_url == "http://legacy-ollama:11434"
+    )

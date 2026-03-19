@@ -17,9 +17,11 @@ ENV WORKSPACE_DIR=/app
 ENV COPAW_WORKING_DIR=/app/working
 ENV COPAW_SECRET_DIR=/app/working.secret
 
-# Available channels for this image.
-# Override at runtime with -e COPAW_ENABLED_CHANNELS=... if needed.
-ARG COPAW_ENABLED_CHANNELS="discord,telegram,dingtalk,feishu,qq,console"
+# Channel filtering: use COPAW_DISABLED_CHANNELS (exclusion, recommended)
+# or COPAW_ENABLED_CHANNELS (whitelist). Override at runtime with -e.
+ARG COPAW_DISABLED_CHANNELS="imessage"
+ENV COPAW_DISABLED_CHANNELS=${COPAW_DISABLED_CHANNELS}
+ARG COPAW_ENABLED_CHANNELS=""
 ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -84,7 +86,7 @@ COPY pyproject.toml setup.py README.md ./
 COPY src ./src
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/copaw/console/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir .[ollama]
 
 # Init working dir with default config.json and HEARTBEAT.md (build time).
 RUN copaw init --defaults --accept-security

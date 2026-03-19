@@ -182,11 +182,15 @@ class ChannelManager:
             ch_cfg = getattr(ch, key, None)
             if ch_cfg is None and key in extra:
                 from types import SimpleNamespace
+                from ...config.config import BaseChannelConfig
 
                 raw = extra[key]
-                ch_cfg = (
-                    SimpleNamespace(**raw) if isinstance(raw, dict) else raw
-                )
+                if isinstance(raw, dict):
+                    defaults = BaseChannelConfig().model_dump()
+                    defaults.update(raw)
+                    ch_cfg = SimpleNamespace(**defaults)
+                else:
+                    ch_cfg = raw
             if ch_cfg is None:
                 continue
 
@@ -206,7 +210,6 @@ class ChannelManager:
                 False,
             )
 
-            # Pass workspace_dir to channel if supported
             from_config_kwargs = {
                 "process": process,
                 "config": ch_cfg,
@@ -214,16 +217,34 @@ class ChannelManager:
                 "show_tool_details": show_tool_details,
                 "filter_tool_messages": filter_tool_messages,
                 "filter_thinking": filter_thinking,
+                "workspace_dir": workspace_dir,
             }
 
-            # Only pass workspace_dir to channels that support it
+            # Only pass kwargs that the channel's from_config accepts
             import inspect
 
             sig = inspect.signature(ch_cls.from_config)
-            if "workspace_dir" in sig.parameters:
-                from_config_kwargs["workspace_dir"] = workspace_dir
+            if any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in sig.parameters.values()
+            ):
+                filtered_kwargs = from_config_kwargs
+            else:
+                filtered_kwargs = {
+                    k: v
+                    for k, v in from_config_kwargs.items()
+                    if k in sig.parameters
+                }
 
-            channels.append(ch_cls.from_config(**from_config_kwargs))
+            try:
+                channels.append(ch_cls.from_config(**filtered_kwargs))
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize channel '%s', skipping: %s",
+                    key,
+                    e,
+                )
+                continue
 
         return cls(channels)
 

@@ -109,10 +109,9 @@ export default function WorkspacePage() {
         <div className={styles.workspaceInfo}>
           <p className={styles.workspacePath}>
             {t("workspace.workspacePath")}{" "}
-            {workspacePath ||
-              (files.length === 0
-                ? t("workspace.noFiles")
-                : t("common.loading"))}
+            {workspacePath === null
+              ? t("common.loading")
+              : workspacePath || t("workspace.noFiles")}
           </p>
           <div className={styles.actionButtons}>
             <Tooltip

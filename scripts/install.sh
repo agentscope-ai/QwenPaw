@@ -237,7 +237,7 @@ else
     fi
 
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
-    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
+    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$COPAW_VENV/bin/python" --prerelease=allow --quiet --index-url "$PYPI_MIRROR" --refresh-package copaw
 fi
 
 # Verify the CLI entry point exists

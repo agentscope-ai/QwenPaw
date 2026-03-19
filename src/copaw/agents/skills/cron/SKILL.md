@@ -18,23 +18,23 @@ copaw cron list
 copaw cron list --agent-id abc123
 
 # 查看任务详情
-copaw cron get <job_id>
+copaw cron get <job_id> --agent-id <agent_id>
 
 # 查看任务状态
-copaw cron state <job_id>
+copaw cron state <job_id> --agent-id <agent_id>
 
 # 删除任务
-copaw cron delete <job_id>
+copaw cron delete <job_id> --agent-id <agent_id>
 
 # 暂停/恢复任务
-copaw cron pause <job_id>
-copaw cron resume <job_id>
+copaw cron pause <job_id> --agent-id <agent_id>
+copaw cron resume <job_id> --agent-id <agent_id>
 
 # 立即执行一次
-copaw cron run <job_id>
+copaw cron run <job_id> --agent-id <agent_id>
 ```
 
-**注意**：所有命令都支持 `--agent-id` 参数，默认为 `default`。如果需要操作特定 agent 的任务，请指定对应的 agent ID。
+**重要**：所有命令都**必须**显式指定 `--agent-id` 参数。你的 agent_id 在系统提示的 Agent Identity 部分（`Your agent id is ...`）中已告知，直接使用该值。**不得省略**，否则任务会错误地创建到 default agent 的 workspace。
 
 ## 创建任务
 
@@ -80,7 +80,7 @@ copaw cron create \
 
 ### 可选参数
 
-- `--agent-id`：指定 agent ID（默认：default）。用于多 agent 场景。
+- `--agent-id`：**必须指定**你自己的 agent ID（系统提示的 Agent Identity 部分可以找到）。默认值为 `default`，但**不得依赖默认值**。
 
 ### 从 JSON 创建（复杂配置）
 
@@ -104,4 +104,4 @@ copaw cron create -f job_spec.json
 - 暂停/删除/恢复前，用 `copaw cron list` 查找 job_id
 - 排查问题时，用 `copaw cron state <job_id>` 查看状态
 - 给用户的命令要完整、可直接复制执行
-- 记得指定 `--agent-id` 参数
+- **必须**指定 `--agent-id` 参数，值从系统提示的 Agent Identity 部分读取

@@ -151,6 +151,28 @@ async def lifespan(
     startup_start_time = time.time()
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
 
+    # Auto-register admin from env vars (for automated deployments)
+    from .auth import auto_register_from_env
+
+    auto_register_from_env()
+
+    try:
+        from ..utils.telemetry import (
+            collect_and_upload_telemetry,
+            has_telemetry_been_collected,
+            is_telemetry_opted_out,
+        )
+
+        if not is_telemetry_opted_out(
+            WORKING_DIR,
+        ) and not has_telemetry_been_collected(WORKING_DIR):
+            collect_and_upload_telemetry(WORKING_DIR)
+    except Exception:
+        logger.debug(
+            "Telemetry collection skipped due to error",
+            exc_info=True,
+        )
+
     # --- Multi-agent migration and initialization ---
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
@@ -323,7 +345,13 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         f = _console_path / "logo.png"
         if f.is_file():
             return FileResponse(f, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Not Found")
 
+    @app.get("/dark-logo.png")
+    def _console_dark_logo():
+        f = _console_path / "dark-logo.png"
+        if f.is_file():
+            return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
     @app.get("/copaw-symbol.svg")
@@ -331,7 +359,13 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         f = _console_path / "copaw-symbol.svg"
         if f.is_file():
             return FileResponse(f, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="Not Found")
 
+    @app.get("/copaw-dark.png")
+    def _console_dark_icon():
+        f = _console_path / "copaw-dark.png"
+        if f.is_file():
+            return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
     _assets_dir = _console_path / "assets"

@@ -176,6 +176,21 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
             migrated_items,
         )
 
+    # Migrate skills directories
+    _migrate_workspace_item(
+        old_workspace / "active_skills",
+        default_workspace / "active_skills",
+        "active_skills",
+        migrated_items,
+    )
+
+    _migrate_workspace_item(
+        old_workspace / "customized_skills",
+        default_workspace / "customized_skills",
+        "customized_skills",
+        migrated_items,
+    )
+
     # Migrate channel-specific configuration files
     _migrate_workspace_item(
         old_workspace / "feishu_receive_ids.json",

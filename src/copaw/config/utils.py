@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
+from pydantic import ValidationError
 
 from ..constant import (
     HEARTBEAT_FILE,
@@ -331,17 +332,30 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    copaw.channels), filtered by COPAW_ENABLED_CHANNELS or
+    COPAW_DISABLED_CHANNELS when set.
+
+    * COPAW_ENABLED_CHANNELS — whitelist (only these channels are active).
+    * COPAW_DISABLED_CHANNELS — blacklist (all channels *except* these).
+    * If both are set, COPAW_ENABLED_CHANNELS takes precedence.
+    * If neither is set, all discovered channels are returned.
     """
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
     all_keys = tuple(registry.keys())
-    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
-    if not raw:
-        return all_keys
-    enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())
-    return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_enabled = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    if raw_enabled:
+        enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_disabled = os.environ.get("COPAW_DISABLED_CHANNELS", "").strip()
+    if raw_disabled:
+        disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k not in disabled) or all_keys
+
+    return all_keys
 
 
 def is_running_in_container() -> bool:
@@ -371,14 +385,54 @@ def get_heartbeat_query_path() -> Path:
     return get_config_path().parent.joinpath(HEARTBEAT_FILE)
 
 
+def _remove_nested_key(data: dict, path: list) -> bool:
+    """Remove a nested key from *data* given a path list.
+
+    Returns True if the key was found and removed.
+    """
+    obj = data
+    for segment in path[:-1]:
+        if isinstance(segment, str) and isinstance(obj, dict):
+            obj = obj.get(segment)
+        elif isinstance(segment, int) and isinstance(obj, list):
+            try:
+                obj = obj[segment]
+            except IndexError:
+                return False
+        else:
+            return False
+        if obj is None:
+            return False
+    last = path[-1]
+    if isinstance(last, str) and isinstance(obj, dict) and last in obj:
+        del obj[last]
+        return True
+    return False
+
+
+def _remove_bad_field(data: dict, loc: list) -> bool:
+    """Try to remove the field at *loc*; fall back to ancestor keys."""
+    if _remove_nested_key(data, loc):
+        return True
+    for end in range(len(loc) - 1, 0, -1):
+        if _remove_nested_key(data, loc[:end]):
+            return True
+    return False
+
+
 def load_config(config_path: Optional[Path] = None) -> Config:
     """Load config from file. Returns default Config if file is missing."""
     if config_path is None:
         config_path = get_config_path()
     if not config_path.is_file():
         return Config()
-    with open(config_path, "r", encoding="utf-8") as file:
-        data = json.load(file)
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return Config()
+
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
@@ -387,7 +441,22 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             la["host"] = data.get("last_api_host")
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
-    return Config.model_validate(data)
+
+    try:
+        return Config.model_validate(data)
+    except ValidationError as exc:
+        fixed_any = False
+        for err in exc.errors():
+            loc = list(err.get("loc", []))
+            if loc and _remove_bad_field(data, loc):
+                fixed_any = True
+        if not fixed_any:
+            raise
+
+    try:
+        return Config.model_validate(data)
+    except ValidationError:
+        return Config()
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:

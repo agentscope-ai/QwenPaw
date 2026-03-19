@@ -59,9 +59,20 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
 
         # Set HuggingFace endpoint for mirror support
         if token_count_use_mirror:
-            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+            mirror = "https://hf-mirror.com"
         else:
-            os.environ.pop("HF_ENDPOINT", None)
+            mirror = "https://huggingface.co"
+
+        os.environ["HF_ENDPOINT"] = mirror
+
+        # if the huggingface is already imported in other dependencies,
+        # we need to set the endpoint manually
+        import huggingface_hub.constants
+
+        huggingface_hub.constants.ENDPOINT = mirror
+        huggingface_hub.constants.HUGGINGFACE_CO_URL_TEMPLATE = (
+            mirror + "/{repo_id}/resolve/{revision}/{filename}"
+        )
 
         # Resolve tokenizer path
         if token_count_model == "default":
@@ -146,7 +157,7 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
 _token_counter_cache: dict[tuple, CopawTokenCounter] = {}
 
 
-def _get_copaw_token_counter(
+def get_copaw_token_counter(
     agent_config: "AgentProfileConfig",
 ) -> CopawTokenCounter:
     """Get or create a token counter instance for the given agent conf.
@@ -172,7 +183,6 @@ def _get_copaw_token_counter(
     config_key = (
         running_config.token_count_model,
         running_config.token_count_use_mirror,
-        running_config.token_count_estimate_divisor,
     )
 
     if config_key not in _token_counter_cache:
@@ -183,10 +193,18 @@ def _get_copaw_token_counter(
                 running_config.token_count_estimate_divisor
             ),
         )
-        logger.debug(
-            "Token counter created with model=%s, mirror=%s, divisor=%s",
-            running_config.token_count_model,
-            running_config.token_count_use_mirror,
-            running_config.token_count_estimate_divisor,
+        logger.info(
+            f"Token counter created with "
+            f"model={running_config.token_count_model}, "
+            f"mirror={running_config.token_count_use_mirror}, "
+            f"divisor={running_config.token_count_estimate_divisor}",
         )
+    else:
+        # Update estimate divisor for cached counter
+        _token_counter_cache[
+            config_key
+        ].token_count_estimate_divisor = (
+            running_config.token_count_estimate_divisor
+        )
+
     return _token_counter_cache[config_key]

@@ -70,7 +70,16 @@ MAX_QUICK_DISCONNECT_COUNT = 3
 
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
-_URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+_URL_PATTERN = re.compile(r"https?://[^\s]+|www\.[^\s]+", re.IGNORECASE)
+# More aggressive pattern: also catches bare domains like 12306.cn, google.com
+_BARE_DOMAIN_PATTERN = re.compile(
+    r"https?://[^\s]+|www\.[^\s]+"
+    r"|\b[\w][\w.-]*\."
+    r"(?:com|cn|org|net|edu|gov|io|co|cc|tv|me|info|biz|app|dev|top|xyz"
+    r"|site|vip|shop|tech|club|pro|live|mobi|asia|wiki)"
+    r"(?:\.[a-z]{2,3})?\b(?:/[^\s]*)?",
+    re.IGNORECASE,
+)
 _IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
@@ -98,6 +107,33 @@ def _sanitize_qq_text(text: str) -> tuple[str, bool]:
     return sanitized, count > 0
 
 
+def _aggressive_sanitize_qq_text(text: str) -> tuple[str, bool]:
+    """More aggressive URL stripping – also catches bare domain patterns.
+
+    Used as a second-level fallback when QQ still rejects the message
+    because of URL-like content that ``_sanitize_qq_text`` did not catch.
+    """
+    if not text:
+        return "", False
+    sanitized, count = _BARE_DOMAIN_PATTERN.subn("[链接已省略]", text)
+    return sanitized, count > 0
+
+
+def _is_url_content_error(exc: Exception) -> bool:
+    """Return *True* if QQ rejected the message because it contains a URL."""
+    if not isinstance(exc, QQApiError):
+        return False
+    try:
+        payload_text = json.dumps(exc.data, ensure_ascii=False).lower()
+    except Exception:
+        payload_text = str(exc.data).lower()
+    return (
+        "304003" in payload_text
+        or "40034028" in payload_text
+        or "不允许包含url" in payload_text
+    )
+
+
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -116,11 +152,16 @@ def _should_plaintext_fallback_from_markdown(exc: Exception) -> bool:
         payload_text = json.dumps(exc.data, ensure_ascii=False).lower()
     except Exception:
         payload_text = str(exc.data).lower()
+
+    # Check for markdown-related error messages or codes
     return (
         "markdown" in payload_text
         or "msg_type" in payload_text
         or "msg type" in payload_text
         or "message type" in payload_text
+        or "50056" in payload_text  # 不允许发送原生 markdown
+        or "不允许发送原生 markdown" in payload_text
+        or "40034012" in payload_text  # err_code for markdown not allowed
     )
 
 
@@ -253,14 +294,25 @@ async def _send_c2c_message_async(
     )
 
 
-async def _send_channel_message_async(
+async def _send_message_helper(
     session: Any,
     access_token: str,
-    channel_id: str,
+    endpoint_path: str,
     content: str,
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
 ) -> None:
+    """Helper function to send messages via QQ API.
+
+    Args:
+        session: aiohttp session
+        access_token: QQ access token
+        endpoint_path: API endpoint path (e.g.,
+            "/channels/{id}/messages" or "/dms/{id}/messages")
+        content: message content
+        msg_id: reply message id
+        use_markdown: whether to use markdown format
+    """
     body: Dict[str, Any] = (
         {"markdown": {"content": content}}
         if use_markdown
@@ -272,8 +324,45 @@ async def _send_channel_message_async(
         session,
         access_token,
         "POST",
-        f"/channels/{channel_id}/messages",
+        endpoint_path,
         body,
+    )
+
+
+async def _send_channel_message_async(
+    session: Any,
+    access_token: str,
+    channel_id: str,
+    content: str,
+    msg_id: Optional[str] = None,
+    use_markdown: bool = False,
+) -> None:
+    await _send_message_helper(
+        session,
+        access_token,
+        f"/channels/{channel_id}/messages",
+        content,
+        msg_id,
+        use_markdown,
+    )
+
+
+async def _send_dm_message_async(
+    session: Any,
+    access_token: str,
+    guild_id: str,
+    content: str,
+    msg_id: Optional[str] = None,
+    use_markdown: bool = False,
+) -> None:
+    """Send a direct message in a guild via /dms/{guild_id}/messages."""
+    await _send_message_helper(
+        session,
+        access_token,
+        f"/dms/{guild_id}/messages",
+        content,
+        msg_id,
+        use_markdown,
     )
 
 
@@ -623,6 +712,7 @@ class QQChannel(BaseChannel):
         sender_id = meta.get("sender_id") or to_handle
         channel_id = meta.get("channel_id")
         group_openid = meta.get("group_openid")
+        guild_id = meta.get("guild_id")
         if message_type is None:
             if to_handle.startswith("group:"):
                 message_type = "group"
@@ -644,6 +734,15 @@ class QQChannel(BaseChannel):
                     self._http,
                     token,
                     sender_id,
+                    send_text,
+                    msg_id,
+                    use_markdown=markdown,
+                )
+            elif message_type == "dm" and guild_id:
+                await _send_dm_message_async(
+                    self._http,
+                    token,
+                    guild_id,
                     send_text,
                     msg_id,
                     use_markdown=markdown,
@@ -689,7 +788,23 @@ class QQChannel(BaseChannel):
                 text_sent = True
             except Exception as exc:
                 if not use_markdown:
-                    logger.exception("send text failed")
+                    if _is_url_content_error(exc):
+                        logger.warning(
+                            "send text failed due to URL content; "
+                            "trying aggressive URL stripping",
+                        )
+                        aggressive_text, _ = _aggressive_sanitize_qq_text(
+                            clean_text,
+                        )
+                        try:
+                            await _dispatch(aggressive_text, False)
+                            text_sent = True
+                        except Exception:
+                            logger.exception(
+                                "send text aggressive fallback failed",
+                            )
+                    else:
+                        logger.exception("send text failed")
                 elif not _should_plaintext_fallback_from_markdown(exc):
                     logger.exception(
                         "send text failed with markdown; "
@@ -709,8 +824,25 @@ class QQChannel(BaseChannel):
                     try:
                         await _dispatch(fallback_text, False)
                         text_sent = True
-                    except Exception:
-                        logger.exception("send text fallback failed")
+                    except Exception as exc2:
+                        if _is_url_content_error(exc2):
+                            logger.warning(
+                                "send text fallback still rejected "
+                                "due to URL content; trying aggressive "
+                                "URL stripping",
+                            )
+                            aggressive_text, _ = _aggressive_sanitize_qq_text(
+                                clean_text,
+                            )
+                            try:
+                                await _dispatch(aggressive_text, False)
+                                text_sent = True
+                            except Exception:
+                                logger.exception(
+                                    "send text aggressive fallback failed",
+                                )
+                        else:
+                            logger.exception("send text fallback failed")
 
         # Send images if any
         if image_urls and message_type in ("c2c", "group"):
@@ -993,18 +1125,33 @@ class QQChannel(BaseChannel):
         except Exception as e:
             logger.exception("qq process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
+
+            # Try to send error message to user
             try:
                 fallback_handle = getattr(request, "user_id", "")
-                await self.send_content_parts(
-                    fallback_handle,
-                    [
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=f"Error: {err_msg}",
-                        ),
-                    ],
-                    getattr(request, "channel_meta", None) or {},
-                )
+                if not fallback_handle and hasattr(request, "sender_id"):
+                    fallback_handle = request.sender_id
+                if not fallback_handle:
+                    # Try to extract from channel_meta
+                    meta = getattr(request, "channel_meta", {}) or {}
+                    fallback_handle = meta.get("sender_id", "")
+
+                if fallback_handle:
+                    error_text = self.bot_prefix + f"Error: {err_msg}"
+                    await self.send_content_parts(
+                        fallback_handle,
+                        [
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=error_text,
+                            ),
+                        ],
+                        getattr(request, "channel_meta", None) or {},
+                    )
+                else:
+                    logger.warning(
+                        "Cannot determine user to send error message to",
+                    )
             except Exception:
                 logger.exception("send error message failed")
 

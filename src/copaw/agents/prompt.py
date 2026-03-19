@@ -196,7 +196,7 @@ def build_system_prompt_from_working_dir(
     prompt = builder.build()
 
     # Add agent identity information at the beginning of the prompt
-    if agent_id and agent_id != "default":
+    if agent_id:
         identity_header = (
             f"# Agent Identity\n\n"
             f"Your agent id is `{agent_id}`. "

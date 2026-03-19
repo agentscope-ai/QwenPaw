@@ -129,12 +129,6 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
 # (dev only; keep False in prod).
 DOCS_ENABLED = EnvVarLoader.get_bool("COPAW_OPENAPI_DOCS", False)
 
-# Skills directories
-# Active skills directory (activated skills that agents use)
-ACTIVE_SKILLS_DIR = WORKING_DIR / "active_skills"
-# Customized skills directory (user-created skills)
-CUSTOMIZED_SKILLS_DIR = WORKING_DIR / "customized_skills"
-
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
 

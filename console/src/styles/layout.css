@@ -569,9 +569,10 @@ html.dark-mode .ant-drawer-body .ant-form-item-label > label {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-/* Tooltip info icon inside drawer */
-html.dark-mode .copaw-drawer-body .anticon-info-circle,
-html.dark-mode .ant-drawer-body .anticon-info-circle {
+/* Tooltip info icon inside drawer (Form.Item tooltip only, not Alert icons) */
+html.dark-mode .copaw-drawer-body .copaw-form-item-label .anticon-info-circle,
+html.dark-mode .copaw-drawer-body .ant-form-item-label .anticon-info-circle,
+html.dark-mode .ant-drawer-body .ant-form-item-label .anticon-info-circle {
   color: rgba(255, 255, 255, 0.3) !important;
 }
 
@@ -686,7 +687,6 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
 .page-content {
   flex: 1 1 auto;
   overflow: auto;
-  padding: 0 24px 24px 24px;
 }
 
 .table-container {
