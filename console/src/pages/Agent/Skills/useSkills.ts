@@ -241,8 +241,7 @@ export function useSkills() {
       });
       if (result?.count > 0) {
         message.success(
-          t("skills.uploadSuccess")
-            + `: ${result.imported.join(", ")}`,
+          t("skills.uploadSuccess") + `: ${result.imported.join(", ")}`,
         );
         await fetchSkills();
         for (const name of result.imported) {
