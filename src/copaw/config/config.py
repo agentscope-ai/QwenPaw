@@ -303,14 +303,14 @@ class AgentsRunningConfig(BaseModel):
     )
 
     tool_result_compact_recent_n: int = Field(
-        default=1,
+        default=2,
         ge=1,
         le=10,
         description="Number of recent messages to use recent_threshold for",
     )
 
     tool_result_compact_old_threshold: int = Field(
-        default=500,
+        default=1000,
         ge=100,
         description="Character threshold for old messages "
         "in tool result compaction",
