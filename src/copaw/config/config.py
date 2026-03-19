@@ -578,6 +578,7 @@ class MCPClientConfig(BaseModel):
             normalized = raw_transport.strip().lower()
             transport_alias_map = {
                 "streamablehttp": "streamable_http",
+                "streamable-http": "streamable_http",
                 "http": "streamable_http",
                 "stdio": "stdio",
                 "sse": "sse",
