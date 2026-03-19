@@ -232,24 +232,6 @@ PROVIDER_KIMI_INTL = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_KIMI_CN = OpenAIProvider(
-    id="kimi-cn",
-    name="Kimi (China)",
-    base_url="https://api.moonshot.cn/v1",
-    api_key_prefix="",
-    models=KIMI_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_KIMI_INTL = OpenAIProvider(
-    id="kimi-intl",
-    name="Kimi (International)",
-    base_url="https://api.moonshot.ai/v1",
-    api_key_prefix="",
-    models=KIMI_MODELS,
-    freeze_url=True,
-)
-
 PROVIDER_DEEPSEEK = OpenAIProvider(
     id="deepseek",
     name="DeepSeek",
