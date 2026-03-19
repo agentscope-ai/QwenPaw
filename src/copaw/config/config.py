@@ -129,6 +129,30 @@ class ChannelConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_null_media_dir(cls, data):
+        """Convert legacy/null media_dir values to field defaults.
+
+        Older config.json files may contain explicit null for media_dir.
+        Pydantic v2 does not coerce null into str fields, so we remove the key
+        to let model defaults apply.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        for channel_key in ("imessage", "dingtalk", "feishu", "mattermost"):
+            channel_cfg = payload.get(channel_key)
+            if channel_cfg is None:
+                payload.pop(channel_key, None)
+                continue
+            if isinstance(channel_cfg, dict) and channel_cfg.get("media_dir") is None:
+                normalized = dict(channel_cfg)
+                normalized.pop("media_dir", None)
+                payload[channel_key] = normalized
+        return payload
+
     imessage: IMessageChannelConfig = IMessageChannelConfig()
     discord: DiscordConfig = DiscordConfig()
     dingtalk: DingTalkConfig = DingTalkConfig()
@@ -255,6 +279,18 @@ class AgentsLLMRoutingConfig(BaseModel):
 
 
 class AgentsConfig(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_null_defaults(cls, data):
+        """Convert legacy null defaults to model default_factory."""
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        if payload.get("defaults") is None:
+            payload.pop("defaults", None)
+        return payload
+
     defaults: AgentsDefaultsConfig = Field(
         default_factory=AgentsDefaultsConfig,
     )
