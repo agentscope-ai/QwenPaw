@@ -77,8 +77,7 @@ class DynamicMultiAgentRunner:
         try:
             workspace = await self._multi_agent_manager.get_agent(agent_id)
             logger.debug(
-                f"Got workspace: {workspace.agent_id}, "
-                f"runner: {workspace.runner}",
+                f"Got workspace: {workspace.agent_id}, runner: {workspace.runner}",
             )
             return workspace.runner
         except ValueError as e:
@@ -329,8 +328,8 @@ app.include_router(
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
 
-# Mount console: root static files (logo.png etc.) then assets, then SPA
-# fallback.
+# Console static files and SPA fallback
+# Register these AFTER API routes to ensure proper routing priority
 if os.path.isdir(_CONSOLE_STATIC_DIR):
     _console_path = Path(_CONSOLE_STATIC_DIR)
 
@@ -383,7 +382,14 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         _ = full_path
         return _serve_console_index()
 
+    # SPA fallback: catch-all route for frontend routing
+    # Must be registered AFTER all API routes to avoid conflicts
     @app.get("/{full_path:path}")
     def _console_spa(full_path: str):
-        _ = full_path
+        # Prevent catching common system/special paths
+        if full_path in ("docs", "redoc", "openapi.json"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        # Skip API routes (should already be matched due to registration order)
+        if full_path.startswith("api/") or full_path == "api":
+            raise HTTPException(status_code=404, detail="Not Found")
         return _serve_console_index()
