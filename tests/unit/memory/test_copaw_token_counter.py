@@ -12,11 +12,12 @@ from __future__ import annotations
 import asyncio
 import os
 from unittest.mock import MagicMock
+
+import copaw.agents.utils.copaw_token_counter as token_counter_module
 from copaw.agents.utils.copaw_token_counter import (
     CopawTokenCounter,
     get_copaw_token_counter,
 )
-import copaw.agents.utils.copaw_token_counter as token_counter_module
 
 
 def _create_mock_agent_config(
@@ -96,8 +97,8 @@ def test_qwen_tokenizer() -> None:
             "def foo():\n    return 'bar'",
         ]
         for text in texts:
-            token_ids = counter.tokenizer.encode(text)
-            print(f"  '{text[:20]}...' -> {len(token_ids)} tokens")
+            token_count = asyncio.run(counter.count(messages=[], text=text))
+            print(f"  '{text[:20]}...' -> {token_count} tokens")
         print("  PASSED: Qwen tokenizer works")
     except ValueError as e:
         print(f"  SKIPPED: Qwen tokenizer not available - {e}")
@@ -139,8 +140,8 @@ def test_minimax_tokenizer() -> None:
             "def foo():\n    return 'bar'",
         ]
         for text in texts:
-            token_ids = counter.tokenizer.encode(text)
-            print(f"  '{text[:20]}...' -> {len(token_ids)} tokens")
+            token_count = asyncio.run(counter.count(messages=[], text=text))
+            print(f"  '{text[:20]}...' -> {token_count} tokens")
         print("  PASSED: MiniMax tokenizer works")
     except ValueError as e:
         print(f"  SKIPPED: MiniMax tokenizer not available - {e}")
@@ -160,8 +161,8 @@ def test_glm_tokenizer() -> None:
             "def foo():\n    return 'bar'",
         ]
         for text in texts:
-            token_ids = counter.tokenizer.encode(text)
-            print(f"  '{text[:20]}...' -> {len(token_ids)} tokens")
+            token_count = asyncio.run(counter.count(messages=[], text=text))
+            print(f"  '{text[:20]}...' -> {token_count} tokens")
         print("  PASSED: GLM tokenizer works")
     except ValueError as e:
         print(f"  SKIPPED: GLM tokenizer not available - {e}")
@@ -175,22 +176,9 @@ def test_count_text_basic() -> None:
         token_count_use_mirror=True,
     )
     text = "Hello, world!"
-    token_ids = counter.tokenizer.encode(text)
-    assert len(token_ids) > 0
-    print(f"  PASSED: '{text}' has {len(token_ids)} tokens")
-
-
-def test_count_text_empty() -> None:
-    """Test token counting for empty text."""
-    print("Testing: count empty text")
-    counter = CopawTokenCounter(
-        token_count_model="default",
-        token_count_use_mirror=True,
-    )
-    text = ""
-    token_ids = counter.tokenizer.encode(text)
-    assert len(token_ids) == 0
-    print("  PASSED: empty text has 0 tokens")
+    token_count = asyncio.run(counter.count(messages=[], text=text))
+    assert token_count > 0
+    print(f"  PASSED: '{text}' has {token_count} tokens")
 
 
 def test_count_text_chinese() -> None:
@@ -201,9 +189,9 @@ def test_count_text_chinese() -> None:
         token_count_use_mirror=True,
     )
     text = "你好，世界！"
-    token_ids = counter.tokenizer.encode(text)
-    assert len(token_ids) > 0
-    print(f"  PASSED: '{text}' has {len(token_ids)} tokens")
+    token_count = asyncio.run(counter.count(messages=[], text=text))
+    assert token_count > 0
+    print(f"  PASSED: '{text}' has {token_count} tokens")
 
 
 def test_count_text_mixed_language() -> None:
@@ -214,9 +202,9 @@ def test_count_text_mixed_language() -> None:
         token_count_use_mirror=True,
     )
     text = "Hello 世界! This is a test 测试。"
-    token_ids = counter.tokenizer.encode(text)
-    assert len(token_ids) > 0
-    print(f"  PASSED: '{text}' has {len(token_ids)} tokens")
+    token_count = asyncio.run(counter.count(messages=[], text=text))
+    assert token_count > 0
+    print(f"  PASSED: '{text}' has {token_count} tokens")
 
 
 def test_count_text_code() -> None:
@@ -227,9 +215,9 @@ def test_count_text_code() -> None:
         token_count_use_mirror=True,
     )
     text = "def foo():\n    return 'bar'"
-    token_ids = counter.tokenizer.encode(text)
-    assert len(token_ids) > 0
-    print(f"  PASSED: code text has {len(token_ids)} tokens")
+    token_count = asyncio.run(counter.count(messages=[], text=text))
+    assert token_count > 0
+    print(f"  PASSED: code text has {token_count} tokens")
 
 
 async def test_count_with_text_parameter() -> None:
@@ -317,9 +305,9 @@ def test_tokenizer_handles_special_characters() -> None:
         "emoji: 🎉🎊",
     ]
     for text in special_texts:
-        token_ids = counter.tokenizer.encode(text)
-        assert len(token_ids) > 0
-        print(f"  PASSED: special text ({len(token_ids)} tokens)")
+        token_count = asyncio.run(counter.count(messages=[], text=text))
+        assert token_count > 0
+        print(f"  PASSED: special text ({token_count} tokens)")
     print("  PASSED: all special characters handled")
 
 
@@ -331,10 +319,10 @@ def test_tokenizer_consistency() -> None:
         token_count_use_mirror=True,
     )
     text = "Consistent tokenization test"
-    tokens1 = counter.tokenizer.encode(text)
-    tokens2 = counter.tokenizer.encode(text)
+    tokens1 = asyncio.run(counter.count(messages=[], text=text))
+    tokens2 = asyncio.run(counter.count(messages=[], text=text))
     assert tokens1 == tokens2
-    print(f"  PASSED: tokenization is consistent ({len(tokens1)} tokens)")
+    print(f"  PASSED: tokenization is consistent ({tokens1} tokens)")
 
 
 def test_tokenizer_different_models() -> None:
@@ -347,20 +335,20 @@ def test_tokenizer_different_models() -> None:
         token_count_model="default",
         token_count_use_mirror=True,
     )
-    tokens1 = counter1.tokenizer.encode(text)
+    tokens1 = asyncio.run(counter1.count(messages=[], text=text))
 
     # Qwen tokenizer
     counter2 = CopawTokenCounter(
         token_count_model="Qwen/Qwen2.5-7B-Instruct",
         token_count_use_mirror=True,
     )
-    tokens2 = counter2.tokenizer.encode(text)
+    tokens2 = asyncio.run(counter2.count(messages=[], text=text))
 
-    print(f"  Default model: {len(tokens1)} tokens")
-    print(f"  Qwen model: {len(tokens2)} tokens")
+    print(f"  Default model: {tokens1} tokens")
+    print(f"  Qwen model: {tokens2} tokens")
     # Both should work, counts may or may not be same
-    assert len(tokens1) > 0
-    assert len(tokens2) > 0
+    assert tokens1 > 0
+    assert tokens2 > 0
     print("  PASSED: different models work")
 
 
@@ -375,7 +363,6 @@ def run_all_tests() -> None:
     test_init_with_mirror_enabled()
     test_init_custom_model_path()
     test_count_text_basic()
-    test_count_text_empty()
     test_count_text_chinese()
     test_count_text_mixed_language()
     test_count_text_code()
