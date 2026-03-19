@@ -41,12 +41,15 @@ from .tools import (
     memify_status,
     read_file,
     send_file_to_user,
+    set_user_timezone,
     triplet_focus_search,
+    view_image,
     write_file,
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
+from ..config import load_config
 from ..constant import (
     WORKING_DIR,
 )
@@ -193,6 +196,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             Configured toolkit instance
         """
         toolkit = Toolkit()
+        config = load_config()
 
         # Check which tools are enabled from agent config
         enabled_tools = {}
@@ -287,9 +291,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Args:
             toolkit: Toolkit to register skills to
         """
-        ensure_skills_initialized()
+        workspace_dir = self._workspace_dir or WORKING_DIR
 
-        # Check skills initialization
+        # Ensure active skills are initialized in the current workspace.
         ensure_skills_initialized(workspace_dir)
 
         working_skills_dir = get_working_skills_dir(workspace_dir)

@@ -197,8 +197,7 @@ def _build_client_info(
     )
 
 
-def _get_active_keys(request: Request) -> set:
-    mcp_manager = getattr(request.app.state, "mcp_manager", None)
+def _get_active_keys(mcp_manager) -> set:
     return mcp_manager.active_keys() if mcp_manager is not None else set()
 
 
@@ -216,8 +215,10 @@ async def list_mcp_clients(request: Request) -> List[MCPClientInfo]:
     if mcp_config is None or not mcp_config.clients:
         return []
 
+    active_keys = _get_active_keys(agent.mcp_manager)
+
     return [
-        _build_client_info(key, client)
+        _build_client_info(key, client, active=key in active_keys)
         for key, client in mcp_config.clients.items()
     ]
 
@@ -242,7 +243,7 @@ async def get_mcp_client(
     client = mcp_config.clients.get(client_key)
     if client is None:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
-    active_keys = _get_active_keys(request)
+    active_keys = _get_active_keys(agent.mcp_manager)
     return _build_client_info(client_key, client, active=client_key in active_keys)
 
 
@@ -256,17 +257,23 @@ async def refresh_mcp_client_status(
     client_key: str = Path(...),
 ) -> MCPClientInfo:
     """Actively probe an MCP client and return its latest runtime status."""
-    config = load_config()
-    client = config.mcp.clients.get(client_key)
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    mcp_config = agent.config.mcp
+    if mcp_config is None:
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    client = mcp_config.clients.get(client_key)
     if client is None:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
 
-    mcp_manager = getattr(request.app.state, "mcp_manager", None)
+    mcp_manager = agent.mcp_manager
     if mcp_manager is None:
         raise HTTPException(503, detail="MCP manager is unavailable")
 
     await mcp_manager.refresh_client_status(client_key, client)
-    active_keys = _get_active_keys(request)
+    active_keys = _get_active_keys(mcp_manager)
     return _build_client_info(client_key, client, active=client_key in active_keys)
 
 
