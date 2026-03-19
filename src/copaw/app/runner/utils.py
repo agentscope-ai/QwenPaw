@@ -182,7 +182,7 @@ def agentscope_msg_to_message(
             if btype == "text":
                 if current_type != MessageType.MESSAGE:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.MESSAGE,
                         role=role,
@@ -200,7 +200,7 @@ def agentscope_msg_to_message(
             elif btype == "thinking":
                 if current_type != MessageType.REASONING:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.REASONING,
                         role=role,
@@ -217,7 +217,7 @@ def agentscope_msg_to_message(
 
             elif btype == "tool_use":
                 if current_message:
-                    results.append(current_message)
+                    results.append(current_message.completed())
 
                 current_message = Message(
                     type=MessageType.PLUGIN_CALL,
@@ -249,7 +249,7 @@ def agentscope_msg_to_message(
 
             elif btype == "tool_result":
                 if current_message:
-                    results.append(current_message)
+                    results.append(current_message.completed())
 
                 current_message = Message(
                     type=MessageType.PLUGIN_CALL_OUTPUT,
@@ -282,7 +282,7 @@ def agentscope_msg_to_message(
             elif btype == "image":
                 if current_type != MessageType.MESSAGE:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.MESSAGE,
                         role=role,
@@ -321,7 +321,7 @@ def agentscope_msg_to_message(
             elif btype == "audio":
                 if current_type != MessageType.MESSAGE:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.MESSAGE,
                         role=role,
@@ -362,7 +362,7 @@ def agentscope_msg_to_message(
             elif btype == "video":
                 if current_type != MessageType.MESSAGE:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.MESSAGE,
                         role=role,
@@ -401,7 +401,7 @@ def agentscope_msg_to_message(
             elif btype == "file":
                 if current_type != MessageType.MESSAGE:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.MESSAGE,
                         role=role,
@@ -445,7 +445,7 @@ def agentscope_msg_to_message(
             else:
                 if current_type != MessageType.MESSAGE:
                     if current_message:
-                        results.append(current_message)
+                        results.append(current_message.completed())
                     current_message = Message(
                         type=MessageType.MESSAGE,
                         role=role,
@@ -461,6 +461,6 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=text_content)
 
         if current_message:
-            results.append(current_message)
+            results.append(current_message.completed())
 
     return results

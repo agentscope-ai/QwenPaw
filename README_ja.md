@@ -106,7 +106,7 @@ copaw app
 
 ブラウザで **http://127.0.0.1:8088/** を開くとコンソール（CoPawとのチャット、エージェントの設定）が利用できます。DingTalk、Feishu、QQなどで会話するには、[チャネルドキュメント](https://copaw.agentscope.io/docs/channels)でチャネルを接続してください。
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01z9VY6z1uMad7pgrCj_!!6000000006023-2-tps-3822-2064.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01VYsFVo23aAvIM3GXB_!!6000000007271-2-tps-3328-1860.png)
 
 ### ワンラインインストール（ベータ版、継続的に改善中）
 

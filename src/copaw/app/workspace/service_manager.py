@@ -42,6 +42,7 @@ class ServiceDescriptor:
         start_method: Name of method to call after creation (e.g., 'start')
         stop_method: Name of method to call during shutdown (e.g., 'stop')
         reusable: Whether this service can be reused across reloads
+        reload_func: Optional hook called when reusable service is reused
         dependencies: List of service names that must start before this one
         priority: Startup priority (lower = earlier, reversed for shutdown)
         concurrent_init: Whether this can be initialized concurrently
@@ -59,6 +60,12 @@ class ServiceDescriptor:
     start_method: Optional[str] = None
     stop_method: Optional[str] = None
     reusable: bool = False
+    reload_func: Optional[
+        Union[
+            Callable[[Workspace, Any], None],
+            Callable[[Workspace, Any], Awaitable[Any]],
+        ]
+    ] = None
     dependencies: List[str] = field(default_factory=list)
     priority: int = 100
     concurrent_init: bool = True
@@ -96,10 +103,11 @@ class ServiceManager:
         self.descriptors[descriptor.name] = descriptor
         logger.debug(f"Registered service: {descriptor.name}")
 
-    def set_reusable(self, name: str, instance: Any) -> None:
+    async def set_reusable(self, name: str, instance: Any) -> None:
         """Mark a service instance as reused from previous workspace.
 
-        Must be called before start_all().
+        Must be called before start_all(). If the service descriptor has a
+        reload_func, it will be called with the workspace and instance.
 
         Args:
             name: Service name
@@ -122,6 +130,18 @@ class ServiceManager:
         self.services[name] = instance
         self.reused_services.add(name)
         logger.debug(f"Marked service '{name}' as reused")
+
+        # Trigger reload_func if provided
+        if descriptor.reload_func is not None:
+            try:
+                result = descriptor.reload_func(self.workspace, instance)
+                if asyncio.iscoroutine(result):
+                    await result
+                logger.debug(f"Called reload_func for service '{name}'")
+            except Exception as e:
+                logger.warning(
+                    f"Error calling reload_func for service '{name}': {e}",
+                )
 
     def get_reusable_services(self) -> Dict[str, Any]:
         """Get all reusable service instances for transfer to new workspace.

@@ -13,6 +13,10 @@ services:
     restart: always
     ports:
       - "127.0.0.1:8088:8088"
+    # environment:
+    #   - COPAW_AUTH_ENABLED=true
+    #   - COPAW_AUTH_USERNAME=admin
+    #   - COPAW_AUTH_PASSWORD=yourpassword
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret

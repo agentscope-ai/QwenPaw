@@ -42,9 +42,11 @@ def test_prompt_with_default_agent_id(
         agent_id="default",
     )
 
-    # 'default' is special and should not add identity header
+    # 'default' agent should also have identity header
+    # so it knows its own agent_id
     assert "You are a helpful assistant" in prompt
-    assert "Agent Identity" not in prompt
+    assert "Agent Identity" in prompt
+    assert "Your agent id is `default`" in prompt
 
 
 def test_prompt_with_custom_agent_id(

@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
 import { TIMEZONE_OPTIONS, DEFAULT_FORM_VALUES } from "./constants";
+import styles from "../../CronJobs/index.module.less";
 
 type CronJob = CronJobSpecOutput;
 
@@ -20,6 +21,7 @@ interface JobDrawerProps {
   open: boolean;
   editingJob: CronJob | null;
   form: FormInstance<CronJob>;
+  saving: boolean;
   onClose: () => void;
   onSubmit: (values: CronJob) => void;
 }
@@ -28,6 +30,7 @@ export function JobDrawer({
   open,
   editingJob,
   form,
+  saving,
   onClose,
   onSubmit,
 }: JobDrawerProps) {
@@ -41,6 +44,14 @@ export function JobDrawer({
       open={open}
       onClose={onClose}
       destroyOnClose
+      footer={
+        <div className={styles.formActions}>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button type="primary" loading={saving} onClick={() => form.submit()}>
+            {t("common.save")}
+          </Button>
+        </div>
+      }
     >
       <Form
         form={form}
@@ -365,24 +376,6 @@ export function JobDrawer({
           tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
         >
           <InputNumber min={0} style={{ width: "100%" }} placeholder="60" />
-        </Form.Item>
-
-        <Form.Item>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 8,
-              marginTop: 24,
-              paddingTop: 16,
-              borderTop: "1px solid #f0f0f0",
-            }}
-          >
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button type="primary" htmlType="submit">
-              {t("common.save")}
-            </Button>
-          </div>
         </Form.Item>
       </Form>
     </Drawer>

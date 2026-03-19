@@ -6,7 +6,6 @@ This package provides utilities for agent operations:
 - file_handling: File download and management
 - message_processing: Message content manipulation and validation
 - tool_message_utils: Tool message validation and sanitization
-- token_counting: Token counting for context window management
 - setup_utils: Setup and initialization utilities
 """
 
@@ -27,12 +26,7 @@ from .message_processing import (
 from .setup_utils import copy_md_files
 
 # Token counting
-from .token_counting import (
-    _get_token_counter,
-    count_message_tokens,
-    safe_count_message_tokens,
-    safe_count_str_tokens,
-)
+from .copaw_token_counter import get_copaw_token_counter
 
 # Tool message utilities
 from .tool_message_utils import (
@@ -43,8 +37,6 @@ from .tool_message_utils import (
     check_valid_messages,
     extract_tool_ids,
 )
-
-from .copaw_token_counter import _get_copaw_token_counter
 
 __all__ = [
     # File handling
@@ -57,10 +49,7 @@ __all__ = [
     # Setup utilities
     "copy_md_files",
     # Token counting
-    "_get_token_counter",
-    "count_message_tokens",
-    "safe_count_message_tokens",
-    "safe_count_str_tokens",
+    "get_copaw_token_counter",
     # Tool message utilities
     "_dedup_tool_blocks",
     "_remove_invalid_tool_blocks",
@@ -68,5 +57,4 @@ __all__ = [
     "_sanitize_tool_messages",
     "check_valid_messages",
     "extract_tool_ids",
-    "_get_copaw_token_counter",
 ]
