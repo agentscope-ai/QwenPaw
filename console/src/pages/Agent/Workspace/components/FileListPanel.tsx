@@ -24,7 +24,7 @@ interface FileListPanelProps {
   selectedFile: MarkdownFile | null;
   dailyMemories: DailyMemoryFile[];
   expandedMemory: boolean;
-  workspacePath: string;
+  workspacePath: string | null;
   enabledFiles: string[];
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;

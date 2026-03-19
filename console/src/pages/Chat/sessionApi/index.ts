@@ -7,6 +7,7 @@ import {
   IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec, type Message } from "../../../api";
+import { chatApi } from "../../../api/modules/chat";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -75,16 +76,47 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-/** Extract plain text from a message's content array. */
-const extractTextFromContent = (content: unknown): string => {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return String(content || "");
-  return (content as ContentItem[])
-    .filter((c) => c.type === "text")
-    .map((c) => c.text || "")
-    .filter(Boolean)
-    .join("\n");
-};
+/** Turn a backend content URL (path or full URL) into a full URL for display. */
+function toDisplayUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return chatApi.fileUrl(url.startsWith("/") ? url : `/${url}`);
+}
+
+/** Map backend message content to request card content (text + image + file). */
+function contentToRequestParts(
+  content: unknown,
+): Array<Record<string, unknown>> {
+  if (typeof content === "string") {
+    return [{ type: "text", text: content, status: "created" }];
+  }
+  if (!Array.isArray(content)) {
+    return [{ type: "text", text: String(content || ""), status: "created" }];
+  }
+  const parts: Array<Record<string, unknown>> = [];
+  for (const c of content as ContentItem[]) {
+    if (c.type === "text") {
+      if (c.text) parts.push({ type: "text", text: c.text, status: "created" });
+    } else if (c.type === "image" && c.image_url) {
+      parts.push({
+        type: "image",
+        image_url: toDisplayUrl(c.image_url as string),
+        status: "created",
+      });
+    } else if (c.type === "file" && (c.file_url || c.file_id)) {
+      parts.push({
+        type: "file",
+        file_url: toDisplayUrl((c.file_url as string) || (c.file_id as string)),
+        file_name: (c.filename as string) || (c.file_name as string) || "file",
+        status: "created",
+      });
+    }
+  }
+  if (parts.length === 0) {
+    parts.push({ type: "text", text: "", status: "created" });
+  }
+  return parts;
+}
 
 /**
  * Convert a backend message to a response output message.
@@ -101,7 +133,7 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
 function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
-  const text = extractTextFromContent(msg.content);
+  const contentParts = contentToRequestParts(msg.content);
   return {
     id: (msg.id as string) || generateId(),
     role: "user",
@@ -113,7 +145,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
             {
               role: "user",
               type: "message",
-              content: [{ type: "text", text, status: "created" }],
+              content: contentParts,
             },
           ],
         },

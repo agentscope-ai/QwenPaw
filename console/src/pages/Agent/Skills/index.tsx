@@ -13,6 +13,7 @@ function SkillsPage() {
     skills,
     loading,
     importing,
+    cancelImport,
     createSkill,
     importFromHub,
     toggleEnabled,
@@ -149,11 +150,10 @@ function SkillsPage() {
         footer={
           <div style={{ textAlign: "right" }}>
             <Button
-              onClick={closeImportModal}
+              onClick={importing ? cancelImport : closeImportModal}
               style={{ marginRight: 8 }}
-              disabled={importing}
             >
-              {t("common.cancel")}
+              {t(importing ? "skills.cancelImport" : "common.cancel")}
             </Button>
             <Button
               type="primary"

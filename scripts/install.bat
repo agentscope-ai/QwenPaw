@@ -443,7 +443,7 @@ rem for safety, if ARG_EXTRAS is defined globally, it is best to reuse the valid
 rem Assume EXTRAS_SUFFIX is generated here based on the previously validated ARG_EXTRAS, or is empty.
 rem If ARG_EXTRAS is passed globally, it is recommended to validate it uniformly at the beginning of the script.
 
-uv pip install "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow --quiet
+uv pip install "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow --quiet --refresh-package copaw
 if errorlevel 1 (
     echo [copaw] ERROR: Installation failed
     exit /b 1

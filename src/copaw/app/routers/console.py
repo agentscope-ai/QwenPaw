@@ -1,20 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Console APIs: push messages and chat."""
+"""Console APIs: push messages, chat, and file upload for chat."""
 from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
+from pathlib import Path
 from typing import AsyncGenerator, Union
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from starlette.responses import StreamingResponse
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from starlette.responses import FileResponse, StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ..agent_context import get_agent_for_request
 
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+def _safe_filename(name: str) -> str:
+    """Safe basename, alphanumeric/./-/_, max 200 chars."""
+    base = Path(name).name if name else "file"
+    return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -146,6 +158,69 @@ async def post_console_chat_stop(
     workspace = await get_agent_for_request(request)
     stopped = await workspace.task_tracker.request_stop(chat_id)
     return {"stopped": stopped}
+
+
+@router.post("/upload", response_model=dict, summary="Upload file for chat")
+async def post_console_upload(
+    request: Request,
+    file: UploadFile = File(..., description="File to attach"),
+) -> dict:
+    """Save to console channel media_dir."""
+
+    workspace = await get_agent_for_request(request)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+    media_dir = console_channel.media_dir
+    media_dir.mkdir(parents=True, exist_ok=True)
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="File too large (max "
+            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
+    safe_name = _safe_filename(file.filename or "file")
+    stored_name = f"{uuid.uuid4().hex}_{safe_name}"
+    (media_dir / stored_name).write_bytes(data)
+    return {
+        "url": stored_name,
+        "file_name": safe_name,
+        "size": len(data),
+    }
+
+
+@router.get("/files/{agent_id}/{filename}", summary="Serve uploaded chat file")
+async def get_console_file(
+    request: Request,
+    agent_id: str,
+    filename: str,
+):
+    """Serve file from console channel media_dir."""
+
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    workspace = await get_agent_for_request(request)
+    if workspace.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="Not found")
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+    media_dir = console_channel.media_dir
+    path = (media_dir / filename).resolve()
+    try:
+        path.relative_to(media_dir)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found") from None
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, filename=filename)
 
 
 @router.get("/push-messages")

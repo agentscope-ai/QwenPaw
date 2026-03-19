@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from agentscope.agent import ReActAgent
+from agentscope.message import Msg, TextBlock
 from copaw.constant import MEMORY_COMPACT_KEEP_RECENT
 
 from ..utils import (
@@ -58,6 +59,24 @@ class MemoryCompactionHook:
         self.tool_result_compact_keep_n = (
             running_config.tool_result_compact_keep_n
         )
+
+    @staticmethod
+    async def _print_status_message(
+        agent: ReActAgent,
+        text: str,
+    ) -> None:
+        """Print a status message to the agent's output.
+
+        Args:
+            agent: The agent instance to print the message for.
+            text: The text content of the status message.
+        """
+        msg = Msg(
+            name=agent.name,
+            role="assistant",
+            content=[TextBlock(type="text", text=text)],
+        )
+        await agent.print(msg)
 
     async def __call__(
         self,
@@ -159,10 +178,19 @@ class MemoryCompactionHook:
             self.memory_manager.add_async_summary_task(
                 messages=messages_to_compact,
             )
+            await self._print_status_message(
+                agent,
+                "🔄 Context compaction started...",
+            )
 
             compact_content = await self.memory_manager.compact_memory(
                 messages=messages_to_compact,
                 previous_summary=memory.get_compressed_summary(),
+            )
+
+            await self._print_status_message(
+                agent,
+                "✅ Context compaction completed",
             )
 
             await agent.memory.update_compressed_summary(compact_content)

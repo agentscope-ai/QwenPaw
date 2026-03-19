@@ -119,6 +119,7 @@ class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
+    media_dir: Optional[str] = None
 
 
 class WecomConfig(BaseChannelConfig):

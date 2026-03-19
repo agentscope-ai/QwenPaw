@@ -222,6 +222,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
             half = self._history_max_length // 2
             history_str = f"{history_str[:half]}\n...\n{history_str[-half:]}"
 
+        history_str += (
+            "\n\n- Use /message <index> to view full message content"
+        )
+
+        # Add compact summary hint if available
+        if self.memory.get_compressed_summary():
+            history_str += "\n- Use /compact_str to view full compact summary"
+
         return await self._make_system_msg(history_str)
 
     async def _process_await_summary(
@@ -295,12 +303,26 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         msg = messages[index - 1]
+
+        # Handle content display with truncation
+        content_str = str(msg.content)
+        truncated = False
+        if len(content_str) > self._history_max_length:
+            half = self._history_max_length // 2
+            content_str = f"{content_str[:half]}\n...\n{content_str[-half:]}"
+            truncated = True
+
+        truncation_hint = (
+            "\n\n- Content truncated, use /dump_history to view full content"
+            if truncated
+            else ""
+        )
         return await self._make_system_msg(
             f"**Message {index}/{len(messages)}**\n\n"
             f"- **Timestamp:** {msg.timestamp}\n"
             f"- **Name:** {msg.name}\n"
             f"- **Role:** {msg.role}\n"
-            f"- **Content:**\n{msg.content}",
+            f"- **Content:**\n{content_str}{truncation_hint}",
         )
 
     async def _process_dump_history(
@@ -322,16 +344,36 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
 
         try:
+            # Check if there's a compressed summary
+            compressed_summary = self.memory.get_compressed_summary()
+            has_summary = bool(compressed_summary)
+
+            # Build dump messages: summary first (if exists), then messages
+            dump_messages = []
+            if has_summary:
+                summary_msg = Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=compressed_summary)],
+                    metadata={"has_compressed_summary": "true"},
+                )
+                dump_messages.append(summary_msg)
+
+            dump_messages.extend(messages)
+
             with open(history_file, "w", encoding="utf-8") as f:
-                for msg in messages:
+                for msg in dump_messages:
                     f.write(
                         json.dumps(msg.to_dict(), ensure_ascii=False) + "\n",
                     )
 
-            logger.info(f"Dumped {len(messages)} messages to {history_file}")
+            logger.info(
+                f"Dumped {len(dump_messages)} messages to {history_file}",
+            )
             return await self._make_system_msg(
                 f"**History Dumped!**\n\n"
-                f"- Messages saved: {len(messages)}\n"
+                f"- Messages saved: {len(dump_messages)}\n"
+                f"- Has summary: {has_summary}\n"
                 f"- File: `{history_file}`",
             )
         except Exception as e:
@@ -367,18 +409,37 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         try:
             loaded_messages: list[Msg] = []
+            has_summary_marker = False
             with open(history_file, encoding="utf-8") as f:
-                for line in f:
+                for i, line in enumerate(f):
                     line = line.strip()
                     if line:
                         msg_dict = json.loads(line)
-                        loaded_messages.append(Msg.from_dict(msg_dict))
+                        msg = Msg.from_dict(msg_dict)
+                        loaded_messages.append(msg)
+                        # Check first message for summary marker
+                        if (
+                            i == 0
+                            and msg.metadata.get("has_compressed_summary")
+                            == "true"
+                        ):
+                            has_summary_marker = True
                         if len(loaded_messages) >= MAX_LOAD_HISTORY_COUNT:
                             break
 
-            # Clear existing memory and add loaded messages
+            # Clear existing memory
             self.memory.content.clear()
             self.memory.clear_compressed_summary()
+
+            # If first message has summary marker, extract and restore summary
+            if has_summary_marker and loaded_messages:
+                summary_msg = loaded_messages.pop(0)
+                # Extract summary content from the message
+                summary_content = summary_msg.get_text_content() or ""
+                # Set the compressed summary directly
+                await self.memory.update_compressed_summary(summary_content)
+                logger.info("Restored compressed summary from history file")
+
             for msg in loaded_messages:
                 await self.memory.add(msg)
 
@@ -388,6 +449,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return await self._make_system_msg(
                 f"**History Loaded!**\n\n"
                 f"- Messages loaded: {len(loaded_messages)}\n"
+                f"- Has summary: {has_summary_marker}\n"
                 f"- File: `{history_file}`\n"
                 f"- Memory cleared before loading",
             )

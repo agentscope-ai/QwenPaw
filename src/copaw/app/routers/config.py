@@ -32,6 +32,7 @@ from ...config.config import (
     SkillScannerWhitelistEntry,
     TelegramConfig,
     VoiceChannelConfig,
+    WecomConfig,
 )
 
 from .schemas_config import HeartbeatBody
@@ -51,6 +52,7 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mattermost": MattermostConfig,
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
+    "wecom": WecomConfig,
 }
 
 

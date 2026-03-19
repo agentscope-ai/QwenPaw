@@ -66,14 +66,19 @@ export function OllamaModelManageModal({
       await api.discoverModels(provider.id);
       const data = await api.listOllamaModels();
       setOllamaModels(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (error) {
       setOllamaModels([]);
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.ollamaFetchModelsFailed");
+      message.error(errMsg);
     } finally {
       onSaved();
       setDiscovering(false);
       setLoadingOllama(false);
     }
-  }, [provider.id, onSaved]);
+  }, [t, provider.id, onSaved]);
 
   const pollOllamaDownloads = useCallback(async () => {
     try {
