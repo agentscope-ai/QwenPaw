@@ -23,7 +23,7 @@ from ..constant import LLM_BACKOFF_BASE, LLM_BACKOFF_CAP, LLM_MAX_RETRIES
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
 
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
