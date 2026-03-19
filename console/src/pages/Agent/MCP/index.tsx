@@ -109,7 +109,9 @@ function normalizeClientData(key: string, rawData: RawMCPClientData) {
   const hasUrl = Boolean(rawData.url || rawData.baseUrl);
   const transport =
     normalizeTransport(rawData.transport ?? rawData.type) ??
-    (hasUrl || !rawData.command ? "streamable_http" : "stdio");
+    (hasUrl || !rawData.command
+      ? "streamable_http"
+      : "stdio");
 
   const command =
     transport === "stdio" ? (rawData.command ?? "").toString() : "";
@@ -379,27 +381,27 @@ function MCPPage() {
                 Fill
               </button>
             </li>
-            <li>
-              streamable_http example:{" "}
-              <code>{`{ "mcpServers": { "key": { "transport": "streamable_http", "url": "..." } } }`}</code>
-              <button
-                type="button"
-                onClick={() => handleFillTemplate(STREAMABLE_HTTP_TEMPLATE)}
-                style={{
-                  marginLeft: 8,
-                  border: "1px solid #d9d9d9",
-                  borderRadius: 4,
-                  background: "#fff",
-                  color: "#555",
-                  fontSize: 12,
-                  lineHeight: "20px",
-                  padding: "0 8px",
-                  cursor: "pointer",
-                }}
-              >
-                Fill
-              </button>
-            </li>
+              <li>
+                streamable_http example:{" "}
+                <code>{`{ "mcpServers": { "key": { "transport": "streamable_http", "url": "..." } } }`}</code>
+                <button
+                  type="button"
+                  onClick={() => handleFillTemplate(STREAMABLE_HTTP_TEMPLATE)}
+                  style={{
+                    marginLeft: 8,
+                    border: "1px solid #d9d9d9",
+                    borderRadius: 4,
+                    background: "#fff",
+                    color: "#555",
+                    fontSize: 12,
+                    lineHeight: "20px",
+                    padding: "0 8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Fill
+                </button>
+              </li>
           </ul>
         </div>
         <textarea
