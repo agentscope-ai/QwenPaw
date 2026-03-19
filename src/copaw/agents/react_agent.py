@@ -6,6 +6,7 @@ with integrated tools, skills, and memory management.
 """
 
 import asyncio
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -233,13 +234,26 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Args:
             toolkit: Toolkit to register skills to
         """
-        workspace_dir = self._workspace_dir or WORKING_DIR
+        workspace_dir = getattr(self, "_workspace_dir", None) or WORKING_DIR
 
-        # Check skills initialization
-        ensure_skills_initialized(workspace_dir)
+        def _call_skill_func(func, *args):
+            try:
+                parameters = inspect.signature(func).parameters
+            except (TypeError, ValueError):
+                parameters = {}
+            return func(*args) if len(parameters) > 0 else func()
 
-        working_skills_dir = get_working_skills_dir(workspace_dir)
-        available_skills = list_available_skills(workspace_dir)
+        # Ensure active skills are initialized in the current workspace.
+        _call_skill_func(ensure_skills_initialized, workspace_dir)
+
+        working_skills_dir = _call_skill_func(
+            get_working_skills_dir,
+            workspace_dir,
+        )
+        available_skills = _call_skill_func(
+            list_available_skills,
+            workspace_dir,
+        )
 
         for skill_name in available_skills:
             skill_dir = working_skills_dir / skill_name
