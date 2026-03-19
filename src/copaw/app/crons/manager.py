@@ -63,14 +63,7 @@ class CronManager:
                 try:
                     await self._register_or_update(job)
                 except Exception as e:  # pylint: disable=broad-except
-                    self._mark_job_error(job.id, e)
-                    logger.warning(
-                        "cron startup: skipping invalid persisted job "
-                        "job_id=%s name=%s error=%s",
-                        job.id,
-                        job.name,
-                        repr(e),
-                    )
+                    self._mark_job_invalid(job, e)
 
             # Heartbeat: one interval job when enabled in config
             hb = get_heartbeat_config()
@@ -204,12 +197,20 @@ class CronManager:
 
     # ----- internal -----
 
-    def _mark_job_error(self, job_id: str, error: Exception) -> None:
-        st = self._states.get(job_id, CronJobState())
+    def _mark_job_invalid(self, spec: CronJobSpec, exc: Exception) -> None:
+        """Record an invalid persisted job without aborting startup."""
+        self._rt.pop(spec.id, None)
+        st = self._states.get(spec.id, CronJobState())
         st.next_run_at = None
         st.last_status = "error"
-        st.last_error = repr(error)
-        self._states[job_id] = st
+        st.last_error = str(exc)
+        self._states[spec.id] = st
+        logger.warning(
+            "cron startup: skipping invalid persisted job job_id=%s name=%s error=%s",
+            spec.id,
+            spec.name,
+            repr(exc),
+        )
 
     async def _register_or_update(
         self,
