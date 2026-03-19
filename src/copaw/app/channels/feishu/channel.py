@@ -1742,10 +1742,23 @@ class FeishuChannel(BaseChannel):
         """Override to track the last sent message_id across all events
         and add a DONE reaction after the full reply is complete.
         """
+        process_fn = self._process
+        routed_agent_id = self._resolve_channel_routing(send_meta)
+        if routed_agent_id:
+            routed_process = await self._get_routed_process(
+                routed_agent_id,
+            )
+            if routed_process:
+                process_fn = routed_process
+                logger.info(
+                    "Channel routing: %s -> agent %s",
+                    self.channel,
+                    routed_agent_id,
+                )
         last_message_id: Optional[str] = None
         last_response = None
         try:
-            async for event in self._process(request):
+            async for event in process_fn(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
                 if obj == "message" and status == RunStatus.Completed:
@@ -1771,7 +1784,10 @@ class FeishuChannel(BaseChannel):
             elif last_message_id:
                 await self._add_reaction(last_message_id, "DONE")
             if self._on_reply_sent:
-                args = self.get_on_reply_sent_args(request, to_handle)
+                args = self.get_on_reply_sent_args(
+                    request,
+                    to_handle,
+                )
                 self._on_reply_sent(self.channel, *args)
         except Exception:
             logger.exception("channel consume_one failed")

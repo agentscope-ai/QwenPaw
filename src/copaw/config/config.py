@@ -452,9 +452,30 @@ class AgentProfileConfig(BaseModel):
     )
 
 
+class ChannelRoutingRule(BaseModel):
+    """Route channel messages to specific agents based on meta fields."""
+
+    channel: str = Field(..., description="Channel type, e.g. 'feishu'")
+    match_field: str = Field(
+        ...,
+        description="Meta field to match, e.g. 'feishu_chat_id'",
+    )
+    match_value: str = Field(..., description="Value to match")
+    target_agent_id: str = Field(
+        ...,
+        description="Agent ID to route to",
+    )
+
+
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
 
+    channel_routing: List[ChannelRoutingRule] = Field(
+        default_factory=list,
+        description=(
+            "Route channel messages to specific agents " "based on meta fields"
+        ),
+    )
     active_agent: str = Field(
         default="default",
         description="Currently active agent ID",
