@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file from project root before reading any env vars
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
 
 
 class EnvVarLoader:

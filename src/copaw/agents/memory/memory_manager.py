@@ -11,7 +11,6 @@ Extends ReMeLight to provide memory management capabilities including:
 import logging
 import os
 import platform
-from dotenv import load_dotenv
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg, TextBlock
@@ -87,7 +86,6 @@ class MemoryManager(ReMeLight):
             return
 
         # Get embedding config (supports hot-reload)
-        load_dotenv()
         emb_config = self.get_embedding_config()
 
         # Determine if vector search should be enabled based on configuration
@@ -181,7 +179,7 @@ class MemoryManager(ReMeLight):
         """
         if self.chat_model is None or self.formatter is None:
             logger.warning("Model and formatter not initialized.")
-            chat_model, formatter = create_model_and_formatter()
+            chat_model, formatter = create_model_and_formatter(self.agent_id)
             if self.chat_model is None:
                 self.chat_model = chat_model
             if self.formatter is None:

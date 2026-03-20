@@ -431,6 +431,11 @@
     "showValue": "Show value",
     "hideValue": "Hide value"
   },
+  "modelSelector": {
+    "selectModel": "Select model",
+    "noConfiguredModels": "No configured models",
+    "switchFailed": "Failed to switch model"
+  },
   "tokenUsage": {
     "title": "Token Usage",
     "description": "View LLM token consumption over time, by date and model.",

@@ -11,6 +11,30 @@ function getStreamApiUrl(): string {
   return `${base}/api`;
 }
 
+function buildHeaders(): HeadersInit {
+  const headers: Record<string, string> = {};
+
+  const token = getApiToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const selectedAgent = parsed?.state?.selectedAgent;
+      if (selectedAgent) {
+        headers["X-Agent-Id"] = selectedAgent;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to get selected agent from storage:", error);
+  }
+
+  return headers;
+}
+
 export const skillApi = {
   listSkills: () => request<SkillSpec[]>("/skills"),
 
@@ -204,11 +228,7 @@ export const skillApi = {
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
 
-    const headers: Record<string, string> = {};
-    const token = getApiToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+    const headers = buildHeaders();
 
     const response = await fetch(url, {
       method: "POST",

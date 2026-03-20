@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,6 +38,26 @@ if TYPE_CHECKING:
     from ...agents.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
+
+_APPROVE_RE = re.compile(
+    r"(?:^|[\s/])approve(?:\s|$)|批准|同意",
+    re.IGNORECASE,
+)
+_DENY_RE = re.compile(
+    r"not\s+approve|don'?t\s+approve|never\s+approve|不批准|拒绝|别批准|否决",
+    re.IGNORECASE,
+)
+
+
+def _is_approval(text: str) -> bool:
+    """Return True when *text* expresses approval intent.
+
+    Matches loosely (``approve`` / ``批准`` / ``同意`` anywhere) but rejects
+    negated forms (``not approve``, ``don't approve``, ``不批准``, …).
+    """
+    if _DENY_RE.search(text):
+        return False
+    return bool(_APPROVE_RE.search(text))
 
 
 class AgentRunner(Runner):
@@ -123,7 +144,7 @@ class AgentRunner(Runner):
             )
 
         normalized = (query or "").strip().lower()
-        if normalized in ("/daemon approve", "/approve"):
+        if _is_approval(normalized):
             await svc.resolve_request(
                 pending.request_id,
                 ApprovalDecision.APPROVED,

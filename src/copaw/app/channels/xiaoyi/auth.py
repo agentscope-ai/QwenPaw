@@ -48,20 +48,3 @@ def generate_auth_headers(ak: str, sk: str, agent_id: str) -> Dict[str, str]:
         "x-ts": timestamp,
         "x-agent-id": agent_id,
     }
-
-
-class XiaoYiAuth:
-    """XiaoYi authentication helper class."""
-
-    def __init__(self, ak: str, sk: str, agent_id: str):
-        self.ak = ak
-        self.sk = sk
-        self.agent_id = agent_id
-
-    def get_auth_headers(self) -> Dict[str, str]:
-        """Get authentication headers for WebSocket connection."""
-        return generate_auth_headers(self.ak, self.sk, self.agent_id)
-
-    def generate_signature(self, timestamp: str) -> str:
-        """Generate signature for given timestamp."""
-        return generate_signature(self.sk, timestamp)

@@ -38,7 +38,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     This function:
     1. Checks if migration is needed
     2. Creates default agent workspace
-    3. Migrates sessions, memory, and markdown files
+    3. Migrates legacy workspace files and directories
     4. Creates agent.json with legacy configuration
     5. Updates root config.json to new structure
 
@@ -197,6 +197,30 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     logger.info("=" * 60)
 
     return True
+
+
+def _migrate_root_markdown_files(
+    old_workspace: Path,
+    new_workspace: Path,
+    migrated_items: list,
+) -> None:
+    """Migrate root-level markdown files from the legacy workspace.
+
+    Args:
+        old_workspace: Source legacy workspace path
+        new_workspace: Destination workspace path
+        migrated_items: List to append migrated item names
+    """
+    if not old_workspace.exists():
+        return
+
+    for md_path in sorted(old_workspace.glob("*.md")):
+        _migrate_workspace_item(
+            md_path,
+            new_workspace / md_path.name,
+            md_path.name,
+            migrated_items,
+        )
 
 
 def _migrate_workspace_item(

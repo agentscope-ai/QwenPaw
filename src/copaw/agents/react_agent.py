@@ -267,10 +267,20 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             else None
         )
 
+        # Check if heartbeat is enabled in agent config
+        heartbeat_enabled = False
+        if (
+            hasattr(self._agent_config, "heartbeat")
+            and self._agent_config.heartbeat is not None
+        ):
+            heartbeat_enabled = self._agent_config.heartbeat.enabled
+
         sys_prompt = build_system_prompt_from_working_dir(
             working_dir=self._workspace_dir,
             agent_id=agent_id,
+            heartbeat_enabled=heartbeat_enabled,
         )
+        logger.debug("System prompt:\n%s", sys_prompt)
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
@@ -414,12 +424,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         client_name,
                     )
             except Exception as e:  # pylint: disable=broad-except
-                logger.exception(
-                    "Unexpected error registering MCP client '%s': %s",
+                logger.warning(
+                    "Failed to register MCP client '%s', skipping: %s",
                     client_name,
                     e,
+                    exc_info=True,
                 )
-                raise
 
     async def _recover_mcp_client(self, client: Any) -> Any | None:
         """Recover MCP client from broken session and return healthy client."""

@@ -18,14 +18,14 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiofiles
 import aiohttp
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    RunStatus,
     TextContent,
     ImageContent,
     VideoContent,
@@ -84,6 +84,111 @@ _IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "qq"
+
+
+# ---------------------------------------------------------------------------
+# Message event spec: describes how each WS event type maps to meta fields
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _MessageEventSpec:
+    """Describes the per-event-type differences for WS message dispatch."""
+
+    message_type: str
+    sender_keys: Tuple[str, ...]
+    extra_meta_keys: Tuple[str, ...] = ()
+
+
+_MESSAGE_EVENT_SPECS: Dict[str, _MessageEventSpec] = {
+    "C2C_MESSAGE_CREATE": _MessageEventSpec(
+        message_type="c2c",
+        sender_keys=("user_openid", "id"),
+    ),
+    "AT_MESSAGE_CREATE": _MessageEventSpec(
+        message_type="guild",
+        sender_keys=("id", "username"),
+        extra_meta_keys=("channel_id", "guild_id"),
+    ),
+    "DIRECT_MESSAGE_CREATE": _MessageEventSpec(
+        message_type="dm",
+        sender_keys=("id", "username"),
+        extra_meta_keys=("channel_id", "guild_id"),
+    ),
+    "GROUP_AT_MESSAGE_CREATE": _MessageEventSpec(
+        message_type="group",
+        sender_keys=("member_openid", "id"),
+        extra_meta_keys=("group_openid",),
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# WebSocket state & heartbeat helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _WSState:
+    """Mutable state carried across reconnect attempts."""
+
+    session_id: Optional[str] = None
+    last_seq: Optional[int] = None
+    reconnect_attempts: int = 0
+    last_connect_time: float = 0.0
+    quick_disconnect_count: int = 0
+    identify_fail_count: int = 0
+    should_refresh_token: bool = False
+
+
+class _HeartbeatController:
+    """Manages recurring WebSocket heartbeat via threading.Timer."""
+
+    def __init__(
+        self,
+        ws: Any,
+        stop_event: threading.Event,
+        state: _WSState,
+    ) -> None:
+        self._ws = ws
+        self._stop_event = stop_event
+        self._state = state
+        self._timer: Optional[threading.Timer] = None
+        self._interval: Optional[float] = None
+
+    def start(self, interval_ms: float) -> None:
+        self._interval = interval_ms
+        self._schedule()
+
+    def stop(self) -> None:
+        if self._timer:
+            self._timer.cancel()
+            self._timer = None
+
+    def _schedule(self) -> None:
+        if self._interval is None or self._stop_event.is_set():
+            return
+        self._timer = threading.Timer(
+            self._interval / 1000.0,
+            self._send_ping,
+        )
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _send_ping(self) -> None:
+        if self._stop_event.is_set():
+            return
+        try:
+            if self._ws.connected:
+                self._ws.send(
+                    json.dumps(
+                        {"op": OP_HEARTBEAT, "d": self._state.last_seq},
+                    ),
+                )
+                logger.debug("qq heartbeat sent")
+        except Exception:
+            pass
+        self._schedule()
 
 
 class QQApiError(RuntimeError):
@@ -204,31 +309,6 @@ def _get_channel_url_sync(access_token: str) -> str:
     return channel_url
 
 
-def _api_request_sync(
-    access_token: str,
-    method: str,
-    path: str,
-    body: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    import urllib.request
-
-    url = f"{_get_api_base()}{path}"
-    data = None
-    if body is not None:
-        data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Authorization": f"QQBot {access_token}",
-            "Content-Type": "application/json",
-        },
-        method=method,
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
-
-
 _msg_seq: Dict[str, int] = {}
 _msg_seq_lock = threading.Lock()
 
@@ -266,132 +346,65 @@ async def _api_request_async(
         return data
 
 
-async def _send_c2c_message_async(
+async def _send_message_async(
     session: Any,
     access_token: str,
-    openid: str,
+    path: str,
     content: str,
     msg_id: Optional[str] = None,
     use_markdown: bool = False,
+    use_msg_seq: bool = True,
+    seq_key: str = "",
 ) -> None:
-    msg_seq = _get_next_msg_seq(msg_id or "c2c")
-    if use_markdown:
-        body = {
-            "markdown": {"content": content},
-            "msg_type": 2,
-        }
-    else:
-        body = {"content": content, "msg_type": 0}
-    body["msg_seq"] = msg_seq
-    if msg_id:
-        body["msg_id"] = msg_id
-    await _api_request_async(
-        session,
-        access_token,
-        "POST",
-        f"/v2/users/{openid}/messages",
-        body,
-    )
-
-
-async def _send_message_helper(
-    session: Any,
-    access_token: str,
-    endpoint_path: str,
-    content: str,
-    msg_id: Optional[str] = None,
-    use_markdown: bool = False,
-) -> None:
-    """Helper function to send messages via QQ API.
+    """Send a text message to QQ API.
 
     Args:
-        session: aiohttp session
-        access_token: QQ access token
-        endpoint_path: API endpoint path (e.g.,
-            "/channels/{id}/messages" or "/dms/{id}/messages")
-        content: message content
-        msg_id: reply message id
-        use_markdown: whether to use markdown format
+        path: API path, e.g. /v2/users/{openid}/messages
+        use_msg_seq: c2c and group need msg_seq+msg_type;
+                     channel messages do not.
+        seq_key: key for msg_seq counter (e.g. msg_id or "c2c")
     """
-    body: Dict[str, Any] = (
-        {"markdown": {"content": content}}
-        if use_markdown
-        else {"content": content}
-    )
-    if msg_id:
-        body["msg_id"] = msg_id
-    await _api_request_async(
-        session,
-        access_token,
-        "POST",
-        endpoint_path,
-        body,
-    )
-
-
-async def _send_channel_message_async(
-    session: Any,
-    access_token: str,
-    channel_id: str,
-    content: str,
-    msg_id: Optional[str] = None,
-    use_markdown: bool = False,
-) -> None:
-    await _send_message_helper(
-        session,
-        access_token,
-        f"/channels/{channel_id}/messages",
-        content,
-        msg_id,
-        use_markdown,
-    )
-
-
-async def _send_dm_message_async(
-    session: Any,
-    access_token: str,
-    guild_id: str,
-    content: str,
-    msg_id: Optional[str] = None,
-    use_markdown: bool = False,
-) -> None:
-    """Send a direct message in a guild via /dms/{guild_id}/messages."""
-    await _send_message_helper(
-        session,
-        access_token,
-        f"/dms/{guild_id}/messages",
-        content,
-        msg_id,
-        use_markdown,
-    )
-
-
-async def _send_group_message_async(
-    session: Any,
-    access_token: str,
-    group_openid: str,
-    content: str,
-    msg_id: Optional[str] = None,
-    use_markdown: bool = False,
-) -> None:
-    msg_seq = _get_next_msg_seq(msg_id or "group")
     if use_markdown:
-        body = {
+        body: Dict[str, Any] = {
             "markdown": {"content": content},
-            "msg_type": 2,
         }
+        if use_msg_seq:
+            body["msg_type"] = 2
     else:
-        body = {"content": content, "msg_type": 0}
-    body["msg_seq"] = msg_seq
+        body = {"content": content}
+        if use_msg_seq:
+            body["msg_type"] = 0
+    if use_msg_seq:
+        body["msg_seq"] = _get_next_msg_seq(
+            msg_id or seq_key,
+        )
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
         session,
         access_token,
         "POST",
-        f"/v2/groups/{group_openid}/messages",
+        path,
         body,
     )
+
+
+_MEDIA_PATH_PREFIX = {
+    "c2c": "/v2/users",
+    "group": "/v2/groups",
+}
+
+
+def _media_path(
+    message_type: str,
+    openid: str,
+    suffix: str,
+) -> Optional[str]:
+    """Build media API path or return None if unsupported."""
+    prefix = _MEDIA_PATH_PREFIX.get(message_type)
+    if not prefix:
+        return None
+    return f"{prefix}/{openid}/{suffix}"
 
 
 async def _upload_media_async(
@@ -404,43 +417,23 @@ async def _upload_media_async(
 ) -> Optional[str]:
     """Upload media to QQ rich media server.
 
-    Args:
-        session: aiohttp session
-        access_token: QQ access token
-        openid: user openid or group openid
-        media_type: 1 image, 2 video, 3 audio, 4 file
-        url: media url
-        message_type: "c2c" or "group"
-
-    Returns:
-        file_info if success, None otherwise
+    Returns file_info if success, None otherwise.
     """
+    path = _media_path(message_type, openid, "files")
+    if not path:
+        logger.warning("Unsupported type for media upload: %s", message_type)
+        return None
     try:
-        if message_type == "c2c":
-            path = f"/v2/users/{openid}/files"
-        elif message_type == "group":
-            path = f"/v2/groups/{openid}/files"
-        else:
-            logger.warning(
-                f"Unsupported message type for media upload: {message_type}",
-            )
-            return None
-
-        body = {
-            "file_type": media_type,
-            "url": url,
-            "srv_send_msg": False,
-        }
         response = await _api_request_async(
             session,
             access_token,
             "POST",
             path,
-            body,
+            {"file_type": media_type, "url": url, "srv_send_msg": False},
         )
         return response.get("file_info")
     except Exception:
-        logger.exception(f"Failed to upload media from url: {url}")
+        logger.exception("Failed to upload media from url: %s", url)
         return None
 
 
@@ -452,37 +445,18 @@ async def _send_media_message_async(
     msg_id: Optional[str] = None,
     message_type: str = "c2c",
 ) -> None:
-    """Send rich media message.
-
-    Args:
-        session: aiohttp session
-        access_token: QQ access token
-        openid: user openid or group openid
-        file_info: file info from upload response
-        msg_id: reply message id
-        message_type: "c2c" or "group"
-    """
-    msg_seq = _get_next_msg_seq(msg_id or f"{message_type}_media")
-    body = {
+    """Send rich media message."""
+    path = _media_path(message_type, openid, "messages")
+    if not path:
+        logger.warning("Unsupported type for media send: %s", message_type)
+        return
+    body: Dict[str, Any] = {
         "msg_type": 7,
-        "media": {
-            "file_info": file_info,
-        },
-        "msg_seq": msg_seq,
+        "media": {"file_info": file_info},
+        "msg_seq": _get_next_msg_seq(msg_id or f"{message_type}_media"),
     }
     if msg_id:
         body["msg_id"] = msg_id
-
-    if message_type == "c2c":
-        path = f"/v2/users/{openid}/messages"
-    elif message_type == "group":
-        path = f"/v2/groups/{openid}/messages"
-    else:
-        logger.warning(
-            f"Unsupported message type for media send: {message_type}",
-        )
-        return
-
     await _api_request_async(
         session,
         access_token,
@@ -685,6 +659,244 @@ class QQChannel(BaseChannel):
             media_dir=getattr(config, "media_dir", ""),
         )
 
+    def _resolve_send_path(
+        self,
+        message_type: str,
+        sender_id: str,
+        channel_id: Optional[str],
+        group_openid: Optional[str],
+        guild_id: Optional[str] = None,
+    ) -> tuple[str, bool, str]:
+        """Return (api_path, use_msg_seq, seq_key)."""
+        if message_type == "dm" and guild_id:
+            return (
+                f"/dms/{guild_id}/messages",
+                False,
+                "",
+            )
+        if message_type == "group" and group_openid:
+            return (
+                f"/v2/groups/{group_openid}/messages",
+                True,
+                "group",
+            )
+        if message_type == "guild" and channel_id:
+            return (
+                f"/channels/{channel_id}/messages",
+                False,
+                "",
+            )
+        # c2c or fallback
+        return (
+            f"/v2/users/{sender_id}/messages",
+            True,
+            "c2c",
+        )
+
+    async def _dispatch_text(
+        self,
+        message_type: str,
+        sender_id: str,
+        channel_id: Optional[str],
+        group_openid: Optional[str],
+        text: str,
+        msg_id: Optional[str],
+        token: str,
+        markdown: bool,
+        guild_id: Optional[str] = None,
+    ) -> None:
+        """Route a text message to the correct QQ send API."""
+        path, use_seq, seq_key = self._resolve_send_path(
+            message_type,
+            sender_id,
+            channel_id,
+            group_openid,
+            guild_id=guild_id,
+        )
+        await _send_message_async(
+            self._http,
+            token,
+            path,
+            text,
+            msg_id,
+            use_markdown=markdown,
+            use_msg_seq=use_seq,
+            seq_key=seq_key,
+        )
+
+    async def _send_text_with_fallback(
+        self,
+        message_type: str,
+        sender_id: str,
+        channel_id: Optional[str],
+        group_openid: Optional[str],
+        text: str,
+        msg_id: Optional[str],
+        token: str,
+        use_markdown: bool,
+        guild_id: Optional[str] = None,
+    ) -> bool:
+        """Send text with multi-level fallback.
+
+        Fallback chain:
+        1. Send as-is (markdown or plain)
+        2. If markdown fails with validation -> plain text
+        3. If plain text fails with URL error -> aggressive URL strip
+
+        Returns True if text was sent successfully.
+        """
+        try:
+            await self._dispatch_text(
+                message_type,
+                sender_id,
+                channel_id,
+                group_openid,
+                text,
+                msg_id,
+                token,
+                use_markdown,
+                guild_id=guild_id,
+            )
+            return True
+        except Exception as exc:
+            if not use_markdown:
+                return await self._try_aggressive_url_fallback(
+                    exc,
+                    text,
+                    message_type,
+                    sender_id,
+                    channel_id,
+                    group_openid,
+                    msg_id,
+                    token,
+                    guild_id,
+                )
+            if not _should_plaintext_fallback_from_markdown(exc):
+                logger.exception(
+                    "send text failed with markdown; "
+                    "skip fallback to avoid duplicates",
+                )
+                return False
+            logger.exception(
+                "send text failed with markdown payload validation; "
+                "fallback to plain text",
+            )
+
+        fallback_text, had_url = _sanitize_qq_text(text)
+        if had_url:
+            logger.info(
+                "qq send fallback: stripped URL content "
+                "for API compatibility",
+            )
+        try:
+            await self._dispatch_text(
+                message_type,
+                sender_id,
+                channel_id,
+                group_openid,
+                fallback_text,
+                msg_id,
+                token,
+                False,
+                guild_id=guild_id,
+            )
+            return True
+        except Exception as exc2:
+            return await self._try_aggressive_url_fallback(
+                exc2,
+                text,
+                message_type,
+                sender_id,
+                channel_id,
+                group_openid,
+                msg_id,
+                token,
+                guild_id,
+            )
+
+    async def _try_aggressive_url_fallback(
+        self,
+        exc: Exception,
+        original_text: str,
+        message_type: str,
+        sender_id: str,
+        channel_id: Optional[str],
+        group_openid: Optional[str],
+        msg_id: Optional[str],
+        token: str,
+        guild_id: Optional[str],
+    ) -> bool:
+        """Attempt aggressive URL stripping if QQ rejected URL content."""
+        if not _is_url_content_error(exc):
+            logger.exception("send text failed")
+            return False
+        logger.warning(
+            "send text failed due to URL content; "
+            "trying aggressive URL stripping",
+        )
+        aggressive_text, _ = _aggressive_sanitize_qq_text(
+            original_text,
+        )
+        try:
+            await self._dispatch_text(
+                message_type,
+                sender_id,
+                channel_id,
+                group_openid,
+                aggressive_text,
+                msg_id,
+                token,
+                False,
+                guild_id=guild_id,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "send text aggressive fallback failed",
+            )
+            return False
+
+    async def _send_images(
+        self,
+        image_urls: List[str],
+        message_type: str,
+        target_openid: Optional[str],
+        msg_id: Optional[str],
+        token: str,
+        text_already_sent: bool,
+    ) -> None:
+        """Upload and send images via QQ rich media API."""
+        if not image_urls or message_type not in ("c2c", "group"):
+            return
+        if not target_openid:
+            return
+        for image_url in image_urls:
+            try:
+                file_info = await _upload_media_async(
+                    self._http,
+                    token,
+                    target_openid,
+                    media_type=1,
+                    url=image_url,
+                    message_type=message_type,
+                )
+                if not file_info:
+                    logger.warning(
+                        f"Failed to upload image, skipping: {image_url}",
+                    )
+                    continue
+                await _send_media_message_async(
+                    self._http,
+                    token,
+                    target_openid,
+                    file_info,
+                    msg_id if not text_already_sent else None,
+                    message_type=message_type,
+                )
+                logger.info(f"Successfully sent image: {image_url}")
+            except Exception:
+                logger.exception(f"Failed to send image: {image_url}")
+
     async def send(
         self,
         to_handle: str,
@@ -728,289 +940,161 @@ class QQChannel(BaseChannel):
             logger.exception("get access_token failed")
             return
 
-        async def _dispatch(send_text: str, markdown: bool) -> None:
-            if message_type == "c2c":
-                await _send_c2c_message_async(
-                    self._http,
-                    token,
-                    sender_id,
-                    send_text,
-                    msg_id,
-                    use_markdown=markdown,
-                )
-            elif message_type == "dm" and guild_id:
-                await _send_dm_message_async(
-                    self._http,
-                    token,
-                    guild_id,
-                    send_text,
-                    msg_id,
-                    use_markdown=markdown,
-                )
-            elif message_type == "group" and group_openid:
-                await _send_group_message_async(
-                    self._http,
-                    token,
-                    group_openid,
-                    send_text,
-                    msg_id,
-                    use_markdown=markdown,
-                )
-            elif channel_id:
-                await _send_channel_message_async(
-                    self._http,
-                    token,
-                    channel_id,
-                    send_text,
-                    msg_id,
-                    use_markdown=markdown,
-                )
-            else:
-                await _send_c2c_message_async(
-                    self._http,
-                    token,
-                    sender_id,
-                    send_text,
-                    msg_id,
-                    use_markdown=markdown,
-                )
-
-        # Extract and process [Image: ] tags
         image_urls = _IMAGE_TAG_PATTERN.findall(text)
-        # Remove [Image: ] tags from text
         clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
 
-        # Send text content if not empty
         text_sent = False
         if clean_text:
-            try:
-                await _dispatch(clean_text, use_markdown)
-                text_sent = True
-            except Exception as exc:
-                if not use_markdown:
-                    if _is_url_content_error(exc):
-                        logger.warning(
-                            "send text failed due to URL content; "
-                            "trying aggressive URL stripping",
-                        )
-                        aggressive_text, _ = _aggressive_sanitize_qq_text(
-                            clean_text,
-                        )
-                        try:
-                            await _dispatch(aggressive_text, False)
-                            text_sent = True
-                        except Exception:
-                            logger.exception(
-                                "send text aggressive fallback failed",
-                            )
-                    else:
-                        logger.exception("send text failed")
-                elif not _should_plaintext_fallback_from_markdown(exc):
-                    logger.exception(
-                        "send text failed with markdown; "
-                        "skip fallback to avoid duplicates",
-                    )
-                else:
-                    logger.exception(
-                        "send text failed with markdown payload validation; "
-                        "fallback to plain text",
-                    )
-                    fallback_text, had_url = _sanitize_qq_text(clean_text)
-                    if had_url:
-                        logger.info(
-                            "qq send fallback: stripped URL content "
-                            "for API compatibility",
-                        )
-                    try:
-                        await _dispatch(fallback_text, False)
-                        text_sent = True
-                    except Exception as exc2:
-                        if _is_url_content_error(exc2):
-                            logger.warning(
-                                "send text fallback still rejected "
-                                "due to URL content; trying aggressive "
-                                "URL stripping",
-                            )
-                            aggressive_text, _ = _aggressive_sanitize_qq_text(
-                                clean_text,
-                            )
-                            try:
-                                await _dispatch(aggressive_text, False)
-                                text_sent = True
-                            except Exception:
-                                logger.exception(
-                                    "send text aggressive fallback failed",
-                                )
-                        else:
-                            logger.exception("send text fallback failed")
-
-        # Send images if any
-        if image_urls and message_type in ("c2c", "group"):
-            # Determine target openid
-            target_openid = (
-                sender_id if message_type == "c2c" else group_openid
+            text_sent = await self._send_text_with_fallback(
+                message_type,
+                sender_id,
+                channel_id,
+                group_openid,
+                clean_text,
+                msg_id,
+                token,
+                use_markdown,
+                guild_id=guild_id,
             )
-            if target_openid:
-                for image_url in image_urls:
-                    try:
-                        # Upload image to QQ rich media
-                        file_info = await _upload_media_async(
-                            self._http,
-                            token,
-                            target_openid,
-                            media_type=1,  # 1 for image
-                            url=image_url,
-                            message_type=message_type,
-                        )
-                        if file_info:
-                            # Send media message
-                            await _send_media_message_async(
-                                self._http,
-                                token,
-                                target_openid,
-                                file_info,
-                                msg_id if not text_sent
-                                # Only reply with msg_id for first message
-                                else None,
-                                message_type=message_type,
-                            )
-                            logger.info(
-                                f"Successfully sent image: {image_url}",
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to upload image,"
-                                f" skipping: {image_url}",
-                            )
-                    except Exception:
-                        logger.exception(f"Failed to send image: {image_url}")
 
-    def _resolve_attachment_type(self, att_type: str, file_name: str) -> str:
-        # pylint: disable=too-many-return-statements
-        """Resolve attachment type from content_type or file extension.
+        target_openid = sender_id if message_type == "c2c" else group_openid
+        await self._send_images(
+            image_urls,
+            message_type,
+            target_openid,
+            msg_id,
+            token,
+            text_sent,
+        )
 
-        Args:
-            att_type: MIME type or content type string
-            file_name: Optional filename for extension-based fallback
+    _EXT_TYPE_MAP = {
+        ".jpg": "image",
+        ".jpeg": "image",
+        ".png": "image",
+        ".gif": "image",
+        ".webp": "image",
+        ".bmp": "image",
+        ".mp4": "video",
+        ".avi": "video",
+        ".mov": "video",
+        ".mkv": "video",
+        ".webm": "video",
+        ".mpeg": "video",
+        ".mp3": "audio",
+        ".wav": "audio",
+        ".ogg": "audio",
+        ".m4a": "audio",
+        ".aac": "audio",
+        ".wma": "audio",
+    }
 
-        Returns:
-            Normalized type: "image", "video", "audio", or "file"
-        """
+    def _resolve_attachment_type(
+        self,
+        att_type: str,
+        file_name: str,
+    ) -> str:
+        """Resolve attachment type from content_type or extension."""
         if not att_type:
             ext = Path(file_name).suffix.lower()
-            ext_map = {
-                ".jpg": "image",
-                ".jpeg": "image",
-                ".png": "image",
-                ".gif": "image",
-                ".webp": "image",
-                ".bmp": "image",
-                ".mp4": "video",
-                ".avi": "video",
-                ".mov": "video",
-                ".mkv": "video",
-                ".webm": "video",
-                ".mpeg": "video",
-                ".mp3": "audio",
-                ".wav": "audio",
-                ".ogg": "audio",
-                ".m4a": "audio",
-                ".aac": "audio",
-                ".wma": "audio",
-            }
-            return ext_map.get(ext, "file")
-
-        if att_type in ("image", "video", "voice", "audio", "file"):
-            if att_type == "voice":
-                return "audio"
-            return att_type
-
-        mime_base = att_type.split(";")[0].strip().lower()
-        if mime_base.startswith("image/"):
-            return "image"
-        elif mime_base.startswith("video/"):
-            return "video"
-        elif mime_base.startswith("audio/"):
+            return self._EXT_TYPE_MAP.get(ext, "file")
+        if att_type == "voice":
             return "audio"
-        else:
-            return "file"
+        if att_type in ("image", "video", "audio", "file"):
+            return att_type
+        mime = att_type.split(";")[0].strip().lower()
+        for prefix in ("image/", "video/", "audio/"):
+            if mime.startswith(prefix):
+                return prefix.rstrip("/")
+        return "file"
+
+    def _download_attachment_sync(
+        self,
+        url: str,
+        file_name: str,
+    ) -> Optional[str]:
+        """Download attachment via event loop; return local path."""
+        loop = self._loop
+        if not (loop and loop.is_running()):
+            return url
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                _download_qq_file(
+                    http_session=self._http,
+                    file_url=url,
+                    media_dir=self._media_dir,
+                    filename_hint=file_name,
+                ),
+                loop,
+            )
+            return future.result(timeout=30)
+        except Exception:
+            logger.exception("failed to download attachment")
+            return None
+
+    @staticmethod
+    def _make_content_part(
+        resolved_type: str,
+        local_path: str,
+        file_name: str,
+    ) -> Optional[OutgoingContentPart]:
+        """Build a typed content part from resolved type."""
+        if resolved_type == "image":
+            return ImageContent(
+                type=ContentType.IMAGE,
+                image_url=local_path,
+            )
+        if resolved_type == "video":
+            return VideoContent(
+                type=ContentType.VIDEO,
+                video_url=local_path,
+            )
+        if resolved_type == "audio":
+            return AudioContent(
+                type=ContentType.AUDIO,
+                data=local_path,
+            )
+        if resolved_type == "file":
+            return FileContent(
+                type=ContentType.FILE,
+                filename=file_name,
+                file_url=local_path,
+            )
+        return None
 
     def _parse_qq_attachments(
         self,
         attachments: List[Dict[str, Any]],
     ) -> List[OutgoingContentPart]:
-        """Parse QQ message attachments to content parts.
-
-        QQ attachment format:
-        {'content': '', 'content_type': 'image/jpeg', 'filename': 'abc.jpg',
-        'height': 128, 'size': 13588,
-          'url': '','width': 198}
-
-        Supports the MIME type matching for flexible content type detection.
-        """
+        """Parse QQ message attachments to content parts."""
         parts: List[OutgoingContentPart] = []
         if not attachments or not self._http:
             return parts
-
         for att in attachments:
-            att_type = att.get("content_type", att.get("type", ""))
             url = att.get("url", "")
             file_name = att.get("filename", "")
             if not url:
                 continue
-            resolved_type = self._resolve_attachment_type(att_type, file_name)
-
-            if resolved_type in ["image", "video", "audio", "file"]:
-                try:
-                    loop = self._loop
-                    if loop and loop.is_running():
-                        future = asyncio.run_coroutine_threadsafe(
-                            _download_qq_file(
-                                http_session=self._http,
-                                file_url=url,
-                                media_dir=self._media_dir,
-                                filename_hint=file_name,
-                            ),
-                            loop,
-                        )
-                        local_path = future.result(timeout=30)
-                    else:
-                        local_path = url
-                except Exception:
-                    logger.exception("failed to download attachment")
-                    local_path = None
-                if local_path:
-                    # Map resolved_type to appropriate content type
-                    if resolved_type == "image":
-                        parts.append(
-                            ImageContent(
-                                type=ContentType.IMAGE,
-                                image_url=local_path,
-                            ),
-                        )
-                    elif resolved_type == "video":
-                        parts.append(
-                            VideoContent(
-                                type=ContentType.VIDEO,
-                                video_url=local_path,
-                            ),
-                        )
-                    elif resolved_type == "audio":
-                        parts.append(
-                            AudioContent(
-                                type=ContentType.AUDIO,
-                                data=local_path,
-                            ),
-                        )
-                    elif resolved_type == "file":
-                        parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                filename=file_name,
-                                file_url=local_path,
-                            ),
-                        )
-
+            att_type = att.get(
+                "content_type",
+                att.get("type", ""),
+            )
+            resolved = self._resolve_attachment_type(
+                att_type,
+                file_name,
+            )
+            local_path = self._download_attachment_sync(
+                url,
+                file_name,
+            )
+            if not local_path:
+                continue
+            part = self._make_content_part(
+                resolved,
+                local_path,
+                file_name,
+            )
+            if part:
+                parts.append(part)
         return parts
 
     def build_agent_request_from_native(self, native_payload: Any) -> Any:
@@ -1037,123 +1121,260 @@ class QQChannel(BaseChannel):
             channel_meta=meta,
         )
 
-    async def consume_one(self, payload: Any) -> None:
-        """Process one AgentRequest from manager queue."""
-        request = payload
-        if getattr(request, "input", None):
-            session_id = getattr(request, "session_id", "") or ""
-            contents = list(
-                getattr(request.input[0], "content", None) or [],
-            )
-            should_process, merged = self._apply_no_text_debounce(
-                session_id,
-                contents,
-            )
-            if not should_process:
-                return
-            if merged:
-                if hasattr(request.input[0], "model_copy"):
-                    request.input[0] = request.input[0].model_copy(
-                        update={"content": merged},
-                    )
-                else:
-                    request.input[0].content = merged
+    # ------------------------------------------------------------------
+    # WebSocket: message event handling
+    # ------------------------------------------------------------------
+
+    def _handle_msg_event(
+        self,
+        event_type: str,
+        d: Dict[str, Any],
+    ) -> None:
+        """Handle one WS message event via spec lookup."""
+        spec = _MESSAGE_EVENT_SPECS.get(event_type)
+        if spec is None:
+            return
+        author = d.get("author") or {}
+        text = (d.get("content") or "").strip()
+        if not text and not d.get("attachments"):
+            return
+        if self.bot_prefix and text.startswith(self.bot_prefix):
+            return
+        sender = ""
+        for key in spec.sender_keys:
+            sender = author.get(key) or ""
+            if sender:
+                break
+        if not sender:
+            return
+        msg_id = d.get("id", "")
+        att = d.get("attachments") or []
+        meta: Dict[str, Any] = {
+            "message_type": spec.message_type,
+            "message_id": msg_id,
+            "sender_id": sender,
+            "incoming_raw": d,
+            "attachments": att,
+        }
+        for key in spec.extra_meta_keys:
+            meta[key] = d.get(key, "")
+        native = {
+            "channel_id": "qq",
+            "sender_id": sender,
+            "content_parts": [
+                TextContent(type=ContentType.TEXT, text=text),
+            ],
+            "meta": meta,
+        }
+        request = self.build_agent_request_from_native(native)
+        request.channel_meta = meta
+        if self._enqueue is not None:
+            self._enqueue(request)
+        extra_vals = tuple(meta.get(k, "") for k in spec.extra_meta_keys)
+        extra_str = "".join(
+            f" {k}={v}" for k, v in zip(spec.extra_meta_keys, extra_vals)
+        )
+        logger.info(
+            "qq recv %s from=%s%s text=%r",
+            spec.message_type,
+            sender,
+            extra_str,
+            text[:100],
+        )
+
+    # ------------------------------------------------------------------
+    # WebSocket: payload dispatch
+    # ------------------------------------------------------------------
+
+    def _handle_ws_payload(
+        self,
+        payload: Dict[str, Any],
+        ws: Any,
+        token: str,
+        state: _WSState,
+        hb: _HeartbeatController,
+    ) -> Optional[str]:
+        """Process one WS payload.
+
+        Return "break" to exit loop, else None.
+        """
+        op = payload.get("op")
+        d = payload.get("d")
+        s = payload.get("s")
+        t = payload.get("t")
+        if s is not None:
+            state.last_seq = s
+
+        if op == OP_HELLO:
+            hi = d or {}
+            interval = hi.get("heartbeat_interval", 45000)
+            if state.session_id and state.last_seq is not None:
+                ws.send(
+                    json.dumps(
+                        {
+                            "op": OP_RESUME,
+                            "d": {
+                                "token": f"QQBot {token}",
+                                "session_id": state.session_id,
+                                "seq": state.last_seq,
+                            },
+                        },
+                    ),
+                )
+            else:
+                intents = INTENT_PUBLIC_GUILD_MESSAGES | INTENT_GUILD_MEMBERS
+                if state.identify_fail_count < 3:
+                    intents |= INTENT_DIRECT_MESSAGE | INTENT_GROUP_AND_C2C
+                ws.send(
+                    json.dumps(
+                        {
+                            "op": OP_IDENTIFY,
+                            "d": {
+                                "token": f"QQBot {token}",
+                                "intents": intents,
+                                "shard": [0, 1],
+                            },
+                        },
+                    ),
+                )
+            hb.start(interval)
+            return None
+
+        if op == OP_DISPATCH:
+            if t == "READY":
+                state.session_id = (d or {}).get("session_id")
+                state.identify_fail_count = 0
+                state.reconnect_attempts = 0
+                state.last_connect_time = time.time()
+                logger.info("qq ready session_id=%s", state.session_id)
+            elif t == "RESUMED":
+                logger.info("qq session resumed")
+            elif t in _MESSAGE_EVENT_SPECS:
+                self._handle_msg_event(t, d or {})
+            return None
+
+        if op == OP_HEARTBEAT_ACK:
+            logger.debug("qq heartbeat ack")
+            return None
+
+        if op == OP_RECONNECT:
+            logger.info("qq server requested reconnect")
+            return "break"
+
+        if op == OP_INVALID_SESSION:
+            can_resume = d
+            logger.error("qq invalid session can_resume=%s", can_resume)
+            if not can_resume:
+                state.session_id = None
+                state.last_seq = None
+                state.identify_fail_count += 1
+                state.should_refresh_token = True
+            return "break"
+
+        return None
+
+    # ------------------------------------------------------------------
+    # WebSocket: reconnect delay
+    # ------------------------------------------------------------------
+
+    def _compute_reconnect_delay(self, state: _WSState) -> float:
+        """Compute delay before next reconnect, updating state counters."""
+        elapsed = (
+            time.time() - state.last_connect_time
+            if state.last_connect_time
+            else None
+        )
+        if elapsed is not None and elapsed < QUICK_DISCONNECT_THRESHOLD:
+            state.quick_disconnect_count += 1
+            if state.quick_disconnect_count >= MAX_QUICK_DISCONNECT_COUNT:
+                state.session_id = None
+                state.last_seq = None
+                state.should_refresh_token = True
+                state.quick_disconnect_count = 0
+                state.reconnect_attempts = min(
+                    state.reconnect_attempts,
+                    len(RECONNECT_DELAYS) - 1,
+                )
+                return RATE_LIMIT_DELAY
+        else:
+            state.quick_disconnect_count = 0
+        return RECONNECT_DELAYS[
+            min(state.reconnect_attempts, len(RECONNECT_DELAYS) - 1)
+        ]
+
+    # ------------------------------------------------------------------
+    # WebSocket: single connection attempt
+    # ------------------------------------------------------------------
+
+    def _ws_connect_once(
+        self,
+        state: _WSState,
+        websocket: Any,
+    ) -> bool:
+        """Run one WS connection.
+
+        Return True to reconnect, False to stop.
+        """
+        if self._stop_event.is_set():
+            return False
+        if state.should_refresh_token:
+            self._clear_token_cache()
+            state.should_refresh_token = False
         try:
-            send_meta = getattr(request, "channel_meta", None) or {}
-            send_meta.setdefault("bot_prefix", self.bot_prefix)
-            to_handle = request.user_id or ""
-            last_response = None
-            accumulated_parts: List[OutgoingContentPart] = []
-            event_count = 0
-
-            async for event in self._process(request):
-                event_count += 1
-                obj = getattr(event, "object", None)
-                status = getattr(event, "status", None)
-                ev_type = getattr(event, "type", None)
-                logger.debug(
-                    "qq event #%s: object=%s status=%s type=%s",
-                    event_count,
-                    obj,
-                    status,
-                    ev_type,
-                )
-                if obj == "message" and status == RunStatus.Completed:
-                    parts = self._message_to_content_parts(event)
-                    logger.info(
-                        "qq completed message: type=%s parts_count=%s",
-                        ev_type,
-                        len(parts),
-                    )
-                    accumulated_parts.extend(parts)
-                elif obj == "response":
-                    last_response = event
-
-            err_msg = self._get_response_error_message(last_response)
-            if err_msg:
-                err_text = self.bot_prefix + f"Error: {err_msg}"
-                await self.send_content_parts(
-                    to_handle,
-                    [TextContent(type=ContentType.TEXT, text=err_text)],
-                    send_meta,
-                )
-            elif accumulated_parts:
-                await self.send_content_parts(
-                    to_handle,
-                    accumulated_parts,
-                    send_meta,
-                )
-            elif last_response is None:
-                await self.send_content_parts(
-                    to_handle,
-                    [
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=self.bot_prefix
-                            + "An error occurred while processing your "
-                            "request.",
-                        ),
-                    ],
-                    send_meta,
-                )
-            if self._on_reply_sent:
-                self._on_reply_sent(
-                    self.channel,
-                    to_handle,
-                    request.session_id or f"{self.channel}:{to_handle}",
-                )
+            token = self._get_access_token_sync()
+            url = _get_channel_url_sync(token)
         except Exception as e:
-            logger.exception("qq process/reply failed")
-            err_msg = str(e).strip() or "An error occurred while processing."
+            logger.warning("qq get token/gateway failed: %s", e)
+            return True
+        logger.info("qq connecting to %s", url)
+        try:
+            ws = websocket.create_connection(url)
+        except Exception as e:
+            logger.warning("qq ws connect failed: %s", e)
+            return True
 
-            # Try to send error message to user
+        hb = _HeartbeatController(ws, self._stop_event, state)
+        try:
+            while not self._stop_event.is_set():
+                raw = ws.recv()
+                if not raw:
+                    break
+                action = self._handle_ws_payload(
+                    json.loads(raw),
+                    ws,
+                    token,
+                    state,
+                    hb,
+                )
+                if action == "break":
+                    break
+        except websocket.WebSocketConnectionClosedException:
+            pass
+        except Exception as e:
+            logger.exception("qq ws loop: %s", e)
+        finally:
+            hb.stop()
             try:
-                fallback_handle = getattr(request, "user_id", "")
-                if not fallback_handle and hasattr(request, "sender_id"):
-                    fallback_handle = request.sender_id
-                if not fallback_handle:
-                    # Try to extract from channel_meta
-                    meta = getattr(request, "channel_meta", {}) or {}
-                    fallback_handle = meta.get("sender_id", "")
-
-                if fallback_handle:
-                    error_text = self.bot_prefix + f"Error: {err_msg}"
-                    await self.send_content_parts(
-                        fallback_handle,
-                        [
-                            TextContent(
-                                type=ContentType.TEXT,
-                                text=error_text,
-                            ),
-                        ],
-                        getattr(request, "channel_meta", None) or {},
-                    )
-                else:
-                    logger.warning(
-                        "Cannot determine user to send error message to",
-                    )
+                ws.close()
             except Exception:
-                logger.exception("send error message failed")
+                pass
+
+        delay = self._compute_reconnect_delay(state)
+        state.reconnect_attempts += 1
+        if state.reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
+            logger.error("qq max reconnect attempts reached")
+            return False
+        logger.info(
+            "qq reconnecting in %ss (attempt %s)",
+            delay,
+            state.reconnect_attempts,
+        )
+        self._stop_event.wait(timeout=delay)
+        return not self._stop_event.is_set()
+
+    # ------------------------------------------------------------------
+    # WebSocket: main loop
+    # ------------------------------------------------------------------
 
     def _run_ws_forever(self) -> None:
         try:
@@ -1163,400 +1384,8 @@ class QQChannel(BaseChannel):
                 "websocket-client not installed. pip install websocket-client",
             )
             return
-        reconnect_attempts = 0
-        last_connect_time = 0.0
-        quick_disconnect_count = 0
-        session_id: Optional[str] = None
-        last_seq: Optional[int] = None
-        identify_fail_count = 0
-        should_refresh_token = False
-
-        def connect() -> bool:
-            nonlocal session_id, last_seq, reconnect_attempts, last_connect_time, quick_disconnect_count, should_refresh_token, identify_fail_count  # pylint: disable=line-too-long # noqa: E501
-            if self._stop_event.is_set():
-                return False
-            if should_refresh_token:
-                self._clear_token_cache()
-                should_refresh_token = False
-            try:
-                token = self._get_access_token_sync()
-                url = _get_channel_url_sync(token)
-            except Exception as e:
-                logger.warning("qq get token/gateway failed: %s", e)
-                return True
-            logger.info("qq connecting to %s", url)
-            try:
-                ws = websocket.create_connection(url)
-            except Exception as e:
-                logger.warning("qq ws connect failed: %s", e)
-                return True
-            current_ws = ws
-            heartbeat_interval: Optional[float] = None
-            heartbeat_timer: Optional[threading.Timer] = None
-
-            def stop_heartbeat() -> None:
-                if heartbeat_timer:
-                    heartbeat_timer.cancel()
-
-            def schedule_heartbeat() -> None:
-                nonlocal heartbeat_timer
-                if heartbeat_interval is None or self._stop_event.is_set():
-                    return
-
-                def send_ping() -> None:
-                    if self._stop_event.is_set():
-                        return
-                    try:
-                        if current_ws.connected:
-                            current_ws.send(
-                                json.dumps(
-                                    {"op": OP_HEARTBEAT, "d": last_seq},
-                                ),
-                            )
-                            logger.debug("qq heartbeat sent")
-                    except Exception:
-                        pass
-                    schedule_heartbeat()
-
-                heartbeat_timer = threading.Timer(
-                    heartbeat_interval / 1000.0,
-                    send_ping,
-                )
-                heartbeat_timer.daemon = True
-                heartbeat_timer.start()
-
-            try:
-                while not self._stop_event.is_set():
-                    raw = current_ws.recv()
-                    if not raw:
-                        break
-                    payload = json.loads(raw)
-                    op = payload.get("op")
-                    d = payload.get("d")
-                    s = payload.get("s")
-                    t = payload.get("t")
-                    if s is not None:
-                        last_seq = s
-
-                    if op == OP_HELLO:
-                        hi = d or {}
-                        heartbeat_interval = hi.get(
-                            "heartbeat_interval",
-                            45000,
-                        )
-                        if session_id and last_seq is not None:
-                            current_ws.send(
-                                json.dumps(
-                                    {
-                                        "op": OP_RESUME,
-                                        "d": {
-                                            "token": f"QQBot {token}",
-                                            "session_id": session_id,
-                                            "seq": last_seq,
-                                        },
-                                    },
-                                ),
-                            )
-                        else:
-                            intents = (
-                                INTENT_PUBLIC_GUILD_MESSAGES
-                                | INTENT_GUILD_MEMBERS
-                            )
-                            if identify_fail_count < 3:
-                                intents |= (
-                                    INTENT_DIRECT_MESSAGE
-                                    | INTENT_GROUP_AND_C2C
-                                )
-                            current_ws.send(
-                                json.dumps(
-                                    {
-                                        "op": OP_IDENTIFY,
-                                        "d": {
-                                            "token": f"QQBot {token}",
-                                            "intents": intents,
-                                            "shard": [0, 1],
-                                        },
-                                    },
-                                ),
-                            )
-                        schedule_heartbeat()
-                    elif op == OP_DISPATCH:
-                        if t == "READY":
-                            session_id = (d or {}).get("session_id")
-                            identify_fail_count = 0
-                            reconnect_attempts = 0
-                            last_connect_time = time.time()
-                            logger.info("qq ready session_id=%s", session_id)
-                        elif t == "RESUMED":
-                            logger.info("qq session resumed")
-                        elif t == "C2C_MESSAGE_CREATE":
-                            author = (d or {}).get("author") or {}
-                            text = ((d or {}).get("content") or "").strip()
-                            if not text and not (d or {}).get("attachments"):
-                                continue
-                            if self.bot_prefix and text.startswith(
-                                self.bot_prefix,
-                            ):
-                                continue
-                            sender = (
-                                author.get("user_openid")
-                                or author.get("id")
-                                or ""
-                            )
-                            if not sender:
-                                continue
-                            msg_id = (d or {}).get("id", "")
-                            # ts = (d or {}).get("timestamp", "")
-                            att = (d or {}).get("attachments") or []
-                            meta = {
-                                "message_type": "c2c",
-                                "message_id": msg_id,
-                                "sender_id": sender,
-                                "incoming_raw": d,
-                                "attachments": att,
-                            }
-                            native = {
-                                "channel_id": "qq",
-                                "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
-                                "meta": meta,
-                            }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
-                            if self._enqueue is not None:
-                                self._enqueue(request)
-                            logger.info(
-                                "qq recv c2c from=%s text=%r",
-                                sender,
-                                text[:100],
-                            )
-                        elif t == "AT_MESSAGE_CREATE":
-                            author = (d or {}).get("author") or {}
-                            text = ((d or {}).get("content") or "").strip()
-                            if not text and not (d or {}).get("attachments"):
-                                continue
-                            if self.bot_prefix and text.startswith(
-                                self.bot_prefix,
-                            ):
-                                continue
-                            sender = (
-                                author.get("id")
-                                or author.get("username")
-                                or ""
-                            )
-                            if not sender:
-                                continue
-                            channel_id = (d or {}).get("channel_id", "")
-                            guild_id = (d or {}).get("guild_id", "")
-                            msg_id = (d or {}).get("id", "")
-                            # ts = (d or {}).get("timestamp", "")
-                            att = (d or {}).get("attachments") or []
-                            meta = {
-                                "message_type": "guild",
-                                "message_id": msg_id,
-                                "sender_id": sender,
-                                "channel_id": channel_id,
-                                "guild_id": guild_id,
-                                "incoming_raw": d,
-                                "attachments": att,
-                            }
-                            native = {
-                                "channel_id": "qq",
-                                "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
-                                "meta": meta,
-                            }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
-                            if self._enqueue is not None:
-                                self._enqueue(request)
-                            logger.info(
-                                "qq recv guild from=%s channel=%s text=%r",
-                                sender,
-                                channel_id,
-                                text[:100],
-                            )
-                        elif t == "DIRECT_MESSAGE_CREATE":
-                            author = (d or {}).get("author") or {}
-                            text = ((d or {}).get("content") or "").strip()
-                            if not text and not (d or {}).get("attachments"):
-                                continue
-                            if self.bot_prefix and text.startswith(
-                                self.bot_prefix,
-                            ):
-                                continue
-                            sender = (
-                                author.get("id")
-                                or author.get("username")
-                                or ""
-                            )
-                            if not sender:
-                                continue
-                            channel_id = (d or {}).get("channel_id", "")
-                            guild_id = (d or {}).get("guild_id", "")
-                            msg_id = (d or {}).get("id", "")
-                            att = (d or {}).get("attachments") or []
-                            meta = {
-                                "message_type": "dm",
-                                "message_id": msg_id,
-                                "sender_id": sender,
-                                "channel_id": channel_id,
-                                "guild_id": guild_id,
-                                "incoming_raw": d,
-                                "attachments": att,
-                            }
-                            native = {
-                                "channel_id": "qq",
-                                "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
-                                "meta": meta,
-                            }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
-                            if self._enqueue is not None:
-                                self._enqueue(request)
-                            logger.info(
-                                "qq recv dm from=%s text=%r",
-                                sender,
-                                text[:100],
-                            )
-                        elif t == "GROUP_AT_MESSAGE_CREATE":
-                            author = (d or {}).get("author") or {}
-                            text = ((d or {}).get("content") or "").strip()
-                            if not text and not (d or {}).get("attachments"):
-                                continue
-                            if self.bot_prefix and text.startswith(
-                                self.bot_prefix,
-                            ):
-                                continue
-                            sender = (
-                                author.get("member_openid")
-                                or author.get("id")
-                                or ""
-                            )
-                            if not sender:
-                                continue
-                            group_openid = (d or {}).get("group_openid", "")
-                            msg_id = (d or {}).get("id", "")
-                            att = (d or {}).get("attachments") or []
-                            meta = {
-                                "message_type": "group",
-                                "message_id": msg_id,
-                                "sender_id": sender,
-                                "group_openid": group_openid,
-                                "incoming_raw": d,
-                                "attachments": att,
-                            }
-                            native = {
-                                "channel_id": "qq",
-                                "sender_id": sender,
-                                "content_parts": [
-                                    TextContent(
-                                        type=ContentType.TEXT,
-                                        text=text,
-                                    ),
-                                ],
-                                "meta": meta,
-                            }
-                            request = self.build_agent_request_from_native(
-                                native,
-                            )
-                            request.channel_meta = meta
-                            if self._enqueue is not None:
-                                self._enqueue(request)
-                            logger.info(
-                                "qq recv group from=%s group=%s text=%r",
-                                sender,
-                                group_openid,
-                                text[:100],
-                            )
-                    elif op == OP_HEARTBEAT_ACK:
-                        logger.debug("qq heartbeat ack")
-                    elif op == OP_RECONNECT:
-                        logger.info("qq server requested reconnect")
-                        break
-                    elif op == OP_INVALID_SESSION:
-                        can_resume = d
-                        logger.error(
-                            "qq invalid session can_resume=%s",
-                            can_resume,
-                        )
-                        if not can_resume:
-                            session_id = None
-                            last_seq = None
-                            identify_fail_count += 1
-                            should_refresh_token = True
-                        break
-            except websocket.WebSocketConnectionClosedException:
-                pass
-            except Exception as e:
-                logger.exception("qq ws loop: %s", e)
-            finally:
-                stop_heartbeat()
-                try:
-                    current_ws.close()
-                except Exception:
-                    pass
-            last_connect_time_val = last_connect_time
-            if (
-                last_connect_time_val
-                and (time.time() - last_connect_time_val)
-                < QUICK_DISCONNECT_THRESHOLD
-            ):
-                quick_disconnect_count += 1
-                if quick_disconnect_count >= MAX_QUICK_DISCONNECT_COUNT:
-                    session_id = None
-                    last_seq = None
-                    should_refresh_token = True
-                    quick_disconnect_count = 0
-                    reconnect_attempts = min(
-                        reconnect_attempts,
-                        len(RECONNECT_DELAYS) - 1,
-                    )
-                    delay = RATE_LIMIT_DELAY
-                else:
-                    delay = RECONNECT_DELAYS[
-                        min(reconnect_attempts, len(RECONNECT_DELAYS) - 1)
-                    ]
-            else:
-                quick_disconnect_count = 0
-                delay = RECONNECT_DELAYS[
-                    min(reconnect_attempts, len(RECONNECT_DELAYS) - 1)
-                ]
-            reconnect_attempts += 1
-            if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
-                logger.error("qq max reconnect attempts reached")
-                return False
-            logger.info(
-                "qq reconnecting in %ss (attempt %s)",
-                delay,
-                reconnect_attempts,
-            )
-            self._stop_event.wait(timeout=delay)
-            return not self._stop_event.is_set()
-
-        while connect():
+        state = _WSState()
+        while self._ws_connect_once(state, websocket):
             pass
         self._stop_event.set()
         logger.info("qq ws thread stopped")
