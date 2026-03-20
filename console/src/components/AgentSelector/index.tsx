@@ -10,6 +10,7 @@ export default function AgentSelector() {
   const { t } = useTranslation();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =
     useAgentStore();
+  const selectedAgentData = agents.find((agent) => agent.id === selectedAgent);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function AgentSelector() {
         <span>{t("agent.currentWorkspace")}</span>
       </div>
       <Select
+        key={`${selectedAgent}:${selectedAgentData?.avatar_url || "default"}`}
         value={selectedAgent}
         onChange={handleChange}
         loading={loading}

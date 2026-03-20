@@ -142,6 +142,10 @@
     "avatarRecommended": "PNG, JPEG, or WebP. Max size 2MB.",
     "avatarInvalidType": "Please upload a PNG, JPEG, or WebP image",
     "avatarTooLarge": "Avatar must be 2MB or smaller",
+    "avatarCropTitle": "Crop avatar",
+    "avatarCropHelp": "Drag to reposition and use the slider to zoom.",
+    "avatarCropZoom": "Zoom",
+    "avatarCropFailed": "Failed to crop avatar",
     "workspaceHelp": "Leave empty to auto-generate in ~/.copaw/workspaces/<id>",
     "defaultNotEditable": "Default agent cannot be edited",
     "defaultNotDeletable": "Default agent cannot be deleted"

@@ -6,7 +6,6 @@ Provides RESTful API for managing multiple agent instances.
 import asyncio
 import json
 import logging
-import mimetypes
 from pathlib import Path
 from urllib.parse import quote
 
@@ -129,8 +128,44 @@ def _build_avatar_url(
     return f"/api/agents/{quote(agent_id)}/avatar?v={version}"
 
 
-def _detect_avatar_extension(file: UploadFile) -> str:
+def _get_agent_workspace_dir(agent_id: str) -> Path:
+    """Return the registered workspace path for an agent."""
+    config = load_config()
+    agent_ref = config.agents.profiles.get(agent_id)
+    if not agent_ref:
+        raise HTTPException(
+            status_code=404, detail=f"Agent '{agent_id}' not found"
+        )
+    return Path(agent_ref.workspace_dir).expanduser().resolve()
+
+
+def _sniff_avatar_extension(data: bytes) -> str | None:
+    """Detect a supported image format from file bytes."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith(b"\xff\xd8"):
+        return ".jpg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _get_avatar_media_type(avatar_path: Path) -> str:
+    """Return the avatar media type from a controlled extension mapping."""
+    return _ALLOWED_AVATAR_EXTENSIONS.get(
+        avatar_path.suffix.lower(),
+        "application/octet-stream",
+    )
+
+
+def _detect_avatar_extension(
+    file: UploadFile, data: bytes | None = None
+) -> str:
     """Validate uploaded avatar type and determine output extension."""
+    sniffed_ext = _sniff_avatar_extension(data or b"")
+    if sniffed_ext:
+        return sniffed_ext
+
     file_ext = Path(file.filename or "").suffix.lower()
     if file_ext in _ALLOWED_AVATAR_EXTENSIONS:
         return file_ext
@@ -382,8 +417,7 @@ async def upload_agent_avatar(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    extension = _detect_avatar_extension(file)
-    data = await file.read()
+    data = await file.read(MAX_AVATAR_BYTES + 1)
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded avatar is empty")
     if len(data) > MAX_AVATAR_BYTES:
@@ -391,6 +425,7 @@ async def upload_agent_avatar(
             status_code=400,
             detail="Avatar file is too large. Max size is 2MB.",
         )
+    extension = _detect_avatar_extension(file, data)
 
     agent_config = load_agent_config(agentId)
     avatar_dir = workspace.workspace_dir / _AVATAR_DIR
@@ -439,15 +474,14 @@ async def get_agent_avatar(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
+    workspace_dir = _get_agent_workspace_dir(agentId)
     avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
     if not avatar_path or not avatar_path.is_file():
         raise HTTPException(status_code=404, detail="Avatar not found")
 
-    media_type, _ = mimetypes.guess_type(avatar_path.name)
     return FileResponse(
         avatar_path,
-        media_type=media_type or "application/octet-stream",
+        media_type=_get_avatar_media_type(avatar_path),
     )
 
 
@@ -466,7 +500,7 @@ async def delete_agent_avatar(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
+    workspace_dir = _get_agent_workspace_dir(agentId)
     avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
     if avatar_path and avatar_path.exists():
         if avatar_path.is_file():

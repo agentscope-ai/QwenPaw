@@ -525,7 +525,9 @@ export default function ChatPage() {
       <div style={{ flex: 1, minHeight: 0 }}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
-          key={refreshKey}
+          key={`${refreshKey}:${selectedAgent}:${
+            currentAgent?.avatar_url || "default"
+          }`}
           options={options}
         />
       </div>

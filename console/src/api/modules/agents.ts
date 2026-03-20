@@ -20,10 +20,14 @@ function appendAuthToken(url?: string | null): string | undefined {
   return resolvedUrl.toString();
 }
 
+export function normalizeAvatarUrl(url?: string | null): string | undefined {
+  return appendAuthToken(url);
+}
+
 function normalizeAgentSummary(agent: AgentSummary): AgentSummary {
   return {
     ...agent,
-    avatar_url: appendAuthToken(agent.avatar_url),
+    avatar_url: normalizeAvatarUrl(agent.avatar_url),
   };
 }
 
@@ -40,7 +44,7 @@ export function buildAgentAvatarUrl(
       ? url
       : `${url}?v=${encodeURIComponent(String(cacheBuster))}`;
 
-  return appendAuthToken(resolvedUrl);
+  return normalizeAvatarUrl(resolvedUrl);
 }
 
 // Multi-agent management API

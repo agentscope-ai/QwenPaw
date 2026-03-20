@@ -108,6 +108,10 @@
     "avatarRecommended": "支持 PNG、JPEG、WebP，最大 2MB。",
     "avatarInvalidType": "请上传 PNG、JPEG 或 WebP 格式图片",
     "avatarTooLarge": "头像大小不能超过 2MB",
+    "avatarCropTitle": "裁切头像",
+    "avatarCropHelp": "拖动调整显示区域，使用滑块缩放。",
+    "avatarCropZoom": "缩放",
+    "avatarCropFailed": "头像裁切失败",
     "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
     "defaultNotEditable": "默认智能体不允许编辑",
     "defaultNotDeletable": "默认智能体不允许删除"

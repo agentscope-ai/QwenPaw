@@ -2,7 +2,10 @@ import { useRef, useState } from "react";
 import { Card, Button, Form, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { agentsApi, buildAgentAvatarUrl } from "../../../api/modules/agents";
+import {
+  agentsApi,
+  buildAgentAvatarUrl,
+} from "../../../api/modules/agents";
 import type {
   AgentProfileConfig,
   AgentSummary,
@@ -96,7 +99,7 @@ export default function AgentsPage() {
     form.resetFields();
   };
 
-  const saveAvatarChanges = async (agentId: string) => {
+  const saveAvatarChanges = async (agentId: string): Promise<void> => {
     if (avatarMarkedForRemoval) {
       await agentsApi.deleteAvatar(agentId);
       return;
@@ -122,25 +125,17 @@ export default function AgentsPage() {
         };
 
         await agentsApi.updateAgent(editingAgent.id, mergedConfig);
-        try {
-          await saveAvatarChanges(editingAgent.id);
-        } catch (error) {
-          console.error("Failed to save avatar:", error);
-        }
+        await saveAvatarChanges(editingAgent.id);
         successMessage = t("agent.updateSuccess");
       } else {
         const result = await agentsApi.createAgent(values);
-        try {
-          await saveAvatarChanges(result.id);
-        } catch (error) {
-          console.error("Failed to save avatar:", error);
-        }
+        await saveAvatarChanges(result.id);
         successMessage = `${t("agent.createSuccess")} (ID: ${result.id})`;
       }
 
+      await loadAgents();
       closeModal();
       message.success(successMessage);
-      await loadAgents();
     } catch (error: any) {
       console.error("Failed to save agent:", error);
       message.error(getErrorMessage(error));
