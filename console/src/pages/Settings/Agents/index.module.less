@@ -82,6 +82,26 @@
   }
 }
 
+.squareSourceReadonlyRow {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.squareSourceReadonlyInfo {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sectionTitle {
@@ -106,6 +126,11 @@
     &:hover :global(.ant-list-item-action .ant-btn) {
       box-shadow: 0 8px 20px rgba(59, 130, 246, 0.22);
     }
+  }
+
+  .squareSourceReadonlyRow {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.45);
   }
 }
 

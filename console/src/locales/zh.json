@@ -127,6 +127,7 @@
     "squareSourcesLabel": "来源配置",
     "squareSourcesEditTitle": "来源编辑",
     "squareAddSource": "新增来源",
+    "squareSourceUrlExample": "示例：https://github.com/jnMetaCode/agency-agents-zh（输入 URL 后会自动补全 id/name，并在校验时解析 branch/path）",
     "squareSaveSources": "保存来源",
     "squareSaveSourcesSuccess": "来源保存成功",
     "squareSaveSourcesFailed": "来源保存失败",

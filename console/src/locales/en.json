@@ -161,6 +161,7 @@
     "squareSourcesLabel": "Source configuration",
     "squareSourcesEditTitle": "Edit sources",
     "squareAddSource": "Add source",
+    "squareSourceUrlExample": "Example: https://github.com/jnMetaCode/agency-agents-zh (URL auto-fills id/name, and validate resolves branch/path)",
     "squareSaveSources": "Save sources",
     "squareSaveSourcesSuccess": "Sources saved",
     "squareSaveSourcesFailed": "Failed to save sources",

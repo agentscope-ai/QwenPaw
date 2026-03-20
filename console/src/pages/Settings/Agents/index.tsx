@@ -11,6 +11,7 @@ import {
   List,
   Modal,
   Select,
+  Switch,
   Space,
   Tag,
   Typography,
@@ -43,11 +44,15 @@ export default function AgentsPage() {
     null,
   );
   const [sourceDrafts, setSourceDrafts] = useState<AgentsSquareSourceSpec[]>([]);
+  const [editingSourceIdx, setEditingSourceIdx] = useState<number | null>(null);
+  const [sourceEditBackup, setSourceEditBackup] =
+    useState<AgentsSquareSourceSpec | null>(null);
   const [squareSearch, setSquareSearch] = useState("");
   const [squareSourceFilter, setSquareSourceFilter] = useState<string>("__all__");
   const [preferredImportName, setPreferredImportName] = useState("");
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [savingSources, setSavingSources] = useState(false);
+  const [togglingSourceKey, setTogglingSourceKey] = useState<string | null>(null);
   const [validatingSourceKey, setValidatingSourceKey] = useState<string | null>(null);
   const [form] = Form.useForm();
 
@@ -217,39 +222,192 @@ export default function AgentsPage() {
   };
 
   const handleAddSourceDraft = () => {
-    setSourceDrafts((prev) => [
-      ...prev,
-      {
-        id: "",
-        name: "",
-        type: "git",
-        provider: "index_json_repo",
-        url: "",
-        branch: "",
-        path: "index.json",
-        enabled: true,
-        order: prev.length + 1,
-        trust: "community",
-        license_hint: "",
-        pinned: false,
-      },
-    ]);
+    const nextDraft: AgentsSquareSourceSpec = {
+      id: "",
+      name: "",
+      type: "git",
+      provider: "index_json_repo",
+      url: "",
+      branch: "",
+      path: "index.json",
+      enabled: true,
+      order: sourceDrafts.length + 1,
+      trust: "community",
+      license_hint: "",
+      pinned: false,
+    };
+    setEditingSourceIdx(sourceDrafts.length);
+    setSourceEditBackup({ ...nextDraft });
+    setSourceDrafts((prev) => [...prev, nextDraft]);
+  };
+
+  const handleEditSourceDraft = (index: number) => {
+    const source = sourceDrafts[index];
+    if (!source) return;
+    setEditingSourceIdx(index);
+    setSourceEditBackup({ ...source });
+  };
+
+  const handleCancelEditSourceDraft = () => {
+    if (editingSourceIdx === null) return;
+    if (sourceEditBackup) {
+      const idx = editingSourceIdx;
+      setSourceDrafts((prev) =>
+        prev.map((item, i) => (i === idx ? sourceEditBackup : item)),
+      );
+    }
+    setEditingSourceIdx(null);
+    setSourceEditBackup(null);
+  };
+
+  const handleSaveEditSourceDraft = () => {
+    setEditingSourceIdx(null);
+    setSourceEditBackup(null);
   };
 
   const handleRemoveSourceDraft = (index: number) => {
     const source = sourceDrafts[index];
     if (!source || source.pinned) return;
     setSourceDrafts((prev) => prev.filter((_, i) => i !== index));
+    setEditingSourceIdx((current) => {
+      if (current === null) return current;
+      if (current === index) return null;
+      if (current > index) return current - 1;
+      return current;
+    });
+  };
+
+  const inferSourceNameFromUrl = (raw: string) => {
+    const text = (raw || "").trim();
+    if (!text) return "";
+
+    const parseOwnerRepo = (candidate: string) => {
+      const cleaned = candidate.replace(/^\/+|\/+$/g, "");
+      const parts = cleaned.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        return parts[1].replace(/\.git$/i, "");
+      }
+      return "";
+    };
+
+    try {
+      const u = new URL(text);
+      if (u.hostname.includes("github.com")) {
+        const repo = parseOwnerRepo(u.pathname);
+        if (repo) return repo;
+      }
+      const hostFirst = u.hostname.split(".").filter(Boolean)[0];
+      return hostFirst || "";
+    } catch {
+      const noProto = text.replace(/^https?:\/\//, "");
+      if (noProto.includes("/")) {
+        return parseOwnerRepo(noProto);
+      }
+      return "";
+    }
+  };
+
+  const parseGithubSpec = (raw: string) => {
+    const text = (raw || "").trim();
+    if (!text) return null;
+    try {
+      const u = new URL(text);
+      if (!u.hostname.includes("github.com")) return null;
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts.length < 2) return null;
+      const owner = parts[0];
+      const repo = parts[1].replace(/\.git$/i, "");
+      let branch = "";
+      let path = "";
+      if (parts.length >= 4 && (parts[2] === "tree" || parts[2] === "blob")) {
+        branch = parts[3];
+        if (parts.length > 4) {
+          path = parts.slice(4).join("/");
+        }
+      }
+      return { owner, repo, branch, path };
+    } catch {
+      return null;
+    }
+  };
+
+  const inferSourceIdFromUrl = (raw: string) => {
+    const spec = parseGithubSpec(raw);
+    if (spec) {
+      return `${spec.owner}-${spec.repo}`.toLowerCase();
+    }
+    const text = (raw || "").trim().replace(/^https?:\/\//, "");
+    const parts = text.split("/").filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0]}-${parts[1].replace(/\.git$/i, "")}`.toLowerCase();
+    }
+    return "";
+  };
+
+  const maybeAutofillSourceDraft = (
+    idx: number,
+    source: AgentsSquareSourceSpec,
+  ) => {
+    const patch: Partial<AgentsSquareSourceSpec> = {};
+    const githubSpec = parseGithubSpec(source.url);
+
+    if (!source.id?.trim()) {
+      const inferredId = inferSourceIdFromUrl(source.url);
+      if (inferredId) {
+        patch.id = inferredId;
+      }
+    }
+
+    if (!source.name?.trim()) {
+      const inferredName = inferSourceNameFromUrl(source.url);
+      if (inferredName) {
+        patch.name = inferredName;
+      }
+    }
+
+    const isDefaultIndexContract =
+      source.provider === "index_json_repo" && (!source.path || source.path === "index.json");
+
+    if (githubSpec) {
+      if (githubSpec.branch && !source.branch?.trim()) {
+        patch.branch = githubSpec.branch;
+      }
+      if (githubSpec.path) {
+        if (!source.path || source.path === "index.json" || source.path === ".") {
+          patch.path = githubSpec.path;
+        }
+        if (isDefaultIndexContract) {
+          patch.provider = githubSpec.path.endsWith(".json")
+            ? "index_json_repo"
+            : "agency_markdown_repo";
+        }
+      } else if (isDefaultIndexContract) {
+        patch.provider = "agency_markdown_repo";
+        patch.path = ".";
+      }
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return source;
+    }
+
+    updateSourceDraft(idx, patch);
+    return { ...source, ...patch };
   };
 
   const handleValidateSourceDraft = async (index: number) => {
-    const draft = sourceDrafts[index];
+    const current = sourceDrafts[index];
+    if (!current) return;
+    const draft = maybeAutofillSourceDraft(index, current);
     if (!draft) return;
     const key = draft.id || `${index}`;
     setValidatingSourceKey(key);
     try {
       const result = await agentsApi.validateSquareSource(draft);
       updateSourceDraft(index, result.normalized);
+      if (editingSourceIdx === index) {
+        setSourceEditBackup(result.normalized);
+      }
       message.success(t("agent.squareValidateSuccess"));
     } catch (error) {
       console.error("Validate source failed:", error);
@@ -259,27 +417,77 @@ export default function AgentsPage() {
     }
   };
 
-  const handleSaveSources = async () => {
+  const persistSquareSources = async (
+    nextSources: AgentsSquareSourceSpec[],
+    options?: {
+      notifySuccess?: boolean;
+      notifyError?: boolean;
+      refreshItems?: boolean;
+    },
+  ) => {
     if (!squareSources) return;
+    const {
+      notifySuccess = true,
+      notifyError = true,
+      refreshItems = true,
+    } = options ?? {};
+
     setSavingSources(true);
     try {
       const payload: AgentsSquareSourcesPayload = {
         version: squareSources.version,
         cache: squareSources.cache,
         install: squareSources.install,
-        sources: sourceDrafts,
+        sources: nextSources,
       };
       const saved = await agentsApi.updateSquareSources(payload);
       setSquareSources(saved);
       setSourceDrafts(saved.sources ?? []);
-      message.success(t("agent.squareSaveSourcesSuccess"));
-      await loadSquare(true);
+      setEditingSourceIdx(null);
+      setSourceEditBackup(null);
+      if (notifySuccess) {
+        message.success(t("agent.squareSaveSourcesSuccess"));
+      }
+      if (refreshItems) {
+        await loadSquare(true);
+      }
+      return true;
     } catch (error) {
       console.error("Save sources failed:", error);
-      message.error(t("agent.squareSaveSourcesFailed"));
+      if (notifyError) {
+        message.error(t("agent.squareSaveSourcesFailed"));
+      }
+      return false;
     } finally {
       setSavingSources(false);
     }
+  };
+
+  const handleSaveSources = async () => {
+    await persistSquareSources(sourceDrafts);
+  };
+
+  const handleToggleSourceEnabled = async (index: number, enabled: boolean) => {
+    const current = sourceDrafts[index];
+    if (!current || !squareSources) return;
+
+    const key = current.id || `${index}`;
+    const prevSources = sourceDrafts;
+    const nextSources = sourceDrafts.map((item, i) =>
+      i === index ? { ...item, enabled } : item,
+    );
+    setSourceDrafts(nextSources);
+    setTogglingSourceKey(key);
+
+    const ok = await persistSquareSources(nextSources, {
+      notifySuccess: false,
+      notifyError: true,
+      refreshItems: true,
+    });
+    if (!ok) {
+      setSourceDrafts(prevSources);
+    }
+    setTogglingSourceKey(null);
   };
 
   return (
@@ -344,6 +552,241 @@ export default function AgentsPage() {
             {t("agent.squareSourceCount")}: {squareItems?.meta?.source_count ?? 0} ·{" "}
             {t("agent.squareItemCount")}: {squareItems?.meta?.item_count ?? 0}
           </Typography.Paragraph>
+
+          <Typography.Text type="secondary">
+            {t("agent.squareSourcesLabel")}
+          </Typography.Text>
+          <Space>
+            <Typography.Text strong>{t("agent.squareSourcesEditTitle")}</Typography.Text>
+            <Button size="small" onClick={handleAddSourceDraft}>
+              {t("agent.squareAddSource")}
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              loading={savingSources}
+              onClick={handleSaveSources}
+            >
+              {t("agent.squareSaveSources")}
+            </Button>
+          </Space>
+          <Typography.Text type="secondary">
+            {t("agent.squareSourceUrlExample")}
+          </Typography.Text>
+
+          <List
+            size="small"
+            dataSource={sourceDrafts}
+            locale={{ emptyText: t("agent.squareNoSources") }}
+            renderItem={(source, idx) => (
+              <List.Item>
+                {editingSourceIdx === idx ? (
+                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                    <Space wrap>
+                      <Input
+                        size="small"
+                        name={`agents-square-source-id-${idx}`}
+                        aria-label="source id"
+                        style={{ width: 160 }}
+                        placeholder="id"
+                        value={source.id}
+                        disabled={source.pinned}
+                        onChange={(e) =>
+                          updateSourceDraft(idx, { id: e.target.value.trim() })
+                        }
+                      />
+                      <Input
+                        size="small"
+                        name={`agents-square-source-name-${idx}`}
+                        aria-label="source name"
+                        style={{ width: 180 }}
+                        placeholder="name"
+                        value={source.name}
+                        onChange={(e) =>
+                          updateSourceDraft(idx, { name: e.target.value })
+                        }
+                      />
+                      <Select
+                        size="small"
+                        style={{ width: 170 }}
+                        value={source.provider}
+                        options={[
+                          { value: "agency_markdown_repo", label: "agency_markdown_repo" },
+                          { value: "index_json_repo", label: "index_json_repo" },
+                        ]}
+                        onChange={(value) =>
+                          updateSourceDraft(idx, {
+                            provider: value,
+                            path:
+                              value === "agency_markdown_repo"
+                                ? source.path || "."
+                                : source.path || "index.json",
+                          })
+                        }
+                      />
+                      <Select
+                        size="small"
+                        style={{ width: 140 }}
+                        value={source.trust || "community"}
+                        options={[
+                          { value: "official", label: "official" },
+                          { value: "community", label: "community" },
+                          { value: "custom", label: "custom" },
+                        ]}
+                        onChange={(value) =>
+                          updateSourceDraft(idx, {
+                            trust: value as "official" | "community" | "custom",
+                          })
+                        }
+                      />
+                      <InputNumber
+                        size="small"
+                        name={`agents-square-source-order-${idx}`}
+                        aria-label="source order"
+                        style={{ width: 90 }}
+                        min={0}
+                        value={source.order}
+                        onChange={(value) =>
+                          updateSourceDraft(idx, { order: Number(value ?? 999) })
+                        }
+                      />
+                      <Input
+                        size="small"
+                        name={`agents-square-source-branch-${idx}`}
+                        aria-label="source branch"
+                        style={{ width: 120 }}
+                        placeholder="branch"
+                        value={source.branch || ""}
+                        onChange={(e) =>
+                          updateSourceDraft(idx, { branch: e.target.value.trim() })
+                        }
+                      />
+                      <Input
+                        size="small"
+                        name={`agents-square-source-path-${idx}`}
+                        aria-label="source path"
+                        style={{ width: 160 }}
+                        placeholder="path"
+                        value={source.path || ""}
+                        onChange={(e) =>
+                          updateSourceDraft(idx, { path: e.target.value.trim() })
+                        }
+                      />
+                      <Checkbox
+                        name={`agents-square-source-enabled-${idx}`}
+                        aria-label={t("agent.squareSourceEnabled")}
+                        checked={source.enabled}
+                        onChange={(e) =>
+                          updateSourceDraft(idx, { enabled: e.target.checked })
+                        }
+                      >
+                        {t("agent.squareSourceEnabled")}
+                      </Checkbox>
+                      <Button
+                        size="small"
+                        loading={validatingSourceKey === (source.id || `${idx}`)}
+                        onClick={() => handleValidateSourceDraft(idx)}
+                      >
+                        {t("agent.squareValidate")}
+                      </Button>
+                    </Space>
+
+                    <Input
+                      size="small"
+                      name={`agents-square-source-url-${idx}`}
+                      aria-label="source url"
+                      placeholder="url"
+                      value={source.url}
+                      autoFocus
+                      onChange={(e) => updateSourceDraft(idx, { url: e.target.value })}
+                      onBlur={() => {
+                        maybeAutofillSourceDraft(idx, source);
+                      }}
+                    />
+                    <Input
+                      size="small"
+                      name={`agents-square-source-license-${idx}`}
+                      aria-label="source license hint"
+                      placeholder="license_hint"
+                      value={source.license_hint || ""}
+                      onChange={(e) =>
+                        updateSourceDraft(idx, { license_hint: e.target.value })
+                      }
+                    />
+
+                    <Space>
+                      <Button size="small" type="primary" onClick={handleSaveEditSourceDraft}>
+                        {t("common.save")}
+                      </Button>
+                      <Button size="small" onClick={handleCancelEditSourceDraft}>
+                        {t("common.cancel")}
+                      </Button>
+                      <Button
+                        size="small"
+                        danger
+                        disabled={source.pinned}
+                        onClick={() => handleRemoveSourceDraft(idx)}
+                      >
+                        {t("agent.squareRemoveSource")}
+                      </Button>
+                    </Space>
+                  </Space>
+                ) : (
+                  <div className={styles.squareSourceReadonlyRow}>
+                    <div className={styles.squareSourceReadonlyInfo}>
+                      <Typography.Text strong>
+                        {source.name || "—"}
+                      </Typography.Text>
+                      <Typography.Text type="secondary">
+                        {source.id || "—"}
+                      </Typography.Text>
+                      <Typography.Text type="secondary" ellipsis={{ tooltip: source.url }}>
+                        {source.url || "—"}
+                      </Typography.Text>
+                      <Space wrap size={6}>
+                        <Tag>{source.provider}</Tag>
+                        <Tag>{source.path || "."}</Tag>
+                        <Tag>{source.branch || "main"}</Tag>
+                        <Tag color={source.enabled ? "green" : "default"}>
+                          {source.enabled ? t("common.enabled") : t("common.disabled")}
+                        </Tag>
+                      </Space>
+                    </div>
+                    <Space>
+                      <Switch
+                        size="small"
+                        checked={source.enabled}
+                        loading={togglingSourceKey === (source.id || `${idx}`)}
+                        onChange={(checked) => {
+                          void handleToggleSourceEnabled(idx, checked);
+                        }}
+                      />
+                      <Button size="small" onClick={() => handleEditSourceDraft(idx)}>
+                        {t("common.edit")}
+                      </Button>
+                      <Button
+                        size="small"
+                        loading={validatingSourceKey === (source.id || `${idx}`)}
+                        onClick={() => handleValidateSourceDraft(idx)}
+                      >
+                        {t("agent.squareValidate")}
+                      </Button>
+                      <Button
+                        size="small"
+                        danger
+                        disabled={source.pinned}
+                        onClick={() => handleRemoveSourceDraft(idx)}
+                      >
+                        {t("agent.squareRemoveSource")}
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+              </List.Item>
+            )}
+          />
+
+          <Divider style={{ margin: "8px 0" }} />
 
           <Space wrap>
             <Select
@@ -425,184 +868,6 @@ export default function AgentsPage() {
                 </List.Item>
               );
             }}
-          />
-
-          <Typography.Text type="secondary">
-            {t("agent.squareSourcesLabel")}
-          </Typography.Text>
-          <List
-            size="small"
-            dataSource={squareSources?.sources ?? []}
-            locale={{ emptyText: t("agent.squareNoSources") }}
-            renderItem={(source) => (
-              <List.Item>
-                <List.Item.Meta
-                  title={`${source.name} (${source.id})`}
-                  description={`${source.provider} · ${source.url}`}
-                />
-              </List.Item>
-            )}
-          />
-
-          <Divider style={{ margin: "8px 0" }} />
-          <Space>
-            <Typography.Text strong>{t("agent.squareSourcesEditTitle")}</Typography.Text>
-            <Button size="small" onClick={handleAddSourceDraft}>
-              {t("agent.squareAddSource")}
-            </Button>
-            <Button
-              size="small"
-              type="primary"
-              loading={savingSources}
-              onClick={handleSaveSources}
-            >
-              {t("agent.squareSaveSources")}
-            </Button>
-          </Space>
-
-          <List
-            size="small"
-            dataSource={sourceDrafts}
-            locale={{ emptyText: t("agent.squareNoSources") }}
-            renderItem={(source, idx) => (
-              <List.Item>
-                <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                  <Space wrap>
-                    <Input
-                      size="small"
-                      name={`agents-square-source-id-${idx}`}
-                      aria-label="source id"
-                      style={{ width: 160 }}
-                      placeholder="id"
-                      value={source.id}
-                      disabled={source.pinned}
-                      onChange={(e) =>
-                        updateSourceDraft(idx, { id: e.target.value.trim() })
-                      }
-                    />
-                    <Input
-                      size="small"
-                      name={`agents-square-source-name-${idx}`}
-                      aria-label="source name"
-                      style={{ width: 180 }}
-                      placeholder="name"
-                      value={source.name}
-                      onChange={(e) => updateSourceDraft(idx, { name: e.target.value })}
-                    />
-                    <Select
-                      size="small"
-                      style={{ width: 170 }}
-                      value={source.provider}
-                      options={[
-                        { value: "agency_markdown_repo", label: "agency_markdown_repo" },
-                        { value: "index_json_repo", label: "index_json_repo" },
-                      ]}
-                      onChange={(value) =>
-                        updateSourceDraft(idx, {
-                          provider: value,
-                          path:
-                            value === "agency_markdown_repo"
-                              ? source.path || "."
-                              : source.path || "index.json",
-                        })
-                      }
-                    />
-                    <Select
-                      size="small"
-                      style={{ width: 140 }}
-                      value={source.trust || "community"}
-                      options={[
-                        { value: "official", label: "official" },
-                        { value: "community", label: "community" },
-                        { value: "custom", label: "custom" },
-                      ]}
-                      onChange={(value) =>
-                        updateSourceDraft(idx, {
-                          trust: value as "official" | "community" | "custom",
-                        })
-                      }
-                    />
-                    <InputNumber
-                      size="small"
-                      name={`agents-square-source-order-${idx}`}
-                      aria-label="source order"
-                      style={{ width: 90 }}
-                      min={0}
-                      value={source.order}
-                      onChange={(value) =>
-                        updateSourceDraft(idx, { order: Number(value ?? 999) })
-                      }
-                    />
-                    <Input
-                      size="small"
-                      name={`agents-square-source-branch-${idx}`}
-                      aria-label="source branch"
-                      style={{ width: 120 }}
-                      placeholder="branch"
-                      value={source.branch || ""}
-                      onChange={(e) =>
-                        updateSourceDraft(idx, { branch: e.target.value.trim() })
-                      }
-                    />
-                    <Input
-                      size="small"
-                      name={`agents-square-source-path-${idx}`}
-                      aria-label="source path"
-                      style={{ width: 160 }}
-                      placeholder="path"
-                      value={source.path || ""}
-                      onChange={(e) =>
-                        updateSourceDraft(idx, { path: e.target.value.trim() })
-                      }
-                    />
-                    <Checkbox
-                      name={`agents-square-source-enabled-${idx}`}
-                      aria-label={t("agent.squareSourceEnabled")}
-                      checked={source.enabled}
-                      onChange={(e) =>
-                        updateSourceDraft(idx, { enabled: e.target.checked })
-                      }
-                    >
-                      {t("agent.squareSourceEnabled")}
-                    </Checkbox>
-                    <Button
-                      size="small"
-                      loading={validatingSourceKey === (source.id || `${idx}`)}
-                      onClick={() => handleValidateSourceDraft(idx)}
-                    >
-                      {t("agent.squareValidate")}
-                    </Button>
-                    <Button
-                      size="small"
-                      danger
-                      disabled={source.pinned}
-                      onClick={() => handleRemoveSourceDraft(idx)}
-                    >
-                      {t("agent.squareRemoveSource")}
-                    </Button>
-                  </Space>
-
-                  <Input
-                    size="small"
-                    name={`agents-square-source-url-${idx}`}
-                    aria-label="source url"
-                    placeholder="url"
-                    value={source.url}
-                    onChange={(e) => updateSourceDraft(idx, { url: e.target.value })}
-                  />
-                  <Input
-                    size="small"
-                    name={`agents-square-source-license-${idx}`}
-                    aria-label="source license hint"
-                    placeholder="license_hint"
-                    value={source.license_hint || ""}
-                    onChange={(e) =>
-                      updateSourceDraft(idx, { license_hint: e.target.value })
-                    }
-                  />
-                </Space>
-              </List.Item>
-            )}
           />
         </Space>
       </Drawer>
