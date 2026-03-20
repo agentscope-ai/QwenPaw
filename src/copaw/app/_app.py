@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+import asyncio
 import mimetypes
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -174,6 +176,79 @@ async def lifespan(
             exc_info=True,
         )
 
+    # --- Initialize OpenSandbox and file system backend ---
+    opensandbox_instance = None
+    try:
+        api_key = os.environ.get('OPEN_SANDBOX_API_KEY', '')
+
+        if api_key:
+            from opensandbox import Sandbox
+            from opensandbox.config.connection import ConnectionConfig
+
+            sandbox_image = os.environ.get(
+                'COPAW_OPENSANDBOX_IMAGE', 'python:3.11',
+            )
+            sandbox_timeout = int(os.environ.get(
+                'COPAW_OPENSANDBOX_TIMEOUT', '3600',
+            ))
+            cloud_working_dir = os.environ.get(
+                'COPAW_OPENSANDBOX_WORKING_DIR', '/workspace',
+            )
+
+            conn_kwargs: dict = {"api_key": api_key}
+            domain = os.environ.get('OPEN_SANDBOX_DOMAIN')
+            if domain:
+                conn_kwargs["domain"] = domain
+            connection_config = ConnectionConfig(**conn_kwargs)
+
+            logger.info(
+                "Creating OpenSandbox (%s, timeout=%ss)...",
+                sandbox_image, sandbox_timeout,
+            )
+            opensandbox_instance = await Sandbox.create(
+                sandbox_image,
+                timeout=timedelta(seconds=sandbox_timeout),
+                connection_config=connection_config,
+            )
+            logger.info(
+                "OpenSandbox created: id=%s",
+                opensandbox_instance.sandbox_id,
+            )
+
+            # Ensure the working directory exists inside the sandbox
+            await opensandbox_instance.commands.run(
+                f"mkdir -p {cloud_working_dir}",
+            )
+
+            from ..fs_backend import initialize_fs_backend
+            initialize_fs_backend(
+                use_cloud=True, sandbox=opensandbox_instance,
+            )
+            logger.info("File system backend: opensandbox")
+
+            from ..agents.tools.shell import (
+                set_opensandbox_instance,
+                set_cloud_working_dir,
+            )
+            set_opensandbox_instance(opensandbox_instance)
+            set_cloud_working_dir(cloud_working_dir)
+            logger.info(
+                "Shell: opensandbox (cwd=%s)", cloud_working_dir,
+            )
+        else:
+            logger.info(
+                "OPEN_SANDBOX_API_KEY not set, using local filesystem",
+            )
+            from ..fs_backend import initialize_fs_backend
+            initialize_fs_backend(use_cloud=False)
+    except Exception:
+        logger.exception(
+            "Failed to initialize OpenSandbox/file system backend",
+        )
+        from ..fs_backend import initialize_fs_backend
+        initialize_fs_backend(use_cloud=False)
+        logger.warning("Using local file system backend as fallback")
+
     # --- Multi-agent migration and initialization ---
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
@@ -226,6 +301,16 @@ async def lifespan(
     try:
         yield
     finally:
+        # Stop order: opensandbox -> multi-agent manager
+        if opensandbox_instance:
+            try:
+                logger.info("Cleaning up OpenSandbox...")
+                await opensandbox_instance.kill()
+                await opensandbox_instance.close()
+                logger.info("OpenSandbox terminated")
+            except Exception:
+                logger.exception("Failed to cleanup OpenSandbox")
+
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
         if multi_agent_mgr is not None:
