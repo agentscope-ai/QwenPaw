@@ -469,7 +469,13 @@ async def delete_agent_avatar(
     workspace_dir = Path(agent_config.workspace_dir).expanduser().resolve()
     avatar_path = _resolve_avatar_path(workspace_dir, agent_config.avatar)
     if avatar_path and avatar_path.exists():
-        avatar_path.unlink(missing_ok=True)
+        if avatar_path.is_file():
+            avatar_path.unlink(missing_ok=True)
+        else:
+            logger.warning(
+                "Expected avatar path to be a file but found non-file path: %s",
+                avatar_path,
+            )
 
     agent_config.avatar = ""
     save_agent_config(agentId, agent_config)
