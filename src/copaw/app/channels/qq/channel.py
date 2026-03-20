@@ -21,7 +21,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import aiofiles
 import aiohttp
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
@@ -519,8 +518,8 @@ async def _download_qq_file(
                 )
                 return None
             content = await resp.read()
-            async with aiofiles.open(str(local_path), "wb") as f:
-                await f.write(content)
+            with open(str(local_path), "wb") as f:
+                f.write(content)
         return str(local_path)
     except Exception:
         logger.exception("qq download failed for url=%s", file_url)
