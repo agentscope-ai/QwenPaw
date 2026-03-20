@@ -86,7 +86,12 @@ class PromptBuilder:
 
             # Filter heartbeat section from AGENTS.md if heartbeat is disabled
             if filename == "AGENTS.md":
-                content = self._process_heartbeat_section(content)
+                try:
+                    content = self._process_heartbeat_section(content)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to process heartbeat with {e}",
+                    )
 
             if content:
                 if self.prompt_parts:  # Add separator if not first section
