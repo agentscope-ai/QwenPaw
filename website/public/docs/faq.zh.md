@@ -214,6 +214,39 @@ CoPaw 已开源，官方仓库地址：
 
 进入控制台 **智能体 → MCP**，进行 MCP 客户端的启用/禁用/删除/创建，详情请见文档 [MCP](https://copaw.agentscope.io/docs/mcp)。
 
+### Windows 下 Docker 端口 8088 冲突
+
+在 Windows 上使用 Docker 运行 CoPaw 时，可能会遇到以下错误：
+
+```
+Error: port is already allocated or reserved
+```
+
+或：
+
+```
+Error: ports are not available: listen tcp 127.0.0.1:8088: bind: An attempt was made to access a socket in a way forbidden by its access permissions.
+```
+
+**原因**：在 Windows 系统上，特别是启用了 Hyper-V 或 WSL2 的情况下，系统会动态预留一部分 TCP 端口。端口 8088 经常落在预留范围内（通常在 7993-8092 之间），导致 Docker 无法绑定该端口。
+
+**解决方案**：使用其他主机端口，如 8090 或 8180：
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+然后通过 `http://127.0.0.1:8090/` 访问 CoPaw。
+
+如需查看 Windows 系统上预留的端口范围，可在 PowerShell（管理员权限）中运行：
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
 ### 常见报错
 
 1. 报错样式：You didn't provide an API key

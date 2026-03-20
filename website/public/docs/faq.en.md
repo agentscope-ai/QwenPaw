@@ -235,6 +235,39 @@ custom Skills, and import Skills from Skills Hub. See
 Go to **Agent -> MCP** in Console. You can enable/disable/delete/create MCP
 clients there. See [MCP](https://copaw.agentscope.io/docs/mcp).
 
+### Docker port 8088 conflict on Windows
+
+When running CoPaw with Docker on Windows, you may encounter the following error:
+
+```
+Error: port is already allocated or reserved
+```
+
+or:
+
+```
+Error: ports are not available: listen tcp 127.0.0.1:8088: bind: An attempt was made to access a socket in a way forbidden by its access permissions.
+```
+
+**Cause**: On Windows, especially with Hyper-V or WSL2 enabled, the system dynamically reserves a range of TCP ports. Port 8088 often falls within this reserved range (typically around 7993-8092), causing Docker to fail when trying to bind to this port.
+
+**Workaround**: Use a different host port, such as 8090 or 8180:
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+Then access CoPaw at `http://127.0.0.1:8090/` instead.
+
+To check which ports are reserved on your Windows system, run in PowerShell (as Administrator):
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
 ### Common error
 
 1. Error pattern: `You didn't provide an API key`
