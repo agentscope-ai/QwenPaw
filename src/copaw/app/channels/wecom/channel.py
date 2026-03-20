@@ -639,20 +639,25 @@ class WecomChannel(BaseChannel):
         # Only first reply uses it; subsequent replies get new stream_id
         processing_sid = m.pop("wecom_processing_stream_id", "")
 
-        if body and frame:
-            await self._send_text_via_frame(frame, body, processing_sid)
-        elif body and chatid:
-            # Proactive send without an inbound frame
-            try:
-                await self._client.send_message(
-                    chatid,
-                    {
-                        "msgtype": "markdown",
-                        "markdown": {"content": body},
-                    },
-                )
-            except Exception:
-                logger.exception("wecom send_content_parts proactive failed")
+        first_chunk = True
+        for chunk in (split_text(body) if body else []):
+            sid = processing_sid if first_chunk else ""
+            first_chunk = False
+            if frame:
+                await self._send_text_via_frame(frame, chunk, sid)
+            elif chatid:
+                try:
+                    await self._client.send_message(
+                        chatid,
+                        {
+                            "msgtype": "markdown",
+                            "markdown": {"content": chunk},
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "wecom send_content_parts proactive failed",
+                    )
 
         # # the SDK does not support sending media files.
         # for part in media_parts:
