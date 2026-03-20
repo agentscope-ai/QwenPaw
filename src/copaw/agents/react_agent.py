@@ -280,7 +280,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             agent_id=agent_id,
             heartbeat_enabled=heartbeat_enabled,
         )
-        logger.info("System prompt:\n%s", sys_prompt)
+        logger.debug("System prompt:\n%s", sys_prompt)
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
