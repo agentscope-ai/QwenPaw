@@ -20,14 +20,6 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_DEFAULT_WORKING_DIR = (
-    Path(
-        WORKING_DIR,
-    )
-    .expanduser()
-    .resolve()
-)
-
 # Workspace items to migrate: (name, is_directory)
 _WORKSPACE_ITEMS_TO_MIGRATE = [
     # Directories
@@ -148,16 +140,10 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
         )
     logger.info(f"Created agent config: {agent_config_path}")
 
-    # Migrate existing workspace files from legacy locations.
-    # Two scenarios to handle:
-    # 1. User moved from local (~/.copaw) to custom WORKING_DIR (e.g., Docker)
-    #    -> data may still be in ~/.copaw
-    # 2. Docker environment using custom WORKING_DIR from the start
-    #    -> data is in WORKING_DIR root (not yet in workspaces/default/)
     migrated_items = []
 
-    _migrate_workspace_items_from_multiple_sources(
-        [_LEGACY_DEFAULT_WORKING_DIR],
+    _migrate_workspace_items_from_source(
+        WORKING_DIR,
         default_workspace,
         migrated_items,
     )
@@ -201,30 +187,6 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     logger.info("=" * 60)
 
     return True
-
-
-def _migrate_root_markdown_files(
-    old_workspace: Path,
-    new_workspace: Path,
-    migrated_items: list,
-) -> None:
-    """Migrate root-level markdown files from the legacy workspace.
-
-    Args:
-        old_workspace: Source legacy workspace path
-        new_workspace: Destination workspace path
-        migrated_items: List to append migrated item names
-    """
-    if not old_workspace.exists():
-        return
-
-    for md_path in sorted(old_workspace.glob("*.md")):
-        _migrate_workspace_item(
-            md_path,
-            new_workspace / md_path.name,
-            md_path.name,
-            migrated_items,
-        )
 
 
 def _migrate_workspace_item(
@@ -280,44 +242,6 @@ def _migrate_workspace_items_from_source(
             item_name,
             migrated_items,
         )
-
-
-def _migrate_workspace_items_from_multiple_sources(
-    source_dirs: list[Path],
-    target_dir: Path,
-    migrated_items: list,
-) -> None:
-    """Migrate workspace items from multiple possible source directories.
-
-    Checks each source in order and migrates from the first one that exists.
-    This handles both:
-    - Docker: data in WORKING_DIR root (/app/working/sessions/)
-    - Local: data in ~/.copaw after user customized WORKING_DIR
-
-    Args:
-        source_dirs: List of possible source directories (in priority order)
-        target_dir: Target directory (e.g., workspaces/default/)
-        migrated_items: List to append migrated item names
-    """
-    for item_name, _ in _WORKSPACE_ITEMS_TO_MIGRATE:
-        target_path = target_dir / item_name
-
-        # Skip if already exists in target
-        if target_path.exists():
-            logger.debug(f"Skipping {item_name} (already exists in target)")
-            continue
-
-        # Try each source in order
-        for source_dir in source_dirs:
-            source_path = source_dir / item_name
-            if source_path.exists():
-                _migrate_workspace_item(
-                    source_path,
-                    target_path,
-                    item_name,
-                    migrated_items,
-                )
-                break  # Move to next item once migrated
 
 
 def ensure_default_agent_exists() -> None:
