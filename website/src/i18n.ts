@@ -18,6 +18,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "follow.sub": "第一时间获取 CoPaw 最新动态",
     "follow.xiaohongshu": "小红书：",
     "follow.x": "X：",
+    "follow.community.title": "加入社区",
+    "follow.community.discord": "Discord",
+    "follow.community.dingtalk": "钉钉群",
     "brandstory.title": "Why CoPaw？",
     "brandstory.para1":
       "CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 Co Personal Agent Workstation（协同个人智能体工作台）。",
@@ -147,6 +150,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "follow.sub": "Follow us for the latest CoPaw updates",
     "follow.xiaohongshu": "Rednote:",
     "follow.x": "X:",
+    "follow.community.title": "Join the community",
+    "follow.community.discord": "Discord",
+    "follow.community.dingtalk": "DingTalk",
     "brandstory.title": "Why CoPaw?",
     "brandstory.para1":
       'CoPaw represents both a Co Personal Agent Workstation and a "co-paw"—a partner always by your side.',
