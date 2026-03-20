@@ -11,7 +11,6 @@ Extends ReMeLight to provide memory management capabilities including:
 import logging
 import os
 import platform
-from dotenv import load_dotenv
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg, TextBlock
