@@ -26,7 +26,8 @@
 >
 > **本库版本专有主要特性（Local-only Highlights）**
 >
-> - Skills Marketplace（Git-backed skills market aggregation + Console market management + 覆盖前确认）。
+- Skills Marketplace（Git-backed market aggregation + Console market management + i18n + 覆盖前确认）。
+- Console 知识库入口优化（知识菜单直达与配置路径更清晰）。
 > - 数字出版开发模式与双轨协作文档（本地优先、按需回流 upstream）。
 > - 发布流程增强：`RELEASE.md` / `RELEASE_zh.md`、Release Checklist Issue 模板、PR 发布检查区块。
 > - 本地桌面打包修复：macOS 下 `.venv` Python 优先与 `conda-unpack` 兼容处理。
@@ -129,15 +130,19 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
     - [Using ModelScope](#using-modelscope)
     - [Deploy on Alibaba Cloud ECS](#deploy-on-alibaba-cloud-ecs)
   - [API Key](#api-key)
+    - [Pass CoPaw model config to Cognee (Ollama / LM Studio / Custom)](#pass-copaw-model-config-to-cognee-ollama--lm-studio--custom)
   - [Local Models](#local-models)
+  - [Skills Marketplace Example](#skills-marketplace-example)
   - [Documentation](#documentation)
   - [FAQ](#faq)
   - [Roadmap](#roadmap)
+    - [Fork User Roadmap (Condensed)](#fork-user-roadmap-condensed)
     - [Get involved](#get-involved)
   - [Install from source](#install-from-source)
   - [Why CoPaw?](#why-copaw)
   - [Built by](#built-by)
   - [Contact us](#contact-us)
+  - [Telemetry](#telemetry)
   - [License](#license)
   - [Contributors](#contributors)
 
@@ -542,6 +547,26 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 
 *Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planned* — longer-horizon roadmap.
+
+### Fork User Roadmap (Condensed)
+
+> The following tracks fork-side user-facing capabilities and does not replace the upstream roadmap above.
+
+| Area | What to expect | Status |
+| --- | --- | --- |
+| **Skills Marketplace** | Git-backed aggregation, Console market management, overwrite confirmation | Completed |
+|  | Sub-item: integrated [futuremeng/editor-skills](https://github.com/futuremeng/editor-skills) | Completed |
+| **Knowledge Base** | Continuous availability and iterative improvements for knowledge accumulation | In Progress |
+| **Knowledge Base Enhancement** | cognee-based knowledge enhancement | Planned |
+| **Self-hosted Multi-agent Collaboration** | LangGraph + Plane + CoPaw: self-hosted multi-agent human-in-the-loop task system | Planned |
+|  | Phase 1: Plane integration skill (Issue/Comment CRUD and status transitions) | Planned |
+|  | Phase 2: LangGraph orchestration (task decomposition, execution, human interrupt) | Planned |
+|  | Phase 3: Webhook loop closure (Plane comments trigger agent resume) | Planned |
+| **MCP Extensions** | Built-in `jiulu_mcp` and `mineru_mcp` | Planned |
+
+For overlap with upstream items (for example, multimodal memory fusion), we evaluate migration first when upstream capabilities are production-ready; if capability fit or migration cost is not acceptable, we keep fork implementations to preserve usability.
+
+Detailed fork roadmap: [docs/devops/FORK_ROADMAP.md](docs/devops/FORK_ROADMAP.md).
 
 ### Get involved
 

@@ -26,7 +26,8 @@
 >
 > **本库版本专有主要特性（Local-only Highlights）**
 >
-> - Skills Marketplace（Git-backed skills market aggregation + Console market management + 覆盖前确认）。
+- Skills Marketplace（Git-backed market aggregation + Console market management + i18n + 覆盖前确认）。
+- Console 知识库入口优化（知识菜单直达与配置路径更清晰）。
 > - 数字出版开发模式与双轨协作文档（本地优先、按需回流 upstream）。
 > - 发布流程增强：`RELEASE.md` / `RELEASE_zh.md`、Release Checklist Issue 模板、PR 发布检查区块。
 > - 本地桌面打包修复：macOS 下 `.venv` Python 优先与 `conda-unpack` 兼容处理。
@@ -130,6 +131,7 @@
     - [使用魔搭创空间](#使用魔搭创空间)
     - [部署到阿里云 ECS](#部署到阿里云-ecs)
   - [API Key](#api-key)
+    - [CoPaw 配置透传到 Cognee（Ollama / LM Studio / Custom）](#copaw-配置透传到-cogneeollama--lm-studio--custom)
   - [本地模型](#本地模型)
   - [Skills 市场配置示例](#skills-市场配置示例)
   - [文档](#文档)
@@ -559,7 +561,11 @@ copaw app # 启动服务
 | **技能市场** | Skills Marketplace：Git 聚合、控制台市场管理、覆盖前确认 | 已完成 |
 |  | 子项：已集成 [futuremeng/editor-skills](https://github.com/futuremeng/editor-skills) | 已完成 |
 | **知识库** | 知识沉淀能力持续可用并迭代优化 | 进行中 |
-| **知识库增强** | 基于 cognee 的知识库增强能力 | 进行中 |
+| **知识库增强** | 基于 cognee 的知识库增强能力 | 计划中 |
+| **多智能体协同（自托管）** | LangGraph + Plane + CoPaw：构建自托管多智能体人机协同任务系统 | 计划中 |
+|  | 阶段 1：Plane 集成技能（Issue/Comment 的 CRUD 与状态流转） | 计划中 |
+|  | 阶段 2：LangGraph 编排（任务分解、执行、human interrupt） | 计划中 |
+|  | 阶段 3：Webhook 闭环（Plane 评论触发 Agent 续跑） | 计划中 |
 | **MCP 扩展** | 内置 jiulu_mcp 与 mineru_mcp | 计划中 |
 
 与 upstream 重合项（如“多模态记忆融合增强”）的处理策略：当 upstream 提供可用能力时，优先评估迁移；若能力或成本不匹配，则保留 fork 实现以保障可用性。
