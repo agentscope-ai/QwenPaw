@@ -424,12 +424,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         client_name,
                     )
             except Exception as e:  # pylint: disable=broad-except
-                logger.exception(
-                    "Unexpected error registering MCP client '%s': %s",
+                logger.warning(
+                    "Failed to register MCP client '%s', skipping: %s",
                     client_name,
                     e,
+                    exc_info=True,
                 )
-                raise
 
     async def _recover_mcp_client(self, client: Any) -> Any | None:
         """Recover MCP client from broken session and return healthy client."""
