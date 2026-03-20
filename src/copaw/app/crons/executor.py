@@ -74,7 +74,8 @@ class CronExecutor:
 
         try:
             await asyncio.wait_for(
-                _run(), timeout=job.runtime.timeout_seconds,
+                _run(),
+                timeout=job.runtime.timeout_seconds,
             )
         except asyncio.TimeoutError:
             logger.warning(
