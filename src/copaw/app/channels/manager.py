@@ -139,9 +139,16 @@ class ChannelManager:
         if isinstance(payload, dict):
             # Native payload
             parts = payload.get("content_parts") or []
-            return "".join(
-                p.get("text", "") for p in parts if p.get("type") == "text"
-            )
+            texts = []
+            for p in parts:
+                if isinstance(p, dict):
+                    if p.get("type") == "text":
+                        texts.append(p.get("text", ""))
+                else:
+                    # Likely a runtime Content object
+                    if getattr(p, "type", None) == ContentType.TEXT:
+                        texts.append(getattr(p, "text", ""))
+            return "".join(texts)
         # AgentRequest
         if hasattr(payload, "input") and payload.input:
             msg = payload.input[0]
@@ -153,7 +160,12 @@ class ChannelManager:
                 )
         return ""
 
-    async def cancel_session(self, channel_id: str, key: str) -> bool:
+    async def cancel_session(
+        self,
+        channel_id: str,
+        key: str,
+        user_id: str = "",
+    ) -> bool:
         """Cancel the active processing task for the session."""
         task = self._session_tasks.get((channel_id, key))
         if task and not task.done():
@@ -166,15 +178,23 @@ class ChannelManager:
                 None,
             )
             if ch:
+
+                async def send_feedback():
+                    try:
+                        await self.send_text(
+                            channel=channel_id,
+                            user_id=user_id,
+                            session_id=key,
+                            text="**Task stopped**",
+                        )
+                    except Exception:
+                        logger.warning(
+                            f"Failed to send stop feedback to {channel_id}:{key}",
+                            exc_info=True,
+                        )
+
                 # We use a task for feedback so we don't block cancellation
-                asyncio.create_task(
-                    self.send_text(
-                        channel=channel_id,
-                        user_id="",  # session_id/key is usually enough for to_handle
-                        session_id=key,
-                        text="**Task stopped**",
-                    ),
-                )
+                asyncio.create_task(send_feedback())
             return True
         return False
 
@@ -320,10 +340,22 @@ class ChannelManager:
             return
         key = ch.get_debounce_key(payload)
 
-        # Intercept /stop command
+        # Intercept /stop command only if a task is active for this session.
+        # If no task is active, let it through to the CommandHandler so the
+        # user gets the "All Clear" response.
         text = self._get_payload_text(payload).strip()
-        if text in ("/stop", "/daemon stop"):
-            asyncio.create_task(self.cancel_session(channel_id, key))
+        if (
+            text in ("/stop", "/daemon stop")
+            and (channel_id, key) in self._session_tasks
+        ):
+            # Extract user_id for better feedback routing
+            user_id = ""
+            if isinstance(payload, dict):
+                user_id = payload.get("sender_id") or ""
+            else:
+                user_id = getattr(payload, "user_id", "")
+
+            asyncio.create_task(self.cancel_session(channel_id, key, user_id))
             return
 
         if channel_id == "dingtalk" and isinstance(payload, dict):
@@ -397,6 +429,12 @@ class ChannelManager:
                     self._session_tasks[(channel_id, key)] = task
                     try:
                         await task
+                    except asyncio.CancelledError:
+                        # Catch cancellation of the session task so it doesn't
+                        # kill the consumer worker loop.
+                        logger.info(
+                            f"Session task {channel_id}:{key} cancelled."
+                        )
                     finally:
                         self._session_tasks.pop((channel_id, key), None)
                 finally:
