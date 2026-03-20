@@ -181,18 +181,16 @@ class ChannelManager:
                 continue
             ch_cfg = getattr(ch, key, None)
             if ch_cfg is None and key in extra:
+                ch_cfg = extra[key]
+            if ch_cfg is None:
+                continue
+            if isinstance(ch_cfg, dict):
                 from types import SimpleNamespace
                 from ...config.config import BaseChannelConfig
 
-                raw = extra[key]
-                if isinstance(raw, dict):
-                    defaults = BaseChannelConfig().model_dump()
-                    defaults.update(raw)
-                    ch_cfg = SimpleNamespace(**defaults)
-                else:
-                    ch_cfg = raw
-            if ch_cfg is None:
-                continue
+                defaults = BaseChannelConfig().model_dump()
+                defaults.update(ch_cfg)
+                ch_cfg = SimpleNamespace(**defaults)
 
             # Check if channel is enabled
             enabled = getattr(ch_cfg, "enabled", False)
