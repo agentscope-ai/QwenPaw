@@ -70,9 +70,17 @@ def _execute_subprocess_sync(
     try:
         # Disable cmd.exe AutoRun (/D) to prevent spurious stderr
         # from registry-configured startup scripts (e.g. "The system
-        # cannot find the path specified.").  /S prevents quote stripping
-        # so the inner command is passed through unchanged.
-        wrapped = ["cmd", "/D", "/S", "/C", cmd]
+        # cannot find the path specified.").  /S makes cmd.exe strip only
+        # the outermost quotes after /C, preserving all inner quoting
+        # (e.g. paths with spaces) for the actual command.
+        #
+        # We pass the command as a *string* rather than a list because
+        # Python's subprocess.list2cmdline() escapes embedded double-
+        # quotes with backslashes (MS C runtime convention), but cmd.exe
+        # does not recognise \" — it uses ^ for escaping.  Passing a
+        # string bypasses list2cmdline entirely so quotes reach cmd.exe
+        # unmangled.
+        wrapped = f'cmd /D /S /C "{cmd}"'
         with subprocess.Popen(
             wrapped,
             shell=False,
