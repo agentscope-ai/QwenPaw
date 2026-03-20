@@ -6,12 +6,11 @@ This module implements A2A (Agent-to-Agent) protocol support.
 """
 
 from .channel import XiaoYiChannel
-from .auth import generate_auth_headers, XiaoYiAuth
+from .auth import generate_auth_headers
 from .constants import DEFAULT_WS_URL
 
 __all__ = [
     "XiaoYiChannel",
     "generate_auth_headers",
-    "XiaoYiAuth",
     "DEFAULT_WS_URL",
 ]

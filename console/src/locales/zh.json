@@ -413,6 +413,11 @@
     "loadFailed": "加载 Token 消耗数据失败",
     "noData": "所选时间段内暂无 Token 消耗数据"
   },
+  "modelSelector": {
+    "selectModel": "选择模型",
+    "noConfiguredModels": "暂无已配置模型",
+    "switchFailed": "切换模型失败"
+  },
   "models": {
     "llmConfiguration": "LLM 配置",
     "providersTitle": "提供商",

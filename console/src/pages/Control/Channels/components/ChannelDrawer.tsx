@@ -53,7 +53,6 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wecom",
   "mattermost",
   "matrix",
-  "xiaoyi",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)

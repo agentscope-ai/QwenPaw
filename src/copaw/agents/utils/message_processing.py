@@ -17,30 +17,9 @@ from typing import Optional
 from agentscope.message import Msg
 
 from ...config import load_config
-from ...constant import WORKING_DIR
 from .file_handling import download_file_from_base64, download_file_from_url
 
 logger = logging.getLogger(__name__)
-
-# Trusted directories where channels save downloaded media.
-_ALLOWED_MEDIA_ROOTS = [
-    WORKING_DIR / "media",
-    WORKING_DIR / "downloads",
-]
-
-
-def _is_allowed_media_path(path: str) -> bool:
-    """True if *path* is a file under one of the allowed media directories."""
-    try:
-        resolved = Path(path).expanduser().resolve()
-        if not resolved.is_file():
-            return False
-        return any(
-            resolved.is_relative_to(root.resolve())
-            for root in _ALLOWED_MEDIA_ROOTS
-        )
-    except Exception:
-        return False
 
 
 async def _process_single_file_block(
@@ -78,11 +57,6 @@ async def _process_single_file_block(
             if parsed.scheme == "file":
                 try:
                     local_path = urllib.request.url2pathname(parsed.path)
-                    if not _is_allowed_media_path(local_path):
-                        logger.warning(
-                            "Rejected file:// URL outside allowed media dir",
-                        )
-                        return None
                 except Exception:
                     return None
             local_path = await download_file_from_url(
@@ -265,18 +239,6 @@ async def _process_audio_block(
         False if transcription failed — the notification is kept so the
         LLM knows the file path.
     """
-    # Security: reject paths outside the allowed media directory.
-    if not _is_allowed_media_path(local_path):
-        logger.warning(
-            "Audio path outside allowed media dir, rejecting: %s",
-            local_path,
-        )
-        message_content[index] = {
-            "type": "text",
-            "text": "[Voice message]: (audio file rejected)",
-        }
-        return True
-
     from .audio_transcription import transcribe_audio
 
     audio_mode = load_config().agents.audio_mode
@@ -355,11 +317,7 @@ async def _process_single_block(
         and source.get("type") == "base64"
     ):
         data = source.get("data")
-        if (
-            isinstance(data, str)
-            and os.path.isfile(data)
-            and _is_allowed_media_path(data)
-        ):
+        if isinstance(data, str) and os.path.isfile(data):
             block["source"] = {
                 "type": "url",
                 "url": Path(data).as_uri(),
