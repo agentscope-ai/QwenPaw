@@ -5,6 +5,7 @@ Handles migration from legacy single-agent config to new multi-agent structure.
 """
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -20,7 +21,11 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_DEFAULT_WORKING_DIR = Path("~/.copaw").expanduser().resolve()
+# Allow overriding the legacy default working dir via env.
+# This keeps backward compatibility when the env var is not set.
+_LEGACY_DEFAULT_WORKING_DIR = Path(
+    os.environ.get("COPAW_LEGACY_WORKING_DIR", "~/.copaw"),
+).expanduser().resolve()
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
@@ -129,21 +134,25 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     #    -> data is in WORKING_DIR root (not yet in workspaces/default/)
     migrated_items = []
 
-    if WORKING_DIR != _LEGACY_DEFAULT_WORKING_DIR:
-        # Custom WORKING_DIR: check both WORKING_DIR root and ~/.copaw
-        # Priority: WORKING_DIR root first (current data), then legacy
-        _migrate_workspace_items_from_multiple_sources(
-            [WORKING_DIR, _LEGACY_DEFAULT_WORKING_DIR],
-            default_workspace,
-            migrated_items,
-        )
-    else:
-        # Standard migration from ~/.copaw only
-        _migrate_workspace_items_from_source(
-            _LEGACY_DEFAULT_WORKING_DIR,
-            default_workspace,
-            migrated_items,
-        )
+    # Decide candidate legacy source roots from configuration/environment.
+    # Use `WORKING_DIR` (COPAW_WORKING_DIR) first, then fall back to the
+    # historical default location (~/.copaw).
+    # De-dup to avoid redundant filesystem checks when WORKING_DIR equals
+    # the legacy default.
+    source_dirs: list[Path] = []
+    seen: set[str] = set()
+    for p in (WORKING_DIR, _LEGACY_DEFAULT_WORKING_DIR):
+        ps = str(p)
+        if ps in seen:
+            continue
+        seen.add(ps)
+        source_dirs.append(p)
+
+    _migrate_workspace_items_from_multiple_sources(
+        source_dirs,
+        default_workspace,
+        migrated_items,
+    )
 
     if migrated_items:
         logger.info(f"Migrated workspace items: {', '.join(migrated_items)}")
