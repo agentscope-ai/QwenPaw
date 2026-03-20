@@ -145,9 +145,13 @@ class ApprovalService:
         self,
         session_id: str,
     ) -> PendingApproval | None:
-        """Return the most recent pending approval for *session_id*."""
+        """Return the next pending approval for *session_id* (FIFO).
+
+        Pending approvals are consumed in creation order, so repeated
+        ``/approve`` inputs walk the queue from oldest to newest.
+        """
         async with self._lock:
-            for pending in reversed(list(self._pending.values())):
+            for pending in self._pending.values():
                 if (
                     pending.session_id == session_id
                     and pending.status == "pending"

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import uuid as _uuid
 from typing import Any, Literal
 
 from agentscope.message import Msg
@@ -60,6 +61,51 @@ class ToolGuardMixin:
             return False
         msg, marks = self.memory.content[-1]
         return TOOL_GUARD_DENIED_MARK in marks and msg.role == "system"
+
+    def _pop_forced_tool_call(self) -> dict[str, Any] | None:
+        """Pop and validate a forced tool call injected by the runner."""
+        raw = self._request_context.pop("forced_tool_call_json", "")
+        if not raw:
+            return None
+
+        try:
+            tool_call = _json.loads(str(raw))
+        except Exception:
+            logger.warning(
+                "Tool guard: invalid forced tool call payload",
+                exc_info=True,
+            )
+            return None
+
+        if not isinstance(tool_call, dict):
+            logger.warning(
+                "Tool guard: forced tool call payload is not a dict",
+            )
+            return None
+
+        tool_name = tool_call.get("name")
+        if not isinstance(tool_name, str) or not tool_name:
+            logger.warning(
+                "Tool guard: forced tool call missing valid name",
+            )
+            return None
+
+        tool_input = tool_call.get("input", {})
+        if not isinstance(tool_input, dict):
+            logger.warning(
+                "Tool guard: forced tool call input is not a dict",
+            )
+            return None
+
+        tool_id = tool_call.get("id")
+        if not isinstance(tool_id, str) or not tool_id:
+            tool_id = f"approved-{_uuid.uuid4().hex[:12]}"
+
+        return {
+            "id": tool_id,
+            "name": tool_name,
+            "input": tool_input,
+        }
 
     async def _cleanup_tool_guard_denied_messages(
         self,
@@ -317,6 +363,34 @@ class ToolGuardMixin:
         tool_choice: (Literal["auto", "none", "required"] | None) = None,
     ) -> Msg:
         """Short-circuit reasoning when awaiting guard approval."""
+        forced_tool_call = self._pop_forced_tool_call()
+        if forced_tool_call is not None:
+            try:
+                from agentscope.message import ToolUseBlock
+
+                msg = Msg(
+                    self.name,
+                    [
+                        ToolUseBlock(
+                            type="tool_use",
+                            id=forced_tool_call["id"],
+                            name=forced_tool_call["name"],
+                            input=forced_tool_call["input"],
+                        ),
+                    ],
+                    "assistant",
+                )
+                await self.print(msg, True)
+                await self.memory.add(msg)
+                return msg
+            except Exception as exc:
+                logger.warning(
+                    "Tool guard: forced tool replay failed, "
+                    "falling back to normal reasoning: %s",
+                    exc,
+                    exc_info=True,
+                )
+
         if self._last_tool_response_is_denied():
             pending = getattr(self, "_tool_guard_pending_info", None) or {}
             tool_name = pending.get("tool_name", "unknown")
