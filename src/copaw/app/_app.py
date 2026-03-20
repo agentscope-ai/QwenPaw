@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+import asyncio
 import mimetypes
 import os
 import time
@@ -145,12 +146,63 @@ agent_app = AgentApp(
 )
 
 
+def _is_known_mcp_cancel_scope_exception(exc: BaseException | None) -> bool:
+    """Return True for known MCP streamable_http teardown race exceptions."""
+    if exc is None:
+        return False
+
+    text = str(exc)
+    if "Attempted to exit cancel scope in a different task" in text:
+        return True
+
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_is_known_mcp_cancel_scope_exception(e) for e in exc.exceptions)
+
+    return False
+
+
+def _is_known_mcp_cancel_scope_context(context: dict) -> bool:
+    """Match asyncio loop exception context for MCP teardown race logs."""
+    exc = context.get("exception")
+    if _is_known_mcp_cancel_scope_exception(exc):
+        return True
+
+    message = str(context.get("message", ""))
+    return "Task exception was never retrieved" in message and (
+        "cancel scope" in message.lower()
+    )
+
+
+def _install_asyncio_exception_filter() -> tuple[asyncio.AbstractEventLoop, object]:
+    """Install loop-level exception filter for known MCP teardown race."""
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+
+    def _handler(loop_: asyncio.AbstractEventLoop, context: dict) -> None:
+        if _is_known_mcp_cancel_scope_context(context):
+            logger.debug(
+                "Suppressed known MCP streamable_http teardown race: %s",
+                context.get("exception") or context.get("message"),
+            )
+            return
+
+        if previous_handler is not None:
+            previous_handler(loop_, context)
+        else:
+            loop_.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
+    return loop, previous_handler
+
+
 @asynccontextmanager
 async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
     startup_start_time = time.time()
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
+
+    loop, previous_exception_handler = _install_asyncio_exception_filter()
 
     # Auto-register admin from env vars (for automated deployments)
     from .auth import auto_register_from_env
@@ -226,6 +278,12 @@ async def lifespan(
     try:
         yield
     finally:
+        # Restore original loop exception handler first.
+        try:
+            loop.set_exception_handler(previous_exception_handler)
+        except Exception:
+            pass
+
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
         if multi_agent_mgr is not None:

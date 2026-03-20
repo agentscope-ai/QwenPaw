@@ -10,6 +10,10 @@ from .models import CronJobSpec
 logger = logging.getLogger(__name__)
 
 
+class CronDispatchChannelNotFoundError(KeyError):
+    """Raised when cron dispatch target channel is not configured."""
+
+
 class CronExecutor:
     def __init__(self, *, runner: Any, channel_manager: Any):
         self._runner = runner
@@ -35,15 +39,26 @@ class CronExecutor:
             target_session_id[:40] if target_session_id else "",
         )
 
+        channel_name = (job.dispatch.channel or "").strip().lower()
+        if not channel_name:
+            raise CronDispatchChannelNotFoundError("channel not found: <empty>")
+
+        # Validate channel before starting stream_query to avoid opening async
+        # generator work that will be torn down immediately on send failure.
+        if await self._channel_manager.get_channel(channel_name) is None:
+            raise CronDispatchChannelNotFoundError(
+                f"channel not found: {job.dispatch.channel}",
+            )
+
         if job.task_type == "text" and job.text:
             logger.info(
                 "cron send_text: job_id=%s channel=%s len=%s",
                 job.id,
-                job.dispatch.channel,
+                channel_name,
                 len(job.text or ""),
             )
             await self._channel_manager.send_text(
-                channel=job.dispatch.channel,
+                channel=channel_name,
                 user_id=target_user_id,
                 session_id=target_session_id,
                 text=job.text.strip(),
@@ -55,7 +70,7 @@ class CronExecutor:
         logger.info(
             "cron agent: job_id=%s channel=%s stream_query then send_event",
             job.id,
-            job.dispatch.channel,
+            channel_name,
         )
         assert job.request is not None
         req: Dict[str, Any] = job.request.model_dump(mode="json")
@@ -65,7 +80,7 @@ class CronExecutor:
         async def _run() -> None:
             async for event in self._runner.stream_query(req):
                 await self._channel_manager.send_event(
-                    channel=job.dispatch.channel,
+                    channel=channel_name,
                     user_id=target_user_id,
                     session_id=target_session_id,
                     event=event,

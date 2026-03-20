@@ -490,7 +490,7 @@ class ChannelManager:
         event: Any,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        ch = await self.get_channel(channel)
+        ch = await self.get_channel(channel.lower())
         if not ch:
             raise KeyError(f"channel not found: {channel}")
         merged_meta = dict(meta or {})
