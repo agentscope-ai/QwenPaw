@@ -20,6 +20,14 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
+_LEGACY_DEFAULT_WORKING_DIR = (
+    Path(
+        WORKING_DIR,
+    )
+    .expanduser()
+    .resolve()
+)
+
 # Workspace items to migrate: (name, is_directory)
 _WORKSPACE_ITEMS_TO_MIGRATE = [
     # Directories
@@ -149,7 +157,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     migrated_items = []
 
     _migrate_workspace_items_from_multiple_sources(
-        [WORKING_DIR],
+        [_LEGACY_DEFAULT_WORKING_DIR],
         default_workspace,
         migrated_items,
     )
