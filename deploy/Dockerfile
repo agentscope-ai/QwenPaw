@@ -27,29 +27,22 @@ ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --fix-missing \
-    curl  \
-    python3  \
-    python3-pip  \
-    python3-venv \
-    build-essential  \
-    libssl-dev  \
-    git  \
-    supervisor  \
-    vim  \
-    gettext-base \
-    xfce4 \
-    xfce4-terminal \
-    xvfb \
-    dbus-x11 \
-    fonts-wqy-zenhei \
-    fonts-wqy-microhei \
-  && rm -rf /var/lib/apt/lists/* \
-  && apt-get clean
-
-
-RUN apt-get update && apt-get install -y --fix-missing \
+    build-essential \
     chromium \
     chromium-sandbox \
+    curl \
+    dbus-x11 \
+    fonts-liberation \
+    fonts-wqy-microhei \
+    fonts-wqy-zenhei \
+    gettext-base \
+    git \
+    libasound2 \
+    libdrm2 \
+    libgbm1 \
+    libglib2.0-0 \
+    libnss3 \
+    libssl-dev \
     libx11-xcb1 \
     libxcomposite1 \
     libxdamage1 \
@@ -57,13 +50,15 @@ RUN apt-get update && apt-get install -y --fix-missing \
     libxfixes3 \
     libxi6 \
     libxtst6 \
-    libnss3 \
-    libglib2.0-0 \
-    libdrm2 \
-    libgbm1 \
-    libasound2 \
-    fonts-liberation \
     libu2f-udev \
+    python3 \
+    python3-pip \
+    python3-venv \
+    supervisor \
+    vim \
+    xfce4 \
+    xfce4-terminal \
+    xvfb \
   && rm -rf /var/lib/apt/lists/* \
   && apt-get clean
 
