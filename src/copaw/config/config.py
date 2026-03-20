@@ -438,6 +438,11 @@ class AgentProfileConfig(BaseModel):
         default="zh",
         description="Language setting for this agent",
     )
+    user_timezone: str = Field(
+        default_factory=detect_system_timezone,
+        description="User IANA timezone (e.g. Asia/Shanghai). "
+        "Defaults to the system timezone.",
+    )
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
         description="System prompt markdown files",
