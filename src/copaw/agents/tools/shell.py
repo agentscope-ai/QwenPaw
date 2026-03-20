@@ -16,7 +16,6 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
-from .utils import truncate_shell_output
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -243,8 +242,8 @@ async def execute_shell_command(
                     stderr_str = stderr_suffix
 
         # Apply output truncation
-        stdout_str = truncate_shell_output(stdout_str)
-        stderr_str = truncate_shell_output(stderr_str)
+        # stdout_str = truncate_shell_output(stdout_str)
+        # stderr_str = truncate_shell_output(stderr_str)
 
         # Format the response in a human-friendly way
         if returncode == 0:

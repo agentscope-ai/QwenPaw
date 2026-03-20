@@ -83,12 +83,30 @@ button {
   flex-shrink: 0;
   height: 7.5rem;
   min-width: 7.5rem;
+  line-height: 0;
 }
 
 .hero-brand-row .hero-brand-logo img {
   margin: 0;
   vertical-align: middle;
   display: block;
+}
+
+.hero-brand-row .hero-brand-main {
+  position: relative;
+  justify-content: center;
+}
+
+.hero-brand-row .hero-brand-ip {
+  position: absolute;
+  left: 100%;
+  margin-left: -0.2rem;
+  width: clamp(5.3rem, 15vw, 8.2rem);
+  height: auto;
+  max-height: 8.2rem;
+  object-fit: contain;
+  flex-shrink: 0;
+  bottom: 1rem;
 }
 
 .hero-brand-row .hero-brand-text {

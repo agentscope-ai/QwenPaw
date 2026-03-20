@@ -322,6 +322,38 @@ Each agent's detailed configuration is stored in `~/.copaw/workspaces/{agent_id}
 
 ---
 
+#### `skills_market` — Skills marketplace configuration
+
+Use this section to configure Git-backed skill markets shown in **Agent → Skills → Marketplace**.
+
+| Field                                   | Type           | Default      | Description |
+| --------------------------------------- | -------------- | ------------ | ----------- |
+| `skills_market.version`                 | int            | `1`          | Marketplace config schema version |
+| `skills_market.cache.ttl_sec`           | int            | `600`        | Marketplace aggregation cache TTL in seconds |
+| `skills_market.install.overwrite_default` | bool         | `false`      | Default overwrite behavior for marketplace install |
+| `skills_market.markets`                 | list           | `[]`         | List of market definitions |
+
+Each `markets[]` item:
+
+| Field     | Type   | Default      | Description |
+| --------- | ------ | ------------ | ----------- |
+| `id`      | string | _(required)_ | Stable unique market ID |
+| `name`    | string | _(required)_ | Display name in Console |
+| `type`    | string | `"git"`     | Market type (currently only `git`) |
+| `url`     | string | _(required)_ | Git repo URL; supports `owner/repo`, `.git`, GitHub tree URLs |
+| `branch`  | string | `""`        | Optional branch; empty means remote default branch |
+| `path`    | string | `"index.json"` | Index path in repo; can be `index.json` or a skills directory |
+| `enabled` | bool   | `true`       | Whether this market participates in aggregation |
+| `order`   | int    | `999`        | Sort order (smaller first) |
+| `trust`   | string | `null`       | Optional trust label: `official`, `community`, `custom` |
+
+Notes:
+
+- This config is stored in your working directory config file (default `~/.copaw/config.json`).
+- If `path` points to a directory (or `index.json` is missing but the parent directory exists), CoPaw scans `SKILL.md` files and generates an index automatically.
+
+---
+
 #### `user_timezone` — User timezone
 
 | Field           | Type   | Default             | Description                                                                                                            |
@@ -335,7 +367,7 @@ This timezone is used for:
 - Default timezone for new cron jobs (CLI and console)
 - Heartbeat active hours evaluation
 
-You can also change it via the Console (Agent → Configuration).
+You can also change it via the Console (Agent -> Configuration).
 
 ---
 
@@ -470,20 +502,17 @@ Memory files are stored in two locations:
 
 ### Embedding Configuration
 
-Memory search relies on vector embeddings for semantic retrieval. Configure via these environment variables:
+Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
 
-| Variable                     | Description                       | Default |
-| ---------------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`          | API key for the embedding service | ``      |
-| `EMBEDDING_BASE_URL`         | Embedding service URL             | ``      |
-| `EMBEDDING_MODEL_NAME`       | Embedding model name              | ``      |
-| `EMBEDDING_DIMENSIONS`       | Vector dimensions                 | `1024`  |
-| `EMBEDDING_CACHE_ENABLED`    | Enable Embedding cache            | `true`  |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Max cache entries for Embedding   | `2000`  |
-| `EMBEDDING_MAX_INPUT_LENGTH` | Max input length per Embedding    | `8192`  |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Max batch size for Embedding      | `10`    |
+Recommended to configure in `agent.json` under `running.embedding_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
 
-> `EMBEDDING_API_KEY`, `EMBEDDING_MODEL_NAME`, and `EMBEDDING_BASE_URL` must all be non-empty to enable vector search in hybrid retrieval.
+| Variable (Fallback)    | Description                       | Default |
+| ---------------------- | --------------------------------- | ------- |
+| `EMBEDDING_API_KEY`    | API key for the embedding service | ``      |
+| `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
+| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
+
+> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval. See [Memory](./memory.en.md#embedding-configuration-optional) for full configuration details.
 
 ---
 

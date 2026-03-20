@@ -105,12 +105,8 @@ async def test_query_handler_returns_retryable_error_msg(
     monkeypatch.setattr(runner_module, "build_env_context", lambda **kwargs: kwargs)
     monkeypatch.setattr(
         runner_module,
-        "load_config",
-        lambda: SimpleNamespace(
-            agents=SimpleNamespace(
-                running=SimpleNamespace(max_iters=8, max_input_length=8192),
-            ),
-        ),
+        "load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
     )
     monkeypatch.setattr(
         runner_module,
@@ -176,12 +172,8 @@ async def test_query_handler_cancelled_stops_gracefully(monkeypatch) -> None:
     monkeypatch.setattr(runner_module, "build_env_context", lambda **kwargs: kwargs)
     monkeypatch.setattr(
         runner_module,
-        "load_config",
-        lambda: SimpleNamespace(
-            agents=SimpleNamespace(
-                running=SimpleNamespace(max_iters=8, max_input_length=8192),
-            ),
-        ),
+        "load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
     )
     monkeypatch.setattr(
         runner_module,
@@ -242,12 +234,8 @@ async def test_stream_query_cancelled_finishes_without_failed_event(
     monkeypatch.setattr(runner_module, "build_env_context", lambda **kwargs: kwargs)
     monkeypatch.setattr(
         runner_module,
-        "load_config",
-        lambda: SimpleNamespace(
-            agents=SimpleNamespace(
-                running=SimpleNamespace(max_iters=8, max_input_length=8192),
-            ),
-        ),
+        "load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
     )
     monkeypatch.setattr(
         runner_module,

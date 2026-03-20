@@ -21,7 +21,7 @@ from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
-from copaw.agents.utils import _get_copaw_token_counter
+from copaw.agents.utils import get_copaw_token_counter
 
 if TYPE_CHECKING:
     from copaw.config.config import AgentProfileConfig
@@ -188,7 +188,7 @@ class MemoryManager(ReMeLight):
 
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
-        self.token_counter = _get_copaw_token_counter(agent_config)
+        self.token_counter = get_copaw_token_counter(agent_config)
         self._start_lock = asyncio.Lock()
 
     @staticmethod

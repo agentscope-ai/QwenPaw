@@ -7,7 +7,7 @@ import logging
 import os
 import tempfile
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..channels.schema import DEFAULT_CHANNEL
@@ -80,9 +80,7 @@ def write_query_error_dump(
             "request_info": request_info,
             "request": request_full,
             "agent_state": agent_state,
-            "ts_utc": datetime.now(timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%SZ",
-            ),
+            "ts_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         }
         fd, path = tempfile.mkstemp(
             prefix="copaw_query_error_",

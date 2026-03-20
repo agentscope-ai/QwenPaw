@@ -238,8 +238,45 @@ class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
 
 
+class EmbeddingConfig(BaseModel):
+    """Embedding model configuration."""
+
+    model_config = ConfigDict(extra="allow")
+
+    backend: str = Field(
+        default="openai",
+        description="Embedding backend (openai, etc.)",
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for embedding provider",
+    )
+    base_url: str = Field(default="", description="Base URL for embedding API")
+    model_name: str = Field(default="", description="Embedding model name")
+    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    enable_cache: bool = Field(
+        default=True,
+        description="Whether to enable embedding cache",
+    )
+    use_dimensions: bool = Field(
+        default=False,
+        description="Whether to use custom dimensions",
+    )
+    max_cache_size: int = Field(default=2000, description="Maximum cache size")
+    max_input_length: int = Field(
+        default=8192,
+        description="Maximum input length for embedding",
+    )
+    max_batch_size: int = Field(
+        default=10,
+        description="Maximum batch size for embedding",
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
+
+    model_config = ConfigDict(extra="allow")
 
     max_iters: int = Field(
         default=50,
@@ -289,18 +326,32 @@ class AgentsRunningConfig(BaseModel):
         description="Ratio of memory to reserve when compact memory",
     )
 
-    enable_tool_result_compact: bool = Field(
-        default=True,
-        description="Whether to compact tool result messages in memory",
-    )
-
-    tool_result_compact_keep_n: int = Field(
-        default=3,
+    tool_result_compact_recent_n: int = Field(
+        default=2,
         ge=1,
         le=10,
-        description=(
-            "Number of tool result messages to keep in memory when compacting"
-        ),
+        description="Number of recent messages to use recent_threshold for",
+    )
+
+    tool_result_compact_old_threshold: int = Field(
+        default=1000,
+        ge=100,
+        description="Character threshold for old messages "
+        "in tool result compaction",
+    )
+
+    tool_result_compact_recent_threshold: int = Field(
+        default=30000,
+        ge=1000,
+        description="Character threshold for recent messages "
+        "in tool result compaction",
+    )
+
+    tool_result_compact_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        description="Number of days to retain tool result files",
     )
 
     history_max_length: int = Field(
@@ -366,6 +417,11 @@ class AgentsRunningConfig(BaseModel):
         ge=200,
         le=8000,
         description="Default chunk size used by knowledge indexing.",
+    )
+
+    embedding_config: EmbeddingConfig = Field(
+        default_factory=EmbeddingConfig,
+        description="Embedding model configuration",
     )
 
     @property
@@ -481,6 +537,18 @@ class AgentProfileConfig(BaseModel):
 
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_null_defaults(cls, data):
+        """Convert legacy null defaults to model default_factory."""
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        if payload.get("defaults") is None:
+            payload.pop("defaults", None)
+        return payload
 
     active_agent: str = Field(
         default="default",
@@ -692,6 +760,16 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Edit file using find-and-replace",
             display_to_user=True,
         ),
+        "grep_search": BuiltinToolConfig(
+            name="grep_search",
+            enabled=True,
+            description="Search file contents by pattern",
+        ),
+        "glob_search": BuiltinToolConfig(
+            name="glob_search",
+            enabled=True,
+            description="Find files matching a glob pattern",
+        ),
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
@@ -828,6 +906,246 @@ class SecurityConfig(BaseModel):
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
+    )
+
+class KnowledgeSourceSpec(BaseModel):
+    """A single knowledge source definition."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+        description="Stable source id",
+    )
+    name: str = Field(..., min_length=1, max_length=120, description="Display name")
+    type: Literal["file", "directory", "url", "text", "chat"] = Field(
+        default="file",
+        description="Source type",
+    )
+    location: str = Field(
+        default="",
+        description="Filesystem path or URL location",
+    )
+    content: str = Field(
+        default="",
+        description="Inline text content when type is text",
+    )
+    enabled: bool = Field(default=True)
+    recursive: bool = Field(default=False)
+    tags: List[str] = Field(default_factory=list)
+    summary: str = Field(default="")
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.type in {"file", "directory", "url"} and not self.location.strip():
+            raise ValueError(
+                f"location is required for knowledge source type '{self.type}'",
+            )
+        if self.type == "text" and not (
+            self.content.strip() or self.location.strip()
+        ):
+            raise ValueError(
+                "content or location is required for knowledge source type 'text'",
+            )
+        return self
+
+
+class KnowledgeIndexConfig(BaseModel):
+    """Knowledge indexing behavior."""
+
+    chunk_size: int = Field(default=1200, ge=200, le=8000)
+    chunk_overlap: int = Field(default=150, ge=0, le=2000)
+    include_globs: List[str] = Field(default_factory=list)
+    exclude_globs: List[str] = Field(default_factory=list)
+    max_file_size: int = Field(
+        default=5 * 1024 * 1024,
+        ge=1024,
+        description="Max single-file size (bytes) for indexing/downloading.",
+    )
+
+
+class KnowledgeAutomationConfig(BaseModel):
+    """Deprecated legacy automation section for compatibility."""
+
+    knowledge_auto_collect_chat_files: bool = Field(default=False)
+    knowledge_auto_collect_chat_urls: bool = Field(default=True)
+    knowledge_auto_collect_long_text: bool = Field(default=False)
+    knowledge_long_text_min_chars: int = Field(default=2000, ge=200)
+    url_exclude_private_addresses: bool = Field(default=True)
+    url_exclude_token_params: bool = Field(default=True)
+    url_exclude_patterns: List[str] = Field(default_factory=list)
+
+
+class KnowledgeConfig(BaseModel):
+    """Knowledge feature configuration."""
+
+    version: int = Field(default=1, ge=1)
+    enabled: bool = Field(default=False)
+    engine: Literal["local_lexical", "cognee"] = Field(
+        default="local_lexical",
+    )
+    sources: List[KnowledgeSourceSpec] = Field(default_factory=list)
+    index: KnowledgeIndexConfig = Field(default_factory=KnowledgeIndexConfig)
+    automation: KnowledgeAutomationConfig = Field(
+        default_factory=KnowledgeAutomationConfig,
+    )
+    graph_query_enabled: bool = Field(default=False)
+    allow_cypher_query: bool = Field(default=False)
+    memify_enabled: bool = Field(default=False)
+    triplet_search_enabled: bool = Field(default=False)
+
+
+class SkillMarketSpec(BaseModel):
+    """A single skills market entry."""
+
+    id: str = Field(..., description="Stable market id")
+    name: str = Field(..., description="Display name")
+    type: Literal["git"] = Field(default="git")
+    url: str = Field(..., description="Git repository URL")
+    branch: str = Field(default="", description="Optional branch")
+    path: str = Field(
+        default="index.json",
+        description="Path to market index file in repo",
+    )
+    enabled: bool = Field(default=True)
+    order: int = Field(default=999)
+    trust: Optional[Literal["official", "community", "custom"]] = None
+
+
+class SkillsMarketCacheConfig(BaseModel):
+    """Cache policy for market index aggregation."""
+
+    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
+
+
+class SkillsMarketInstallConfig(BaseModel):
+    """Default install behavior for marketplace installs."""
+
+    overwrite_default: bool = Field(default=False)
+
+
+class SkillsMarketConfig(BaseModel):
+    """Skills market root config."""
+
+    version: int = Field(default=1, ge=1)
+    markets: List[SkillMarketSpec] = Field(default_factory=list)
+    cache: SkillsMarketCacheConfig = Field(
+        default_factory=SkillsMarketCacheConfig,
+    )
+    install: SkillsMarketInstallConfig = Field(
+        default_factory=SkillsMarketInstallConfig,
+    )
+
+
+class AgentsSquareSourceSpec(BaseModel):
+    """A single Agents Square source entry."""
+
+    id: str = Field(..., description="Stable source id")
+    name: str = Field(..., description="Display name")
+    type: Literal["git"] = Field(default="git")
+    provider: Literal["agency_markdown_repo", "index_json_repo"] = Field(
+        default="agency_markdown_repo",
+    )
+    url: str = Field(..., description="Git repository URL")
+    branch: str = Field(default="", description="Optional branch")
+    path: str = Field(
+        default=".",
+        description="Path to source root in repository",
+    )
+    enabled: bool = Field(default=True)
+    order: int = Field(default=999)
+    trust: Optional[Literal["official", "community", "custom"]] = None
+    license_hint: str = Field(default="")
+    pinned: bool = Field(
+        default=False,
+        description="Pinned sources cannot be removed via API",
+    )
+
+
+class AgentsSquareCacheConfig(BaseModel):
+    """Cache policy for Agents Square item aggregation."""
+
+    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
+
+
+class AgentsSquareInstallConfig(BaseModel):
+    """Default install behavior for Agents Square imports."""
+
+    overwrite_default: bool = Field(default=False)
+    preserve_workspace_files: bool = Field(default=True)
+
+
+class AgentsSquareConfig(BaseModel):
+    """Agents Square root config."""
+
+    version: int = Field(default=1, ge=1)
+    sources: List[AgentsSquareSourceSpec] = Field(
+        default_factory=lambda: [
+            AgentsSquareSourceSpec(
+                id="agency-agents",
+                name="agency-agents",
+                provider="agency_markdown_repo",
+                url="https://github.com/msitarzewski/agency-agents.git",
+                branch="main",
+                path=".",
+                enabled=True,
+                order=1,
+                trust="official",
+                license_hint="MIT",
+                pinned=True,
+            ),
+        ],
+    )
+    cache: AgentsSquareCacheConfig = Field(
+        default_factory=AgentsSquareCacheConfig,
+    )
+    install: AgentsSquareInstallConfig = Field(
+        default_factory=AgentsSquareInstallConfig,
+    )
+
+
+class SkillMarketSpec(BaseModel):
+    """A single skills market entry."""
+
+    id: str = Field(..., description="Stable market id")
+    name: str = Field(..., description="Display name")
+    type: Literal["git"] = Field(default="git")
+    url: str = Field(..., description="Git repository URL")
+    branch: str = Field(default="", description="Optional branch")
+    path: str = Field(
+        default="index.json",
+        description="Path to market index file in repo",
+    )
+    enabled: bool = Field(default=True)
+    order: int = Field(default=999)
+    trust: Optional[Literal["official", "community", "custom"]] = None
+
+
+class SkillsMarketCacheConfig(BaseModel):
+    """Cache policy for market index aggregation."""
+
+    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
+
+
+class SkillsMarketInstallConfig(BaseModel):
+    """Default install behavior for marketplace installs."""
+
+    overwrite_default: bool = Field(default=False)
+
+
+class SkillsMarketConfig(BaseModel):
+    """Skills market root config."""
+
+    version: int = Field(default=1, ge=1)
+    markets: List[SkillMarketSpec] = Field(default_factory=list)
+    cache: SkillsMarketCacheConfig = Field(
+        default_factory=SkillsMarketCacheConfig,
+    )
+    install: SkillsMarketInstallConfig = Field(
+        default_factory=SkillsMarketInstallConfig,
     )
 
 

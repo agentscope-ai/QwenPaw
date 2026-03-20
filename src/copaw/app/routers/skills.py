@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any
 from urllib.parse import unquote, urlparse
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from ...agents.skills_manager import (
@@ -32,6 +32,7 @@ from ...config.config import (
     SkillsMarketInstallConfig,
 )
 from ...security.skill_scanner import SkillScanError
+from ...config.config import SkillMarketSpec, SkillsMarketConfig
 
 
 logger = logging.getLogger(__name__)
@@ -372,13 +373,12 @@ def _generate_market_index_from_directory(
 def _load_market_index(
     market: SkillMarketSpec,
 ) -> tuple[dict[str, Any], list[str]]:
-    normalized_market = _normalize_market_spec(market)
-    market_url = _normalize_market_url(normalized_market.url)
+    market_url = _normalize_market_url(market.url)
     with tempfile.TemporaryDirectory(prefix="copaw-market-") as tmp:
         repo_dir = Path(tmp) / "repo"
         clone_args = ["clone", "--depth", "1"]
-        if normalized_market.branch:
-            clone_args += ["--branch", normalized_market.branch]
+        if market.branch:
+            clone_args += ["--branch", market.branch]
         clone_args += [market_url, str(repo_dir)]
         clone_result = _run_git_command(clone_args, timeout_sec=40)
         if clone_result.returncode != 0:
@@ -388,7 +388,7 @@ def _load_market_index(
             )
 
         # Resolve branch from local clone when user did not specify one.
-        effective_branch = (normalized_market.branch or "").strip()
+        effective_branch = (market.branch or "").strip()
         if not effective_branch:
             branch_result = _run_git_command(
                 ["rev-parse", "--abbrev-ref", "HEAD"],
@@ -398,13 +398,13 @@ def _load_market_index(
             if branch_result.returncode == 0:
                 effective_branch = branch_result.stdout.strip()
 
-        target_path = repo_dir / (normalized_market.path or "index.json")
+        target_path = repo_dir / (market.path or "index.json")
         warnings: list[str] = []
         if target_path.is_file():
             return json.loads(target_path.read_text(encoding="utf-8")), warnings
         if target_path.is_dir():
             return _generate_market_index_from_directory(
-                normalized_market,
+                market,
                 target_path,
                 effective_branch=effective_branch,
             )
@@ -412,13 +412,13 @@ def _load_market_index(
             parent_dir = target_path.parent
             if parent_dir.is_dir():
                 return _generate_market_index_from_directory(
-                    normalized_market,
+                    market,
                     parent_dir,
                     effective_branch=effective_branch,
                 )
         raise ValueError(
             "MARKET_INDEX_INVALID: index or skills directory not found at "
-            f"{normalized_market.path}"
+            f"{market.path}"
         )
 
 
@@ -453,8 +453,7 @@ def _extract_market_items(
 
         skill_id = str(raw.get("skill_id") or "").strip()
         name = str(raw.get("name") or "").strip() or skill_id
-        source_raw = raw.get("source")
-        source: dict[str, Any] = source_raw if isinstance(source_raw, dict) else {}
+        source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
         source_url = str(source.get("url") or market.url).strip()
         source_branch = str(source.get("branch") or market.branch or "main").strip()
         source_path = str(source.get("path") or "").strip()
@@ -484,8 +483,7 @@ def _extract_market_items(
                 or next(iter(description.values()), "")
             )
 
-        tags_raw = raw.get("tags")
-        tags: list[Any] = tags_raw if isinstance(tags_raw, list) else []
+        tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
         items.append(
             MarketplaceItem(
                 market_id=market.id,
@@ -527,11 +525,10 @@ def _aggregate_marketplace(
         key=lambda m: m.order,
     )
     for market in enabled_markets:
-        normalized_market = _normalize_market_spec(market)
         try:
-            index_doc, warnings = _load_market_index(normalized_market)
+            index_doc, warnings = _load_market_index(market)
             extracted_items, extracted_errors = _extract_market_items(
-                normalized_market,
+                market,
                 index_doc,
             )
             items.extend(extracted_items)
@@ -771,8 +768,6 @@ def _github_token_hint(bundle_url: str) -> str:
     if "skills.sh" in lower or "github.com" in lower:
         return " Tip: set GITHUB_TOKEN (or GH_TOKEN) to avoid rate limits."
     return ""
-
-
 async def _hub_task_set_status(
     task_id: str,
     status: HubInstallTaskStatus,
@@ -891,14 +886,13 @@ async def _run_hub_install_task(
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
-            error=str(e) + _github_token_hint(body.bundle_url),
+            error=str(e),
         )
     except Exception as e:  # pylint: disable=broad-except
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
-            error=f"Skill hub import failed: {e}"
-            + _github_token_hint(body.bundle_url),
+            error=f"Skill hub import failed: {e}",
         )
     finally:
         await _hub_task_pop_runtime(task_id)
@@ -933,16 +927,14 @@ async def install_from_hub(
         )
         raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
-        detail = str(e) + _github_token_hint(request_body.bundle_url)
+        detail = str(e)
         logger.exception(
             "Skill hub install failed (upstream/rate limit): %s",
             e,
         )
         raise HTTPException(status_code=502, detail=detail) from e
     except Exception as e:
-        detail = f"Skill hub import failed: {e}" + _github_token_hint(
-            request_body.bundle_url,
-        )
+        detail = f"Skill hub import failed: {e}"
         logger.exception("Skill hub import failed: %s", e)
         raise HTTPException(status_code=502, detail=detail) from e
     return {
@@ -957,7 +949,7 @@ async def install_from_hub(
 async def install_from_marketplace(
     request_body: InstallMarketplaceRequest,
     request: Request,
-):
+) -> dict[str, Any]:
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
@@ -1082,6 +1074,68 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
     return {"task_id": task_id, "status": "cancelled"}
 
 
+_ALLOWED_ZIP_TYPES = {
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/octet-stream",
+}
+_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+@router.post("/upload")
+async def upload_skill_zip(
+    request: Request,
+    file: UploadFile = File(...),
+    enable: bool = False,
+    overwrite: bool = False,
+):
+    """Import skill(s) from an uploaded zip file."""
+    from ..agent_context import get_agent_for_request
+
+    if file.content_type and file.content_type not in _ALLOWED_ZIP_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Expected a zip file, "
+                f"got content-type: {file.content_type}"
+            ),
+        )
+
+    data = await file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"File too large ({len(data) // (1024 * 1024)} MB). "
+                f"Maximum is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+            ),
+        )
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
+    try:
+        result = await asyncio.to_thread(
+            skill_service.import_from_zip,
+            data,
+            overwrite,
+            enable,
+        )
+    except SkillScanError as e:
+        return _scan_error_response(e)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Zip skill upload failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="Skill upload failed",
+        ) from e
+
+    return result
+
+
 @router.post("/batch-disable")
 async def batch_disable_skills(
     skill_name: list[str],
@@ -1159,7 +1213,7 @@ async def create_skill(
 @router.post("/{skill_name}/disable")
 async def disable_skill(
     skill_name: str,
-    request: Request,
+    request: Request = None,
 ):
     """Disable skill for active agent."""
     from ..agent_context import get_agent_for_request
@@ -1194,7 +1248,7 @@ async def disable_skill(
 @router.post("/{skill_name}/enable")
 async def enable_skill(
     skill_name: str,
-    request: Request,
+    request: Request = None,
 ):
     """Enable skill for active agent."""
     from ..agent_context import get_agent_for_request

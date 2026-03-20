@@ -172,10 +172,13 @@ def init_cmd(
     from ..utils.telemetry import (
         collect_and_upload_telemetry,
         has_telemetry_been_collected,
+        is_telemetry_opted_out,
         mark_telemetry_collected,
     )
 
-    if not has_telemetry_been_collected(working_dir):
+    if not is_telemetry_opted_out(
+        working_dir,
+    ) and not has_telemetry_been_collected(working_dir):
         if use_defaults:
             success = collect_and_upload_telemetry(working_dir)
 
@@ -186,7 +189,7 @@ def init_cmd(
                 if success:
                     click.echo("✓ Thank you!")
             else:
-                mark_telemetry_collected(working_dir)
+                mark_telemetry_collected(working_dir, opted_out=True)
 
     # --- Ensure default agent workspace exists ---
     click.echo("\n=== Default Workspace Initialization ===")

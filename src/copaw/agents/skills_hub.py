@@ -262,9 +262,9 @@ def _http_fetch(
                     or "rate limit" in str(e).lower()
                 ):
                     raise RuntimeError(
-                        "GitHub API rate limit exceeded while fetching "
-                        "skills.sh skill files. Set GITHUB_TOKEN "
-                        "(or GH_TOKEN) to increase the limit, then retry.",
+                        "GitHub API rate limit exceeded"
+                        ". Set GITHUB_TOKEN "
+                        "to increase the limit, then retry.",
                     ) from e
             # Retry only temporary/rate-limit server failures.
             if attempt < attempts and status in RETRYABLE_HTTP_STATUS:
@@ -280,6 +280,24 @@ def _http_fetch(
                 _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
+            # User-facing message when retries exhausted (429, 5xx).
+            retries = attempts - 1
+            if status == 429:
+                hint = ""
+                if "api.github.com" in host or "github" in full_url.lower():
+                    hint = (
+                        " For GitHub sources, set GITHUB_TOKEN to avoid "
+                        "rate limits."
+                    )
+                raise RuntimeError(
+                    f"Hub returned 429 (Too Many Requests) after {retries} "
+                    f"retries. Try again later.{hint}",
+                ) from e
+            if status >= 500:
+                raise RuntimeError(
+                    f"Hub returned {status} after {retries} retries. "
+                    "Try again later.",
+                ) from e
             raise
         except URLError as e:
             last_error = e
@@ -523,6 +541,7 @@ def _hydrate_clawhub_payload(
     base = _hub_base_url()
     file_url = _join_url(base, _hub_file_path().format(slug=skill_slug))
     files: dict[str, str] = {}
+    last_fetch_error: Exception | None = None
     for item in files_meta:
         if not isinstance(item, dict):
             continue
@@ -535,9 +554,14 @@ def _hydrate_clawhub_payload(
         try:
             files[path] = _http_text_get(file_url, params=params)
         except Exception as e:
+            last_fetch_error = e
             logger.warning("Failed to fetch hub file %s: %s", path, e)
 
     if not files.get("SKILL.md"):
+        if last_fetch_error is not None:
+            raise RuntimeError(
+                "Failed to fetch SKILL.md from hub: " + str(last_fetch_error),
+            ) from last_fetch_error
         return data
 
     return {
@@ -1388,11 +1412,24 @@ def _fetch_bundle_from_modelscope_url(
                     )
                     return bundle, bundle_url
                 except Exception as e:
-                    logger.warning(
-                        "ModelScope source clawhub fetch failed for %s: %s",
-                        source_url,
-                        e,
+                    inner = str(e).strip()
+                    # Drop ClawHub prefix from inner to avoid showing two URLs.
+                    if inner.startswith("When importing from ClawHub: "):
+                        inner = (
+                            re.sub(
+                                r"^When importing from ClawHub:\s*https?://\S+"
+                                r"(?:\s*:\s*)?",
+                                "",
+                                inner,
+                                count=1,
+                            ).strip()
+                            or inner
+                        )
+                    msg = (
+                        f"When importing from ModelScope ({bundle_url}): "
+                        f"{inner}"
                     )
+                    raise RuntimeError(msg) from e
 
     readme_content = payload.get("ReadMeContent")
     if isinstance(readme_content, str) and readme_content.strip():
@@ -1461,7 +1498,7 @@ def _fetch_bundle_from_clawhub_slug(
             errors.append(f"{candidate}: {e}")
     if data is None:
         raise RuntimeError(
-            "Unable to fetch skill from hub endpoints: " + "; ".join(errors),
+            "When importing from ClawHub: " + "; ".join(errors),
         )
     return (
         _hydrate_clawhub_payload(
@@ -1564,7 +1601,7 @@ def install_skill_from_hub(
         if not created:
             raise RuntimeError(
                 f"Failed to create skill '{name}'. "
-                "Try overwrite=true if it already exists.",
+                "This skill already exists.",
             )
 
         _ensure_not_cancelled()

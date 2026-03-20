@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -108,10 +108,11 @@ class CronManager:
                             job.id,
                             job.name,
                         )
-                    self._states[job.id] = CronJobState(
-                        last_status="error",
-                        last_error=str(e),
-                    )
+                    st = self._states.get(job.id, CronJobState())
+                    st.last_status = "error"
+                    st.last_error = f"invalid schedule: {e}"
+                    self._states[job.id] = st
+                    self._rt.pop(job.id, None)
 
             # Heartbeat: one interval job when enabled in config
             hb = get_heartbeat_config(self._agent_id)
@@ -373,5 +374,5 @@ class CronManager:
                 )
                 raise
             finally:
-                st.last_run_at = datetime.now(timezone.utc)
+                st.last_run_at = datetime.now(UTC)
                 self._states[job.id] = st

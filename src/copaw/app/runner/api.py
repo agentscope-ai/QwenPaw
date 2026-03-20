@@ -274,7 +274,17 @@ async def get_chat(
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    messages = _truncate_chat_history_messages(messages)
+    messages = _compact_chat_history_messages(messages)
+    page, total, has_more = _paginate_chat_history_messages(messages, offset, limit)
+    return ChatHistory(
+        messages=page,
+        status=status,
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+    )
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)

@@ -9,7 +9,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
@@ -628,7 +628,37 @@ class AgentRunner(Runner):
         )
         self.session = SafeJSONSession(save_dir=session_dir)
 
+        try:
+            if self.memory_manager is None:
+                self.memory_manager = MemoryManager(
+                    working_dir=str(WORKING_DIR),
+                )
+            start_fn = getattr(self.memory_manager, "start", None)
+            if callable(start_fn):
+                start_result = start_fn()
+                if inspect.isawaitable(start_result):
+                    await start_result
+            else:
+                logger.warning(
+                    "MemoryManager has no start() method; skipping startup",
+                )
+        except Exception as e:
+            logger.exception(f"MemoryManager start failed: {e}")
+
     async def shutdown_handler(self, *args, **kwargs):
         """
         Shutdown handler.
         """
+        try:
+            if self.memory_manager is not None:
+                close_fn = getattr(self.memory_manager, "close", None)
+                if callable(close_fn):
+                    close_result = close_fn()
+                    if inspect.isawaitable(close_result):
+                        await close_result
+                else:
+                    logger.warning(
+                        "MemoryManager has no close() method; skipping close",
+                    )
+        except Exception as e:
+            logger.warning(f"MemoryManager stop failed: {e}")

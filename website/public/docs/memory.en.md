@@ -79,20 +79,48 @@ One page per day, appended with the day's work and interactions.
 
 ### Embedding Configuration (Optional)
 
-Configure the Embedding service via the following environment variables for vector semantic search:
+Embedding configuration is used for vector semantic search. Configuration priority: **config file > env var > default**.
 
-| Environment Variable         | Description                                            | Default |
-| ---------------------------- | ------------------------------------------------------ | ------- |
-| `EMBEDDING_API_KEY`          | API Key for the Embedding service                      | ``      |
-| `EMBEDDING_BASE_URL`         | URL of the Embedding service                           | ``      |
-| `EMBEDDING_MODEL_NAME`       | Embedding model name                                   | ``      |
-| `EMBEDDING_DIMENSIONS`       | Vector dimensions for initializing the vector database | `1024`  |
-| `EMBEDDING_CACHE_ENABLED`    | Whether to enable Embedding cache                      | `true`  |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Maximum number of Embedding cache entries              | `2000`  |
-| `EMBEDDING_MAX_INPUT_LENGTH` | Maximum input length per Embedding request             | `8192`  |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Maximum batch size for Embedding requests              | `10`    |
+#### Via Config File (Recommended)
 
-> `EMBEDDING_API_KEY`, `EMBEDDING_MODEL_NAME`, and `EMBEDDING_BASE_URL` must all be non-empty to enable vector search in hybrid retrieval.
+Configure in `agent.json` under `running.embedding_config`:
+
+| Config Field       | Description                                            | Default  |
+| ------------------ | ------------------------------------------------------ | -------- |
+| `backend`          | Embedding backend type                                 | `openai` |
+| `api_key`          | API Key for the Embedding service                      | ``       |
+| `base_url`         | URL of the Embedding service                           | ``       |
+| `model_name`       | Embedding model name                                   | ``       |
+| `dimensions`       | Vector dimensions for initializing the vector database | `1024`   |
+| `enable_cache`     | Whether to enable Embedding cache                      | `true`   |
+| `use_dimensions`   | Whether to pass dimensions parameter in API request    | `false`  |
+| `max_cache_size`   | Maximum number of Embedding cache entries              | `2000`   |
+| `max_input_length` | Maximum input length per Embedding request             | `8192`   |
+| `max_batch_size`   | Maximum batch size for Embedding requests              | `10`     |
+
+> `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
+
+#### Via Environment Variables (Fallback)
+
+When not set in config file, these environment variables serve as fallback:
+
+| Environment Variable   | Description                       | Default |
+| ---------------------- | --------------------------------- | ------- |
+| `EMBEDDING_API_KEY`    | API Key for the Embedding service | ``      |
+| `EMBEDDING_BASE_URL`   | URL of the Embedding service      | ``      |
+| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
+
+> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval.
+
+### Full-text Search Configuration
+
+Control BM25 full-text search via the `FTS_ENABLED` environment variable:
+
+| Environment Variable | Description                        | Default |
+| -------------------- | ---------------------------------- | ------- |
+| `FTS_ENABLED`        | Whether to enable full-text search | `true`  |
+
+> Even without Embedding configured, enabling full-text search allows keyword search via BM25.
 
 ### Underlying Database
 
