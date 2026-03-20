@@ -6,6 +6,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,6 +147,12 @@ agent_app = AgentApp(
 )
 
 
+LoopExceptionHandler = Callable[
+    [asyncio.AbstractEventLoop, dict[str, Any]],
+    object,
+]
+
+
 def _is_known_mcp_cancel_scope_exception(exc: BaseException | None) -> bool:
     """Return True for known MCP streamable_http teardown race exceptions."""
     if exc is None:
@@ -155,8 +162,14 @@ def _is_known_mcp_cancel_scope_exception(exc: BaseException | None) -> bool:
     if "Attempted to exit cancel scope in a different task" in text:
         return True
 
-    if isinstance(exc, BaseExceptionGroup):
-        return any(_is_known_mcp_cancel_scope_exception(e) for e in exc.exceptions)
+    # Py3.10 compatibility: avoid direct reference to BaseExceptionGroup.
+    exceptions = getattr(exc, "exceptions", None)
+    if isinstance(exceptions, tuple):
+        return any(
+            isinstance(e, BaseException)
+            and _is_known_mcp_cancel_scope_exception(e)
+            for e in exceptions
+        )
 
     return False
 
@@ -173,7 +186,12 @@ def _is_known_mcp_cancel_scope_context(context: dict) -> bool:
     )
 
 
-def _install_asyncio_exception_filter() -> tuple[asyncio.AbstractEventLoop, object]:
+def _install_asyncio_exception_filter() -> (
+    tuple[
+        asyncio.AbstractEventLoop,
+        LoopExceptionHandler | None,
+    ]
+):
     """Install loop-level exception filter for known MCP teardown race."""
     loop = asyncio.get_running_loop()
     previous_handler = loop.get_exception_handler()

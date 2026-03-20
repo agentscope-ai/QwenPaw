@@ -41,7 +41,9 @@ class CronExecutor:
 
         channel_name = (job.dispatch.channel or "").strip().lower()
         if not channel_name:
-            raise CronDispatchChannelNotFoundError("channel not found: <empty>")
+            raise CronDispatchChannelNotFoundError(
+                "channel not found: <empty>",
+            )
 
         # Validate channel before starting stream_query to avoid opening async
         # generator work that will be torn down immediately on send failure.
