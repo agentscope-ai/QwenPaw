@@ -93,6 +93,7 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in the "Tool Setup" section of `MEMORY.md`. Identity and user profile go in `PROFILE.md`.
 
 
+<!-- heartbeat:start -->
 ## 💓 Heartbeats - Be Proactive!
 
 When you receive a heartbeat poll (message matches the configured heartbeat prompt), provide meaningful responses. Use heartbeats productively!
@@ -131,6 +132,7 @@ Periodically (every few days), use a heartbeat to:
 Think of it like a human reviewing their journal and updating their mental model. Daily files are raw notes; MEMORY.md is curated wisdom.
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
+<!-- heartbeat:end -->
 
 ## Make It Yours
 

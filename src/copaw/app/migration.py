@@ -20,7 +20,26 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_DEFAULT_WORKING_DIR = Path("~/.copaw").expanduser().resolve()
+# Workspace items to migrate: (name, is_directory)
+_WORKSPACE_ITEMS_TO_MIGRATE = [
+    # Directories
+    ("sessions", True),
+    ("memory", True),
+    ("active_skills", True),
+    ("customized_skills", True),
+    # Files
+    ("chats.json", False),
+    ("jobs.json", False),
+    ("feishu_receive_ids.json", False),
+    ("dingtalk_session_webhooks.json", False),
+    # Markdown files
+    ("AGENTS.md", False),
+    ("SOUL.md", False),
+    ("PROFILE.md", False),
+    ("HEARTBEAT.md", False),
+    ("MEMORY.md", False),
+    ("BOOTSTRAP.md", False),
+]
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
@@ -29,7 +48,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     This function:
     1. Checks if migration is needed
     2. Creates default agent workspace
-    3. Migrates sessions, memory, and markdown files
+    3. Migrates legacy workspace files and directories
     4. Creates agent.json with legacy configuration
     5. Updates root config.json to new structure
 
@@ -121,88 +140,11 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
         )
     logger.info(f"Created agent config: {agent_config_path}")
 
-    # Migrate existing workspace files from legacy default working dir.
-    # When COPAW_WORKING_DIR is customized, historical data may still exist
-    # under "~/.copaw".
-    old_workspace = _LEGACY_DEFAULT_WORKING_DIR
-
     migrated_items = []
 
-    # Migrate sessions directory
-    _migrate_workspace_item(
-        old_workspace / "sessions",
-        default_workspace / "sessions",
-        "sessions",
-        migrated_items,
-    )
-
-    # Migrate memory directory
-    _migrate_workspace_item(
-        old_workspace / "memory",
-        default_workspace / "memory",
-        "memory",
-        migrated_items,
-    )
-
-    # Migrate chats.json
-    _migrate_workspace_item(
-        old_workspace / "chats.json",
-        default_workspace / "chats.json",
-        "chats.json",
-        migrated_items,
-    )
-
-    # Migrate jobs.json
-    _migrate_workspace_item(
-        old_workspace / "jobs.json",
-        default_workspace / "jobs.json",
-        "jobs.json",
-        migrated_items,
-    )
-
-    # Migrate markdown files
-    for md_file in [
-        "AGENTS.md",
-        "SOUL.md",
-        "PROFILE.md",
-        "HEARTBEAT.md",
-        "MEMORY.md",
-        "BOOTSTRAP.md",
-    ]:
-        _migrate_workspace_item(
-            old_workspace / md_file,
-            default_workspace / md_file,
-            md_file,
-            migrated_items,
-        )
-
-    # Migrate skills directories
-    _migrate_workspace_item(
-        old_workspace / "active_skills",
-        default_workspace / "active_skills",
-        "active_skills",
-        migrated_items,
-    )
-
-    _migrate_workspace_item(
-        old_workspace / "customized_skills",
-        default_workspace / "customized_skills",
-        "customized_skills",
-        migrated_items,
-    )
-
-    # Migrate channel-specific configuration files
-    _migrate_workspace_item(
-        old_workspace / "feishu_receive_ids.json",
-        default_workspace / "feishu_receive_ids.json",
-        "feishu_receive_ids.json",
-        migrated_items,
-    )
-
-    _migrate_workspace_item(
-        old_workspace / "dingtalk_session_webhooks.json",
-        default_workspace / "dingtalk_session_webhooks.json",
-        "dingtalk_session_webhooks.json",
+    _migrate_workspace_items_from_source(
+        WORKING_DIR,
+        default_workspace,
         migrated_items,
     )
 
@@ -279,6 +221,27 @@ def _migrate_workspace_item(
         logger.debug(f"Migrated {item_name}")
     except Exception as e:
         logger.warning(f"Failed to migrate {item_name}: {e}")
+
+
+def _migrate_workspace_items_from_source(
+    source_dir: Path,
+    target_dir: Path,
+    migrated_items: list,
+) -> None:
+    """Migrate all workspace items from a single source directory.
+
+    Args:
+        source_dir: Source directory (e.g., ~/.copaw or WORKING_DIR)
+        target_dir: Target directory (e.g., workspaces/default/)
+        migrated_items: List to append migrated item names
+    """
+    for item_name, _ in _WORKSPACE_ITEMS_TO_MIGRATE:
+        _migrate_workspace_item(
+            source_dir / item_name,
+            target_dir / item_name,
+            item_name,
+            migrated_items,
+        )
 
 
 def ensure_default_agent_exists() -> None:

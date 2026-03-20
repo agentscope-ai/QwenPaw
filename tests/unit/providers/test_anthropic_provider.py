@@ -116,7 +116,9 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert len(captured) == 1
     assert captured[0]["model"] == "claude-3-5-haiku"
     assert captured[0]["max_tokens"] == 1
-    assert captured[0]["messages"] == [{"role": "user", "content": "ping"}]
+    assert captured[0]["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "ping"}]},
+    ]
     assert captured[0]["stream"] is True
 
 

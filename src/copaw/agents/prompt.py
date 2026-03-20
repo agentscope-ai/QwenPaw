@@ -6,6 +6,7 @@ This module provides utilities for building system prompts from
 markdown configuration files in the working directory.
 """
 import logging
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -34,19 +35,28 @@ class PromptConfig:
 class PromptBuilder:
     """Builder for constructing system prompts from markdown files."""
 
+    # Regex pattern to match heartbeat section markers
+    HEARTBEAT_PATTERN = re.compile(
+        r"<!-- heartbeat:start -->.*?<!-- heartbeat:end -->",
+        re.DOTALL,
+    )
+
     def __init__(
         self,
         working_dir: Path,
         enabled_files: list[str] | None = None,
+        heartbeat_enabled: bool = False,
     ):
         """Initialize prompt builder.
 
         Args:
             working_dir: Directory containing markdown configuration files
             enabled_files: List of filenames to load (if None, uses default order)
+            heartbeat_enabled: Whether heartbeat is enabled, affects AGENTS.md content
         """
         self.working_dir = working_dir
         self.enabled_files = enabled_files
+        self.heartbeat_enabled = heartbeat_enabled
         self.prompt_parts = []
         self.loaded_count = 0
 
@@ -74,6 +84,15 @@ class PromptBuilder:
                 if len(parts) >= 3:
                     content = parts[2].strip()
 
+            # Filter heartbeat section from AGENTS.md if heartbeat is disabled
+            if filename == "AGENTS.md":
+                try:
+                    content = self._process_heartbeat_section(content)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to process heartbeat with {e}",
+                    )
+
             if content:
                 if self.prompt_parts:  # Add separator if not first section
                     self.prompt_parts.append("")
@@ -92,6 +111,33 @@ class PromptBuilder:
                 filename,
                 e,
             )
+
+    def _process_heartbeat_section(self, content: str) -> str:
+        """Process heartbeat section in AGENTS.md content.
+
+        - If heartbeat markers not found: keep content unchanged (backward compatibility)
+        - If heartbeat is enabled: keep the content but remove the markers
+        - If heartbeat is disabled: remove the entire section
+
+        Args:
+            content: Original AGENTS.md content
+
+        Returns:
+            Processed content
+        """
+        # Check if markers exist
+        if "<!-- heartbeat:start -->" not in content:
+            return content
+
+        if self.heartbeat_enabled:
+            # Keep content, just remove the markers
+            content = content.replace("<!-- heartbeat:start -->", "")
+            content = content.replace("<!-- heartbeat:end -->", "")
+            return content.strip()
+        else:
+            # Remove the entire heartbeat section
+            filtered = self.HEARTBEAT_PATTERN.sub("", content)
+            return filtered.strip()
 
     def build(self) -> str:
         """Build the system prompt from markdown files.
@@ -132,6 +178,7 @@ def build_system_prompt_from_working_dir(
     working_dir: Path | None = None,
     enabled_files: list[str] | None = None,
     agent_id: str | None = None,
+    heartbeat_enabled: bool = False,
 ) -> str:
     """
     Build system prompt by reading markdown files from working directory.
@@ -155,6 +202,8 @@ def build_system_prompt_from_working_dir(
             global WORKING_DIR for backward compatibility)
         enabled_files: List of filenames to load (if None, uses config or defaults)
         agent_id: Agent identifier to include in system prompt (optional)
+        heartbeat_enabled: Whether heartbeat is enabled. When False, filters
+            heartbeat section from AGENTS.md to avoid confusing instructions.
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -192,6 +241,7 @@ def build_system_prompt_from_working_dir(
     builder = PromptBuilder(
         working_dir=working_dir,
         enabled_files=enabled_files,
+        heartbeat_enabled=heartbeat_enabled,
     )
     prompt = builder.build()
 

@@ -88,7 +88,17 @@ class AnthropicProvider(Provider):
         body = {
             "model": target,
             "max_tokens": 1,
-            "messages": [{"role": "user", "content": "ping"}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "ping",
+                        },
+                    ],
+                },
+            ],
             "stream": True,
         }
         try:

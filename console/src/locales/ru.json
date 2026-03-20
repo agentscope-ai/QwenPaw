@@ -404,6 +404,11 @@
     "loadFailed": "Не удалось загрузить данные об использовании токенов",
     "noData": "Нет данных об использовании токенов за выбранный период"
   },
+  "modelSelector": {
+    "selectModel": "Выбрать модель",
+    "noConfiguredModels": "Нет настроенных моделей",
+    "switchFailed": "Не удалось переключить модель"
+  },
   "models": {
     "llmConfiguration": "Конфигурация LLM",
     "providersTitle": "Провайдеры",

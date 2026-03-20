@@ -497,17 +497,6 @@ ORDER BY m.ROWID ASC
                 filename=safe_filename,
                 download_dir=str(self._media_dir),
             )
-            # Verify the resolved path is within _media_dir
-            # to prevent path traversal
-            resolved_path = Path(local_path).resolve()
-            media_dir_resolved = self._media_dir.resolve()
-            if not str(resolved_path).startswith(str(media_dir_resolved)):
-                logger.error(
-                    "imessage send_media: attempted path traversal detected, "
-                    f"blocked file creation at {resolved_path}",
-                )
-                return None
-
             logger.info(
                 f"imessage send_media: downloaded {url} to {local_path}",
             )
@@ -577,18 +566,6 @@ ORDER BY m.ROWID ASC
                 safe_basename = self._sanitize_filename(filename_hint)
                 safe_filename = f"{safe_basename}_{url_hash}{ext}"
                 local_path = str(self._media_dir / safe_filename)
-
-                # Verify the resolved path is within _media_dir
-                # to prevent path traversal
-                resolved_path = Path(local_path).resolve()
-                media_dir_resolved = self._media_dir.resolve()
-                if not str(resolved_path).startswith(str(media_dir_resolved)):
-                    logger.error(
-                        "imessage send_media: attempted path traversal "
-                        "detected, "
-                        f"blocked file creation at {resolved_path}",
-                    )
-                    return None
 
                 Path(local_path).write_bytes(file_data)
                 logger.info(

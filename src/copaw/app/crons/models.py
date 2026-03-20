@@ -162,7 +162,7 @@ class CronJobState(BaseModel):
     next_run_at: Optional[datetime] = None
     last_run_at: Optional[datetime] = None
     last_status: Optional[
-        Literal["success", "error", "running", "skipped"]
+        Literal["success", "error", "running", "skipped", "cancelled"]
     ] = None
     last_error: Optional[str] = None
 
