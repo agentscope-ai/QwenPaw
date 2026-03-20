@@ -74,9 +74,28 @@ async def _process_single_file_block(
 
 
 def _extract_source_and_filename(block: dict, block_type: str):
-    """Extract source and filename from a block."""
+    """Extract source and filename from a block.
+
+    Supports both the historical ``source``-dict format and audio blocks
+    that carry their payload in a top-level ``data`` field (for example
+    Telegram `AudioContent(data=...)`).
+    """
     if block_type == "file":
         return block.get("source", {}), block.get("filename")
+
+    # Compatibility: some audio content blocks use a top-level `data`
+    # field instead of a `source` dict. Treat the data value as a URL or
+    # local path and normalize it into the same shape used elsewhere.
+    if block_type == "audio" and not block.get("source"):
+        data = block.get("data")
+        if isinstance(data, str) and data:
+            parsed = urllib.parse.urlparse(data)
+            filename = (
+                os.path.basename(parsed.path)
+                or os.path.basename(data)
+                or None
+            )
+            return {"type": "url", "url": data}, filename
 
     source = block.get("source", {})
     if not isinstance(source, dict):
