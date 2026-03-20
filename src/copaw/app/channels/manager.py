@@ -122,15 +122,62 @@ class ChannelManager:
         self._queues: Dict[str, asyncio.Queue] = {}
         self._consumer_tasks: List[asyncio.Task[None]] = []
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        # Session in progress: (channel_id, debounce_key) -> True while worker
+        # (channel_id, debounce_key) -> True while worker
         # is processing. New payloads for that key go to _pending, merged
         # when worker finishes.
         self._in_progress: Set[Tuple[str, str]] = set()
         self._pending: Dict[Tuple[str, str], List[Any]] = {}
+        # Active processing tasks: (channel_id, debounce_key) -> asyncio.Task
+        self._session_tasks: Dict[Tuple[str, str], asyncio.Task] = {}
         # Per-key lock: same session is claimed by one worker for drain so
         # [image1, text] are not split across workers (avoids no-text
         # debounce reordering and duplicate content in AgentRequest).
         self._key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+
+    def _get_payload_text(self, payload: Any) -> str:
+        """Extract plain text from native payload or AgentRequest."""
+        if isinstance(payload, dict):
+            # Native payload
+            parts = payload.get("content_parts") or []
+            return "".join(
+                p.get("text", "") for p in parts if p.get("type") == "text"
+            )
+        # AgentRequest
+        if hasattr(payload, "input") and payload.input:
+            msg = payload.input[0]
+            if hasattr(msg, "content"):
+                return "".join(
+                    getattr(p, "text", "")
+                    for p in msg.content
+                    if getattr(p, "type", None) == ContentType.TEXT
+                )
+        return ""
+
+    async def cancel_session(self, channel_id: str, key: str) -> bool:
+        """Cancel the active processing task for the session."""
+        task = self._session_tasks.get((channel_id, key))
+        if task and not task.done():
+            logger.info(f"Cancelling active task for session {channel_id}:{key}")
+            task.cancel()
+
+            # Send feedback to user
+            ch = next(
+                (c for c in self.channels if c.channel == channel_id),
+                None,
+            )
+            if ch:
+                # We use a task for feedback so we don't block cancellation
+                asyncio.create_task(
+                    self.send_text(
+                        channel=channel_id,
+                        user_id="",  # session_id/key is usually enough for to_handle
+                        session_id=key,
+                        text="**Task stopped**",
+                    ),
+                )
+            return True
+        return False
+
 
     @classmethod
     def from_env(
@@ -272,6 +319,13 @@ class ChannelManager:
             q.put_nowait(payload)
             return
         key = ch.get_debounce_key(payload)
+
+        # Intercept /stop command
+        text = self._get_payload_text(payload).strip()
+        if text in ("/stop", "/daemon stop"):
+            asyncio.create_task(self.cancel_session(channel_id, key))
+            return
+
         if channel_id == "dingtalk" and isinstance(payload, dict):
             logger.info(
                 "manager _enqueue_one dingtalk: key=%s in_progress=%s "
@@ -335,7 +389,16 @@ class ChannelManager:
                     self._in_progress.add((channel_id, key))
                     batch = _drain_same_key(q, ch, key, payload)
                 try:
-                    await _process_batch(ch, batch)
+                    # Track this processing task
+                    task = asyncio.create_task(
+                        _process_batch(ch, batch),
+                        name=f"process_batch_{channel_id}_{key}",
+                    )
+                    self._session_tasks[(channel_id, key)] = task
+                    try:
+                        await task
+                    finally:
+                        self._session_tasks.pop((channel_id, key), None)
                 finally:
                     self._in_progress.discard((channel_id, key))
                     pending = self._pending.pop((channel_id, key), [])

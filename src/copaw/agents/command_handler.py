@@ -39,8 +39,21 @@ class ConversationCommandHandlerMixin:
             "message",
             "dump_history",
             "load_history",
+            "stop",
         },
     )
+
+    async def _process_stop(self, messages: list, args: str) -> Msg:
+        """Process /stop command.
+        Note: The actual cancellation of stuck tasks is handled by the
+        ChannelManager interception logic. If it reaches here, no task
+        is currently in progress.
+        """
+        return await self._make_system_msg(
+            "**All Clear!**\n\n- No active task is currently in progress.\n"
+            "- Use `/stop` to interrupt an agent while it is reasoning or "
+            "running a tool.",
+        )
 
     def is_conversation_command(self, query: str | None) -> bool:
         """Check if the query is a conversation system command.

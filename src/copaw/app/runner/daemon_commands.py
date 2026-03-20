@@ -31,7 +31,7 @@ class RestartInProgressError(Exception):
 
 DAEMON_PREFIX = "/daemon"
 DAEMON_SUBCOMMANDS = frozenset(
-    {"status", "restart", "reload-config", "version", "logs", "approve"},
+    {"status", "restart", "reload-config", "version", "logs", "approve", "stop"},
 )
 # Short names: /restart -> /daemon restart, etc.
 DAEMON_SHORT_ALIASES = {
@@ -42,6 +42,7 @@ DAEMON_SHORT_ALIASES = {
     "version": "version",
     "logs": "logs",
     "approve": "approve",
+    "stop": "stop",
 }
 
 
@@ -222,6 +223,18 @@ async def run_daemon_approve(
         return f"**Approve failed**\n\n- {exc}"
 
 
+async def run_daemon_stop(_context: DaemonContext) -> str:
+    """Feedback for stop command when no task is active.
+    Actual interception happens in ChannelManager.
+    """
+    return (
+        "**All Clear!**\n\n"
+        "- No active task is currently in progress.\n"
+        "- Use `/stop` to interrupt an agent while it is reasoning or "
+        "running a tool."
+    )
+
+
 def parse_daemon_query(query: str) -> Optional[tuple[str, list[str]]]:
     """Parse /daemon <sub> or /<short>. Return (subcommand, args) or None."""
     if not query or not isinstance(query, str):
@@ -292,6 +305,8 @@ class DaemonCommandHandlerMixin:
         elif sub == "approve":
             session_id = getattr(context, "session_id", "") or ""
             text = await run_daemon_approve(context, session_id=session_id)
+        elif sub == "stop":
+            text = await run_daemon_stop(context)
         else:
             text = "Unknown daemon subcommand."
         logger.info("handle_daemon_command %s completed", query)
