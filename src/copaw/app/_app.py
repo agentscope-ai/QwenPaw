@@ -77,7 +77,9 @@ class DynamicMultiAgentRunner:
         try:
             workspace = await self._multi_agent_manager.get_agent(agent_id)
             logger.debug(
-                f"Got workspace: {workspace.agent_id}, runner: {workspace.runner}",
+                "Got workspace: %s, runner: %s",
+                workspace.agent_id,
+                workspace.runner,
             )
             return workspace.runner
         except ValueError as e:
