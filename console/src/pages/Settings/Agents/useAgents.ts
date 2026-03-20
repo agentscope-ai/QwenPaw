@@ -17,10 +17,7 @@ export function useAgents(): UseAgentsReturn {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const {
-    agents,
-    setAgents: updateStoreAgents,
-  } = useAgentStore();
+  const { agents, setAgents: updateStoreAgents } = useAgentStore();
 
   const loadAgents = async () => {
     setLoading(true);

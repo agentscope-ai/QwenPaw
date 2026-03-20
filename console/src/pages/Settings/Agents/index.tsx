@@ -2,10 +2,7 @@ import { useRef, useState } from "react";
 import { Card, Button, Form, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import {
-  agentsApi,
-  buildAgentAvatarUrl,
-} from "../../../api/modules/agents";
+import { agentsApi, buildAgentAvatarUrl } from "../../../api/modules/agents";
 import type {
   AgentProfileConfig,
   AgentSummary,

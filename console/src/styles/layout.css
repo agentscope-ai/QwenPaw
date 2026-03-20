@@ -727,10 +727,18 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   border-radius: inherit !important;
 }
 
-[class*="chat-anywhere-welcome-default"] [class*="-avatar"] > img[src*="copaw-symbol.svg"],
-[class*="chat-anywhere-welcome-default"] [class*="-avatar"] > img[src*="copaw-dark.png"],
-[class*="message-list-welcome"] [class*="-avatar"] > img[src*="copaw-symbol.svg"],
-[class*="message-list-welcome"] [class*="-avatar"] > img[src*="copaw-dark.png"] {
+[class*="chat-anywhere-welcome-default"]
+  [class*="-avatar"]
+  > img[src*="copaw-symbol.svg"],
+[class*="chat-anywhere-welcome-default"]
+  [class*="-avatar"]
+  > img[src*="copaw-dark.png"],
+[class*="message-list-welcome"]
+  [class*="-avatar"]
+  > img[src*="copaw-symbol.svg"],
+[class*="message-list-welcome"]
+  [class*="-avatar"]
+  > img[src*="copaw-dark.png"] {
   object-fit: contain !important;
   padding: 6px !important;
 }
