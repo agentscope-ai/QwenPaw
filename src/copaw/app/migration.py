@@ -20,14 +20,6 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_DEFAULT_WORKING_DIR = (
-    Path(
-        WORKING_DIR,
-    )
-    .expanduser()
-    .resolve()
-)
-
 # Workspace items to migrate: (name, is_directory)
 _WORKSPACE_ITEMS_TO_MIGRATE = [
     # Directories
@@ -156,22 +148,8 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     #    -> data is in WORKING_DIR root (not yet in workspaces/default/)
     migrated_items = []
 
-    # Decide candidate legacy source roots from configuration/environment.
-    # Use `WORKING_DIR` (COPAW_WORKING_DIR) first, then fall back to the
-    # historical default location (~/.copaw).
-    # De-dup to avoid redundant filesystem checks when WORKING_DIR equals
-    # the legacy default.
-    source_dirs: list[Path] = []
-    seen: set[str] = set()
-    for p in (WORKING_DIR, _LEGACY_DEFAULT_WORKING_DIR):
-        ps = str(p)
-        if ps in seen:
-            continue
-        seen.add(ps)
-        source_dirs.append(p)
-
     _migrate_workspace_items_from_multiple_sources(
-        source_dirs,
+        [WORKING_DIR],
         default_workspace,
         migrated_items,
     )
