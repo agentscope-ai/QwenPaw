@@ -585,24 +585,119 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return await super()._reasoning(tool_choice=tool_choice)
 
     async def _summarizing(self) -> Msg:
-        """Override summarizing with the same media-block fallback."""
+        """Override summarizing with media-block fallback and tool_use filter.
+
+        Some models (e.g. kimi-k2.5) generate tool_use blocks even when
+        no tools are provided, by mimicking patterns in conversation
+        history.  Since _summarizing has no acting stage, those blocks
+        would be displayed but never executed.
+
+        We set ``_in_summarizing`` so that ``print`` can strip tool_use
+        blocks from streaming chunks *before* they reach the frontend,
+        preventing the visual flash of phantom tool calls.
+        """
+        self._in_summarizing = True
         try:
-            return await super()._summarizing()
-        except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
-                raise
+            try:
+                msg = await super()._summarizing()
+            except Exception as e:
+                if not self._is_bad_request_or_media_error(e):
+                    raise
 
-            n_stripped = self._strip_media_blocks_from_memory()
-            if n_stripped == 0:
-                raise
+                n_stripped = self._strip_media_blocks_from_memory()
+                if n_stripped == 0:
+                    raise
 
-            logger.warning(
-                "_summarizing failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
-                e,
-                n_stripped,
+                logger.warning(
+                    "_summarizing failed (%s). "
+                    "Stripped %d media block(s) from memory, retrying.",
+                    e,
+                    n_stripped,
+                )
+                msg = await super()._summarizing()
+        finally:
+            self._in_summarizing = False
+
+        return self._strip_tool_use_from_msg(msg)
+
+    async def print(
+        self,
+        msg: Msg,
+        last: bool = True,
+        speech: Any = None,
+    ) -> None:
+        """Filter tool_use blocks during _summarizing before they hit the
+        message queue, preventing the frontend from briefly rendering
+        phantom tool calls that will never be executed.
+
+        On the *final* streaming event (``last=True``), append the
+        round-end notice so users see it immediately instead of only
+        after a page refresh.  Intermediate events that become empty
+        after filtering are silently skipped to avoid blank UI flashes.
+        """
+        if getattr(self, "_in_summarizing", False) and isinstance(
+            msg.content,
+            list,
+        ):
+            original = msg.content
+            filtered = [
+                b
+                for b in original
+                if not (isinstance(b, dict) and b.get("type") == "tool_use")
+            ]
+            if len(filtered) != len(original):
+                if not filtered and not last:
+                    return
+                if last:
+                    filtered.append(
+                        {"type": "text", "text": self._ROUND_END_NOTICE},
+                    )
+                msg.content = filtered
+                try:
+                    return await super().print(msg, last, speech=speech)
+                finally:
+                    msg.content = original
+        return await super().print(msg, last, speech=speech)
+
+    _ROUND_END_NOTICE = (
+        "\n\n---\n"
+        "本轮调用已达最大次数，回复已终止，请继续输入。\n"
+        "Maximum iterations reached for this round. "
+        "Please send a new message to continue."
+    )
+
+    @staticmethod
+    def _strip_tool_use_from_msg(msg: Msg) -> Msg:
+        """Remove tool_use blocks from a message and append a user notice.
+
+        When _summarizing is called without tools, some models still
+        return tool_use blocks.  Those blocks can never be executed, so
+        strip them and append a bilingual notice telling the user this
+        round of calls has ended.
+        """
+        if not isinstance(msg.content, list):
+            return msg
+
+        filtered = [
+            block
+            for block in msg.content
+            if not (
+                isinstance(block, dict) and block.get("type") == "tool_use"
             )
-            return await super()._summarizing()
+        ]
+
+        if len(filtered) == len(msg.content):
+            return msg
+
+        n_removed = len(msg.content) - len(filtered)
+        logger.debug(
+            "Stripped %d tool_use block(s) from _summarizing response",
+            n_removed,
+        )
+
+        filtered.append({"type": "text", "text": CoPawAgent._ROUND_END_NOTICE})
+        msg.content = filtered
+        return msg
 
     @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:
@@ -724,6 +819,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return msg
 
         # Normal message processing
+        logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
         return await super().reply(msg=msg, structured_model=structured_model)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
