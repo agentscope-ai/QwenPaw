@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentscope-ai/chat':
-        specifier: file:../../agentscope-spark-design/packages/spark-chat
-        version: file:../../agentscope-spark-design/packages/spark-chat(@agentscope-ai/design@1.0.31(@babel/runtime@7.28.6)(@codemirror/language@6.12.2)(@codemirror/search@6.6.0)(@codemirror/theme-one-dark@6.1.3)(@rc-component/util@1.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(classnames@2.5.1)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@ant-design/icons@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)(use-sync-external-store@1.6.0(react@18.3.1))(workerize-loader@2.0.2(webpack@5.105.4))
+        specifier: 1.1.54-beta.1773989401574
+        version: 1.1.54-beta.1773989401574(@agentscope-ai/design@1.0.31(@babel/runtime@7.28.6)(@codemirror/language@6.12.2)(@codemirror/search@6.6.0)(@codemirror/theme-one-dark@6.1.3)(@rc-component/util@1.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(classnames@2.5.1)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@ant-design/icons@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)(use-sync-external-store@1.6.0(react@18.3.1))(workerize-loader@2.0.2(webpack@5.105.4))
       '@agentscope-ai/design':
         specifier: ^1.0.14
         version: 1.0.31(@babel/runtime@7.28.6)(@codemirror/language@6.12.2)(@codemirror/search@6.6.0)(@codemirror/theme-one-dark@6.1.3)(@rc-component/util@1.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(classnames@2.5.1)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -89,7 +89,7 @@ importers:
         version: 18.3.7(@types/react@18.3.28)
       '@vitejs/plugin-react':
         specifier: ^4.4.1
-        version: 4.7.0(vite@6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)(yaml@1.10.2))
+        version: 4.7.0(vite@6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0))
       eslint:
         specifier: ^9.25.0
         version: 9.39.4
@@ -116,12 +116,12 @@ importers:
         version: 8.57.0(eslint@9.39.4)(typescript@5.8.3)
       vite:
         specifier: ^6.3.5
-        version: 6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)(yaml@1.10.2)
+        version: 6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)
 
 packages:
 
-  '@agentscope-ai/chat@file:../../agentscope-spark-design/packages/spark-chat':
-    resolution: {directory: ../../agentscope-spark-design/packages/spark-chat, type: directory}
+  '@agentscope-ai/chat@1.1.54-beta.1773989401574':
+    resolution: {integrity: sha512-+04p09ENOUVAG1RPC1mXYbrQsFAY3DTYZJAFb9ecxgCTLThqJPg1gtVlnOb4FIuwzqi1BeWTrVwyEimy/M6OQw==}
     hasBin: true
     peerDependencies:
       '@agentscope-ai/design': ^1.0.0
@@ -3905,7 +3905,7 @@ packages:
 
 snapshots:
 
-  '@agentscope-ai/chat@file:../../agentscope-spark-design/packages/spark-chat(@agentscope-ai/design@1.0.31(@babel/runtime@7.28.6)(@codemirror/language@6.12.2)(@codemirror/search@6.6.0)(@codemirror/theme-one-dark@6.1.3)(@rc-component/util@1.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(classnames@2.5.1)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@ant-design/icons@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)(use-sync-external-store@1.6.0(react@18.3.1))(workerize-loader@2.0.2(webpack@5.105.4))':
+  '@agentscope-ai/chat@1.1.54-beta.1773989401574(@agentscope-ai/design@1.0.31(@babel/runtime@7.28.6)(@codemirror/language@6.12.2)(@codemirror/search@6.6.0)(@codemirror/theme-one-dark@6.1.3)(@rc-component/util@1.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(classnames@2.5.1)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@ant-design/icons@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)(use-sync-external-store@1.6.0(react@18.3.1))(workerize-loader@2.0.2(webpack@5.105.4))':
     dependencies:
       '@agentscope-ai/design': 1.0.31(@babel/runtime@7.28.6)(@codemirror/language@6.12.2)(@codemirror/search@6.6.0)(@codemirror/theme-one-dark@6.1.3)(@rc-component/util@1.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(classnames@2.5.1)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@agentscope-ai/icons': 1.0.59
@@ -5495,7 +5495,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vitejs/plugin-react@4.7.0(vite@6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)(yaml@1.10.2))':
+  '@vitejs/plugin-react@4.7.0(vite@6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
@@ -5503,7 +5503,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-beta.27
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
-      vite: 6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)(yaml@1.10.2)
+      vite: 6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -8565,7 +8565,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0)(yaml@1.10.2):
+  vite@6.4.1(@types/node@25.4.0)(less@4.6.2)(terser@5.46.0):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.3)
@@ -8578,7 +8578,6 @@ snapshots:
       fsevents: 2.3.3
       less: 4.6.2
       terser: 5.46.0
-      yaml: 1.10.2
 
   void-elements@3.1.0: {}
 
