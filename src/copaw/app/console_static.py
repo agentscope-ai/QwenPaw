@@ -30,7 +30,7 @@ def iter_console_static_candidates(
     module_file: str | os.PathLike[str] | None = None,
     cwd: str | os.PathLike[str] | None = None,
 ) -> tuple[Path, ...]:
-    """Yield candidate console directories in priority order."""
+    """Return candidate console directories in priority order."""
     base_cwd = _absolute_path(cwd or Path.cwd())
     module_path = _absolute_path(module_file or __file__)
 

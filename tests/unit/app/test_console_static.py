@@ -76,7 +76,7 @@ def test_resolve_console_static_dir_falls_back_to_cwd_candidates(
     assert resolved == str(cwd_console)
 
 
-def test_resolve_console_static_dir_keeps_env_override_absolute(
+def test_resolve_console_static_dir_resolves_relative_env_override(
     tmp_path: Path,
 ) -> None:
     _, module_file = _build_fake_repo(tmp_path)
