@@ -86,7 +86,6 @@ class MemoryManager(ReMeLight):
             return
 
         # Get embedding config (supports hot-reload)
-        # load_dotenv()
         emb_config = self.get_embedding_config()
 
         # Determine if vector search should be enabled based on configuration
