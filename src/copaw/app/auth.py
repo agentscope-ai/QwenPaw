@@ -269,6 +269,7 @@ def auto_register_from_env() -> None:
             username,
         )
 
+
 def update_credentials(
     current_password: str,
     new_username: Optional[str] = None,
@@ -304,7 +305,6 @@ def update_credentials(
     _save_auth_data(data)
     logger.info("Credentials updated for user '%s'", user["username"])
     return create_token(user["username"])
-
 
 
 # ---------------------------------------------------------------------------

@@ -113,6 +113,7 @@ async def verify(request: Request):
 
     return {"valid": True, "username": username}
 
+
 class UpdateProfileRequest(BaseModel):
     current_password: str
     new_username: str | None = None
