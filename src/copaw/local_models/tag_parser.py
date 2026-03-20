@@ -96,9 +96,22 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
     """
     Parse the JSON content between a ``<tool_call>`` / ``</tool_call>`` pair.
 
-    Expected format::
+    Supports two formats:
+
+    1. Simplified format::
 
         {"name": "func_name", "arguments": {"key": "value"}}
+
+    2. OpenAI-compatible format::
+
+        {
+            "id": "call_abc123",
+            "type": "function",
+            "function": {
+                "name": "execute_shell_command",
+                "arguments": "{\"command\": \"ls -la\"}"
+            }
+        }
     """
     try:
         data = json.loads(raw_text.strip())
@@ -106,12 +119,25 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
         logger.warning("Failed to parse tool call JSON: %s", raw_text[:200])
         return None
 
-    name = data.get("name", "")
+    # Handle OpenAI-compatible format (nested under "function" key)
+    if "function" in data:
+        func_data = data["function"]
+        name = func_data.get("name", "")
+        arguments = func_data.get("arguments", {})
+        tool_id = data.get("id", _generate_call_id())
+    # Handle simplified format (direct "name" key)
+    elif "name" in data:
+        name = data["name"]
+        arguments = data.get("arguments", {})
+        tool_id = _generate_call_id()
+    else:
+        logger.warning("Tool call missing 'name' field: %s", raw_text[:200])
+        return None
+
     if not name:
         logger.warning("Tool call missing 'name' field: %s", raw_text[:200])
         return None
 
-    arguments = data.get("arguments", {})
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
@@ -119,7 +145,7 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
             arguments = {}
 
     return ParsedToolCall(
-        id=_generate_call_id(),
+        id=tool_id,
         name=name,
         arguments=arguments,
         raw_arguments=json.dumps(arguments, ensure_ascii=False),
