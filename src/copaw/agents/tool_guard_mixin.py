@@ -107,6 +107,41 @@ class ToolGuardMixin:
             "input": tool_input,
         }
 
+    async def _get_pending_info_for_display(self) -> dict[str, Any]:
+        """Return pending tool info aligned with approval queue head."""
+        fallback = getattr(self, "_tool_guard_pending_info", None) or {}
+        session_id = str(self._request_context.get("session_id") or "")
+        if not session_id:
+            return fallback
+
+        try:
+            pending = await self._tool_guard_approval_service.get_pending_by_session(
+                session_id,
+            )
+        except Exception:
+            logger.warning(
+                "Tool guard: failed to read pending queue head",
+                exc_info=True,
+            )
+            return fallback
+
+        if pending is None:
+            return fallback
+
+        tool_input: dict[str, Any] = {}
+        extra = pending.extra if isinstance(pending.extra, dict) else {}
+        tool_call = extra.get("tool_call") if isinstance(extra, dict) else {}
+        if isinstance(tool_call, dict) and isinstance(
+            tool_call.get("input"),
+            dict,
+        ):
+            tool_input = tool_call["input"]
+
+        return {
+            "tool_name": pending.tool_name or fallback.get("tool_name", "unknown"),
+            "tool_input": tool_input or fallback.get("tool_input", {}),
+        }
+
     async def _cleanup_tool_guard_denied_messages(
         self,
         include_denial_response: bool = True,
@@ -199,9 +234,20 @@ class ToolGuardMixin:
                             await cleanup(
                                 include_denial_response=True,
                             )
-                            return await super()._acting(  # type: ignore[misc]
+                            result = await super()._acting(  # type: ignore[misc]
                                 tool_call,
                             )
+                            if getattr(
+                                self,
+                                "_tool_guard_forced_replay_active",
+                                False,
+                            ):
+                                self._tool_guard_forced_replay_active = False
+                                self._tool_guard_replay_done = {
+                                    "tool_name": tool_name,
+                                    "tool_input": tool_input,
+                                }
+                            return result
 
                     result = engine.guard(tool_name, tool_input)
                     if result is not None and result.findings:
@@ -362,12 +408,73 @@ class ToolGuardMixin:
         self,
         tool_choice: (Literal["auto", "none", "required"] | None) = None,
     ) -> Msg:
-        """Short-circuit reasoning when awaiting guard approval."""
+        """Short-circuit reasoning when awaiting guard approval.
+
+        After a forced approved replay completes its ``_acting`` cycle,
+        this method returns a **text-only** message (no ``tool_use``
+        blocks).  The ``ReActAgent.reply`` loop naturally exits when
+        ``_reasoning`` produces no tool calls, so no exception or
+        special flag is needed on the runner side.
+        """
+        replay_info = getattr(self, "_tool_guard_replay_done", None)
+        if replay_info:
+            self._tool_guard_replay_done = None
+            tool_name = replay_info.get("tool_name", "unknown")
+            tool_input = replay_info.get("tool_input", {})
+
+            params_text = _json.dumps(
+                tool_input,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+            result_text = ""
+            if self.memory.content:
+                last_msg, _ = self.memory.content[-1]
+                if last_msg.role == "system":
+                    for block in (last_msg.content or []):
+                        if not isinstance(block, dict):
+                            block = dict(block)
+                        if block.get("type") == "tool_result":
+                            output = block.get("output", "")
+                            if isinstance(output, list):
+                                parts = []
+                                for item in output:
+                                    if isinstance(item, dict):
+                                        parts.append(
+                                            item.get("text", ""),
+                                        )
+                                result_text = "\n".join(
+                                    p for p in parts if p
+                                )
+                            elif isinstance(output, str):
+                                result_text = output
+                            break
+
+            result_preview = result_text[:500]
+            if len(result_text) > 500:
+                result_preview += "..."
+
+            msg = Msg(
+                self.name,
+                f"✅ **Approved tool executed / 已批准工具执行完成**\n\n"
+                f"- Tool / 工具: `{tool_name}`\n"
+                f"- Parameters / 参数:\n"
+                f"```json\n{params_text}\n```\n"
+                f"- Result / 结果:\n"
+                f"```\n{result_preview}\n```",
+                "assistant",
+            )
+            await self.print(msg, True)
+            await self.memory.add(msg)
+            return msg
+
         forced_tool_call = self._pop_forced_tool_call()
         if forced_tool_call is not None:
             try:
                 from agentscope.message import ToolUseBlock
 
+                self._tool_guard_forced_replay_active = True
                 msg = Msg(
                     self.name,
                     [
@@ -384,6 +491,7 @@ class ToolGuardMixin:
                 await self.memory.add(msg)
                 return msg
             except Exception as exc:
+                self._tool_guard_forced_replay_active = False
                 logger.warning(
                     "Tool guard: forced tool replay failed, "
                     "falling back to normal reasoning: %s",
@@ -392,7 +500,7 @@ class ToolGuardMixin:
                 )
 
         if self._last_tool_response_is_denied():
-            pending = getattr(self, "_tool_guard_pending_info", None) or {}
+            pending = await self._get_pending_info_for_display()
             tool_name = pending.get("tool_name", "unknown")
             tool_input = pending.get("tool_input", {})
 
