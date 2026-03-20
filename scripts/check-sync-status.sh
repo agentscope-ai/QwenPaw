@@ -34,6 +34,15 @@ else
   echo "✅ fork/main 与 mirror/upstream-main 对齐"
 fi
 
+# 检查 main 是否落后 upstream/main
+MAIN_BEHIND=$(git rev-list --count main..upstream/main 2>/dev/null || echo "0")
+if [ "$MAIN_BEHIND" -gt 0 ]; then
+  echo "⚠️  main 落后 upstream/main $MAIN_BEHIND commits"
+  echo "   建议运行: git checkout main && git merge --no-ff upstream/main"
+else
+  echo "✅ main 与 upstream/main 对齐（behind=0）"
+fi
+
 # 检查当前分枝
 CURRENT_BRANCH=$(git symbolic-ref --short HEAD)
 echo -e "\n📍 当前分枝: $CURRENT_BRANCH"
