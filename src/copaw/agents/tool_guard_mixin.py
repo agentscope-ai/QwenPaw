@@ -159,8 +159,10 @@ class ToolGuardMixin:
             return fallback
 
         try:
-            pending = await self._tool_guard_approval_service.get_pending_by_session(
-                session_id,
+            pending = (
+                await self._tool_guard_approval_service.get_pending_by_session(
+                    session_id,
+                )
             )
         except Exception:
             logger.warning(
@@ -182,7 +184,8 @@ class ToolGuardMixin:
             tool_input = tool_call["input"]
 
         return {
-            "tool_name": pending.tool_name or fallback.get("tool_name", "unknown"),
+            "tool_name": pending.tool_name
+            or fallback.get("tool_name", "unknown"),
             "tool_input": tool_input or fallback.get("tool_input", {}),
         }
 
@@ -194,7 +197,7 @@ class ToolGuardMixin:
         last_msg, _ = memory_content[-1]
         if last_msg.role != "system":
             return ""
-        for block in (last_msg.content or []):
+        for block in last_msg.content or []:
             if not isinstance(block, dict):
                 block = dict(block)
             if block.get("type") == "tool_result":
@@ -266,86 +269,12 @@ class ToolGuardMixin:
         self._ensure_tool_guard()
 
         async with self._tool_guard_lock:
-            engine = self._tool_guard_engine
-            tool_name: str = tool_call.get("name", "")
-            tool_input: dict = tool_call.get("input", {})
-
             try:
-                if tool_name and engine.enabled:
-                    if engine.is_denied(tool_name):
-                        logger.warning(
-                            "Tool guard: tool '%s' is in the denied "
-                            "set, auto-denying",
-                            tool_name,
-                        )
-                        result = engine.guard(tool_name, tool_input)
-                        return await self._acting_auto_denied(
-                            tool_call,
-                            tool_name,
-                            result,
-                        )
-
-                    if engine.is_guarded(tool_name):
-                        session_id = str(
-                            self._request_context.get("session_id") or "",
-                        )
-                        if session_id:
-                            svc = self._tool_guard_approval_service
-                            consumed = await svc.consume_approval(
-                                session_id,
-                                tool_name,
-                                tool_params=tool_input,
-                            )
-                            if consumed:
-                                logger.info(
-                                    "Tool guard: pre-approved '%s' "
-                                    "(session %s), skipping",
-                                    tool_name,
-                                    session_id[:8],
-                                )
-                                self._tool_guard_pending_info = None
-                                cleanup = (
-                                    self._cleanup_tool_guard_denied_messages
-                                )
-                                await cleanup(
-                                    include_denial_response=True,
-                                )
-                                result = await super()._acting(  # type: ignore[misc]
-                                    tool_call,
-                                )
-                                if getattr(
-                                    self,
-                                    "_tool_guard_forced_replay_active",
-                                    False,
-                                ):
-                                    self._tool_guard_forced_replay_active = (
-                                        False
-                                    )
-                                    self._tool_guard_replay_done = {
-                                        "tool_name": tool_name,
-                                        "tool_input": tool_input,
-                                        "remaining_queue": getattr(
-                                            self,
-                                            "_tool_guard_replay_queue",
-                                            [],
-                                        ),
-                                    }
-                                return result
-
-                        result = engine.guard(tool_name, tool_input)
-                        if result is not None and result.findings:
-                            from copaw.security.tool_guard.utils import (
-                                log_findings,
-                            )
-
-                            log_findings(tool_name, result)
-
-                            if self._should_require_approval():
-                                return await self._acting_with_approval(
-                                    tool_call,
-                                    tool_name,
-                                    result,
-                                )
+                handled, result = await self._try_handle_guarded_tool_call(
+                    tool_call,
+                )
+                if handled:
+                    return result
             except Exception as exc:
                 logger.warning(
                     "Tool guard check error (non-blocking): %s",
@@ -354,6 +283,102 @@ class ToolGuardMixin:
                 )
 
         return await super()._acting(tool_call)  # type: ignore[misc]
+
+    async def _try_handle_guarded_tool_call(
+        self,
+        tool_call: dict[str, Any],
+    ) -> tuple[bool, dict | None]:
+        """Return ``(handled, result)`` for guard-managed calls."""
+        engine = self._tool_guard_engine
+        tool_name = str(tool_call.get("name", ""))
+        tool_input = tool_call.get("input", {})
+        if not tool_name or not engine.enabled:
+            return False, None
+
+        if engine.is_denied(tool_name):
+            logger.warning(
+                "Tool guard: tool '%s' is in the denied set, auto-denying",
+                tool_name,
+            )
+            denied_result = engine.guard(tool_name, tool_input)
+            return True, await self._acting_auto_denied(
+                tool_call,
+                tool_name,
+                denied_result,
+            )
+
+        if not engine.is_guarded(tool_name):
+            return False, None
+
+        if await self._consume_preapproval(tool_name, tool_input):
+            handled_result = await self._run_approved_tool_call(
+                tool_call,
+                tool_name,
+                tool_input,
+            )
+            return True, handled_result
+
+        guard_result = engine.guard(tool_name, tool_input)
+        if guard_result is not None and guard_result.findings:
+            from copaw.security.tool_guard.utils import log_findings
+
+            log_findings(tool_name, guard_result)
+            if self._should_require_approval():
+                return True, await self._acting_with_approval(
+                    tool_call,
+                    tool_name,
+                    guard_result,
+                )
+        return False, None
+
+    async def _consume_preapproval(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+    ) -> bool:
+        """Consume one matching approval token if present."""
+        session_id = str(self._request_context.get("session_id") or "")
+        if not session_id:
+            return False
+
+        svc = self._tool_guard_approval_service
+        consumed = await svc.consume_approval(
+            session_id,
+            tool_name,
+            tool_params=tool_input,
+        )
+        if consumed:
+            logger.info(
+                "Tool guard: pre-approved '%s' (session %s), skipping",
+                tool_name,
+                session_id[:8],
+            )
+        return bool(consumed)
+
+    async def _run_approved_tool_call(
+        self,
+        tool_call: dict[str, Any],
+        tool_name: str,
+        tool_input: dict[str, Any],
+    ) -> dict | None:
+        """Execute approved call and persist replay state."""
+        self._tool_guard_pending_info = None
+        await self._cleanup_tool_guard_denied_messages(
+            include_denial_response=True,
+        )
+        result = await super()._acting(tool_call)  # type: ignore[misc]
+        if getattr(self, "_tool_guard_forced_replay_active", False):
+            self._tool_guard_forced_replay_active = False
+            self._tool_guard_replay_done = {
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "remaining_queue": getattr(
+                    self,
+                    "_tool_guard_replay_queue",
+                    [],
+                ),
+            }
+        return result
 
     # ------------------------------------------------------------------
     # Denied / Approval responses
@@ -498,7 +523,7 @@ class ToolGuardMixin:
     # _reasoning override (guard-aware)
     # ------------------------------------------------------------------
 
-    async def _reasoning(  # noqa: C901
+    async def _reasoning(
         self,
         tool_choice: (Literal["auto", "none", "required"] | None) = None,
     ) -> Msg:
@@ -510,145 +535,171 @@ class ToolGuardMixin:
         completion message so the ``ReActAgent.reply`` loop exits
         naturally.
         """
-        replay_info = getattr(self, "_tool_guard_replay_done", None)
-        if replay_info:
-            self._tool_guard_replay_done = None
-            tool_name = replay_info.get("tool_name", "unknown")
-            tool_input = replay_info.get("tool_input", {})
-            remaining_queue: list[dict[str, Any]] = list(
-                replay_info.get("remaining_queue") or [],
-            )
-
-            params_text = _json.dumps(
-                tool_input,
-                ensure_ascii=False,
-                indent=2,
-            )
-            result_text = self._extract_tool_result_text(
-                self.memory.content,
-            )
-            result_preview = result_text[:500]
-            if len(result_text) > 500:
-                result_preview += "..."
-
-            completion_text = (
-                f"✅ **Approved tool executed / 已批准工具执行完成**\n\n"
-                f"- Tool / 工具: `{tool_name}`\n"
-                f"- Parameters / 参数:\n"
-                f"```json\n{params_text}\n```\n"
-                f"- Result / 结果:\n"
-                f"```\n{result_preview}\n```"
-            )
-
-            filtered: list[dict[str, Any]] = []
-            for tc in remaining_queue:
-                tc_id = tc.get("id", "")
-                if self._tool_result_exists_in_memory(tc_id):
-                    continue
-                filtered.append(tc)
-            remaining_queue = filtered
-
-            if remaining_queue:
-                from agentscope.message import ToolUseBlock, TextBlock
-
-                next_tc = remaining_queue[0]
-                rest = remaining_queue[1:]
-                self._tool_guard_replay_queue = rest
-
-                next_id = next_tc.get("id") or (
-                    f"queued-{_uuid.uuid4().hex[:12]}"
-                )
-
-                status = (
-                    f"{completion_text}\n\n"
-                    f"⏳ **{len(remaining_queue)} more tool call(s) "
-                    f"remaining / 还有 {len(remaining_queue)} 个工具"
-                    f"调用待执行**"
-                )
-
-                self._tool_guard_forced_replay_active = True
-                msg = Msg(
-                    self.name,
-                    [
-                        TextBlock(type="text", text=status),
-                        ToolUseBlock(
-                            type="tool_use",
-                            id=next_id,
-                            name=next_tc.get("name", "unknown"),
-                            input=next_tc.get("input", {}),
-                        ),
-                    ],
-                    "assistant",
-                )
-                await self.print(msg, True)
-                await self.memory.add(msg)
-                return msg
-
-            msg = Msg(
-                self.name,
-                completion_text,
-                "assistant",
-            )
-            await self.print(msg, True)
-            await self.memory.add(msg)
-            return msg
+        replay_msg = await self._reason_about_replay_done()
+        if replay_msg is not None:
+            return replay_msg
 
         forced_tool_call = self._pop_forced_tool_call()
         if forced_tool_call is not None:
-            try:
-                from agentscope.message import ToolUseBlock
-
-                self._tool_guard_forced_replay_active = True
-                msg = Msg(
-                    self.name,
-                    [
-                        ToolUseBlock(
-                            type="tool_use",
-                            id=forced_tool_call["id"],
-                            name=forced_tool_call["name"],
-                            input=forced_tool_call["input"],
-                        ),
-                    ],
-                    "assistant",
-                )
-                await self.print(msg, True)
-                await self.memory.add(msg)
-                return msg
-            except Exception as exc:
-                self._tool_guard_forced_replay_active = False
-                logger.warning(
-                    "Tool guard: forced tool replay failed, "
-                    "falling back to normal reasoning: %s",
-                    exc,
-                    exc_info=True,
-                )
+            replay_msg = await self._emit_forced_tool_use(forced_tool_call)
+            if replay_msg is not None:
+                return replay_msg
 
         if self._last_tool_response_is_denied():
-            pending = await self._get_pending_info_for_display()
-            tool_name = pending.get("tool_name", "unknown")
-            tool_input = pending.get("tool_input", {})
+            return await self._emit_waiting_for_approval()
 
-            params_text = _json.dumps(
-                tool_input,
-                ensure_ascii=False,
-                indent=2,
-            )
+        return await super()._reasoning(  # type: ignore[misc]
+            tool_choice=tool_choice,
+        )
+
+    async def _reason_about_replay_done(self) -> Msg | None:
+        """Emit replay continuation or completion message."""
+        replay_info = getattr(self, "_tool_guard_replay_done", None)
+        if not replay_info:
+            return None
+
+        self._tool_guard_replay_done = None
+        completion_text = self._build_replay_completion_text(replay_info)
+        remaining_queue = self._filter_pending_replay_queue(
+            replay_info.get("remaining_queue") or [],
+        )
+        if not remaining_queue:
+            return await self._emit_assistant_msg(completion_text)
+        return await self._emit_next_replay_tool_call(
+            completion_text,
+            remaining_queue,
+        )
+
+    def _build_replay_completion_text(
+        self,
+        replay_info: dict[str, Any],
+    ) -> str:
+        """Build completion text shown after approved tool execution."""
+        tool_name = replay_info.get("tool_name", "unknown")
+        tool_input = replay_info.get("tool_input", {})
+        params_text = _json.dumps(
+            tool_input,
+            ensure_ascii=False,
+            indent=2,
+        )
+        result_text = self._extract_tool_result_text(self.memory.content)
+        result_preview = result_text[:500]
+        if len(result_text) > 500:
+            result_preview += "..."
+        return (
+            f"✅ **Approved tool executed / 已批准工具执行完成**\n\n"
+            f"- Tool / 工具: `{tool_name}`\n"
+            f"- Parameters / 参数:\n"
+            f"```json\n{params_text}\n```\n"
+            f"- Result / 结果:\n"
+            f"```\n{result_preview}\n```"
+        )
+
+    def _filter_pending_replay_queue(
+        self,
+        queue: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Drop replayed tool calls that already have tool results."""
+        filtered: list[dict[str, Any]] = []
+        for tool_call in list(queue):
+            tc_id = tool_call.get("id", "")
+            if self._tool_result_exists_in_memory(tc_id):
+                continue
+            filtered.append(tool_call)
+        return filtered
+
+    async def _emit_next_replay_tool_call(
+        self,
+        completion_text: str,
+        remaining_queue: list[dict[str, Any]],
+    ) -> Msg:
+        """Emit assistant message that chains to the next replayed call."""
+        from agentscope.message import ToolUseBlock, TextBlock
+
+        next_tc = remaining_queue[0]
+        self._tool_guard_replay_queue = remaining_queue[1:]
+        next_id = next_tc.get("id") or f"queued-{_uuid.uuid4().hex[:12]}"
+        status = (
+            f"{completion_text}\n\n"
+            f"⏳ **{len(remaining_queue)} more tool call(s) remaining / "
+            f"还有 {len(remaining_queue)} 个工具调用待执行**"
+        )
+        self._tool_guard_forced_replay_active = True
+        msg = Msg(
+            self.name,
+            [
+                TextBlock(type="text", text=status),
+                ToolUseBlock(
+                    type="tool_use",
+                    id=next_id,
+                    name=next_tc.get("name", "unknown"),
+                    input=next_tc.get("input", {}),
+                ),
+            ],
+            "assistant",
+        )
+        await self.print(msg, True)
+        await self.memory.add(msg)
+        return msg
+
+    async def _emit_assistant_msg(self, content: str) -> Msg:
+        """Print and persist a plain assistant text message."""
+        msg = Msg(self.name, content, "assistant")
+        await self.print(msg, True)
+        await self.memory.add(msg)
+        return msg
+
+    async def _emit_forced_tool_use(
+        self,
+        forced_tool_call: dict[str, Any],
+    ) -> Msg | None:
+        """Emit a forced tool_use replay block, or ``None`` on failure."""
+        try:
+            from agentscope.message import ToolUseBlock
+
+            self._tool_guard_forced_replay_active = True
             msg = Msg(
                 self.name,
-                "⏳ Waiting for approval / 等待审批\n\n"
-                f"- Tool / 工具: `{tool_name}`\n"
-                f"- Parameters / 参数:\n"
-                f"```json\n{params_text}\n```\n\n"
-                "Type `/approve` to approve, "
-                "or send any message to deny.\n"
-                "输入 `/approve` 批准执行，"
-                "或发送任意消息拒绝。",
+                [
+                    ToolUseBlock(
+                        type="tool_use",
+                        id=forced_tool_call["id"],
+                        name=forced_tool_call["name"],
+                        input=forced_tool_call["input"],
+                    ),
+                ],
                 "assistant",
             )
             await self.print(msg, True)
             await self.memory.add(msg)
             return msg
+        except Exception as exc:
+            self._tool_guard_forced_replay_active = False
+            logger.warning(
+                "Tool guard: forced tool replay failed, "
+                "falling back to normal reasoning: %s",
+                exc,
+                exc_info=True,
+            )
+            return None
 
-        return await super()._reasoning(  # type: ignore[misc]
-            tool_choice=tool_choice,
+    async def _emit_waiting_for_approval(self) -> Msg:
+        """Emit waiting-for-approval guidance when call is blocked."""
+        pending = await self._get_pending_info_for_display()
+        tool_name = pending.get("tool_name", "unknown")
+        tool_input = pending.get("tool_input", {})
+        params_text = _json.dumps(
+            tool_input,
+            ensure_ascii=False,
+            indent=2,
+        )
+        return await self._emit_assistant_msg(
+            "⏳ Waiting for approval / 等待审批\n\n"
+            f"- Tool / 工具: `{tool_name}`\n"
+            f"- Parameters / 参数:\n"
+            f"```json\n{params_text}\n```\n\n"
+            "Type `/approve` to approve, "
+            "or send any message to deny.\n"
+            "输入 `/approve` 批准执行，"
+            "或发送任意消息拒绝。",
         )
