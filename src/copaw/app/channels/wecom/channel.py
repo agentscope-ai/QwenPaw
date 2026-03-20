@@ -38,6 +38,7 @@ from ..base import (
     ProcessHandler,
 )
 from .utils import format_markdown_tables
+from ..utils import split_text
 
 logger = logging.getLogger(__name__)
 
@@ -706,27 +707,29 @@ class WecomChannel(BaseChannel):
         if not body:
             return
 
-        if frame:
-            await self._send_text_via_frame(frame, body)
-        elif chatid and self._client:
-            try:
-                await self._client.send_message(
-                    chatid,
-                    {
-                        "msgtype": "markdown",
-                        "markdown": {"content": body},
-                    },
+        for chunk in split_text(body):
+            if frame:
+                await self._send_text_via_frame(frame, chunk)
+            elif chatid and self._client:
+                try:
+                    await self._client.send_message(
+                        chatid,
+                        {
+                            "msgtype": "markdown",
+                            "markdown": {"content": chunk},
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "wecom send proactive failed chatid=%s",
+                        chatid,
+                    )
+            else:
+                logger.warning(
+                    "wecom send: no frame/chatid for to_handle=%s",
+                    (to_handle or "")[:40],
                 )
-            except Exception:
-                logger.exception(
-                    "wecom send proactive failed chatid=%s",
-                    chatid,
-                )
-        else:
-            logger.warning(
-                "wecom send: no frame/chatid for to_handle=%s",
-                (to_handle or "")[:40],
-            )
+                break
 
     # ------------------------------------------------------------------
     # Lifecycle

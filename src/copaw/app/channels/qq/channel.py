@@ -43,6 +43,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
+from ..utils import split_text
 
 logger = logging.getLogger(__name__)
 
@@ -780,11 +781,11 @@ class QQChannel(BaseChannel):
         # Remove [Image: ] tags from text
         clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
 
-        # Send text content if not empty
+        # Send text content if not empty (split into chunks to respect QQ limits)
         text_sent = False
-        if clean_text:
+        for chunk in (split_text(clean_text) if clean_text else []):
             try:
-                await _dispatch(clean_text, use_markdown)
+                await _dispatch(chunk, use_markdown)
                 text_sent = True
             except Exception as exc:
                 if not use_markdown:
@@ -794,7 +795,7 @@ class QQChannel(BaseChannel):
                             "trying aggressive URL stripping",
                         )
                         aggressive_text, _ = _aggressive_sanitize_qq_text(
-                            clean_text,
+                            chunk,
                         )
                         try:
                             await _dispatch(aggressive_text, False)
@@ -815,7 +816,7 @@ class QQChannel(BaseChannel):
                         "send text failed with markdown payload validation; "
                         "fallback to plain text",
                     )
-                    fallback_text, had_url = _sanitize_qq_text(clean_text)
+                    fallback_text, had_url = _sanitize_qq_text(chunk)
                     if had_url:
                         logger.info(
                             "qq send fallback: stripped URL content "
@@ -832,7 +833,7 @@ class QQChannel(BaseChannel):
                                 "URL stripping",
                             )
                             aggressive_text, _ = _aggressive_sanitize_qq_text(
-                                clean_text,
+                                chunk,
                             )
                             try:
                                 await _dispatch(aggressive_text, False)
