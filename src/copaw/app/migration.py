@@ -23,9 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Allow overriding the legacy default working dir via env.
 # This keeps backward compatibility when the env var is not set.
-_LEGACY_DEFAULT_WORKING_DIR = Path(
-    os.environ.get("COPAW_LEGACY_WORKING_DIR", "~/.copaw"),
-).expanduser().resolve()
+_LEGACY_DEFAULT_WORKING_DIR = Path(os.environ.get("COPAW_LEGACY_WORKING_DIR", "~/.copaw")).expanduser().resolve()
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
