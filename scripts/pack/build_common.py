@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import random
 import string
 import subprocess
 import sys
-import platform
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,8 +40,16 @@ def _conda_exe() -> str:
     return "conda"
 
 
-def _run(cmd: list[str], cwd: Path | None = None) -> None:
-    subprocess.run(cmd, cwd=cwd or REPO_ROOT, check=True)
+def _run(
+    cmd: list[str],
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Run command with optional environment variable overrides."""
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
+    subprocess.run(cmd, cwd=cwd or REPO_ROOT, env=run_env, check=True)
 
 
 def _pick_wheel(wheel_arg: str | None) -> Path:
@@ -139,14 +148,17 @@ def main() -> int:
             ],
         )
         # Try to install llama-cpp-python from prebuilt wheel first
-        # Use official prebuilt wheels from https://pypi.org/project/llama-cpp-python/
+        # Security: Use two-step download+install to isolate third-party index
+        # usage and avoid supply-chain risk from --extra-index-url affecting
+        # dependency resolution of other packages.
+        # See: https://pypi.org/project/llama-cpp-python/
         print("Attempting to install llama-cpp-python from prebuilt wheel...")
         needs_llama_compile = False
 
         # Determine the appropriate wheel index URL based on platform
         system = platform.system().lower()
         if system == "darwin":
-            # macOS: use Metal-enabled wheel (requires macOS 11.0+, Python 3.10-3.12)
+            # macOS: use Metal-enabled wheel (macOS 11.0+, Python 3.10-3.12)
             wheel_index = "https://abetlen.github.io/llama-cpp-python/whl/metal"
             print("Using Metal-enabled wheel for macOS")
         else:
@@ -155,22 +167,49 @@ def main() -> int:
             print(f"Using CPU wheel for {system}")
 
         try:
-            _run(
-                [
-                    conda,
-                    "run",
-                    "-n",
-                    env_name,
-                    "python",
-                    "-m",
-                    "pip",
-                    "install",
-                    "--only-binary=llama-cpp-python",
-                    "--extra-index-url",
-                    wheel_index,
-                    "llama-cpp-python>=0.3.0",
-                ],
-            )
+            # Step 1: Download wheel from third-party index to temp directory
+            # This ensures only llama-cpp-python is fetched from third-party
+            with tempfile.TemporaryDirectory() as tmpdir:
+                print(f"Downloading llama-cpp-python wheel to {tmpdir}...")
+                _run(
+                    [
+                        conda,
+                        "run",
+                        "-n",
+                        env_name,
+                        "python",
+                        "-m",
+                        "pip",
+                        "download",
+                        "--only-binary=llama-cpp-python",
+                        "--extra-index-url",
+                        wheel_index,
+                        "--dest",
+                        tmpdir,
+                        "llama-cpp-python>=0.3.0",
+                    ],
+                )
+                # Step 2: Install from local wheel (no third-party index)
+                # Use --no-index to prevent fallback to PyPI, --find-links for
+                # local wheel dir. Dependencies will be resolved from PyPI when
+                # installing copaw[full] later.
+                print("Installing llama-cpp-python from downloaded wheel...")
+                _run(
+                    [
+                        conda,
+                        "run",
+                        "-n",
+                        env_name,
+                        "python",
+                        "-m",
+                        "pip",
+                        "install",
+                        "--find-links",
+                        tmpdir,
+                        "--no-index",
+                        "llama-cpp-python",
+                    ],
+                )
             print("Successfully installed llama-cpp-python from prebuilt wheel")
         except subprocess.CalledProcessError:
             print(
@@ -179,13 +218,17 @@ def main() -> int:
             )
             needs_llama_compile = True
 
-        # Set CMAKE_ARGS if we need to compile llama-cpp-python from source
-        # This only affects CMake-based packages like llama-cpp-python
-        if needs_llama_compile:
-            print("Setting CMAKE_ARGS to disable Metal for compilation...")
-            os.environ["CMAKE_ARGS"] = "-DGGML_METAL=off"
-
         # Install copaw with all dependencies
+        # Scope CMAKE_ARGS to this specific command to avoid affecting other
+        # CMake-based packages. Only set if we need to compile from source.
+        install_env = {}
+        if needs_llama_compile:
+            print(
+                "Will compile llama-cpp-python from source with CMAKE_ARGS="
+                "-DGGML_METAL=off"
+            )
+            install_env = {"CMAKE_ARGS": "-DGGML_METAL=off"}
+
         _run(
             [
                 conda,
@@ -198,6 +241,7 @@ def main() -> int:
                 "install",
                 f"copaw[full] @ {wheel_uri}",
             ],
+            env=install_env,
         )
         print("Verifying certifi is installed (required for SSL)...")
         _run(
