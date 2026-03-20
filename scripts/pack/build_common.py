@@ -136,6 +136,31 @@ def main() -> int:
                 "pip",
             ],
         )
+        # Try to install llama-cpp-python from prebuilt wheel first
+        print("Attempting to install llama-cpp-python from prebuilt wheel...")
+        try:
+            _run(
+                [
+                    conda,
+                    "run",
+                    "-n",
+                    env_name,
+                    "python",
+                    "-m",
+                    "pip",
+                    "install",
+                    "--only-binary=llama-cpp-python",
+                    "llama-cpp-python>=0.3.0",
+                ],
+            )
+            print("Successfully installed llama-cpp-python from prebuilt wheel")
+        except subprocess.CalledProcessError:
+            print(
+                "Prebuilt wheel not available, will compile from source when "
+                "installing copaw[full]"
+            )
+
+        # Install copaw with all dependencies
         _run(
             [
                 conda,
