@@ -16,6 +16,7 @@ import {
 import type { ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { useTheme } from "../../../../../contexts/ThemeContext";
 import styles from "../../index.module.less";
 
 interface RemoteModelManageModalProps {
@@ -32,6 +33,7 @@ export function RemoteModelManageModal({
   onSaved,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
@@ -246,7 +248,10 @@ export function RemoteModelManageModal({
                         icon={<ApiOutlined />}
                         onClick={() => handleTestModel(m.id)}
                         loading={testingModelId === m.id}
-                        style={{ marginRight: 4 }}
+                        style={{
+                          marginRight: 4,
+                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                        }}
                       >
                         {t("models.testConnection")}
                       </Button>
@@ -272,6 +277,9 @@ export function RemoteModelManageModal({
                         icon={<ApiOutlined />}
                         onClick={() => handleTestModel(m.id)}
                         loading={testingModelId === m.id}
+                        style={{
+                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                        }}
                       >
                         {t("models.testConnection")}
                       </Button>
