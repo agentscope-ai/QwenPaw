@@ -6,8 +6,10 @@ from __future__ import annotations
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 import httpx
 
@@ -30,11 +32,44 @@ def _tee_stream(stream, buffer: list[str]) -> None:
         stream.close()
 
 
-def test_app_startup_and_console() -> None:
-    """Test that copaw app starts correctly with backend and console."""
+def _assert_console_html(response: httpx.Response) -> None:
+    assert response.status_code == 200, (
+        f"Console not accessible: {response.status_code}"
+    )
+    assert (
+        "text/html" in response.headers.get("content-type", "").lower()
+    ), "Console should return HTML content"
+
+    html_content = response.text
+    assert len(html_content) > 0, "Console HTML should not be empty"
+    assert (
+        "<!doctype html>" in html_content.lower()
+        or "<html" in html_content.lower()
+    ), "Console should return valid HTML"
+
+
+def _run_app_startup_and_console_assertions(
+    *,
+    cwd: str | None = None,
+) -> None:
+    """Start the app in a subprocess and verify console assets."""
     host = "127.0.0.1"
     port = _find_free_port(host)
     log_lines: list[str] = []
+    repo_root = Path(__file__).resolve().parents[2]
+    static_candidates = (
+        repo_root / "src" / "copaw" / "console",
+        repo_root / "console" / "dist",
+        repo_root / "console_dist",
+    )
+    expected_static_dir = next(
+        (
+            candidate.resolve()
+            for candidate in static_candidates
+            if (candidate / "index.html").is_file()
+        ),
+        (repo_root / "console" / "dist").resolve(),
+    )
 
     process = subprocess.Popen(
         [
@@ -53,6 +88,7 @@ def test_app_startup_and_console() -> None:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        cwd=cwd,
     )
 
     assert process.stdout is not None
@@ -104,21 +140,22 @@ def test_app_startup_and_console() -> None:
                 )
 
             console_response = client.get(f"http://{host}:{port}/console/")
-            assert (
-                console_response.status_code == 200
-            ), f"Console not accessible: {console_response.status_code}"
+            _assert_console_html(console_response)
 
-            assert (
-                "text/html"
-                in console_response.headers.get("content-type", "").lower()
-            ), "Console should return HTML content"
+            spa_response = client.get(f"http://{host}:{port}/console/settings")
+            _assert_console_html(spa_response)
 
-            html_content = console_response.text
-            assert len(html_content) > 0, "Console HTML should not be empty"
+            logo_response = client.get(f"http://{host}:{port}/logo.png")
+            assert logo_response.status_code == 200
             assert (
-                "<!doctype html>" in html_content.lower()
-                or "<html" in html_content.lower()
-            ), "Console should return valid HTML"
+                "image/png"
+                in logo_response.headers.get("content-type", "").lower()
+            )
+
+            logs = "".join(log_lines)
+            assert (
+                f"STATIC_DIR: {expected_static_dir}" in logs
+            ), logs[-4000:]
 
     finally:
         if process.poll() is None:
@@ -130,3 +167,14 @@ def test_app_startup_and_console() -> None:
                 process.wait(timeout=5)
 
         log_thread.join(timeout=2)
+
+
+def test_app_startup_and_console() -> None:
+    """Test that copaw app starts correctly with backend and console."""
+    _run_app_startup_and_console_assertions()
+
+
+def test_app_startup_and_console_from_non_repo_cwd() -> None:
+    """Console should still resolve correctly when launched outside repo."""
+    with tempfile.TemporaryDirectory(prefix="copaw-cwd-") as temp_dir:
+        _run_app_startup_and_console_assertions(cwd=temp_dir)
