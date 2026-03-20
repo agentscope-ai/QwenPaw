@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...config.config import MCPClientConfig
 
@@ -20,6 +20,10 @@ class MCPClientInfo(BaseModel):
     name: str = Field(..., description="Client display name")
     description: str = Field(default="", description="Client description")
     enabled: bool = Field(..., description="Whether the client is enabled")
+    runtime: Optional[Dict[str, Optional[str | bool | int]]] = Field(
+        default=None,
+        description=("Aggregated runtime state for UI."),
+    )
     transport: Literal["stdio", "streamable_http", "sse"] = Field(
         ...,
         description="MCP transport type",
@@ -159,7 +163,12 @@ def _mask_env_value(value: str) -> str:
     return f"{prefix}{'*' * masked_len}{suffix}"
 
 
-def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
+def _build_client_info(
+    key: str,
+    client: MCPClientConfig,
+    active: bool = False,
+    mcp_manager=None,
+) -> MCPClientInfo:
     """Build MCPClientInfo from config with masked env values."""
     # Mask environment variable values for security
     masked_env = (
@@ -173,11 +182,31 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         else {}
     )
 
+    runtime_error = None
+    if mcp_manager is not None:
+        runtime_error = mcp_manager.get_last_error(key)
+
     return MCPClientInfo(
         key=key,
         name=client.name,
         description=client.description,
         enabled=client.enabled,
+        runtime={
+            "active": active,
+            "error_category": runtime_error.get("category")
+            if runtime_error
+            else None,
+            "error_retryable": runtime_error.get("retryable")
+            if runtime_error
+            else None,
+            "error_status": runtime_error.get("status")
+            if runtime_error
+            else None,
+            "error_hint": runtime_error.get("hint") if runtime_error else None,
+            "error_detail": runtime_error.get("detail")
+            if runtime_error
+            else None,
+        },
         transport=client.transport,
         url=client.url,
         headers=masked_headers,
@@ -186,6 +215,10 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         env=masked_env,
         cwd=client.cwd,
     )
+
+
+def _get_active_keys(mcp_manager) -> set:
+    return mcp_manager.active_keys() if mcp_manager is not None else set()
 
 
 @router.get(
@@ -202,8 +235,15 @@ async def list_mcp_clients(request: Request) -> List[MCPClientInfo]:
     if mcp_config is None or not mcp_config.clients:
         return []
 
+    active_keys = _get_active_keys(agent.mcp_manager)
+
     return [
-        _build_client_info(key, client)
+        _build_client_info(
+            key,
+            client,
+            active=key in active_keys,
+            mcp_manager=agent.mcp_manager,
+        )
         for key, client in mcp_config.clients.items()
     ]
 
@@ -228,7 +268,48 @@ async def get_mcp_client(
     client = mcp_config.clients.get(client_key)
     if client is None:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
-    return _build_client_info(client_key, client)
+    active_keys = _get_active_keys(agent.mcp_manager)
+    return _build_client_info(
+        client_key,
+        client,
+        active=client_key in active_keys,
+        mcp_manager=agent.mcp_manager,
+    )
+
+
+@router.post(
+    "/{client_key}/refresh-status",
+    response_model=MCPClientInfo,
+    summary="Refresh MCP client runtime status",
+)
+async def refresh_mcp_client_status(
+    request: Request,
+    client_key: str = Path(...),
+) -> MCPClientInfo:
+    """Actively probe an MCP client and return its latest runtime status."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    mcp_config = agent.config.mcp
+    if mcp_config is None:
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    client = mcp_config.clients.get(client_key)
+    if client is None:
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    mcp_manager = agent.mcp_manager
+    if mcp_manager is None:
+        raise HTTPException(503, detail="MCP manager is unavailable")
+
+    await mcp_manager.refresh_client_status(client_key, client)
+    active_keys = _get_active_keys(mcp_manager)
+    return _build_client_info(
+        client_key,
+        client,
+        active=client_key in active_keys,
+        mcp_manager=mcp_manager,
+    )
 
 
 @router.post(
@@ -260,19 +341,25 @@ async def create_mcp_client(
             f"update.",
         )
 
+    if not client_key.strip():
+        raise HTTPException(400, detail="MCP client key cannot be empty")
+
     # Create new client config
-    new_client = MCPClientConfig(
-        name=client.name,
-        description=client.description,
-        enabled=client.enabled,
-        transport=client.transport,
-        url=client.url,
-        headers=client.headers,
-        command=client.command,
-        args=client.args,
-        env=client.env,
-        cwd=client.cwd,
-    )
+    try:
+        new_client = MCPClientConfig(
+            name=client.name,
+            description=client.description,
+            enabled=client.enabled,
+            transport=client.transport,
+            url=client.url,
+            headers=client.headers,
+            command=client.command,
+            args=client.args,
+            env=client.env,
+            cwd=client.cwd,
+        )
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors()) from exc
 
     # Add to agent's config and save
     agent.config.mcp.clients[client_key] = new_client
@@ -333,7 +420,10 @@ async def update_mcp_client(
 
     merged_data = existing.model_dump(mode="json")
     merged_data.update(update_data)
-    updated_client = MCPClientConfig.model_validate(merged_data)
+    try:
+        updated_client = MCPClientConfig.model_validate(merged_data)
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors()) from exc
     agent.config.mcp.clients[client_key] = updated_client
 
     # Save updated config

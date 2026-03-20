@@ -11,6 +11,15 @@ export interface MCPClientInfo {
   description: string;
   /** Whether the client is enabled */
   enabled: boolean;
+  /** Aggregated runtime info (preferred over flat runtime_error_* fields) */
+  runtime?: {
+    active?: boolean;
+    error_category?: string | null;
+    error_retryable?: boolean | null;
+    error_status?: number | null;
+    error_hint?: string | null;
+    error_detail?: string | null;
+  };
   /** MCP transport type */
   transport: "stdio" | "streamable_http" | "sse";
   /** Remote MCP endpoint URL for HTTP/SSE transport */
