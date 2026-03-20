@@ -159,6 +159,18 @@ class ApprovalService:
                     return pending
         return None
 
+    async def get_all_pending_by_session(
+        self,
+        session_id: str,
+    ) -> list[PendingApproval]:
+        """Return all pending approvals for *session_id* (FIFO order)."""
+        async with self._lock:
+            return [
+                p
+                for p in self._pending.values()
+                if p.session_id == session_id and p.status == "pending"
+            ]
+
     async def consume_approval(
         self,
         session_id: str,

@@ -156,7 +156,13 @@ class AgentRunner(Runner):
             if isinstance(record.extra, dict):
                 candidate = record.extra.get("tool_call")
                 if isinstance(candidate, dict):
-                    approved_tool_call = candidate
+                    approved_tool_call = dict(candidate)
+                    siblings = record.extra.get("sibling_tool_calls")
+                    if isinstance(siblings, list):
+                        approved_tool_call["_sibling_tool_calls"] = siblings
+                    remaining = record.extra.get("remaining_queue")
+                    if isinstance(remaining, list):
+                        approved_tool_call["_remaining_queue"] = remaining
             return None, True, approved_tool_call
 
         await svc.resolve_request(
