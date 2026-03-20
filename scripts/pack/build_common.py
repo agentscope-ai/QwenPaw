@@ -138,6 +138,7 @@ def main() -> int:
         )
         # Try to install llama-cpp-python from prebuilt wheel first
         print("Attempting to install llama-cpp-python from prebuilt wheel...")
+        needs_llama_compile = False
         try:
             _run(
                 [
@@ -159,6 +160,13 @@ def main() -> int:
                 "Prebuilt wheel not available, will compile from source when "
                 "installing copaw[full]"
             )
+            needs_llama_compile = True
+
+        # Set CMAKE_ARGS if we need to compile llama-cpp-python from source
+        # This only affects CMake-based packages like llama-cpp-python
+        if needs_llama_compile:
+            print("Setting CMAKE_ARGS to disable Metal for compilation...")
+            os.environ["CMAKE_ARGS"] = "-DGGML_METAL=off"
 
         # Install copaw with all dependencies
         _run(

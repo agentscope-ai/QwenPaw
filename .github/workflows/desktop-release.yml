@@ -117,9 +117,6 @@ jobs:
         run: |
           chmod +x scripts/pack/build_macos.sh
           conda run -n copaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
-        env:
-          # If prebuilt wheel unavailable, disable Metal to simplify compilation
-          CMAKE_ARGS: "-DGGML_METAL=off"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
