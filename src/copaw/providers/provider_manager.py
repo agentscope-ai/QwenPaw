@@ -135,6 +135,12 @@ GEMINI_MODELS: List[ModelInfo] = [
     ModelInfo(id="gemini-2.0-flash", name="Gemini 2.0 Flash"),
 ]
 
+NOVITA_MODELS: List[ModelInfo] = [
+    ModelInfo(id="moonshotai/kimi-k2.5", name="Kimi K2.5"),
+    ModelInfo(id="zai-org/glm-5", name="GLM-5"),
+    ModelInfo(id="minimax/minimax-m2.5", name="MiniMax M2.5"),
+]
+
 PROVIDER_MODELSCOPE = OpenAIProvider(
     id="modelscope",
     name="ModelScope",
@@ -280,6 +286,15 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     generate_kwargs={"max_tokens": None},
 )
 
+PROVIDER_NOVITA = OpenAIProvider(
+    id="novita",
+    name="Novita AI",
+    base_url="https://api.novita.ai/openai",
+    api_key_prefix="",
+    models=NOVITA_MODELS,
+    freeze_url=True,
+)
+
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
@@ -333,6 +348,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
+        self._add_builtin(PROVIDER_NOVITA)
         self._add_builtin(PROVIDER_LLAMACPP)
         self._add_builtin(PROVIDER_MLX)
 
