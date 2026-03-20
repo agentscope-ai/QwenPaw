@@ -7,6 +7,7 @@ import {
   RightOutlined,
 } from "@ant-design/icons";
 import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import styles from "./index.module.less";
@@ -18,6 +19,7 @@ interface EligibleProvider {
 }
 
 export default function ModelSelector() {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
     null,
@@ -88,7 +90,8 @@ export default function ModelSelector() {
 
   // Display label for trigger button
   const activeModelName = (() => {
-    if (!activeProviderId || !activeModelId) return "Select model";
+    if (!activeProviderId || !activeModelId)
+      return t("modelSelector.selectModel");
     for (const p of eligibleProviders) {
       if (p.id === activeProviderId) {
         const m = p.models.find((m) => m.id === activeModelId);
@@ -129,7 +132,8 @@ export default function ModelSelector() {
         active_llm: { provider_id: providerId, model: modelId },
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to switch model";
+      const msg =
+        err instanceof Error ? err.message : t("modelSelector.switchFailed");
       message.error(msg);
     } finally {
       setSaving(false);
@@ -144,7 +148,9 @@ export default function ModelSelector() {
           <Spin size="small" />
         </div>
       ) : eligibleProviders.length === 0 ? (
-        <div className={styles.emptyTip}>No configured models</div>
+        <div className={styles.emptyTip}>
+          {t("modelSelector.noConfiguredModels")}
+        </div>
       ) : (
         eligibleProviders.map((provider) => {
           const isProviderActive = provider.id === activeProviderId;

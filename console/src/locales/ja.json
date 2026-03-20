@@ -399,6 +399,11 @@
     "loadFailed": "Token 使用量の読み込みに失敗しました",
     "noData": "選択期間に Token 使用データがありません"
   },
+  "modelSelector": {
+    "selectModel": "モデルを選択",
+    "noConfiguredModels": "設定済みモデルがありません",
+    "switchFailed": "モデルの切り替えに失敗しました"
+  },
   "models": {
     "llmConfiguration": "LLM設定",
     "providersTitle": "プロバイダー",
