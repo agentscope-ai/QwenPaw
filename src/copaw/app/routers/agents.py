@@ -134,7 +134,8 @@ def _get_agent_workspace_dir(agent_id: str) -> Path:
     agent_ref = config.agents.profiles.get(agent_id)
     if not agent_ref:
         raise HTTPException(
-            status_code=404, detail=f"Agent '{agent_id}' not found"
+            status_code=404,
+            detail=f"Agent '{agent_id}' not found",
         )
     return Path(agent_ref.workspace_dir).expanduser().resolve()
 
@@ -159,7 +160,8 @@ def _get_avatar_media_type(avatar_path: Path) -> str:
 
 
 def _detect_avatar_extension(
-    file: UploadFile, data: bytes | None = None
+    file: UploadFile,
+    data: bytes | None = None,
 ) -> str:
     """Validate uploaded avatar type and determine output extension."""
     sniffed_ext = _sniff_avatar_extension(data or b"")
@@ -507,7 +509,8 @@ async def delete_agent_avatar(
             avatar_path.unlink(missing_ok=True)
         else:
             logger.warning(
-                "Expected avatar path to be a file but found non-file path: %s",
+                "Expected avatar path to be a file but found "
+                "non-file path: %s",
                 avatar_path,
             )
 
