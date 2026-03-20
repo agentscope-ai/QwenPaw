@@ -99,6 +99,12 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/copaw:latest
 ```
 
+5. 如果你使用的是 Windows 桌面版（exe），目前需要卸载后重新安装：
+   - 在电脑中卸载 CoPaw
+   - 下载最新版本：https://github.com/agentscope-ai/CoPaw/releases
+   - 重新安装
+
+
 升级后重启服务 copaw app。
 
 ### CoPaw服务如何启动及初始化
