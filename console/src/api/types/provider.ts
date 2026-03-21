@@ -1,9 +1,9 @@
 export interface ModelInfo {
   id: string;
   name: string;
-  supports_multimodal: boolean;
-  supports_image: boolean;
-  supports_video: boolean;
+  supports_multimodal: boolean | null;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
 }
 
 export interface ProviderInfo {

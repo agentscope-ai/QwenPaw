@@ -5,6 +5,7 @@ Validates: Requirements 4.1, 4.2, 4.3, 4.9
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -38,14 +39,11 @@ def _make_api_error(status_code: int, message: str = "error") -> APIStatusError:
     )
 
 
-class _FakeStream:
-    """Minimal async iterator that yields one chunk then stops."""
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        raise StopAsyncIteration
+def _fake_completion(text: str):
+    """Create a fake chat completion response with the given text content."""
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +81,9 @@ class TestProbeImageSupport:
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_success_returns_true(self, mock_openai_cls) -> None:
-        """When the model accepts the image probe, return (True, message)."""
+        """When the model correctly identifies the red image, return True."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _FakeStream()
+        mock_client.chat.completions.create.return_value = _fake_completion("red")
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
@@ -95,6 +93,20 @@ class TestProbeImageSupport:
         assert ok is True
         assert "Image supported" in msg
         mock_client.chat.completions.create.assert_awaited_once()
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_wrong_color_returns_false(self, mock_openai_cls) -> None:
+        """When the model answers a wrong color, it didn't see the image."""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = _fake_completion("blue")
+        mock_openai_cls.return_value = mock_client
+
+        ok, msg = await probe_image_support(
+            "https://api.example.com/v1", "sk-test", "text-only-model",
+        )
+
+        assert ok is False
+        assert "did not recognise" in msg.lower()
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_400_api_error_returns_false(self, mock_openai_cls) -> None:
@@ -140,9 +152,9 @@ class TestProbeVideoSupport:
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_success_returns_true(self, mock_openai_cls) -> None:
-        """When the model accepts the video probe, return (True, message)."""
+        """When the model correctly identifies the blue video, return True."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _FakeStream()
+        mock_client.chat.completions.create.return_value = _fake_completion("blue")
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_video_support(
@@ -153,8 +165,22 @@ class TestProbeVideoSupport:
         assert "Video supported" in msg
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_wrong_color_returns_false(self, mock_openai_cls) -> None:
+        """When the model answers a wrong color, it didn't see the video."""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = _fake_completion("red")
+        mock_openai_cls.return_value = mock_client
+
+        ok, msg = await probe_video_support(
+            "https://api.example.com/v1", "sk-test", "text-only-model",
+        )
+
+        assert ok is False
+        assert "did not recognise" in msg.lower()
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_400_api_error_returns_false(self, mock_openai_cls) -> None:
-        """When the model returns 400 APIError, return (False, ...)."""
+        """When both formats return 400 APIError, return (False, ...)."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = _make_api_error(
             400, "video_url is not supported",
@@ -167,6 +193,32 @@ class TestProbeVideoSupport:
 
         assert ok is False
         assert "not supported" in msg.lower()
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_base64_400_falls_back_to_url(self, mock_openai_cls) -> None:
+        """When base64 gets 400, fallback to HTTP URL and succeed."""
+        mock_client = AsyncMock()
+        call_count = 0
+
+        async def _side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # base64 attempt rejected
+                raise _make_api_error(400, "Invalid video file")
+            # HTTP URL attempt succeeds
+            return _fake_completion("blue")
+
+        mock_client.chat.completions.create.side_effect = _side_effect
+        mock_openai_cls.return_value = mock_client
+
+        ok, msg = await probe_video_support(
+            "https://api.example.com/v1", "sk-test", "dashscope-model",
+        )
+
+        assert ok is True
+        assert "Video supported" in msg
+        assert call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +289,16 @@ class TestProbeMultimodalSupport:
     async def test_both_supported(self, mock_openai_cls) -> None:
         """Both image and video succeed → supports_multimodal is True."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _FakeStream()
+        call_count = 0
+
+        async def _side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _fake_completion("red")
+            return _fake_completion("blue")
+
+        mock_client.chat.completions.create.side_effect = _side_effect
         mock_openai_cls.return_value = mock_client
 
         result = await probe_multimodal_support(
@@ -257,9 +318,8 @@ class TestProbeMultimodalSupport:
         async def _side_effect(**kwargs):
             nonlocal call_count
             call_count += 1
-            # First call is image probe (succeeds), second is video (fails)
             if call_count == 1:
-                return _FakeStream()
+                return _fake_completion("red")
             raise _make_api_error(400, "video_url is not supported")
 
         mock_client.chat.completions.create.side_effect = _side_effect

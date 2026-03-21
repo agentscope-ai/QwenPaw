@@ -469,7 +469,7 @@ class ProviderManager:
         # Auto-probe multimodal if not yet probed
         if provider and not provider.is_local:
             for model in provider.models + provider.extra_models:
-                if model.id == model_id and not model.supports_multimodal:
+                if model.id == model_id and model.supports_multimodal is None:
                     asyncio.create_task(
                         self._auto_probe_multimodal(provider_id, model_id)
                     )

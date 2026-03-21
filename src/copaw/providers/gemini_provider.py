@@ -14,7 +14,7 @@ from google.genai import types as genai_types
 from copaw.providers.multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
-    _PROBE_VIDEO_B64,
+    _PROBE_VIDEO_URL,
     _is_media_keyword_error,
 )
 from copaw.providers.provider import ModelInfo, Provider
@@ -157,15 +157,18 @@ class GeminiProvider(Provider):
     async def _probe_image_support(
         self,
         model_id: str,
-        timeout: float = 10,
+        timeout: float = 15,
     ) -> tuple[bool, str]:
-        """Probe image support via Gemini generateContent with inline_data."""
+        """Probe image support via Gemini generateContent with inline_data.
+
+        Sends a solid-red 16x16 PNG and asks the model to name the colour.
+        """
         import base64
 
         client = self._client(timeout=timeout)
         try:
             image_bytes = base64.b64decode(_PROBE_IMAGE_B64)
-            response = await client.aio.models.generate_content_stream(
+            response = await client.aio.models.generate_content(
                 model=model_id,
                 contents=[
                     genai_types.Part(
@@ -174,15 +177,22 @@ class GeminiProvider(Provider):
                             data=image_bytes,
                         ),
                     ),
-                    genai_types.Part(text="hi"),
+                    genai_types.Part(
+                        text=(
+                            "What is the single dominant color of this "
+                            "image? Reply with ONLY the color name, "
+                            "nothing else."
+                        ),
+                    ),
                 ],
                 config=genai_types.GenerateContentConfig(
-                    max_output_tokens=1,
+                    max_output_tokens=20,
                 ),
             )
-            async for _ in response:
-                break
-            return True, "Image supported"
+            answer = (response.text or "").lower().strip()
+            if any(kw in answer for kw in ("red", "红")):
+                return True, f"Image supported (answer={answer!r})"
+            return False, f"Model did not recognise image (answer={answer!r})"
         except genai_errors.APIError as e:
             status = getattr(e, "code", None)
             if status == 400 or _is_media_keyword_error(e):
@@ -194,32 +204,38 @@ class GeminiProvider(Provider):
     async def _probe_video_support(
         self,
         model_id: str,
-        timeout: float = 10,
+        timeout: float = 30,
     ) -> tuple[bool, str]:
-        """Probe video support via Gemini generateContent with inline_data."""
-        import base64
+        """Probe video support via Gemini generateContent with a video URL.
 
+        Asks the model whether the video contains moving content.
+        """
         client = self._client(timeout=timeout)
         try:
-            video_bytes = base64.b64decode(_PROBE_VIDEO_B64)
-            response = await client.aio.models.generate_content_stream(
+            response = await client.aio.models.generate_content(
                 model=model_id,
                 contents=[
                     genai_types.Part(
-                        inline_data=genai_types.Blob(
+                        file_data=genai_types.FileData(
+                            file_uri=_PROBE_VIDEO_URL,
                             mime_type="video/mp4",
-                            data=video_bytes,
                         ),
                     ),
-                    genai_types.Part(text="hi"),
+                    genai_types.Part(
+                        text=(
+                            "Does this contain moving content? "
+                            "Reply with ONLY 'yes' or 'no', nothing else."
+                        ),
+                    ),
                 ],
                 config=genai_types.GenerateContentConfig(
-                    max_output_tokens=1,
+                    max_output_tokens=10,
                 ),
             )
-            async for _ in response:
-                break
-            return True, "Video supported"
+            answer = (response.text or "").lower().strip()
+            if "yes" in answer:
+                return True, f"Video supported (answer={answer!r})"
+            return False, f"Model did not recognise video (answer={answer!r})"
         except genai_errors.APIError as e:
             status = getattr(e, "code", None)
             if status == 400 or _is_media_keyword_error(e):

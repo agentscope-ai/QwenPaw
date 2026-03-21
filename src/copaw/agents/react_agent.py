@@ -283,6 +283,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         logger.debug("System prompt:\n%s", sys_prompt)
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
+
+        # Inject multimodal capability awareness
+        multimodal_hint = self._build_multimodal_hint()
+        if multimodal_hint:
+            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+
         return sys_prompt
 
     def _setup_memory_manager(
@@ -569,10 +575,62 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 return False
             for model in provider.models + provider.extra_models:
                 if model.id == active.model:
-                    return model.supports_multimodal
+                    return bool(model.supports_multimodal)
             return False
         except Exception:
             return False
+
+    def _build_multimodal_hint(self) -> str:
+        """Build a short system-prompt snippet describing multimodal capabilities."""
+        try:
+            from ..providers.provider_manager import ProviderManager
+
+            manager = ProviderManager.get_instance()
+            active = manager.get_active_model()
+            if not active:
+                return ""
+            provider = manager.get_provider(active.provider_id)
+            if not provider:
+                return ""
+            model_info = None
+            for m in provider.models + provider.extra_models:
+                if m.id == active.model:
+                    model_info = m
+                    break
+            if model_info is None:
+                return ""
+
+            parts: list[str] = []
+            if model_info.supports_image is True:
+                parts.append("image")
+            if model_info.supports_video is True:
+                parts.append("video")
+
+            if parts:
+                return (
+                    f"[Multimodal capabilities] Your current model "
+                    f"({active.model}) supports {' and '.join(parts)} input. "
+                    f"You can understand and describe visual content "
+                    f"that users share with you."
+                )
+            elif model_info.supports_multimodal is None:
+                # Not yet probed — don't make claims either way
+                return ""
+            else:
+                return (
+                    f"[Multimodal capabilities] Your current model "
+                    f"({active.model}) is text-only. "
+                    f"If a user sends an image or video, politely let them "
+                    f"know you cannot see it and suggest they switch to a "
+                    f"multimodal model (e.g. qwen3.5-plus) or describe the "
+                    f"content in text. Do NOT attempt to use browser_use, "
+                    f"view_image, or any other tool to indirectly view the "
+                    f"image/video — it wastes resources and the result is "
+                    f"unreliable."
+                )
+        except Exception:
+            return ""
+
 
 
     def _proactive_strip_media_blocks(self) -> int:

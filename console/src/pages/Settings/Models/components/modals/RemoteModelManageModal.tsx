@@ -260,19 +260,24 @@ export function RemoteModelManageModal({
                 <div className={styles.modelListItemInfo}>
                   <span className={styles.modelListItemName}>
                     {m.name}
-                    {m.supports_image && (
+                    {m.supports_image === true && (
                       <Tag color="blue" style={{ fontSize: 11, marginLeft: 6 }}>
                         {t("models.tagImage", "图片")}
                       </Tag>
                     )}
-                    {m.supports_video && (
+                    {m.supports_video === true && (
                       <Tag color="purple" style={{ fontSize: 11, marginLeft: 4 }}>
                         {t("models.tagVideo", "视频")}
                       </Tag>
                     )}
-                    {m.supports_multimodal === false && !m.supports_image && !m.supports_video && (
+                    {m.supports_multimodal === false && (
                       <Tag style={{ fontSize: 11, marginLeft: 6 }}>
                         {t("models.tagTextOnly", "纯文本")}
+                      </Tag>
+                    )}
+                    {m.supports_multimodal === null && (
+                      <Tag color="default" style={{ fontSize: 11, marginLeft: 6 }}>
+                        {t("models.tagNotProbed", "未检测")}
                       </Tag>
                     )}
                   </span>

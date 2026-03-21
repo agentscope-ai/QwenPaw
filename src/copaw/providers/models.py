@@ -11,19 +11,20 @@ from pydantic import BaseModel, Field
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
-    supports_multimodal: bool = Field(
-        default=False,
+    supports_multimodal: bool | None = Field(
+        default=None,
         description="Whether this model supports multimodal input "
-        "(image/audio/video). Composite flag: true if any media type "
-        "is supported.",
+        "(image/audio/video). None means not yet probed.",
     )
-    supports_image: bool = Field(
-        default=False,
-        description="Whether this model supports image input",
+    supports_image: bool | None = Field(
+        default=None,
+        description="Whether this model supports image input. "
+        "None means not yet probed.",
     )
-    supports_video: bool = Field(
-        default=False,
-        description="Whether this model supports video input",
+    supports_video: bool | None = Field(
+        default=None,
+        description="Whether this model supports video input. "
+        "None means not yet probed.",
     )
 
 
