@@ -61,10 +61,8 @@ function estimateMermaidHeight(chart: string): number {
       /^(?:subgraph|classDef|class|style|click)\b/.test(line),
   ).length;
   const complexity = Math.max(lines.length, signalLines);
-  return Math.max(
-    MERMAID_MIN_HEIGHT,
-    Math.min(MERMAID_MAX_HEIGHT, 88 + complexity * 18),
-  );
+  const estimatedHeight = 88 + complexity * 18;
+  return Math.max(MERMAID_MIN_HEIGHT, estimatedHeight);
 }
 
 function extractSvgHeight(svg: string): number | null {
