@@ -568,7 +568,8 @@
     "probeVideo": "视频",
     "probeSupported": "支持: {{types}}",
     "probeNotSupported": "该模型不支持多模态输入",
-    "probeFailed": "探测失败"
+    "probeFailed": "探测失败",
+    "tagNotProbed": "未检测"
   },
   "agentConfig": {
     "title": "运行配置",

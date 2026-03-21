@@ -602,7 +602,8 @@
     "probeVideo": "Video",
     "probeSupported": "Supported: {{types}}",
     "probeNotSupported": "This model does not support multimodal input",
-    "probeFailed": "Probe failed"
+    "probeFailed": "Probe failed",
+    "tagNotProbed": "Not Probed"
   },
   "agentConfig": {
     "title": "Configuration",

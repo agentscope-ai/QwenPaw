@@ -545,7 +545,17 @@
     "modelTestFailedConfirm": "モデルの接続テストに失敗しました: {{message}}。このモデルを追加しますか？",
     "autoDiscoveredAndAdded": "{{count}} 件のモデルを自動検出し、{{added}} 件の新規モデルを追加しました",
     "autoDiscoveredNoNew": "{{count}} 件のモデルを自動検出しました。モデルリストはすでに最新です",
-    "autoDiscoverFailed": "モデルの自動検出に失敗しました。手動でモデルを追加できます"
+    "autoDiscoverFailed": "モデルの自動検出に失敗しました。手動でモデルを追加できます",
+    "tagImage": "画像",
+    "tagVideo": "動画",
+    "tagTextOnly": "テキストのみ",
+    "tagNotProbed": "未検出",
+    "probeMultimodal": "マルチモーダルテスト",
+    "probeImage": "画像",
+    "probeVideo": "動画",
+    "probeSupported": "対応: {{types}}",
+    "probeNotSupported": "このモデルはマルチモーダル入力に対応していません",
+    "probeFailed": "検出に失敗しました"
   },
   "agentConfig": {
     "title": "設定",

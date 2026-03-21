@@ -26,11 +26,11 @@ from copaw.providers.models import ModelInfo as ModelsModelInfo
 )
 @settings(max_examples=100)
 def test_provider_model_info_defaults_to_false(model_id: str, name: str) -> None:
-    """provider.py ModelInfo: multimodal fields default to False."""
+    """provider.py ModelInfo: multimodal fields default to None (not yet probed)."""
     info = ProviderModelInfo(id=model_id, name=name)
-    assert info.supports_multimodal is False
-    assert info.supports_image is False
-    assert info.supports_video is False
+    assert info.supports_multimodal is None
+    assert info.supports_image is None
+    assert info.supports_video is None
 
 
 @given(
@@ -39,11 +39,11 @@ def test_provider_model_info_defaults_to_false(model_id: str, name: str) -> None
 )
 @settings(max_examples=100)
 def test_models_model_info_defaults_to_false(model_id: str, name: str) -> None:
-    """models.py ModelInfo: multimodal fields default to False."""
+    """models.py ModelInfo: multimodal fields default to None (not yet probed)."""
     info = ModelsModelInfo(id=model_id, name=name)
-    assert info.supports_multimodal is False
-    assert info.supports_image is False
-    assert info.supports_video is False
+    assert info.supports_multimodal is None
+    assert info.supports_image is None
+    assert info.supports_video is None
 
 
 # ---------------------------------------------------------------------------
@@ -59,9 +59,9 @@ def test_models_model_info_defaults_to_false(model_id: str, name: str) -> None:
 @given(
     model_id=st.text(min_size=1, max_size=50),
     name=st.text(min_size=1, max_size=50),
-    supports_multimodal=st.booleans(),
-    supports_image=st.booleans(),
-    supports_video=st.booleans(),
+    supports_multimodal=st.one_of(st.booleans(), st.none()),
+    supports_image=st.one_of(st.booleans(), st.none()),
+    supports_video=st.one_of(st.booleans(), st.none()),
 )
 @settings(max_examples=100)
 def test_provider_model_info_serialization_roundtrip(
@@ -90,9 +90,9 @@ def test_provider_model_info_serialization_roundtrip(
 @given(
     model_id=st.text(min_size=1, max_size=50),
     name=st.text(min_size=1, max_size=50),
-    supports_multimodal=st.booleans(),
-    supports_image=st.booleans(),
-    supports_video=st.booleans(),
+    supports_multimodal=st.one_of(st.booleans(), st.none()),
+    supports_image=st.one_of(st.booleans(), st.none()),
+    supports_video=st.one_of(st.booleans(), st.none()),
 )
 @settings(max_examples=100)
 def test_models_model_info_serialization_roundtrip(
@@ -206,9 +206,9 @@ _model_info_st = st.builds(
     ProviderModelInfo,
     id=st.text(min_size=1, max_size=30),
     name=st.text(min_size=1, max_size=30),
-    supports_multimodal=st.booleans(),
-    supports_image=st.booleans(),
-    supports_video=st.booleans(),
+    supports_multimodal=st.one_of(st.booleans(), st.none()),
+    supports_image=st.one_of(st.booleans(), st.none()),
+    supports_video=st.one_of(st.booleans(), st.none()),
 )
 
 # Strategy: generate a random ProviderInfo with random models / extra_models
@@ -236,15 +236,15 @@ def test_provider_info_serialized_models_contain_multimodal_fields(
             f"models entry missing multimodal fields: "
             f"{multimodal_keys - model_dict.keys()}"
         )
-        assert isinstance(model_dict["supports_multimodal"], bool)
-        assert isinstance(model_dict["supports_image"], bool)
-        assert isinstance(model_dict["supports_video"], bool)
+        assert isinstance(model_dict["supports_multimodal"], (bool, type(None)))
+        assert isinstance(model_dict["supports_image"], (bool, type(None)))
+        assert isinstance(model_dict["supports_video"], (bool, type(None)))
 
     for model_dict in data["extra_models"]:
         assert multimodal_keys.issubset(model_dict.keys()), (
             f"extra_models entry missing multimodal fields: "
             f"{multimodal_keys - model_dict.keys()}"
         )
-        assert isinstance(model_dict["supports_multimodal"], bool)
-        assert isinstance(model_dict["supports_image"], bool)
-        assert isinstance(model_dict["supports_video"], bool)
+        assert isinstance(model_dict["supports_multimodal"], (bool, type(None)))
+        assert isinstance(model_dict["supports_image"], (bool, type(None)))
+        assert isinstance(model_dict["supports_video"], (bool, type(None)))
