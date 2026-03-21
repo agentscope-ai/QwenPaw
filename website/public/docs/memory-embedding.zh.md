@@ -13,6 +13,7 @@ config.json (embedding_config) > 环境变量 > 默认值
 ```
 
 **说明：**
+
 - `api_key`、`base_url`、`model_name` 三个参数支持从环境变量回退
 - 其他参数只能通过 `config.json` 配置
 
@@ -43,20 +44,20 @@ config.json (embedding_config) > 环境变量 > 默认值
 
 ### 完整参数说明
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `backend` | string | 否 | `"openai"` | 后端类型，目前支持 `openai`（OpenAI 兼容 API） |
-| `api_key` | string | 是* | `""` | API 密钥，可通过环境变量 `EMBEDDING_API_KEY` 设置 |
-| `base_url` | string | 是* | `""` | API 地址，可通过环境变量 `EMBEDDING_BASE_URL` 设置 |
-| `model_name` | string | 是* | `""` | 模型名称，可通过环境变量 `EMBEDDING_MODEL_NAME` 设置 |
-| `dimensions` | int | 否 | `1536` | 向量维度（需与模型匹配） |
-| `enable_cache` | bool | 否 | `true` | 是否启用向量缓存 |
-| `use_dimensions` | bool | 否 | `false` | 是否在请求中发送 dimensions 参数 |
-| `max_cache_size` | int | 否 | `2000` | 最大缓存条目数 |
-| `max_input_length` | int | 否 | `8192` | 最大输入文本长度（字符数） |
-| `max_batch_size` | int | 否 | `10` | 批处理时每批最大数量 |
+| 参数               | 类型   | 必填 | 默认值     | 说明                                                 |
+| ------------------ | ------ | ---- | ---------- | ---------------------------------------------------- |
+| `backend`          | string | 否   | `"openai"` | 后端类型，目前支持 `openai`（OpenAI 兼容 API）       |
+| `api_key`          | string | 是\* | `""`       | API 密钥，可通过环境变量 `EMBEDDING_API_KEY` 设置    |
+| `base_url`         | string | 是\* | `""`       | API 地址，可通过环境变量 `EMBEDDING_BASE_URL` 设置   |
+| `model_name`       | string | 是\* | `""`       | 模型名称，可通过环境变量 `EMBEDDING_MODEL_NAME` 设置 |
+| `dimensions`       | int    | 否   | `1536`     | 向量维度（需与模型匹配）                             |
+| `enable_cache`     | bool   | 否   | `true`     | 是否启用向量缓存                                     |
+| `use_dimensions`   | bool   | 否   | `false`    | 是否在请求中发送 dimensions 参数                     |
+| `max_cache_size`   | int    | 否   | `2000`     | 最大缓存条目数                                       |
+| `max_input_length` | int    | 否   | `8192`     | 最大输入文本长度（字符数）                           |
+| `max_batch_size`   | int    | 否   | `10`       | 批处理时每批最大数量                                 |
 
-*\* 必须至少配置 `base_url` 和 `model_name` 才能启用向量搜索*
+_\* 必须至少配置 `base_url` 和 `model_name` 才能启用向量搜索_
 
 ### `use_dimensions` 参数说明
 
@@ -94,21 +95,21 @@ $env:MEMORY_STORE_BACKEND="auto"
 
 ### 环境变量说明
 
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `EMBEDDING_API_KEY` | `""` | API 密钥（config.json 优先） |
-| `EMBEDDING_BASE_URL` | `""` | API 地址（config.json 优先） |
-| `EMBEDDING_MODEL_NAME` | `""` | 模型名称（config.json 优先） |
-| `FTS_ENABLED` | `"true"` | 是否启用全文搜索 |
+| 变量名                 | 默认值   | 说明                                |
+| ---------------------- | -------- | ----------------------------------- |
+| `EMBEDDING_API_KEY`    | `""`     | API 密钥（config.json 优先）        |
+| `EMBEDDING_BASE_URL`   | `""`     | API 地址（config.json 优先）        |
+| `EMBEDDING_MODEL_NAME` | `""`     | 模型名称（config.json 优先）        |
+| `FTS_ENABLED`          | `"true"` | 是否启用全文搜索                    |
 | `MEMORY_STORE_BACKEND` | `"auto"` | 存储后端：`auto`、`local`、`chroma` |
 
 ### 存储后端选择
 
-| 值 | 行为 |
-|----|------|
-| `auto` | Windows 使用 `local`，其他系统使用 `chroma` |
-| `local` | 使用本地文件存储，无需额外依赖 |
-| `chroma` | 使用 ChromaDB 向量数据库，性能更好 |
+| 值       | 行为                                        |
+| -------- | ------------------------------------------- |
+| `auto`   | Windows 使用 `local`，其他系统使用 `chroma` |
+| `local`  | 使用本地文件存储，无需额外依赖              |
+| `chroma` | 使用 ChromaDB 向量数据库，性能更好          |
 
 ---
 
@@ -170,11 +171,11 @@ $env:MEMORY_STORE_BACKEND="auto"
 
 **推荐本地模型：**
 
-| 模型 | 维度 | 大小 | 说明 |
-|------|------|------|------|
-| `bge-m3:latest` | 1024 | 1.2 GB | 中英文效果好，推荐 |
-| `bge-large:335m` | 1024 | 670 MB | 轻量级 |
-| `nomic-embed-text` | 768 | 274 MB | 小巧高效 |
+| 模型               | 维度 | 大小   | 说明               |
+| ------------------ | ---- | ------ | ------------------ |
+| `bge-m3:latest`    | 1024 | 1.2 GB | 中英文效果好，推荐 |
+| `bge-large:335m`   | 1024 | 670 MB | 轻量级             |
+| `nomic-embed-text` | 768  | 274 MB | 小巧高效           |
 
 **安装 Ollama 模型：**
 
@@ -235,6 +236,7 @@ INFO: Embedding config: {'backend': 'openai', ...}, vector_enabled=True
 ### 向量搜索没有启用？
 
 检查以下条件：
+
 1. `base_url` 和 `model_name` 必须配置
 2. API 服务必须可用
 3. 如果是本地服务（如 Ollama），确保服务已启动
@@ -246,6 +248,7 @@ Windows 默认使用 `local` 后端，这是最佳选择。如需使用 ChromaDB
 ### 配置后还是报错？
 
 常见错误排查：
+
 1. **SSL 证书错误**：Windows 下可能遇到，检查网络配置
 2. **连接超时**：检查 `base_url` 是否正确，服务是否可达
 3. **维度不匹配**：确保 `dimensions` 与模型实际输出一致

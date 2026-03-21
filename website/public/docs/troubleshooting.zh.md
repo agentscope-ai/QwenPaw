@@ -20,12 +20,12 @@ OSError: [Errno 98] Address already in use
 
 ### 常见占用端口的应用
 
-| 应用 | 说明 |
-|------|------|
-| Jenkins | CI/CD 服务，默认端口 8080/8088 |
-| Apache Tomcat | Java 应用服务器 |
-| 其他 Web 服务 | 本地开发的服务 |
-| 代理软件 | 如 Fiddler、Charles 等 |
+| 应用          | 说明                           |
+| ------------- | ------------------------------ |
+| Jenkins       | CI/CD 服务，默认端口 8080/8088 |
+| Apache Tomcat | Java 应用服务器                |
+| 其他 Web 服务 | 本地开发的服务                 |
+| 代理软件      | 如 Fiddler、Charles 等         |
 
 ### 解决方案一：修改 CoPaw 端口（推荐）
 
@@ -103,16 +103,19 @@ New-NetFirewallRule -DisplayName "CoPaw" -Direction Inbound -LocalPort 8088 -Pro
 **解决方案：**
 
 1. 确认 Ollama 服务正在运行：
+
 ```powershell
 curl http://127.0.0.1:11434/api/tags
 ```
 
 2. 确认 Embedding 模型已安装：
+
 ```powershell
 ollama list | findstr bge
 ```
 
 3. 正确配置 `base_url`：
+
 ```json
 {
   "running": {
@@ -132,12 +135,12 @@ ollama list | findstr bge
 
 **解决方案：** 确保配置的 `dimensions` 与模型输出维度一致：
 
-| 模型 | 维度 |
-|------|------|
+| 模型                   | 维度 |
+| ---------------------- | ---- |
 | text-embedding-3-small | 1536 |
 | text-embedding-3-large | 3072 |
-| bge-m3 | 1024 |
-| bge-large | 1024 |
+| bge-m3                 | 1024 |
+| bge-large              | 1024 |
 
 ---
 
@@ -185,6 +188,7 @@ def safe_print(text):
 **解决方案：**
 
 1. 减少缓存大小：
+
 ```json
 {
   "running": {
@@ -213,9 +217,9 @@ Get-Content .copaw\logs\copaw.log -Tail 50 -Wait
 
 ### 日志文件位置
 
-| 文件 | 说明 |
-|------|------|
-| `.copaw/logs/copaw.log` | 主日志 |
+| 文件                    | 说明     |
+| ----------------------- | -------- |
+| `.copaw/logs/copaw.log` | 主日志   |
 | `.copaw/logs/error.log` | 错误日志 |
 
 ---
