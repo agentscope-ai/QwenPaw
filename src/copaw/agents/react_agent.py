@@ -555,17 +555,61 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    def _get_current_model_supports_multimodal(self) -> bool:
+        """Check if the current active model supports multimodal input."""
+        try:
+            from ..providers.provider_manager import ProviderManager
+
+            manager = ProviderManager.get_instance()
+            active = manager.get_active_model()
+            if not active:
+                return False
+            provider = manager.get_provider(active.provider_id)
+            if not provider:
+                return False
+            for model in provider.models + provider.extra_models:
+                if model.id == active.model:
+                    return model.supports_multimodal
+            return False
+        except Exception:
+            return False
+
+
+    def _proactive_strip_media_blocks(self) -> int:
+        """Proactively strip media blocks from memory before model call.
+
+        Only called when the active model does not support multimodal.
+        Returns the number of blocks stripped.
+        """
+        return self._strip_media_blocks_from_memory()
+
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Override reasoning with media-block fallback.
+        """Override reasoning with proactive media filtering and passive fallback.
 
-        If the model call fails with a bad-request error and memory
-        contains media blocks (image/audio/video), strip them all and
-        retry once.  Calls ``super()._reasoning`` to keep the
-        ToolGuardMixin interception active.
+        1. Proactive layer: if the model does not support multimodal,
+           strip media blocks *before* calling the model.
+        2. Passive layer: if the model call still fails with a
+           bad-request / media error, strip remaining blocks and retry.
+        3. If the model IS marked as multimodal but still errors on
+           media, log a warning about possibly inaccurate capability flag.
+
+        Calls ``super()._reasoning`` to keep the ToolGuardMixin
+        interception active.
         """
+        # --- Proactive filtering layer ---
+        if not self._get_current_model_supports_multimodal():
+            n = self._proactive_strip_media_blocks()
+            if n > 0:
+                logger.warning(
+                    "Proactively stripped %d media block(s) - "
+                    "model does not support multimodal.",
+                    n,
+                )
+
+        # --- Passive fallback layer (existing logic) ---
         try:
             return await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
@@ -575,6 +619,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             n_stripped = self._strip_media_blocks_from_memory()
             if n_stripped == 0:
                 raise
+
+            # If the model is marked as multimodal but still errored,
+            # the capability flag may be inaccurate.
+            if self._get_current_model_supports_multimodal():
+                logger.warning(
+                    "Model marked as multimodal but rejected media content. "
+                    "Capability flag may be inaccurate.",
+                )
 
             logger.warning(
                 "_reasoning failed (%s). "
@@ -584,8 +636,30 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             )
             return await super()._reasoning(tool_choice=tool_choice)
 
+
     async def _summarizing(self) -> Msg:
-        """Override summarizing with the same media-block fallback."""
+        """Override summarizing with proactive media filtering and passive fallback.
+
+        1. Proactive layer: if the model does not support multimodal,
+           strip media blocks *before* calling the model.
+        2. Passive layer: if the model call still fails with a
+           bad-request / media error, strip remaining blocks and retry.
+        3. If the model IS marked as multimodal but still errors on
+           media, log a warning about possibly inaccurate capability flag.
+
+        Calls ``super()._summarizing`` to keep the parent chain active.
+        """
+        # --- Proactive filtering layer ---
+        if not self._get_current_model_supports_multimodal():
+            n = self._proactive_strip_media_blocks()
+            if n > 0:
+                logger.warning(
+                    "Proactively stripped %d media block(s) - "
+                    "model does not support multimodal.",
+                    n,
+                )
+
+        # --- Passive fallback layer (existing logic) ---
         try:
             return await super()._summarizing()
         except Exception as e:
@@ -595,6 +669,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             n_stripped = self._strip_media_blocks_from_memory()
             if n_stripped == 0:
                 raise
+
+            # If the model is marked as multimodal but still errored,
+            # the capability flag may be inaccurate.
+            if self._get_current_model_supports_multimodal():
+                logger.warning(
+                    "Model marked as multimodal but rejected media content. "
+                    "Capability flag may be inaccurate.",
+                )
 
             logger.warning(
                 "_summarizing failed (%s). "

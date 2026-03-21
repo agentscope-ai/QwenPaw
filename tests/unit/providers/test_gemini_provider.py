@@ -338,3 +338,195 @@ async def test_update_config_skips_none_values() -> None:
 
     assert provider.name == "Gemini"
     assert provider.api_key == "gem-test"
+
+
+# -- probe_model_multimodal ---------------------------------------------------
+
+# Valid base64 for tests (avoids decode errors with placeholder _PROBE_VIDEO_B64)
+_VALID_IMAGE_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+    "nGNgYPgPAAEDAQAIicLsAAAAASUVORK5CYII="
+)
+_VALID_VIDEO_B64 = "AAAAIGZ0eXBpc29t"
+
+
+def _patch_probe_b64(monkeypatch):
+    """Patch base64 probe constants to valid values for testing."""
+    import copaw.providers.gemini_provider as gp_mod
+
+    monkeypatch.setattr(gp_mod, "_PROBE_IMAGE_B64", _VALID_IMAGE_B64)
+    monkeypatch.setattr(gp_mod, "_PROBE_VIDEO_B64", _VALID_VIDEO_B64)
+
+
+async def test_probe_model_multimodal_both_supported(monkeypatch) -> None:
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+    captured: list[dict] = []
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            captured.append(kwargs)
+            return _AsyncIter([])
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-2.5-flash")
+
+    assert result.supports_image is True
+    assert result.supports_video is True
+    assert result.supports_multimodal is True
+    assert len(captured) == 2
+    assert captured[0]["model"] == "gemini-2.5-flash"
+    assert captured[1]["model"] == "gemini-2.5-flash"
+
+
+async def test_probe_image_support_api_error_400(monkeypatch) -> None:
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+    call_count = 0
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Image probe → 400
+                raise genai_errors.APIError(
+                    400, {"error": "image not supported"},
+                )
+            # Video probe → success
+            return _AsyncIter([])
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-2.5-flash")
+
+    assert result.supports_image is False
+    assert result.supports_video is True
+    assert result.supports_multimodal is True
+    assert "Image not supported" in result.image_message
+
+
+async def test_probe_video_support_api_error_400(monkeypatch) -> None:
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+    call_count = 0
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Image probe → success
+                return _AsyncIter([])
+            # Video probe → 400
+            raise genai_errors.APIError(
+                400, {"error": "video not supported"},
+            )
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-2.5-flash")
+
+    assert result.supports_image is True
+    assert result.supports_video is False
+    assert result.supports_multimodal is True
+    assert "Video not supported" in result.video_message
+
+
+async def test_probe_both_unsupported(monkeypatch) -> None:
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            raise genai_errors.APIError(
+                400, {"error": "does not support"},
+            )
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-text-only")
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+    assert result.supports_multimodal is False
+
+
+async def test_probe_timeout_returns_false(monkeypatch) -> None:
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            raise TimeoutError("connection timed out")
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-2.5-flash")
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+    assert result.supports_multimodal is False
+    assert "Probe failed" in result.image_message
+    assert "Probe failed" in result.video_message
+
+
+async def test_probe_media_keyword_error(monkeypatch) -> None:
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            raise genai_errors.APIError(
+                500, {"error": "model does not support vision"},
+            )
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-2.5-flash")
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+
+
+async def test_probe_inconclusive_api_error(monkeypatch) -> None:
+    """Non-400, non-media-keyword API error → inconclusive (False)."""
+    provider = _make_provider()
+    _patch_probe_b64(monkeypatch)
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            raise genai_errors.APIError(
+                503, {"error": "service unavailable"},
+            )
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=10: fake_client)
+
+    result = await provider.probe_model_multimodal("gemini-2.5-flash")
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+    assert "Probe inconclusive" in result.image_message
+    assert "Probe inconclusive" in result.video_message

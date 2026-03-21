@@ -593,7 +593,16 @@
     "modelTestFailedConfirm": "Model connection test failed: {{message}}. Do you still want to add this model?",
     "autoDiscoveredAndAdded": "Auto-discovered {{count}} models and added {{added}} new model(s)",
     "autoDiscoveredNoNew": "Auto-discovered {{count}} models; model list is already up to date",
-    "autoDiscoverFailed": "Automatic model discovery failed; you can add models manually"
+    "autoDiscoverFailed": "Automatic model discovery failed; you can add models manually",
+    "tagImage": "Image",
+    "tagVideo": "Video",
+    "tagTextOnly": "Text Only",
+    "probeMultimodal": "Test Multimodal",
+    "probeImage": "Image",
+    "probeVideo": "Video",
+    "probeSupported": "Supported: {{types}}",
+    "probeNotSupported": "This model does not support multimodal input",
+    "probeFailed": "Probe failed"
   },
   "agentConfig": {
     "title": "Configuration",
@@ -710,7 +719,10 @@
     "prompt2": "Can you tell me what skills you have?",
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
-      "fileSizeLimit": "Single file cannot exceed 10MB"
+      "tooltipImageOnly": "Current model supports image upload only, single file up to 10MB",
+      "fileSizeLimit": "Single file cannot exceed 10MB",
+      "multimodalDisabled": "Current model does not support file upload",
+      "imageOnlyAccept": "Current model only supports image files"
     }
   },
   "security": {

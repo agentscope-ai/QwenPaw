@@ -466,6 +466,31 @@ class ProviderManager:
         )
         self.save_active_model(self.active_model)
 
+        # Auto-probe multimodal if not yet probed
+        if provider and not provider.is_local:
+            for model in provider.models + provider.extra_models:
+                if model.id == model_id and not model.supports_multimodal:
+                    asyncio.create_task(
+                        self._auto_probe_multimodal(provider_id, model_id)
+                    )
+                    break
+
+    async def _auto_probe_multimodal(
+        self, provider_id: str, model_id: str
+    ) -> None:
+        """Background probe that doesn't block model activation."""
+        try:
+            result = await self.probe_model_multimodal(provider_id, model_id)
+            logger.info(
+                "Auto-probe for %s/%s: image=%s, video=%s",
+                provider_id,
+                model_id,
+                result.get("supports_image"),
+                result.get("supports_video"),
+            )
+        except Exception as e:
+            logger.warning("Auto-probe multimodal failed: %s", e)
+
     async def add_model_to_provider(
         self,
         provider_id: str,
@@ -495,6 +520,39 @@ class ProviderManager:
             is_builtin=provider_id in self.builtin_providers,
         )
         return await provider.get_info()
+
+    async def probe_model_multimodal(
+        self,
+        provider_id: str,
+        model_id: str,
+    ) -> dict:
+        """Probe a model's multimodal capabilities and persist the result."""
+        provider = self.get_provider(provider_id)
+        if not provider:
+            return {"error": f"Provider '{provider_id}' not found"}
+
+        result = await provider.probe_model_multimodal(model_id)
+
+        # Update the model's capability flags
+        for model in provider.models + provider.extra_models:
+            if model.id == model_id:
+                model.supports_image = result.supports_image
+                model.supports_video = result.supports_video
+                model.supports_multimodal = result.supports_multimodal
+                break
+
+        # Persist to disk
+        self._save_provider(
+            provider,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        return {
+            "supports_image": result.supports_image,
+            "supports_video": result.supports_video,
+            "supports_multimodal": result.supports_multimodal,
+            "image_message": result.image_message,
+            "video_message": result.video_message,
+        }
 
     def _save_provider(
         self,

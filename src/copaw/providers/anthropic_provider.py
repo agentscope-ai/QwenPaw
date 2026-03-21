@@ -9,6 +9,11 @@ from typing import Any, List
 from agentscope.model import ChatModelBase
 import anthropic
 
+from copaw.providers.multimodal_prober import (
+    ProbeResult,
+    _PROBE_IMAGE_B64,
+    _is_media_keyword_error,
+)
 from copaw.providers.provider import ModelInfo, Provider
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -153,3 +158,65 @@ class AnthropicProvider(Provider):
             client_kwargs=client_kwargs,
             generate_kwargs=self.generate_kwargs,
         )
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+    ) -> ProbeResult:
+        """Probe multimodal support using Anthropic messages API format.
+
+        Anthropic does not support video input, so supports_video is
+        always False.  Image support is probed by sending a minimal 1x1
+        PNG via the Anthropic base64 image source format.
+        """
+        img_ok, img_msg = await self._probe_image_support(
+            model_id, timeout,
+        )
+        return ProbeResult(
+            supports_image=img_ok,
+            supports_video=False,
+            image_message=img_msg,
+            video_message="Video not supported by Anthropic",
+        )
+
+    async def _probe_image_support(
+        self,
+        model_id: str,
+        timeout: float = 10,
+    ) -> tuple[bool, str]:
+        """Probe image support via Anthropic messages API."""
+        client = self._client(timeout=timeout)
+        try:
+            resp = await client.messages.create(
+                model=model_id,
+                max_tokens=1,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": _PROBE_IMAGE_B64,
+                                },
+                            },
+                            {"type": "text", "text": "hi"},
+                        ],
+                    },
+                ],
+                stream=True,
+            )
+            async for _ in resp:
+                break
+            return True, "Image supported"
+        except anthropic.APIError as e:
+            status = getattr(e, "status_code", None)
+            if status == 400 or _is_media_keyword_error(e):
+                return False, f"Image not supported: {e}"
+            return False, f"Probe inconclusive: {e}"
+        except Exception as e:
+            return False, f"Probe failed: {e}"
+

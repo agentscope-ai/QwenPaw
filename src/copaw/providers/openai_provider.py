@@ -154,3 +154,18 @@ class OpenAIProvider(Provider):
             client_kwargs=client_kwargs,
             generate_kwargs=self.generate_kwargs,
         )
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+    ) -> "ProbeResult":
+        from .multimodal_prober import probe_multimodal_support
+
+        return await probe_multimodal_support(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            model_id=model_id,
+            timeout=timeout,
+        )
+

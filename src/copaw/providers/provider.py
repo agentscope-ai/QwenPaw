@@ -11,6 +11,20 @@ from agentscope.model import ChatModelBase
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+    supports_multimodal: bool = Field(
+        default=False,
+        description="Whether this model supports multimodal input "
+        "(image/audio/video). Composite flag: true if any media type "
+        "is supported.",
+    )
+    supports_image: bool = Field(
+        default=False,
+        description="Whether this model supports image input",
+    )
+    supports_video: bool = Field(
+        default=False,
+        description="Whether this model supports video input",
+    )
 
 
 class ProviderInfo(BaseModel):
@@ -172,6 +186,20 @@ class Provider(ProviderInfo, ABC):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         """Return an instance of the chat model associated with this
         provider and model_id."""
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+    ) -> "ProbeResult":
+        """Probe if a model supports multimodal input.
+
+        Default implementation returns ProbeResult() (all False).
+        Subclasses with API access should override.
+        """
+        from .multimodal_prober import ProbeResult
+
+        return ProbeResult()
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""
