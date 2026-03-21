@@ -470,11 +470,19 @@ class ToolGuardMixin:
         )
         tool_call_id = tool_call.get("id", "")
         svc = self._tool_guard_approval_service
-        if session_id and tool_call_id:
-            await svc.cancel_stale_pending_for_tool_call(
-                session_id,
-                tool_call_id,
-            )
+        if session_id:
+            if tool_call_id:
+                await svc.cancel_stale_pending_for_tool_call(
+                    session_id,
+                    tool_call_id,
+                )
+            for queued in extra.get("remaining_queue", []):
+                qid = queued.get("id", "")
+                if qid:
+                    await svc.cancel_stale_pending_for_tool_call(
+                        session_id,
+                        qid,
+                    )
 
         await svc.create_pending(
             session_id=session_id,
