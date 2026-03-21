@@ -282,7 +282,9 @@ async def append_workflow_run(
     "/{filename}",
     response_model=WorkflowReadResponse,
     summary="Get workflow content",
-    description=("Read workflow: raw file, body without frontmatter, and parsed meta"),
+    description=(
+        "Read workflow: raw file, body without frontmatter, and parsed meta"
+    ),
 )
 async def get_workflow(filename: str) -> WorkflowReadResponse:
     """Get workflow content by filename."""
