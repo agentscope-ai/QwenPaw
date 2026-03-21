@@ -124,7 +124,7 @@ To add your own instructions or capabilities via the file system, add a custom s
 ### Steps
 
 1. Create a directory under `~/.copaw/customized_skills/`, e.g. `my_skill`.
-2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. You can optionally use YAML front matter at the top for `name`, `description`, and `metadata` (for the agent or Console).
+2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. You **must** use YAML front matter at the top with `name` and `description` (`metadata` is optional) for the agent or Console.
 
 ### Directory layout example
 
