@@ -83,7 +83,12 @@ def split_frontmatter(text: str) -> Tuple[bool, Dict[str, Any], str, str]:
 def extract_meta_fields(
     meta: Dict[str, Any],
 ) -> tuple[
-    str | None, str | None, List[str], str | None, str | None, str | None
+    str | None,
+    str | None,
+    List[str],
+    str | None,
+    str | None,
+    str | None,
 ]:
     """Return name, description, tags, category, status, version."""
     name = _as_optional_str(meta.get("name"))
