@@ -22,7 +22,7 @@ from ..config import (  # pylint: disable=no-name-in-module
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
 from ..__version__ import __version__
-from ..utils.logging import setup_logger, add_copaw_file_handler
+from ..utils.logging import setup_logger, add_rypaw_file_handler
 from .channels import ChannelManager  # pylint: disable=no-name-in-module
 from .channels.utils import make_process_from_runner
 from .mcp import MCPClientManager, MCPConfigWatcher  # MCP hot-reload support
@@ -64,7 +64,7 @@ async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
     startup_start_time = time.time()
-    add_copaw_file_handler(WORKING_DIR / "rypaw.log")
+    add_rypaw_file_handler(WORKING_DIR / "rypaw.log")
     await runner.start()
 
     # --- MCP client manager init (independent module, hot-reloadable) ---
@@ -465,21 +465,21 @@ if CORS_ORIGINS:
     )
 
 
-# Console static dir: env, or copaw package data (console), or cwd.
+# Console static dir: env, or rypaw package data (console), or cwd.
 _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
 
 
 def _resolve_console_static_dir() -> str:
     if os.environ.get(_CONSOLE_STATIC_ENV):
         return os.environ[_CONSOLE_STATIC_ENV]
-    # Shipped dist lives in copaw package as static data (not a Python pkg).
+    # Shipped dist lives in rypaw package as static data (not a Python pkg).
     pkg_dir = Path(__file__).resolve().parent.parent
     candidate = pkg_dir / "console"
     if candidate.is_dir() and (candidate / "index.html").exists():
         return str(candidate)
     # the following code can be removed after next release,
-    # because the console will be output to copaw's
-    # `src/copaw/console/` directory directly by vite.
+    # because the console will be output to rypaw's
+    # `src/rypaw/console/` directory directly by vite.
     cwd = Path(os.getcwd())
     for subdir in ("console/dist", "console_dist"):
         candidate = cwd / subdir
@@ -511,7 +511,7 @@ def read_root():
 
 @app.get("/api/version")
 def get_version():
-    """Return the current CoPaw version."""
+    """Return the current RyPaw version."""
     return {"version": __version__}
 
 

@@ -64,7 +64,9 @@ class IMessageChannel(BaseChannel):
         self.bot_prefix = bot_prefix
 
         # Create media directory for downloaded files
-        self._media_dir = Path(media_dir).expanduser()
+        # Use os.path.expanduser for better compatibility in packaged apps
+        expanded_media_dir = os.path.expanduser(media_dir)
+        self._media_dir = Path(expanded_media_dir)
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
         # Base64 data size limit
@@ -465,8 +467,7 @@ ORDER BY m.ROWID ASC
         if local_path and Path(local_path).exists():
             logger.info(f"imessage send_media: using local file {local_path}")
             return local_path
-
-        path_obj = Path(url).expanduser()
+        path_obj = Path(os.path.expanduser(url))
         if path_obj.exists():
             local_path = str(path_obj.resolve())
             logger.info(

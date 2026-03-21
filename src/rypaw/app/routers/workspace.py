@@ -153,7 +153,7 @@ async def download_workspace():
     description=(
         "Upload a zip archive.  Paths present in the zip are merged into "
         "WORKING_DIR (files overwritten, dirs merged).  Paths not in the zip "
-        "are left unchanged (e.g. copaw.db, runtime dirs).  Download packs "
+        "are left unchanged (e.g. rypaw.db, runtime dirs).  Download packs "
         "the entire WORKING_DIR; upload only overwrites/merges zip contents."
     ),
 )

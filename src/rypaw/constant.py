@@ -64,7 +64,7 @@ class EnvVarLoader:
 
 
 WORKING_DIR = (
-    Path(EnvVarLoader.get_str("COPAW_WORKING_DIR", "~/.copaw"))
+    Path(EnvVarLoader.get_str("RYPAW_WORKING_DIR", "~/.rypaw"))
     .expanduser()
     .resolve()
 )
@@ -128,7 +128,7 @@ CUSTOMIZED_SKILLS_DIR = WORKING_DIR / "customized_skills"
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
 
-# Custom channel modules (installed via `copaw channels install`); manager
+# Custom channel modules (installed via `rypaw channels install`); manager
 # loads BaseChannel subclasses from here.
 CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 

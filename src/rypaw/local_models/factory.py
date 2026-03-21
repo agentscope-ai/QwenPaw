@@ -71,7 +71,7 @@ def create_local_chat_model(
     if info is None:
         raise ValueError(
             f"Local model '{model_id}' not found. "
-            "Download it first with 'copaw models download'.",
+            "Download it first with 'rypaw models download'.",
         )
 
     with _lock:

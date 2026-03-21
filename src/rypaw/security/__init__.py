@@ -4,7 +4,7 @@ Security framework for CoPaw.
 
 This package centralises all security-related mechanisms:
 
-* **Tool-call guarding** (``copaw.security.tool_guard``)
+* **Tool-call guarding** (``rypaw.security.tool_guard``)
   Pre-execution parameter scanning to detect dangerous tool usage
   patterns (command injection, data exfiltration, etc.).
 

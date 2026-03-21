@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build Docker image (includes console frontend build in multi-stage).
 # Run from repo root: bash scripts/docker_build.sh [IMAGE_TAG] [EXTRA_ARGS...]
-# Example: bash scripts/docker_build.sh copaw:latest
+# Example: bash scripts/docker_build.sh rypaw:latest
 #          bash scripts/docker_build.sh myreg/copaw:v1 --no-cache
 #
 # By default the Docker image excludes imessage.
@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 DOCKERFILE="${DOCKERFILE:-$REPO_ROOT/deploy/Dockerfile}"
-TAG="${1:-copaw:latest}"
+TAG="${1:-rypaw:latest}"
 shift || true
 
 # Channels to include in the image (default: exclude imessage).

@@ -292,7 +292,7 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
     if not eligible:
         if use_defaults:
             click.echo(
-                "No LLM provider configured. Run 'copaw models config' "
+                "No LLM provider configured. Run 'rypaw models config' "
                 "to configure later.",
             )
             return
@@ -352,7 +352,7 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
     if not model and use_defaults:
         click.echo(
             f"No default model for {defn.name}. "
-            "Run 'copaw models config' to set one.",
+            "Run 'rypaw models config' to set one.",
         )
         return
     try:
@@ -437,7 +437,7 @@ def list_cmd() -> None:
                     click.echo(f"    - {m.name}")
             else:
                 click.echo("  No models downloaded.")
-                click.echo("  Use 'copaw models download' to add models.")
+                click.echo("  Use 'rypaw models download' to add models.")
         else:
             click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
             click.echo(
@@ -527,8 +527,8 @@ def add_provider_cmd(
     if base_url:
         click.echo(f"  base_url: {base_url}")
     click.echo(
-        "  Run 'copaw models add-model' to add models, "
-        "then 'copaw models config-key' to set the API key.",
+        "  Run 'rypaw models add-model' to add models, "
+        "then 'rypaw models config-key' to set the API key.",
     )
 
 
@@ -666,10 +666,10 @@ def download_cmd(
 
     \b
     Examples:
-      copaw models download TheBloke/Mistral-7B-Instruct-v0.2-GGUF
-      copaw models download TheBloke/Mistral-7B-Instruct-v0.2-GGUF \\
+      rypaw models download TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+      rypaw models download TheBloke/Mistral-7B-Instruct-v0.2-GGUF \\
           -f mistral-7b-instruct-v0.2.Q4_K_M.gguf
-      copaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
+      rypaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
     """
     try:
         from ..local_models import (
@@ -681,7 +681,7 @@ def download_cmd(
         click.echo(
             click.style(
                 "Local model dependencies not installed. "
-                "Install with: pip install 'copaw[local]'",
+                "Install with: pip install rypaw[local]'",
                 fg="red",
             ),
         )
@@ -714,7 +714,7 @@ def download_cmd(
     click.echo(f"  Backend: {info.backend.value}")
     click.echo(
         f"\nTo use this model, run:\n"
-        f"  copaw models set-llm  (select '{backend}' provider)",
+        f"  rypaw models set-llm  (select '{backend}' provider)",
     )
 
 
@@ -733,7 +733,7 @@ def list_local_cmd(backend: str | None) -> None:
     except ImportError:
         click.echo(
             "Local model support not installed. "
-            "Install with: pip install 'copaw[local]'",
+            "Install with: pip install rypaw[local]'",
         )
         return
 
@@ -742,7 +742,7 @@ def list_local_cmd(backend: str | None) -> None:
 
     if not models:
         click.echo("No local models downloaded.")
-        click.echo("Use 'copaw models download <repo_id>' to download one.")
+        click.echo("Use 'rypaw models download <repo_id>' to download one.")
         return
 
     click.echo(f"\n=== Local Models ({len(models)}) ===")
@@ -769,7 +769,7 @@ def remove_local_cmd(model_id: str, yes: bool) -> None:
         click.echo(
             click.style(
                 "Local model support not installed. "
-                "Install with: pip install 'copaw[local]'",
+                "Install with: pip install rypaw[local]'",
                 fg="red",
             ),
         )
@@ -798,8 +798,8 @@ def ollama_pull_cmd(model_name: str) -> None:
 
     \b
     Examples:
-      copaw models ollama-pull mistral:7b
-      copaw models ollama-pull qwen2.5:3b
+      rypaw models ollama-pull mistral:7b
+      rypaw models ollama-pull qwen2.5:3b
     """
 
     click.echo(f"Downloading Ollama model: {model_name}...")
@@ -807,7 +807,7 @@ def ollama_pull_cmd(model_name: str) -> None:
         host = _get_ollama_host()
         OllamaModelManager.pull_model(model_name, host=host)
         click.echo(f"✓ Model '{model_name}' downloaded successfully.")
-        click.echo("\nTo use this model, run:\n  copaw models set-llm")
+        click.echo("\nTo use this model, run:\n  rypaw models set-llm")
     except ImportError as exc:
         click.echo(
             click.style(
@@ -841,7 +841,7 @@ def ollama_list_cmd() -> None:
 
     if not models:
         click.echo("No Ollama models found.")
-        click.echo("Use 'copaw models ollama-pull <model>' to download one.")
+        click.echo("Use 'rypaw models ollama-pull <model>' to download one.")
         return
 
     click.echo(f"\n=== Ollama Models ({len(models)}) ===")
@@ -864,8 +864,8 @@ def ollama_remove_cmd(model_name: str, yes: bool) -> None:
 
     \b
     Examples:
-      copaw models ollama-remove mistral:7b
-      copaw models ollama-remove qwen2.5:3b -y
+      rypaw models ollama-remove mistral:7b
+      rypaw models ollama-remove qwen2.5:3b -y
     """
     if not yes:
         if not click.confirm(f"Delete Ollama model '{model_name}'?"):

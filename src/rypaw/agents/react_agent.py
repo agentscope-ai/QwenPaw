@@ -465,7 +465,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     @staticmethod
     def _rebuild_mcp_client(client: Any) -> Any | None:
         """Rebuild a fresh MCP client instance from stored config metadata."""
-        rebuild_info = getattr(client, "_copaw_rebuild_info", None)
+        rebuild_info = getattr(client, "_rypaw_rebuild_info", None)
         if not isinstance(rebuild_info, dict):
             return None
 
@@ -481,7 +481,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     env=rebuild_info.get("env", {}),
                     cwd=rebuild_info.get("cwd"),
                 )
-                setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+                setattr(rebuilt_client, "_rypaw_rebuild_info", rebuild_info)
                 return rebuilt_client
 
             rebuilt_client = HttpStatefulClient(
@@ -490,7 +490,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 url=rebuild_info.get("url"),
                 headers=rebuild_info.get("headers"),
             )
-            setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+            setattr(rebuilt_client, "_rypaw_rebuild_info", rebuild_info)
             return rebuilt_client
         except Exception:  # pylint: disable=broad-except
             return None

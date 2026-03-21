@@ -73,7 +73,7 @@ _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 _IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
-_DEFAULT_MEDIA_DIR = Path("~.rypaw/media/qq").expanduser()
+_DEFAULT_MEDIA_DIR = Path(os.path.expanduser("~.rypaw/media/qq"))
 
 
 class QQApiError(RuntimeError):
@@ -471,7 +471,7 @@ class QQChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._markdown_enabled = markdown_enabled
         self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+            Path(os.path.expanduser(media_dir)) if media_dir else _DEFAULT_MEDIA_DIR
         )
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None

@@ -1,0 +1,28 @@
+{
+  "name": "rypaw-desktop",
+  "version": "0.0.7-post1",
+  "description": "RyPaw Desktop - Your Personal AI Assistant",
+  "main": "main.js",
+  "author": "RyPaw Team",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build:win": "electron-builder --win --x64 --config builder.yml",
+    "build:mac": "electron-builder --mac --config builder.yml",
+    "build:linux": "electron-builder --linux --config builder.yml",
+    "publish": "electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "extends": null
+  }
+}

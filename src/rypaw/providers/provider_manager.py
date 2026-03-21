@@ -40,6 +40,23 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(id="ZhipuAI/GLM-5", name="GLM-5"),
 ]
 
+RUYING_MODELS: List[ModelInfo] = [
+    ModelInfo(id="Qwen/Qwen2.5-7B-Instruct", name="Qwen2.5-7B-Instruct"),
+    ModelInfo(id="Qwen/Qwen2-7B-Instruct", name="Qwen2-7B-Instruct"),
+    ModelInfo(id="Qwen/Qwen2.5-72B-Instruct", name="Qwen2.5-72B-Instruct"),
+    ModelInfo(id="Qwen/Qwen2-57B-A14B-Instruct", name="Qwen2-57B-A14B-Instruct"),
+    ModelInfo(id="deepseek-ai/DeepSeek-V3", name="DeepSeek-V3"),
+    ModelInfo(id="deepseek-ai/DeepSeek-V2.5", name="DeepSeek-V2.5"),
+    ModelInfo(id="deepseek-ai/DeepSeek-Coder-V2", name="DeepSeek-Coder-V2"),
+    ModelInfo(id="01-ai/Yi-34B-Chat", name="Yi-34B-Chat"),
+    ModelInfo(id="google/gemma-2-27b-it", name="Gemma-2-27b-IT"),
+    ModelInfo(id="THUDM/chatglm-3-6b", name="ChatGLM3-6B"),
+    ModelInfo(id="meta-llama/Meta-Llama-3-8B-Instruct", name="Llama-3-8B-Instruct"),
+    ModelInfo(id="mistralai/Mistral-7B-Instruct-v0.2", name="Mistral-7B-Instruct"),
+    ModelInfo(id="01-ai/Yi-Lightning", name="Yi-Lightning"),
+    ModelInfo(id="Pro/Qwen/Qwen2.5-7B-Chat", name="Qwen2.5-7B-Chat"),
+]
+
 DASHSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(id="qwen3-max", name="Qwen3 Max"),
     ModelInfo(
@@ -149,6 +166,15 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     models=AZURE_OPENAI_MODELS,
 )
 
+PROVIDER_RUYING = OpenAIProvider(
+    id="ruying",
+    name="Ruying (SiliconFlow)",
+    base_url="https://api.siliconflow.cn/v1",
+    api_key_prefix="sk-",
+    models=RUYING_MODELS,
+    freeze_url=True,
+)
+
 PROVIDER_MINIMAX = OpenAIProvider(
     id="minimax",
     name="MiniMax",
@@ -242,6 +268,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
+        self._add_builtin(PROVIDER_RUYING)
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_OLLAMA)

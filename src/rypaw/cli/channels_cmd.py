@@ -52,7 +52,7 @@ _ALL_CHANNEL_NAMES = {
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
 
-# Template for `copaw channels install <key>` stub (channel key substituted).
+# Template for `rypaw channels install <key>` stub (channel key substituted).
 CHANNEL_TEMPLATE = '''# -*- coding: utf-8 -*-
 """Custom channel: {key}. Edit and implement required methods."""
 from __future__ import annotations
@@ -568,7 +568,7 @@ def configure_voice(
     welcome_greeting = click.prompt(
         "Welcome greeting",
         default=current_config.welcome_greeting
-        or "Hi! This is CoPaw. How can I help you?",
+        or "Hi! This is RyPaw. How can I help you?",
         type=str,
     )
     current_config.welcome_greeting = welcome_greeting
@@ -823,7 +823,7 @@ def list_cmd() -> None:
     if not config_path.is_file():
         click.echo(f"Config not found: {config_path}")
         click.echo("Will load default config.")
-        click.echo("Run `copaw channels config` to create one.")
+        click.echo("Run `rypaw channels config` to create one.")
         cfg = load_config()
     else:
         cfg = load_config(config_path)
@@ -919,7 +919,7 @@ def _install_channel_to_dir(
     )
     click.echo(
         f"✓ Created {dest_file}. Edit and add config with "
-        "`copaw channels config`.",
+        "`rypaw channels config`.",
     )
 
 

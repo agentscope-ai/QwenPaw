@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-click build: console -> conda-pack -> CoPaw.app. Run from repo root.
+# One-click build: console -> conda-pack -> RyPaw.app. Run from repo root.
 # Requires: conda, node/npm (for console). Optional: icon.icns in assets/.
 
 set -e
@@ -7,13 +7,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 PACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST="${DIST:-dist}"
-ARCHIVE="${DIST}/copaw-env.tar.gz"
+ARCHIVE="${DIST}/rypaw-env.tar.gz"
 APP_NAME="RyPaw"
 APP_DIR="${DIST}/${APP_NAME}.app"
 
 echo "== Building wheel (includes console frontend) =="
 # Skip wheel_build if dist already has a wheel for current version
-VERSION_FILE="${REPO_ROOT}/src/copaw/__version__.py"
+VERSION_FILE="${REPO_ROOT}/src/rypaw/__version__.py"
 CURRENT_VERSION=""
 if [[ -f "${VERSION_FILE}" ]]; then
   CURRENT_VERSION="$(
@@ -23,12 +23,12 @@ if [[ -f "${VERSION_FILE}" ]]; then
 fi
 if [[ -n "${CURRENT_VERSION}" ]]; then
   shopt -s nullglob
-  whls=("${REPO_ROOT}/dist/copaw-${CURRENT_VERSION}-"*.whl)
+  whls=("${REPO_ROOT}/dist/rypaw-${CURRENT_VERSION}-"*.whl)
   if [[ ${#whls[@]} -gt 0 ]]; then
     echo "dist/ already has wheel for version ${CURRENT_VERSION}, skipping."
   else
     # Clean up old wheels to avoid confusion
-    old_whls=("${REPO_ROOT}/dist/copaw-"*.whl)
+    old_whls=("${REPO_ROOT}/dist/rypaw-"*.whl)
     if [[ ${#old_whls[@]} -gt 0 ]]; then
       echo "Removing old wheel files: ${old_whls[*]}"
       rm -f "${old_whls[@]}"
@@ -56,14 +56,14 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && ./bin/conda-unpack)
 fi
 
-# Launcher: force packed env; when no TTY log to ~/.copaw/desktop.log (no exec so we see errors)
+# Launcher: force packed env; when no TTY log to ~/.rypaw/desktop.log (no exec so we see errors)
 cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
 ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
-LOG="$HOME/.copaw/desktop.log"
+LOG="$HOME/.rypaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
-export COPAW_DESKTOP_APP=1
+export RYPAW_DESKTOP_APP=1
 
 # Preserve system PATH for accessing system commands (e.g. imsg, brew)
 # Prepend packaged env/bin so packaged Python takes precedence
@@ -83,12 +83,12 @@ fi
 
 cd "$HOME" || true
 
-# Log level: env var COPAW_LOG_LEVEL or default to "info"
-LOG_LEVEL="${COPAW_LOG_LEVEL:-info}"
+# Log level: env var RYPAW_LOG_LEVEL or default to "info"
+LOG_LEVEL="${RYPAW_LOG_LEVEL:-info}"
 
 if [ ! -t 2 ]; then
-  mkdir -p "$HOME/.copaw"
-  { echo "=== $(date) CoPaw starting ==="
+  mkdir -p "$HOME/.rypaw"
+  { echo "=== $(date) RyPaw starting ==="
     echo "ENV_DIR=$ENV_DIR"
     echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
     echo "PATH=$PATH"
@@ -108,11 +108,11 @@ if [ ! -t 2 ]; then
     echo "ERROR: python not executable at $ENV_DIR/bin/python"
     exit 1
   fi
-  if [ ! -f "$HOME/.copaw/config.json" ]; then
-    "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
+  if [ ! -f "$HOME/.rypaw/config.json" ]; then
+    "$ENV_DIR/bin/python" -u -m rypaw init --defaults --accept-security
   fi
   echo "Launching python with log-level=$LOG_LEVEL..."
-  "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
+  "$ENV_DIR/bin/python" -u -m rypaw desktop --log-level "$LOG_LEVEL"
   EXIT=$?
   if [ $EXIT -ge 128 ]; then
     SIG=$((EXIT - 128))
@@ -123,10 +123,10 @@ if [ ! -t 2 ]; then
   echo "--- Full log: $LOG (scroll up for Python traceback if app exited early) ---"
   exit $EXIT
 fi
-if [ ! -f "$HOME/.copaw/config.json" ]; then
-  "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
+if [ ! -f "$HOME/.rypaw/config.json" ]; then
+  "$ENV_DIR/bin/python" -u -m rypaw init --defaults --accept-security
 fi
-exec "$ENV_DIR/bin/python" -u -m copaw desktop --log-level "$LOG_LEVEL"
+exec "$ENV_DIR/bin/python" -u -m rypaw desktop --log-level "$LOG_LEVEL"
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
@@ -144,7 +144,7 @@ VERSION="${CURRENT_VERSION}"
 if [[ -z "${VERSION}" ]]; then
   # Fallback: try to get version from packed env metadata
   VERSION="$("${APP_DIR}/Contents/Resources/env/bin/python" -c \
-    "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null \
+    "from importlib.metadata import version; print(version('rypaw'))" 2>/dev/null \
     || echo "0.0.0")"
   echo "Using version from packed env metadata: ${VERSION}"
 else

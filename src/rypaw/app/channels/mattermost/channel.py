@@ -3,6 +3,7 @@
 """Mattermost channel: WebSocket event listener + REST API replies."""
 from __future__ import annotations
 
+import os
 import asyncio
 import json
 import logging
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 MATTERMOST_POST_CHUNK_SIZE = 4000  # chars per post (hard limit ~16383)
 
-_DEFAULT_MEDIA_DIR = Path("~.rypaw/media/mattermost").expanduser()
+_DEFAULT_MEDIA_DIR = Path(os.path.expanduser("~.rypaw/media/mattermost"))
 _TYPING_TIMEOUT_S = 180
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
@@ -131,7 +132,7 @@ class MattermostChannel(BaseChannel):
         self._url = url.rstrip("/")
         self._bot_token = bot_token
         self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+            Path(os.path.expanduser(media_dir)) if media_dir else _DEFAULT_MEDIA_DIR
         )
         self._show_typing = show_typing if show_typing is not None else True
         self._thread_follow = thread_follow_without_mention

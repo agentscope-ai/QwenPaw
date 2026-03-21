@@ -59,7 +59,7 @@ def app_cmd(
     log_level: str,
     hide_access_paths: tuple[str, ...],
 ) -> None:
-    """Run CoPaw FastAPI app."""
+    """Run RyPaw FastAPI app."""
     # Persist last used host/port for other terminals
     write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
@@ -67,9 +67,9 @@ def app_cmd(
     # Signal reload mode to browser_control.py for Windows
     # compatibility: use sync Playwright + ThreadPool only when reload=True
     if reload:
-        os.environ["COPAW_RELOAD_MODE"] = "1"
+        os.environ["RYPAW_RELOAD_MODE"] = "1"
     else:
-        os.environ.pop("COPAW_RELOAD_MODE", None)
+        os.environ.pop("RYPAW_RELOAD_MODE", None)
 
     setup_logger(log_level)
     if log_level in ("debug", "trace"):
@@ -84,7 +84,7 @@ def app_cmd(
         )
 
     uvicorn.run(
-        "copaw.app._app:app",
+        "rypaw.app._app:app",
         host=host,
         port=port,
         reload=reload,

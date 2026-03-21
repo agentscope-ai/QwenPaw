@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # to avoid NotImplementedError with asyncio.create_subprocess_exec.
 # On other platforms or without reload, use async Playwright for better performance.
 _USE_SYNC_PLAYWRIGHT = (
-    sys.platform == "win32" and os.environ.get("COPAW_RELOAD_MODE") == "1"
+    sys.platform == "win32" and os.environ.get("RYPAW_RELOAD_MODE") == "1"
 )
 
 if _USE_SYNC_PLAYWRIGHT:

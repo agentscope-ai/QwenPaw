@@ -112,7 +112,7 @@ class DingTalkChannel(BaseChannel):
         self.client_id = client_id
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
-        self._media_dir = Path(media_dir).expanduser()
+        self._media_dir = Path(os.path.expanduser(media_dir))
 
         self._client: Optional[dingtalk_stream.DingTalkStreamClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None

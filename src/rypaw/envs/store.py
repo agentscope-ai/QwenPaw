@@ -20,7 +20,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _BOOTSTRAP_WORKING_DIR = (
-    Path(os.environ.get("COPAW_WORKING_DIR", "~/.copaw"))
+    Path(os.environ.get("RYPAW_WORKING_DIR", "~/.rypaw"))
     .expanduser()
     .resolve()
 )
@@ -94,7 +94,7 @@ def _migrate_legacy_envs_json(path: Path) -> None:
 # not persisted envs.json.
 _PROTECTED_BOOTSTRAP_KEYS = frozenset(
     {
-        "COPAW_WORKING_DIR",
+        "RYPAW_WORKING_DIR",
         "COPAW_SECRET_DIR",
     },
 )

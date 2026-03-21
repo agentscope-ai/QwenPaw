@@ -156,7 +156,7 @@ def run_pytest(
     if coverage:
         cmd.extend(
             [
-                "--cov=src/copaw",
+                "--cov=src/rypaw",
                 "--cov-report=html",
                 "--cov-report=term-missing",
             ],

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RyPaw Desktop - Connection Error</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: white;
+    }
+
+    .error-container {
+      text-align: center;
+      padding: 40px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      max-width: 500px;
+    }
+
+    .error-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 16px;
+      opacity: 0.9;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .info {
+      font-size: 14px;
+      opacity: 0.8;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background: white;
+      color: #667eea;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      text-decoration: none;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .logs {
+      margin-top: 20px;
+      text-align: left;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      opacity: 0.8;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="error-container">
+    <div class="error-icon">⚠️</div>
+    <h1>Connection Failed</h1>
+    <p>Could not connect to the RyPaw backend server.</p>
+    <div class="info">
+      The Python backend may be starting up.<br>
+      Please wait a moment and try again.
+    </div>
+    <button class="button" onclick="location.reload()">Retry</button>
+    <div class="logs" id="logs">
+      <strong>Checking backend status...</strong>
+    </div>
+  </div>
+
+  <script>
+    const logsDiv = document.getElementById('logs');
+    const backendUrl = 'http://127.0.0.1:18765/api/health';
+
+    async function checkBackend() {
+      try {
+        logsDiv.innerHTML += '<br>🔍 Checking backend...';
+        const response = await fetch(backendUrl);
+        if (response.ok) {
+          logsDiv.innerHTML += '<br>✅ Backend is ready! Redirecting...';
+          setTimeout(() => location.href = 'http://127.0.0.1:18765', 1000);
+        }
+      } catch (error) {
+        logsDiv.innerHTML += '<br>❌ Backend not responding: ' + error.message;
+        logsDiv.innerHTML += '<br>📋 Check the console for more details.';
+      }
+    }
+
+    checkBackend();
+    setInterval(checkBackend, 5000);
+  </script>
+</body>
+</html>

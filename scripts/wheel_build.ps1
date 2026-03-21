@@ -19,7 +19,7 @@ try {
   Pop-Location
 }
 
-Write-Host "[wheel_build] Copying console/dist/* -> src/copaw/console/..."
+Write-Host "[wheel_build] Copying console/dist/* -> src/rypaw/console/..."
 if (Test-Path $ConsoleDest) {
   Remove-Item -Path (Join-Path $ConsoleDest "*") -Recurse -Force -ErrorAction SilentlyContinue
 } else {

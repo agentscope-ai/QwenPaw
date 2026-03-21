@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-TELEMETRY_ENDPOINT = "https://copaw-telemetry-xissagieap.cn-hangzhou.fcapp.run"
+TELEMETRY_ENDPOINT = "https://rypaw-telemetry-xissagieap.cn-hangzhou.fcapp.run"
 TELEMETRY_MARKER_FILE = ".telemetry_collected"
 
 
@@ -50,19 +50,19 @@ def get_system_info() -> dict[str, Any]:
 
     Returns anonymized system information including:
     - install_id: Random UUID (not tied to user)
-    - copaw_version: CoPaw version string
+    - rypaw_version: RyPaw version string
     - install_method: How CoPaw was installed (docker/desktop/pip)
     - os: Operating system (Windows/Darwin/Linux)
     - os_version: OS version string
-    - python_version: Python version running copaw (major.minor)
+    - python_version: Python version running rypaw (major.minor)
     - architecture: CPU architecture (x86_64/arm64/etc)
     - has_gpu: GPU availability detection
     """
-    from ..__version__ import __version__ as copaw_ver
+    from ..__version__ import __version__ as rypaw_ver
 
     info = {
         "install_id": str(uuid.uuid4()),
-        "copaw_version": _safe_get(lambda: copaw_ver, "unknown"),
+        "rypaw_version": _safe_get(lambda: rypaw_ver, "unknown"),
         "install_method": _safe_get(_detect_install_method, "unknown"),
         "os": _safe_get(platform.system, "unknown"),
         "os_version": _safe_get(platform.release, "unknown"),
@@ -182,11 +182,11 @@ def _upload_telemetry_sync(data: dict[str, Any]) -> bool:
 
 
 def _get_current_version() -> str:
-    """Get the current CoPaw version string."""
+    """Get the current RyPaw version string."""
     try:
-        from ..__version__ import __version__ as copaw_ver
+        from ..__version__ import __version__ as rypaw_ver
 
-        return copaw_ver
+        return rypaw_ver
     except Exception:
         return "unknown"
 
@@ -213,8 +213,8 @@ def has_telemetry_been_collected(working_dir: Path) -> bool:
         collected_versions = marker_data.get("collected_versions", [])
         if collected_versions:
             return current in collected_versions
-        # v1.1 compat: single copaw_version field
-        return marker_data.get("copaw_version", "") == current
+        # v1.1 compat: single rypaw_version field
+        return marker_data.get("rypaw_version", "") == current
     except Exception:
         return False
 
@@ -241,7 +241,7 @@ def mark_telemetry_collected(working_dir: Path) -> None:
                 collected_versions = old_data.get("collected_versions", [])
                 # Migrate from v1.1 single-version format
                 if not collected_versions:
-                    old_ver = old_data.get("copaw_version", "")
+                    old_ver = old_data.get("rypaw_version", "")
                     if old_ver:
                         collected_versions = [old_ver]
             except Exception:
@@ -252,7 +252,7 @@ def mark_telemetry_collected(working_dir: Path) -> None:
 
         marker_data = {
             "collected_at": time.time(),
-            "copaw_version": current,
+            "rypaw_version": current,
             "collected_versions": collected_versions,
             "version": "1.2",
         }

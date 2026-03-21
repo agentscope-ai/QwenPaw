@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 # pylint: disable=too-many-statements,too-many-branches
 # pylint: disable=too-many-return-statements,unused-argument
 """Feishu (Lark) Channel.
@@ -190,7 +191,7 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
-        self._media_dir = Path(media_dir).expanduser()
+        self._media_dir = Path(os.path.expanduser(media_dir))
 
         self._client: Any = None
         self._ws_client: Any = None

@@ -53,7 +53,7 @@ def _ensure_ollama():
             "The 'ollama' Python package is required. You may have "
             "installed Ollama via their CLI or desktop app, but you "
             "also need the Python SDK to manage models from CoPaw. "
-            "Please install it with: pip install 'copaw[ollama]'",
+            "Please install it with: pip install rypaw[ollama]'",
         ) from e
     return ollama
 

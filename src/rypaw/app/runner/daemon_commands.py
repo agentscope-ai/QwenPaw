@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Daemon command execution layer and DaemonCommandHandlerMixin.
 
-Shared by in-chat /daemon <sub> and CLI `copaw daemon <sub>`.
+Shared by in-chat /daemon <sub> and CLI `rypaw daemon <sub>`.
 Logs: tail WORKING_DIR / "rypaw.log". Restart: in-process reload of channels,
 cron and MCP (no process exit); works on Mac/Windows without a process manager.
 """
@@ -134,7 +134,7 @@ async def run_daemon_restart(context: DaemonContext) -> str:
     return (
         "**Restart**\n\n"
         "- No restart callback (e.g. not running inside app). "
-        "Run the app (e.g. `copaw app`) and use /daemon restart in chat, "
+        "Run the app (e.g. `rypaw app`) and use /daemon restart in chat, "
         "or restart the process with systemd/supervisor/docker."
     )
 

@@ -13,7 +13,7 @@ Example:
     >>> from pathlib import Path
     >>>
     >>> # Create hooks (they are callables following AgentScope's interface)
-    >>> bootstrap = BootstrapHook(Path("~/.copaw"), language="zh")
+    >>> bootstrap = BootstrapHook(Path("~/.rypaw"), language="zh")
     >>> memory_compact = MemoryCompactionHook(
     ...     memory_manager=mm,
     ...     memory_compact_threshold=100000,

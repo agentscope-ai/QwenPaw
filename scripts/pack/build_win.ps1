@@ -7,9 +7,9 @@ Set-Location $RepoRoot
 Write-Host "[build_win] REPO_ROOT=$RepoRoot"
 $PackDir = $PSScriptRoot
 $Dist = if ($env:DIST) { $env:DIST } else { "dist" }
-$Archive = Join-Path $Dist "copaw-env.zip"
+$Archive = Join-Path $Dist "rypaw-env.zip"
 $Unpacked = Join-Path $Dist "win-unpacked"
-$NsiPath = Join-Path $PackDir "copaw_desktop.nsi"
+$NsiPath = Join-Path $PackDir "rypaw_desktop.nsi"
 
 # Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
 # conda-unpack corrupts Python string escaping when replacing path prefixes.
@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
 Write-Host "== Building wheel (includes console frontend) =="
 # Skip wheel_build if dist already has a wheel for current version
-$VersionFile = Join-Path $RepoRoot "src\copaw\__version__.py"
+$VersionFile = Join-Path $RepoRoot "src\rypaw\__version__.py"
 $CurrentVersion = ""
 if (Test-Path $VersionFile) {
   $m = (Get-Content $VersionFile -Raw) -match '__version__\s*=\s*"([^"]+)"'
@@ -32,14 +32,14 @@ if (Test-Path $VersionFile) {
 }
 $RunWheelBuild = $true
 if ($CurrentVersion) {
-  $wheelGlob = Join-Path $Dist "copaw-$CurrentVersion-*.whl"
+  $wheelGlob = Join-Path $Dist "rypaw-$CurrentVersion-*.whl"
   $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
   if ($existingWheels.Count -gt 0) {
     Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
     $RunWheelBuild = $false
   } else {
     # Clean up old wheels to avoid confusion
-    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "copaw-*.whl") -ErrorAction SilentlyContinue
+    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "rypaw-*.whl") -ErrorAction SilentlyContinue
     if ($oldWheels.Count -gt 0) {
       Write-Host "Removing old wheel files: $($oldWheels | ForEach-Object { $_.Name })"
       $oldWheels | Remove-Item -Force
@@ -135,12 +135,12 @@ REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 
-REM Log level: env var COPAW_LOG_LEVEL or default to "info"
-if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=info"
+REM Log level: env var RYPAW_LOG_LEVEL or default to "info"
+if not defined RYPAW_LOG_LEVEL set "RYPAW_LOG_LEVEL=info"
 
 REM Set SSL certificate paths for packaged environment
 REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+set "CERT_TMP=%TEMP%\rypaw_cert_%RANDOM%.txt"
 "%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
 set /p CERT_FILE=<"%CERT_TMP%"
 del "%CERT_TMP%" 2>nul
@@ -152,10 +152,10 @@ if defined CERT_FILE (
   )
 )
 
-if not exist "%USERPROFILE%\.copaw\config.json" (
-  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
+if not exist "%USERPROFILE%\.rypaw\config.json" (
+  "%~dp0python.exe" -u -m rypaw init --defaults --accept-security
 )
-"%~dp0python.exe" -u -m copaw desktop --log-level %COPAW_LOG_LEVEL%
+"%~dp0python.exe" -u -m rypaw desktop --log-level %RYPAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -168,12 +168,12 @@ REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 
-REM Debug mode: use debug log level by default (can override with COPAW_LOG_LEVEL)
-if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=debug"
+REM Debug mode: use debug log level by default (can override with RYPAW_LOG_LEVEL)
+if not defined RYPAW_LOG_LEVEL set "RYPAW_LOG_LEVEL=debug"
 
 REM Set SSL certificate paths for packaged environment
 REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+set "CERT_TMP=%TEMP%\rypaw_cert_%RANDOM%.txt"
 "%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
 set /p CERT_FILE=<"%CERT_TMP%"
 del "%CERT_TMP%" 2>nul
@@ -191,19 +191,19 @@ echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
 echo PATH: %PATH%
-echo Log Level: %COPAW_LOG_LEVEL%
+echo Log Level: %RYPAW_LOG_LEVEL%
 echo SSL_CERT_FILE: %SSL_CERT_FILE%
 echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
 echo CURL_CA_BUNDLE: %CURL_CA_BUNDLE%
 echo.
-if not exist "%USERPROFILE%\.copaw\config.json" (
+if not exist "%USERPROFILE%\.rypaw\config.json" (
   echo [Init] Creating config...
-  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
+  "%~dp0python.exe" -u -m rypaw init --defaults --accept-security
 )
-echo [Launch] Starting RyPaw Desktop with log-level=%COPAW_LOG_LEVEL%...
+echo [Launch] Starting RyPaw Desktop with log-level=%RYPAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -u -m copaw desktop --log-level %COPAW_LOG_LEVEL%
+"%~dp0python.exe" -u -m rypaw desktop --log-level %RYPAW_LOG_LEVEL%
 echo.
 echo [Exit] RyPaw Desktop closed
 pause
@@ -239,7 +239,7 @@ $Version = $CurrentVersion
 if (-not $Version) {
   # Fallback: try to get version from packed env metadata
   try {
-    $Version = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
+    $Version = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('rypaw'))" 2>&1) -replace '\s+$', ''
     Write-Host "[build_win] Using version from packed env metadata: $Version"
   } catch {
     Write-Host "[build_win] version from packed env failed: $_"

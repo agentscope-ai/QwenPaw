@@ -3,6 +3,7 @@
 """Telegram channel: Bot API with polling; receive/send via chat_id."""
 
 from __future__ import annotations
+import os
 
 import asyncio
 import logging
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
 
-_DEFAULT_MEDIA_DIR = Path("~.rypaw/media/telegram").expanduser()
+_DEFAULT_MEDIA_DIR = Path(os.path.expanduser("~.rypaw/media/telegram"))
 _TYPING_TIMEOUT_S = 180
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
@@ -278,7 +279,7 @@ class TelegramChannel(BaseChannel):
         self._http_proxy_auth = http_proxy_auth or ""
         self.bot_prefix = bot_prefix
         self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+            Path(os.path.expanduser(media_dir)) if media_dir else _DEFAULT_MEDIA_DIR
         )
         self._show_typing = show_typing
         self._typing_tasks: dict[str, asyncio.Task] = {}

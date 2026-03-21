@@ -1,0 +1,84 @@
+# electron-builder configuration
+# See https://www.electron.build/configuration
+
+appId: com.rypaw.desktop
+productName: RyPaw Desktop
+publish:
+  provider: github
+  owner: your-org
+  repo: rypaw
+
+# Update configuration
+# afterPack: scripts/afterPack.js  # Uncomment if you need custom after-pack logic
+# afterSign: scripts/afterSign.js  # Optional: for code signing
+
+# Windows configuration
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  perMachine: false
+  runAfterFinish: true
+
+# macOS configuration
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  icon: assets/icon.icns
+  category: public.app-category.productivity
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  # entitlements only apply when code signing is configured
+  # entitlements: assets/entitlements.mac.plist
+  # entitlementsInherit: assets/entitlements.mac.plist
+
+# Linux configuration
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: assets/icon.png
+  category: Utility
+  maintainer: RyPaw Team
+
+# Files to include
+files:
+  - main.js
+  - preload.js
+  - "!**/.vscode/*"
+  - "!**/.git/*"
+  - "!**/dist/*"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+
+# Extra files (Python backend)
+extraFiles:
+  - from: ../dist/python-runtime
+    to: python-runtime
+  - from: ../dist/console
+    to: console
+
+#asar: false  # Disable asar for Python runtime access
+asarUnpack:
+  - python-runtime/**/*
+  - console/**/*
+
+# Release notes
+releaseInfo:
+  releaseName: RyPaw Desktop ${version}
+  releaseNotes: |
+    See https://github.com/your-org/rypaw/releases/${version}

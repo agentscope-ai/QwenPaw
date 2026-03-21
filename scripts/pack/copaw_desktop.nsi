@@ -1,6 +1,6 @@
 ; RyPaw Desktop NSIS installer. Run makensis from repo root after
 ; building dist/win-unpacked (see scripts/pack/build_win.ps1).
-; Usage: makensis /DRYPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\RyPaw-Setup-1.2.3.exe scripts\pack\copaw_desktop.nsi
+; Usage: makensis /DRYPAW_VERSION=1.2.3 /DOUTPUT_EXE=dist\RyPaw-Setup-1.2.3.exe scripts\pack\rypaw_desktop.nsi
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING

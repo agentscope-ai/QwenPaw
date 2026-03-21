@@ -68,7 +68,7 @@ class MlxBackend(LocalBackend):
         except ImportError as e:
             raise ImportError(
                 "mlx-lm is required for the MLX backend. "
-                "Install it with: pip install 'copaw[mlx]'",
+                "Install it with: pip install rypaw[mlx]'",
             ) from e
 
         model_dir = _resolve_model_dir(model_path)

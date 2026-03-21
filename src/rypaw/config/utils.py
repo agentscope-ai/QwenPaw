@@ -288,13 +288,13 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    rypaw.channels), filtered by RYPAW_ENABLED_CHANNELS when set.
     """
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
     all_keys = tuple(registry.keys())
-    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    raw = os.environ.get("RYPAW_ENABLED_CHANNELS", "").strip()
     if not raw:
         return all_keys
     enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())

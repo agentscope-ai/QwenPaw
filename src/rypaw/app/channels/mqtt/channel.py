@@ -297,7 +297,7 @@ class MQTTChannel(BaseChannel):
         logger.info("Starting MQTT channel...")
         import uuid
 
-        client_id = f"copaw-mqtt-{uuid.uuid4()}"
+        client_id = f"rypaw-mqtt-{uuid.uuid4()}"
         self.client = mqtt.Client(
             client_id=client_id,
             protocol=mqtt.MQTTv311,

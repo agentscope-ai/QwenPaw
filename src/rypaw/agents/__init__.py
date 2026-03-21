@@ -15,7 +15,7 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
-# CoPawAgent is lazy-loaded so that importing agents.skills_manager (e.g.
+# RyPawAgent is lazy-loaded so that importing agents.skills_manager (e.g.
 # from CLI init_cmd/skills_cmd) does not pull react_agent, agentscope, tools.
 # pylint: disable=undefined-all-variable
 __all__ = ["CoPawAgent", "create_model_and_formatter"]

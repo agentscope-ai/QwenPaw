@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Create a temporary conda env, install CoPaw from a wheel, run conda-pack.
+Create a temporary conda env, install RyPaw from a wheel, run conda-pack.
 Used by build_macos.sh and build_win.ps1. Run from repo root.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ENV_PREFIX = "copaw_pack_"
+ENV_PREFIX = "rypaw_pack_"
 
 # Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
 # conda-unpack modifies Python source files to replace path prefixes, but uses
@@ -26,6 +26,36 @@ ENV_PREFIX = "copaw_pack_"
 # See: issue.md and https://github.com/conda/conda-pack/issues/154
 CONDA_UNPACK_AFFECTED_PACKAGES = [
     "huggingface_hub",  # file_download.py, _local_folder.py use Windows long path prefix
+]
+
+# Patterns to exclude from conda-pack to reduce warnings and package size
+# These files are not needed in a packaged application
+CONDA_PACK_EXCLUDES = [
+    # Terminal-related files (cause symlink warnings, not needed)
+    "share/terminfo/*",
+    "share/tabset/*",
+    # Conda activation scripts (not needed in packaged env)
+    "etc/conda/activate.d/*",
+    "etc/conda/deactivate.d/*",
+    "conda-meta/*",  # Metadata, not needed at runtime
+    # Documentation and examples
+    "share/doc/*",
+    "share/man/*",
+    "share/info/*",
+    # Build and test files
+    "include/*",  # C headers, not needed for pure Python
+    "*.a",  # Static libraries
+    "*.la",  # Libtool archives
+    "*.pyc",  # Compiled Python (will be regenerated)
+    "__pycache__/*",
+    "*.egg-info/*",
+    # NOTE: Do NOT exclude *.dist-info/* — some packages (e.g. mcp, fastmcp)
+    # call importlib.metadata.version() at import time and will crash without
+    # their dist-info metadata.
+    # Shell completions (not needed in GUI app)
+    "share/bash-completion/*",
+    "share/zsh/vendor-completions/*",
+    "share/fish/vendor_completions.d/*",
 ]
 
 
@@ -51,7 +81,7 @@ def _pick_wheel(wheel_arg: str | None) -> Path:
         return wheel_path
 
     wheels = sorted(
-        (REPO_ROOT / "dist").glob("copaw-*.whl"),
+        (REPO_ROOT / "dist").glob("rypaw-*.whl"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -64,7 +94,7 @@ def _pick_wheel(wheel_arg: str | None) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Conda-pack CoPaw (temp env).",
+        description="Conda-pack RyPaw (temp env).",
     )
     parser.add_argument(
         "--output",
@@ -89,7 +119,7 @@ def main() -> int:
         default=None,
         help=(
             "Wheel path to install. If omitted, pick the newest "
-            "dist/copaw-*.whl."
+            "dist/rypaw-*.whl."
         ),
     )
     parser.add_argument(
@@ -146,7 +176,7 @@ def main() -> int:
                 "-m",
                 "pip",
                 "install",
-                f"copaw[full] @ {wheel_uri}",
+                f"rypaw[full] @ {wheel_uri}",
             ],
         )
         print("Verifying certifi is installed (required for SSL)...")
@@ -210,8 +240,12 @@ def main() -> int:
             str(out_path),
             "-f",
         ]
+        # Add exclude patterns to reduce warnings and package size
+        for exclude in CONDA_PACK_EXCLUDES:
+            pack_cmd.extend(["--exclude", exclude])
         if args.format != "infer":
             pack_cmd.extend(["--format", args.format])
+        print("Running conda-pack with exclusions to reduce warnings...")
         _run(pack_cmd)
         print(f"Packed to {out_path}")
     finally:

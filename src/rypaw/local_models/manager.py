@@ -132,7 +132,7 @@ class LocalModelManager:
         except ImportError as e:
             raise ImportError(
                 "huggingface_hub is required for model downloads. "
-                "Install it with: pip install 'copaw[local]'",
+                "Install it with: pip install rypaw[local]'",
             ) from e
 
         _ensure_models_dir()
