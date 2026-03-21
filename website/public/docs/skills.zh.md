@@ -19,7 +19,7 @@
 
 | Skill 名称                   | 说明                                                                                                                                        | 来源                                                           |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **cron**                     | 定时任务管理。通过 `copaw cron` 或控制台 Cron Jobs 创建、查询、暂停、恢复、删除定时任务，按时间表执行并把结果发到频道。                     | 自建                                                           |
+| **cron**                     | 定时任务管理。通过 `rypaw cron` 或控制台 Cron Jobs 创建、查询、暂停、恢复、删除定时任务，按时间表执行并把结果发到频道。                     | 自建                                                           |
 | **file_reader**              | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由下方专用 Skill 处理。                                      | 自建                                                           |
 | **dingtalk_channel_connect** | 辅助完成钉钉频道接入流程：引导进入开发者后台、填写必要信息，帮助用户获取 `Client ID` 与 `Client Secret`，并提示用户完成必要的手动配置步骤。 | 自建                                                           |
 | **himalaya**                 | 通过 CLI 管理邮件（IMAP/SMTP）。使用 `himalaya` 列出、阅读、搜索、整理邮件，支持多账户与附件管理。                                          | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
@@ -48,13 +48,13 @@
 
 ## 内置 Skill：Cron（定时任务）
 
-首次运行时会从包里把 **Cron** 同步到 `~/.copaw/active_skills/cron/`。它提供「按时间表执行任务并把结果发到频道」的能力；具体任务的增删改查用 [CLI](./cli) 的 `copaw cron` 或控制台 **Control → Cron Jobs** 完成，不需要手写 cron 以外的配置。
+首次运行时会从包里把 **Cron** 同步到 `~/.copaw/active_skills/cron/`。它提供「按时间表执行任务并把结果发到频道」的能力；具体任务的增删改查用 [CLI](./cli) 的 `rypaw cron` 或控制台 **Control → Cron Jobs** 完成，不需要手写 cron 以外的配置。
 
 常用操作：
 
-- 创建任务：`copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
-- 查看列表：`copaw cron list`
-- 查看状态：`copaw cron state <job_id>`
+- 创建任务：`rypaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
+- 查看列表：`rypaw cron list`
+- 查看状态：`rypaw cron state <job_id>`
 
 ---
 

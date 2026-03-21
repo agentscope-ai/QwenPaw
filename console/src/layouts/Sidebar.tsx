@@ -69,22 +69,22 @@ const KEY_TO_PATH: Record<string, string> = {
 };
 
 const UPDATE_MD: Record<string, string> = {
-  zh: `### CoPaw如何更新
+  zh: `### RyPaw如何更新
 
-要更新 CoPaw 到最新版本，可根据你的安装方式选择对应方法：
+要更新 RyPaw 到最新版本，可根据你的安装方式选择对应方法：
 
 1. 如果你使用的是一键安装脚本，直接重新运行安装命令即可自动升级。
 
 2. 如果你是通过 pip 安装，在终端中执行以下命令升级：
 
 \`\`\`
-pip install --upgrade copaw
+pip install --upgrade rypaw
 \`\`\`
 
 3. 如果你是从源码安装，进入项目目录并拉取最新代码后重新安装：
 
 \`\`\`
-cd CoPaw
+cd RyPaw
 git pull origin main
 pip install -e .
 \`\`\`
@@ -92,28 +92,28 @@ pip install -e .
 4. 如果你使用的是 Docker，拉取最新镜像并重启容器：
 
 \`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker pull rypaw:latest
+docker run -p 127.0.0.1:8088:8088 -v rypaw-data:/app/working rypaw:latest
 \`\`\`
 
-升级后重启服务 copaw app。`,
+升级后重启服务 rypaw app。`,
 
-  ru: `### Как обновить CoPaw
+  ru: `### Как обновить RyPaw
 
-Чтобы обновить CoPaw, выберите способ в зависимости от типа установки:
+Чтобы обновить RyPaw, выберите способ в зависимости от типа установки:
 
 1. Если вы устанавливали через однострочный скрипт, повторно запустите установщик для обновления.
 
 2. Если устанавливали через pip, выполните:
 
 \`\`\`
-pip install --upgrade copaw
+pip install --upgrade rypaw
 \`\`\`
 
 3. Если устанавливали из исходников, получите последние изменения и переустановите:
 
 \`\`\`
-cd CoPaw
+cd RyPaw
 git pull origin main
 pip install -e .
 \`\`\`
@@ -121,28 +121,28 @@ pip install -e .
 4. Если используете Docker, загрузите новый образ и перезапустите контейнер:
 
 \`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker pull rypaw:latest
+docker run -p 127.0.0.1:8088:8088 -v rypaw-data:/app/working rypaw:latest
 \`\`\`
 
-После обновления перезапустите сервис с помощью \`copaw app\`.`,
+После обновления перезапустите сервис с помощью \`rypaw app\`.`,
 
-  en: `### How to update CoPaw
+  en: `### How to update RyPaw
 
-To update CoPaw, use the method matching your installation type:
+To update RyPaw, use the method matching your installation type:
 
 1. If installed via one-line script, re-run the installer to upgrade.
 
 2. If installed via pip, run:
 
 \`\`\`
-pip install --upgrade copaw
+pip install --upgrade rypaw
 \`\`\`
 
 3. If installed from source, pull the latest code and reinstall:
 
 \`\`\`
-cd CoPaw
+cd RyPaw
 git pull origin main
 pip install -e .
 \`\`\`
@@ -150,11 +150,11 @@ pip install -e .
 4. If using Docker, pull the latest image and restart the container:
 
 \`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker pull rypaw:latest
+docker run -p 127.0.0.1:8088:8088 -v rypaw-data:/app/working rypaw:latest
 \`\`\`
 
-After upgrading, restart the service with \`copaw app\`.`,
+After upgrading, restart the service with \`rypaw app\`.`,
 };
 
 interface SidebarProps {
@@ -258,12 +258,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       ? "ru"
       : "en";
     const faqLang = lang === "zh" ? "zh" : "en";
-    const url = `https://copaw.agentscope.io/docs/faq.${faqLang}.md`;
+    const url = `https://rypaw.agentscope.io/docs/faq.${faqLang}.md`;
     fetch(url, { cache: "no-cache" })
       .then((res) => (res.ok ? res.text() : Promise.reject()))
       .then((text) => {
-        const zhPattern = /###\s*CoPaw如何更新[\s\S]*?(?=\n###|$)/;
-        const enPattern = /###\s*How to update CoPaw[\s\S]*?(?=\n###|$)/;
+        const zhPattern = /###\s*RyPaw如何更新[\s\S]*?(?=\n###|$)/;
+        const enPattern = /###\s*How to update RyPaw[\s\S]*?(?=\n###|$)/;
         const match = text.match(faqLang === "zh" ? zhPattern : enPattern);
         setUpdateMarkdown(
           match && lang !== "ru"
@@ -367,7 +367,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       <div className={styles.siderTop}>
         {!collapsed && (
           <div className={styles.logoWrapper}>
-            <img src="/logo.png" alt="CoPaw" className={styles.logoImg} />
+            <img src="/logo.svg" alt="RyPaw" className={styles.logoImg} />
             {version && (
               <Badge dot={!!hasUpdate} color="red" offset={[4, 18]}>
                 <span

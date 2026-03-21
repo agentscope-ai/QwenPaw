@@ -179,7 +179,7 @@
 
 ## Daemon 命令（运维）
 
-在对话中发送 `/daemon <子命令>` 或在终端执行 `copaw daemon <子命令>`，可查看状态、最近日志、版本等，无需经过 Agent。支持短名（如
+在对话中发送 `/daemon <子命令>` 或在终端执行 `rypaw daemon <子命令>`，可查看状态、最近日志、版本等，无需经过 Agent。支持短名（如
 `/status` 等价于 `/daemon status`）。
 
 | 命令                                | 说明                                                                   |

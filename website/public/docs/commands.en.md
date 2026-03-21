@@ -179,7 +179,7 @@ User requested help building a user authentication system, login endpoint implem
 
 ## Daemon Commands (Ops)
 
-In chat, send `/daemon <subcommand>` or use short names (e.g., `/status` is equivalent to `/daemon status`). From the terminal, run `copaw daemon <subcommand>`. These run without going through the Agent.
+In chat, send `/daemon <subcommand>` or use short names (e.g., `/status` is equivalent to `/daemon status`). From the terminal, run `rypaw daemon <subcommand>`. These run without going through the Agent.
 
 | Command                             | Description                                                                                    |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------- |

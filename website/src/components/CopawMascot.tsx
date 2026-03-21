@@ -1,5 +1,5 @@
 /**
- * CoPaw mascot (same as logo symbol). Used in Hero and Nav.
+ * RyPaw mascot (same as logo symbol). Used in Hero and Nav.
  */
 import { CatPawIcon } from "./CatPawIcon";
 

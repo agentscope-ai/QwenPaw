@@ -1,6 +1,6 @@
 # MCP
 
-**MCP（模型上下文协议，Model Context Protocol）** 允许 CoPaw 连接到外部 MCP 服务器并使用它们的工具。你可以通过控制台添加 MCP 客户端来扩展 CoPaw 的能力。
+**MCP（模型上下文协议，Model Context Protocol）** 允许 RyPaw 连接到外部 MCP 服务器并使用它们的工具。你可以通过控制台添加 MCP 客户端来扩展 RyPaw 的能力。
 
 ---
 
@@ -29,7 +29,7 @@ node --version
 
 ## 配置格式
 
-CoPaw 支持三种 JSON 格式导入 MCP 客户端：
+RyPaw 支持三种 JSON 格式导入 MCP 客户端：
 
 ### 格式 1：标准 mcpServers 格式（推荐）
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from copaw.providers import ollama_manager
+from rypaw.providers import ollama_manager
 
 
 def _make_fake_ollama(timeout_box: dict, response: dict):

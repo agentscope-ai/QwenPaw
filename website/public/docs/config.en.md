@@ -16,14 +16,14 @@ By default, all config and data live in one folder — the **working directory**
 
 - **`~/.copaw`** (the `.copaw` folder under your home directory)
 
-When you run `copaw init`, this directory is created automatically. Here's what
+When you run `rypaw init`, this directory is created automatically. Here's what
 you'll find inside:
 
 | File / Directory     | Purpose                                                            |
 | -------------------- | ------------------------------------------------------------------ |
 | `config.json`        | Channel on/off and credentials, heartbeat settings, language, etc. |
 | `HEARTBEAT.md`       | Prompt content used each heartbeat run                             |
-| `jobs.json`          | Cron job list (managed via `copaw cron` or API)                    |
+| `jobs.json`          | Cron job list (managed via `rypaw cron` or API)                    |
 | `chats.json`         | Chat/session list (file storage mode)                              |
 | `token_usage.json`   | LLM token usage records (by date and model)                        |
 | `active_skills/`     | Skills currently active and used by the agent                      |
@@ -34,7 +34,7 @@ you'll find inside:
 
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
-> generic "You are a helpful assistant" prompt. Run `copaw init` to auto-copy
+> generic "You are a helpful assistant" prompt. Run `rypaw init` to auto-copy
 > them based on your language choice (`zh` / `en` / `ru`). You can also
 > change the language later via the Console (Agent → Configuration).
 
@@ -65,7 +65,7 @@ Example — use a different working dir for this shell:
 
 ```bash
 export COPAW_WORKING_DIR=/home/me/my_copaw
-copaw app
+rypaw app
 ```
 
 Config, HEARTBEAT, jobs, memory, etc. will be read/written under
@@ -220,7 +220,7 @@ Each channel has a common base and channel-specific fields.
 | `agents.defaults.heartbeat`          | object \| null | See below | Heartbeat configuration                                                 |
 | `agents.running`                     | object         | See below | Agent runtime behavior configuration                                    |
 | `agents.language`                    | string         | `"zh"`    | Language for agent MD files (`"zh"` / `"en"` / `"ru"`)                  |
-| `agents.installed_md_files_language` | string \| null | `null`    | Tracks which language's MD files are installed; managed by `copaw init` |
+| `agents.installed_md_files_language` | string \| null | `null`    | Tracks which language's MD files are installed; managed by `rypaw init` |
 
 **`agents.running`** — Agent runtime behavior
 
@@ -252,11 +252,11 @@ Each channel has a common base and channel-specific fields.
 
 | Field  | Type           | Default | Description                   |
 | ------ | -------------- | ------- | ----------------------------- |
-| `host` | string \| null | `null`  | Last host used by `copaw app` |
-| `port` | int \| null    | `null`  | Last port used by `copaw app` |
+| `host` | string \| null | `null`  | Last host used by `rypaw app` |
+| `port` | int \| null    | `null`  | Last port used by `rypaw app` |
 
-This is auto-saved every time you run `copaw app`. Other CLI subcommands
-(like `copaw cron`) use this to know where to send requests.
+This is auto-saved every time you run `rypaw app`. Other CLI subcommands
+(like `rypaw cron`) use this to know where to send requests.
 
 ---
 
@@ -284,9 +284,9 @@ channel/user/session.
 
 ## LLM Providers
 
-CoPaw needs an LLM provider to work. You can set it up in three ways:
+RyPaw needs an LLM provider to work. You can set it up in three ways:
 
-- **`copaw init`** — interactive wizard, the easiest way
+- **`rypaw init`** — interactive wizard, the easiest way
 - **Console UI** — click through the settings page at runtime
 - **API** — `PUT /providers/{id}` and `PUT /providers/active_llm`
 
@@ -318,11 +318,11 @@ Then choose which provider + model to activate:
 | `provider_id` | Which provider to use (e.g. `dashscope`) |
 | `model`       | Which model to use (e.g. `qwen3-max`)    |
 
-> **Tip:** Run `copaw init` and follow the prompts — it will list available
+> **Tip:** Run `rypaw init` and follow the prompts — it will list available
 > models for each provider so you can pick one directly.
 >
 > **Note:** You are responsible for ensuring the API key and base URL are valid.
-> CoPaw does not verify whether the key is correct or has sufficient quota —
+> RyPaw does not verify whether the key is correct or has sufficient quota —
 > make sure the chosen provider and model are accessible.
 
 ---
@@ -332,7 +332,7 @@ Then choose which provider + model to activate:
 Some tools need extra API keys (e.g. `TAVILY_API_KEY` for web search). You can
 manage them in three ways:
 
-- **`copaw init`** — prompts "Configure environment variables?" during setup
+- **`rypaw init`** — prompts "Configure environment variables?" during setup
 - **Console UI** — edit on the settings page
 - **API** — `GET/PUT/DELETE /envs`
 
@@ -340,7 +340,7 @@ Set variables are auto-loaded at app startup, so all tools and child processes
 can read them via `os.environ`.
 
 > **Note:** You are responsible for ensuring the values (e.g. third-party API
-> keys) are valid. CoPaw only stores and injects them — it does not verify
+> keys) are valid. RyPaw only stores and injects them — it does not verify
 > correctness.
 
 ---
@@ -351,7 +351,7 @@ Skills extend the agent's capabilities. They live in three directories:
 
 | Directory                     | Purpose                                                             |
 | ----------------------------- | ------------------------------------------------------------------- |
-| Built-in (in source code)     | Shipped with CoPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
+| Built-in (in source code)     | Shipped with RyPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
 | `~/.copaw/customized_skills/` | User-created skills                                                 |
 | `~/.copaw/active_skills/`     | Currently active skills (synced from built-in + customized)         |
 
@@ -360,15 +360,15 @@ and `description`), and optional `references/` and `scripts/` subdirectories.
 
 Manage skills via:
 
-- `copaw init` (choose all / none / custom during setup)
-- `copaw skills config` (interactive toggle)
+- `rypaw init` (choose all / none / custom during setup)
+- `rypaw skills config` (interactive toggle)
 - API endpoints (`/skills/...`)
 
 ---
 
 ## Memory
 
-CoPaw has persistent cross-conversation memory: it automatically compresses context and saves key information to Markdown files for long-term retention. See [Memory](./memory.en.md) for full details.
+RyPaw has persistent cross-conversation memory: it automatically compresses context and saves key information to Markdown files for long-term retention. See [Memory](./memory.en.md) for full details.
 
 Memory files are stored in two locations:
 
@@ -405,7 +405,7 @@ Memory search relies on vector embeddings for semantic retrieval. Configure via 
   via CLI/API.
 - Agent personality is defined by Markdown files in the working directory:
   **SOUL.md** + **AGENTS.md** (required).
-- LLM providers are configured via `copaw init` or the console UI.
+- LLM providers are configured via `rypaw init` or the console UI.
 - Config changes to channels are **auto-reloaded** without restart (polled
   every 2 seconds).
 - Call the Agent API: **POST** `/agent/process`, JSON body, SSE streaming;

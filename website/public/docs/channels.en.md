@@ -1,12 +1,12 @@
 # Channels
 
-A **channel** is where you talk to CoPaw: connect DingTalk and it replies
+A **channel** is where you talk to RyPaw: connect DingTalk and it replies
 in DingTalk; same for QQ, etc. If that term is new, see [Introduction](./intro).
 
 Two ways to configure channels:
 
 - **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
-- **Edit `config.json` directly** — Default `~/.copaw/config.json` (created by `copaw init`), set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
+- **Edit `config.json` directly** — Default `~/.copaw/config.json` (created by `rypaw init`), set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
 
 All channels have common fields below:
 
@@ -58,7 +58,7 @@ Step-by-step:
 
    ![client](https://img.alicdn.com/imgextra/i3/O1CN01JsRrwx1hJImLfM7O1_!!6000000004256-2-tps-2809-1585.png)
 
-7. (Optional) **Add your server's IP to the whitelist** — this is required for features that call the DingTalk Open API (e.g. downloading images and files sent by users). Go to **"Security & Compliance → IP Whitelist"** in your app settings and add the public IP of the machine running CoPaw. You can find your public IP by running `curl ifconfig.me` in a terminal. If the IP is not whitelisted, image and file downloads will fail with a `Forbidden.AccessDenied.IpNotInWhiteList` error.
+7. (Optional) **Add your server's IP to the whitelist** — this is required for features that call the DingTalk Open API (e.g. downloading images and files sent by users). Go to **"Security & Compliance → IP Whitelist"** in your app settings and add the public IP of the machine running RyPaw. You can find your public IP by running `curl ifconfig.me` in a terminal. If the IP is not whitelisted, image and file downloads will fail with a `Forbidden.AccessDenied.IpNotInWhiteList` error.
 
 ### Link the app
 
@@ -87,7 +87,7 @@ In `config.json`, find `channels.dingtalk` and fill in the corresponding informa
 - Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run
-`copaw app`.
+`rypaw app`.
 
 ### Find the created app
 
@@ -131,7 +131,7 @@ The Feishu channel receives messages via **WebSocket long connection** (no publi
 
 3. Fill **App ID** and **App Secret** in `config.json` (see "Fill config.json" below) and save
 
-4. Run **`copaw app`** to start CoPAW
+4. Run **`rypaw app`** to start CoPAW
 
 5. Back in the Feishu console, enable **Bot** under **Add Features**
 
@@ -171,7 +171,7 @@ The Feishu channel receives messages via **WebSocket long connection** (no publi
 
 7. Under **Events & Callbacks**, click **Event configuration**, and choose **Receive events through persistent connection** as the subscription mode (no public IP needed)
 
-> **Note:** Follow this order: Configure App ID/Secret → start `copaw app` → then configure the long connection in the Feishu console. If errors persist, try stopping the copaw service and restarting `copaw app`.
+> **Note:** Follow this order: Configure App ID/Secret → start `rypaw app` → then configure the long connection in the Feishu console. If errors persist, try stopping the copaw service and restarting `rypaw app`.
 
 ![WebSocket](https://img.alicdn.com/imgextra/i3/O1CN01XdU7hK1fVY8gIDhZK_!!6000000004012-2-tps-4082-2126.png)
 
@@ -206,7 +206,7 @@ Find `channels.feishu`（default as `~/.copaw/config.json`） in `config.json`. 
 }
 ```
 
-Other fields (encrypt_key, verification_token, media_dir) are optional; with WebSocket mode you can omit them (defaults apply). Then `pip install lark-oapi` and run `copaw app`. If your environment uses a SOCKS proxy, also install `python-socks` (for example, `pip install python-socks`), otherwise you may see: `python-socks is required to use a SOCKS proxy`.
+Other fields (encrypt_key, verification_token, media_dir) are optional; with WebSocket mode you can omit them (defaults apply). Then `pip install lark-oapi` and run `rypaw app`. If your environment uses a SOCKS proxy, also install `python-socks` (for example, `pip install python-socks`), otherwise you may see: `python-socks is required to use a SOCKS proxy`.
 
 > **Note:** You can also fill in **App ID** and **App Secret** in the Console UI, but you must restart the copaw service before continuing with the long-connection configuration.
 > ![console](https://img.alicdn.com/imgextra/i1/O1CN01JInbHT1ei5MdfkMGv_!!6000000003904-2-tps-4082-2126.png)
@@ -274,7 +274,7 @@ The app polls the local iMessage database for new messages and sends replies on 
    > cp ./bin/imsg /usr/local/bin/
    > ```
 
-3. For CoPaw to read iMessage data, **Terminal** (or the app you use to run `copaw app`) and **Messages** need **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access).
+3. For RyPaw to read iMessage data, **Terminal** (or the app you use to run `rypaw app`) and **Messages** need **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access).
 
 4. Set the iMessage database path. The default is `~/Library/Messages/chat.db`; use this unless you've moved the database. You can configure it in either of these ways:
 
@@ -400,7 +400,7 @@ If you need a proxy (e.g. for network restrictions):
 
 5. In **Developer settings**, get **AppID** and **AppSecret** (ClientSecret) and fill them into config (see below). Add your server’s **IP to the whitelist** — only whitelisted IPs can call the Open API outside sandbox.
 
-   > **Tip:** If you are using ModelScope Creative Space to deploy CoPaw, the IP whitelist for QQ channel should be: `47.92.200.108`
+   > **Tip:** If you are using ModelScope Creative Space to deploy RyPaw, the IP whitelist for QQ channel should be: `47.92.200.108`
 
 ![1](https://img.alicdn.com/imgextra/i4/O1CN012UQWI21cnvBAUcz54_!!6000000003646-2-tps-4082-2126.png)
 
@@ -579,7 +579,7 @@ JSON message format
 
 ## Matrix
 
-The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio](https://github.com/poljar/matrix-nio) library. It supports text messaging in both direct messages and group rooms.
+The Matrix channel connects RyPaw to any Matrix homeserver using the [matrix-nio](https://github.com/poljar/matrix-nio) library. It supports text messaging in both direct messages and group rooms.
 
 ### Create a Matrix bot account and get an access token
 
@@ -627,7 +627,7 @@ Find `channels.matrix` in `config.json`:
 }
 ```
 
-Save the file; the channel will reload automatically if CoPaw is already running.
+Save the file; the channel will reload automatically if RyPaw is already running.
 
 ### Chat with the bot
 
@@ -838,9 +838,9 @@ def build_agent_request_from_native(self, native_payload):
 ### Custom channel directory and CLI
 
 - **Directory**: Channels under the working dir at `custom_channels/` (default `~/.copaw/custom_channels/`) are loaded at runtime. The manager scans `.py` files and packages (subdirs with `__init__.py`), loads `BaseChannel` subclasses, and registers them by the class’s `channel` attribute.
-- **Install**: `copaw channels install <key>` creates a template `<key>.py` in `custom_channels/` for you to edit, or use `--path <local path>` / `--url <URL>` to copy a channel module from disk or the web. `copaw channels add <key>` does the same and also adds a default entry to config (with optional `--path`/`--url`).
-- **Remove**: `copaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
-- **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `copaw channels config` for interactive setup or edit config by hand.
+- **Install**: `rypaw channels install <key>` creates a template `<key>.py` in `custom_channels/` for you to edit, or use `--path <local path>` / `--url <URL>` to copy a channel module from disk or the web. `rypaw channels add <key>` does the same and also adds a default entry to config (with optional `--path`/`--url`).
+- **Remove**: `rypaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
+- **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `rypaw channels config` for interactive setup or edit config by hand.
 
 ---
 

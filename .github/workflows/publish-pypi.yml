@@ -35,9 +35,9 @@ jobs:
 
       - name: Copy console build into package
         run: |
-          rm -rf src/copaw/console/*
-          mkdir -p src/copaw/console
-          cp -R console/dist/* src/copaw/console/
+          rm -rf src/rypaw/console/*
+          mkdir -p src/rypaw/console
+          cp -R console/dist/* src/rypaw/console/
 
       - name: Install build dependencies
         run: |

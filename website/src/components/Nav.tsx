@@ -200,11 +200,11 @@ export function Nav({
             <span>{t(lang, "nav.lang")}</span>
           </button>
           <a
-            href="https://github.com/agentscope-ai/CoPaw"
+            href="https://github.com/agentscope-ai/RyPaw"
             target="_blank"
             rel="noopener noreferrer"
             className={linkClass}
-            title="CoPaw on GitHub"
+            title="RyPaw on GitHub"
           >
             <Github size={18} strokeWidth={1.5} aria-hidden />
             <span>{t(lang, "nav.github")}</span>
@@ -294,12 +294,12 @@ export function Nav({
           <Globe size={18} /> {t(lang, "nav.lang")}
         </button>
         <a
-          href="https://github.com/agentscope-ai/CoPaw"
+          href="https://github.com/agentscope-ai/RyPaw"
           target="_blank"
           rel="noopener noreferrer"
           className={linkClass}
           onClick={() => setOpen(false)}
-          title="CoPaw on GitHub"
+          title="RyPaw on GitHub"
         >
           <Github size={18} /> {t(lang, "nav.github")}
         </a>

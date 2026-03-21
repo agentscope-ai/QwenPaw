@@ -15,29 +15,29 @@ export const i18n: Record<Lang, Record<string, string>> = {
       "你的AI个人助理；安装极简、本地与云上均可部署；支持多端接入、能力轻松扩展。",
     "hero.cta": "查看文档",
     "follow.title": "关注我们",
-    "follow.sub": "第一时间获取 CoPaw 最新动态",
+    "follow.sub": "第一时间获取 RyPaw 最新动态",
     "follow.xiaohongshu": "小红书：",
     "follow.x": "X：",
-    "brandstory.title": "Why CoPaw？",
+    "brandstory.title": "Why RyPaw？",
     "brandstory.para1":
-      "CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 Co Personal Agent Workstation（协同个人智能体工作台）。",
+      "RyPaw 既是「你的搭档小爪子」（co-paw），也寓意 Co Personal Agent Workstation（协同个人智能体工作台）。",
     "brandstory.para2":
       "我们希望它不是冰冷的工具，而是一只随时准备帮忙的温暖「小爪子」，是你数字生活中最默契的伙伴。",
     "features.title": "核心能力",
     "features.channels.title": "全域触达",
     "features.channels.desc":
-      "支持钉钉、飞书、QQ、Discord、iMessage 等频道，一个 CoPaw 按需连接。",
+      "支持钉钉、飞书、QQ、Discord、iMessage 等频道，一个 RyPaw 按需连接。",
     "features.private.title": "由你掌控",
     "features.private.desc":
       "记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。",
     "features.skills.title": "Skills 扩展",
-    "features.skills.desc": "内置定时任务，自定义技能目录，CoPaw 自动加载。",
+    "features.skills.desc": "内置定时任务，自定义技能目录，RyPaw 自动加载。",
     "testimonials.title": "社区怎么说",
     "testimonials.viewAll": "查看全部",
-    "testimonials.1": "CoPaw 就该这样：多频道一个入口，Python 好改好部署。",
+    "testimonials.1": "RyPaw 就该这样：多频道一个入口，Python 好改好部署。",
     "testimonials.2": "定时和心跳很实用，Skills 自己加，数据都在本地。",
     "testimonials.3": "想完全掌控的团队用着很顺手。",
-    "usecases.title": "你可以用 CoPaw 做什么",
+    "usecases.title": "你可以用 RyPaw 做什么",
     "usecases.sub": "",
     "usecases.category.social": "社交媒体",
     "usecases.category.creative": "创意与构建",
@@ -52,15 +52,15 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "usecases.social.3":
       "分析小红书、知乎等账号的内容规律与特点，为内容创作提供参考。",
     "usecases.creative.1":
-      "睡前向 CoPaw 说明目标并设定自动执行，次日即可获得可用的雏形。",
+      "睡前向 RyPaw 说明目标并设定自动执行，次日即可获得可用的雏形。",
     "usecases.creative.2":
-      "从选题、找素材到确定方向，CoPaw 可协助完成视频内容创作全流程。",
+      "从选题、找素材到确定方向，RyPaw 可协助完成视频内容创作全流程。",
     "usecases.productivity.1":
       "每日汇总订阅邮件与 Newsletter 精华，并推送至钉钉、飞书或 QQ 会话。",
     "usecases.productivity.2":
       "从邮件与日历自动整理联系人，支持用自然语言查询联系人及往来记录。",
     "usecases.productivity.3":
-      "记录饮食与身体反应，由 CoPaw 定期分析并呈现规律。",
+      "记录饮食与身体反应，由 RyPaw 定期分析并呈现规律。",
     "usecases.research.1":
       "自动追踪科技与 AI 公司财报与重要资讯，筛选重点并生成摘要。",
     "usecases.research.2":
@@ -74,7 +74,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
       "几分钟，获得专属AI助理。一行命令，或双击桌面应用，自己动手，轻松搞定。",
     "quickstart.hintBefore": "安装 → 初始化 → 启动；频道配置见 ",
     "quickstart.hintLink": "文档",
-    "quickstart.hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 CoPaw。",
+    "quickstart.hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 RyPaw。",
     "quickstart.method.pip": "pip",
     "quickstart.method.script": "脚本安装",
     "quickstart.method.docker": "Docker",
@@ -82,7 +82,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.method.desktop": "桌面应用",
     "quickstart.desc.pip": "适合自行管理 Python 环境的用户",
     "quickstart.desc.script":
-      "无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 CoPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。",
+      "无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 RyPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。",
     "quickstart.desc.docker":
       "使用官方 Docker 镜像快速部署，隔离环境、便于管理",
     "quickstart.desc.cloud": "云端一键部署或在线运行，无需本地环境配置",
@@ -103,7 +103,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.desktop.viewGuide": "查看使用指南",
     "quickstart.desktop.recommended": "推荐",
     "quickstart.badgeBeta": "Beta",
-    footer: "CoPaw — 懂你所需，伴你左右",
+    footer: "RyPaw — 懂你所需，伴你左右",
     "footer.poweredBy.p1": "由 ",
     "footer.poweredBy.p2": " 基于 ",
     "footer.poweredBy.p3": "、",
@@ -144,14 +144,14 @@ export const i18n: Record<Lang, Record<string, string>> = {
       "Your Personal AI Assistant; easy to install, deploy on your own machine or on the cloud; supports multiple chat apps with easily extensible capabilities.",
     "hero.cta": "Read the docs",
     "follow.title": "Follow us",
-    "follow.sub": "Follow us for the latest CoPaw updates",
+    "follow.sub": "Follow us for the latest RyPaw updates",
     "follow.xiaohongshu": "Rednote:",
     "follow.x": "X:",
-    "brandstory.title": "Why CoPaw?",
+    "brandstory.title": "Why RyPaw?",
     "brandstory.para1":
-      'CoPaw represents both a Co Personal Agent Workstation and a "co-paw"—a partner always by your side.',
+      'RyPaw represents both a Co Personal Agent Workstation and a "co-paw"—a partner always by your side.',
     "brandstory.para2":
-      'More than just a cold tool, CoPaw is a warm "little paw" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life.',
+      'More than just a cold tool, RyPaw is a warm "little paw" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life.',
     "features.title": "Key capabilities",
     "features.channels.title": "Every channel",
     "features.channels.desc":
@@ -169,7 +169,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "testimonials.2":
       "Cron and heartbeat are super practical. Add your own skills; data stays local.",
     "testimonials.3": "Teams who want full control love it.",
-    "usecases.title": "What you can do with CoPaw",
+    "usecases.title": "What you can do with RyPaw",
     "usecases.sub": "",
     "usecases.category.social": "Social media",
     "usecases.category.creative": "Creative & building",
@@ -184,15 +184,15 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "usecases.social.3":
       "Analyze your Xiaohongshu or Zhihu account to uncover content patterns and inform what to post next.",
     "usecases.creative.1":
-      "Describe your goal to CoPaw and set it to run overnight; get a working draft by the next day.",
+      "Describe your goal to RyPaw and set it to run overnight; get a working draft by the next day.",
     "usecases.creative.2":
-      "From topic selection and material gathering to direction setting, CoPaw supports the full video content workflow.",
+      "From topic selection and material gathering to direction setting, RyPaw supports the full video content workflow.",
     "usecases.productivity.1":
       "Daily digests of newsletters and important emails, delivered to your DingTalk, Feishu or QQ chat.",
     "usecases.productivity.2":
       "Contacts surfaced from email and calendar, with natural-language search for people and past interactions.",
     "usecases.productivity.3":
-      "Log diet and symptoms; CoPaw analyzes and surfaces patterns over time.",
+      "Log diet and symptoms; RyPaw analyzes and surfaces patterns over time.",
     "usecases.research.1":
       "Track tech and AI company earnings and news; get key points and summaries automatically.",
     "usecases.research.2":
@@ -205,7 +205,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.serviceNotice":
       "Your personal AI assistant in minutes. One command, or double-click the app—do it yourself, done easily.",
     "quickstart.hintBefore":
-      "Install → init → start. Configure channels to use CoPaw on DingTalk, Feishu, QQ, etc. See ",
+      "Install → init → start. Configure channels to use RyPaw on DingTalk, Feishu, QQ, etc. See ",
     "quickstart.hintLink": "docs",
     "quickstart.hintAfter": ".",
     "quickstart.method.pip": "pip",
@@ -215,7 +215,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.method.desktop": "Desktop",
     "quickstart.desc.pip": "If you prefer managing Python yourself",
     "quickstart.desc.script":
-      "No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.",
+      "No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install RyPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.",
     "quickstart.desc.docker":
       "Quick deployment with official Docker images, isolated environment and easy management",
     "quickstart.desc.cloud":
@@ -237,7 +237,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.desktop.viewGuide": "View User Guide",
     "quickstart.desktop.recommended": "recommended",
     "quickstart.badgeBeta": "Beta",
-    footer: "CoPaw — Works for you, grows with you",
+    footer: "RyPaw — Works for you, grows with you",
     "footer.poweredBy.p1": "Built by ",
     "footer.poweredBy.p2": " with ",
     "footer.poweredBy.p3": ", ",

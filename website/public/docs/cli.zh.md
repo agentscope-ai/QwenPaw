@@ -1,6 +1,6 @@
 # CLI
 
-`copaw` 是 CoPaw 的命令行工具。本页按「上手 → 配置 → 日常管理」的顺序组织——
+`copaw` 是 RyPaw 的命令行工具。本页按「上手 → 配置 → 日常管理」的顺序组织——
 新用户从头读，老用户直接跳到需要的章节。
 
 > 还不清楚「频道」「心跳」「定时任务」是什么？先看 [项目介绍](./intro)。
@@ -9,16 +9,16 @@
 
 ## 快速上手
 
-第一次用 CoPaw，只需要这两条命令。
+第一次用 RyPaw，只需要这两条命令。
 
-### copaw init
+### rypaw init
 
 首次初始化，交互式引导你完成所有配置。
 
 ```bash
-copaw init              # 交互式初始化（推荐新用户）
-copaw init --defaults   # 不交互，用默认值（适合脚本）
-copaw init --force      # 覆盖已有配置文件
+rypaw init              # 交互式初始化（推荐新用户）
+rypaw init --defaults   # 不交互，用默认值（适合脚本）
+rypaw init --force      # 覆盖已有配置文件
 ```
 
 **交互流程（按顺序）：**
@@ -32,16 +32,16 @@ copaw init --force      # 覆盖已有配置文件
 7. **环境变量** —— 可选添加工具所需的键值对。
 8. **HEARTBEAT.md** —— 在默认编辑器中编辑心跳检查清单。
 
-### copaw app
+### rypaw app
 
-启动 CoPaw 服务。频道、定时任务、控制台等所有运行时功能都依赖此服务。
+启动 RyPaw 服务。频道、定时任务、控制台等所有运行时功能都依赖此服务。
 
 ```bash
-copaw app                             # 默认 127.0.0.1:8088
-copaw app --host 0.0.0.0 --port 9090 # 自定义地址
-copaw app --reload                    # 代码改动自动重载（开发用）
-copaw app --workers 4                 # 多 worker 模式
-copaw app --log-level debug           # 详细日志
+rypaw app                             # 默认 127.0.0.1:8088
+rypaw app --host 0.0.0.0 --port 9090 # 自定义地址
+rypaw app --reload                    # 代码改动自动重载（开发用）
+rypaw app --workers 4                 # 多 worker 模式
+rypaw app --log-level debug           # 详细日志
 ```
 
 | 选项          | 默认值      | 说明                                                          |
@@ -54,10 +54,10 @@ copaw app --log-level debug           # 详细日志
 
 ### 控制台
 
-`copaw app` 启动后，在浏览器打开 `http://127.0.0.1:8088/` 即可进入 **控制台** ——
+`rypaw app` 启动后，在浏览器打开 `http://127.0.0.1:8088/` 即可进入 **控制台** ——
 一个用于对话、频道、定时任务、技能、模型等的 Web 管理界面。详见 [控制台](./console)。
 
-若未构建前端，根路径会返回类似 `{"message": "CoPaw Web Console is not available."}` 的提示信息（实际文案可能调整），API 仍可正常使用。
+若未构建前端，根路径会返回类似 `{"message": "RyPaw Web Console is not available."}` 的提示信息（实际文案可能调整），API 仍可正常使用。
 
 **构建方式：** 在项目 `console/` 目录下执行 `npm ci && npm run build`，
 然后将构建产物复制到包目录：
@@ -70,11 +70,11 @@ Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 
 | 命令                         | 说明                                                                           |
 | ---------------------------- | ------------------------------------------------------------------------------ |
-| `copaw daemon status`        | 状态（配置、工作目录、记忆服务）                                               |
-| `copaw daemon restart`       | 打印说明（在对话中用 /daemon restart 可进程内重载）                            |
-| `copaw daemon reload-config` | 重新读取并校验配置（频道/MCP 变更需在对话中 /daemon restart 或重启进程后生效） |
-| `copaw daemon version`       | 版本与路径                                                                     |
-| `copaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `copaw.log`）                            |
+| `rypaw daemon status`        | 状态（配置、工作目录、记忆服务）                                               |
+| `rypaw daemon restart`       | 打印说明（在对话中用 /daemon restart 可进程内重载）                            |
+| `rypaw daemon reload-config` | 重新读取并校验配置（频道/MCP 变更需在对话中 /daemon restart 或重启进程后生效） |
+| `rypaw daemon version`       | 版本与路径                                                                     |
+| `rypaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `copaw.log`）                            |
 
 ```bash
 copaw daemon status
@@ -86,7 +86,7 @@ copaw daemon logs -n 50
 
 ## 模型与环境变量
 
-使用 CoPaw 前至少需要配置一个 LLM 提供商。环境变量为内置工具（如网页搜索）提供凭据。
+使用 RyPaw 前至少需要配置一个 LLM 提供商。环境变量为内置工具（如网页搜索）提供凭据。
 
 ### copaw models
 
@@ -94,16 +94,16 @@ copaw daemon logs -n 50
 
 | 命令                                   | 说明                                   |
 | -------------------------------------- | -------------------------------------- |
-| `copaw models list`                    | 查看所有提供商、API Key 状态和当前模型 |
-| `copaw models config`                  | 完整交互式配置：API Key → 选择模型     |
-| `copaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
-| `copaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
-| `copaw models download <repo_id>`      | 下载本地模型（llama.cpp / MLX）        |
-| `copaw models local`                   | 查看已下载的本地模型                   |
-| `copaw models remove-local <model_id>` | 删除已下载的本地模型                   |
-| `copaw models ollama-pull <model>`     | 下载 Ollama 模型                       |
-| `copaw models ollama-list`             | 查看 Ollama 模型                       |
-| `copaw models ollama-remove <model>`   | 删除 Ollama 模型                       |
+| `rypaw models list`                    | 查看所有提供商、API Key 状态和当前模型 |
+| `rypaw models config`                  | 完整交互式配置：API Key → 选择模型     |
+| `rypaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
+| `rypaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
+| `rypaw models download <repo_id>`      | 下载本地模型（llama.cpp / MLX）        |
+| `rypaw models local`                   | 查看已下载的本地模型                   |
+| `rypaw models remove-local <model_id>` | 删除已下载的本地模型                   |
+| `rypaw models ollama-pull <model>`     | 下载 Ollama 模型                       |
+| `rypaw models ollama-list`             | 查看 Ollama 模型                       |
+| `rypaw models ollama-remove <model>`   | 删除 Ollama 模型                       |
 
 ```bash
 copaw models list                    # 看当前状态
@@ -116,7 +116,7 @@ copaw models set-llm                 # 只切换模型
 
 #### 本地模型
 
-CoPaw 也支持通过 llama.cpp 或 MLX 在本地运行模型——无需 API Key。
+RyPaw 也支持通过 llama.cpp 或 MLX 在本地运行模型——无需 API Key。
 先安装后端：`pip install 'copaw[llamacpp]'` 或 `pip install 'copaw[mlx]'`。
 
 ```bash
@@ -146,7 +146,7 @@ copaw models remove-local <model_id> --yes   # 跳过确认
 
 #### Ollama 模型
 
-CoPaw 集成 Ollama 以在本地运行模型。模型从 Ollama 守护进程动态加载——请先从 [ollama.com](https://ollama.com) 安装 Ollama。
+RyPaw 集成 Ollama 以在本地运行模型。模型从 Ollama 守护进程动态加载——请先从 [ollama.com](https://ollama.com) 安装 Ollama。
 
 安装 Ollama SDK：`pip install 'copaw[ollama]'`（或使用 `--extras ollama` 重新运行安装脚本）
 
@@ -169,11 +169,11 @@ copaw models set-llm          # 切换到其他 Ollama 模型
 
 **与本地模型的主要区别：**
 
-- 模型来自 Ollama 守护进程（不由 CoPaw 下载）
+- 模型来自 Ollama 守护进程（不由 RyPaw 下载）
 - 使用 `ollama-pull` / `ollama-remove` 而非 `download` / `remove-local`
-- 通过 Ollama CLI 或 CoPaw 添加/删除模型时，模型列表自动更新
+- 通过 Ollama CLI 或 RyPaw 添加/删除模型时，模型列表自动更新
 
-> **注意：** API Key 的有效性需要用户自行保证，CoPaw 不会验证。
+> **注意：** API Key 的有效性需要用户自行保证，RyPaw 不会验证。
 > 详见 [配置 — 模型提供商](./config#模型提供商)。
 
 ### copaw env
@@ -182,9 +182,9 @@ copaw models set-llm          # 切换到其他 Ollama 模型
 
 | 命令                      | 说明                 |
 | ------------------------- | -------------------- |
-| `copaw env list`          | 列出所有已配置的变量 |
-| `copaw env set KEY VALUE` | 设置或更新变量       |
-| `copaw env delete KEY`    | 删除变量             |
+| `rypaw env list`          | 列出所有已配置的变量 |
+| `rypaw env set KEY VALUE` | 设置或更新变量       |
+| `rypaw env delete KEY`    | 删除变量             |
 
 ```bash
 copaw env list
@@ -193,14 +193,14 @@ copaw env set GITHUB_TOKEN "ghp_xxxxxxxx"
 copaw env delete TAVILY_API_KEY
 ```
 
-> **注意：** CoPaw 只负责存储和加载，值的有效性需要用户自行保证。
+> **注意：** RyPaw 只负责存储和加载，值的有效性需要用户自行保证。
 > 详见 [配置 — 环境变量](./config#环境变量)。
 
 ---
 
 ## 频道
 
-将 CoPaw 连接到消息平台。
+将 RyPaw 连接到消息平台。
 
 ### copaw channels
 
@@ -209,11 +209,11 @@ copaw env delete TAVILY_API_KEY
 
 | 命令                           | 说明                                                                            |
 | ------------------------------ | ------------------------------------------------------------------------------- |
-| `copaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
-| `copaw channels install <key>` | 在 `custom_channels/` 安装频道：创建模板，或用 `--path` / `--url` 安装          |
-| `copaw channels add <key>`     | 安装并加入 config；内置频道只写 config；支持 `--path` / `--url`                 |
-| `copaw channels remove <key>`  | 从 `custom_channels/` 删除自定义频道（内置不可删）；`--keep-config` 保留 config |
-| `copaw channels config`        | 交互式启用/禁用频道并填写凭据                                                   |
+| `rypaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
+| `rypaw channels install <key>` | 在 `custom_channels/` 安装频道：创建模板，或用 `--path` / `--url` 安装          |
+| `rypaw channels add <key>`     | 安装并加入 config；内置频道只写 config；支持 `--path` / `--url`                 |
+| `rypaw channels remove <key>`  | 从 `custom_channels/` 删除自定义频道（内置不可删）；`--keep-config` 保留 config |
+| `rypaw channels config`        | 交互式启用/禁用频道并填写凭据                                                   |
 
 ```bash
 copaw channels list                    # 看当前状态
@@ -242,21 +242,21 @@ copaw channels config                  # 交互式配置
 
 ## 定时任务
 
-让 CoPaw 按时间自动执行任务——「每天 9 点发消息」「每 2 小时提问并转发回复」。
-**需要 `copaw app` 正在运行。**
+让 RyPaw 按时间自动执行任务——「每天 9 点发消息」「每 2 小时提问并转发回复」。
+**需要 `rypaw app` 正在运行。**
 
 ### copaw cron
 
 | 命令                         | 说明                           |
 | ---------------------------- | ------------------------------ |
-| `copaw cron list`            | 列出所有任务                   |
-| `copaw cron get <job_id>`    | 查看任务配置                   |
-| `copaw cron state <job_id>`  | 查看运行状态（下次运行时间等） |
-| `copaw cron create ...`      | 创建任务                       |
-| `copaw cron delete <job_id>` | 删除任务                       |
-| `copaw cron pause <job_id>`  | 暂停任务                       |
-| `copaw cron resume <job_id>` | 恢复暂停的任务                 |
-| `copaw cron run <job_id>`    | 立刻执行一次                   |
+| `rypaw cron list`            | 列出所有任务                   |
+| `rypaw cron get <job_id>`    | 查看任务配置                   |
+| `rypaw cron state <job_id>`  | 查看运行状态（下次运行时间等） |
+| `rypaw cron create ...`      | 创建任务                       |
+| `rypaw cron delete <job_id>` | 删除任务                       |
+| `rypaw cron pause <job_id>`  | 暂停任务                       |
+| `rypaw cron resume <job_id>` | 恢复暂停的任务                 |
+| `rypaw cron run <job_id>`    | 立刻执行一次                   |
 
 ### 创建任务
 
@@ -265,7 +265,7 @@ copaw channels config                  # 交互式配置
 任务分两种类型：
 
 - **text** —— 到点向频道发一段固定文案。
-- **agent** —— 到点向 CoPaw 提问，把回复发到频道。
+- **agent** —— 到点向 RyPaw 提问，把回复发到频道。
 
 ```bash
 # text：每天 9 点发「早上好！」到钉钉
@@ -278,7 +278,7 @@ copaw cron create \
   --target-session "会话ID" \
   --text "早上好！"
 
-# agent：每 2 小时让 CoPaw 回答并转发
+# agent：每 2 小时让 RyPaw 回答并转发
 copaw cron create \
   --type agent \
   --name "检查待办" \
@@ -298,7 +298,7 @@ copaw cron create \
 copaw cron create -f job_spec.json
 ```
 
-JSON 结构见 `copaw cron get <job_id>` 的返回。
+JSON 结构见 `rypaw cron get <job_id>` 的返回。
 
 ### 额外选项
 
@@ -325,17 +325,17 @@ JSON 结构见 `copaw cron get <job_id>` 的返回。
 
 ## 会话管理
 
-通过 API 管理聊天会话。**需要 `copaw app` 正在运行。**
+通过 API 管理聊天会话。**需要 `rypaw app` 正在运行。**
 
 ### copaw chats
 
 | 命令                                   | 说明                                               |
 | -------------------------------------- | -------------------------------------------------- |
-| `copaw chats list`                     | 列出所有会话（支持 `--user-id`、`--channel` 筛选） |
-| `copaw chats get <id>`                 | 查看会话详情和消息历史                             |
-| `copaw chats create ...`               | 创建新会话                                         |
-| `copaw chats update <id> --name "..."` | 重命名会话                                         |
-| `copaw chats delete <id>`              | 删除会话                                           |
+| `rypaw chats list`                     | 列出所有会话（支持 `--user-id`、`--channel` 筛选） |
+| `rypaw chats get <id>`                 | 查看会话详情和消息历史                             |
+| `rypaw chats create ...`               | 创建新会话                                         |
+| `rypaw chats update <id> --name "..."` | 重命名会话                                         |
+| `rypaw chats delete <id>`              | 删除会话                                           |
 
 ```bash
 copaw chats list
@@ -351,14 +351,14 @@ copaw chats delete <chat_id>
 
 ## 技能
 
-扩展 CoPaw 的能力（PDF 阅读、网页搜索等）。
+扩展 RyPaw 的能力（PDF 阅读、网页搜索等）。
 
 ### copaw skills
 
 | 命令                  | 说明                              |
 | --------------------- | --------------------------------- |
-| `copaw skills list`   | 列出所有技能及启用/禁用状态       |
-| `copaw skills config` | 交互式启用/禁用技能（复选框界面） |
+| `rypaw skills list`   | 列出所有技能及启用/禁用状态       |
+| `rypaw skills config` | 交互式启用/禁用技能（复选框界面） |
 
 ```bash
 copaw skills list     # 看有哪些技能
@@ -391,8 +391,8 @@ copaw clean --dry-run   # 只列出会被删的内容，不删
 
 | 选项            | 默认值      | 说明                                      |
 | --------------- | ----------- | ----------------------------------------- |
-| `--host`        | `127.0.0.1` | API 地址（自动检测上次 `copaw app` 的值） |
-| `--port`        | `8088`      | API 端口（自动检测上次 `copaw app` 的值） |
+| `--host`        | `127.0.0.1` | API 地址（自动检测上次 `rypaw app` 的值） |
+| `--port`        | `8088`      | API 端口（自动检测上次 `rypaw app` 的值） |
 | `-h` / `--help` |             | 显示帮助                                  |
 
 如果服务运行在非默认地址，全局传入即可：
@@ -419,21 +419,21 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 | 命令             | 子命令                                                                                                                                 |  需要服务运行？   |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | :---------------: |
-| `copaw init`     | —                                                                                                                                      |        否         |
-| `copaw app`      | —                                                                                                                                      | —（启动服务本身） |
-| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        否         |
-| `copaw env`      | `list` · `set` · `delete`                                                                                                              |        否         |
-| `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
-| `copaw skills`   | `list` · `config`                                                                                                                      |        否         |
-| `copaw clean`    | —                                                                                                                                      |        否         |
+| `rypaw init`     | —                                                                                                                                      |        否         |
+| `rypaw app`      | —                                                                                                                                      | —（启动服务本身） |
+| `rypaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        否         |
+| `rypaw env`      | `list` · `set` · `delete`                                                                                                              |        否         |
+| `rypaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |
+| `rypaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
+| `rypaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
+| `rypaw skills`   | `list` · `config`                                                                                                                      |        否         |
+| `rypaw clean`    | —                                                                                                                                      |        否         |
 
 ---
 
 ## 相关页面
 
-- [项目介绍](./intro) —— CoPaw 可以做什么
+- [项目介绍](./intro) —— RyPaw 可以做什么
 - [控制台](./console) —— Web 管理界面
 - [频道配置](./channels) —— 钉钉、飞书、iMessage、Discord、QQ 详细步骤
 - [心跳](./heartbeat) —— 定时自检/摘要

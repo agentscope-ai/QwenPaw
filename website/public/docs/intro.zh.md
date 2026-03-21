@@ -1,52 +1,52 @@
 # 项目介绍
 
-本页说明 CoPaw 是什么、能做什么、以及如何按文档一步步上手。
+本页说明 RyPaw 是什么、能做什么、以及如何按文档一步步上手。
 
 ---
 
-## CoPaw 是什么？
+## RyPaw 是什么？
 
-CoPaw 是一款**个人助理型产品**，部署在你自己的环境中。
+RyPaw 是一款**个人助理型产品**，部署在你自己的环境中。
 
 - **多通道对话** — 通过钉钉、飞书、QQ、Discord、iMessage 等与你对话。
 - **定时执行** — 按你的配置自动运行任务。
 - **能力由 Skills 决定，有无限可能** — 内置定时任务、PDF 与表单、Word/Excel/PPT 文档处理、新闻摘要、文件阅读等，还可在 [Skills](./skills) 中自定义扩展。
 - **数据全在本地** — 不依赖第三方托管。
 
-CoPaw 由 [AgentScope 团队](https://github.com/agentscope-ai) 基于
+RyPaw 由 [AgentScope 团队](https://github.com/agentscope-ai) 基于
 [AgentScope](https://github.com/agentscope-ai/agentscope)、
 [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime) 与
 [ReMe](https://github.com/agentscope-ai/ReMe) 构建。
 
 ---
 
-## 你怎么用 CoPaw？
+## 你怎么用 RyPaw？
 
 使用方式可以概括为两类：
 
 1. **在聊天软件里对话**
-   在钉钉、飞书、QQ、Discord 或 iMessage（仅 Mac）里发消息，CoPaw 在同一 app 内回复，
-   查资料、记待办、回答问题等都由当前启用的 Skills 完成。一个 CoPaw 可同时接入多个
+   在钉钉、飞书、QQ、Discord 或 iMessage（仅 Mac）里发消息，RyPaw 在同一 app 内回复，
+   查资料、记待办、回答问题等都由当前启用的 Skills 完成。一个 RyPaw 可同时接入多个
    app，你在哪个频道聊，它就在哪个频道回。
 
 2. **定时自动执行**
-   无需每次手动发消息，CoPaw 可按你设定的时间自动运行：
+   无需每次手动发消息，RyPaw 可按你设定的时间自动运行：
    - 定时向某频道发送固定文案（如每天 9 点发「早上好」）；
-   - 定时向 CoPaw 提问并将回答发到指定频道（如每 2 小时问「我有什么待办」并发到钉钉）；
-   - 定时执行「自检/摘要」：用你写好的一串问题问 CoPaw，把回答发到你上次对话的频道。
+   - 定时向 RyPaw 提问并将回答发到指定频道（如每 2 小时问「我有什么待办」并发到钉钉）；
+   - 定时执行「自检/摘要」：用你写好的一串问题问 RyPaw，把回答发到你上次对话的频道。
 
-装好、接好至少一个频道并启动服务后，你就可以在钉钉、飞书、QQ 等里与 CoPaw 对话，并享受定时
+装好、接好至少一个频道并启动服务后，你就可以在钉钉、飞书、QQ 等里与 RyPaw 对话，并享受定时
 消息与自检等能力；具体能做什么，取决于你启用了哪些 Skills。
 
 ---
 
 ## 文档中会出现的几个概念
 
-- **频道** — 你和 CoPaw 对话的「场所」（钉钉、飞书、QQ、Discord、iMessage 等）。在
+- **频道** — 你和 RyPaw 对话的「场所」（钉钉、飞书、QQ、Discord、iMessage 等）。在
   [频道配置](./channels) 中按步骤配置。
-- **心跳** — 按固定间隔用你写好的一段问题去问 CoPaw，并可选择把回答发到你上次使用的
+- **心跳** — 按固定间隔用你写好的一段问题去问 RyPaw，并可选择把回答发到你上次使用的
   频道。详见 [心跳](./heartbeat)。
-- **定时任务** — 多条、各自独立配置时间的任务（每天几点发什么、每隔多久问 CoPaw 什么等），
+- **定时任务** — 多条、各自独立配置时间的任务（每天几点发什么、每隔多久问 RyPaw 什么等），
   通过 [CLI](./cli) 或 API 管理。
 
 各概念的含义与配置方法，在对应章节中均有说明。
@@ -58,8 +58,8 @@ CoPaw 由 [AgentScope 团队](https://github.com/agentscope-ai) 基于
 1. **[快速开始](./quickstart)** — 用三条命令把服务跑起来。
 2. **[控制台](./console)** — 服务启动后，**在配置频道之前**，可以先在这里（浏览器打开服务根地址）与 CoPAW 对话，也可以在这里配置 Agent；先看控制台有助于理解 CoPAW 怎么用。
 3. **按需配置与使用**：
-   - [频道配置](./channels) — 接入钉钉 / 飞书 / QQ / Discord / iMessage，在对应 app 里与 CoPaw 对话；
+   - [频道配置](./channels) — 接入钉钉 / 飞书 / QQ / Discord / iMessage，在对应 app 里与 RyPaw 对话；
    - [心跳](./heartbeat) — 配置定时自检或摘要（可选）；
    - [CLI](./cli) — 初始化、定时任务、清空工作目录等命令；
-   - [Skills](./skills) — 了解与扩展 CoPaw 能力；
+   - [Skills](./skills) — 了解与扩展 RyPaw 能力；
    - [配置与工作目录](./config) — 工作目录与配置文件说明。

@@ -24,7 +24,7 @@ graph TB
 
 ## 上下文结构
 
-CoPaw 将上下文划分为三个区域：
+RyPaw 将上下文划分为三个区域：
 
 ```mermaid
 graph LR
@@ -75,7 +75,7 @@ graph LR
 
 ### 相关代码
 
-- [MemoryCompactionHook](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/hooks/memory_compaction.py)
+- [MemoryCompactionHook](https://github.com/agentscope-ai/RyPaw/blob/main/src/copaw/agents/hooks/memory_compaction.py)
 - [compact_tool_result](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.6b2/reme/memory/file_based/components/tool_result_compactor.py)
 - [check_context](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.6b2/reme/memory/file_based/components/context_checker.py)
 - [compact_memory](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.6b2/reme/memory/file_based/components/compactor.py)
@@ -102,7 +102,7 @@ graph LR
 
 ## 压缩机制
 
-当上下文接近限制时，CoPaw 会自动触发压缩，将旧对话浓缩为结构化摘要。
+当上下文接近限制时，RyPaw 会自动触发压缩，将旧对话浓缩为结构化摘要。
 
 ### 1. compact_tool_result — 工具结果压缩
 

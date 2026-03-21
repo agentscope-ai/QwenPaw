@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from copaw.providers.provider import ModelInfo, DefaultProvider
+from rypaw.providers.provider import ModelInfo, DefaultProvider
 
 
 def _make_provider() -> DefaultProvider:

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import copaw.providers.provider_manager as provider_manager_module
-from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider_manager import (
+import rypaw.providers.provider_manager as provider_manager_module
+from rypaw.providers.openai_provider import OpenAIProvider
+from rypaw.providers.provider_manager import (
     MINIMAX_MODELS,
     PROVIDER_MINIMAX,
     ProviderManager,

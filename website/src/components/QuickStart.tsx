@@ -16,34 +16,34 @@ import { motion } from "motion/react";
 import type { SiteConfig } from "../config";
 import { t, type Lang } from "../i18n";
 
-const DOCKER_IMAGE = "agentscope/copaw:latest";
+const DOCKER_IMAGE = "rypaw:latest";
 const MODELSCOPE_URL =
-  "https://modelscope.cn/studios/fork?target=AgentScope/CoPaw";
+  "https://modelscope.cn/studios/fork?target=AgentScope/RyPaw";
 const ALIYUN_ECS_URL =
   "https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884";
 const ALIYUN_DOC_URL = "https://developer.aliyun.com/article/1713682";
-const DESKTOP_RELEASES_URL = "https://github.com/agentscope-ai/CoPaw/releases";
+const DESKTOP_RELEASES_URL = "https://github.com/agentscope-ai/RyPaw/releases";
 
 const COMMANDS = {
-  pip: ["pip install copaw", "copaw init --defaults", "copaw app"],
+  pip: ["pip install rypaw", "rypaw init --defaults", "rypaw app"],
   scriptMac: [
-    "curl -fsSL https://copaw.agentscope.io/install.sh | bash",
-    "copaw init --defaults",
-    "copaw app",
+    "curl -fsSL https://rypaw.agentscope.io/install.sh | bash",
+    "rypaw init --defaults",
+    "rypaw app",
   ],
   scriptWinCmd: [
-    "curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat",
-    "copaw init --defaults",
-    "copaw app",
+    "curl -fsSL https://rypaw.agentscope.io/install.bat -o install.bat && install.bat",
+    "rypaw init --defaults",
+    "rypaw app",
   ],
   scriptWinPs: [
-    "irm https://copaw.agentscope.io/install.ps1 | iex",
-    "copaw init --defaults",
-    "copaw app",
+    "irm https://rypaw.agentscope.io/install.ps1 | iex",
+    "rypaw init --defaults",
+    "rypaw app",
   ],
   docker: [
     `docker pull ${DOCKER_IMAGE}`,
-    `docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working ${DOCKER_IMAGE}`,
+    `docker run -p 127.0.0.1:8088:8088 -v rypaw-data:/app/working ${DOCKER_IMAGE}`,
   ],
 } as const;
 

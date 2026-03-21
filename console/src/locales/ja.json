@@ -81,7 +81,7 @@
     "pleaseInputName": "スキル名を入力してください",
     "pleaseInputContent": "スキルの内容を入力してください",
     "skillNamePlaceholder": "例: weather_query",
-    "contentPlaceholder": "---\nname: <スキル名> (必須)\ndescription: <スキルの説明> (必須)\nmetadata: { \"copaw\": { \"emoji\": \"🔧\" } }\n---\n\nスキルの実装内容...\n\n# 例:\n# ---\n# name: cron\n# description: copawコマンド経由でcronジョブを管理 - タスクの作成・照会・一時停止・再開・削除\n# metadata: { \"copaw\": { \"emoji\": \"⏰\" } }\n# ---",
+    "contentPlaceholder": "---\nname: <スキル名> (必須)\ndescription: <スキルの説明> (必須)\nmetadata: { \"rypaw\": { \"emoji\": \"🔧\" } }\n---\n\nスキルの実装内容...\n\n# 例:\n# ---\n# name: cron\n# description: rypawコマンド経由でcronジョブを管理 - タスクの作成・照会・一時停止・再開・削除\n# metadata: { \"rypaw\": { \"emoji\": \"⏰\" } }\n# ---",
     "createSuccess": "スキルを作成しました",
     "createFailed": "スキルの作成に失敗しました",
     "deleteConfirm": "このスキルを削除してもよろしいですか？",

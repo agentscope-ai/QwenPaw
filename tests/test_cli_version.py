@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from click.testing import CliRunner
 
-from copaw.__version__ import __version__
-from copaw.cli.main import cli
+from rypaw.__version__ import __version__
+from rypaw.cli.main import cli
 
 
 def test_cli_version_option_outputs_current_version() -> None:

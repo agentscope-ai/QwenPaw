@@ -22,7 +22,7 @@ when needed; you can enable or disable them in the Console or via config.
 
 | Skill                        | Description                                                                                                                                                                 | Source                                                         |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **cron**                     | Scheduled jobs. Create, list, pause, resume, or delete jobs via `copaw cron` or Console **Control → Cron Jobs**; run on a schedule and send results to a channel.           | Built-in                                                       |
+| **cron**                     | Scheduled jobs. Create, list, pause, resume, or delete jobs via `rypaw cron` or Console **Control → Cron Jobs**; run on a schedule and send results to a channel.           | Built-in                                                       |
 | **file_reader**              | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by the skills below.                                              | Built-in                                                       |
 | **dingtalk_channel_connect** | Helps with DingTalk channel onboarding: guides you through the developer console, key fields, credential lookup (`Client ID` / `Client Secret`), and required manual steps. | Built-in                                                       |
 | **himalaya**                 | Manage emails via CLI (IMAP/SMTP). Use `himalaya` to list, read, search, and organize emails from the terminal; supports multiple accounts and attachments.                 | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
@@ -52,14 +52,14 @@ Changes are synced to the working directory and affect the agent. Handy if you p
 
 On first run the **Cron** skill is synced from the package to
 `~/.copaw/active_skills/cron/`. It provides “run on a schedule and send results to a
-channel.” You manage jobs with the [CLI](./cli) (`copaw cron`) or in the
+channel.” You manage jobs with the [CLI](./cli) (`rypaw cron`) or in the
 Console under **Control → Cron Jobs**; no need to edit skill files.
 
 Common operations:
 
-- Create a job: `copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
-- List jobs: `copaw cron list`
-- Check state: `copaw cron state <job_id>`
+- Create a job: `rypaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
+- List jobs: `rypaw cron list`
+- Check state: `rypaw cron state <job_id>`
 
 ---
 

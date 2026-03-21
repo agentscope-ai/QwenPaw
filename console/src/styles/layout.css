@@ -57,7 +57,7 @@ body {
   padding: 0;
 }
 
-/* Welcome avatar: full tall SVG. Class is CoPaw-avatar (no "ant"). */
+/* Welcome avatar: full tall SVG. Class is RyPaw-avatar (no "ant"). */
 [class*="chat-anywhere-welcome-default"] [class*="-avatar"],
 [class*="message-list-welcome"] [class*="welcome-default"] [class*="-avatar"] {
   width: 36px !important;
@@ -72,11 +72,11 @@ body {
   object-position: center;
 }
 
-/* Move rightHeader to the leftmost position of the right header area (CoPaw chat) */
+/* Move rightHeader to the leftmost position of the right header area (RyPaw chat) */
 [class*="chat-anywhere-default-header-right"],
 [class*="default-header-right"],
-[class*="copaw-chat-anywhere-default-header-right"],
-.copaw-chat-anywhere-default-header-right {
+[class*="rypaw-chat-anywhere-default-header-right"],
+.rypaw-chat-anywhere-default-header-right {
   display: flex !important;
   margin: 0 auto 0 0 !important;
   justify-content: flex-start !important;

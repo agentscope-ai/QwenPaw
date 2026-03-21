@@ -1,5 +1,5 @@
 /**
- * CoPaw logo: symbol only. When logo and brand text would both appear,
+ * RyPaw logo: symbol only. When logo and brand text would both appear,
  * we show only the logo (no separate text).
  */
 import { CatPawIcon } from "./CatPawIcon";

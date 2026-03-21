@@ -24,7 +24,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $content = Get-Content src/copaw/__version__.py -Raw
+          $content = Get-Content src/rypaw/__version__.py -Raw
           if ($content -match '__version__\s*=\s*"([^"]+)"') {
             $v = $Matches[1]
           } else {
@@ -46,7 +46,7 @@ jobs:
         with:
           auto-update-conda: true
           python-version: "3.10"
-          activate-environment: "copaw-build"
+          activate-environment: "rypaw-build"
           condarc-file: .github/condarc
           conda-remove-defaults: false
 
@@ -63,7 +63,7 @@ jobs:
 
       - name: Build Windows installer
         shell: pwsh
-        run: conda run -n copaw-build pwsh -File ./scripts/pack/build_win.ps1
+        run: conda run -n rypaw-build pwsh -File ./scripts/pack/build_win.ps1
 
       - name: List dist (on failure)
         if: failure()
@@ -92,7 +92,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/rypaw/__version__.py)" >> $GITHUB_OUTPUT
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -106,7 +106,7 @@ jobs:
         with:
           auto-update-conda: true
           python-version: "3.10"
-          activate-environment: "copaw-build"
+          activate-environment: "rypaw-build"
           condarc-file: .github/condarc
           conda-remove-defaults: false
 
@@ -116,7 +116,7 @@ jobs:
       - name: Build macOS .app
         run: |
           chmod +x scripts/pack/build_macos.sh
-          conda run -n copaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
+          conda run -n rypaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4

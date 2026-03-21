@@ -20,7 +20,7 @@ on:
 
 env:
   ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
-  IMAGE: agentscope/copaw
+  IMAGE: rypaw
 
 jobs:
   build-and-push:

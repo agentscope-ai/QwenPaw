@@ -1,5 +1,5 @@
 /**
- * Brand story: Why CoPaw? Name explanation in a quiet, emotional corner.
+ * Brand story: Why RyPaw? Name explanation in a quiet, emotional corner.
  */
 import { motion } from "motion/react";
 import { t, type Lang } from "../i18n";

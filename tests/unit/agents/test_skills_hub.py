@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-from copaw.agents import skills_hub as skills_hub_module
+from rypaw.agents import skills_hub as skills_hub_module
 
 extract_lobehub_identifier = getattr(
     skills_hub_module,

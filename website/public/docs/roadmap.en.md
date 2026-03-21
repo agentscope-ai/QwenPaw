@@ -14,7 +14,7 @@
 |                                       | Inter-agent contention resolution                                                                                                                | Planned              |
 |                                       | Multi-agent communication                                                                                                                        | Planned              |
 | **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows and sensitive-data use cases                                                                | In Progress          |
+| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for RyPaw workflows and sensitive-data use cases                                                                | In Progress          |
 |                                       | Multi-model routing. Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability          | Planned              |
 | **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
 |                                       | Multimodal memory fusion                                                                                                                         | Planned              |
@@ -33,9 +33,9 @@ _Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or un
 
 ## Get involved
 
-We are building CoPaw in the open and welcome contributions of all kinds! Check the table above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+We are building RyPaw in the open and welcome contributions of all kinds! Check the table above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/RyPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
 
 - **Horizontal expansion** — new channels, model providers, skills, MCPs.
 - **Existing feature extension** — display and UX improvements, download hints, Windows path compatibility, and the like.
 
-Join the conversation on [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions) to suggest or pick up work.
+Join the conversation on [GitHub Discussions](https://github.com/agentscope-ai/RyPaw/discussions) to suggest or pick up work.

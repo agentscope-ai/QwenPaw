@@ -83,9 +83,9 @@ jobs:
       - name: Copy console build into package
         shell: bash
         run: |
-          rm -rf src/copaw/console/*
-          mkdir -p src/copaw/console
-          cp -R console/dist/* src/copaw/console/
+          rm -rf src/rypaw/console/*
+          mkdir -p src/rypaw/console
+          cp -R console/dist/* src/rypaw/console/
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -142,9 +142,9 @@ jobs:
       - name: Copy console build into package
         shell: bash
         run: |
-          rm -rf src/copaw/console/*
-          mkdir -p src/copaw/console
-          cp -R console/dist/* src/copaw/console/
+          rm -rf src/rypaw/console/*
+          mkdir -p src/rypaw/console
+          cp -R console/dist/* src/rypaw/console/
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -209,9 +209,9 @@ jobs:
       - name: Copy console build into package
         shell: bash
         run: |
-          rm -rf src/copaw/console/*
-          mkdir -p src/copaw/console
-          cp -R console/dist/* src/copaw/console/
+          rm -rf src/rypaw/console/*
+          mkdir -p src/rypaw/console
+          cp -R console/dist/* src/rypaw/console/
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -230,7 +230,7 @@ jobs:
         run: |
           pytest tests/ \
             -v \
-            --cov=src/copaw \
+            --cov=src/rypaw \
             --cov-report=xml \
             --cov-report=term-missing \
             --cov-report=html

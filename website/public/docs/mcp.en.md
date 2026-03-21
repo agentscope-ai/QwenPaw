@@ -1,6 +1,6 @@
 # MCP
 
-**MCP (Model Context Protocol)** allows CoPaw to connect to external MCP servers and use their tools. You can add MCP clients through the Console to extend CoPaw's capabilities.
+**MCP (Model Context Protocol)** allows RyPaw to connect to external MCP servers and use their tools. You can add MCP clients through the Console to extend RyPaw's capabilities.
 
 ---
 
@@ -29,7 +29,7 @@ node --version
 
 ## Configuration formats
 
-CoPaw supports three JSON formats for importing MCP clients:
+RyPaw supports three JSON formats for importing MCP clients:
 
 ### Format 1: Standard mcpServers format (Recommended)
 

@@ -1,6 +1,6 @@
-# CoPaw Website
+# RyPaw Website
 
-Static site (Vite + React) for the CoPaw product. Built output is served with a minimal Node server that supports SPA fallback (e.g. direct access to `/docs/channels`).
+Static site (Vite + React) for the RyPaw product. Built output is served with a minimal Node server that supports SPA fallback (e.g. direct access to `/docs/channels`).
 
 ## Prerequisites
 
