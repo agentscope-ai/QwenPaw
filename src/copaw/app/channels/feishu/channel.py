@@ -23,6 +23,7 @@ import threading
 import time
 import types
 from collections import OrderedDict
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -1132,6 +1133,73 @@ class FeishuChannel(BaseChannel):
             },
         }
 
+    def _build_card_v2_content(
+        self,
+        text: str,
+        image_keys: List[str],
+        header_title: Optional[str] = None,
+        template: str = "blue",
+    ) -> Dict[str, Any]:
+        """Build Feishu Card V2 message content (Schema 2.0).
+
+        Args:
+            text: Markdown text content
+            image_keys: List of image keys
+                (obtained via _upload_image_sync)
+            header_title: Card header title (optional)
+            template: Header color template, options:
+                green, red, blue, orange, indigo, grey
+        """
+        # Build body elements
+        elements: List[Dict[str, Any]] = []
+
+        # Add text content
+        if text:
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": normalize_feishu_md(text),
+                    },
+                },
+            )
+
+        # Add image elements
+        for image_key in image_keys:
+            elements.append(
+                {
+                    "tag": "img",
+                    "img_key": image_key,
+                    "alt": {"tag": "plain_text", "content": "Image"},
+                },
+            )
+
+        # If no content, show placeholder
+        if not elements:
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": "[empty]"},
+                },
+            )
+
+        # Build base card structure
+        card: Dict[str, Any] = {
+            "schema": "2.0",
+            "config": {"update_multi": True},
+            "body": {"elements": elements},
+        }
+
+        # Add header (if title provided)
+        if header_title:
+            card["header"] = {
+                "template": template,
+                "title": {"tag": "plain_text", "content": header_title},
+            }
+
+        return card
+
     def _upload_image_sync(self, data: bytes, filename: str) -> Optional[str]:
         """Upload image via lark client; return image_key."""
         if not self._client:
@@ -1358,6 +1426,61 @@ class FeishuChannel(BaseChannel):
                 receive_id_type,
                 receive_id,
                 "post",
+                content,
+            ),
+        )
+
+    async def send_text(
+        self,
+        receive_id_type: str,
+        receive_id: str,
+        body: str,
+    ) -> Optional[str]:
+        """Send text message (using Card V2 format).
+
+        Returns the message_id on success, None on failure.
+        Body already has bot_prefix if needed.
+        """
+        card = self._build_card_v2_content(body, [], header_title=None)
+        content = json.dumps(card, ensure_ascii=False)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._send_message_sync(
+                receive_id_type,
+                receive_id,
+                "interactive",
+                content,
+            ),
+        )
+
+    async def _send_card_v2(
+        self,
+        receive_id_type: str,
+        receive_id: str,
+        text: str,
+        image_keys: List[str],
+        header_title: Optional[str] = None,
+        template: str = "blue",
+    ) -> Optional[str]:
+        """Send Card V2 message.
+
+        Returns the message_id on success, None on failure.
+        """
+        card = self._build_card_v2_content(
+            text,
+            image_keys,
+            header_title,
+            template,
+        )
+        content = json.dumps(card, ensure_ascii=False)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._send_message_sync(
+                receive_id_type,
+                receive_id,
+                "interactive",
                 content,
             ),
         )
@@ -1635,7 +1758,7 @@ class FeishuChannel(BaseChannel):
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        """Send text as post (md), then images, then files.
+        """Send content parts using Card V2 format (text + images combined).
 
         Returns the message_id of the last successfully sent message,
         or None if nothing was sent.
@@ -1651,6 +1774,7 @@ class FeishuChannel(BaseChannel):
                 to_handle[:50] if to_handle else "",
             )
             return None
+
         receive_id_type, receive_id = recv
         logger.info(
             "feishu send_content_parts: resolved receive_id_type=%s "
@@ -1659,8 +1783,12 @@ class FeishuChannel(BaseChannel):
             (receive_id or "")[:20],
         )
         prefix = (meta or {}).get("bot_prefix", "") or self.bot_prefix or ""
+
+        # Collect text, images, and files
         text_parts: List[str] = []
-        media_parts: List[OutgoingContentPart] = []
+        image_parts: List[OutgoingContentPart] = []
+        file_parts: List[OutgoingContentPart] = []
+
         for p in parts:
             t = getattr(p, "type", None) or (
                 p.get("type") if isinstance(p, dict) else None
@@ -1671,66 +1799,71 @@ class FeishuChannel(BaseChannel):
             refusal_val = getattr(p, "refusal", None) or (
                 p.get("refusal") if isinstance(p, dict) else None
             )
+
             if t == ContentType.TEXT and text_val:
                 text_parts.append(text_val or "")
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val or "")
+            elif t == ContentType.IMAGE:
+                image_parts.append(p)
             elif t in (
-                ContentType.IMAGE,
                 ContentType.FILE,
                 ContentType.VIDEO,
                 ContentType.AUDIO,
             ):
-                media_parts.append(p)
-        body = "\n".join(text_parts).strip()
+                file_parts.append(p)
+
         logger.info(
             "feishu send_content_parts: to_handle=%s text_parts=%s "
-            "media_count=%s media_types=%s",
+            "image_count=%s file_count=%s",
             to_handle[:40] if to_handle else "",
             len(text_parts),
-            len(media_parts),
-            [getattr(m, "type", None) for m in media_parts],
+            len(image_parts),
+            len(file_parts),
         )
+
+        # Upload all images to get image_keys
+        image_keys: List[str] = []
+        for part in image_parts:
+            data, filename = await self._part_to_image_bytes(part)
+            if data:
+                loop = asyncio.get_running_loop()
+                image_key = await loop.run_in_executor(
+                    None,
+                    partial(self._upload_image_sync, data, filename),
+                )
+                if image_key:
+                    image_keys.append(image_key)
+
+        # Send Card V2 message (text + images combined)
+        body = "\n".join(text_parts).strip()
         if prefix and body:
             body = prefix + body
+
         last_message_id: Optional[str] = None
-        if body:
-            last_message_id = await self._send_text(
+        if body or image_keys:
+            last_message_id = await self._send_card_v2(
                 receive_id_type,
                 receive_id,
                 body,
+                image_keys,
             )
-        for part in media_parts:
-            pt = getattr(part, "type", None)
-            if pt == ContentType.IMAGE:
-                msg_id = await self._send_image(
-                    receive_id_type,
-                    receive_id,
-                    part,
-                )
-                logger.info(
-                    "feishu send_content_parts: image sent ok=%s",
-                    bool(msg_id),
-                )
-                if msg_id:
-                    last_message_id = msg_id
-            elif pt in (
-                ContentType.FILE,
-                ContentType.VIDEO,
-                ContentType.AUDIO,
-            ):
-                msg_id = await self._send_file(
-                    receive_id_type,
-                    receive_id,
-                    part,
-                )
-                logger.info(
-                    "feishu send_content_parts: file sent ok=%s type=%s",
-                    bool(msg_id),
-                    pt,
-                )
-                if msg_id:
-                    last_message_id = msg_id
+
+        # Files still sent separately
+        for part in file_parts:
+            msg_id = await self._send_file(
+                receive_id_type,
+                receive_id,
+                part,
+            )
+            logger.info(
+                "feishu send_content_parts: file sent ok=%s type=%s",
+                bool(msg_id),
+                getattr(part, "type", None),
+            )
+            if msg_id:
+                last_message_id = msg_id
+
         return last_message_id
 
     async def _run_process_loop(
@@ -1787,7 +1920,7 @@ class FeishuChannel(BaseChannel):
         text: str,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Proactive send: resolve receive_id and send text as post."""
+        """Proactive send: resolve receive_id and send text using Card V2."""
         if not self.enabled:
             return
         recv = await self._get_receive_for_send(to_handle, meta)
@@ -1801,7 +1934,7 @@ class FeishuChannel(BaseChannel):
         prefix = (meta or {}).get("bot_prefix", "") or self.bot_prefix or ""
         body = (prefix + text) if text else prefix
         if body:
-            await self._send_text(receive_id_type, receive_id, body)
+            await self._send_card_v2(receive_id_type, receive_id, body, [])
 
     def get_to_handle_from_request(self, request: Any) -> str:
         """Feishu sends by session_id; return feishu:sw: or feishu:open_id:
