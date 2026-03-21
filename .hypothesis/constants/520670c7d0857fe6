@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/gemini_provider.py
+# hypothesis_version: 6.150.0
+
+[400, 1000, 'Empty model ID', 'code', 'display_name', 'image/png', 'models/', 'name', 'ping', 'red', 'video/mp4', 'yes', '红']

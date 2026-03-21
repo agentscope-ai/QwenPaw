@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/local_models/__init__.py
+# hypothesis_version: 6.150.0
+
+['BackendType', 'DownloadProgress', 'DownloadSource', 'LocalModelInfo', 'LocalModelManager', 'delete_local_model', 'get_local_model', 'list_local_models', 'unload_active_model']

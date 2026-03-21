@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/config/utils.py
+# hypothesis_version: 6.150.0
+
+[',', '/', '/.dockerenv', '/proc/1/cgroup', '/usr/bin', '/usr/bin/chromium', '/usr/local/bin', '/usr/share', '=', 'Application', 'C:\\Program Files', 'Chrome', 'ChromeHTML', 'Chromium', 'Edge', 'Exec=', 'FirefoxURL', 'Google', 'LSHandler', 'LSHandlerRoleAll', 'LSHandlerRoleViewer', 'LSHandlerURLScheme', 'LSHandlers', 'MSEdgeHTM', 'Microsoft', 'ProgId', 'ProgramFiles', 'ProgramFiles(x86)', 'XDG_DATA_HOME', 'applications', 'chrome', 'chrome.exe', 'chromium', 'com.apple.safari', 'com.google.chrome', 'config.json', 'darwin', 'default', 'docker', 'edge', 'firefox', 'host', 'http', 'https', 'json', 'kubepods', 'last_api', 'last_api_host', 'last_api_port', 'linux', 'loc', 'media_dir', 'msedge.exe', 'org.mozilla.firefox', 'port', 'query', 'r', 'rb', 'utf-8', 'w', 'webkit', 'win32', 'workspace_dir', 'xdg-mime', '~/.copaw', '~/.local/share']

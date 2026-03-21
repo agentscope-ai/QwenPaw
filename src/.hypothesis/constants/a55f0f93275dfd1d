@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/local_models/chat_model.py
+# hypothesis_version: 6.150.0
+
+['arguments', 'auto', 'choices', 'completion_tokens', 'content', 'delta', 'function', 'id', 'index', 'message', 'name', 'none', 'prompt_tokens', 'reasoning_content', 'required', 'text', 'thinking', 'tool_calls', 'tool_use', 'usage', '{}']

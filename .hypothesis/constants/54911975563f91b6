@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/runner/query_error_dump.py
+# hypothesis_version: 6.150.0
+
+['%Y-%m-%dT%H:%M:%SZ', '.json', '_serialize_error', 'agent', 'agent_state', 'channel', 'copaw_query_error_', 'dict', 'exception_message', 'exception_type', 'model_dump', 'request', 'request_info', 'session_id', 'state_dict', 'trace', 'ts_utc', 'user_id', 'utf-8', 'w']

@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/anthropic_provider.py
+# hypothesis_version: 6.150.0
+
+[400, 'Anthropic API error', 'CoPaw', 'Empty model ID', 'Image supported', 'UnKnown', 'X-DashScope-Cdpl', 'agentCode', 'agentType', 'base64', 'base_url', 'content', 'data', 'default_headers', 'deployType', 'display_name', 'hi', 'id', 'image', 'image/png', 'max_tokens', 'media_type', 'messages', 'model', 'moduleCode', 'ping', 'role', 'source', 'status_code', 'stream', 'text', 'type', 'user', 'x-dashscope-agentapp']

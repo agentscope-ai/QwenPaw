@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/security/tool_guard/models.py
+# hypothesis_version: 6.150.0
+
+[0.0, 200, 'CRITICAL', 'HIGH', 'INFO', 'LOW', 'MEDIUM', 'SAFE', 'category', 'code_execution', 'command_injection', 'credential_exposure', 'data_exfiltration', 'description', 'findings', 'findings_count', 'guardian', 'guardians_failed', 'guardians_used', 'id', 'is_safe', 'matched_pattern', 'matched_value', 'max_severity', 'metadata', 'network_abuse', 'param_name', 'params', 'path_traversal', 'privilege_escalation', 'prompt_injection', 'remediation', 'resource_abuse', 'rule_id', 'severity', 'snippet', 'timestamp', 'title', 'tool_guard_denied', 'tool_name', '…']

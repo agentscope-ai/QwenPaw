@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/tools/__init__.py
+# hypothesis_version: 6.150.0
+
+['append_file', 'browser_use', 'desktop_screenshot', 'edit_file', 'execute_python_code', 'get_current_time', 'get_token_usage', 'glob_search', 'grep_search', 'read_file', 'send_file_to_user', 'set_user_timezone', 'view_image', 'view_text_file', 'write_file', 'write_text_file']

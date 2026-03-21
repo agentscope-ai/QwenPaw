@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/init_cmd.py
+# hypothesis_version: 6.150.0
+
+[', ', '--accept-security', '--defaults', '--force', '.md', '08:00', '22:00', 'Active end (HH:MM)', 'Active start (HH:MM)', 'Configure skills:', 'Heartbeat target:', 'Share usage data?', 'accept_security', 'all', 'auto', 'blue', 'custom', 'disabled', 'en', 'init', 'last', 'local_whisper', 'main', 'native', 'none', 'ru', 'use_defaults', 'utf-8', 'whisper_api', 'zh', '⚠ No md files copied', '✓ Thank you!']

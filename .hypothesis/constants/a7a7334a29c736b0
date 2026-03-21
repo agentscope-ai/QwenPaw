@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/auth.py
+# hypothesis_version: 6.150.0
+
+[384, 401, 448, 3600, '.', '/api/', '/api/auth/login', '/api/auth/register', '/api/auth/status', '/api/version', '/assets/', '/copaw-symbol.svg', '/logo.png', '1', '127.0.0.1', '::1', 'Authorization', 'Bearer ', 'COPAW_AUTH_ENABLED', 'COPAW_AUTH_PASSWORD', 'COPAW_AUTH_USERNAME', 'Not authenticated', 'OPTIONS', "User '%s' registered", '_auth_load_error', 'application/json', 'auth.json', 'connection', 'detail', 'exp', 'iat', 'jwt_secret', 'password_hash', 'password_salt', 'r', 'sub', 'token', 'true', 'upgrade', 'user', 'username', 'utf-8', 'w', 'yes']

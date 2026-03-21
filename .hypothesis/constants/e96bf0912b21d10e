@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/tools/desktop_screenshot.py
+# hypothesis_version: 6.150.0
+
+['-w', '-x', '.png', '/\\', 'Darwin', 'Unknown error', 'error', 'message', 'ok', 'path', 'screencapture', 'text']

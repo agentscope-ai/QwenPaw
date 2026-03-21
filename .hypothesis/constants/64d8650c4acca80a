@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/runner/daemon_commands.py
+# hypothesis_version: 6.150.0
+
+[100, 512, 1024, 2000, '(empty)', '**Daemon Status**', '-', '- Config loaded: yes', '/', '/daemon', 'Friday', 'MultiAgentManager', 'N/A', '_', 'agents', 'approve', 'assistant', 'copaw.log', 'daemon', 'logs', 'max_input_length', 'rb', 'reload', 'reload-config', 'reload_config', 'replace', 'restart', 'running', 'session_id', 'status', 'text', 'unknown', 'utf-8', 'version']

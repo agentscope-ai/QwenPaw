@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/config/timezone.py
+# hypothesis_version: 6.150.0
+
+['"', "'", '--value', '-p', '/', '/etc/localtime', '/etc/sysconfig/clock', '/etc/timezone', ':', '=', 'Africa/Nairobi', 'America/Chicago', 'America/Denver', 'America/Halifax', 'America/Los_Angeles', 'America/New_York', 'America/Phoenix', 'America/Sao_Paulo', 'Asia/Bangkok', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Seoul', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Taipei', 'Asia/Tokyo', 'Australia/Adelaide', 'Australia/Sydney', 'China Standard Time', 'Europe/Berlin', 'Europe/London', 'Europe/Moscow', 'Europe/Paris', 'GMT Standard Time', 'India Standard Time', 'Korea Standard Time', 'Pacific/Auckland', 'Pacific/Honolulu', 'Pacific/Port_Moresby', 'TZ', 'Taipei Standard Time', 'TimeZoneKeyName', 'Timezone', 'Tokyo Standard Time', 'UTC', 'ZONE=', 'nt', 'show', 'status', 'time zone', 'timedatectl', 'utf-8', 'zoneinfo/']

@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/chats_cmd.py
+# hypothesis_version: 6.150.0
+
+[404, 8088, '--agent-id', '--base-url', '--channel', '--file', '--name', '--session-id', '--user-id', '-f', '/', '/chats', '127.0.0.1', 'New Chat', 'New chat name', 'X-Agent-Id', 'channel', 'chat_id', 'chats', 'create', 'default', 'delete', 'file_', 'get', 'host', 'id', 'list', 'meta', 'name', 'port', 'session_id', 'update', 'user_id', 'utf-8']

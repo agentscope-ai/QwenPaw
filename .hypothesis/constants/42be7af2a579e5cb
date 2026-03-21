@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/provider.py
+# hypothesis_version: 6.150.0
+
+['*', 'API base URL', 'OpenAIChatModel', 'Provider identifier', 'api_key', 'api_key_prefix', 'base_url', 'chat_model', 'extra_models', 'generate_kwargs', 'models', 'name']

@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/env_cmd.py
+# hypothesis_version: 6.150.0
+
+['  Variable name', 'delete', 'env', 'key', 'list', 'red', 'set', 'value']

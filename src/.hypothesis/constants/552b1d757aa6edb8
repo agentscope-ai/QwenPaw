@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/utils/logging.py
+# hypothesis_version: 6.150.0
+
+[1024, '\x1b[0m', '\x1b[31m', '\x1b[32m', '\x1b[33m', '\x1b[34m', '\x1b[41m\x1b[97m', '%Y-%m-%d %H:%M:%S', 'Linux', 'Windows', 'a', 'baseFilename', 'copaw', 'critical', 'debug', 'error', 'info', 'isatty', 'replace', 'utf-8', 'warning']

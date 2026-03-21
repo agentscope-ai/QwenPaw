@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/daemon_cmd.py
+# hypothesis_version: 6.150.0
+
+[100, 2000, '--agent-id', '--lines', '-n', 'daemon', 'default', 'logs', 'reload-config', 'restart', 'status', 'version']

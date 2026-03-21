@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/update_cmd.py
+# hypothesis_version: 6.150.0
+
+[0.1, 1.0, 2.0, 10.0, 15.0, 130, 258, 1000, 8088, 1048576, '!', '--port', '--prerelease=allow', '--python', '--upgrade', '--yes', '-c', '-m', '-u', '/', '127.0.0.1', 'Accept', 'CTRL_BREAK_EVENT', 'Cancelled.', 'INSTALLER', 'application/json', 'bufsize', 'command', 'copaw', 'creationflags', 'current_version', 'dir_info', 'direct-url', 'direct_url.json', 'editable', 'encoding', 'errors', 'file://', 'host', 'info', 'install', 'installer_label', 'latest_version', 'launcher_pid', 'local', 'localhost', 'pip', 'port', 'pypi', 'red', 'replace', 'shutdown', 'start_new_session', 'stderr', 'stdin', 'stdout', 'system', 'text', 'update', 'updates', 'url', 'utf-8', 'uv', 'uv pip', 'vcs', 'vcs_info', 'version', 'virtualenv', 'win32', 'yellow']

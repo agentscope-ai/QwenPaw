@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/utils/file_handling.py
+# hypothesis_version: 6.150.0
+
+[b'%PDF', b'GIF87a', b'GIF89a', b'PK\x03\x04', b'PK\x05\x06', b'RIFF', b'\x89PNG\r\n\x1a\n', b'\xd0\xcf\x11\xe0', b'\xff\xd8\xff', '-L', '-O', '-o', '-q', '-s', '.doc', '.file', '.gif', '.jpg', '.pdf', '.png', '.webp', '.zip', '/', ';', 'Content-Type', 'HEAD', '\\', 'curl', 'downloads', 'file', 'nt', 'rb', 'wb', 'wget']

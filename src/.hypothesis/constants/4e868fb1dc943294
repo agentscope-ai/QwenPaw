@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/security/tool_guard/guardians/rule_guardian.py
+# hypothesis_version: 6.150.0
+
+['*.yaml', '*.yml', '<no id>', 'category', 'compiled_patterns', 'description', 'exclude_patterns', 'id', 'param', 'params', 'patterns', 'remediation', 'rules', 'severity', 'tool', 'tools', 'utf-8']

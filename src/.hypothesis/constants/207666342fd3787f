@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/multimodal_prober.py
+# hypothesis_version: 6.150.0
+
+[400, 'Image supported', 'Video supported', 'content', 'does not support', 'hi', 'image', 'image_url', 'multimodal', 'role', 'text', 'type', 'url', 'user', 'video', 'video_url', 'vision']

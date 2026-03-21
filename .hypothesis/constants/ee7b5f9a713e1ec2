@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/envs/store.py
+# hypothesis_version: 6.150.0
+
+[384, 448, 'COPAW_SECRET_DIR', 'COPAW_WORKING_DIR', 'envs.json', 'r', 'utf-8', 'w', '~/.copaw']

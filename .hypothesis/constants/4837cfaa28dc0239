@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/channels/renderer.py
+# hypothesis_version: 6.150.0
+
+[200, 500, '\n[Audio]', '...', 'arguments', 'audio', 'base64', 'content', 'data', 'file', 'file_data', 'file_id', 'file_url', 'filename', 'format', 'image', 'image_url', 'media_type', 'name', 'output', 'refusal', 'source', 'text', 'thinking', 'tool', 'type', 'url', 'video', 'video_url', '{}']

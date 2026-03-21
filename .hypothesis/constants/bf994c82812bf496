@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/react_agent.py
+# hypothesis_version: 6.150.0
+
+[60.0, 400, 'AgentProfileConfig', 'Friday', 'MemoryManager | None', 'Registered skill: %s', 'Registered tool: %s', 'System prompt:\n%s', '__dict__', '_copaw_rebuild_info', 'agent_id', 'args', 'audio', 'auto', 'bootstrap_hook', 'browser_use', 'builtin_tools', 'cancelling', 'close', 'command', 'connect', 'cwd', 'desktop_screenshot', 'edit_file', 'env', 'false', 'get_current_time', 'get_token_usage', 'glob_search', 'grep_search', 'headers', 'heartbeat', 'image', 'image_url', 'memory_compact_hook', 'multimodal', 'name', 'none', 'output', 'override', 'pre_reasoning', 'raise', 'read_file', 'rename', 'required', 'send_file_to_user', 'set_user_timezone', 'skip', 'status_code', 'stdio', 'system', 'text', 'tool_result', 'tools', 'transport', 'type', 'url', 'video', 'view_image', 'vision', 'write_file']

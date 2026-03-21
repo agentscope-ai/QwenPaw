@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/auth_cmd.py
+# hypothesis_version: 6.150.0
+
+['<unknown>', 'New password', '_auth_load_error', 'auth', 'jwt_secret', 'password_hash', 'password_salt', 'reset-password', 'user', 'username']

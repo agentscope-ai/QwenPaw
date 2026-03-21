@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/tools/browser_snapshot.py
+# hypothesis_version: 6.150.0
+
+['(empty)', '/', ':', '[', '[ref=', '^(\\s*)', 'application', 'article', 'button', 'cell', 'checkbox', 'columnheader', 'combobox', 'compact', 'directory', 'document', 'generic', 'get_duplicate_keys', 'get_key', 'get_next_index', 'grid', 'gridcell', 'group', 'heading', 'interactive', 'link', 'list', 'listbox', 'listitem', 'main', 'maxDepth', 'menu', 'menubar', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'name', 'navigation', 'none', 'nth', 'option', 'presentation', 'radio', 'region', 'role', 'row', 'rowgroup', 'rowheader', 'searchbox', 'slider', 'spinbutton', 'switch', 'tab', 'table', 'tablist', 'textbox', 'toolbar', 'track_ref', 'tree', 'treegrid', 'treeitem']

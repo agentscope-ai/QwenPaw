@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/utils/tool_message_utils.py
+# hypothesis_version: 6.150.0
+
+['id', 'input', 'name', 'raw_input', 'tool_result', 'tool_use', 'type', '{}']

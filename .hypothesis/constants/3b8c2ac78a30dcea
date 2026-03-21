@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/ollama_manager.py
+# hypothesis_version: 6.150.0
+
+['/', '/v1', 'Model digest/id', 'Pull completed: %s', 'before', 'digest', 'host', 'model', 'models', 'modified_at', 'size', 'timeout']

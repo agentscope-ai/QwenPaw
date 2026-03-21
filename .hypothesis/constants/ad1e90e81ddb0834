@@ -1,0 +1,4 @@
+# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/process_utils.py
+# hypothesis_version: 6.150.0
+
+[8088, '-Command', '-NoProfile', '-ax', '-o', '.exe', '/FORMAT:CSV', '0.0.0.0', '127.0.0.1', ':', '::', '::1', 'CommandLine', 'Name', 'ParentProcessId', 'ProcessId', '[', '[]', 'app', 'command=', 'copaw', 'desktop', 'get', 'localhost', 'pid=', 'powershell', 'process', 'ps', 'win32', 'wmic']
