@@ -94,12 +94,12 @@ class TokenUsageManager:
         """Persist token usage data to disk."""
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(
+            with open(
                 self._path,
                 mode="w",
                 encoding="utf-8",
             ) as f:
-                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                f.write(json.dumps(data, ensure_ascii=False, indent=2))
         except OSError as e:
             logger.warning(
                 "Failed to write token usage to %s: %s",
