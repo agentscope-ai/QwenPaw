@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/anthropic_provider.py
-# hypothesis_version: 6.150.0
-
-['Anthropic API error', 'CoPaw', 'Empty model ID', 'UnKnown', 'X-DashScope-Cdpl', 'agentCode', 'agentType', 'base_url', 'content', 'data', 'default_headers', 'deployType', 'display_name', 'id', 'max_tokens', 'messages', 'model', 'moduleCode', 'ping', 'role', 'stream', 'text', 'type', 'user', 'x-dashscope-agentapp']

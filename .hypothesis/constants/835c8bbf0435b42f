@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/local_models/manager.py
-# hypothesis_version: 6.150.0
-
-['(full repo)', '*', '*.safetensors', '--', '.', '.gguf', '.safetensors', '/', 'Path', 'Q4_K_M', 'config.json', 'json', 'manifest.json', 'utf-8']

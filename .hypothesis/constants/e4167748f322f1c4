@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/desktop_cmd.py
-# hypothesis_version: 6.150.0
-
-[2.0, 5.0, 300.0, 128, 800, 1280, '--host', '--log-level', '--port', '-m', '127.0.0.1', 'CoPaw Desktop', 'SSL_CERT_FILE', 'app', 'copaw', 'critical', 'debug', 'desktop', 'error', 'http://', 'https://', 'info', 'trace', 'warning', 'win32']

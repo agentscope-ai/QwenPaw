@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/channels/base.py
-# hypothesis_version: 6.150.0
-
-[0.0, '\n[Audio]', 'AgentRequest', 'AgentResponse', 'BaseChannel', 'Event', '_bot_prefix', '_show_tool_details', 'bot_mentioned', 'bot_prefix', 'channel_id', 'channel_meta', 'content', 'content_parts', 'conversation_id', 'data', 'error', 'file_id', 'file_url', 'filter_thinking', 'filter_tool_messages', 'has_bot_command', 'image_url', 'incoming_message', 'input', 'message', 'message_id', 'meta', 'model_copy', 'object', 'open', 'payload is None', 'refusal', 'reply_future', 'reply_loop', 'response', 'sender_id', 'session_id', 'session_webhook', 'status', 'text', 'type', 'user_id', 'video_url']

@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/main.py
-# hypothesis_version: 6.150.0
-
-[0.0, 8088, '%.3fs %s', '(total imports)', '--help', '--host', '--port', '-h', '..__version__', '..config.utils', '.app_cmd', '.auth_cmd', '.channels_cmd', '.chats_cmd', '.clean_cmd', '.cron_cmd', '.daemon_cmd', '.desktop_cmd', '.env_cmd', '.init_cmd', '.providers_cmd', '.shutdown_cmd', '.skills_cmd', '.uninstall_cmd', '.update_cmd', '127.0.0.1', 'API Host', 'API Port', 'CoPaw', 'help_option_names', 'host', 'main.py loaded', 'port', 'utf-8', 'win32']

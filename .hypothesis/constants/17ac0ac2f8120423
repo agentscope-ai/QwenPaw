@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/hooks/__init__.py
-# hypothesis_version: 6.150.0
-
-['BootstrapHook', 'MemoryCompactionHook']

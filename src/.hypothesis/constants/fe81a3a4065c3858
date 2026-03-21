@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/tool_guard_mixin.py
-# hypothesis_version: 6.150.0
-
-['DENIED', 'N/A', '_tool_guard_engine', 'assistant', 'auto', 'channel', 'id', 'input', 'name', 'none', 'required', 'session_id', 'system', 'text', 'tool_call', 'tool_input', 'tool_name', 'tool_result', 'type', 'unknown', 'user_id']

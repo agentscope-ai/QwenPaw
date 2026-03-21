@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/token_usage/manager.py
-# hypothesis_version: 6.150.0
-
-['Date (YYYY-MM-DD)', 'Model name', 'Per provider_id', 'Provider ID', 'TokenUsageManager', 'call_count', 'completion_tokens', 'model', 'model_name', 'prompt_tokens', 'provider_id', 'r', 'utf-8', 'w']

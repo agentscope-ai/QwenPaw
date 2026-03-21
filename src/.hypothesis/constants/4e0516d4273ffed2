@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/tools/file_search.py
-# hypothesis_version: 6.150.0
-
-[200, 1024, '*', '---', '.7z', '.a', '.avi', '.bin', '.bmp', '.bz2', '.class', '.dat', '.dll', '.doc', '.docx', '.dylib', '.eot', '.exe', '.flac', '.gif', '.gz', '.ico', '.jpeg', '.jpg', '.mkv', '.mov', '.mp3', '.mp4', '.o', '.otf', '.pdf', '.png', '.ppt', '.pptx', '.pyc', '.pyo', '.rar', '.so', '.svg', '.tar', '.ttf', '.wav', '.webp', '.woff', '.woff2', '.xls', '.xlsx', '.zip', '/', '>', 'ignore', 'text', 'utf-8']

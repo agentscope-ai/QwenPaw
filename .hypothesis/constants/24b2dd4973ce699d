@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/local_models/schema.py
-# hypothesis_version: 6.150.0
-
-['File size in bytes', 'Human-friendly name', 'downloading', 'huggingface', 'llamacpp', 'mlx', 'modelscope']

@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/utils/message_processing.py
-# hypothesis_version: 6.150.0
-
-['-ac', '-ar', '-i', '-loglevel', '-y', '.', '.aac', '.amr', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav', '1', '16000', 'assistant', 'audio', 'audio/aac', 'audio/amr', 'audio/flac', 'audio/mp3', 'audio/mp4', 'audio/octet-stream', 'audio/ogg', 'audio/opus', 'audio/wav', 'base64', 'data', 'error', 'ffmpeg', 'file', 'filename', 'image', 'media_type', 'native', 'replace', 'source', 'stderr', 'system', 'text', 'type', 'unnamed', 'url', 'user', 'video', 'zh']

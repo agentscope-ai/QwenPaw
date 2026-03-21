@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/channels/registry.py
-# hypothesis_version: 6.150.0
-
-['.console', '.dingtalk', '.discord_', '.feishu', '.imessage', '.matrix', '.mattermost', '.mqtt', '.py', '.qq', '.telegram', '.voice', '.wecom', '.xiaoyi', 'ConsoleChannel', 'DingTalkChannel', 'DiscordChannel', 'FeishuChannel', 'IMessageChannel', 'MQTTChannel', 'MatrixChannel', 'MattermostChannel', 'QQChannel', 'TelegramChannel', 'VoiceChannel', 'WecomChannel', 'XiaoYiChannel', '__init__', '__init__.py', 'channel', 'console', 'dingtalk', 'discord', 'feishu', 'imessage', 'matrix', 'mattermost', 'mqtt', 'qq', 'telegram', 'voice', 'wecom', 'xiaoyi']

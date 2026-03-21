@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/token_usage/model_wrapper.py
-# hypothesis_version: 6.150.0
-
-['auto', 'input_tokens', 'model_name', 'none', 'output_tokens', 'required', 'stream', 'unknown', 'usage']

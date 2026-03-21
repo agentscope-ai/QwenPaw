@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/runner/utils.py
-# hypothesis_version: 6.150.0
-
-['.', '/', '//', ':', 'UTC', 'assistant', 'audio', 'base64', 'data', 'data:', 'file', 'file:', 'file_url', 'filename', 'format', 'http://', 'https://', 'id', 'image', 'image/jpeg', 'image_url', 'input', 'media_type', 'metadata', 'name', 'original_id', 'original_name', 'output', 'source', 'text', 'thinking', 'tool_result', 'tool_use', 'type', 'url', 'video', 'video/mp4', 'video_url']

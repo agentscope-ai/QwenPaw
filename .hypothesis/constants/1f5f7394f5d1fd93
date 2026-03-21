@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/cron_cmd.py
-# hypothesis_version: 6.150.0
-
-[120, 404, 8088, '--agent-id', '--base-url', '--channel', '--cron', '--file', '--mode', '--name', '--target-session', '--target-user', '--text', '--timezone', '--type', '-f', '/', '/cron/jobs', '127.0.0.1', 'JOB_ID', 'Job not found.', 'UTC', 'X-Agent-Id', 'agent', 'channel', 'content', 'create', 'cron', 'default', 'delete', 'dispatch', 'enabled', 'file_', 'final', 'get', 'host', 'id', 'input', 'job_id', 'list', 'max_concurrency', 'message', 'meta', 'mode', 'name', 'pause', 'port', 'request', 'resume', 'role', 'run', 'runtime', 'schedule', 'session_id', 'state', 'stream', 'target', 'task_type', 'text', 'timeout_seconds', 'timezone', 'type', 'user', 'user_id', 'utf-8']

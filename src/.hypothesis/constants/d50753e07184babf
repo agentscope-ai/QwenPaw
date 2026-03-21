@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/constant.py
-# hypothesis_version: 6.150.0
-
-[0.0, 0.1, 0.5, 0.7, 1.0, 5.0, 10.0, 600.0, 10000, '-inf', '.env', '1', '600', '6h', 'COPAW_CHATS_FILE', 'COPAW_CONFIG_FILE', 'COPAW_CORS_ORIGINS', 'COPAW_HEARTBEAT_FILE', 'COPAW_JOBS_FILE', 'COPAW_LOG_LEVEL', 'COPAW_OPENAPI_DOCS', 'COPAW_SECRET_DIR', 'COPAW_WORKING_DIR', 'DASHSCOPE_BASE_URL', 'HEARTBEAT.md', 'chats.json', 'config.json', 'custom_channels', 'debug_history.jsonl', 'inf', 'jobs.json', 'last', 'main', 'media', 'memory', 'models', 'token_usage.json', 'true', 'yes', '~/.copaw']

@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/tools/shell.py
-# hypothesis_version: 6.150.0
-
-['/F', '/PID', '/T', 'PATH', 'replace', 'taskkill', 'text', 'utf-8', 'win32']

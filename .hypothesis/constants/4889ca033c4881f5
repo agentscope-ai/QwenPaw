@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/utils/telemetry.py
-# hypothesis_version: 6.150.0
-
-[2.0, 200, 201, 204, '.telemetry_collected', '1', '1.3', '3D', 'AMD', 'COPAW_DESKTOP_APP', 'Darwin', 'GEFORCE', 'GPU', 'GTX', 'INTEL', 'Linux', 'NVIDIA', 'RADEON', 'RTX', 'VGA', 'Windows', 'architecture', 'arm64', 'collected_at', 'collected_versions', 'copaw_version', 'desktop', 'docker', 'get', 'has_gpu', 'install_id', 'install_method', 'lspci', 'name', 'nvidia-smi', 'opted_out', 'os', 'os_version', 'path', 'pip', 'python_version', 'true', 'unknown', 'utf-8', 'version', 'wmic', 'yes']

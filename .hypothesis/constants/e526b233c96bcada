@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/runner/api.py
-# hypothesis_version: 6.150.0
-
-[400, 404, '/batch-delete', '/chats', '/{chat_id}', 'Filter by channel', 'Filter by user ID', 'agent', 'chat_id mismatch', 'chats', 'deleted', 'memory', 'status']

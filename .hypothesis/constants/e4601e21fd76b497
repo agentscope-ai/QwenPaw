@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/app/channels/schema.py
-# hypothesis_version: 6.150.0
-
-['console', 'dingtalk', 'discord', 'feishu', 'imessage', 'mqtt', 'qq', 'telegram', 'to_handle', 'voice', 'xiaoyi']

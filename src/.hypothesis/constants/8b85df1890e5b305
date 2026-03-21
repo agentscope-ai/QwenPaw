@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/agents/memory/memory_manager.py
-# hypothesis_version: 6.150.0
-
-[0.1, '*', 'EMBEDDING_API_KEY', 'EMBEDDING_BASE_URL', 'EMBEDDING_MODEL_NAME', 'FTS_ENABLED', 'MEMORY_STORE_BACKEND', 'Windows', 'api_key', 'auto', 'backend', 'base_url', 'chroma', 'copaw', 'default', 'dimensions', 'embedding_models', 'enable_cache', 'fts_enabled', 'local', 'max_batch_size', 'max_cache_size', 'max_input_length', 'model_name', 'store_name', 'text', 'true', 'use_dimensions', 'vector_enabled']

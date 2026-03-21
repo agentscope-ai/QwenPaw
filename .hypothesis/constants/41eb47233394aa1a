@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/shutdown_cmd.py
-# hypothesis_version: 6.150.0
-
-[0.1, 0.2, 2.0, 5.0, 8088, ' -m copaw desktop', ' copaw desktop', ', ', '--port', '-Command', '-NoProfile', '-P', '-ano', '-nP', '-p', '-sTCP:LISTEN', '-t', '/F', '/PID', '/T', 'LISTENING', 'SIGKILL', '__main__.py desktop', 'console', 'copaw-console', 'fuser', 'lsof', 'netstat', 'node', 'npm', 'pgrep', 'pnpm', 'port', 'powershell', 'shutdown', 'taskkill', 'tcp', 'vite', 'win32', 'yarn']

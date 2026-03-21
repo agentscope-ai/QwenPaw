@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/clean_cmd.py
-# hypothesis_version: 6.150.0
-
-['--dry-run', '--yes', 'Cancelled.', 'Done.', 'Will remove:', 'clean']

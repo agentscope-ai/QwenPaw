@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/providers/openai_chat_model_compat.py
-# hypothesis_version: 6.150.0
-
-['_SanitizedStream', '__dict__', 'arguments', 'choices', 'chunk', 'delta', 'extra_content', 'function', 'id', 'index', 'model_extra', 'name', 'tool_calls', 'tool_use', 'type']

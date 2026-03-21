@@ -89,3 +89,17 @@ CLAUDE.md
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+
+# Hypothesis test cache
+.hypothesis/
+src/.hypothesis/
+
+# Kiro IDE
+.kiro/
+
+# Stray image/doc files (not part of source)
+baidu_image.png
+desktop_screenshot.png
+page-*.png
+web_image.png
+pr-description.md

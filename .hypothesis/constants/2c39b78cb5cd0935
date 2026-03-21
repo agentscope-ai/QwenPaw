@@ -1,4 +1,0 @@
-# file: /Users/chenleiyu/Desktop/_项目代码/CoPaw/src/copaw/cli/app_cmd.py
-# hypothesis_version: 6.150.0
-
-[8088, '--hide-access-paths', '--host', '--log-level', '--port', '--reload', '--workers', '1', '127.0.0.1', 'Bind host', 'Bind port', 'COPAW_RELOAD_MODE', 'Log level', 'Worker processes', 'app', 'copaw.app._app:app', 'critical', 'debug', 'error', 'info', 'trace', 'uvicorn.access', 'warning']
