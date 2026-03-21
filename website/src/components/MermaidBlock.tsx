@@ -2,13 +2,36 @@ import { useEffect, useState } from "react";
 import mermaid from "mermaid";
 
 let mermaidInitialized = false;
-const mermaidRenderCache = new Map<
+
+const MERMAID_RENDER_CACHE_MAX_ENTRIES = 100;
+
+class BoundedMap<K, V> extends Map<K, V> {
+  private readonly maxSize: number;
+
+  constructor(maxSize: number) {
+    super();
+    this.maxSize = maxSize;
+  }
+
+  override set(key: K, value: V): this {
+    // If the key already exists, just update it without changing size.
+    if (!this.has(key) && this.size >= this.maxSize) {
+      const firstKey = this.keys().next().value as K | undefined;
+      if (firstKey !== undefined) {
+        this.delete(firstKey);
+      }
+    }
+    return super.set(key, value);
+  }
+}
+
+const mermaidRenderCache = new BoundedMap<
   string,
   {
     svg: string;
     reservedHeight: number;
   }
->();
+>(MERMAID_RENDER_CACHE_MAX_ENTRIES);
 
 const MERMAID_MIN_HEIGHT = 176;
 const MERMAID_MAX_HEIGHT = 360;
