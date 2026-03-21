@@ -80,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CoPaw-Desktop-Windows-${{ steps.version.outputs.version }}
-          path: dist/CoPaw-Setup-*.exe
+          path: dist/RyPaw-Setup-*.exe
 
   build-macos:
     runs-on: macos-14
@@ -122,7 +122,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CoPaw-Desktop-macOS-${{ steps.version.outputs.version }}
-          path: dist/CoPaw-*.zip
+          path: dist/RyPaw-*.zip
 
   upload-release:
     needs: [build-windows, build-macos]
@@ -136,15 +136,15 @@ jobs:
 
       - name: Move artifacts to root for upload
         run: |
-          mv CoPaw-Desktop-Windows-*/CoPaw-Setup-*.exe . 2>/dev/null || true
-          mv CoPaw-Desktop-macOS-*/CoPaw-*.zip . 2>/dev/null || true
+          mv CoPaw-Desktop-Windows-*/RyPaw-Setup-*.exe . 2>/dev/null || true
+          mv CoPaw-Desktop-macOS-*/RyPaw-*.zip . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            CoPaw-Setup-*.exe
-            CoPaw-*-macOS.zip
+            RyPaw-Setup-*.exe
+            RyPaw-*-macOS.zip
           fail-on-unmatched-files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
