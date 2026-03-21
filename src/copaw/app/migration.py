@@ -83,7 +83,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
         mcp=config.mcp if hasattr(config, "mcp") else None,
         heartbeat=(
             legacy_agents.defaults.heartbeat
-            if hasattr(legacy_agents, "defaults") and legacy_agents.defaultsgi
+            if hasattr(legacy_agents, "defaults") and legacy_agents.defaults
             else None
         ),
         running=(

@@ -14,7 +14,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
+import type { MarkdownFile } from "../../../../api/types";
 import { FileItem } from "./FileItem";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -22,13 +22,10 @@ import styles from "../index.module.less";
 interface FileListPanelProps {
   files: MarkdownFile[];
   selectedFile: MarkdownFile | null;
-  dailyMemories: DailyMemoryFile[];
-  expandedMemory: boolean;
   workspacePath: string;
   enabledFiles: string[];
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;
-  onDailyMemoryClick: (daily: DailyMemoryFile) => void;
   onToggleEnabled: (filename: string) => void;
   onReorder: (newOrder: string[]) => void;
 }
@@ -36,12 +33,9 @@ interface FileListPanelProps {
 export const FileListPanel: React.FC<FileListPanelProps> = ({
   files,
   selectedFile,
-  dailyMemories,
-  expandedMemory,
   enabledFiles,
   onRefresh,
   onFileClick,
-  onDailyMemoryClick,
   onToggleEnabled,
   onReorder,
 }) => {
@@ -107,11 +101,8 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                       key={file.filename}
                       file={file}
                       selectedFile={selectedFile}
-                      expandedMemory={expandedMemory}
-                      dailyMemories={dailyMemories}
                       enabled={isEnabled}
                       onFileClick={onFileClick}
-                      onDailyMemoryClick={onDailyMemoryClick}
                       onToggleEnabled={onToggleEnabled}
                     />
                   );

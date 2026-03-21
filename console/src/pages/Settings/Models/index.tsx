@@ -5,6 +5,7 @@ import { useProviders } from "./useProviders";
 import {
   PageHeader,
   LoadingState,
+  ModelsSection,
   ProviderCard,
   CustomProviderModal,
 } from "./components";
@@ -63,6 +64,12 @@ function ModelsPage() {
         <LoadingState message={error} error onRetry={fetchAll} />
       ) : (
         <>
+          <ModelsSection
+            providers={providers}
+            activeModels={activeModels}
+            onSaved={refreshProvidersSilently}
+          />
+
           {/* ---- Providers Section ---- */}
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>

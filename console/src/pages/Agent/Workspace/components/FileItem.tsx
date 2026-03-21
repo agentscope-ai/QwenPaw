@@ -3,7 +3,7 @@ import { Switch, Tooltip } from "@agentscope-ai/design";
 import { HolderOutlined } from "@ant-design/icons";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
+import type { MarkdownFile } from "../../../../api/types";
 import { formatFileSize, formatTimeAgo } from "./utils";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -11,27 +11,20 @@ import styles from "../index.module.less";
 interface FileItemProps {
   file: MarkdownFile;
   selectedFile: MarkdownFile | null;
-  expandedMemory: boolean;
-  dailyMemories: DailyMemoryFile[];
   enabled?: boolean;
   onFileClick: (file: MarkdownFile) => void;
-  onDailyMemoryClick: (daily: DailyMemoryFile) => void;
   onToggleEnabled: (filename: string) => void;
 }
 
 export const FileItem: React.FC<FileItemProps> = ({
   file,
   selectedFile,
-  expandedMemory,
-  dailyMemories,
   enabled = false,
   onFileClick,
-  onDailyMemoryClick,
   onToggleEnabled,
 }) => {
   const { t } = useTranslation();
   const isSelected = selectedFile?.filename === file.filename;
-  const isMemoryFile = file.filename === "MEMORY.md";
 
   const {
     attributes,
@@ -99,38 +92,9 @@ export const FileItem: React.FC<FileItemProps> = ({
                 onClick={handleToggleClick}
               />
             </Tooltip>
-            {isMemoryFile && (
-              <span className={styles.expandIcon}>
-                {expandedMemory ? "▼" : "▶"}
-              </span>
-            )}
           </div>
         </div>
       </div>
-
-      {isMemoryFile && expandedMemory && (
-        <div className={styles.dailyMemoryList}>
-          {dailyMemories.map((daily) => {
-            const isDailySelected =
-              selectedFile?.filename === `${daily.date}.md`;
-            return (
-              <div
-                key={daily.date}
-                onClick={() => onDailyMemoryClick(daily)}
-                className={`${styles.dailyMemoryItem} ${
-                  isDailySelected ? styles.selected : ""
-                }`}
-              >
-                <div className={styles.dailyMemoryName}>{daily.date}.md</div>
-                <div className={styles.dailyMemoryMeta}>
-                  {formatFileSize(daily.size)} ·{" "}
-                  {formatTimeAgo(daily.updated_at)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 };

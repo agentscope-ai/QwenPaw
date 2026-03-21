@@ -11,8 +11,6 @@ export default function WorkspacePage() {
   const {
     files,
     selectedFile,
-    dailyMemories,
-    expandedMemory,
     fileContent,
     loading,
     workspacePath,
@@ -21,7 +19,6 @@ export default function WorkspacePage() {
     setFileContent,
     fetchFiles,
     handleFileClick,
-    handleDailyMemoryClick,
     handleSave,
     handleReset,
     handleToggleFileEnabled,
@@ -143,13 +140,10 @@ export default function WorkspacePage() {
         <FileListPanel
           files={files}
           selectedFile={selectedFile}
-          dailyMemories={dailyMemories}
-          expandedMemory={expandedMemory}
           workspacePath={workspacePath}
           enabledFiles={enabledFiles}
           onRefresh={fetchFiles}
           onFileClick={handleFileClick}
-          onDailyMemoryClick={handleDailyMemoryClick}
           onToggleEnabled={handleToggleFileEnabled}
           onReorder={handleReorderFiles}
         />
