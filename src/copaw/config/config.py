@@ -11,6 +11,9 @@ from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    LLM_BACKOFF_BASE,
+    LLM_BACKOFF_CAP,
+    LLM_MAX_RETRIES,
     WORKING_DIR,
 )
 from ..providers.models import ModelSlotConfig
@@ -260,6 +263,29 @@ class AgentsRunningConfig(BaseModel):
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
         ),
+    )
+
+    llm_retry_enabled: bool = Field(
+        default=LLM_MAX_RETRIES > 0,
+        description="Whether to auto-retry transient LLM API errors",
+    )
+
+    llm_max_retries: int = Field(
+        default=max(LLM_MAX_RETRIES, 1),
+        ge=1,
+        description="Maximum retry attempts for transient LLM API errors",
+    )
+
+    llm_backoff_base: float = Field(
+        default=LLM_BACKOFF_BASE,
+        ge=0.1,
+        description="Base delay in seconds for exponential LLM retry backoff",
+    )
+
+    llm_backoff_cap: float = Field(
+        default=LLM_BACKOFF_CAP,
+        ge=0.5,
+        description="Maximum delay cap in seconds for LLM retry backoff",
     )
 
     token_count_model: str = Field(
