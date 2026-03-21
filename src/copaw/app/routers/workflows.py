@@ -6,15 +6,29 @@ orchestrate multiple agents.
 """
 
 import logging
-from typing import List
+from pathlib import Path
+from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...constant import WORKFLOWS_DIR
+from ..workflow_md_meta import extract_meta_fields, split_frontmatter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+class WorkflowMetaInfo(BaseModel):
+    """Metadata from YAML frontmatter."""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    category: Optional[str] = None
+    status: Optional[str] = None
+    version: Optional[str] = None
 
 
 class WorkflowInfo(BaseModel):
@@ -25,12 +39,32 @@ class WorkflowInfo(BaseModel):
     size: int
     created_time: str
     modified_time: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    category: Optional[str] = None
+    status: Optional[str] = None
+    version: Optional[str] = None
 
 
 class WorkflowContent(BaseModel):
-    """Workflow file content."""
+    """Request body: full file content as stored."""
 
-    content: str = Field(..., description="Workflow content (YAML format)")
+    content: str = Field(
+        ...,
+        description="Full Markdown file (may include frontmatter)",
+    )
+
+
+class WorkflowReadResponse(BaseModel):
+    """Workflow file: rendered body, raw file, and parsed frontmatter meta."""
+
+    content: str = Field(
+        ...,
+        description="Markdown body after frontmatter (or full file if none)",
+    )
+    raw: str = Field(..., description="Exact file contents as on disk")
+    meta: WorkflowMetaInfo
 
 
 class WorkflowListResponse(BaseModel):
@@ -44,9 +78,55 @@ class WorkflowCreateRequest(BaseModel):
 
     filename: str = Field(
         ...,
-        description="Workflow filename (e.g., daily_report.yml)",
+        description="Workflow filename (e.g., daily_report.md)",
     )
-    content: str = Field(..., description="Workflow content in YAML format")
+    content: str = Field(
+        ...,
+        description="Workflow content in Markdown format",
+    )
+
+
+def _read_workflow_text(file_path: Path) -> str:
+    return file_path.read_text(encoding="utf-8")
+
+
+def _meta_for_raw(raw: str) -> WorkflowMetaInfo:
+    _had, meta_dict, _body, _full = split_frontmatter(raw)
+    name, description, tags, category, status, version = extract_meta_fields(
+        meta_dict,
+    )
+    return WorkflowMetaInfo(
+        name=name,
+        description=description,
+        tags=tags,
+        category=category,
+        status=status,
+        version=version,
+    )
+
+
+def _info_from_path(file_path: Path) -> WorkflowInfo:
+    stat = file_path.stat()
+    try:
+        raw = _read_workflow_text(file_path)
+        wmeta = _meta_for_raw(raw)
+    except OSError as e:
+        logger.warning("Failed to read workflow %s: %s", file_path, e)
+        wmeta = WorkflowMetaInfo()
+
+    return WorkflowInfo(
+        filename=file_path.name,
+        path=str(file_path),
+        size=stat.st_size,
+        created_time=str(stat.st_ctime),
+        modified_time=str(stat.st_mtime),
+        name=wmeta.name,
+        description=wmeta.description,
+        tags=wmeta.tags,
+        category=wmeta.category,
+        status=wmeta.status,
+        version=wmeta.version,
+    )
 
 
 @router.get(
@@ -63,41 +143,22 @@ async def list_workflows() -> WorkflowListResponse:
         return WorkflowListResponse(workflows=[])
 
     workflows = []
-    for file_path in WORKFLOWS_DIR.glob("*.yml"):
-        stat = file_path.stat()
-        workflows.append(
-            WorkflowInfo(
-                filename=file_path.name,
-                path=str(file_path),
-                size=stat.st_size,
-                created_time=str(stat.st_ctime),
-                modified_time=str(stat.st_mtime),
-            ),
-        )
-
-    # Also include .yaml files
-    for file_path in WORKFLOWS_DIR.glob("*.yaml"):
-        stat = file_path.stat()
-        workflows.append(
-            WorkflowInfo(
-                filename=file_path.name,
-                path=str(file_path),
-                size=stat.st_size,
-                created_time=str(stat.st_ctime),
-                modified_time=str(stat.st_mtime),
-            ),
-        )
+    for pattern in ("*.md", "*.markdown"):
+        for file_path in WORKFLOWS_DIR.glob(pattern):
+            workflows.append(_info_from_path(file_path))
 
     return WorkflowListResponse(workflows=workflows)
 
 
 @router.get(
     "/{filename}",
-    response_model=WorkflowContent,
+    response_model=WorkflowReadResponse,
     summary="Get workflow content",
-    description="Read the content of a specific workflow file",
+    description=(
+        "Read workflow: raw file, body without frontmatter, and parsed meta"
+    ),
 )
-async def get_workflow(filename: str) -> WorkflowContent:
+async def get_workflow(filename: str) -> WorkflowReadResponse:
     """Get workflow content by filename."""
     file_path = WORKFLOWS_DIR / filename
 
@@ -114,8 +175,32 @@ async def get_workflow(filename: str) -> WorkflowContent:
         )
 
     try:
-        content = file_path.read_text(encoding="utf-8")
-        return WorkflowContent(content=content)
+        raw = _read_workflow_text(file_path)
+        had_fence, meta_dict, body, _ = split_frontmatter(raw)
+        (
+            name,
+            description,
+            tags,
+            category,
+            status,
+            version,
+        ) = extract_meta_fields(
+            meta_dict,
+        )
+        meta = WorkflowMetaInfo(
+            name=name,
+            description=description,
+            tags=tags,
+            category=category,
+            status=status,
+            version=version,
+        )
+        display_body = body if had_fence else raw
+        return WorkflowReadResponse(
+            content=display_body,
+            raw=raw,
+            meta=meta,
+        )
     except Exception as e:
         logger.error(f"Failed to read workflow {filename}: {e}")
         raise HTTPException(
@@ -133,10 +218,10 @@ async def get_workflow(filename: str) -> WorkflowContent:
 async def create_workflow(request: WorkflowCreateRequest) -> dict:
     """Create a new workflow file."""
     # Validate filename
-    if not request.filename.endswith((".yml", ".yaml")):
+    if not request.filename.endswith((".md", ".markdown")):
         raise HTTPException(
             status_code=400,
-            detail="Workflow filename must end with .yml or .yaml",
+            detail="Workflow filename must end with .md or .markdown",
         )
 
     if "/" in request.filename or "\\" in request.filename:
