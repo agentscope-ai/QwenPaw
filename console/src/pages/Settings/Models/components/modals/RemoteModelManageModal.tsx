@@ -138,7 +138,10 @@ export function RemoteModelManageModal({
       if (result.supports_video) parts.push(t("models.probeVideo", "视频"));
       if (parts.length > 0) {
         message.success(
-          t("models.probeSupported", { types: parts.join(", "), defaultValue: `支持: ${parts.join(", ")}` }),
+          t("models.probeSupported", {
+            types: parts.join(", "),
+            defaultValue: `支持: ${parts.join(", ")}`,
+          }),
         );
       } else {
         message.info(t("models.probeNotSupported", "该模型不支持多模态输入"));
@@ -266,7 +269,10 @@ export function RemoteModelManageModal({
                       </Tag>
                     )}
                     {m.supports_video === true && (
-                      <Tag color="purple" style={{ fontSize: 11, marginLeft: 4 }}>
+                      <Tag
+                        color="purple"
+                        style={{ fontSize: 11, marginLeft: 4 }}
+                      >
                         {t("models.tagVideo", "视频")}
                       </Tag>
                     )}
@@ -276,7 +282,10 @@ export function RemoteModelManageModal({
                       </Tag>
                     )}
                     {m.supports_multimodal === null && (
-                      <Tag color="default" style={{ fontSize: 11, marginLeft: 6 }}>
+                      <Tag
+                        color="default"
+                        style={{ fontSize: 11, marginLeft: 6 }}
+                      >
                         {t("models.tagNotProbed", "未检测")}
                       </Tag>
                     )}

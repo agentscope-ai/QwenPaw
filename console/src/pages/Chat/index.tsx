@@ -399,15 +399,28 @@ export default function ChatPage() {
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
       if (!activeProviderId || !activeModelId) {
-        setMultimodalCaps({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
         return;
       }
-      const provider = (providers as ProviderInfo[]).find((p) => p.id === activeProviderId);
+      const provider = (providers as ProviderInfo[]).find(
+        (p) => p.id === activeProviderId,
+      );
       if (!provider) {
-        setMultimodalCaps({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
         return;
       }
-      const allModels: ModelInfo[] = [...(provider.models ?? []), ...(provider.extra_models ?? [])];
+      const allModels: ModelInfo[] = [
+        ...(provider.models ?? []),
+        ...(provider.extra_models ?? []),
+      ];
       const model = allModels.find((m) => m.id === activeModelId);
       setMultimodalCaps({
         supportsMultimodal: model?.supports_multimodal ?? false,
@@ -415,7 +428,11 @@ export default function ChatPage() {
         supportsVideo: model?.supports_video ?? false,
       });
     } catch {
-      setMultimodalCaps({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
+      setMultimodalCaps({
+        supportsMultimodal: false,
+        supportsImage: false,
+        supportsVideo: false,
+      });
     }
   }, []);
 
@@ -816,9 +833,10 @@ export default function ChatPage() {
         attachments: multimodalCaps.supportsMultimodal
           ? {
               trigger: function (props: any) {
-                const tooltipKey = multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
-                  ? "chat.attachments.tooltipImageOnly"
-                  : "chat.attachments.tooltip";
+                const tooltipKey =
+                  multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
+                    ? "chat.attachments.tooltipImageOnly"
+                    : "chat.attachments.tooltip";
                 return (
                   <Tooltip title={t(tooltipKey)}>
                     <IconButton
@@ -829,9 +847,10 @@ export default function ChatPage() {
                   </Tooltip>
                 );
               },
-              accept: multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
-                ? "image/*"
-                : "*/*",
+              accept:
+                multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
+                  ? "image/*"
+                  : "*/*",
               customRequest: async (options: {
                 file: File;
                 onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
@@ -848,7 +867,9 @@ export default function ChatPage() {
                     !options.file.type.startsWith("image/")
                   ) {
                     message.warning(t("chat.attachments.imageOnlyAccept"));
-                    return options.onError?.(new Error("Only image files are accepted"));
+                    return options.onError?.(
+                      new Error("Only image files are accepted"),
+                    );
                   }
 
                   // Check file size limit (10MB)
@@ -856,7 +877,9 @@ export default function ChatPage() {
                   const isLt10M = file.size / 1024 / 1024 < 10;
                   if (!isLt10M) {
                     message.error(t("chat.attachments.fileSizeLimit"));
-                    return options.onError?.(new Error("File size exceeds 10MB"));
+                    return options.onError?.(
+                      new Error("File size exceeds 10MB"),
+                    );
                   }
 
                   options.onProgress?.({ percent: 0 });
@@ -864,7 +887,9 @@ export default function ChatPage() {
                   options.onProgress?.({ percent: 100 });
                   options.onSuccess({ url: chatApi.fileUrl(res.url) });
                 } catch (e) {
-                  options.onError?.(e instanceof Error ? e : new Error(String(e)));
+                  options.onError?.(
+                    e instanceof Error ? e : new Error(String(e)),
+                  );
                 }
               },
             }

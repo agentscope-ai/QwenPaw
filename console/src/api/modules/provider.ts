@@ -91,7 +91,9 @@ export const providerApi = {
 
   probeMultimodal: (providerId: string, modelId: string) =>
     request<ProbeMultimodalResponse>(
-      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/probe-multimodal`,
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/probe-multimodal`,
       { method: "POST" },
     ),
 };
