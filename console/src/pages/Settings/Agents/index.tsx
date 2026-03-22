@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, Button, Form, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
-import type { AgentSummary } from "../../../api/types/agents";
+import { providerApi } from "../../../api/modules/provider";
+import type { AgentSummary, ModelSlotConfig } from "../../../api/types/agents";
+import type { ProviderInfo } from "../../../api/types/provider";
 import { useAgents } from "./useAgents";
 import { PageHeader, AgentTable, AgentModal } from "./components";
 import styles from "./index.module.less";
@@ -14,6 +16,27 @@ export default function AgentsPage() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
   const [form] = Form.useForm();
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [defaultModel, setDefaultModel] = useState<
+    ModelSlotConfig | undefined
+  >();
+
+  // Load providers and default model on mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [providersData, activeModels] = await Promise.all([
+          providerApi.listProviders(),
+          providerApi.getActiveModels(),
+        ]);
+        setProviders(providersData);
+        setDefaultModel(activeModels.active_llm || undefined);
+      } catch (error) {
+        console.error("Failed to load providers:", error);
+      }
+    };
+    loadData();
+  }, []);
 
   const handleCreate = () => {
     setEditingAgent(null);
@@ -28,7 +51,18 @@ export default function AgentsPage() {
     try {
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
-      form.setFieldsValue(config);
+      form.setFieldsValue({
+        ...config,
+        active_model: config.active_model || {
+          provider_id: undefined,
+          model: undefined,
+        },
+        orchestration: {
+          can_spawn_agents: config.orchestration?.can_spawn_agents ?? false,
+          allowed_agents: config.orchestration?.allowed_agents ?? [],
+          max_spawn_depth: config.orchestration?.max_spawn_depth ?? 3,
+        },
+      });
       setModalVisible(true);
     } catch (error) {
       console.error("Failed to load agent config:", error);
@@ -49,6 +83,11 @@ export default function AgentsPage() {
     try {
       const values = await form.validateFields();
 
+      // Clean up active_model if empty
+      if (!values.active_model?.provider_id || !values.active_model?.model) {
+        values.active_model = undefined;
+      }
+
       if (editingAgent) {
         await agentsApi.updateAgent(editingAgent.id, values);
         message.success(t("agent.updateSuccess"));
@@ -63,6 +102,11 @@ export default function AgentsPage() {
       message.error(error.message || t("agent.saveFailed"));
     }
   };
+
+  const agentsList = agents.map((agent) => ({
+    value: agent.id,
+    label: agent.name || agent.id,
+  }));
 
   return (
     <div className={styles.agentsPage}>
@@ -89,6 +133,9 @@ export default function AgentsPage() {
         open={modalVisible}
         editingAgent={editingAgent}
         form={form}
+        agentsList={agentsList}
+        providers={providers}
+        defaultModel={defaultModel}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}
       />

@@ -139,7 +139,16 @@
     "descriptionPlaceholder": "Briefly describe this agent's purpose...",
     "workspaceHelp": "Leave empty to auto-generate in ~/.copaw/workspaces/<id>",
     "defaultNotEditable": "Default agent cannot be edited",
-    "defaultNotDeletable": "Default agent cannot be deleted"
+    "defaultNotDeletable": "Default agent cannot be deleted",
+    "modelSettings": "Model Settings",
+    "provider": "Provider",
+    "providerTooltip": "Select the LLM provider for this agent. Leave empty to use the default model.",
+    "providerPlaceholder": "Select provider (empty = default)",
+    "model": "Model",
+    "modelTooltip": "Select the model to use. Leave empty to use the default model.",
+    "modelPlaceholder": "Select model",
+    "selectProviderFirst": "Select a provider first",
+    "defaultModel": "Global Default Model"
   },
   "skills": {
     "title": "Skills",
@@ -652,6 +661,18 @@
     "selectTimezone": "Select timezone",
     "timezoneSaveSuccess": "Timezone updated successfully",
     "timezoneSaveFailed": "Failed to update timezone",
+    "orchestrationTitle": "Agent Orchestration",
+    "canSpawnAgents": "Can Spawn Agents",
+    "canSpawnAgentsTooltip": "Allow this agent to instantiate and invoke other agents through workflows",
+    "allowedAgents": "Allowed Agents",
+    "allowedAgentsTooltip": "List of agents this agent is allowed to spawn. Leave empty to allow all agents.",
+    "allowedAgentsPlaceholder": "Select agents (empty = all allowed)",
+    "maxSpawnDepth": "Max Spawn Depth",
+    "maxSpawnDepthTooltip": "Maximum nesting depth for agent spawning to prevent infinite loops",
+    "maxSpawnDepthRange": "Value must be between 1 and 10",
+    "orchestrationSaveSuccess": "Orchestration settings saved successfully",
+    "orchestrationSaveFailed": "Failed to save orchestration settings",
+    "saveOrchestration": "Save Orchestration Settings",
     "loadFailed": "Failed to load configuration"
   },
   "tools": {

@@ -391,6 +391,33 @@ class AgentProfileRef(BaseModel):
     )
 
 
+class OrchestrationConfig(BaseModel):
+    """Orchestration settings for agent-to-agent delegation.
+
+    Controls whether this agent can spawn/invoke other agents via workflows.
+    """
+
+    can_spawn_agents: bool = Field(
+        default=False,
+        description="Whether this agent can instantiate other agents",
+    )
+    allowed_agents: List[str] = Field(
+        default_factory=list,
+        description=(
+            "List of agent IDs this agent is allowed to spawn. "
+            "Empty list means all agents are allowed "
+            "(when can_spawn_agents=True)."
+        ),
+    )
+    max_spawn_depth: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum nesting depth for agent spawning "
+        "(prevents infinite loops)",
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -449,6 +476,10 @@ class AgentProfileConfig(BaseModel):
     security: Optional["SecurityConfig"] = Field(
         default=None,
         description="Security configuration for this agent",
+    )
+    orchestration: OrchestrationConfig = Field(
+        default_factory=OrchestrationConfig,
+        description="Orchestration settings for agent-to-agent delegation",
     )
 
 
@@ -706,6 +737,11 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="get_token_usage",
             enabled=True,
             description="Get llm token usage",
+        ),
+        "spawn_agent": BuiltinToolConfig(
+            name="spawn_agent",
+            enabled=True,
+            description="Spawn another agent to handle a task",
         ),
     }
 

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Agent context utilities for multi-agent support.
 
-Provides utilities to get the correct agent instance for each request.
+Provides utilities to get the correct agent instance for each request
+and manages spawn context for multi-agent orchestration.
 """
+
 from contextvars import ContextVar
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
@@ -16,6 +18,12 @@ if TYPE_CHECKING:
 _current_agent_id: ContextVar[Optional[str]] = ContextVar(
     "current_agent_id",
     default=None,
+)
+
+# Context variable to store current spawn depth (for orchestration)
+_spawn_depth: ContextVar[int] = ContextVar(
+    "spawn_depth",
+    default=0,
 )
 
 
@@ -115,3 +123,45 @@ def get_current_agent_id() -> str:
     if agent_id:
         return agent_id
     return get_active_agent_id()
+
+
+def set_spawn_depth(depth: int) -> None:
+    """Set current spawn depth in context.
+
+    Args:
+        depth: Spawn depth to set
+    """
+    _spawn_depth.set(depth)
+
+
+def get_spawn_depth() -> int:
+    """Get current spawn depth from context.
+
+    Returns:
+        Current spawn depth, defaults to 0
+    """
+    return _spawn_depth.get()
+
+
+class SpawnDepthContext:
+    """Context manager for spawn depth.
+
+    Automatically increments depth on enter and restores on exit.
+
+    Usage:
+        with SpawnDepthContext():
+            # depth is incremented here
+            result = await spawn_agent(...)
+    """
+
+    def __init__(self):
+        self._previous_depth = 0
+
+    def __enter__(self):
+        self._previous_depth = _spawn_depth.get()
+        _spawn_depth.set(self._previous_depth + 1)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        _spawn_depth.set(self._previous_depth)
+        return False

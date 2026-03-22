@@ -11,6 +11,7 @@ from ...config import (
     load_config,
     save_config,
     AgentsRunningConfig,
+    OrchestrationConfig,
 )
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
@@ -468,6 +469,59 @@ async def put_agents_running_config(
     asyncio.create_task(reload_in_background())
 
     return running_config
+
+
+@router.get(
+    "/orchestration-config",
+    response_model=OrchestrationConfig,
+    summary="Get agent orchestration config",
+    description="Get orchestration configuration for "
+    "agent-to-agent delegation",
+)
+async def get_orchestration_config(
+    request: Request,
+) -> OrchestrationConfig:
+    """Get orchestration configuration for this agent."""
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    return agent_config.orchestration or OrchestrationConfig()
+
+
+@router.put(
+    "/orchestration-config",
+    response_model=OrchestrationConfig,
+    summary="Update agent orchestration config",
+    description="Update orchestration configuration for "
+    "agent-to-agent delegation",
+)
+async def put_orchestration_config(
+    orchestration_config: OrchestrationConfig = Body(
+        ...,
+        description="Updated orchestration configuration",
+    ),
+    request: Request = None,
+) -> OrchestrationConfig:
+    """Update orchestration configuration for this agent."""
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    agent_config.orchestration = orchestration_config
+    save_agent_config(workspace.agent_id, agent_config)
+
+    # Hot reload config (async, non-blocking)
+    manager = request.app.state.multi_agent_manager
+    agent_id = workspace.agent_id
+
+    async def reload_in_background():
+        try:
+            await manager.reload_agent(agent_id)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Background reload failed: {e}",
+            )
+
+    asyncio.create_task(reload_in_background())
+
+    return orchestration_config
 
 
 @router.get(

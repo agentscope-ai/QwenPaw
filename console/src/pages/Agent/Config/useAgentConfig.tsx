@@ -2,31 +2,58 @@ import { useState, useEffect, useCallback } from "react";
 import { Form, Modal, message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
-import type { AgentsRunningConfig } from "../../../api/types";
+import type {
+  AgentsRunningConfig,
+  OrchestrationConfig,
+} from "../../../api/types";
+
+interface AgentInfo {
+  id: string;
+  name: string;
+}
 
 export function useAgentConfig() {
   const { t } = useTranslation();
   const [form] = Form.useForm();
+  const [orchestrationForm] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingOrchestration, setSavingOrchestration] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<string>("zh");
   const [savingLang, setSavingLang] = useState(false);
   const [timezone, setTimezone] = useState<string>("UTC");
   const [savingTimezone, setSavingTimezone] = useState(false);
+  const [agentsList, setAgentsList] = useState<
+    { value: string; label: string }[]
+  >([]);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp, tzResp] = await Promise.all([
-        api.getAgentRunningConfig(),
-        api.getAgentLanguage(),
-        api.getUserTimezone(),
-      ]);
+      const [config, orchestrationConfig, langResp, tzResp, agentsResp] =
+        await Promise.all([
+          api.getAgentRunningConfig(),
+          api.getOrchestrationConfig(),
+          api.getAgentLanguage(),
+          api.getUserTimezone(),
+          api.listAgents(),
+        ]);
       form.setFieldsValue(config);
+      orchestrationForm.setFieldsValue({
+        can_spawn_agents: orchestrationConfig.can_spawn_agents,
+        allowed_agents: orchestrationConfig.allowed_agents,
+        max_spawn_depth: orchestrationConfig.max_spawn_depth,
+      });
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
+      // Build agents list for select
+      const agents = (agentsResp.agents || []).map((agent: AgentInfo) => ({
+        value: agent.id,
+        label: agent.name || agent.id,
+      }));
+      setAgentsList(agents);
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.loadFailed");
@@ -34,7 +61,7 @@ export function useAgentConfig() {
     } finally {
       setLoading(false);
     }
-  }, [form, t]);
+  }, [form, orchestrationForm, t]);
 
   useEffect(() => {
     fetchConfig();
@@ -55,6 +82,24 @@ export function useAgentConfig() {
       setSaving(false);
     }
   }, [form, t]);
+
+  const handleSaveOrchestration = useCallback(async () => {
+    try {
+      const values = await orchestrationForm.validateFields();
+      setSavingOrchestration(true);
+      await api.updateOrchestrationConfig(values as OrchestrationConfig);
+      message.success(t("agentConfig.orchestrationSaveSuccess"));
+    } catch (err) {
+      if (err instanceof Error && "errorFields" in err) return;
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : t("agentConfig.orchestrationSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setSavingOrchestration(false);
+    }
+  }, [orchestrationForm, t]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {
@@ -120,15 +165,19 @@ export function useAgentConfig() {
 
   return {
     form,
+    orchestrationForm,
     loading,
     saving,
+    savingOrchestration,
     error,
     language,
     savingLang,
     timezone,
     savingTimezone,
+    agentsList,
     fetchConfig,
     handleSave,
+    handleSaveOrchestration,
     handleLanguageChange,
     handleTimezoneChange,
   };

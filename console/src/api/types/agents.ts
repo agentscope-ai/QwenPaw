@@ -1,5 +1,8 @@
 // Multi-agent management types
 
+import type { OrchestrationConfig } from "./agent";
+import type { ModelSlotConfig } from "./provider";
+
 export interface AgentSummary {
   id: string;
   name: string;
@@ -10,6 +13,8 @@ export interface AgentSummary {
 export interface AgentListResponse {
   agents: AgentSummary[];
 }
+
+export { OrchestrationConfig, ModelSlotConfig };
 
 export interface AgentProfileConfig {
   id: string;
@@ -24,6 +29,8 @@ export interface AgentProfileConfig {
   system_prompt_files?: string[];
   tools?: unknown;
   security?: unknown;
+  orchestration?: OrchestrationConfig;
+  active_model?: ModelSlotConfig;
 }
 
 export interface CreateAgentRequest {

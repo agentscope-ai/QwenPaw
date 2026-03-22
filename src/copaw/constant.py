@@ -142,6 +142,9 @@ MEMORY_DIR = WORKING_DIR / "memory"
 # loads BaseChannel subclasses from here.
 CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 
+# Workflows directory for multi-agent orchestration
+WORKFLOWS_DIR = WORKING_DIR / "workflows"
+
 # Local models directory
 MODELS_DIR = WORKING_DIR / "models"
 

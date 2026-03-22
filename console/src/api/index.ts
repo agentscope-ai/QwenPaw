@@ -51,6 +51,9 @@ export const api = {
   // Agent
   ...agentApi,
 
+  // Agents (multi-agent management)
+  ...agentsApi,
+
   // Skills
   ...skillApi,
 

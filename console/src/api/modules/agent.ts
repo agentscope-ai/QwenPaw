@@ -1,5 +1,9 @@
 import { request } from "../request";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentRequest,
+  AgentsRunningConfig,
+  OrchestrationConfig,
+} from "../types";
 
 // Agent API
 export const agentApi = {
@@ -82,4 +86,13 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/agent/local-whisper-status"),
+
+  getOrchestrationConfig: () =>
+    request<OrchestrationConfig>("/agent/orchestration-config"),
+
+  updateOrchestrationConfig: (config: OrchestrationConfig) =>
+    request<OrchestrationConfig>("/agent/orchestration-config", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
 };

@@ -192,6 +192,13 @@ async def lifespan(
     # Expose to endpoints - multi-agent manager
     app.state.multi_agent_manager = multi_agent_manager
 
+    # Set multi-agent manager for spawn_agent tool
+    from ..agents.tools.spawn_agent import (
+        set_multi_agent_manager as set_spawn_manager,
+    )
+
+    set_spawn_manager(multi_agent_manager)
+
     # Connect DynamicMultiAgentRunner to MultiAgentManager
     if isinstance(runner, DynamicMultiAgentRunner):
         runner.set_multi_agent_manager(multi_agent_manager)

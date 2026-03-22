@@ -44,6 +44,7 @@ from .tools import (
     view_image,
     write_file,
     create_memory_search_tool,
+    spawn_agent,
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
@@ -211,6 +212,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "spawn_agent": spawn_agent,
         }
 
         # Register only enabled tools
@@ -799,8 +801,20 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         # Set workspace_dir in context for tool functions
         from ..config.context import set_current_workspace_dir
+        from ..app.agent_context import set_current_agent_id, set_spawn_depth
 
         set_current_workspace_dir(self._workspace_dir)
+
+        # Set agent context for orchestration (spawn_agent tool)
+        agent_id = (
+            self._request_context.get("agent_id")
+            if self._request_context
+            else None
+        )
+        if agent_id is None and hasattr(self._agent_config, "id"):
+            agent_id = self._agent_config.id
+        set_current_agent_id(agent_id or "default")
+        set_spawn_depth(0)  # Reset spawn depth for new request
 
         # Process file and media blocks in messages
         if msg is not None:

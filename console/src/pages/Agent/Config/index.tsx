@@ -6,6 +6,7 @@ import {
   PageHeader,
   ReactAgentCard,
   ContextManagementCard,
+  OrchestrationCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -13,15 +14,19 @@ function AgentConfigPage() {
   const { t } = useTranslation();
   const {
     form,
+    orchestrationForm,
     loading,
     saving,
+    savingOrchestration,
     error,
     language,
     savingLang,
     timezone,
     savingTimezone,
+    agentsList,
     fetchConfig,
     handleSave,
+    handleSaveOrchestration,
     handleLanguageChange,
     handleTimezoneChange,
   } = useAgentConfig();
@@ -108,6 +113,25 @@ function AgentConfigPage() {
         </Button>
         <Button type="primary" onClick={handleSave} loading={saving}>
           {t("common.save")}
+        </Button>
+      </div>
+
+      <Form
+        form={orchestrationForm}
+        layout="vertical"
+        className={styles.form}
+        style={{ marginTop: 24 }}
+      >
+        <OrchestrationCard agentsList={agentsList} />
+      </Form>
+
+      <div className={styles.footerActions}>
+        <Button
+          type="primary"
+          onClick={handleSaveOrchestration}
+          loading={savingOrchestration}
+        >
+          {t("agentConfig.saveOrchestration")}
         </Button>
       </div>
     </div>

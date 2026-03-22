@@ -16,3 +16,9 @@ export interface AgentsRunningConfig {
   tool_result_compact_recent_threshold: number;
   tool_result_compact_retention_days: number;
 }
+
+export interface OrchestrationConfig {
+  can_spawn_agents: boolean;
+  allowed_agents: string[];
+  max_spawn_depth: number;
+}

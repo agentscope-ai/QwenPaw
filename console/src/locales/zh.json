@@ -105,7 +105,16 @@
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
     "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
     "defaultNotEditable": "默认智能体不允许编辑",
-    "defaultNotDeletable": "默认智能体不允许删除"
+    "defaultNotDeletable": "默认智能体不允许删除",
+    "modelSettings": "模型设置",
+    "provider": "提供商",
+    "providerTooltip": "选择此智能体的 LLM 提供商。留空则使用默认模型。",
+    "providerPlaceholder": "选择提供商（留空 = 默认）",
+    "model": "模型",
+    "modelTooltip": "选择要使用的模型。留空则使用默认模型。",
+    "modelPlaceholder": "选择模型",
+    "selectProviderFirst": "请先选择提供商",
+    "defaultModel": "全局默认模型"
   },
   "skills": {
     "title": "技能",
@@ -618,6 +627,18 @@
     "timezoneSaveFailed": "时区更新失败",
     "saveSuccess": "配置保存成功",
     "saveFailed": "配置保存失败",
+    "orchestrationTitle": "智能体编排",
+    "canSpawnAgents": "可派生智能体",
+    "canSpawnAgentsTooltip": "允许此智能体通过工作流实例化和调用其他智能体",
+    "allowedAgents": "允许的智能体",
+    "allowedAgentsTooltip": "此智能体允许派生的智能体列表。留空表示允许所有智能体。",
+    "allowedAgentsPlaceholder": "选择智能体（留空 = 允许所有）",
+    "maxSpawnDepth": "最大派生深度",
+    "maxSpawnDepthTooltip": "智能体派生的最大嵌套深度，用于防止无限循环",
+    "maxSpawnDepthRange": "值必须在 1 到 10 之间",
+    "orchestrationSaveSuccess": "编排设置保存成功",
+    "orchestrationSaveFailed": "编排设置保存失败",
+    "saveOrchestration": "保存编排设置",
     "loadFailed": "配置加载失败"
   },
   "tools": {
