@@ -94,6 +94,7 @@ class BaseChannel(ABC):
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
+        self._stop_handler = None  # Injected by workspace for /stop support
         self.dm_policy = dm_policy or "open"
         self.group_policy = group_policy or "open"
         self.allow_from = set(allow_from or [])
@@ -315,8 +316,51 @@ class BaseChannel(ABC):
         )
 
     def set_enqueue(self, cb: EnqueueCallback) -> None:
-        """Set enqueue callback (called by ChannelManager)."""
-        self._enqueue = cb
+        """Set enqueue callback (called by ChannelManager).
+
+        Wraps the callback to intercept /stop before enqueuing.
+        """
+        original_cb = cb
+
+        def _intercepted_enqueue(payload: Any) -> None:
+            # Extract text from payload to check for /stop
+            text = ""
+            if isinstance(payload, dict):
+                parts = payload.get("content_parts") or []
+                for p in parts:
+                    if hasattr(p, "text"):
+                        text = (p.text or "").strip()
+                        break
+                    if isinstance(p, dict) and "text" in p:
+                        text = (p["text"] or "").strip()
+                        break
+
+            if text.lower() == "/stop" and self._stop_handler:
+                # Fire stop handler in the event loop, don't enqueue
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(self._handle_stop_from_enqueue(payload))
+                return
+
+            original_cb(payload)
+
+        self._enqueue = _intercepted_enqueue
+
+    async def _handle_stop_from_enqueue(self, payload: Any) -> None:
+        """Handle /stop intercepted at enqueue time."""
+        try:
+            stopped = await self._stop_handler(None)
+            # Try to send reply
+            to_handle = ""
+            meta = {}
+            if isinstance(payload, dict):
+                to_handle = payload.get("sender_id") or ""
+                meta = payload.get("meta") or {}
+            reply = "⏹ 已打断当前任务。请发送下一条消息。" if stopped else "当前没有正在执行的任务。"
+            await self.send_text(to_handle, reply, meta)
+        except Exception as e:
+            logger.warning("/stop enqueue intercept error: %s", e)
 
     @classmethod
     def from_env(
@@ -516,6 +560,31 @@ class BaseChannel(ABC):
                 else:
                     request.input[0].content = merged
         to_handle = self.get_to_handle_from_request(request)
+
+        # ── /stop soft interrupt (all channels) ─────────
+        if self._stop_handler:
+            user_text = self._extract_user_text(request)
+            if user_text and user_text.lower() == "/stop":
+                try:
+                    stopped = await self._stop_handler(request)
+                    if stopped:
+                        logger.info("/stop: interrupted running task")
+                        await self.send_text(
+                            to_handle,
+                            "⏹ 已打断当前任务。请发送下一条消息。",
+                            getattr(request, "channel_meta", None) or {},
+                        )
+                    else:
+                        await self.send_text(
+                            to_handle,
+                            "当前没有正在执行的任务。",
+                            getattr(request, "channel_meta", None) or {},
+                        )
+                except Exception as e:
+                    logger.warning("/stop handler error: %s", e)
+                return
+        # ── end /stop ───────────────────────────────────
+
         await self._before_consume_process(request)
         # Prefer meta built from payload so session_webhook is present when
         # request.channel_meta is missing (AgentRequest may not have the attr).
@@ -607,6 +676,37 @@ class BaseChannel(ABC):
         Hook called once per consume_one before running _process. Override
         to e.g. save receive_id for send path (Feishu).
         """
+
+    def _extract_user_text(self, request: "AgentRequest") -> str:
+        """Extract plain text from the first input content part."""
+        try:
+            inp = getattr(request, "input", None)
+            if not inp:
+                return ""
+            first = inp[0]
+            content = getattr(first, "content", None) or []
+            for part in content:
+                if hasattr(part, "text"):
+                    return (part.text or "").strip()
+                if isinstance(part, dict) and "text" in part:
+                    return (part["text"] or "").strip()
+        except (IndexError, AttributeError, TypeError):
+            pass
+        return ""
+
+    async def send_text(
+        self,
+        to_handle: str,
+        text: str,
+        send_meta: dict,
+    ) -> None:
+        """Send a simple text message. Channels can override for richer sends."""
+        try:
+            from ..runner.models import OutgoingContentPart
+            parts = [OutgoingContentPart(type="text", text=text)]
+            await self.send_message_content(to_handle, parts, send_meta)
+        except Exception as e:
+            logger.warning("send_text fallback failed: %s", e)
 
     async def on_event_message_completed(
         self,

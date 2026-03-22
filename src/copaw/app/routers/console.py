@@ -109,6 +109,29 @@ async def post_console_chat(
     )
     tracker = workspace.task_tracker
 
+    # ── /stop soft interrupt ────────────────────────────
+    user_text = ""
+    if native_payload["content_parts"]:
+        first = native_payload["content_parts"][0]
+        user_text = (getattr(first, "text", "") or "").strip()
+
+    if user_text.lower() == "/stop":
+        from ...agents.middleware.stop_interrupt import request_agent_stop
+        from ..agent_context import get_agent_for_request as _get_agent
+        try:
+            ws = await _get_agent(request)
+            request_agent_stop(ws.agent_id)
+        except Exception:
+            pass
+        async def _stop_ack() -> AsyncGenerator[str, None]:
+            yield f"data: {json.dumps({'status': 'interrupted', 'message': 'Task interrupted. Send your next message.'})}\n\n"
+        return StreamingResponse(
+            _stop_ack(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+    # ── end /stop ───────────────────────────────────────
+
     is_reconnect = False
     if isinstance(request_data, dict):
         is_reconnect = request_data.get("reconnect") is True

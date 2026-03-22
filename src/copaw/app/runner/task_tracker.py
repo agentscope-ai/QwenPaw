@@ -38,6 +38,7 @@ class TaskTracker:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
+        self._stop_flags: dict[str, asyncio.Event] = {}  # run_key -> Event
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -113,13 +114,25 @@ class TaskTracker:
             return q
 
     async def request_stop(self, run_key: str) -> bool:
-        """Cancel the run. Returns ``True`` if it was running."""
+        """Signal a run to stop gracefully. Returns ``True`` if it was running."""
         async with self._lock:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
                 return False
-            state.task.cancel()
+            # Set stop flag instead of cancelling
+            if run_key not in self._stop_flags:
+                self._stop_flags[run_key] = asyncio.Event()
+            self._stop_flags[run_key].set()
             return True
+
+    def is_stop_requested(self, run_key: str) -> bool:
+        """Check if stop has been requested for a run (non-async, for hooks)."""
+        flag = self._stop_flags.get(run_key)
+        return flag is not None and flag.is_set()
+
+    def clear_stop_flag(self, run_key: str) -> None:
+        """Clear the stop flag after handling the interrupt."""
+        self._stop_flags.pop(run_key, None)
 
     async def attach_or_start(
         self,

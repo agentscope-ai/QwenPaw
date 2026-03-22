@@ -96,6 +96,19 @@ async def create_channel_service(ws: "Workspace", _):
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
     )
+
+    # Inject /stop handler into all channels
+    from ...agents.middleware.stop_interrupt import request_agent_stop
+
+    agent_name = ws.agent_id
+
+    async def _stop_handler(request):
+        """Signal the agent to stop via global flag."""
+        return request_agent_stop(agent_name)
+
+    for ch in cm.channels:
+        ch._stop_handler = _stop_handler
+
     ws._service_manager.services["channel_manager"] = cm
     return cm
     # pylint: enable=protected-access

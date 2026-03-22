@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
+from .middleware import StopInterruptMiddleware
 from .model_factory import create_model_and_formatter
 from .prompt import build_system_prompt_from_working_dir
 from .skills_manager import (
@@ -339,6 +340,20 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 hook=memory_compact_hook.__call__,
             )
             logger.debug("Registered memory compaction hook")
+
+        # Stop interrupt middleware - check /stop signal each reasoning cycle
+        agent_id = (
+            self._request_context.get("agent_id")
+            if self._request_context
+            else None
+        ) or self.name
+        self._stop_interrupt = StopInterruptMiddleware(agent_name=agent_id)
+        self.register_instance_hook(
+            hook_type="pre_reasoning",
+            hook_name="stop_interrupt",
+            hook=self._stop_interrupt.__call__,
+        )
+        logger.debug("Registered stop interrupt middleware")
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
@@ -715,6 +730,22 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Normal message processing
         return await super().reply(msg=msg, structured_model=structured_model)
+
+    async def handle_interrupt(
+        self,
+        msg: Msg | list[Msg] | None = None,
+        structured_model: type[BaseModel] | None = None,
+    ) -> Msg:
+        """Override to provide a friendlier interrupt message."""
+        response_msg = Msg(
+            self.name,
+            "已收到打断指令，当前任务已暂停。请告诉我接下来要怎么做 —— "
+            "继续刚才的任务、调整方向、还是换个事情？",
+            "assistant",
+            metadata={"_is_interrupted": True},
+        )
+        await self.print(response_msg, True)
+        return response_msg
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
