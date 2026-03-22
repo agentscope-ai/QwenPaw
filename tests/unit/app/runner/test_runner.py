@@ -211,6 +211,68 @@ async def test_query_handler_cancelled_stops_gracefully(monkeypatch) -> None:
     assert cast(_DummyAgent, _DummyAgent.last_instance).interrupted is True
 
 
+async def test_query_handler_suppresses_mcp_connection_error(
+    monkeypatch,
+) -> None:
+    from copaw.app.runner import runner as runner_module
+
+    async def _no_approval(session_id: str, query: str | None):
+        _ = session_id, query
+        return None, False
+
+    async def _failing_stream_printing_messages(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError(
+            "The MCP client is not connected to the server. "
+            "Use the connect() method first.",
+        )
+        yield  # pragma: no cover
+
+    runner = AgentRunner()
+    runner.session = _DummySession()
+    cast(Any, runner)._resolve_pending_approval = _no_approval
+
+    monkeypatch.setattr(runner_module, "CoPawAgent", _DummyAgent)
+    monkeypatch.setattr(runner_module, "build_env_context", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        runner_module,
+        "load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "stream_printing_messages",
+        _failing_stream_printing_messages,
+    )
+
+    msgs = [
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(type="text", text="继续")],
+        ),
+    ]
+    request = cast(
+        AgentRequest,
+        SimpleNamespace(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        ),
+    )
+
+    results = []
+    stream = cast(
+        AsyncIterator[tuple[Msg, bool]],
+        cast(Any, runner).query_handler(msgs, request=request),
+    )
+    async for msg, last in stream:
+        results.append((msg, last))
+
+    assert results == []
+    assert cast(_DummySession, runner.session).saved is True
+
+
 async def test_stream_query_cancelled_finishes_without_failed_event(
     monkeypatch,
 ) -> None:
