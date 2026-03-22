@@ -26,28 +26,20 @@ ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --fix-missing \
-    curl  \
-    python3  \
-    python3-pip  \
+# Use Aliyun Debian mirror for faster downloads in China
+RUN echo 'deb http://mirrors.aliyun.com/debian bookworm main' > /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/debian bookworm-updates main' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+    curl \
+    python3 \
+    python3-pip \
     python3-venv \
-    build-essential  \
-    libssl-dev  \
-    git  \
-    supervisor  \
-    vim  \
+    build-essential \
+    libssl-dev \
+    git \
     gettext-base \
-    xfce4 \
-    xfce4-terminal \
-    xvfb \
-    dbus-x11 \
-    fonts-wqy-zenhei \
-    fonts-wqy-microhei \
-  && rm -rf /var/lib/apt/lists/* \
-  && apt-get clean
-
-
-RUN apt-get update && apt-get install -y --fix-missing \
     chromium \
     chromium-sandbox \
     libx11-xcb1 \
@@ -62,11 +54,9 @@ RUN apt-get update && apt-get install -y --fix-missing \
     libdrm2 \
     libgbm1 \
     libasound2 \
-    fonts-liberation \
     libu2f-udev \
   && rm -rf /var/lib/apt/lists/* \
   && apt-get clean
-
 
 RUN sed -i 's/^CHROMIUM_FLAGS=""/CHROMIUM_FLAGS="--no-sandbox"/' /usr/bin/chromium
 
@@ -81,6 +71,10 @@ WORKDIR ${WORKSPACE_DIR}
 
 RUN python3 -m venv venv
 ENV PATH="/app/venv/bin:$PATH"
+
+# Use Aliyun PyPI mirror for pip
+RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip3 config set global.trusted-host mirrors.aliyun.com
 
 COPY pyproject.toml setup.py README.md ./
 COPY src ./src
