@@ -639,7 +639,7 @@ async def test_probe_model_multimodal_logs_discrepancy_warning(
     # Should have a warning about the image discrepancy
     warning_messages = [r.getMessage()
                         for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("探测差异" in msg and "image" in msg for msg in warning_messages), (
+    assert any("Probe discrepancy" in msg and "image" in msg for msg in warning_messages), (
         f"Expected a discrepancy warning about 'image', got: {warning_messages}"
     )
 
@@ -688,7 +688,7 @@ async def test_probe_model_multimodal_no_warning_when_matching(
 
     warning_messages = [r.getMessage()
                         for r in caplog.records if r.levelno >= logging.WARNING]
-    discrepancy_warnings = [m for m in warning_messages if "探测差异" in m]
+    discrepancy_warnings = [m for m in warning_messages if "Probe discrepancy" in m]
     assert len(discrepancy_warnings) == 0, (
         f"Expected no discrepancy warnings, got: {discrepancy_warnings}"
     )

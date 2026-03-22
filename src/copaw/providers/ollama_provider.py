@@ -165,7 +165,7 @@ class OllamaProvider(Provider):
         model_id: str,
         timeout: float = 10,
     ) -> "ProbeResult":
-        """通过 Ollama 的 OpenAI 兼容端点探测多模态能力"""
+        """Probe multimodal capabilities via Ollama's OpenAI-compatible endpoint."""
         from .multimodal_prober import probe_image_support, ProbeResult
 
         openai_url = self.base_url.rstrip("/") + "/v1"
@@ -179,7 +179,7 @@ class OllamaProvider(Provider):
             supports_image=img_ok,
             supports_video=False,
             image_message=img_msg,
-            video_message="Ollama 当前不支持视频输入",
+            video_message="Ollama does not support video input",
         )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:

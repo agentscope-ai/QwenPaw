@@ -557,7 +557,7 @@ class ProviderManager:
             )
             for d in discrepancies:
                 logger.warning(
-                    "探测差异: %s/%s %s 预期=%s 实际=%s (%s)",
+                    "Probe discrepancy: %s/%s %s expected=%s actual=%s (%s)",
                     d.provider_id,
                     d.model_id,
                     d.field,
@@ -751,7 +751,7 @@ class ProviderManager:
             self.active_model = active_model
 
     def _apply_default_annotations(self):
-        """为未探测的模型应用基于文档的默认标注"""
+        """Apply documentation-based default annotations for unprobed models."""
         from .capability_baseline import ExpectedCapabilityRegistry
 
         registry = ExpectedCapabilityRegistry()

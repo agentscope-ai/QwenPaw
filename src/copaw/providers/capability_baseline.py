@@ -9,20 +9,20 @@ from enum import Enum
 
 
 class ProbeSource(str, Enum):
-    """探测结果来源"""
+    """Source of probe result."""
 
-    DOCUMENTATION = "documentation"  # 基于官方文档的默认标注
-    PROBED = "probed"  # 基于实际 API 探测的结果
-    UNKNOWN = "unknown"  # 未知/未探测
+    DOCUMENTATION = "documentation"  # Default annotation from official docs
+    PROBED = "probed"  # Result from actual API probing
+    UNKNOWN = "unknown"  # Unknown / not yet probed
 
 
 @dataclass
 class ExpectedCapability:
-    """基于官方文档的模型预期多模态能力"""
+    """Expected multimodal capability of a model based on official docs."""
 
     provider_id: str
     model_id: str
-    expected_image: bool | None  # None = 文档未明确说明
+    expected_image: bool | None  # None = not specified in docs
     expected_video: bool | None
     doc_url: str = ""
     note: str = ""
@@ -30,19 +30,19 @@ class ExpectedCapability:
 
 @dataclass
 class DiscrepancyLog:
-    """探测结果与预期不一致的差异记录"""
+    """Record of a mismatch between probe result and expected capability."""
 
     provider_id: str
     model_id: str
-    field: str  # "image" 或 "video"
+    field: str  # "image" or "video"
     expected: bool | None
     actual: bool
-    discrepancy_type: str  # "false_negative" 或 "false_positive"
+    discrepancy_type: str  # "false_negative" or "false_positive"
 
 
 @dataclass
 class ComparisonSummary:
-    """对比汇总报告"""
+    """Summary report of probe vs. expected comparison."""
 
     total_models: int
     passed: int
@@ -52,10 +52,9 @@ class ComparisonSummary:
 
 
 class ExpectedCapabilityRegistry:
-    """管理所有渠道模型的预期多模态能力基线数据。
+    """Registry of expected multimodal capabilities for all built-in provider models.
 
-    内部使用 ``{(provider_id, model_id): ExpectedCapability}`` 字典存储。
-    基线数据将在后续任务中填充。
+    Internally stores ``{(provider_id, model_id): ExpectedCapability}`` dict.
     """
 
     def __init__(self) -> None:
@@ -69,11 +68,11 @@ class ExpectedCapabilityRegistry:
     def get_expected(
         self, provider_id: str, model_id: str
     ) -> ExpectedCapability | None:
-        """查询某个模型的预期能力，未找到时返回 None。"""
+        """Look up expected capability for a model. Returns None if not found."""
         return self._data.get((provider_id, model_id))
 
     def get_all_for_provider(self, provider_id: str) -> list[ExpectedCapability]:
-        """获取某个渠道下所有模型的预期能力列表。"""
+        """Get all expected capabilities for a given provider."""
         return [
             cap for (pid, _), cap in self._data.items() if pid == provider_id
         ]
@@ -83,11 +82,11 @@ class ExpectedCapabilityRegistry:
     # ------------------------------------------------------------------
 
     def _register(self, cap: ExpectedCapability) -> None:
-        """注册一条基线记录。"""
+        """Register a single baseline entry."""
         self._data[(cap.provider_id, cap.model_id)] = cap
 
     def _load_baseline(self) -> None:
-        """加载全部 16 个内置渠道的预定义模型基线数据。"""
+        """Load baseline data for all 16 built-in providers."""
 
         # ---------------------------------------------------------------
         # 1. ModelScope
@@ -102,7 +101,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_ms_doc,
-            note="ModelScope API Inference 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in ModelScope docs",
         ))
         self._register(ExpectedCapability(
             provider_id="modelscope",
@@ -110,7 +109,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_ms_doc,
-            note="ModelScope API Inference 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in ModelScope docs",
         ))
 
         # ---------------------------------------------------------------
@@ -126,7 +125,7 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_ds_doc,
-            note="Qwen3 系列为纯文本模型",
+            note="Qwen3 series is text-only",
         ))
         self._register(ExpectedCapability(
             provider_id="dashscope",
@@ -134,7 +133,7 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_ds_doc,
-            note="Qwen3 系列为纯文本模型",
+            note="Qwen3 series is text-only",
         ))
         self._register(ExpectedCapability(
             provider_id="dashscope",
@@ -142,12 +141,11 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_ds_doc,
-            note="DeepSeek V3 系列为纯文本模型",
+            note="DeepSeek V3 series is text-only",
         ))
 
         # ---------------------------------------------------------------
         # 3. Aliyun Coding Plan
-        #    https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope
         # ---------------------------------------------------------------
         _acp_doc = (
             "https://help.aliyun.com/zh/model-studio/developer-reference/"
@@ -159,7 +157,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_acp_doc,
-            note="Aliyun Coding Plan 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in docs",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -167,7 +165,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_acp_doc,
-            note="Aliyun Coding Plan 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in docs",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -175,7 +173,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_acp_doc,
-            note="Aliyun Coding Plan 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in docs",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -183,7 +181,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_acp_doc,
-            note="Aliyun Coding Plan 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in docs",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -191,7 +189,7 @@ class ExpectedCapabilityRegistry:
             expected_image=None,
             expected_video=None,
             doc_url=_acp_doc,
-            note="Aliyun Coding Plan 文档未明确说明该模型的多模态能力",
+            note="Multimodal capability not specified in docs",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -199,7 +197,7 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_acp_doc,
-            note="Qwen3 系列为纯文本模型",
+            note="Qwen3 series is text-only",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -207,7 +205,7 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_acp_doc,
-            note="Qwen3 Coder 系列为代码专用纯文本模型",
+            note="Qwen3 Coder series is code-only text model",
         ))
         self._register(ExpectedCapability(
             provider_id="aliyun-codingplan",
@@ -215,7 +213,7 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_acp_doc,
-            note="Qwen3 Coder 系列为代码专用纯文本模型",
+            note="Qwen3 Coder series is code-only text model",
         ))
 
         # ---------------------------------------------------------------
@@ -239,7 +237,6 @@ class ExpectedCapabilityRegistry:
 
         # ---------------------------------------------------------------
         # 5. Azure OpenAI
-        #    https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models
         # ---------------------------------------------------------------
         _az_doc = (
             "https://learn.microsoft.com/en-us/azure/ai-services/"
@@ -311,7 +308,7 @@ class ExpectedCapabilityRegistry:
             expected_image=True,
             expected_video=False,
             doc_url=_ds_api_doc,
-            note="DeepSeek-V3 支持图片输入",
+            note="DeepSeek-V3 supports image input",
         ))
         self._register(ExpectedCapability(
             provider_id="deepseek",
@@ -319,15 +316,13 @@ class ExpectedCapabilityRegistry:
             expected_image=False,
             expected_video=False,
             doc_url=_ds_api_doc,
-            note="DeepSeek-R1 推理模型不支持多模态输入",
+            note="DeepSeek-R1 reasoning model does not support multimodal input",
         ))
 
         # ---------------------------------------------------------------
         # 9. Anthropic
-        #    https://docs.anthropic.com/en/docs/build-with-claude/vision
-        #    注意：ANTHROPIC_MODELS 为空列表，无预定义模型
+        #    No predefined models (ANTHROPIC_MODELS is empty)
         # ---------------------------------------------------------------
-        # Anthropic 渠道无预定义模型，无需注册基线数据
 
         # ---------------------------------------------------------------
         # 10. Gemini
@@ -353,7 +348,6 @@ class ExpectedCapabilityRegistry:
 
         # ---------------------------------------------------------------
         # 11. MiniMax (International)
-        #     https://www.minimax.io/platform/document/announcement
         # ---------------------------------------------------------------
         _mm_doc = (
             "https://www.minimax.io/platform/document/announcement"
@@ -374,7 +368,6 @@ class ExpectedCapabilityRegistry:
 
         # ---------------------------------------------------------------
         # 12. MiniMax (China)
-        #     https://platform.minimaxi.com/document/announcement
         # ---------------------------------------------------------------
         _mm_cn_doc = (
             "https://platform.minimaxi.com/document/announcement"
@@ -394,27 +387,19 @@ class ExpectedCapabilityRegistry:
             ))
 
         # ---------------------------------------------------------------
-        # 13. Ollama
-        #     https://github.com/ollama/ollama/blob/main/docs/api.md
-        #     Ollama 无预定义模型（动态发现），无需注册基线数据
+        # 13. Ollama — no predefined models (dynamic discovery)
         # ---------------------------------------------------------------
 
         # ---------------------------------------------------------------
-        # 14. LM Studio
-        #     https://lmstudio.ai/docs
-        #     LM Studio 无预定义模型（动态发现），无需注册基线数据
+        # 14. LM Studio — no predefined models (dynamic discovery)
         # ---------------------------------------------------------------
 
         # ---------------------------------------------------------------
-        # 15. llama.cpp (Local)
-        #     https://github.com/ggml-org/llama.cpp/blob/master/docs/server.md
-        #     llamacpp 模型列表由本地扫描动态生成，无预定义模型
+        # 15. llama.cpp — models discovered via local scan
         # ---------------------------------------------------------------
 
         # ---------------------------------------------------------------
-        # 16. MLX (Local, Apple Silicon)
-        #     https://github.com/ml-explore/mlx-lm
-        #     mlx 模型列表由本地扫描动态生成，无预定义模型
+        # 16. MLX (Apple Silicon) — models discovered via local scan
         # ---------------------------------------------------------------
 
 
@@ -423,12 +408,12 @@ def compare_probe_result(
     actual_image: bool,
     actual_video: bool,
 ) -> list[DiscrepancyLog]:
-    """对比单个模型的探测结果与预期，返回差异列表。
+    """Compare a single model's probe result against expected capability.
 
-    当 expected 的 expected_image / expected_video 为 None 时跳过该字段对比。
-    当 expected != actual 时生成 DiscrepancyLog，区分:
-      - false_negative: expected=True, actual=False（漏检）
-      - false_positive: expected=False, actual=True（误检）
+    Skips comparison when expected_image/expected_video is None.
+    When expected != actual, generates a DiscrepancyLog with type:
+      - false_negative: expected=True, actual=False (missed detection)
+      - false_positive: expected=False, actual=True (wrong detection)
     """
     logs: list[DiscrepancyLog] = []
 
@@ -460,13 +445,14 @@ def compare_probe_result(
 def generate_summary(
     results: list[tuple[ExpectedCapability, bool, bool, str]],
 ) -> ComparisonSummary:
-    """生成对比汇总报告。
+    """Generate a comparison summary report.
 
-    results 中每个元素为 (expected_cap, actual_image, actual_video, status)，
-    其中 status 为 "ok"、"discrepancy" 或 "failure"。
+    Each element in results is (expected_cap, actual_image, actual_video, status),
+    where status is "ok", "discrepancy", or "failure".
 
-    返回的 ComparisonSummary 保证 total_models == passed + discrepancies + failures，
-    且 details 仅包含 status=="discrepancy" 条目产生的 DiscrepancyLog。
+    The returned ComparisonSummary guarantees
+    total_models == passed + discrepancies + failures,
+    and details only contains DiscrepancyLog entries from "discrepancy" items.
     """
     passed = 0
     discrepancies = 0

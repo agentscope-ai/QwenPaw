@@ -28,7 +28,7 @@ class ModelInfo(BaseModel):
     )
     probe_source: str | None = Field(
         default=None,
-        description="探测结果来源：'documentation'（基于文档）或 'probed'（实际探测）",
+        description="Probe result source: 'documentation' (from docs) or 'probed' (actual probe)",
     )
 
 

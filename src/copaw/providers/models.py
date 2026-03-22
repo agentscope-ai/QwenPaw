@@ -8,28 +8,9 @@ from typing import List
 from pydantic import BaseModel, Field
 
 
-class ModelInfo(BaseModel):
-    id: str = Field(..., description="Model identifier used in API calls")
-    name: str = Field(..., description="Human-readable model name")
-    supports_multimodal: bool | None = Field(
-        default=None,
-        description="Whether this model supports multimodal input "
-        "(image/audio/video). None means not yet probed.",
-    )
-    supports_image: bool | None = Field(
-        default=None,
-        description="Whether this model supports image input. "
-        "None means not yet probed.",
-    )
-    supports_video: bool | None = Field(
-        default=None,
-        description="Whether this model supports video input. "
-        "None means not yet probed.",
-    )
-    probe_source: str | None = Field(
-        default=None,
-        description="探测结果来源：'documentation'（基于文档）或 'probed'（实际探测）",
-    )
+# Re-export ModelInfo from the canonical definition in provider.py to avoid
+# duplicate class definitions.  All runtime code should use this single class.
+from copaw.providers.provider import ModelInfo  # noqa: F401
 
 
 class ProviderDefinition(BaseModel):
