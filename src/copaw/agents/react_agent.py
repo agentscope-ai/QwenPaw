@@ -631,8 +631,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         except Exception:
             return ""
 
-
-
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -693,7 +691,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 n_stripped,
             )
             return await super()._reasoning(tool_choice=tool_choice)
-
 
     async def _summarizing(self) -> Msg:
         """Override summarizing with proactive media filtering, passive fallback,

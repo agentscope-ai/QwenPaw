@@ -24,7 +24,7 @@ _MEDIA_TYPES = ["image", "audio", "video"]
 
 # Strategy: a single text block
 _text_block_st = st.fixed_dictionaries(
-    {"type": st.just("text"), "text": st.text(min_size=1, max_size=30)}
+    {"type": st.just("text"), "text": st.text(min_size=1, max_size=30)},
 )
 
 # Strategy: a single media block (image, audio, or video)
@@ -32,9 +32,9 @@ _media_block_st = st.fixed_dictionaries(
     {
         "type": st.sampled_from(_MEDIA_TYPES),
         "url": st.text(min_size=1, max_size=50).map(
-            lambda t: f"http://example.com/{t}"
+            lambda t: f"http://example.com/{t}",
         ),
-    }
+    },
 )
 
 # Strategy: a content block that is either text or media
@@ -53,6 +53,7 @@ _message_content_st = st.one_of(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _count_media_blocks(content) -> int:
     """Count media blocks in message content."""
@@ -136,7 +137,7 @@ def test_proactive_media_filtering_correctness(
 
     # Mock _get_current_model_supports_multimodal to return our random bool
     agent._get_current_model_supports_multimodal = MagicMock(
-        return_value=supports_multimodal
+        return_value=supports_multimodal,
     )
 
     # Execute the proactive filtering logic (mirrors _reasoning preamble)
@@ -156,18 +157,18 @@ def test_proactive_media_filtering_correctness(
             f"supports_multimodal=False but {total_media_after} media "
             f"block(s) remain in memory (had {total_media_before} before)"
         )
-        assert stripped == total_media_before, (
-            f"Expected {total_media_before} blocks stripped, got {stripped}"
-        )
+        assert (
+            stripped == total_media_before
+        ), f"Expected {total_media_before} blocks stripped, got {stripped}"
     else:
         # Requirement 2.3: all media blocks SHALL remain unmodified
         assert total_media_after == total_media_before, (
             f"supports_multimodal=True but media count changed: "
             f"{total_media_before} -> {total_media_after}"
         )
-        assert stripped == 0, (
-            f"supports_multimodal=True but {stripped} block(s) were stripped"
-        )
+        assert (
+            stripped == 0
+        ), f"supports_multimodal=True but {stripped} block(s) were stripped"
 
 
 # ---------------------------------------------------------------------------
@@ -199,14 +200,19 @@ def test_proactive_filtering_log_records_correct_count(
     for i in range(num_media_blocks):
         media_type = _MEDIA_TYPES[i % len(_MEDIA_TYPES)]
         content.append(
-            {"type": media_type, "url": f"http://example.com/{media_type}/{i}"}
+            {
+                "type": media_type,
+                "url": f"http://example.com/{media_type}/{i}",
+            },
         )
 
     # Build agent with one message containing the generated content
     agent = _build_agent_with_memory([content])
 
     # Model does NOT support multimodal → proactive filtering should fire
-    agent._get_current_model_supports_multimodal = MagicMock(return_value=False)
+    agent._get_current_model_supports_multimodal = MagicMock(
+        return_value=False,
+    )
 
     # Capture log output from the react_agent logger
     import logging as _logging
@@ -225,9 +231,9 @@ def test_proactive_filtering_log_records_correct_count(
                 )
 
         # The stripped count must equal the number of media blocks we created
-        assert stripped == num_media_blocks, (
-            f"Expected {num_media_blocks} blocks stripped, got {stripped}"
-        )
+        assert (
+            stripped == num_media_blocks
+        ), f"Expected {num_media_blocks} blocks stripped, got {stripped}"
 
         # Verify warning was called exactly once with the correct count
         mock_warning.assert_called_once()
@@ -236,9 +242,9 @@ def test_proactive_filtering_log_records_correct_count(
         fmt_string = call_args[0][0]
         logged_count = call_args[0][1]
 
-        assert "Proactively stripped" in fmt_string, (
-            f"Expected 'Proactively stripped' in log message, got: {fmt_string}"
-        )
+        assert (
+            "Proactively stripped" in fmt_string
+        ), f"Expected 'Proactively stripped' in log message, got: {fmt_string}"
         assert logged_count == num_media_blocks, (
             f"Log reported {logged_count} stripped blocks, "
             f"expected {num_media_blocks}"
@@ -269,7 +275,7 @@ _MEDIA_KEYWORD_ERRORS = [
 ]
 
 _error_type_st = st.sampled_from(
-    [_STATUS_400_ERROR] + _MEDIA_KEYWORD_ERRORS
+    [_STATUS_400_ERROR] + _MEDIA_KEYWORD_ERRORS,
 )
 
 
@@ -313,7 +319,10 @@ def test_multimodal_marked_model_error_fallback(
     for i in range(num_media_blocks):
         media_type = _MEDIA_TYPES[i % len(_MEDIA_TYPES)]
         content.append(
-            {"type": media_type, "url": f"http://example.com/{media_type}/{i}"}
+            {
+                "type": media_type,
+                "url": f"http://example.com/{media_type}/{i}",
+            },
         )
 
     # Build agent mock with real memory and real methods
@@ -323,7 +332,9 @@ def test_multimodal_marked_model_error_fallback(
     agent._get_current_model_supports_multimodal = MagicMock(return_value=True)
 
     # Bind the real _is_bad_request_or_media_error static method
-    agent._is_bad_request_or_media_error = CoPawAgent._is_bad_request_or_media_error
+    agent._is_bad_request_or_media_error = (
+        CoPawAgent._is_bad_request_or_media_error
+    )
 
     # Track calls to _strip_media_blocks_from_memory
     real_strip = CoPawAgent._strip_media_blocks_from_memory.__get__(agent)
@@ -354,6 +365,7 @@ def test_multimodal_marked_model_error_fallback(
 
     # Capture log output
     import logging as _logging
+
     react_logger = _logging.getLogger("copaw.agents.react_agent")
 
     with patch.object(react_logger, "warning") as mock_warning:
@@ -365,6 +377,7 @@ def test_multimodal_marked_model_error_fallback(
         # Execute the _reasoning flow manually (mirrors the actual method)
         loop = asyncio.new_event_loop()
         try:
+
             async def run_reasoning_flow():
                 # --- Proactive filtering layer ---
                 # supports_multimodal=True, so this block should NOT execute
@@ -412,9 +425,9 @@ def test_multimodal_marked_model_error_fallback(
     assert result == success_msg, "Retry after passive fallback should succeed"
 
     # 2. super()._reasoning was called twice (first fail, then retry)
-    assert call_count == 2, (
-        f"Expected 2 calls to super()._reasoning, got {call_count}"
-    )
+    assert (
+        call_count == 2
+    ), f"Expected 2 calls to super()._reasoning, got {call_count}"
 
     # 3. _strip_media_blocks_from_memory was called (passive fallback)
     assert strip_call_count == 1, (
@@ -423,14 +436,15 @@ def test_multimodal_marked_model_error_fallback(
     )
 
     # 4. The strip actually removed media blocks
-    assert original_strip_result == num_media_blocks, (
-        f"Expected {num_media_blocks} blocks stripped, got {original_strip_result}"
-    )
+    assert (
+        original_strip_result == num_media_blocks
+    ), f"Expected {num_media_blocks} blocks stripped, got {original_strip_result}"
 
     # 5. Warning about inaccurate capability flag was logged
     warning_calls = mock_warning.call_args_list
     capability_warnings = [
-        c for c in warning_calls
+        c
+        for c in warning_calls
         if "Capability flag may be inaccurate" in str(c)
     ]
     assert len(capability_warnings) == 1, (
@@ -440,9 +454,8 @@ def test_multimodal_marked_model_error_fallback(
 
     # 6. Retry warning was also logged
     retry_warnings = [
-        c for c in warning_calls
-        if "_reasoning failed" in str(c)
+        c for c in warning_calls if "_reasoning failed" in str(c)
     ]
-    assert len(retry_warnings) == 1, (
-        f"Expected exactly 1 retry warning, got {len(retry_warnings)}"
-    )
+    assert (
+        len(retry_warnings) == 1
+    ), f"Expected exactly 1 retry warning, got {len(retry_warnings)}"

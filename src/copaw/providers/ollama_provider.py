@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, List
+from typing import TYPE_CHECKING, Any, List
 
 try:
     import ollama
@@ -14,6 +14,9 @@ except ImportError:
 from agentscope.model import ChatModelBase
 
 from copaw.providers.provider import ModelInfo, Provider
+
+if TYPE_CHECKING:
+    from copaw.providers.multimodal_prober import ProbeResult
 
 
 class OllamaProvider(Provider):
@@ -164,8 +167,8 @@ class OllamaProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> "ProbeResult":
-        """Probe multimodal capabilities via Ollama's OpenAI-compatible endpoint."""
+    ) -> ProbeResult:
+        """Probe multimodal via Ollama OpenAI endpoint."""
         from .multimodal_prober import probe_image_support, ProbeResult
 
         openai_url = self.base_url.rstrip("/") + "/v1"

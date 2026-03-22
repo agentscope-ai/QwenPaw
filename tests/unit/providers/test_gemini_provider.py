@@ -398,7 +398,8 @@ async def test_probe_image_support_api_error_400(monkeypatch) -> None:
             if call_count == 1:
                 # Image probe → 400
                 raise genai_errors.APIError(
-                    400, {"error": "image not supported"},
+                    400,
+                    {"error": "image not supported"},
                 )
             # Video probe → success
             return SimpleNamespace(text="yes")
@@ -430,7 +431,8 @@ async def test_probe_video_support_api_error_400(monkeypatch) -> None:
                 return SimpleNamespace(text="red")
             # Video probe → 400
             raise genai_errors.APIError(
-                400, {"error": "video not supported"},
+                400,
+                {"error": "video not supported"},
             )
 
     fake_client = SimpleNamespace(
@@ -453,7 +455,8 @@ async def test_probe_both_unsupported(monkeypatch) -> None:
     class FakeModels:
         async def generate_content(self, **kwargs):
             raise genai_errors.APIError(
-                400, {"error": "does not support"},
+                400,
+                {"error": "does not support"},
             )
 
     fake_client = SimpleNamespace(
@@ -497,7 +500,8 @@ async def test_probe_media_keyword_error(monkeypatch) -> None:
     class FakeModels:
         async def generate_content(self, **kwargs):
             raise genai_errors.APIError(
-                500, {"error": "model does not support vision"},
+                500,
+                {"error": "model does not support vision"},
             )
 
     fake_client = SimpleNamespace(
@@ -519,7 +523,8 @@ async def test_probe_inconclusive_api_error(monkeypatch) -> None:
     class FakeModels:
         async def generate_content(self, **kwargs):
             raise genai_errors.APIError(
-                503, {"error": "service unavailable"},
+                503,
+                {"error": "service unavailable"},
             )
 
     fake_client = SimpleNamespace(

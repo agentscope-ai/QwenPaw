@@ -472,12 +472,14 @@ class ProviderManager:
             for model in provider.models + provider.extra_models:
                 if model.id == model_id and model.supports_multimodal is None:
                     asyncio.create_task(
-                        self._auto_probe_multimodal(provider_id, model_id)
+                        self._auto_probe_multimodal(provider_id, model_id),
                     )
                     break
 
     async def _auto_probe_multimodal(
-        self, provider_id: str, model_id: str
+        self,
+        provider_id: str,
+        model_id: str,
     ) -> None:
         """Background probe that doesn't block model activation."""
         try:
@@ -553,7 +555,9 @@ class ProviderManager:
         expected = registry.get_expected(provider_id, model_id)
         if expected:
             discrepancies = compare_probe_result(
-                expected, result.supports_image, result.supports_video
+                expected,
+                result.supports_image,
+                result.supports_video,
             )
             for d in discrepancies:
                 logger.warning(
@@ -751,7 +755,7 @@ class ProviderManager:
             self.active_model = active_model
 
     def _apply_default_annotations(self):
-        """Apply documentation-based default annotations for unprobed models."""
+        """Apply doc-based default annotations for unprobed models."""
         from .capability_baseline import ExpectedCapabilityRegistry
 
         registry = ExpectedCapabilityRegistry()
@@ -763,9 +767,8 @@ class ProviderManager:
                         model.supports_image = expected.expected_image
                         model.supports_video = expected.expected_video
                         model.supports_multimodal = (
-                            (expected.expected_image or False)
-                            or (expected.expected_video or False)
-                        )
+                            expected.expected_image or False
+                        ) or (expected.expected_video or False)
                         model.probe_source = "documentation"
 
     def update_local_models(self):

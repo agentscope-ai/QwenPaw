@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import json
-from typing import Any, List
+from typing import TYPE_CHECKING, Any, List
 
 from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 
 from copaw.providers.provider import ModelInfo, Provider
+
+if TYPE_CHECKING:
+    from copaw.providers.multimodal_prober import ProbeResult
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
@@ -159,7 +162,7 @@ class OpenAIProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> "ProbeResult":
+    ) -> ProbeResult:
         from .multimodal_prober import probe_multimodal_support
 
         return await probe_multimodal_support(
@@ -168,4 +171,3 @@ class OpenAIProvider(Provider):
             model_id=model_id,
             timeout=timeout,
         )
-

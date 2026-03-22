@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 """Definition of Provider."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any
+from typing import TYPE_CHECKING, Dict, List, Type, Any
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
+
+if TYPE_CHECKING:
+    from .multimodal_prober import ProbeResult
 
 
 class ModelInfo(BaseModel):
@@ -28,7 +33,10 @@ class ModelInfo(BaseModel):
     )
     probe_source: str | None = Field(
         default=None,
-        description="Probe result source: 'documentation' (from docs) or 'probed' (actual probe)",
+        description=(
+            "Probe result source: 'documentation' (from docs)"
+            " or 'probed' (actual probe)"
+        ),
     )
 
 
@@ -194,9 +202,9 @@ class Provider(ProviderInfo, ABC):
 
     async def probe_model_multimodal(
         self,
-        model_id: str,
-        timeout: float = 10,
-    ) -> "ProbeResult":
+        model_id: str,  # pylint: disable=unused-argument
+        timeout: float = 10,  # pylint: disable=unused-argument
+    ) -> ProbeResult:
         """Probe if a model supports multimodal input.
 
         Default implementation returns ProbeResult() (all False).

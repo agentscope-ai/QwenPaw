@@ -26,11 +26,17 @@ from copaw.providers.multimodal_prober import (
 # ---------------------------------------------------------------------------
 
 
-def _make_api_error(status_code: int, message: str = "error") -> APIStatusError:
-    """Create an APIStatusError (subclass of APIError) with the given status code."""
+def _make_api_error(
+    status_code: int,
+    message: str = "error",
+) -> APIStatusError:
+    """Create an APIStatusError with the given status code."""
     response = httpx.Response(
         status_code,
-        request=httpx.Request("POST", "https://api.example.com/v1/chat/completions"),
+        request=httpx.Request(
+            "POST",
+            "https://api.example.com/v1/chat/completions",
+        ),
     )
     return APIStatusError(
         message=message,
@@ -83,11 +89,15 @@ class TestProbeImageSupport:
     async def test_success_returns_true(self, mock_openai_cls) -> None:
         """When the model correctly identifies the red image, return True."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _fake_completion("red")
+        mock_client.chat.completions.create.return_value = _fake_completion(
+            "red",
+        )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
-            "https://api.example.com/v1", "sk-test", "gpt-4o",
+            "https://api.example.com/v1",
+            "sk-test",
+            "gpt-4o",
         )
 
         assert ok is True
@@ -98,11 +108,15 @@ class TestProbeImageSupport:
     async def test_wrong_color_returns_false(self, mock_openai_cls) -> None:
         """When the model answers a wrong color, it didn't see the image."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _fake_completion("blue")
+        mock_client.chat.completions.create.return_value = _fake_completion(
+            "blue",
+        )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
-            "https://api.example.com/v1", "sk-test", "text-only-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "text-only-model",
         )
 
         assert ok is False
@@ -113,12 +127,15 @@ class TestProbeImageSupport:
         """When the model returns 400 APIError, return (False, ...)."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = _make_api_error(
-            400, "image_url is not supported",
+            400,
+            "image_url is not supported",
         )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
-            "https://api.example.com/v1", "sk-test", "text-only-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "text-only-model",
         )
 
         assert ok is False
@@ -126,17 +143,21 @@ class TestProbeImageSupport:
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_non_400_api_error_with_media_keyword(
-        self, mock_openai_cls,
+        self,
+        mock_openai_cls,
     ) -> None:
         """Non-400 APIError with media keyword still returns False."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = _make_api_error(
-            422, "This model does not support image input",
+            422,
+            "This model does not support image input",
         )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
-            "https://api.example.com/v1", "sk-test", "some-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "some-model",
         )
 
         assert ok is False
@@ -154,11 +175,15 @@ class TestProbeVideoSupport:
     async def test_success_returns_true(self, mock_openai_cls) -> None:
         """When the model correctly identifies the blue video, return True."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _fake_completion("blue")
+        mock_client.chat.completions.create.return_value = _fake_completion(
+            "blue",
+        )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_video_support(
-            "https://api.example.com/v1", "sk-test", "gpt-4o",
+            "https://api.example.com/v1",
+            "sk-test",
+            "gpt-4o",
         )
 
         assert ok is True
@@ -168,11 +193,15 @@ class TestProbeVideoSupport:
     async def test_wrong_color_returns_false(self, mock_openai_cls) -> None:
         """When the model answers a wrong color, it didn't see the video."""
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _fake_completion("red")
+        mock_client.chat.completions.create.return_value = _fake_completion(
+            "red",
+        )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_video_support(
-            "https://api.example.com/v1", "sk-test", "text-only-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "text-only-model",
         )
 
         assert ok is False
@@ -183,12 +212,15 @@ class TestProbeVideoSupport:
         """When both formats return 400 APIError, return (False, ...)."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = _make_api_error(
-            400, "video_url is not supported",
+            400,
+            "video_url is not supported",
         )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_video_support(
-            "https://api.example.com/v1", "sk-test", "text-only-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "text-only-model",
         )
 
         assert ok is False
@@ -213,7 +245,9 @@ class TestProbeVideoSupport:
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_video_support(
-            "https://api.example.com/v1", "sk-test", "dashscope-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "dashscope-model",
         )
 
         assert ok is True
@@ -232,13 +266,17 @@ class TestTimeoutSafeDefault:
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_image_timeout_returns_false(self, mock_openai_cls) -> None:
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.side_effect = httpx.TimeoutException(
-            "Connection timed out",
+        mock_client.chat.completions.create.side_effect = (
+            httpx.TimeoutException(
+                "Connection timed out",
+            )
         )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
-            "https://api.example.com/v1", "sk-test", "slow-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "slow-model",
         )
 
         assert ok is False
@@ -247,13 +285,17 @@ class TestTimeoutSafeDefault:
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_video_timeout_returns_false(self, mock_openai_cls) -> None:
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.side_effect = httpx.TimeoutException(
-            "Connection timed out",
+        mock_client.chat.completions.create.side_effect = (
+            httpx.TimeoutException(
+                "Connection timed out",
+            )
         )
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_video_support(
-            "https://api.example.com/v1", "sk-test", "slow-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "slow-model",
         )
 
         assert ok is False
@@ -261,7 +303,8 @@ class TestTimeoutSafeDefault:
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_connection_error_returns_false(
-        self, mock_openai_cls,
+        self,
+        mock_openai_cls,
     ) -> None:
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = ConnectionError(
@@ -270,7 +313,9 @@ class TestTimeoutSafeDefault:
         mock_openai_cls.return_value = mock_client
 
         ok, msg = await probe_image_support(
-            "https://api.example.com/v1", "sk-test", "unreachable-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "unreachable-model",
         )
 
         assert ok is False
@@ -302,7 +347,9 @@ class TestProbeMultimodalSupport:
         mock_openai_cls.return_value = mock_client
 
         result = await probe_multimodal_support(
-            "https://api.example.com/v1", "sk-test", "vision-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "vision-model",
         )
 
         assert result.supports_image is True
@@ -326,7 +373,9 @@ class TestProbeMultimodalSupport:
         mock_openai_cls.return_value = mock_client
 
         result = await probe_multimodal_support(
-            "https://api.example.com/v1", "sk-test", "image-only-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "image-only-model",
         )
 
         assert result.supports_image is True
@@ -338,12 +387,15 @@ class TestProbeMultimodalSupport:
         """Both fail → supports_multimodal is False."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = _make_api_error(
-            400, "does not support media input",
+            400,
+            "does not support media input",
         )
         mock_openai_cls.return_value = mock_client
 
         result = await probe_multimodal_support(
-            "https://api.example.com/v1", "sk-test", "text-only-model",
+            "https://api.example.com/v1",
+            "sk-test",
+            "text-only-model",
         )
 
         assert result.supports_image is False
@@ -413,7 +465,7 @@ class TestProbeLogging:
 
     @staticmethod
     def _enable_propagation(monkeypatch):
-        """Enable propagation on the copaw logger so caplog can capture records."""
+        """Enable propagation so caplog can capture."""
         import logging
 
         copaw_logger = logging.getLogger("copaw")
@@ -421,7 +473,10 @@ class TestProbeLogging:
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_image_probe_logs_info_on_start_and_complete(
-        self, mock_openai_cls, monkeypatch, caplog,
+        self,
+        mock_openai_cls,
+        monkeypatch,
+        caplog,
     ) -> None:
         """Successful image probe emits two INFO logs: started + completed."""
         import logging
@@ -429,28 +484,36 @@ class TestProbeLogging:
         self._enable_propagation(monkeypatch)
 
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _fake_completion("red")
+        mock_client.chat.completions.create.return_value = _fake_completion(
+            "red",
+        )
         mock_openai_cls.return_value = mock_client
 
         with caplog.at_level(logging.INFO, logger=self.LOGGER_NAME):
             await probe_image_support(
-                "https://api.example.com/v1", "sk-test", "gpt-4o",
+                "https://api.example.com/v1",
+                "sk-test",
+                "gpt-4o",
             )
 
         info_messages = [
-            r.message for r in caplog.records
+            r.message
+            for r in caplog.records
             if r.levelno == logging.INFO and r.name == self.LOGGER_NAME
         ]
-        assert any("Image probe started" in m for m in info_messages), (
-            f"Expected 'Image probe started' INFO log, got: {info_messages}"
-        )
-        assert any("Image probe completed" in m for m in info_messages), (
-            f"Expected 'Image probe completed' INFO log, got: {info_messages}"
-        )
+        assert any(
+            "Image probe start" in m for m in info_messages
+        ), f"Expected 'Image probe start' INFO log, got: {info_messages}"
+        assert any(
+            "Image probe done" in m for m in info_messages
+        ), f"Expected 'Image probe done' INFO log, got: {info_messages}"
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_video_probe_logs_info_on_start_and_complete(
-        self, mock_openai_cls, monkeypatch, caplog,
+        self,
+        mock_openai_cls,
+        monkeypatch,
+        caplog,
     ) -> None:
         """Successful video probe emits two INFO logs: started + completed."""
         import logging
@@ -458,28 +521,36 @@ class TestProbeLogging:
         self._enable_propagation(monkeypatch)
 
         mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = _fake_completion("blue")
+        mock_client.chat.completions.create.return_value = _fake_completion(
+            "blue",
+        )
         mock_openai_cls.return_value = mock_client
 
         with caplog.at_level(logging.INFO, logger=self.LOGGER_NAME):
             await probe_video_support(
-                "https://api.example.com/v1", "sk-test", "gpt-4o",
+                "https://api.example.com/v1",
+                "sk-test",
+                "gpt-4o",
             )
 
         info_messages = [
-            r.message for r in caplog.records
+            r.message
+            for r in caplog.records
             if r.levelno == logging.INFO and r.name == self.LOGGER_NAME
         ]
-        assert any("Video probe started" in m for m in info_messages), (
-            f"Expected 'Video probe started' INFO log, got: {info_messages}"
-        )
-        assert any("Video probe completed" in m for m in info_messages), (
-            f"Expected 'Video probe completed' INFO log, got: {info_messages}"
-        )
+        assert any(
+            "Video probe start" in m for m in info_messages
+        ), f"Expected 'Video probe start' INFO log, got: {info_messages}"
+        assert any(
+            "Video probe done" in m for m in info_messages
+        ), f"Expected 'Video probe done' INFO log, got: {info_messages}"
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_image_probe_logs_warning_on_api_error(
-        self, mock_openai_cls, monkeypatch, caplog,
+        self,
+        mock_openai_cls,
+        monkeypatch,
+        caplog,
     ) -> None:
         """APIError during image probe emits a WARNING log."""
         import logging
@@ -488,26 +559,33 @@ class TestProbeLogging:
 
         mock_client = AsyncMock()
         mock_client.chat.completions.create.side_effect = _make_api_error(
-            422, "image_url is not supported",
+            422,
+            "image_url is not supported",
         )
         mock_openai_cls.return_value = mock_client
 
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             await probe_image_support(
-                "https://api.example.com/v1", "sk-test", "text-only-model",
+                "https://api.example.com/v1",
+                "sk-test",
+                "text-only-model",
             )
 
         warning_messages = [
-            r.message for r in caplog.records
+            r.message
+            for r in caplog.records
             if r.levelno == logging.WARNING and r.name == self.LOGGER_NAME
         ]
-        assert any("Image probe exception" in m for m in warning_messages), (
-            f"Expected 'Image probe exception' WARNING log, got: {warning_messages}"
-        )
+        assert any(
+            "Image probe error" in m for m in warning_messages
+        ), f"Expected 'Image probe error' WARNING log, got: {warning_messages}"
 
     @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
     async def test_video_probe_logs_warning_on_general_exception(
-        self, mock_openai_cls, monkeypatch, caplog,
+        self,
+        mock_openai_cls,
+        monkeypatch,
+        caplog,
     ) -> None:
         """General Exception during video probe emits a WARNING log."""
         import logging
@@ -522,13 +600,16 @@ class TestProbeLogging:
 
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             await probe_video_support(
-                "https://api.example.com/v1", "sk-test", "broken-model",
+                "https://api.example.com/v1",
+                "sk-test",
+                "broken-model",
             )
 
         warning_messages = [
-            r.message for r in caplog.records
+            r.message
+            for r in caplog.records
             if r.levelno == logging.WARNING and r.name == self.LOGGER_NAME
         ]
-        assert any("Video probe exception" in m for m in warning_messages), (
-            f"Expected 'Video probe exception' WARNING log, got: {warning_messages}"
-        )
+        assert any(
+            "Video probe error" in m for m in warning_messages
+        ), f"Expected 'Video probe error' WARNING log, got: {warning_messages}"

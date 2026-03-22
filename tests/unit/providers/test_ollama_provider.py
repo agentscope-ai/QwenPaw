@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import copaw.providers.ollama_provider as ollama_provider_module
 from copaw.providers.ollama_provider import OllamaProvider
@@ -383,11 +384,14 @@ async def test_delete_model_calls_delete(monkeypatch) -> None:
 # Validates: Requirements 7.1, 7.2, 7.3, 7.4
 # ---------------------------------------------------------------------------
 
-from unittest.mock import AsyncMock, patch
+# ---------------------------------------------------------------------------
+# Ollama probe_model_multimodal unit tests (Task 9.1)
+# Validates: Requirements 7.1, 7.2, 7.3, 7.4
+# ---------------------------------------------------------------------------
 
 
 async def test_probe_model_multimodal_returns_non_empty_result() -> None:
-    """probe_model_multimodal returns a non-empty ProbeResult with correct fields."""
+    """probe_model_multimodal returns a ProbeResult with correct fields."""
     provider = _make_provider()
 
     with patch(
@@ -430,7 +434,11 @@ async def test_probe_model_multimodal_uses_v1_endpoint() -> None:
 
     mock_probe.assert_called_once()
     call_kwargs = mock_probe.call_args
-    base_url_arg = call_kwargs.kwargs.get("base_url") or call_kwargs[1].get("base_url") if call_kwargs[1] else call_kwargs[0][0]
+    base_url_arg = (
+        call_kwargs.kwargs.get("base_url") or call_kwargs[1].get("base_url")
+        if call_kwargs[1]
+        else call_kwargs[0][0]
+    )
     assert base_url_arg.endswith("/v1")
 
 
@@ -453,7 +461,11 @@ async def test_probe_model_multimodal_uses_ollama_default_api_key() -> None:
 
     mock_probe.assert_called_once()
     call_kwargs = mock_probe.call_args
-    api_key_arg = call_kwargs.kwargs.get("api_key") or call_kwargs[1].get("api_key") if call_kwargs[1] else call_kwargs[0][1]
+    api_key_arg = (
+        call_kwargs.kwargs.get("api_key") or call_kwargs[1].get("api_key")
+        if call_kwargs[1]
+        else call_kwargs[0][1]
+    )
     assert api_key_arg == "ollama"
 
 
@@ -466,7 +478,10 @@ async def test_probe_model_multimodal_image_not_supported() -> None:
         new_callable=AsyncMock,
         return_value=(False, "Image not supported: 400 Bad Request"),
     ):
-        result = await provider.probe_model_multimodal("codellama:7b", timeout=5.0)
+        result = await provider.probe_model_multimodal(
+            "codellama:7b",
+            timeout=5.0,
+        )
 
     assert result.supports_image is False
     assert result.supports_video is False

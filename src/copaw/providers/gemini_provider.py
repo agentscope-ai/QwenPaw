@@ -13,9 +13,6 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
-logger = logging.getLogger(__name__)
-
-
 from copaw.providers.multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
@@ -23,6 +20,8 @@ from copaw.providers.multimodal_prober import (
     _is_media_keyword_error,
 )
 from copaw.providers.provider import ModelInfo, Provider
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiProvider(Provider):
@@ -171,8 +170,9 @@ class GeminiProvider(Provider):
         import base64
 
         logger.info(
-            "Image probe started: model_id=%s, base_url=%s",
-            model_id, self.base_url,
+            "Image probe start: model=%s url=%s",
+            model_id,
+            self.base_url,
         )
         start_time = time.monotonic()
         client = self._client(timeout=timeout)
@@ -204,22 +204,32 @@ class GeminiProvider(Provider):
                 result = True, f"Image supported (answer={answer!r})"
                 elapsed = time.monotonic() - start_time
                 logger.info(
-                    "Image probe completed: model_id=%s, result=%s, elapsed=%.2fs",
-                    model_id, result[0], elapsed,
+                    "Image probe done: model=%s result=%s %.2fs",
+                    model_id,
+                    result[0],
+                    elapsed,
                 )
                 return result
-            result = False, f"Model did not recognise image (answer={answer!r})"
+            result = (
+                False,
+                f"Model did not recognise image (answer={answer!r})",
+            )
             elapsed = time.monotonic() - start_time
             logger.info(
-                "Image probe completed: model_id=%s, result=%s, elapsed=%.2fs",
-                model_id, result[0], elapsed,
+                "Image probe done: model=%s result=%s %.2fs",
+                model_id,
+                result[0],
+                elapsed,
             )
             return result
         except genai_errors.APIError as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
-                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
-                model_id, type(e).__name__, e, elapsed,
+                "Image probe error: model=%s type=%s msg=%s %.2fs",
+                model_id,
+                type(e).__name__,
+                e,
+                elapsed,
             )
             status = getattr(e, "code", None)
             if status == 400 or _is_media_keyword_error(e):
@@ -228,8 +238,11 @@ class GeminiProvider(Provider):
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
-                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
-                model_id, type(e).__name__, e, elapsed,
+                "Image probe error: model=%s type=%s msg=%s %.2fs",
+                model_id,
+                type(e).__name__,
+                e,
+                elapsed,
             )
             return False, f"Probe failed: {e}"
 
@@ -243,8 +256,9 @@ class GeminiProvider(Provider):
         Asks the model whether the video contains moving content.
         """
         logger.info(
-            "Video probe started: model_id=%s, base_url=%s",
-            model_id, self.base_url,
+            "Video probe start: model=%s url=%s",
+            model_id,
+            self.base_url,
         )
         start_time = time.monotonic()
         client = self._client(timeout=timeout)
@@ -274,22 +288,32 @@ class GeminiProvider(Provider):
                 result = True, f"Video supported (answer={answer!r})"
                 elapsed = time.monotonic() - start_time
                 logger.info(
-                    "Video probe completed: model_id=%s, result=%s, elapsed=%.2fs",
-                    model_id, result[0], elapsed,
+                    "Video probe done: model=%s result=%s %.2fs",
+                    model_id,
+                    result[0],
+                    elapsed,
                 )
                 return result
-            result = False, f"Model did not recognise video (answer={answer!r})"
+            result = (
+                False,
+                f"Model did not recognise video (answer={answer!r})",
+            )
             elapsed = time.monotonic() - start_time
             logger.info(
-                "Video probe completed: model_id=%s, result=%s, elapsed=%.2fs",
-                model_id, result[0], elapsed,
+                "Video probe done: model=%s result=%s %.2fs",
+                model_id,
+                result[0],
+                elapsed,
             )
             return result
         except genai_errors.APIError as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
-                "Video probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
-                model_id, type(e).__name__, e, elapsed,
+                "Video probe error: model=%s type=%s msg=%s %.2fs",
+                model_id,
+                type(e).__name__,
+                e,
+                elapsed,
             )
             status = getattr(e, "code", None)
             if status == 400 or _is_media_keyword_error(e):
@@ -298,7 +322,10 @@ class GeminiProvider(Provider):
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
-                "Video probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
-                model_id, type(e).__name__, e, elapsed,
+                "Video probe error: model=%s type=%s msg=%s %.2fs",
+                model_id,
+                type(e).__name__,
+                e,
+                elapsed,
             )
             return False, f"Probe failed: {e}"

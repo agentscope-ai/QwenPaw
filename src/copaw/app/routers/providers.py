@@ -340,20 +340,24 @@ async def add_model_endpoint(
 
 class ProbeMultimodalResponse(BaseModel):
     supports_image: bool = Field(
-        default=False, description="Whether the model supports image input"
+        default=False,
+        description="Whether the model supports image input",
     )
     supports_video: bool = Field(
-        default=False, description="Whether the model supports video input"
+        default=False,
+        description="Whether the model supports video input",
     )
     supports_multimodal: bool = Field(
         default=False,
         description="Whether the model supports any multimodal input",
     )
     image_message: str = Field(
-        default="", description="Probe result message for image support"
+        default="",
+        description="Probe result message for image support",
     )
     video_message: str = Field(
-        default="", description="Probe result message for video support"
+        default="",
+        description="Probe result message for video support",
     )
 
 

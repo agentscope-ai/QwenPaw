@@ -4,6 +4,8 @@
 from copaw.providers.capability_baseline import (
     ExpectedCapability,
     ExpectedCapabilityRegistry,
+    compare_probe_result,
+    generate_summary,
 )
 
 
@@ -20,7 +22,7 @@ class TestExpectedCapabilityRegistry:
                 expected_image=True,
                 expected_video=False,
                 doc_url="https://platform.openai.com/docs",
-            )
+            ),
         )
         registry._register(
             ExpectedCapability(
@@ -29,7 +31,7 @@ class TestExpectedCapabilityRegistry:
                 expected_image=True,
                 expected_video=False,
                 doc_url="https://platform.openai.com/docs",
-            )
+            ),
         )
         registry._register(
             ExpectedCapability(
@@ -38,7 +40,7 @@ class TestExpectedCapabilityRegistry:
                 expected_image=True,
                 expected_video=True,
                 doc_url="https://ai.google.dev/docs",
-            )
+            ),
         )
         return registry
 
@@ -77,7 +79,9 @@ class TestExpectedCapabilityRegistry:
 
     def test_registry_returns_none_for_unregistered_model(self) -> None:
         registry = ExpectedCapabilityRegistry()
-        assert registry.get_expected("openai", "totally-fake-model-xyz") is None
+        assert (
+            registry.get_expected("openai", "totally-fake-model-xyz") is None
+        )
 
     def test_registry_returns_empty_for_unregistered_provider(self) -> None:
         registry = ExpectedCapabilityRegistry()
@@ -106,14 +110,6 @@ class TestExpectedCapabilityRegistry:
         assert result.note == "updated"
 
 
-from copaw.providers.capability_baseline import (
-    ComparisonSummary,
-    DiscrepancyLog,
-    compare_probe_result,
-    generate_summary,
-)
-
-
 class TestCompareProbeResult:
     """Tests for compare_probe_result function."""
 
@@ -131,19 +127,19 @@ class TestCompareProbeResult:
 
     def test_no_discrepancy_when_all_match(self) -> None:
         logs = compare_probe_result(self._cap(True, False), True, False)
-        assert logs == []
+        assert not logs
 
     def test_skip_none_expected_image(self) -> None:
         logs = compare_probe_result(self._cap(None, False), True, False)
-        assert logs == []
+        assert not logs
 
     def test_skip_none_expected_video(self) -> None:
         logs = compare_probe_result(self._cap(True, None), True, True)
-        assert logs == []
+        assert not logs
 
     def test_skip_both_none(self) -> None:
         logs = compare_probe_result(self._cap(None, None), True, True)
-        assert logs == []
+        assert not logs
 
     def test_false_negative_image(self) -> None:
         logs = compare_probe_result(self._cap(True, False), False, False)
@@ -208,7 +204,7 @@ class TestGenerateSummary:
         assert summary.passed == 0
         assert summary.discrepancies == 0
         assert summary.failures == 0
-        assert summary.details == []
+        assert not summary.details
 
     def test_all_ok(self) -> None:
         results = [
@@ -251,7 +247,10 @@ class TestGenerateSummary:
             (self._cap("d", "4"), True, False, "ok"),
         ]
         summary = generate_summary(results)
-        assert summary.total_models == summary.passed + summary.discrepancies + summary.failures
+        assert (
+            summary.total_models
+            == summary.passed + summary.discrepancies + summary.failures
+        )
 
     def test_details_populated_for_discrepancies(self) -> None:
         cap = ExpectedCapability(
@@ -271,4 +270,4 @@ class TestGenerateSummary:
             (self._cap(), True, False, "failure"),
         ]
         summary = generate_summary(results)
-        assert summary.details == []
+        assert not summary.details

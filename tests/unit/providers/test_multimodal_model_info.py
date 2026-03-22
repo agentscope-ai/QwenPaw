@@ -25,7 +25,10 @@ from copaw.providers.models import ModelInfo as ModelsModelInfo
     name=st.text(min_size=1, max_size=50),
 )
 @settings(max_examples=100)
-def test_provider_model_info_defaults_to_false(model_id: str, name: str) -> None:
+def test_provider_model_info_defaults_to_false(
+    model_id: str,
+    name: str,
+) -> None:
     """provider.py ModelInfo: multimodal fields default to None (not yet probed)."""
     info = ProviderModelInfo(id=model_id, name=name)
     assert info.supports_multimodal is None
@@ -229,14 +232,21 @@ def test_provider_info_serialized_models_contain_multimodal_fields(
     """ProviderInfo: every ModelInfo in serialized output has multimodal fields."""
     data = provider_info.model_dump()
 
-    multimodal_keys = {"supports_multimodal", "supports_image", "supports_video"}
+    multimodal_keys = {
+        "supports_multimodal",
+        "supports_image",
+        "supports_video",
+    }
 
     for model_dict in data["models"]:
         assert multimodal_keys.issubset(model_dict.keys()), (
             f"models entry missing multimodal fields: "
             f"{multimodal_keys - model_dict.keys()}"
         )
-        assert isinstance(model_dict["supports_multimodal"], (bool, type(None)))
+        assert isinstance(
+            model_dict["supports_multimodal"],
+            (bool, type(None)),
+        )
         assert isinstance(model_dict["supports_image"], (bool, type(None)))
         assert isinstance(model_dict["supports_video"], (bool, type(None)))
 
@@ -245,6 +255,9 @@ def test_provider_info_serialized_models_contain_multimodal_fields(
             f"extra_models entry missing multimodal fields: "
             f"{multimodal_keys - model_dict.keys()}"
         )
-        assert isinstance(model_dict["supports_multimodal"], (bool, type(None)))
+        assert isinstance(
+            model_dict["supports_multimodal"],
+            (bool, type(None)),
+        )
         assert isinstance(model_dict["supports_image"], (bool, type(None)))
         assert isinstance(model_dict["supports_video"], (bool, type(None)))

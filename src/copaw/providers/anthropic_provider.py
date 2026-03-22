@@ -175,7 +175,8 @@ class AnthropicProvider(Provider):
         PNG via the Anthropic base64 image source format.
         """
         img_ok, img_msg = await self._probe_image_support(
-            model_id, timeout,
+            model_id,
+            timeout,
         )
         return ProbeResult(
             supports_image=img_ok,
@@ -191,8 +192,9 @@ class AnthropicProvider(Provider):
     ) -> tuple[bool, str]:
         """Probe image support via Anthropic messages API."""
         logger.info(
-            "Image probe started: model_id=%s, base_url=%s",
-            model_id, self.base_url,
+            "Image probe start: model=%s url=%s",
+            model_id,
+            self.base_url,
         )
         start_time = time.monotonic()
         client = self._client(timeout=timeout)
@@ -222,15 +224,20 @@ class AnthropicProvider(Provider):
                 break
             elapsed = time.monotonic() - start_time
             logger.info(
-                "Image probe completed: model_id=%s, result=%s, elapsed=%.2fs",
-                model_id, True, elapsed,
+                "Image probe done: model=%s result=%s %.2fs",
+                model_id,
+                True,
+                elapsed,
             )
             return True, "Image supported"
         except anthropic.APIError as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
-                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
-                model_id, type(e).__name__, e, elapsed,
+                "Image probe error: model=%s type=%s msg=%s %.2fs",
+                model_id,
+                type(e).__name__,
+                e,
+                elapsed,
             )
             status = getattr(e, "status_code", None)
             if status == 400 or _is_media_keyword_error(e):
@@ -239,8 +246,10 @@ class AnthropicProvider(Provider):
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
-                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
-                model_id, type(e).__name__, e, elapsed,
+                "Image probe error: model=%s type=%s msg=%s %.2fs",
+                model_id,
+                type(e).__name__,
+                e,
+                elapsed,
             )
             return False, f"Probe failed: {e}"
-

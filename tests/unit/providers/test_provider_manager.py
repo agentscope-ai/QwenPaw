@@ -461,22 +461,34 @@ def _make_minimal_manager(monkeypatch, tmp_path):
 
     # Bypass the expensive __init__ side-effects
     monkeypatch.setattr(
-        ProviderManager, "_prepare_disk_storage", lambda self: None
+        ProviderManager,
+        "_prepare_disk_storage",
+        lambda self: None,
     )
     monkeypatch.setattr(
-        ProviderManager, "_init_builtins", lambda self: None
+        ProviderManager,
+        "_init_builtins",
+        lambda self: None,
     )
     monkeypatch.setattr(
-        ProviderManager, "_migrate_legacy_providers", lambda self: None
+        ProviderManager,
+        "_migrate_legacy_providers",
+        lambda self: None,
     )
     monkeypatch.setattr(
-        ProviderManager, "_init_from_storage", lambda self: None
+        ProviderManager,
+        "_init_from_storage",
+        lambda self: None,
     )
     monkeypatch.setattr(
-        ProviderManager, "_apply_default_annotations", lambda self: None
+        ProviderManager,
+        "_apply_default_annotations",
+        lambda self: None,
     )
     monkeypatch.setattr(
-        ProviderManager, "update_local_models", lambda self: None
+        ProviderManager,
+        "update_local_models",
+        lambda self: None,
     )
 
     mgr = ProviderManager()
@@ -484,15 +496,16 @@ def _make_minimal_manager(monkeypatch, tmp_path):
 
 
 def test_apply_default_annotations_sets_documentation_probe_source(
-    monkeypatch, tmp_path
+    monkeypatch,
+    tmp_path,
 ):
     """_apply_default_annotations should set probe_source='documentation'
     and populate capability fields from the registry for models whose
     supports_multimodal is None."""
     mgr, originals = _make_minimal_manager(monkeypatch, tmp_path)
 
-    # Set up a builtin provider with a model that has supports_multimodal=None
-    # Use openai/gpt-4o which the registry knows (expected_image=True, expected_video=False)
+    # Set up a builtin provider with supports_multimodal=None
+    # openai/gpt-4o: expected_image=True, expected_video=False
     from copaw.providers.openai_provider import OpenAIProvider
 
     model = ModelInfo(id="gpt-4o", name="GPT-4o")
@@ -516,7 +529,8 @@ def test_apply_default_annotations_sets_documentation_probe_source(
 
 
 def test_apply_default_annotations_skips_already_probed_models(
-    monkeypatch, tmp_path
+    monkeypatch,
+    tmp_path,
 ):
     """Models with supports_multimodal already set (not None) should NOT
     be overwritten by _apply_default_annotations."""
@@ -551,7 +565,8 @@ def test_apply_default_annotations_skips_already_probed_models(
 
 
 async def test_probe_model_multimodal_sets_probed_source(
-    monkeypatch, tmp_path
+    monkeypatch,
+    tmp_path,
 ):
     """After calling ProviderManager.probe_model_multimodal, the model's
     probe_source should be set to 'probed'."""
@@ -580,7 +595,9 @@ async def test_probe_model_multimodal_sets_probed_source(
 
     monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
     monkeypatch.setattr(
-        ProviderManager, "_save_provider", lambda self, *a, **kw: None
+        ProviderManager,
+        "_save_provider",
+        lambda self, *a, **kw: None,
     )
 
     result = await mgr.probe_model_multimodal("openai", "gpt-4o")
@@ -594,7 +611,9 @@ async def test_probe_model_multimodal_sets_probed_source(
 
 
 async def test_probe_model_multimodal_logs_discrepancy_warning(
-    monkeypatch, tmp_path, caplog
+    monkeypatch,
+    tmp_path,
+    caplog,
 ):
     """When probe result differs from expected baseline, a WARNING log
     should be emitted."""
@@ -626,26 +645,35 @@ async def test_probe_model_multimodal_logs_discrepancy_warning(
 
     monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
     monkeypatch.setattr(
-        ProviderManager, "_save_provider", lambda self, *a, **kw: None
+        ProviderManager,
+        "_save_provider",
+        lambda self, *a, **kw: None,
     )
 
     # Enable propagation so caplog can capture log records
     copaw_logger = logging.getLogger("copaw")
     monkeypatch.setattr(copaw_logger, "propagate", True)
 
-    with caplog.at_level(logging.WARNING, logger="copaw.providers.provider_manager"):
+    with caplog.at_level(
+        logging.WARNING,
+        logger="copaw.providers.provider_manager",
+    ):
         await mgr.probe_model_multimodal("openai", "gpt-4o")
 
     # Should have a warning about the image discrepancy
-    warning_messages = [r.getMessage()
-                        for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("Probe discrepancy" in msg and "image" in msg for msg in warning_messages), (
-        f"Expected a discrepancy warning about 'image', got: {warning_messages}"
-    )
+    warning_messages = [
+        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    assert any(
+        "Probe discrepancy" in msg and "image" in msg
+        for msg in warning_messages
+    ), f"Expected a discrepancy warning about 'image', got: {warning_messages}"
 
 
 async def test_probe_model_multimodal_no_warning_when_matching(
-    monkeypatch, tmp_path, caplog
+    monkeypatch,
+    tmp_path,
+    caplog,
 ):
     """When probe result matches expected baseline, no WARNING log should
     be emitted."""
@@ -676,19 +704,27 @@ async def test_probe_model_multimodal_no_warning_when_matching(
 
     monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
     monkeypatch.setattr(
-        ProviderManager, "_save_provider", lambda self, *a, **kw: None
+        ProviderManager,
+        "_save_provider",
+        lambda self, *a, **kw: None,
     )
 
     # Enable propagation so caplog can capture log records
     copaw_logger = logging.getLogger("copaw")
     monkeypatch.setattr(copaw_logger, "propagate", True)
 
-    with caplog.at_level(logging.WARNING, logger="copaw.providers.provider_manager"):
+    with caplog.at_level(
+        logging.WARNING,
+        logger="copaw.providers.provider_manager",
+    ):
         await mgr.probe_model_multimodal("openai", "gpt-4o")
 
-    warning_messages = [r.getMessage()
-                        for r in caplog.records if r.levelno >= logging.WARNING]
-    discrepancy_warnings = [m for m in warning_messages if "Probe discrepancy" in m]
-    assert len(discrepancy_warnings) == 0, (
-        f"Expected no discrepancy warnings, got: {discrepancy_warnings}"
-    )
+    warning_messages = [
+        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    discrepancy_warnings = [
+        m for m in warning_messages if "Probe discrepancy" in m
+    ]
+    assert (
+        len(discrepancy_warnings) == 0
+    ), f"Expected no discrepancy warnings, got: {discrepancy_warnings}"

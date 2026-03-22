@@ -198,7 +198,10 @@ class TestProperty5SummaryConsistency:
         from copaw.providers.capability_baseline import generate_summary
 
         summary = generate_summary(results)
-        assert summary.total_models == summary.passed + summary.discrepancies + summary.failures
+        assert (
+            summary.total_models
+            == summary.passed + summary.discrepancies + summary.failures
+        )
 
     @given(results=st.lists(comparison_result_st(), min_size=0, max_size=50))
     @settings(max_examples=200)
@@ -314,9 +317,13 @@ for _pid, _models in [
         _BUILTIN_PROVIDER_MODELS.append((_pid, _m.id))
 
 # Hypothesis strategy: draw from the actual built-in (provider_id, model_id) pairs
-_builtin_pair_st = st.sampled_from(
-    _BUILTIN_PROVIDER_MODELS
-) if _BUILTIN_PROVIDER_MODELS else st.nothing()
+_builtin_pair_st = (
+    st.sampled_from(
+        _BUILTIN_PROVIDER_MODELS,
+    )
+    if _BUILTIN_PROVIDER_MODELS
+    else st.nothing()
+)
 
 
 class TestProperty1BaselineCompleteness:
@@ -341,9 +348,9 @@ class TestProperty1BaselineCompleteness:
         provider_id, model_id = pair
         registry = ExpectedCapabilityRegistry()
         cap = registry.get_expected(provider_id, model_id)
-        assert cap is not None, (
-            f"Missing ExpectedCapability for {provider_id}/{model_id}"
-        )
+        assert (
+            cap is not None
+        ), f"Missing ExpectedCapability for {provider_id}/{model_id}"
 
     @given(pair=_builtin_pair_st)
     @settings(max_examples=200)
@@ -431,7 +438,14 @@ class TestProperty8OllamaProbeInvariant:
 
     @given(
         base_url=_ollama_base_url_st,
-        model_id=st.text(min_size=1, max_size=30, alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_:.")),
+        model_id=st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_:.",
+            ),
+        ),
         image_supported=st.booleans(),
     )
     @settings(max_examples=200)
@@ -442,7 +456,9 @@ class TestProperty8OllamaProbeInvariant:
         image_supported: bool,
     ) -> None:
         """supports_video is always False regardless of base_url or model."""
-        mock_probe = AsyncMock(return_value=(image_supported, "mock probe msg"))
+        mock_probe = AsyncMock(
+            return_value=(image_supported, "mock probe msg"),
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.probe_image_support",
@@ -461,7 +477,14 @@ class TestProperty8OllamaProbeInvariant:
 
     @given(
         base_url=_ollama_base_url_st,
-        model_id=st.text(min_size=1, max_size=30, alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_:.")),
+        model_id=st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_:.",
+            ),
+        ),
         image_supported=st.booleans(),
     )
     @settings(max_examples=200)
@@ -472,7 +495,9 @@ class TestProperty8OllamaProbeInvariant:
         image_supported: bool,
     ) -> None:
         """probe_image_support is called with base_url + '/v1'."""
-        mock_probe = AsyncMock(return_value=(image_supported, "mock probe msg"))
+        mock_probe = AsyncMock(
+            return_value=(image_supported, "mock probe msg"),
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.probe_image_support",
@@ -488,15 +513,25 @@ class TestProperty8OllamaProbeInvariant:
             asyncio.run(provider.probe_model_multimodal(model_id))
 
         mock_probe.assert_called_once()
-        called_url = mock_probe.call_args[1].get("base_url") or mock_probe.call_args[0][0]
-        expected_url = base_url.rstrip("/") + "/v1"
-        assert called_url == expected_url, (
-            f"Expected probe URL {expected_url!r}, got {called_url!r}"
+        called_url = (
+            mock_probe.call_args[1].get("base_url")
+            or mock_probe.call_args[0][0]
         )
+        expected_url = base_url.rstrip("/") + "/v1"
+        assert (
+            called_url == expected_url
+        ), f"Expected probe URL {expected_url!r}, got {called_url!r}"
 
     @given(
         base_url=_ollama_base_url_st,
-        model_id=st.text(min_size=1, max_size=30, alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_:.")),
+        model_id=st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_:.",
+            ),
+        ),
     )
     @settings(max_examples=200)
     def test_supports_image_reflects_probe_result(
@@ -525,7 +560,14 @@ class TestProperty8OllamaProbeInvariant:
 
     @given(
         base_url=_ollama_base_url_st,
-        model_id=st.text(min_size=1, max_size=30, alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_:.")),
+        model_id=st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_:.",
+            ),
+        ),
     )
     @settings(max_examples=200)
     def test_api_key_defaults_to_ollama(
@@ -551,7 +593,10 @@ class TestProperty8OllamaProbeInvariant:
             asyncio.run(provider.probe_model_multimodal(model_id))
 
         mock_probe.assert_called_once()
-        called_api_key = mock_probe.call_args[1].get("api_key") or mock_probe.call_args[0][1]
+        called_api_key = (
+            mock_probe.call_args[1].get("api_key")
+            or mock_probe.call_args[0][1]
+        )
         assert called_api_key == "ollama"
 
 
@@ -560,7 +605,10 @@ class TestProperty8OllamaProbeInvariant:
 # ---------------------------------------------------------------------------
 
 from copaw.providers.capability_baseline import ProbeSource
-from copaw.providers.provider import ModelInfo as ProviderModelInfo, DefaultProvider
+from copaw.providers.provider import (
+    ModelInfo as ProviderModelInfo,
+    DefaultProvider,
+)
 
 # Use the provider-level ModelInfo for Property 9 tests
 # (same schema as models.ModelInfo but from the provider module)
@@ -568,11 +616,18 @@ _ModelInfo = ProviderModelInfo
 
 
 @st.composite
-def model_info_st(draw: st.DrawFn) -> _ModelInfo:
+def model_info_st(draw: st.DrawFn) -> ProviderModelInfo:
     """Generate a random ModelInfo with supports_multimodal=None (unannotated)."""
-    model_id = draw(st.text(min_size=1, max_size=30, alphabet=st.characters(
-        whitelist_categories=("L", "N"), whitelist_characters="-_."
-    )))
+    model_id = draw(
+        st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
+    )
     name = draw(st.text(min_size=1, max_size=30))
     return _ModelInfo(id=model_id, name=name)
 
@@ -648,9 +703,8 @@ class TestProperty9DefaultAnnotationOverride:
                     m.supports_image = expected.expected_image
                     m.supports_video = expected.expected_video
                     m.supports_multimodal = (
-                        (expected.expected_image or False)
-                        or (expected.expected_video or False)
-                    )
+                        expected.expected_image or False
+                    ) or (expected.expected_video or False)
                     m.probe_source = "documentation"
 
         assert model.probe_source == ProbeSource.DOCUMENTATION.value
@@ -693,9 +747,8 @@ class TestProperty9DefaultAnnotationOverride:
                     m.supports_image = expected.expected_image
                     m.supports_video = expected.expected_video
                     m.supports_multimodal = (
-                        (expected.expected_image or False)
-                        or (expected.expected_video or False)
-                    )
+                        expected.expected_image or False
+                    ) or (expected.expected_video or False)
                     m.probe_source = "documentation"
 
         assert model.supports_image == expected_image
@@ -738,9 +791,8 @@ class TestProperty9DefaultAnnotationOverride:
                     m.supports_image = expected.expected_image
                     m.supports_video = expected.expected_video
                     m.supports_multimodal = (
-                        (expected.expected_image or False)
-                        or (expected.expected_video or False)
-                    )
+                        expected.expected_image or False
+                    ) or (expected.expected_video or False)
                     m.probe_source = "documentation"
 
         assert model.supports_multimodal == (expected_image or expected_video)
@@ -787,9 +839,8 @@ class TestProperty9DefaultAnnotationOverride:
                 if exp:
                     m.supports_image = exp.expected_image
                     m.supports_video = exp.expected_video
-                    m.supports_multimodal = (
-                        (exp.expected_image or False)
-                        or (exp.expected_video or False)
+                    m.supports_multimodal = (exp.expected_image or False) or (
+                        exp.expected_video or False
                     )
                     m.probe_source = "documentation"
 
@@ -815,10 +866,16 @@ class TestProperty9DefaultAnnotationOverride:
         data: st.DataObject,
     ) -> None:
         """Models without a matching ExpectedCapability entry remain unannotated."""
-        model_id = data.draw(st.text(
-            min_size=1, max_size=20,
-            alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_."),
-        ))
+        model_id = data.draw(
+            st.text(
+                min_size=1,
+                max_size=20,
+                alphabet=st.characters(
+                    whitelist_categories=("L", "N"),
+                    whitelist_characters="-_.",
+                ),
+            ),
+        )
         model = _ModelInfo(id=model_id, name="Unknown Model")
 
         provider = DefaultProvider(
@@ -839,9 +896,8 @@ class TestProperty9DefaultAnnotationOverride:
                     m.supports_image = expected.expected_image
                     m.supports_video = expected.expected_video
                     m.supports_multimodal = (
-                        (expected.expected_image or False)
-                        or (expected.expected_video or False)
-                    )
+                        expected.expected_image or False
+                    ) or (expected.expected_video or False)
                     m.probe_source = "documentation"
 
         # Model should remain unannotated
@@ -895,9 +951,8 @@ class TestProperty9DefaultAnnotationOverride:
                 if exp:
                     m.supports_image = exp.expected_image
                     m.supports_video = exp.expected_video
-                    m.supports_multimodal = (
-                        (exp.expected_image or False)
-                        or (exp.expected_video or False)
+                    m.supports_multimodal = (exp.expected_image or False) or (
+                        exp.expected_video or False
                     )
                     m.probe_source = "documentation"
 
@@ -1029,18 +1084,24 @@ def _make_api_error(status_code: int, message: str) -> APIStatusError:
 
 # Media keywords that _is_media_keyword_error checks for
 _MEDIA_KEYWORDS = [
-    "image", "video", "vision", "multimodal",
-    "image_url", "video_url", "does not support",
+    "image",
+    "video",
+    "vision",
+    "multimodal",
+    "image_url",
+    "video_url",
+    "does not support",
 ]
 
 # Strategies for generating error scenarios
 _media_keyword_st = st.sampled_from(_MEDIA_KEYWORDS)
 
 _non_media_message_st = st.text(
-    min_size=1, max_size=60,
+    min_size=1,
+    max_size=60,
     alphabet=st.characters(whitelist_categories=("L", "N", "P", "Z")),
 ).filter(
-    lambda s: not any(kw in s.lower() for kw in _MEDIA_KEYWORDS)
+    lambda s: not any(kw in s.lower() for kw in _MEDIA_KEYWORDS),
 )
 
 
@@ -1058,9 +1119,14 @@ class TestProperty3ErrorTypeDistinction:
     # --- General Exception (timeout, connection, etc.) → "Probe failed" ---
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         error_message=st.text(min_size=1, max_size=50),
     )
     @settings(max_examples=100)
@@ -1072,26 +1138,36 @@ class TestProperty3ErrorTypeDistinction:
         """General exceptions (timeout, connection, etc.) produce 'Probe failed' for image probe."""
         exc = Exception(error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_image_support
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "Probe failed" in msg
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         error_message=st.text(min_size=1, max_size=50),
     )
     @settings(max_examples=100)
@@ -1103,18 +1179,23 @@ class TestProperty3ErrorTypeDistinction:
         """General exceptions produce 'Probe failed' for video probe."""
         exc = Exception(error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_video_support
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "Probe failed" in msg
@@ -1122,9 +1203,14 @@ class TestProperty3ErrorTypeDistinction:
     # --- APIError with status_code 400 → "not supported" ---
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         error_message=_non_media_message_st,
     )
     @settings(max_examples=100)
@@ -1136,26 +1222,36 @@ class TestProperty3ErrorTypeDistinction:
         """APIError with status_code=400 produces 'not supported' for image probe."""
         exc = _make_api_error(400, error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_image_support
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "not supported" in msg.lower()
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         error_message=_non_media_message_st,
     )
     @settings(max_examples=100)
@@ -1171,18 +1267,23 @@ class TestProperty3ErrorTypeDistinction:
         """
         exc = _make_api_error(400, error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_video_support
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "not supported" in msg.lower()
@@ -1190,9 +1291,14 @@ class TestProperty3ErrorTypeDistinction:
     # --- APIError with media keyword → "not supported" ---
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         keyword=_media_keyword_st,
         status_code=st.sampled_from([401, 403, 422, 500]),
     )
@@ -1207,26 +1313,36 @@ class TestProperty3ErrorTypeDistinction:
         error_message = f"The model {keyword} capability is not available"
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_image_support
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "not supported" in msg.lower()
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         keyword=_media_keyword_st,
         status_code=st.sampled_from([401, 403, 422, 500]),
     )
@@ -1241,18 +1357,23 @@ class TestProperty3ErrorTypeDistinction:
         error_message = f"The model {keyword} capability is not available"
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_video_support
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "not supported" in msg.lower()
@@ -1260,9 +1381,14 @@ class TestProperty3ErrorTypeDistinction:
     # --- Non-400, non-media-keyword APIError → "Probe inconclusive" ---
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         error_message=_non_media_message_st,
         status_code=st.sampled_from([401, 403, 422, 500, 502, 503]),
     )
@@ -1276,26 +1402,36 @@ class TestProperty3ErrorTypeDistinction:
         """Non-400, non-media-keyword APIError produces 'Probe inconclusive' for image probe."""
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_image_support
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "Probe inconclusive" in msg
 
     @given(
-        model_id=st.text(min_size=1, max_size=20, alphabet=st.characters(
-            whitelist_categories=("L", "N"), whitelist_characters="-_."
-        )),
+        model_id=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+                whitelist_characters="-_.",
+            ),
+        ),
         error_message=_non_media_message_st,
         status_code=st.sampled_from([401, 403, 422, 500, 502, 503]),
     )
@@ -1309,18 +1445,23 @@ class TestProperty3ErrorTypeDistinction:
         """Non-400, non-media-keyword APIError produces 'Probe inconclusive' for video probe."""
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
             from copaw.providers.multimodal_prober import probe_video_support
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id=model_id,
-            ))
+
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id=model_id,
+                ),
+            )
 
         assert ok is False
         assert "Probe inconclusive" in msg
@@ -1405,10 +1546,15 @@ class TestProperty6ReasoningContentFallback:
         """When content is empty and reasoning_content contains 'red'/'红',
         probe_image_support returns True."""
         reasoning_text = f"{prefix}{keyword}{suffix}"
-        mock_response = _make_chat_response(content="", reasoning_content=reasoning_text)
+        mock_response = _make_chat_response(
+            content="",
+            reasoning_content=reasoning_text,
+        )
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            return_value=mock_response,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1416,11 +1562,13 @@ class TestProperty6ReasoningContentFallback:
         ):
             from copaw.providers.multimodal_prober import probe_image_support
 
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="thinking-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="thinking-model",
+                ),
+            )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
 
@@ -1439,10 +1587,15 @@ class TestProperty6ReasoningContentFallback:
         """When content is empty and reasoning_content contains 'blue'/'蓝',
         probe_video_support returns True."""
         reasoning_text = f"{prefix}{keyword}{suffix}"
-        mock_response = _make_chat_response(content="", reasoning_content=reasoning_text)
+        mock_response = _make_chat_response(
+            content="",
+            reasoning_content=reasoning_text,
+        )
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            return_value=mock_response,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1450,11 +1603,13 @@ class TestProperty6ReasoningContentFallback:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="thinking-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="thinking-model",
+                ),
+            )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
 
@@ -1477,10 +1632,15 @@ class TestProperty6ReasoningContentFallback:
         """When content itself contains 'red'/'红', probe_image_support
         returns True without needing reasoning_content."""
         content_text = f"{prefix}{keyword}{suffix}"
-        mock_response = _make_chat_response(content=content_text, reasoning_content=None)
+        mock_response = _make_chat_response(
+            content=content_text,
+            reasoning_content=None,
+        )
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            return_value=mock_response,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1488,11 +1648,13 @@ class TestProperty6ReasoningContentFallback:
         ):
             from copaw.providers.multimodal_prober import probe_image_support
 
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="normal-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="normal-model",
+                ),
+            )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
 
@@ -1511,10 +1673,15 @@ class TestProperty6ReasoningContentFallback:
         """When content itself contains 'blue'/'蓝', probe_video_support
         returns True without needing reasoning_content."""
         content_text = f"{prefix}{keyword}{suffix}"
-        mock_response = _make_chat_response(content=content_text, reasoning_content=None)
+        mock_response = _make_chat_response(
+            content=content_text,
+            reasoning_content=None,
+        )
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            return_value=mock_response,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1522,11 +1689,13 @@ class TestProperty6ReasoningContentFallback:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="normal-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="normal-model",
+                ),
+            )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
 
@@ -1552,7 +1721,9 @@ class TestProperty6ReasoningContentFallback:
         )
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            return_value=mock_response,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1560,11 +1731,13 @@ class TestProperty6ReasoningContentFallback:
         ):
             from copaw.providers.multimodal_prober import probe_image_support
 
-            ok, msg = asyncio.run(probe_image_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="no-vision-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_image_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="no-vision-model",
+                ),
+            )
 
         assert ok is False, f"Expected False but got True, msg={msg!r}"
 
@@ -1586,7 +1759,9 @@ class TestProperty6ReasoningContentFallback:
         )
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            return_value=mock_response,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1594,11 +1769,13 @@ class TestProperty6ReasoningContentFallback:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="no-vision-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="no-vision-model",
+                ),
+            )
 
         assert ok is False, f"Expected False but got True, msg={msg!r}"
 
@@ -1678,7 +1855,9 @@ class TestProperty7VideoFallbackChain:
                 return _make_chat_response(content=val)
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=_mock_create)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=_mock_create,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1686,11 +1865,13 @@ class TestProperty7VideoFallbackChain:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="test-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="test-model",
+                ),
+            )
 
         if b64_kind == "success":
             # base64 succeeded → should return True, HTTP URL never tried
@@ -1717,7 +1898,9 @@ class TestProperty7VideoFallbackChain:
         """When both base64 and HTTP URL get 400, supports_video is False."""
         exc = _make_api_error(400, error_msg)
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=exc)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=exc,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1725,11 +1908,13 @@ class TestProperty7VideoFallbackChain:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="test-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="test-model",
+                ),
+            )
 
         assert ok is False
         assert "not supported" in msg.lower()
@@ -1755,7 +1940,9 @@ class TestProperty7VideoFallbackChain:
             return _make_chat_response(content=answer)
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=_mock_create)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=_mock_create,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1763,11 +1950,13 @@ class TestProperty7VideoFallbackChain:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="test-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="test-model",
+                ),
+            )
 
         assert ok is True
         assert call_count == 2
@@ -1789,7 +1978,9 @@ class TestProperty7VideoFallbackChain:
             return _make_chat_response(content=answer)
 
         mock_client_instance = AsyncMock()
-        mock_client_instance.chat.completions.create = AsyncMock(side_effect=_mock_create)
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=_mock_create,
+        )
 
         with patch(
             "copaw.providers.multimodal_prober.AsyncOpenAI",
@@ -1797,11 +1988,13 @@ class TestProperty7VideoFallbackChain:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(probe_video_support(
-                base_url="https://fake.api",
-                api_key="test-key",
-                model_id="test-model",
-            ))
+            ok, msg = asyncio.run(
+                probe_video_support(
+                    base_url="https://fake.api",
+                    api_key="test-key",
+                    model_id="test-model",
+                ),
+            )
 
         assert ok is True
         assert call_count == 1
@@ -1846,7 +2039,9 @@ class TestProperty10MediaKeywordErrorDetection:
     )
     @settings(max_examples=200)
     def test_case_insensitive_matching(
-        self, keyword: str, case_fn
+        self,
+        keyword: str,
+        case_fn,
     ) -> None:
         """Keyword matching is case-insensitive (function lowercases)."""
         from copaw.providers.multimodal_prober import _is_media_keyword_error
@@ -1858,11 +2053,17 @@ class TestProperty10MediaKeywordErrorDetection:
         prefix=st.text(min_size=0, max_size=30),
         keyword=_media_keyword_st,
         suffix=st.text(min_size=0, max_size=30),
-        case_fn=st.sampled_from([str.lower, str.upper, str.title, str.swapcase]),
+        case_fn=st.sampled_from(
+            [str.lower, str.upper, str.title, str.swapcase],
+        ),
     )
     @settings(max_examples=200)
     def test_keyword_embedded_in_random_text(
-        self, prefix: str, keyword: str, suffix: str, case_fn
+        self,
+        prefix: str,
+        keyword: str,
+        suffix: str,
+        case_fn,
     ) -> None:
         """Mixed-case keyword embedded in random surrounding text → True."""
         from copaw.providers.multimodal_prober import _is_media_keyword_error

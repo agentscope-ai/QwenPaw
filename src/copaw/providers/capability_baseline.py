@@ -52,9 +52,11 @@ class ComparisonSummary:
 
 
 class ExpectedCapabilityRegistry:
-    """Registry of expected multimodal capabilities for all built-in provider models.
+    """Registry of expected multimodal capabilities
+    for all built-in provider models.
 
-    Internally stores ``{(provider_id, model_id): ExpectedCapability}`` dict.
+    Internally stores
+    ``{(provider_id, model_id): ExpectedCapability}`` dict.
     """
 
     def __init__(self) -> None:
@@ -66,12 +68,20 @@ class ExpectedCapabilityRegistry:
     # ------------------------------------------------------------------
 
     def get_expected(
-        self, provider_id: str, model_id: str
+        self,
+        provider_id: str,
+        model_id: str,
     ) -> ExpectedCapability | None:
-        """Look up expected capability for a model. Returns None if not found."""
+        """Look up expected capability for a model.
+
+        Returns None if not found.
+        """
         return self._data.get((provider_id, model_id))
 
-    def get_all_for_provider(self, provider_id: str) -> list[ExpectedCapability]:
+    def get_all_for_provider(
+        self,
+        provider_id: str,
+    ) -> list[ExpectedCapability]:
         """Get all expected capabilities for a given provider."""
         return [
             cap for (pid, _), cap in self._data.items() if pid == provider_id
@@ -95,22 +105,26 @@ class ExpectedCapabilityRegistry:
         _ms_doc = (
             "https://modelscope.cn/docs/model-service/API-Inference/intro"
         )
-        self._register(ExpectedCapability(
-            provider_id="modelscope",
-            model_id="Qwen/Qwen3.5-122B-A10B",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_ms_doc,
-            note="Multimodal capability not specified in ModelScope docs",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="modelscope",
-            model_id="ZhipuAI/GLM-5",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_ms_doc,
-            note="Multimodal capability not specified in ModelScope docs",
-        ))
+        self._register(
+            ExpectedCapability(
+                provider_id="modelscope",
+                model_id="Qwen/Qwen3.5-122B-A10B",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_ms_doc,
+                note="Multimodal capability not specified in ModelScope docs",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="modelscope",
+                model_id="ZhipuAI/GLM-5",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_ms_doc,
+                note="Multimodal capability not specified in ModelScope docs",
+            ),
+        )
 
         # ---------------------------------------------------------------
         # 2. DashScope
@@ -119,30 +133,36 @@ class ExpectedCapabilityRegistry:
         _ds_doc = (
             "https://help.aliyun.com/zh/model-studio/getting-started/models"
         )
-        self._register(ExpectedCapability(
-            provider_id="dashscope",
-            model_id="qwen3-max",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_ds_doc,
-            note="Qwen3 series is text-only",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="dashscope",
-            model_id="qwen3-235b-a22b-thinking-2507",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_ds_doc,
-            note="Qwen3 series is text-only",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="dashscope",
-            model_id="deepseek-v3.2",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_ds_doc,
-            note="DeepSeek V3 series is text-only",
-        ))
+        self._register(
+            ExpectedCapability(
+                provider_id="dashscope",
+                model_id="qwen3-max",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_ds_doc,
+                note="Qwen3 series is text-only",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="dashscope",
+                model_id="qwen3-235b-a22b-thinking-2507",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_ds_doc,
+                note="Qwen3 series is text-only",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="dashscope",
+                model_id="deepseek-v3.2",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_ds_doc,
+                note="DeepSeek V3 series is text-only",
+            ),
+        )
 
         # ---------------------------------------------------------------
         # 3. Aliyun Coding Plan
@@ -151,70 +171,86 @@ class ExpectedCapabilityRegistry:
             "https://help.aliyun.com/zh/model-studio/developer-reference/"
             "compatibility-of-openai-with-dashscope"
         )
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="qwen3.5-plus",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_acp_doc,
-            note="Multimodal capability not specified in docs",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="glm-5",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_acp_doc,
-            note="Multimodal capability not specified in docs",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="glm-4.7",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_acp_doc,
-            note="Multimodal capability not specified in docs",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="MiniMax-M2.5",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_acp_doc,
-            note="Multimodal capability not specified in docs",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="kimi-k2.5",
-            expected_image=None,
-            expected_video=None,
-            doc_url=_acp_doc,
-            note="Multimodal capability not specified in docs",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="qwen3-max-2026-01-23",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_acp_doc,
-            note="Qwen3 series is text-only",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="qwen3-coder-next",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_acp_doc,
-            note="Qwen3 Coder series is code-only text model",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="aliyun-codingplan",
-            model_id="qwen3-coder-plus",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_acp_doc,
-            note="Qwen3 Coder series is code-only text model",
-        ))
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="qwen3.5-plus",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_acp_doc,
+                note="Multimodal capability not specified in docs",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="glm-5",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_acp_doc,
+                note="Multimodal capability not specified in docs",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="glm-4.7",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_acp_doc,
+                note="Multimodal capability not specified in docs",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="MiniMax-M2.5",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_acp_doc,
+                note="Multimodal capability not specified in docs",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="kimi-k2.5",
+                expected_image=None,
+                expected_video=None,
+                doc_url=_acp_doc,
+                note="Multimodal capability not specified in docs",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="qwen3-max-2026-01-23",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_acp_doc,
+                note="Qwen3 series is text-only",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="qwen3-coder-next",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_acp_doc,
+                note="Qwen3 Coder series is code-only text model",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
+                model_id="qwen3-coder-plus",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_acp_doc,
+                note="Qwen3 Coder series is code-only text model",
+            ),
+        )
 
         # ---------------------------------------------------------------
         # 4. OpenAI
@@ -222,18 +258,27 @@ class ExpectedCapabilityRegistry:
         # ---------------------------------------------------------------
         _oai_doc = "https://platform.openai.com/docs/models"
         for mid in (
-            "gpt-5.2", "gpt-5", "gpt-5-mini", "gpt-5-nano",
-            "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
-            "o3", "o4-mini",
-            "gpt-4o", "gpt-4o-mini",
+            "gpt-5.2",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "o3",
+            "o4-mini",
+            "gpt-4o",
+            "gpt-4o-mini",
         ):
-            self._register(ExpectedCapability(
-                provider_id="openai",
-                model_id=mid,
-                expected_image=True,
-                expected_video=False,
-                doc_url=_oai_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="openai",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_oai_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 5. Azure OpenAI
@@ -243,17 +288,24 @@ class ExpectedCapabilityRegistry:
             "openai/concepts/models"
         )
         for mid in (
-            "gpt-5-chat", "gpt-5-mini", "gpt-5-nano",
-            "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
-            "gpt-4o", "gpt-4o-mini",
+            "gpt-5-chat",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
         ):
-            self._register(ExpectedCapability(
-                provider_id="azure-openai",
-                model_id=mid,
-                expected_image=True,
-                expected_video=False,
-                doc_url=_az_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="azure-openai",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_az_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 6. Kimi (China)
@@ -268,13 +320,15 @@ class ExpectedCapabilityRegistry:
             "kimi-k2-thinking",
             "kimi-k2-thinking-turbo",
         ):
-            self._register(ExpectedCapability(
-                provider_id="kimi-cn",
-                model_id=mid,
-                expected_image=True,
-                expected_video=False,
-                doc_url=_kimi_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="kimi-cn",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_kimi_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 7. Kimi (International)
@@ -289,35 +343,41 @@ class ExpectedCapabilityRegistry:
             "kimi-k2-thinking",
             "kimi-k2-thinking-turbo",
         ):
-            self._register(ExpectedCapability(
-                provider_id="kimi-intl",
-                model_id=mid,
-                expected_image=True,
-                expected_video=False,
-                doc_url=_kimi_intl_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="kimi-intl",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_kimi_intl_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 8. DeepSeek
         #    https://api-docs.deepseek.com/
         # ---------------------------------------------------------------
         _ds_api_doc = "https://api-docs.deepseek.com/"
-        self._register(ExpectedCapability(
-            provider_id="deepseek",
-            model_id="deepseek-chat",
-            expected_image=True,
-            expected_video=False,
-            doc_url=_ds_api_doc,
-            note="DeepSeek-V3 supports image input",
-        ))
-        self._register(ExpectedCapability(
-            provider_id="deepseek",
-            model_id="deepseek-reasoner",
-            expected_image=False,
-            expected_video=False,
-            doc_url=_ds_api_doc,
-            note="DeepSeek-R1 reasoning model does not support multimodal input",
-        ))
+        self._register(
+            ExpectedCapability(
+                provider_id="deepseek",
+                model_id="deepseek-chat",
+                expected_image=True,
+                expected_video=False,
+                doc_url=_ds_api_doc,
+                note="DeepSeek-V3 supports image input",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="deepseek",
+                model_id="deepseek-reasoner",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_ds_api_doc,
+                note="DeepSeek-R1 reasoning model: no multimodal",
+            ),
+        )
 
         # ---------------------------------------------------------------
         # 9. Anthropic
@@ -338,53 +398,55 @@ class ExpectedCapabilityRegistry:
             "gemini-2.5-flash-lite",
             "gemini-2.0-flash",
         ):
-            self._register(ExpectedCapability(
-                provider_id="gemini",
-                model_id=mid,
-                expected_image=True,
-                expected_video=True,
-                doc_url=_gem_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="gemini",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=True,
+                    doc_url=_gem_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 11. MiniMax (International)
         # ---------------------------------------------------------------
-        _mm_doc = (
-            "https://www.minimax.io/platform/document/announcement"
-        )
+        _mm_doc = "https://www.minimax.io/platform/document/announcement"
         for mid in (
             "MiniMax-M2.5",
             "MiniMax-M2.5-highspeed",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ):
-            self._register(ExpectedCapability(
-                provider_id="minimax",
-                model_id=mid,
-                expected_image=True,
-                expected_video=False,
-                doc_url=_mm_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="minimax",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_mm_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 12. MiniMax (China)
         # ---------------------------------------------------------------
-        _mm_cn_doc = (
-            "https://platform.minimaxi.com/document/announcement"
-        )
+        _mm_cn_doc = "https://platform.minimaxi.com/document/announcement"
         for mid in (
             "MiniMax-M2.5",
             "MiniMax-M2.5-highspeed",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ):
-            self._register(ExpectedCapability(
-                provider_id="minimax-cn",
-                model_id=mid,
-                expected_image=True,
-                expected_video=False,
-                doc_url=_mm_cn_doc,
-            ))
+            self._register(
+                ExpectedCapability(
+                    provider_id="minimax-cn",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_mm_cn_doc,
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 13. Ollama — no predefined models (dynamic discovery)
@@ -436,7 +498,7 @@ def compare_probe_result(
                 expected=expected_val,
                 actual=actual_val,
                 discrepancy_type=discrepancy_type,
-            )
+            ),
         )
 
     return logs
@@ -447,7 +509,8 @@ def generate_summary(
 ) -> ComparisonSummary:
     """Generate a comparison summary report.
 
-    Each element in results is (expected_cap, actual_image, actual_video, status),
+    Each element in results is
+    (expected_cap, actual_image, actual_video, status),
     where status is "ok", "discrepancy", or "failure".
 
     The returned ComparisonSummary guarantees
@@ -465,7 +528,7 @@ def generate_summary(
         elif status == "discrepancy":
             discrepancies += 1
             details.extend(
-                compare_probe_result(expected_cap, actual_image, actual_video)
+                compare_probe_result(expected_cap, actual_image, actual_video),
             )
         elif status == "failure":
             failures += 1
