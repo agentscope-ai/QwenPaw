@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Unit tests for ExpectedCapabilityRegistry."""
 
 from copaw.providers.capability_baseline import (

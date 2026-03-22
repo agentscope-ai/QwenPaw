@@ -154,7 +154,7 @@ class TestProbeImageSupport:
         )
         mock_openai_cls.return_value = mock_client
 
-        ok, msg = await probe_image_support(
+        ok, _msg = await probe_image_support(
             "https://api.example.com/v1",
             "sk-test",
             "some-model",
@@ -232,7 +232,7 @@ class TestProbeVideoSupport:
         mock_client = AsyncMock()
         call_count = 0
 
-        async def _side_effect(**kwargs):
+        async def _side_effect(**_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -336,7 +336,7 @@ class TestProbeMultimodalSupport:
         mock_client = AsyncMock()
         call_count = 0
 
-        async def _side_effect(**kwargs):
+        async def _side_effect(**_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -362,7 +362,7 @@ class TestProbeMultimodalSupport:
         mock_client = AsyncMock()
         call_count = 0
 
-        async def _side_effect(**kwargs):
+        async def _side_effect(**_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

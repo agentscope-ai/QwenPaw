@@ -9,6 +9,7 @@ import pytest
 
 import copaw.providers.provider_manager as provider_manager_module
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.multimodal_prober import ProbeResult
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.provider import DefaultProvider, ModelInfo
 from copaw.providers.provider_manager import ProviderManager
@@ -451,10 +452,8 @@ def _make_minimal_manager(monkeypatch, tmp_path):
     Returns (mgr, original_methods) where original_methods is a dict of
     the real unpatched methods so tests can call them explicitly.
     """
-    import copaw.providers.provider_manager as pm_mod
-
     secret_dir = tmp_path / ".copaw.secret"
-    monkeypatch.setattr(pm_mod, "SECRET_DIR", secret_dir)
+    monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
 
     # Save originals before patching
     _orig_apply = ProviderManager._apply_default_annotations
@@ -506,7 +505,6 @@ def test_apply_default_annotations_sets_documentation_probe_source(
 
     # Set up a builtin provider with supports_multimodal=None
     # openai/gpt-4o: expected_image=True, expected_video=False
-    from copaw.providers.openai_provider import OpenAIProvider
 
     model = ModelInfo(id="gpt-4o", name="GPT-4o")
     assert model.supports_multimodal is None  # precondition
@@ -535,8 +533,6 @@ def test_apply_default_annotations_skips_already_probed_models(
     """Models with supports_multimodal already set (not None) should NOT
     be overwritten by _apply_default_annotations."""
     mgr, originals = _make_minimal_manager(monkeypatch, tmp_path)
-
-    from copaw.providers.openai_provider import OpenAIProvider
 
     model = ModelInfo(
         id="gpt-4o",
@@ -571,9 +567,6 @@ async def test_probe_model_multimodal_sets_probed_source(
     """After calling ProviderManager.probe_model_multimodal, the model's
     probe_source should be set to 'probed'."""
     mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
-
-    from copaw.providers.openai_provider import OpenAIProvider
-    from copaw.providers.multimodal_prober import ProbeResult
 
     model = ModelInfo(id="gpt-4o", name="GPT-4o")
     provider = OpenAIProvider(
@@ -620,9 +613,6 @@ async def test_probe_model_multimodal_logs_discrepancy_warning(
     import logging
 
     mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
-
-    from copaw.providers.openai_provider import OpenAIProvider
-    from copaw.providers.multimodal_prober import ProbeResult
 
     # openai/gpt-4o expects image=True, video=False
     # We'll return image=False to trigger a discrepancy
@@ -680,9 +670,6 @@ async def test_probe_model_multimodal_no_warning_when_matching(
     import logging
 
     mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
-
-    from copaw.providers.openai_provider import OpenAIProvider
-    from copaw.providers.multimodal_prober import ProbeResult
 
     # openai/gpt-4o expects image=True, video=False — return matching values
     model = ModelInfo(id="gpt-4o", name="GPT-4o")

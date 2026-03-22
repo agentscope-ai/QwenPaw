@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Property-based tests for ReactAgent proactive media filtering.
-
-# Feature: multimodal-model-support, Property 4: 主动媒体过滤正确性
-"""
+# pylint: disable=protected-access
+"""Property-based tests for ReactAgent proactive media filtering."""
 from __future__ import annotations
 
 import asyncio
@@ -93,10 +91,16 @@ def _build_agent_with_memory(messages_content: List) -> MagicMock:
     agent._MEDIA_BLOCK_TYPES = CoPawAgent._MEDIA_BLOCK_TYPES
     agent._MEDIA_PLACEHOLDER = CoPawAgent._MEDIA_PLACEHOLDER
     agent._strip_media_blocks_from_memory = (
-        CoPawAgent._strip_media_blocks_from_memory.__get__(agent)
+        CoPawAgent._strip_media_blocks_from_memory.__get__(  # noqa
+            agent,
+            type(agent),
+        )
     )
     agent._proactive_strip_media_blocks = (
-        CoPawAgent._proactive_strip_media_blocks.__get__(agent)
+        CoPawAgent._proactive_strip_media_blocks.__get__(  # noqa
+            agent,
+            type(agent),
+        )
     )
 
     return agent
@@ -238,7 +242,8 @@ def test_proactive_filtering_log_records_correct_count(
         # Verify warning was called exactly once with the correct count
         mock_warning.assert_called_once()
         call_args = mock_warning.call_args
-        # The format string is the first positional arg, the count is the second
+        # The format string is the first positional arg,
+        # the count is the second
         fmt_string = call_args[0][0]
         logged_count = call_args[0][1]
 
@@ -302,7 +307,9 @@ def test_multimodal_marked_model_error_fallback(
     error_type: str,
     num_media_blocks: int,
 ) -> None:
-    """Property 7: passive fallback strips media and logs inaccurate flag warning.
+    """Property 7: passive fallback strips media.
+
+    Logs inaccurate flag warning.
 
     When a model marked as supports_multimodal=True raises a media-related
     error, the system SHALL:
@@ -337,7 +344,10 @@ def test_multimodal_marked_model_error_fallback(
     )
 
     # Track calls to _strip_media_blocks_from_memory
-    real_strip = CoPawAgent._strip_media_blocks_from_memory.__get__(agent)
+    real_strip = CoPawAgent._strip_media_blocks_from_memory.__get__(
+        agent,
+        type(agent),
+    )
     strip_call_count = 0
     original_strip_result = None
 
@@ -356,7 +366,7 @@ def test_multimodal_marked_model_error_fallback(
     success_msg = Msg(name="assistant", role="assistant", content="OK")
     call_count = 0
 
-    async def mock_super_reasoning(tool_choice=None):
+    async def mock_super_reasoning(**_kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -369,9 +379,12 @@ def test_multimodal_marked_model_error_fallback(
     react_logger = _logging.getLogger("copaw.agents.react_agent")
 
     with patch.object(react_logger, "warning") as mock_warning:
-        # We need to run the _reasoning method. Since it calls super()._reasoning,
-        # we bind the real _reasoning method but patch the super() call.
-        # The simplest approach: replicate the passive fallback logic from _reasoning
+        # We need to run the _reasoning method.
+        # Since it calls super()._reasoning,
+        # we bind the real _reasoning method but
+        # patch the super() call.
+        # The simplest approach: replicate the
+        # passive fallback logic from _reasoning
         # which is what we're actually testing.
 
         # Execute the _reasoning flow manually (mirrors the actual method)
@@ -403,8 +416,9 @@ def test_multimodal_marked_model_error_fallback(
 
                     if agent._get_current_model_supports_multimodal():
                         react_logger.warning(
-                            "Model marked as multimodal but rejected media content. "
-                            "Capability flag may be inaccurate.",
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
                         )
 
                     react_logger.warning(
@@ -420,42 +434,38 @@ def test_multimodal_marked_model_error_fallback(
             loop.close()
 
     # --- Assertions ---
-
-    # 1. The retry succeeded
-    assert result == success_msg, "Retry after passive fallback should succeed"
-
-    # 2. super()._reasoning was called twice (first fail, then retry)
-    assert (
-        call_count == 2
-    ), f"Expected 2 calls to super()._reasoning, got {call_count}"
-
-    # 3. _strip_media_blocks_from_memory was called (passive fallback)
-    assert strip_call_count == 1, (
-        f"Expected _strip_media_blocks_from_memory called once, "
-        f"got {strip_call_count}"
+    _assert_fallback_results(
+        result,
+        success_msg,
+        call_count,
+        strip_call_count,
+        original_strip_result,
+        num_media_blocks=num_media_blocks,
+        mock_warning=mock_warning,
     )
 
-    # 4. The strip actually removed media blocks
-    assert (
-        original_strip_result == num_media_blocks
-    ), f"Expected {num_media_blocks} blocks stripped, got {original_strip_result}"
 
-    # 5. Warning about inaccurate capability flag was logged
+def _assert_fallback_results(
+    result,
+    success_msg,
+    call_count,
+    strip_call_count,
+    original_strip_result,
+    *,
+    num_media_blocks,
+    mock_warning,
+):
+    """Verify passive fallback assertions."""
+    assert result == success_msg
+    assert call_count == 2
+    assert strip_call_count == 1
+    assert original_strip_result == num_media_blocks
+
     warning_calls = mock_warning.call_args_list
-    capability_warnings = [
-        c
-        for c in warning_calls
-        if "Capability flag may be inaccurate" in str(c)
+    cap_warns = [
+        c for c in warning_calls if "Capability flag may be wrong" in str(c)
     ]
-    assert len(capability_warnings) == 1, (
-        f"Expected exactly 1 'Capability flag may be inaccurate' warning, "
-        f"got {len(capability_warnings)}. All warnings: {warning_calls}"
-    )
+    assert len(cap_warns) == 1
 
-    # 6. Retry warning was also logged
-    retry_warnings = [
-        c for c in warning_calls if "_reasoning failed" in str(c)
-    ]
-    assert (
-        len(retry_warnings) == 1
-    ), f"Expected exactly 1 retry warning, got {len(retry_warnings)}"
+    retry_warns = [c for c in warning_calls if "_reasoning failed" in str(c)]
+    assert len(retry_warns) == 1

@@ -204,11 +204,11 @@ class _FakeStream:
 
 
 async def test_probe_model_multimodal_image_supported(monkeypatch) -> None:
-    """When the Anthropic model accepts the image probe, supports_image is True."""
+    """Image probe returns supports_image=True."""
     provider = _make_provider()
 
     class FakeMessages:
-        async def create(self, **kwargs):
+        async def create(self, **_kwargs):
             return _FakeStream()
 
     fake_client = SimpleNamespace(messages=FakeMessages())

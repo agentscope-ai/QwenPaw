@@ -9,6 +9,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from copaw.providers.provider import ModelInfo as ProviderModelInfo
+from copaw.providers.provider import ProviderInfo
 from copaw.providers.models import ModelInfo as ModelsModelInfo
 
 
@@ -29,7 +30,7 @@ def test_provider_model_info_defaults_to_false(
     model_id: str,
     name: str,
 ) -> None:
-    """provider.py ModelInfo: multimodal fields default to None (not yet probed)."""
+    """provider.py ModelInfo: multimodal defaults to None."""
     info = ProviderModelInfo(id=model_id, name=name)
     assert info.supports_multimodal is None
     assert info.supports_image is None
@@ -42,7 +43,7 @@ def test_provider_model_info_defaults_to_false(
 )
 @settings(max_examples=100)
 def test_models_model_info_defaults_to_false(model_id: str, name: str) -> None:
-    """models.py ModelInfo: multimodal fields default to None (not yet probed)."""
+    """models.py ModelInfo: multimodal defaults to None."""
     info = ModelsModelInfo(id=model_id, name=name)
     assert info.supports_multimodal is None
     assert info.supports_image is None
@@ -74,7 +75,7 @@ def test_provider_model_info_serialization_roundtrip(
     supports_image: bool,
     supports_video: bool,
 ) -> None:
-    """provider.py ModelInfo: serialize then deserialize produces equal object."""
+    """provider.py ModelInfo: roundtrip serialization."""
     original = ProviderModelInfo(
         id=model_id,
         name=name,
@@ -105,7 +106,7 @@ def test_models_model_info_serialization_roundtrip(
     supports_image: bool,
     supports_video: bool,
 ) -> None:
-    """models.py ModelInfo: serialize then deserialize produces equal object."""
+    """models.py ModelInfo: roundtrip serialization."""
     original = ModelsModelInfo(
         id=model_id,
         name=name,
@@ -200,9 +201,7 @@ def test_models_model_info_probe_persistence(
 # extra_models lists SHALL have supports_multimodal, supports_image, and
 # supports_video boolean fields present in its serialized representation.
 # **Validates: Requirements 1.2, 3.1**
-# ---------------------------------------------------------------------------
-
-from copaw.providers.provider import ProviderInfo
+# -------------------------------------------------------------------
 
 # Strategy: generate a random ModelInfo with all fields randomised
 _model_info_st = st.builds(
@@ -229,7 +228,7 @@ _provider_info_st = st.builds(
 def test_provider_info_serialized_models_contain_multimodal_fields(
     provider_info: ProviderInfo,
 ) -> None:
-    """ProviderInfo: every ModelInfo in serialized output has multimodal fields."""
+    """ProviderInfo: serialized models have multimodal fields."""
     data = provider_info.model_dump()
 
     multimodal_keys = {

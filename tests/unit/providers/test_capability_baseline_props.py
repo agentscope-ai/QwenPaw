@@ -1,14 +1,41 @@
 # -*- coding: utf-8 -*-
-"""Property-based tests for capability_baseline module using Hypothesis."""
+# pylint: disable=protected-access
+"""Property-based tests for capability_baseline module."""
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, patch
+
+import httpx
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from openai import APIStatusError
 
 from copaw.providers.capability_baseline import (
     ExpectedCapability,
+    ExpectedCapabilityRegistry,
+    ProbeSource,
     compare_probe_result,
+    generate_summary,
+)
+from copaw.providers.multimodal_prober import ProbeResult
+from copaw.providers.ollama_provider import OllamaProvider
+from copaw.providers.provider import (
+    ModelInfo as ProviderModelInfo,
+    DefaultProvider,
+)
+from copaw.providers.provider_manager import (
+    MODELSCOPE_MODELS,
+    DASHSCOPE_MODELS,
+    ALIYUN_CODINGPLAN_MODELS,
+    OPENAI_MODELS,
+    AZURE_OPENAI_MODELS,
+    KIMI_MODELS,
+    DEEPSEEK_MODELS,
+    ANTHROPIC_MODELS,
+    GEMINI_MODELS,
+    MINIMAX_MODELS,
 )
 
 
@@ -153,7 +180,7 @@ class TestProperty4DiscrepancyDetection:
         actual_image: bool,
         actual_video: bool,
     ) -> None:
-        """Every DiscrepancyLog carries the correct provider_id and model_id."""
+        """DiscrepancyLog carries correct provider/model."""
         logs = compare_probe_result(expected, actual_image, actual_video)
 
         for log in logs:
@@ -170,7 +197,7 @@ _status_st = st.sampled_from(["ok", "discrepancy", "failure"])
 
 @st.composite
 def comparison_result_st(draw: st.DrawFn) -> tuple:
-    """Generate a random (ExpectedCapability, actual_image, actual_video, status) tuple."""
+    """Generate a random (ExpectedCapability, actual, status) tuple."""
     cap = draw(expected_capability_st())
     actual_image = draw(st.booleans())
     actual_video = draw(st.booleans())
@@ -195,7 +222,6 @@ class TestProperty5SummaryConsistency:
         results: list[tuple],
     ) -> None:
         """total_models == passed + discrepancies + failures for any input."""
-        from copaw.providers.capability_baseline import generate_summary
 
         summary = generate_summary(results)
         assert (
@@ -210,7 +236,6 @@ class TestProperty5SummaryConsistency:
         results: list[tuple],
     ) -> None:
         """total_models equals the number of input results."""
-        from copaw.providers.capability_baseline import generate_summary
 
         summary = generate_summary(results)
         assert summary.total_models == len(results)
@@ -222,7 +247,6 @@ class TestProperty5SummaryConsistency:
         results: list[tuple],
     ) -> None:
         """passed count equals the number of 'ok' status entries."""
-        from copaw.providers.capability_baseline import generate_summary
 
         summary = generate_summary(results)
         expected_passed = sum(1 for _, _, _, s in results if s == "ok")
@@ -234,8 +258,7 @@ class TestProperty5SummaryConsistency:
         self,
         results: list[tuple],
     ) -> None:
-        """discrepancies count equals the number of 'discrepancy' status entries."""
-        from copaw.providers.capability_baseline import generate_summary
+        """discrepancies count equals discrepancy status entries."""
 
         summary = generate_summary(results)
         expected_disc = sum(1 for _, _, _, s in results if s == "discrepancy")
@@ -248,7 +271,6 @@ class TestProperty5SummaryConsistency:
         results: list[tuple],
     ) -> None:
         """failures count equals the number of 'failure' status entries."""
-        from copaw.providers.capability_baseline import generate_summary
 
         summary = generate_summary(results)
         expected_fail = sum(1 for _, _, _, s in results if s == "failure")
@@ -260,12 +282,7 @@ class TestProperty5SummaryConsistency:
         self,
         results: list[tuple],
     ) -> None:
-        """details list contains only DiscrepancyLogs from 'discrepancy' entries."""
-        from copaw.providers.capability_baseline import (
-            compare_probe_result,
-            generate_summary,
-        )
-
+        """details list has only DiscrepancyLogs from 'discrepancy' entries."""
         summary = generate_summary(results)
 
         # Recompute expected details from discrepancy entries only
@@ -280,20 +297,6 @@ class TestProperty5SummaryConsistency:
 # ---------------------------------------------------------------------------
 # Property 1: 基线数据完整性
 # ---------------------------------------------------------------------------
-
-from copaw.providers.capability_baseline import ExpectedCapabilityRegistry
-from copaw.providers.provider_manager import (
-    MODELSCOPE_MODELS,
-    DASHSCOPE_MODELS,
-    ALIYUN_CODINGPLAN_MODELS,
-    OPENAI_MODELS,
-    AZURE_OPENAI_MODELS,
-    KIMI_MODELS,
-    DEEPSEEK_MODELS,
-    ANTHROPIC_MODELS,
-    GEMINI_MODELS,
-    MINIMAX_MODELS,
-)
 
 # Build the complete mapping of provider_id → predefined ModelInfo list.
 # Providers with no predefined models (ollama, lmstudio, llamacpp, mlx)
@@ -316,7 +319,8 @@ for _pid, _models in [
     for _m in _models:
         _BUILTIN_PROVIDER_MODELS.append((_pid, _m.id))
 
-# Hypothesis strategy: draw from the actual built-in (provider_id, model_id) pairs
+# Hypothesis strategy: draw from the actual built-in
+# (provider_id, model_id) pairs
 _builtin_pair_st = (
     st.sampled_from(
         _BUILTIN_PROVIDER_MODELS,
@@ -397,30 +401,26 @@ class TestProperty1BaselineCompleteness:
         self,
         pair: tuple[str, str],
     ) -> None:
-        """When expected_image or expected_video is None, note must be non-empty."""
+        """When expected is None, note must be non-empty."""
         provider_id, model_id = pair
         registry = ExpectedCapabilityRegistry()
         cap = registry.get_expected(provider_id, model_id)
         assert cap is not None
         if cap.expected_image is None or cap.expected_video is None:
             assert cap.note, (
-                f"note must be non-empty when expected_image or expected_video "
+                f"note must be non-empty when expected "
                 f"is None for {provider_id}/{model_id}"
             )
 
 
 # ---------------------------------------------------------------------------
 # Property 8: Ollama 探测行为不变量
-# ---------------------------------------------------------------------------
+# -------------------------------------------------------------------
 
-import asyncio
-from unittest.mock import AsyncMock, patch
-
-from copaw.providers.ollama_provider import OllamaProvider
-
-# Strategy: generate random base_url strings that look like valid HTTP URLs.
-# We strip "/v1" suffix if present to match OllamaProvider.model_post_init
-# behaviour, then verify the probe sends to base_url + "/v1".
+# Strategy: generate random base_url strings
+# that look like valid HTTP URLs. We strip "/v1"
+# suffix if present to match OllamaProvider
+# model_post_init behaviour.
 _ollama_base_url_st = st.from_regex(
     r"https?://[a-z0-9]{1,10}(\.[a-z0-9]{1,5})*(:[0-9]{2,5})?",
     fullmatch=True,
@@ -600,24 +600,17 @@ class TestProperty8OllamaProbeInvariant:
         assert called_api_key == "ollama"
 
 
-# ---------------------------------------------------------------------------
-# Property 9: 默认标注与实际探测的覆盖机制
-# ---------------------------------------------------------------------------
-
-from copaw.providers.capability_baseline import ProbeSource
-from copaw.providers.provider import (
-    ModelInfo as ProviderModelInfo,
-    DefaultProvider,
-)
+# -------------------------------------------------------------------
+# Property 9: default annotation override mechanism
+# -------------------------------------------------------------------
 
 # Use the provider-level ModelInfo for Property 9 tests
-# (same schema as models.ModelInfo but from the provider module)
 _ModelInfo = ProviderModelInfo
 
 
 @st.composite
 def model_info_st(draw: st.DrawFn) -> ProviderModelInfo:
-    """Generate a random ModelInfo with supports_multimodal=None (unannotated)."""
+    """Generate a random ModelInfo with multimodal=None."""
     model_id = draw(
         st.text(
             min_size=1,
@@ -638,7 +631,7 @@ def expected_cap_with_known_values_st(
     provider_id: str,
     model_id: str,
 ) -> ExpectedCapability:
-    """Generate an ExpectedCapability with concrete (non-None) image/video values."""
+    """Generate ExpectedCapability with concrete values."""
     expected_image = draw(st.booleans())
     expected_video = draw(st.booleans())
     return ExpectedCapability(
@@ -671,7 +664,8 @@ class TestProperty9DefaultAnnotationOverride:
         expected_image: bool,
         expected_video: bool,
     ) -> None:
-        """Models with supports_multimodal=None get probe_source='documentation'
+        """Models with supports_multimodal=None get
+        probe_source='documentation'
         after _apply_default_annotations."""
         model = _ModelInfo(id="test-model", name="Test Model")
         assert model.supports_multimodal is None
@@ -764,7 +758,8 @@ class TestProperty9DefaultAnnotationOverride:
         expected_image: bool,
         expected_video: bool,
     ) -> None:
-        """supports_multimodal is True iff expected_image or expected_video is True."""
+        """supports_multimodal True iff expected_image
+        or expected_video is True."""
         model = _ModelInfo(id="test-model", name="Test Model")
 
         provider = DefaultProvider(
@@ -846,7 +841,8 @@ class TestProperty9DefaultAnnotationOverride:
 
         assert model.probe_source == "documentation"
 
-        # Step 2: Simulate actual probing (as done in ProviderManager.probe_model_multimodal)
+        # Step 2: Simulate actual probing
+        # (as done in ProviderManager)
         for m in provider.models:
             if m.id == "test-model":
                 m.supports_image = probed_image
@@ -865,7 +861,7 @@ class TestProperty9DefaultAnnotationOverride:
         self,
         data: st.DataObject,
     ) -> None:
-        """Models without a matching ExpectedCapability entry remain unannotated."""
+        """Models without matching entry remain unannotated."""
         model_id = data.draw(
             st.text(
                 min_size=1,
@@ -965,9 +961,7 @@ class TestProperty9DefaultAnnotationOverride:
 
 # ---------------------------------------------------------------------------
 # Property 2: 探测结果包含双模态字段
-# ---------------------------------------------------------------------------
-
-from copaw.providers.multimodal_prober import ProbeResult
+# -------------------------------------------------------------------
 
 
 class TestProperty2ProbeResultStructuralInvariant:
@@ -1011,7 +1005,7 @@ class TestProperty2ProbeResultStructuralInvariant:
         image_message: str,
         video_message: str,
     ) -> None:
-        """ProbeResult always contains supports_image and supports_video as bools."""
+        """ProbeResult has supports_image/video as bools."""
         result = ProbeResult(
             supports_image=supports_image,
             supports_video=supports_video,
@@ -1032,7 +1026,7 @@ class TestProperty2ProbeResultStructuralInvariant:
         supports_image: bool,
         supports_video: bool,
     ) -> None:
-        """supports_multimodal is True iff at least one modality is supported."""
+        """supports_multimodal True iff any modality on."""
         result = ProbeResult(
             supports_image=supports_image,
             supports_video=supports_video,
@@ -1052,7 +1046,7 @@ class TestProperty2ProbeResultStructuralInvariant:
         supports_image: bool,
         supports_video: bool,
     ) -> None:
-        """When no messages are provided, image_message and video_message default to empty strings."""
+        """No messages => image/video_message default to ""."""
         result = ProbeResult(
             supports_image=supports_image,
             supports_video=supports_video,
@@ -1062,15 +1056,15 @@ class TestProperty2ProbeResultStructuralInvariant:
 
 
 # ---------------------------------------------------------------------------
-# Property 3: 错误类型区分——网络错误 vs 不支持
-# ---------------------------------------------------------------------------
-
-import httpx
-from openai import APIStatusError
+# Property 3: error type distinction
+# -------------------------------------------------------------------
 
 
-def _make_api_error(status_code: int, message: str) -> APIStatusError:
-    """Create an APIStatusError (subclass of APIError) with the given status code and message."""
+def _make_api_error(
+    status_code: int,
+    message: str,
+) -> APIStatusError:
+    """Create an APIStatusError with given status code."""
     mock_response = httpx.Response(
         status_code=status_code,
         request=httpx.Request("POST", "https://fake.api/v1/chat/completions"),
@@ -1135,7 +1129,7 @@ class TestProperty3ErrorTypeDistinction:
         model_id: str,
         error_message: str,
     ) -> None:
-        """General exceptions (timeout, connection, etc.) produce 'Probe failed' for image probe."""
+        """General exceptions produce 'Probe failed' for image."""
         exc = Exception(error_message)
         mock_client_instance = AsyncMock()
         mock_client_instance.chat.completions.create = AsyncMock(
@@ -1219,7 +1213,7 @@ class TestProperty3ErrorTypeDistinction:
         model_id: str,
         error_message: str,
     ) -> None:
-        """APIError with status_code=400 produces 'not supported' for image probe."""
+        """400 error produces 'not supported' for image."""
         exc = _make_api_error(400, error_message)
         mock_client_instance = AsyncMock()
         mock_client_instance.chat.completions.create = AsyncMock(
@@ -1260,7 +1254,8 @@ class TestProperty3ErrorTypeDistinction:
         model_id: str,
         error_message: str,
     ) -> None:
-        """APIError with status_code=400 on all formats produces 'not supported' for video probe.
+        """400 on all formats produces 'not supported'
+        for video probe.
 
         Video probe tries base64 first, then HTTP URL. When both get 400,
         the final message should contain 'not supported'.
@@ -1309,7 +1304,8 @@ class TestProperty3ErrorTypeDistinction:
         keyword: str,
         status_code: int,
     ) -> None:
-        """APIError with media keyword in message produces 'not supported' for image probe."""
+        """Media keyword error produces 'not supported'
+        for image probe."""
         error_message = f"The model {keyword} capability is not available"
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
@@ -1353,7 +1349,8 @@ class TestProperty3ErrorTypeDistinction:
         keyword: str,
         status_code: int,
     ) -> None:
-        """APIError with media keyword in message produces 'not supported' for video probe."""
+        """Media keyword error produces 'not supported'
+        for video probe."""
         error_message = f"The model {keyword} capability is not available"
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
@@ -1399,7 +1396,8 @@ class TestProperty3ErrorTypeDistinction:
         error_message: str,
         status_code: int,
     ) -> None:
-        """Non-400, non-media-keyword APIError produces 'Probe inconclusive' for image probe."""
+        """Non-400, non-keyword APIError produces
+        'Probe inconclusive' for image."""
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
         mock_client_instance.chat.completions.create = AsyncMock(
@@ -1442,7 +1440,8 @@ class TestProperty3ErrorTypeDistinction:
         error_message: str,
         status_code: int,
     ) -> None:
-        """Non-400, non-media-keyword APIError produces 'Probe inconclusive' for video probe."""
+        """Non-400, non-keyword APIError produces
+        'Probe inconclusive' for video."""
         exc = _make_api_error(status_code, error_message)
         mock_client_instance = AsyncMock()
         mock_client_instance.chat.completions.create = AsyncMock(
@@ -1464,7 +1463,7 @@ class TestProperty3ErrorTypeDistinction:
             )
 
         assert ok is False
-        assert "Probe inconclusive" in msg
+        assert "inconclusive" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -1518,7 +1517,7 @@ _video_keyword_st = st.sampled_from(list(_VIDEO_KEYWORDS))
 
 
 class TestProperty6ReasoningContentFallback:
-    """Feature: multimodal-probe-validation, Property 6: 思考型模型 reasoning_content 回退
+    """Property 6: reasoning_content fallback
 
     *For any* 探测响应，当 content 为空但 reasoning_content 包含预期颜色关键词
     （"red"/"红" 用于图片，"blue"/"蓝" 用于视频）时，probe_image_support /
@@ -1840,7 +1839,7 @@ class TestProperty7VideoFallbackChain:
 
         call_count = 0
 
-        async def _mock_create(**kwargs):
+        async def _mock_create(**_kwargs):
             nonlocal call_count
             call_count += 1
             # First call is base64, second is HTTP URL
@@ -1851,8 +1850,7 @@ class TestProperty7VideoFallbackChain:
 
             if kind == "400":
                 raise _make_api_error(400, val)
-            else:
-                return _make_chat_response(content=val)
+            return _make_chat_response(content=val)
 
         mock_client_instance = AsyncMock()
         mock_client_instance.chat.completions.create = AsyncMock(
@@ -1929,10 +1927,10 @@ class TestProperty7VideoFallbackChain:
         answer: str,
         error_msg: str,
     ) -> None:
-        """When base64 gets 400 but HTTP URL succeeds, supports_video is True."""
+        """Base64 400 + HTTP URL success => True."""
         call_count = 0
 
-        async def _mock_create(**kwargs):
+        async def _mock_create(**_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1950,7 +1948,7 @@ class TestProperty7VideoFallbackChain:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(
+            ok, _msg = asyncio.run(
                 probe_video_support(
                     base_url="https://fake.api",
                     api_key="test-key",
@@ -1972,7 +1970,7 @@ class TestProperty7VideoFallbackChain:
         """When base64 succeeds, HTTP URL is never tried (only 1 API call)."""
         call_count = 0
 
-        async def _mock_create(**kwargs):
+        async def _mock_create(**_kwargs):
             nonlocal call_count
             call_count += 1
             return _make_chat_response(content=answer)
@@ -1988,7 +1986,7 @@ class TestProperty7VideoFallbackChain:
         ):
             from copaw.providers.multimodal_prober import probe_video_support
 
-            ok, msg = asyncio.run(
+            ok, _msg = asyncio.run(
                 probe_video_support(
                     base_url="https://fake.api",
                     api_key="test-key",

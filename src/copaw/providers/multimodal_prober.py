@@ -223,16 +223,14 @@ async def probe_video_support(
 ) -> tuple[bool, str]:
     """Probe video support with automatic format fallback.
 
-    Some providers (e.g. Moonshot) only accept base64 data URLs for
-    video_url, while others (e.g. DashScope) only accept HTTP URLs.
-    We try base64 first; if the provider rejects it with a 400 error
-    we fall back to an HTTP URL.
+    Some providers (e.g. Moonshot) only accept base64 data URLs
+    for video_url, while others (e.g. DashScope) only accept
+    HTTP URLs.  We try base64 first; if the provider rejects it
+    with a 400 error we fall back to an HTTP URL.
 
-    Uses semantic verification: asks the model to name the colour shown
-    in the video.  A truly video-capable model will answer "blue"; a
-    text-only model that silently ignores the video will not.
+    Uses semantic verification: asks the model to name the colour
+    shown in the video.
     """
-    # Try base64 first, then HTTP URL as fallback
     logger.info(
         "Video probe start: model=%s url=%s",
         model_id,
@@ -245,123 +243,17 @@ async def probe_video_support(
     ]
     last_error_msg = ""
     for video_url in video_urls:
-        # HTTP URL fallback needs extra time for the provider to
-        # download the video before processing it.
-        req_timeout = timeout * 3 if video_url == _PROBE_VIDEO_URL else timeout
-        client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=req_timeout,
+        result = await _try_video_url(
+            base_url,
+            api_key,
+            model_id,
+            video_url,
+            timeout,
+            start_time=start_time,
         )
-        try:
-            res = await client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "video_url",
-                                "video_url": {"url": video_url},
-                            },
-                            {
-                                "type": "text",
-                                "text": (
-                                    "What is the single dominant color shown "
-                                    "in this video? Reply with ONLY the color "
-                                    "name, nothing else."
-                                ),
-                            },
-                        ],
-                    },
-                ],
-                max_tokens=200,
-                timeout=req_timeout,
-            )
-            answer = (res.choices[0].message.content or "").lower().strip()
-            # The probe video is solid blue
-            if any(kw in answer for kw in ("blue", "蓝")):
-                elapsed = time.monotonic() - start_time
-                logger.info(
-                    "Video probe done: model=%s result=True %.2fs",
-                    model_id,
-                    elapsed,
-                )
-                return True, f"Video supported (answer={answer!r})"
-            # Fallback: check reasoning_content for thinking models
-            reasoning = ""
-            msg = res.choices[0].message
-            if hasattr(msg, "reasoning_content") and msg.reasoning_content:
-                reasoning = msg.reasoning_content.lower()
-            if reasoning and any(kw in reasoning for kw in ("blue", "蓝")):
-                elapsed = time.monotonic() - start_time
-                logger.info(
-                    "Video probe done: model=%s result=True %.2fs",
-                    model_id,
-                    elapsed,
-                )
-                return (
-                    True,
-                    f"Video supported (via reasoning, answer={answer!r})",
-                )
-            # Model accepted the request but didn't recognise the video.
-            # For the HTTP URL fallback the video content differs (not
-            # solid blue), so accept any non-trivial answer as evidence
-            # that the model can process video.
-            if video_url == _PROBE_VIDEO_URL and answer:
-                elapsed = time.monotonic() - start_time
-                logger.info(
-                    "Video probe done: model=%s result=True %.2fs",
-                    model_id,
-                    elapsed,
-                )
-                return True, f"Video supported (answer={answer!r})"
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=False %.2fs",
-                model_id,
-                elapsed,
-            )
-            return False, f"Model did not recognise video (answer={answer!r})"
-        except APIError as e:
-            status = getattr(e, "status_code", None)
-            if status == 400:
-                # Provider rejected this format; try next
-                last_error_msg = str(e)
-                logger.debug(
-                    "Video probe format rejected (400), trying next: %s",
-                    e,
-                )
-                continue
-            if _is_media_keyword_error(e):
-                elapsed = time.monotonic() - start_time
-                logger.warning(
-                    "Video probe error: model=%s type=%s msg=%s %.2fs",
-                    model_id,
-                    type(e).__name__,
-                    e,
-                    elapsed,
-                )
-                return False, f"Video not supported: {e}"
-            elapsed = time.monotonic() - start_time
-            logger.warning(
-                "Video probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
-                type(e).__name__,
-                e,
-                elapsed,
-            )
-            return False, f"Probe inconclusive: {e}"
-        except Exception as e:
-            elapsed = time.monotonic() - start_time
-            logger.warning(
-                "Video probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
-                type(e).__name__,
-                e,
-                elapsed,
-            )
-            return False, f"Probe failed: {e}"
+        if result is not None:
+            return result
+        last_error_msg = f"format rejected for {video_url}"
     # All formats exhausted
     elapsed = time.monotonic() - start_time
     logger.info(
@@ -370,6 +262,141 @@ async def probe_video_support(
         elapsed,
     )
     return False, f"Video not supported: {last_error_msg}"
+
+
+async def _try_video_url(
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    video_url: str,
+    timeout: float,
+    *,
+    start_time: float,
+) -> tuple[bool, str] | None:
+    """Try a single video URL format. Return None to try next."""
+    is_http = video_url == _PROBE_VIDEO_URL
+    req_timeout = timeout * 3 if is_http else timeout
+    client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=req_timeout,
+    )
+    try:
+        res = await client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "video_url",
+                            "video_url": {"url": video_url},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "What is the single dominant "
+                                "color shown in this video? "
+                                "Reply with ONLY the color "
+                                "name, nothing else."
+                            ),
+                        },
+                    ],
+                },
+            ],
+            max_tokens=200,
+            timeout=req_timeout,
+        )
+        return _evaluate_video_response(
+            res,
+            model_id,
+            start_time,
+            is_http,
+        )
+    except APIError as e:
+        status = getattr(e, "status_code", None)
+        if status == 400:
+            logger.debug(
+                "Video probe format rejected (400): %s",
+                e,
+            )
+            return None  # try next format
+        elapsed = time.monotonic() - start_time
+        is_kw = _is_media_keyword_error(e)
+        label = "not supported" if is_kw else "inconclusive"
+        logger.warning(
+            "Video probe error: model=%s type=%s msg=%s %.2fs",
+            model_id,
+            type(e).__name__,
+            e,
+            elapsed,
+        )
+        msg = f"Video {label}: {e}"
+        return False, msg
+    except Exception as e:
+        elapsed = time.monotonic() - start_time
+        logger.warning(
+            "Video probe error: model=%s type=%s msg=%s %.2fs",
+            model_id,
+            type(e).__name__,
+            e,
+            elapsed,
+        )
+        return False, f"Probe failed: {e}"
+
+
+def _evaluate_video_response(
+    res,
+    model_id,
+    start_time,
+    is_http,
+) -> tuple[bool, str]:
+    """Evaluate the model response for video probe."""
+    answer = (res.choices[0].message.content or "").lower().strip()
+    # The probe video is solid blue
+    if any(kw in answer for kw in ("blue", "蓝")):
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe done: model=%s result=True %.2fs",
+            model_id,
+            elapsed,
+        )
+        return True, f"Video supported (answer={answer!r})"
+    # Fallback: check reasoning_content for thinking models
+    reasoning = ""
+    msg = res.choices[0].message
+    if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+        reasoning = msg.reasoning_content.lower()
+    if reasoning and any(kw in reasoning for kw in ("blue", "蓝")):
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe done: model=%s result=True %.2fs",
+            model_id,
+            elapsed,
+        )
+        return (
+            True,
+            f"Video supported (reasoning, answer={answer!r})",
+        )
+    # HTTP URL fallback: accept any non-trivial answer
+    if is_http and answer:
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe done: model=%s result=True %.2fs",
+            model_id,
+            elapsed,
+        )
+        return True, f"Video supported (answer={answer!r})"
+    elapsed = time.monotonic() - start_time
+    logger.info(
+        "Video probe done: model=%s result=False %.2fs",
+        model_id,
+        elapsed,
+    )
+    return (
+        False,
+        f"Model did not recognise video (answer={answer!r})",
+    )
 
 
 async def probe_multimodal_support(

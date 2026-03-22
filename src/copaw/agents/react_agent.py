@@ -581,7 +581,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return False
 
     def _build_multimodal_hint(self) -> str:
-        """Build a short system-prompt snippet describing multimodal capabilities."""
+        """Build a short system-prompt snippet about multimodal."""
         try:
             from ..providers.provider_manager import ProviderManager
 
@@ -600,36 +600,46 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             if model_info is None:
                 return ""
 
-            parts: list[str] = []
-            if model_info.supports_image is True:
-                parts.append("image")
-            if model_info.supports_video is True:
-                parts.append("video")
-
-            if parts:
-                return (
-                    f"[Multimodal capabilities] Your current model "
-                    f"({active.model}) supports {' and '.join(parts)} input. "
-                    f"You can understand and describe visual content "
-                    f"that users share with you."
-                )
-            elif model_info.supports_multimodal is None:
-                # Not yet probed — don't make claims either way
-                return ""
-            else:
-                return (
-                    f"[Multimodal capabilities] Your current model "
-                    f"({active.model}) is text-only. "
-                    f"If a user sends an image or video, politely let them "
-                    f"know you cannot see it and suggest they switch to a "
-                    f"multimodal model (e.g. qwen3.5-plus) or describe the "
-                    f"content in text. Do NOT attempt to use browser_use, "
-                    f"view_image, or any other tool to indirectly view the "
-                    f"image/video — it wastes resources and the result is "
-                    f"unreliable."
-                )
+            return self._format_multimodal_hint(
+                model_info,
+                active.model,
+            )
         except Exception:
             return ""
+
+    @staticmethod
+    def _format_multimodal_hint(model_info, model_name: str) -> str:
+        """Format the multimodal hint string."""
+        parts: list[str] = []
+        if model_info.supports_image is True:
+            parts.append("image")
+        if model_info.supports_video is True:
+            parts.append("video")
+
+        if parts:
+            return (
+                f"[Multimodal capabilities] Your current"
+                f" model ({model_name}) supports "
+                f"{' and '.join(parts)} input. "
+                f"You can understand and describe visual"
+                f" content that users share with you."
+            )
+        if model_info.supports_multimodal is None:
+            return ""
+        return (
+            f"[Multimodal capabilities] Your current"
+            f" model ({model_name}) is text-only. "
+            f"If a user sends an image or video, "
+            f"politely let them know you cannot see "
+            f"it and suggest they switch to a "
+            f"multimodal model (e.g. qwen3.5-plus) "
+            f"or describe the content in text. "
+            f"Do NOT attempt to use browser_use, "
+            f"view_image, or any other tool to "
+            f"indirectly view the image/video — "
+            f"it wastes resources and the result "
+            f"is unreliable."
+        )
 
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
@@ -643,10 +653,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Override reasoning with proactive media filtering and passive fallback.
+        """Override reasoning with proactive media filtering.
 
-        1. Proactive layer: if the model does not support multimodal,
-           strip media blocks *before* calling the model.
+        1. Proactive layer: if the model does not support
+           multimodal, strip media blocks *before* calling.
         2. Passive layer: if the model call still fails with a
            bad-request / media error, strip remaining blocks and retry.
         3. If the model IS marked as multimodal but still errors on
@@ -676,12 +686,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             if n_stripped == 0:
                 raise
 
-            # If the model is marked as multimodal but still errored,
-            # the capability flag may be inaccurate.
+            # If the model is marked as multimodal but still
+            # errored, the capability flag may be wrong.
             if self._get_current_model_supports_multimodal():
                 logger.warning(
-                    "Model marked as multimodal but rejected media content. "
-                    "Capability flag may be inaccurate.",
+                    "Model marked multimodal but "
+                    "rejected media. "
+                    "Capability flag may be wrong.",
                 )
 
             logger.warning(
@@ -693,8 +704,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return await super()._reasoning(tool_choice=tool_choice)
 
     async def _summarizing(self) -> Msg:
-        """Override summarizing with proactive media filtering, passive fallback,
-        and tool_use block filtering.
+        """Override summarizing with proactive media filtering,
+        passive fallback, and tool_use block filtering.
 
         1. Proactive layer: if the model does not support multimodal,
            strip media blocks *before* calling the model.
@@ -732,8 +743,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
                 if self._get_current_model_supports_multimodal():
                     logger.warning(
-                        "Model marked as multimodal but rejected media content. "
-                        "Capability flag may be inaccurate.",
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong.",
                     )
 
                 logger.warning(
