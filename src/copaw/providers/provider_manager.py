@@ -307,6 +307,7 @@ class ProviderManager:
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
+        self._apply_default_annotations()
         self.update_local_models()
 
     def _prepare_disk_storage(self):
@@ -539,7 +540,31 @@ class ProviderManager:
                 model.supports_image = result.supports_image
                 model.supports_video = result.supports_video
                 model.supports_multimodal = result.supports_multimodal
+                model.probe_source = "probed"
                 break
+
+        # Compare probe result against expected baseline
+        from .capability_baseline import (
+            ExpectedCapabilityRegistry,
+            compare_probe_result,
+        )
+
+        registry = ExpectedCapabilityRegistry()
+        expected = registry.get_expected(provider_id, model_id)
+        if expected:
+            discrepancies = compare_probe_result(
+                expected, result.supports_image, result.supports_video
+            )
+            for d in discrepancies:
+                logger.warning(
+                    "探测差异: %s/%s %s 预期=%s 实际=%s (%s)",
+                    d.provider_id,
+                    d.model_id,
+                    d.field,
+                    d.expected,
+                    d.actual,
+                    d.discrepancy_type,
+                )
 
         # Persist to disk
         self._save_provider(
@@ -724,6 +749,24 @@ class ProviderManager:
         active_model = self.load_active_model()
         if active_model:
             self.active_model = active_model
+
+    def _apply_default_annotations(self):
+        """为未探测的模型应用基于文档的默认标注"""
+        from .capability_baseline import ExpectedCapabilityRegistry
+
+        registry = ExpectedCapabilityRegistry()
+        for provider in self.builtin_providers.values():
+            for model in provider.models:
+                if model.supports_multimodal is None:
+                    expected = registry.get_expected(provider.id, model.id)
+                    if expected:
+                        model.supports_image = expected.expected_image
+                        model.supports_video = expected.expected_video
+                        model.supports_multimodal = (
+                            (expected.expected_image or False)
+                            or (expected.expected_video or False)
+                        )
+                        model.probe_source = "documentation"
 
     def update_local_models(self):
         """Update the model list of a local provider."""

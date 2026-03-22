@@ -396,3 +396,139 @@ class TestIsMediaKeywordError:
     def test_does_not_support_keyword(self) -> None:
         exc = Exception("This endpoint does not support that format")
         assert _is_media_keyword_error(exc) is True
+
+
+# ---------------------------------------------------------------------------
+# Logging verification (Requirements 9.1, 9.2, 9.3, 9.4)
+# ---------------------------------------------------------------------------
+
+
+class TestProbeLogging:
+    """Verify INFO/WARNING log output from probe functions.
+
+    Validates: Requirements 9.1, 9.2, 9.3, 9.4
+    """
+
+    LOGGER_NAME = "copaw.providers.multimodal_prober"
+
+    @staticmethod
+    def _enable_propagation(monkeypatch):
+        """Enable propagation on the copaw logger so caplog can capture records."""
+        import logging
+
+        copaw_logger = logging.getLogger("copaw")
+        monkeypatch.setattr(copaw_logger, "propagate", True)
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_image_probe_logs_info_on_start_and_complete(
+        self, mock_openai_cls, monkeypatch, caplog,
+    ) -> None:
+        """Successful image probe emits two INFO logs: started + completed."""
+        import logging
+
+        self._enable_propagation(monkeypatch)
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = _fake_completion("red")
+        mock_openai_cls.return_value = mock_client
+
+        with caplog.at_level(logging.INFO, logger=self.LOGGER_NAME):
+            await probe_image_support(
+                "https://api.example.com/v1", "sk-test", "gpt-4o",
+            )
+
+        info_messages = [
+            r.message for r in caplog.records
+            if r.levelno == logging.INFO and r.name == self.LOGGER_NAME
+        ]
+        assert any("Image probe started" in m for m in info_messages), (
+            f"Expected 'Image probe started' INFO log, got: {info_messages}"
+        )
+        assert any("Image probe completed" in m for m in info_messages), (
+            f"Expected 'Image probe completed' INFO log, got: {info_messages}"
+        )
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_video_probe_logs_info_on_start_and_complete(
+        self, mock_openai_cls, monkeypatch, caplog,
+    ) -> None:
+        """Successful video probe emits two INFO logs: started + completed."""
+        import logging
+
+        self._enable_propagation(monkeypatch)
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = _fake_completion("blue")
+        mock_openai_cls.return_value = mock_client
+
+        with caplog.at_level(logging.INFO, logger=self.LOGGER_NAME):
+            await probe_video_support(
+                "https://api.example.com/v1", "sk-test", "gpt-4o",
+            )
+
+        info_messages = [
+            r.message for r in caplog.records
+            if r.levelno == logging.INFO and r.name == self.LOGGER_NAME
+        ]
+        assert any("Video probe started" in m for m in info_messages), (
+            f"Expected 'Video probe started' INFO log, got: {info_messages}"
+        )
+        assert any("Video probe completed" in m for m in info_messages), (
+            f"Expected 'Video probe completed' INFO log, got: {info_messages}"
+        )
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_image_probe_logs_warning_on_api_error(
+        self, mock_openai_cls, monkeypatch, caplog,
+    ) -> None:
+        """APIError during image probe emits a WARNING log."""
+        import logging
+
+        self._enable_propagation(monkeypatch)
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.side_effect = _make_api_error(
+            422, "image_url is not supported",
+        )
+        mock_openai_cls.return_value = mock_client
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
+            await probe_image_support(
+                "https://api.example.com/v1", "sk-test", "text-only-model",
+            )
+
+        warning_messages = [
+            r.message for r in caplog.records
+            if r.levelno == logging.WARNING and r.name == self.LOGGER_NAME
+        ]
+        assert any("Image probe exception" in m for m in warning_messages), (
+            f"Expected 'Image probe exception' WARNING log, got: {warning_messages}"
+        )
+
+    @patch("copaw.providers.multimodal_prober.AsyncOpenAI")
+    async def test_video_probe_logs_warning_on_general_exception(
+        self, mock_openai_cls, monkeypatch, caplog,
+    ) -> None:
+        """General Exception during video probe emits a WARNING log."""
+        import logging
+
+        self._enable_propagation(monkeypatch)
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.side_effect = RuntimeError(
+            "Something went wrong",
+        )
+        mock_openai_cls.return_value = mock_client
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
+            await probe_video_support(
+                "https://api.example.com/v1", "sk-test", "broken-model",
+            )
+
+        warning_messages = [
+            r.message for r in caplog.records
+            if r.levelno == logging.WARNING and r.name == self.LOGGER_NAME
+        ]
+        assert any("Video probe exception" in m for m in warning_messages), (
+            f"Expected 'Video probe exception' WARNING log, got: {warning_messages}"
+        )

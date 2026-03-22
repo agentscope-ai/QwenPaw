@@ -160,6 +160,28 @@ class OllamaProvider(Provider):
         self.extra_models = await self.fetch_models()
         return True, ""
 
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+    ) -> "ProbeResult":
+        """通过 Ollama 的 OpenAI 兼容端点探测多模态能力"""
+        from .multimodal_prober import probe_image_support, ProbeResult
+
+        openai_url = self.base_url.rstrip("/") + "/v1"
+        img_ok, img_msg = await probe_image_support(
+            base_url=openai_url,
+            api_key=self.api_key or "ollama",
+            model_id=model_id,
+            timeout=timeout,
+        )
+        return ProbeResult(
+            supports_image=img_ok,
+            supports_video=False,
+            image_message=img_msg,
+            video_message="Ollama 当前不支持视频输入",
+        )
+
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
 

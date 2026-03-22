@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
@@ -15,6 +17,8 @@ from copaw.providers.multimodal_prober import (
     _is_media_keyword_error,
 )
 from copaw.providers.provider import ModelInfo, Provider
+
+logger = logging.getLogger(__name__)
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
@@ -186,6 +190,11 @@ class AnthropicProvider(Provider):
         timeout: float = 10,
     ) -> tuple[bool, str]:
         """Probe image support via Anthropic messages API."""
+        logger.info(
+            "Image probe started: model_id=%s, base_url=%s",
+            model_id, self.base_url,
+        )
+        start_time = time.monotonic()
         client = self._client(timeout=timeout)
         try:
             resp = await client.messages.create(
@@ -211,12 +220,27 @@ class AnthropicProvider(Provider):
             )
             async for _ in resp:
                 break
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "Image probe completed: model_id=%s, result=%s, elapsed=%.2fs",
+                model_id, True, elapsed,
+            )
             return True, "Image supported"
         except anthropic.APIError as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
+                model_id, type(e).__name__, e, elapsed,
+            )
             status = getattr(e, "status_code", None)
             if status == 400 or _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
             return False, f"Probe inconclusive: {e}"
         except Exception as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
+                model_id, type(e).__name__, e, elapsed,
+            )
             return False, f"Probe failed: {e}"
 

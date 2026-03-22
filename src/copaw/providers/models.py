@@ -26,6 +26,10 @@ class ModelInfo(BaseModel):
         description="Whether this model supports video input. "
         "None means not yet probed.",
     )
+    probe_source: str | None = Field(
+        default=None,
+        description="探测结果来源：'documentation'（基于文档）或 'probed'（实际探测）",
+    )
 
 
 class ProviderDefinition(BaseModel):

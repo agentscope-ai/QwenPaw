@@ -4,12 +4,17 @@ GeminiChatModel."""
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
+
+logger = logging.getLogger(__name__)
+
 
 from copaw.providers.multimodal_prober import (
     ProbeResult,
@@ -165,6 +170,11 @@ class GeminiProvider(Provider):
         """
         import base64
 
+        logger.info(
+            "Image probe started: model_id=%s, base_url=%s",
+            model_id, self.base_url,
+        )
+        start_time = time.monotonic()
         client = self._client(timeout=timeout)
         try:
             image_bytes = base64.b64decode(_PROBE_IMAGE_B64)
@@ -191,14 +201,36 @@ class GeminiProvider(Provider):
             )
             answer = (response.text or "").lower().strip()
             if any(kw in answer for kw in ("red", "红")):
-                return True, f"Image supported (answer={answer!r})"
-            return False, f"Model did not recognise image (answer={answer!r})"
+                result = True, f"Image supported (answer={answer!r})"
+                elapsed = time.monotonic() - start_time
+                logger.info(
+                    "Image probe completed: model_id=%s, result=%s, elapsed=%.2fs",
+                    model_id, result[0], elapsed,
+                )
+                return result
+            result = False, f"Model did not recognise image (answer={answer!r})"
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "Image probe completed: model_id=%s, result=%s, elapsed=%.2fs",
+                model_id, result[0], elapsed,
+            )
+            return result
         except genai_errors.APIError as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
+                model_id, type(e).__name__, e, elapsed,
+            )
             status = getattr(e, "code", None)
             if status == 400 or _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
             return False, f"Probe inconclusive: {e}"
         except Exception as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Image probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
+                model_id, type(e).__name__, e, elapsed,
+            )
             return False, f"Probe failed: {e}"
 
     async def _probe_video_support(
@@ -210,6 +242,11 @@ class GeminiProvider(Provider):
 
         Asks the model whether the video contains moving content.
         """
+        logger.info(
+            "Video probe started: model_id=%s, base_url=%s",
+            model_id, self.base_url,
+        )
+        start_time = time.monotonic()
         client = self._client(timeout=timeout)
         try:
             response = await client.aio.models.generate_content(
@@ -234,12 +271,34 @@ class GeminiProvider(Provider):
             )
             answer = (response.text or "").lower().strip()
             if "yes" in answer:
-                return True, f"Video supported (answer={answer!r})"
-            return False, f"Model did not recognise video (answer={answer!r})"
+                result = True, f"Video supported (answer={answer!r})"
+                elapsed = time.monotonic() - start_time
+                logger.info(
+                    "Video probe completed: model_id=%s, result=%s, elapsed=%.2fs",
+                    model_id, result[0], elapsed,
+                )
+                return result
+            result = False, f"Model did not recognise video (answer={answer!r})"
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "Video probe completed: model_id=%s, result=%s, elapsed=%.2fs",
+                model_id, result[0], elapsed,
+            )
+            return result
         except genai_errors.APIError as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Video probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
+                model_id, type(e).__name__, e, elapsed,
+            )
             status = getattr(e, "code", None)
             if status == 400 or _is_media_keyword_error(e):
                 return False, f"Video not supported: {e}"
             return False, f"Probe inconclusive: {e}"
         except Exception as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Video probe exception: model_id=%s, type=%s, message=%s, elapsed=%.2fs",
+                model_id, type(e).__name__, e, elapsed,
+            )
             return False, f"Probe failed: {e}"
