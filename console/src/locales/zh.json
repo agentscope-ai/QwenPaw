@@ -481,6 +481,8 @@
     "providerNotConfigured": "未就绪（未配置）",
     "settings": "设置",
     "actions": "操作",
+    "search": "搜索",
+    "searchPlaceholder": "搜索提供商...",
     "custom": "自定义",
     "builtin": "内置",
     "addProvider": "添加提供商",
