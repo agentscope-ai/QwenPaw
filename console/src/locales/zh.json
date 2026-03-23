@@ -446,7 +446,11 @@
     "xiaoyiSetupGuide": "请在华为开发者平台创建智能体并获取 AK/SK 和 Agent ID。AK/SK 可在凭证管理页面找到。",
     "filterAll": "全部",
     "builtin": "内置",
-    "custom": "自定义"
+    "custom": "自定义",
+    "feishuRegion": "地区",
+    "feishuRegionTooltip": "国内用户选择飞书，海外用户选择 Lark",
+    "feishuChina": "飞书（国内）",
+    "feishuInternational": "Lark（海外）"
   },
   "sessions": {
     "title": "会话",
@@ -582,6 +586,8 @@
     "providerNotConfigured": "未就绪（未配置）",
     "settings": "设置",
     "actions": "操作",
+    "search": "搜索",
+    "searchPlaceholder": "搜索提供商...",
     "custom": "自定义",
     "builtin": "内置",
     "addProvider": "添加提供商",
@@ -860,6 +866,22 @@
         "TOOL_CMD_UNSAFE_PERMISSIONS": "检测全局权限降级（chmod 777）或设置不可变标志的操作",
         "TOOL_CMD_OBFUSCATED_EXEC": "检测将 base64 编码字符串直接传递给 Shell 解释器执行的行为"
       }
+    },
+    "fileGuard": {
+      "title": "文件防护",
+      "description": "保护敏感文件和目录，防止被 Agent 工具访问。添加的路径将在所有工具调用中被拦截。",
+      "enableLabel": "启用文件防护",
+      "path": "路径",
+      "actions": "操作",
+      "add": "添加",
+      "inputPlaceholder": "输入文件或目录路径（如 ~/.ssh/ 或 /etc/passwd）",
+      "empty": "未配置自定义敏感路径",
+      "directory": "目录",
+      "removeConfirm": "从保护列表中移除该路径？",
+      "duplicate": "该路径已存在",
+      "saveSuccess": "文件防护设置已保存",
+      "saveFailed": "保存文件防护设置失败",
+      "loadFailed": "加载文件防护设置失败"
     },
     "skillScanner": {
       "title": "技能扫描器",

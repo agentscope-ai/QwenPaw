@@ -128,12 +128,18 @@ async def post_console_chat(
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:
+        # Hold iterator so finally can aclose(); guarantees stream_from_queue's
+        # finally (detach_subscriber) on client abort / generator teardown.
+        stream_it = tracker.stream_from_queue(queue, chat.id)
         try:
-            async for event_data in tracker.stream_from_queue(queue):
-                yield event_data
-        except Exception as e:
-            logger.exception("Console chat stream error")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            try:
+                async for event_data in stream_it:
+                    yield event_data
+            except Exception as e:
+                logger.exception("Console chat stream error")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            await stream_it.aclose()
 
     return StreamingResponse(
         event_generator(),

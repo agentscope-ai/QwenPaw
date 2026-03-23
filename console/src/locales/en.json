@@ -485,7 +485,11 @@
     "xiaoyiSetupGuide": "Please create an agent on Huawei Developer Platform and get AK/SK and Agent ID. AK/SK can be found in the credential management page.",
     "filterAll": "All",
     "builtin": "Built-in",
-    "custom": "Custom"
+    "custom": "Custom",
+    "feishuRegion": "Region",
+    "feishuRegionTooltip": "Choose Feishu for China or Lark for International",
+    "feishuChina": "Feishu (China)",
+    "feishuInternational": "Lark (International)"
   },
   "sessions": {
     "title": "Sessions",
@@ -621,6 +625,8 @@
     "providerNotConfigured": "Not Ready (not configured)",
     "settings": "Settings",
     "actions": "Actions",
+    "search": "Search",
+    "searchPlaceholder": "Search providers...",
     "custom": "Custom",
     "builtin": "Built-in",
     "addProvider": "Add Provider",
@@ -899,6 +905,22 @@
         "TOOL_CMD_UNSAFE_PERMISSIONS": "Detects global permission downgrades (chmod 777) or setting immutable flags",
         "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter"
       }
+    },
+    "fileGuard": {
+      "title": "File Guard",
+      "description": "Protect sensitive files and directories from being accessed by agent tools. Paths added here will be blocked across all tool calls.",
+      "enableLabel": "Enable File Guard",
+      "path": "Path",
+      "actions": "Actions",
+      "add": "Add",
+      "inputPlaceholder": "Enter file or directory path (e.g. ~/.ssh/ or /etc/passwd)",
+      "empty": "No custom sensitive paths configured",
+      "directory": "Directory",
+      "removeConfirm": "Remove this path from the protected list?",
+      "duplicate": "This path is already in the list",
+      "saveSuccess": "File guard settings saved",
+      "saveFailed": "Failed to save file guard settings",
+      "loadFailed": "Failed to load file guard settings"
     },
     "skillScanner": {
       "title": "Skill Scanner",

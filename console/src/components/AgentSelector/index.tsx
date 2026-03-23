@@ -34,7 +34,7 @@ export default function AgentSelector() {
     message.success(t("agent.switchSuccess"));
   };
 
-  const agentCount = agents.length;
+  const agentCount = agents?.length ?? 0;
 
   const renderProjectSummary = (agent: {
     project_count?: number;
@@ -74,7 +74,7 @@ export default function AgentSelector() {
           </div>
         }
       >
-        {agents.map((agent) => (
+        {agents?.map((agent) => (
           <Select.Option
             key={agent.id}
             value={agent.id}
