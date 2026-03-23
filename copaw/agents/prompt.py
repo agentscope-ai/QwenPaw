@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
+# pylint: disable=relative-beyond-top-level
 """System prompt building utilities.
 
 This module provides utilities for building system prompts from

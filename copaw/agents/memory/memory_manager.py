@@ -212,6 +212,8 @@ class MemoryManager(ReMeLight):
             str: Condensed summary of the messages
         """
         self.prepare_model_formatter()
+        if self.formatter is None or self.chat_model is None:
+            return ""
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
@@ -241,6 +243,8 @@ class MemoryManager(ReMeLight):
             str: Comprehensive summary of the messages
         """
         self.prepare_model_formatter()
+        if self.formatter is None or self.chat_model is None:
+            return ""
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
@@ -268,9 +272,9 @@ class MemoryManager(ReMeLight):
             str: LLM response text, or empty string on failure.
         """
         self.prepare_model_formatter()
+        if self.formatter is None or self.chat_model is None:
+            return ""
         try:
-            from agentscope.message import Msg
-
             msg = Msg(name="user", role="user", content=prompt)
             formatted = self.formatter.format_chat([msg])
             response = await self.chat_model(formatted)
@@ -279,8 +283,8 @@ class MemoryManager(ReMeLight):
             if hasattr(response, "content"):
                 return str(response.content) or ""
             return str(response) if response else ""
-        except Exception as e:
-            logger.warning("summarize_text failed: %s", e)
+        except Exception as exc:
+            logger.warning("summarize_text failed: %s", exc)
             return ""
 
     async def memory_search(

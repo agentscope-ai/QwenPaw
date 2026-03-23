@@ -16,14 +16,14 @@ from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 from copaw.constant import MEMORY_COMPACT_KEEP_RECENT
 
-from ..utils import (
+from copaw.agents.utils import (
     check_valid_messages,
     get_copaw_token_counter,
 )
-from ...config.config import load_agent_config
+from copaw.config.config import load_agent_config
 
 if TYPE_CHECKING:
-    from ..memory import MemoryManager
+    from copaw.agents.memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
 
 logger = logging.getLogger(__name__)
@@ -173,10 +173,13 @@ class MemoryCompactionHook:
                     session_config.handoff_enabled
                     and session_config.handoff_auto_interval > 0
                     and self._turn_count > 0
-                    and self._turn_count % session_config.handoff_auto_interval == 0
+                    and self._turn_count % session_config.handoff_auto_interval
+                    == 0
                 ):
                     await self._generate_handoff(
-                        agent, messages, "auto_interval"
+                        agent,
+                        messages,
+                        "auto_interval",
                     )
                 return None
 
@@ -255,7 +258,9 @@ class MemoryCompactionHook:
             # Generate handoff manifest on compression
             if session_config.handoff_enabled:
                 await self._generate_handoff(
-                    agent, messages, "compression"
+                    agent,
+                    messages,
+                    "compression",
                 )
 
         except Exception as e:
@@ -281,11 +286,13 @@ class MemoryCompactionHook:
             trigger: What triggered the handoff (compression/auto_interval)
         """
         try:
-            from .handoff import HandoffHook
+            from copaw.agents.hooks.handoff import HandoffHook
 
             handoff = HandoffHook(self.memory_manager)
             await handoff.generate(agent, messages, trigger=trigger)
         except ImportError:
-            logger.debug("HandoffHook not available, skipping handoff generation")
+            logger.debug(
+                "HandoffHook not available, skipping handoff generation",
+            )
         except Exception as e:
             logger.warning("Failed to generate handoff manifest: %s", e)

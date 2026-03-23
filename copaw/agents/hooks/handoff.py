@@ -6,19 +6,16 @@ reach turn limits, or at regular intervals. New sessions load the
 latest manifest to quickly resume context.
 """
 import logging
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from agentscope.agent import ReActAgent
-from agentscope.message import Msg, TextBlock
 
-from ...config.config import load_agent_config
-from ...config.context import get_current_workspace_dir
+from copaw.config.context import get_current_workspace_dir
 
 if TYPE_CHECKING:
-    from ..memory import MemoryManager
+    from copaw.agents.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,8 @@ HANDOFF_DIR = "handoff"
 LATEST_FILE = "latest.md"
 
 # Prompt for LLM to generate handoff manifest
-HANDOFF_PROMPT = """Based on the conversation below, generate a concise handoff manifest in the following markdown format.
+HANDOFF_PROMPT = """Based on the conversation below, generate a concise handoff
+manifest in the following markdown format.
 Be specific and actionable. Only include sections that have content.
 
 ```markdown
@@ -74,7 +72,7 @@ class HandoffHook:
 
     async def generate(
         self,
-        agent: ReActAgent,
+        _agent: ReActAgent,
         messages: list,
         trigger: str = "manual",
     ) -> Optional[str]:
@@ -103,8 +101,7 @@ class HandoffHook:
                         content = c
                     elif isinstance(c, list):
                         content = " ".join(
-                            b.text for b in c
-                            if hasattr(b, "text") and b.text
+                            b.text for b in c if hasattr(b, "text") and b.text
                         )
                 if content:
                     conversation_parts.append(f"[{role}]: {content[:500]}")
@@ -124,13 +121,15 @@ class HandoffHook:
 
             # Use memory_manager's summarize capability
             manifest_content = await self.memory_manager.summarize_text(
-                prompt
+                prompt,
             )
 
             if not manifest_content:
                 # Fallback: generate a minimal manifest without LLM
                 manifest_content = self._build_minimal_manifest(
-                    timestamp, trigger, conversation_parts
+                    timestamp,
+                    trigger,
+                    conversation_parts,
                 )
 
             # Save to files
@@ -141,13 +140,16 @@ class HandoffHook:
             latest_path.write_text(manifest_content, encoding="utf-8")
 
             # Save timestamped copy
-            ts_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{trigger}.md"
+            ts_filename = (
+                f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{trigger}.md"
+            )
             ts_path = handoff_dir / ts_filename
             ts_path.write_text(manifest_content, encoding="utf-8")
 
             logger.info(
                 "Handoff manifest generated: %s (trigger=%s)",
-                latest_path, trigger,
+                latest_path,
+                trigger,
             )
             return str(latest_path)
 

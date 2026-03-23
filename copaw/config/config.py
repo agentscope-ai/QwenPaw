@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=relative-beyond-top-level
 import os
 import json
 from pathlib import Path
@@ -369,7 +370,9 @@ class SessionConfig(BaseModel):
 
     handoff_auto_interval: int = Field(
         default=30,
-        description="Auto-generate handoff manifest every N turns (0=disabled).",
+        description=(
+            "Auto-generate handoff manifest every N turns (0=disabled)."
+        ),
     )
 
     compression_mark: bool = Field(
@@ -756,8 +759,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "agent_relationships": BuiltinToolConfig(
             name="agent_relationships",
             enabled=True,
-            description="Manage relationships with humans "
-            "and other agents",
+            description="Manage relationships with humans " "and other agents",
         ),
     }
 
