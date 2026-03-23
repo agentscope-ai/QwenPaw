@@ -186,7 +186,7 @@ async def run_daemon_approve(
     _context: DaemonContext,
     session_id: str = "",
 ) -> str:
-    """Resolve the pending tool-guard approval for *session_id*.
+    """Resolve the next pending tool-guard approval for *session_id*.
 
     Called when the user sends ``/daemon approve`` in the chat while a
     tool-guard approval is pending.  The runner intercepts the message

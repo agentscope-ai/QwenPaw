@@ -346,6 +346,16 @@ def configure_feishu(current_config: FeishuConfig) -> FeishuConfig:
 
     current_config.enabled = True
 
+    # Domain selection: feishu (China) or lark (International)
+    domain_choices = ["feishu", "lark"]
+    current_domain = current_config.domain or "feishu"
+    domain = click.prompt(
+        "Region (feishu for China, lark for International)",
+        default=current_domain,
+        type=click.Choice(domain_choices),
+    )
+    current_config.domain = domain
+
     bot_prefix = click.prompt(
         "Bot prefix (e.g., @bot)",
         default=current_config.bot_prefix or "[BOT]",

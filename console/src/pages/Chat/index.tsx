@@ -18,7 +18,7 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
-import "./index.module.less";
+import styles from "./index.module.less";
 import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
@@ -583,7 +583,7 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className={styles.chatMessagesArea}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
