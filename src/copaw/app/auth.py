@@ -270,6 +270,43 @@ def auto_register_from_env() -> None:
         )
 
 
+def update_credentials(
+    current_password: str,
+    new_username: Optional[str] = None,
+    new_password: Optional[str] = None,
+) -> Optional[str]:
+    """Update the registered user's username and/or password.
+
+    Requires the current password for verification.  Returns a new
+    token on success (because the username may have changed), or
+    ``None`` if verification fails.
+    """
+    data = _load_auth_data()
+    user = data.get("user")
+    if not user:
+        return None
+
+    stored_hash = user.get("password_hash", "")
+    stored_salt = user.get("password_salt", "")
+    if not verify_password(current_password, stored_hash, stored_salt):
+        return None
+
+    if new_username and new_username.strip():
+        user["username"] = new_username.strip()
+
+    if new_password:
+        pw_hash, salt = _hash_password(new_password)
+        user["password_hash"] = pw_hash
+        user["password_salt"] = salt
+        # Rotate JWT secret to invalidate all existing sessions
+        data["jwt_secret"] = secrets.token_hex(32)
+
+    data["user"] = user
+    _save_auth_data(data)
+    logger.info("Credentials updated for user '%s'", user["username"])
+    return create_token(user["username"])
+
+
 # ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
