@@ -174,6 +174,17 @@ class OpenAIProvider(Provider):
             model_id,
             timeout,
         )
+        # Skip video probe when image probe already failed: a model
+        # that cannot perceive images will not perceive video either,
+        # and some text-only models (e.g. qwen3-max) may randomly
+        # guess the correct color keyword, causing false positives.
+        if not img_ok:
+            return ProbeResult(
+                supports_image=False,
+                supports_video=False,
+                image_message=img_msg,
+                video_message="Skipped: image probe failed",
+            )
         vid_ok, vid_msg = await self._probe_video_support(
             model_id,
             timeout,
@@ -193,8 +204,19 @@ class OpenAIProvider(Provider):
         """Probe image support by sending a solid-red 16x16 PNG.
 
         Uses a two-stage check:
-        1. If the API rejects the request → not supported.
-        2. If accepted, verify the model can perceive the image.
+        1. If the API rejects the request (400 / media-keyword error)
+           → not supported.
+        2. If accepted, verify the model can *actually perceive* the
+           image content via a semantic check (see _evaluate_image_response).
+
+        Why a semantic check is necessary:
+            Some models (e.g. qwen3-max via OpenAI-compatible API) silently
+            accept image payloads without returning an error, yet they do NOT
+            actually process the image — they simply ignore it and respond to
+            the text prompt only.  A pure "did the API error?" check would
+            produce false positives for these models.  The semantic check
+            (asking for the dominant color and verifying the answer) catches
+            this class of silent failures.
         """
         from .multimodal_prober import (
             _PROBE_IMAGE_B64,
@@ -253,7 +275,11 @@ class OpenAIProvider(Provider):
                 e,
                 elapsed,
             )
-            if e.status_code == 400 or _is_media_keyword_error(e):
+            # 400 or media-keyword error → definitive rejection.
+            # Other API errors are inconclusive (could be transient).
+            # Use getattr because APITimeoutError lacks status_code.
+            status = getattr(e, "status_code", None)
+            if status == 400 or _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
             return False, f"Probe inconclusive: {e}"
         except Exception as e:
@@ -273,9 +299,21 @@ class OpenAIProvider(Provider):
         model_id: str,
         start_time: float,
     ) -> tuple[bool, str]:
-        """Evaluate image probe response."""
+        """Evaluate image probe response.
+
+        Detection criteria:
+            The probe image is a solid-red 16×16 PNG.  We ask the model
+            "What is the single dominant color?" and check whether the
+            reply (or reasoning_content for reasoning models) contains
+            "red" or "红".  If neither appears, the model likely cannot
+            perceive the image and we report False.
+        """
         answer = (res.choices[0].message.content or "").lower().strip()
-        if any(kw in answer for kw in ("red", "红")):
+        # Primary check: answer text contains a red-family color keyword.
+        # Models may describe the solid-red image as "red", "scarlet",
+        # "crimson", "vermilion", "maroon", "红" etc.
+        _RED_KW = ("red", "scarlet", "crimson", "vermilion", "maroon", "红")
+        if any(kw in answer for kw in _RED_KW):
             elapsed = time.monotonic() - start_time
             logger.info(
                 "Image probe done: model=%s result=True %.2fs",
@@ -283,11 +321,13 @@ class OpenAIProvider(Provider):
                 elapsed,
             )
             return True, f"Image supported (answer={answer!r})"
+        # Fallback: some reasoning models (e.g. DeepSeek-R1) put the
+        # real analysis in reasoning_content rather than the final answer.
         reasoning = ""
         msg = res.choices[0].message
         if hasattr(msg, "reasoning_content") and msg.reasoning_content:
             reasoning = msg.reasoning_content.lower()
-        if reasoning and any(kw in reasoning for kw in ("red", "红")):
+        if reasoning and any(kw in reasoning for kw in _RED_KW):
             elapsed = time.monotonic() - start_time
             logger.info(
                 "Image probe done: model=%s result=True %.2fs",
@@ -400,6 +440,9 @@ class OpenAIProvider(Provider):
             )
         except APIError as e:
             status = getattr(e, "status_code", None)
+            # 400 means this specific video format was rejected, but the
+            # model might accept a different format — return None to let
+            # the caller try the next URL in the fallback list.
             if status == 400:
                 logger.debug(
                     "Video probe format rejected (400): %s",
@@ -407,6 +450,8 @@ class OpenAIProvider(Provider):
                 )
                 return None
             elapsed = time.monotonic() - start_time
+            # If the error message contains media-related keywords
+            # (e.g. "video", "vision"), it's a definitive rejection.
             is_kw = _is_media_keyword_error(e)
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
@@ -435,9 +480,29 @@ class OpenAIProvider(Provider):
         start_time: float,
         is_http: bool,
     ) -> tuple[bool, str]:
-        """Evaluate video probe response."""
+        """Evaluate video probe response.
+
+        Detection criteria:
+            The probe video is a solid-blue 64×64 H.264 MP4.  We ask
+            "What is the single dominant color?" and check for "blue"
+            or "蓝" in the reply or reasoning_content.
+
+            Special case for HTTP URL probes: if the model returns any
+            non-empty answer (even without "blue"), we accept it as
+            supported.  The HTTP URL points to an external video whose
+            content we do not control (not the blue probe video), so
+            colour-matching is impossible.  This relaxed check is safe
+            because ``probe_model_multimodal`` only reaches the video
+            probe after the image probe has already passed, which
+            filters out text-only models that silently accept media
+            payloads (e.g. qwen3-max).
+        """
         answer = (res.choices[0].message.content or "").lower().strip()
-        if any(kw in answer for kw in ("blue", "蓝")):
+        # Primary check: answer contains a blue-family color keyword.
+        # Models may describe the solid-blue video as "blue", "navy",
+        # "azure", "cobalt", "cyan", "indigo", "蓝" etc.
+        _BLUE_KW = ("blue", "navy", "azure", "cobalt", "cyan", "indigo", "蓝")
+        if any(kw in answer for kw in _BLUE_KW):
             elapsed = time.monotonic() - start_time
             logger.info(
                 "Video probe done: model=%s result=True %.2fs",
@@ -445,11 +510,12 @@ class OpenAIProvider(Provider):
                 elapsed,
             )
             return True, f"Video supported (answer={answer!r})"
+        # Fallback: reasoning models may put analysis in reasoning_content.
         reasoning = ""
         msg = res.choices[0].message
         if hasattr(msg, "reasoning_content") and msg.reasoning_content:
             reasoning = msg.reasoning_content.lower()
-        if reasoning and any(kw in reasoning for kw in ("blue", "蓝")):
+        if reasoning and any(kw in reasoning for kw in _BLUE_KW):
             elapsed = time.monotonic() - start_time
             logger.info(
                 "Video probe done: model=%s result=True %.2fs",
@@ -460,18 +526,21 @@ class OpenAIProvider(Provider):
                 True,
                 f"Video supported (reasoning, answer={answer!r})",
             )
+        # HTTP URL fallback: accept any non-empty response as evidence
+        # of video support (see docstring for safety rationale).
         if is_http and answer:
             elapsed = time.monotonic() - start_time
             logger.info(
-                "Video probe done: model=%s result=True %.2fs",
+                "Video probe done: model=%s result=True (http) %.2fs",
                 model_id,
                 elapsed,
             )
-            return True, f"Video supported (answer={answer!r})"
+            return True, f"Video supported (http, answer={answer!r})"
         elapsed = time.monotonic() - start_time
         logger.info(
-            "Video probe done: model=%s result=False %.2fs",
+            "Video probe done: model=%s result=False answer=%r %.2fs",
             model_id,
+            answer,
             elapsed,
         )
         return (
