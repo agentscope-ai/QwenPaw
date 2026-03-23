@@ -1,15 +1,17 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Card, Form, Input, message } from "antd";
+import { Button, Form, Input, message } from "antd";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
+import { useTheme } from "../../contexts/ThemeContext";
 
 export default function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { isDark } = useTheme();
   const [loading, setLoading] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
@@ -74,19 +76,27 @@ export default function LoginPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
+        background: isDark
+          ? "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
+          : "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
       }}
     >
-      <Card
+      <div
         style={{
           width: 400,
-          boxShadow: "0 4px 24px rgba(0,0,0,0.1)",
+          padding: 32,
           borderRadius: 12,
+          background: isDark ? "#1f1f1f" : "#fff",
+          boxShadow: isDark
+            ? "0 4px 24px rgba(0,0,0,0.4)"
+            : "0 4px 24px rgba(0,0,0,0.1)",
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src={`${import.meta.env.BASE_URL}logo.png`}
+            src={`${import.meta.env.BASE_URL}${
+              isDark ? "dark-logo.png" : "logo.png"
+            }`}
             alt="CoPaw"
             style={{ height: 48, marginBottom: 12 }}
           />
@@ -97,7 +107,7 @@ export default function LoginPage() {
             <p
               style={{
                 margin: "8px 0 0",
-                color: "#666",
+                color: isDark ? "rgba(255,255,255,0.45)" : "#666",
                 fontSize: 13,
               }}
             >
@@ -117,7 +127,13 @@ export default function LoginPage() {
             rules={[{ required: true, message: t("login.usernameRequired") }]}
           >
             <Input
-              prefix={<UserOutlined />}
+              prefix={
+                <UserOutlined
+                  style={{
+                    color: isDark ? "rgba(255,255,255,0.45)" : undefined,
+                  }}
+                />
+              }
               placeholder={t("login.usernamePlaceholder")}
               autoFocus
             />
@@ -128,7 +144,13 @@ export default function LoginPage() {
             rules={[{ required: true, message: t("login.passwordRequired") }]}
           >
             <Input.Password
-              prefix={<LockOutlined />}
+              prefix={
+                <LockOutlined
+                  style={{
+                    color: isDark ? "rgba(255,255,255,0.45)" : undefined,
+                  }}
+                />
+              }
               placeholder={t("login.passwordPlaceholder")}
             />
           </Form.Item>
@@ -145,7 +167,7 @@ export default function LoginPage() {
             </Button>
           </Form.Item>
         </Form>
-      </Card>
+      </div>
     </div>
   );
 }
