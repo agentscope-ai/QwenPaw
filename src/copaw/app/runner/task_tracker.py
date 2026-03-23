@@ -32,7 +32,8 @@ class TaskTracker:
     """Per-workspace tracker: run_key -> RunState.
 
     All mutations to _runs under _lock. Producer broadcasts under lock.
-    Dead queues pruned when full.
+    Subscribers use unbounded per-connection queues; disconnect removes them
+    via :meth:`detach_subscriber`.
     """
 
     def __init__(self) -> None:
@@ -112,6 +113,24 @@ class TaskTracker:
             state.queues.append(q)
             return q
 
+    async def detach_subscriber(
+        self,
+        run_key: str,
+        queue: asyncio.Queue,
+    ) -> None:
+        """Remove *queue* from *run_key*'s subscriber list.
+
+        Idempotent if the run ended or *queue* was already removed.
+        """
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None:
+                return
+            try:
+                state.queues.remove(queue)
+            except ValueError:
+                pass
+
     async def request_stop(self, run_key: str) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         async with self._lock:
@@ -158,19 +177,8 @@ class TaskTracker:
                             return
                         async with tracker.lock:
                             run.buffer.append(sse)
-                            alive: list[asyncio.Queue] = []
                             for q in run.queues:
-                                try:
-                                    q.put_nowait(sse)
-                                    alive.append(q)
-                                except asyncio.QueueFull:
-                                    logger.warning(
-                                        "dropping subscriber queue (full) "
-                                        "run_key=%s",
-                                        run_key,
-                                    )
-                            # Prune dead queues (full = client not reading)
-                            run.queues = alive
+                                q.put_nowait(sse)
                 except asyncio.CancelledError:
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:
@@ -184,19 +192,13 @@ class TaskTracker:
                         async with tracker.lock:
                             run.buffer.append(err_sse)
                             for q in run.queues:
-                                try:
-                                    q.put_nowait(err_sse)
-                                except asyncio.QueueFull:
-                                    pass
+                                q.put_nowait(err_sse)
                 finally:
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
                             for q in run.queues:
-                                try:
-                                    q.put_nowait(_SENTINEL)
-                                except asyncio.QueueFull:
-                                    pass
+                                q.put_nowait(_SENTINEL)
                             # pylint: disable=protected-access
                             tracker._runs.pop(
                                 run_key,
@@ -206,16 +208,24 @@ class TaskTracker:
             run.task = asyncio.create_task(_producer())
             return my_queue, True
 
-    @staticmethod
     async def stream_from_queue(
+        self,
         queue: asyncio.Queue,
+        run_key: str,
     ) -> AsyncGenerator[str, None]:
-        """Yield SSE strings from *queue* until the sentinel ``None``."""
-        while True:
-            try:
-                event = await queue.get()
-                if event is _SENTINEL:
+        """Yield SSE strings from *queue* until the sentinel ``None``.
+
+        Always detaches *queue* from *run_key* when this stream ends or is
+        closed (including client disconnect), so reconnects do not leak queues.
+        """
+        try:
+            while True:
+                try:
+                    event = await queue.get()
+                    if event is _SENTINEL:
+                        break
+                    yield event
+                except asyncio.CancelledError:
                     break
-                yield event
-            except asyncio.CancelledError:
-                break
+        finally:
+            await self.detach_subscriber(run_key, queue)
