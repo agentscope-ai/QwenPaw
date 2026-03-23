@@ -4,13 +4,33 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...config import load_config
+from ...config.config import load_agent_config
+from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 from ...knowledge.graph_ops import GraphOpsManager
+
+
+def _resolve_memify_tool_context():
+    config = load_config()
+    running = getattr(getattr(config, "agents", None), "running", None)
+    workspace_dir = get_current_workspace_dir() or WORKING_DIR
+    workspace_path = Path(workspace_dir).expanduser().resolve()
+    try:
+        for agent_id, profile in (config.agents.profiles or {}).items():
+            profile_path = Path(profile.workspace_dir).expanduser().resolve()
+            if profile_path == workspace_path:
+                agent_config = load_agent_config(agent_id)
+                running = agent_config.running
+                break
+    except Exception:
+        pass
+    return config, running, workspace_dir
 
 
 async def memify_status(job_id: str) -> ToolResponse:
@@ -21,12 +41,11 @@ async def memify_status(job_id: str) -> ToolResponse:
             content=[TextBlock(type="text", text="Error: job_id cannot be empty.")],
         )
 
-    config = load_config()
+    config, running, workspace_dir = _resolve_memify_tool_context()
     if not getattr(config, "knowledge", None) or not config.knowledge.enabled:
         return ToolResponse(
             content=[TextBlock(type="text", text="Error: knowledge is disabled in configuration.")],
         )
-    running = getattr(getattr(config, "agents", None), "running", None)
     if not bool(getattr(running, "knowledge_enabled", True)):
         return ToolResponse(
             content=[TextBlock(type="text", text="Error: knowledge is disabled in agent runtime configuration.")],
@@ -37,7 +56,7 @@ async def memify_status(job_id: str) -> ToolResponse:
         )
 
     try:
-        manager = GraphOpsManager(WORKING_DIR)
+        manager = GraphOpsManager(workspace_dir)
         result = manager.get_memify_status(normalized_job_id)
         if result is None:
             return ToolResponse(

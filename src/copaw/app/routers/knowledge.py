@@ -13,29 +13,21 @@ from pathlib import Path
 from typing import Optional
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from ...config import load_config, save_config
-from ...config.config import KnowledgeConfig, KnowledgeSourceSpec
+from ...config.config import KnowledgeConfig, KnowledgeSourceSpec, load_agent_config, save_agent_config
 from ...constant import WORKING_DIR
 from ...knowledge import GraphOpsManager, KnowledgeManager
 from ...knowledge.module_skills import sync_knowledge_module_skills
+from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 
-def _knowledge_runtime_enabled(config) -> bool:
-    running = getattr(getattr(config, "agents", None), "running", None)
-    return bool(getattr(running, "knowledge_enabled", True))
-
-
-def _knowledge_effective_enabled(config) -> bool:
-    return _knowledge_runtime_enabled(config)
-
-
-def _ensure_knowledge_enabled(config) -> None:
-    if not _knowledge_effective_enabled(config):
+def _ensure_knowledge_enabled_flag(enabled: bool) -> None:
+    if not bool(enabled):
         raise HTTPException(status_code=400, detail="KNOWLEDGE_DISABLED")
 
 
@@ -94,6 +86,105 @@ def _manager() -> KnowledgeManager:
     return KnowledgeManager(WORKING_DIR)
 
 
+def _manager_for_workspace(workspace_dir: Path | str) -> KnowledgeManager:
+    return KnowledgeManager(workspace_dir)
+
+
+def _effective_knowledge_config(
+    knowledge_config: KnowledgeConfig,
+    running_config,
+) -> KnowledgeConfig:
+    """Build request-scoped effective knowledge config.
+
+    Runtime flags that are now agent-specific are projected from running config,
+    while structural knowledge settings remain in root config.knowledge.
+    """
+    effective = knowledge_config.model_copy(deep=True)
+    effective.enabled = bool(getattr(running_config, "knowledge_enabled", effective.enabled))
+    effective.automation.knowledge_auto_collect_chat_files = bool(
+        getattr(
+            running_config,
+            "knowledge_auto_collect_chat_files",
+            effective.automation.knowledge_auto_collect_chat_files,
+        ),
+    )
+    effective.automation.knowledge_auto_collect_chat_urls = bool(
+        getattr(
+            running_config,
+            "knowledge_auto_collect_chat_urls",
+            effective.automation.knowledge_auto_collect_chat_urls,
+        ),
+    )
+    effective.automation.knowledge_auto_collect_long_text = bool(
+        getattr(
+            running_config,
+            "knowledge_auto_collect_long_text",
+            effective.automation.knowledge_auto_collect_long_text,
+        ),
+    )
+    effective.automation.knowledge_long_text_min_chars = int(
+        getattr(
+            running_config,
+            "knowledge_long_text_min_chars",
+            effective.automation.knowledge_long_text_min_chars,
+        ),
+    )
+    effective.index.chunk_size = int(
+        getattr(
+            running_config,
+            "knowledge_chunk_size",
+            effective.index.chunk_size,
+        ),
+    )
+    return effective
+
+
+async def _resolve_knowledge_request_context(request: Request | None):
+    """Resolve root config + optional agent-scoped runtime/workspace context."""
+    config = load_config()
+    running_config = config.agents.running
+    workspace_dir = WORKING_DIR
+    agent_id: str | None = None
+
+    if request is not None:
+        try:
+            workspace = await get_agent_for_request(request)
+            running_config = workspace.config.running
+            workspace_dir = workspace.workspace_dir
+            agent_id = workspace.agent_id
+        except HTTPException:
+            # Backward compatibility for tests/legacy call sites without
+            # initialized MultiAgentManager.
+            pass
+
+    knowledge_config = _effective_knowledge_config(config.knowledge, running_config)
+    return config, knowledge_config, running_config, workspace_dir, agent_id
+
+
+async def _resolve_knowledge_ws_context(websocket: WebSocket):
+    """Resolve workspace for websocket calls using header/active agent fallback."""
+    config = load_config()
+    running_config = config.agents.running
+    workspace_dir = WORKING_DIR
+    agent_id = (
+        websocket.headers.get("X-Agent-Id")
+        or config.agents.active_agent
+        or "default"
+    )
+    manager = getattr(websocket.app.state, "multi_agent_manager", None)
+    if manager is not None:
+        try:
+            workspace = await manager.get_agent(agent_id)
+            if workspace is not None:
+                running_config = workspace.config.running
+                workspace_dir = workspace.workspace_dir
+        except Exception:
+            pass
+
+    knowledge_config = _effective_knowledge_config(config.knowledge, running_config)
+    return config, knowledge_config, running_config, workspace_dir
+
+
 def _find_source(config: KnowledgeConfig, source_id: str) -> Optional[KnowledgeSourceSpec]:
     for source in config.sources:
         if source.id == source_id:
@@ -102,41 +193,86 @@ def _find_source(config: KnowledgeConfig, source_id: str) -> Optional[KnowledgeS
 
 
 @router.get("/config", response_model=KnowledgeConfig)
-async def get_knowledge_config() -> KnowledgeConfig:
-    return load_config().knowledge
+async def get_knowledge_config(request: Request) -> KnowledgeConfig:
+    _, effective_knowledge, _, _, _ = await _resolve_knowledge_request_context(request)
+    return effective_knowledge
 
 
 @router.put("/config", response_model=KnowledgeConfig)
 async def put_knowledge_config(
+    request: Request,
     knowledge_config: KnowledgeConfig = Body(...),
 ) -> KnowledgeConfig:
-    config = load_config()
-    previous_enabled = bool(getattr(config.agents.running, "knowledge_enabled", True))
+    config, _, running_config, _, agent_id = await _resolve_knowledge_request_context(request)
+    previous_enabled = bool(getattr(running_config, "knowledge_enabled", True))
+
+    # Persist structural knowledge config in root config.
     config.knowledge = knowledge_config
-    config.agents.running.knowledge_enabled = knowledge_config.enabled
+
+    # Runtime knowledge toggles belong to the current agent in multi-agent mode.
+    running_config.knowledge_enabled = knowledge_config.enabled
+    running_config.knowledge_auto_collect_chat_files = (
+        knowledge_config.automation.knowledge_auto_collect_chat_files
+    )
+    running_config.knowledge_auto_collect_chat_urls = (
+        knowledge_config.automation.knowledge_auto_collect_chat_urls
+    )
+    running_config.knowledge_auto_collect_long_text = (
+        knowledge_config.automation.knowledge_auto_collect_long_text
+    )
+    running_config.knowledge_long_text_min_chars = (
+        knowledge_config.automation.knowledge_long_text_min_chars
+    )
+    running_config.knowledge_chunk_size = knowledge_config.index.chunk_size
+
+    # Keep deprecated root automation fields in sync for backward compatibility.
+    config.knowledge.enabled = running_config.knowledge_enabled
+    config.knowledge.automation.knowledge_auto_collect_chat_files = (
+        running_config.knowledge_auto_collect_chat_files
+    )
+    config.knowledge.automation.knowledge_auto_collect_chat_urls = (
+        running_config.knowledge_auto_collect_chat_urls
+    )
+    config.knowledge.automation.knowledge_auto_collect_long_text = (
+        running_config.knowledge_auto_collect_long_text
+    )
+    config.knowledge.automation.knowledge_long_text_min_chars = (
+        running_config.knowledge_long_text_min_chars
+    )
+    config.knowledge.index.chunk_size = running_config.knowledge_chunk_size
+
+    if agent_id:
+        agent_config = load_agent_config(agent_id)
+        agent_config.running = running_config
+        save_agent_config(agent_id, agent_config)
+    else:
+        config.agents.running = running_config
+
     if previous_enabled != knowledge_config.enabled:
         sync_knowledge_module_skills(knowledge_config.enabled)
     save_config(config)
-    return config.knowledge
+    return _effective_knowledge_config(config.knowledge, running_config)
 
 
 @router.get("/sources")
-async def list_sources():
-    config = load_config()
+async def list_sources(request: Request):
+    _, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    manager = _manager_for_workspace(workspace_dir)
     return {
-        "enabled": _knowledge_effective_enabled(config),
-        "sources": _manager().list_sources(config.knowledge),
+        "enabled": bool(knowledge_config.enabled),
+        "sources": manager.list_sources(knowledge_config),
     }
 
 
 @router.put("/sources", response_model=KnowledgeSourceSpec)
 async def upsert_source(
+    request: Request,
     source: KnowledgeSourceSpec = Body(...),
 ) -> KnowledgeSourceSpec:
-    config = load_config()
-    _ensure_knowledge_enabled(config)
-    manager = _manager()
-    source = manager.normalize_source_name(source, config.knowledge)
+    config, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
+    manager = _manager_for_workspace(workspace_dir)
+    source = manager.normalize_source_name(source, knowledge_config)
     existing = _find_source(config.knowledge, source.id)
     if existing is None:
         config.knowledge.sources.append(source)
@@ -149,13 +285,15 @@ async def upsert_source(
 
 @router.post("/upload/file")
 async def upload_knowledge_file(
+    request: Request,
     source_id: str = Form(...),
     file: UploadFile = File(...),
 ):
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    saved_path = _manager().save_uploaded_file(
+    _, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    saved_path = _manager_for_workspace(workspace_dir).save_uploaded_file(
         source_id=source_id,
         filename=file.filename or "knowledge-upload",
         data=data,
@@ -168,6 +306,7 @@ async def upload_knowledge_file(
 
 @router.post("/upload/directory")
 async def upload_knowledge_directory(
+    request: Request,
     source_id: str = Form(...),
     relative_paths: list[str] = Form(...),
     files: list[UploadFile] = File(...),
@@ -180,7 +319,8 @@ async def upload_knowledge_directory(
     saved_pairs = []
     for relative_path, upload in zip(relative_paths, files):
         saved_pairs.append((relative_path, await upload.read()))
-    saved_root = _manager().save_uploaded_directory(source_id, saved_pairs)
+    _, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    saved_root = _manager_for_workspace(workspace_dir).save_uploaded_directory(source_id, saved_pairs)
     return {
         "location": str(saved_root),
         "file_count": len(saved_pairs),
@@ -188,9 +328,9 @@ async def upload_knowledge_directory(
 
 
 @router.delete("/sources/{source_id}")
-async def delete_source(source_id: str):
-    config = load_config()
-    _ensure_knowledge_enabled(config)
+async def delete_source(source_id: str, request: Request):
+    config, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
     source = _find_source(config.knowledge, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
@@ -198,12 +338,13 @@ async def delete_source(source_id: str):
         item for item in config.knowledge.sources if item.id != source_id
     ]
     save_config(config)
-    _manager().delete_index(source_id)
+    _manager_for_workspace(workspace_dir).delete_index(source_id)
     return {"deleted": True, "source_id": source_id}
 
 
 @router.delete("/clear")
 async def clear_knowledge(
+    request: Request,
     confirm: bool = Query(default=False),
     remove_sources: bool = Query(default=True),
 ):
@@ -211,9 +352,9 @@ async def clear_knowledge(
     if not confirm:
         raise HTTPException(status_code=400, detail="KNOWLEDGE_CLEAR_CONFIRM_REQUIRED")
 
-    config = load_config()
-    _ensure_knowledge_enabled(config)
-    result = _manager().clear_knowledge(
+    config, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
+    result = _manager_for_workspace(workspace_dir).clear_knowledge(
         config.knowledge,
         remove_sources=remove_sources,
     )
@@ -222,17 +363,17 @@ async def clear_knowledge(
 
 
 @router.post("/sources/{source_id}/index")
-async def index_source(source_id: str):
-    config = load_config()
-    _ensure_knowledge_enabled(config)
+async def index_source(source_id: str, request: Request):
+    config, knowledge_config, running_config, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
     source = _find_source(config.knowledge, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
     try:
-        result = _manager().index_source(
+        result = _manager_for_workspace(workspace_dir).index_source(
             source,
             config.knowledge,
-            config.agents.running,
+            running_config,
         )
     except (FileNotFoundError, ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -242,20 +383,20 @@ async def index_source(source_id: str):
 
 
 @router.get("/sources/{source_id}/content")
-async def get_source_content(source_id: str):
-    config = load_config()
+async def get_source_content(source_id: str, request: Request):
+    config, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
     source = _find_source(config.knowledge, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
-    return _manager().get_source_documents(source_id)
+    return _manager_for_workspace(workspace_dir).get_source_documents(source_id)
 
 
 @router.post("/index")
-async def index_all_sources():
-    config = load_config()
-    _ensure_knowledge_enabled(config)
+async def index_all_sources(request: Request):
+    config, knowledge_config, running_config, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
     try:
-        return _manager().index_all(config.knowledge, config.agents.running)
+        return _manager_for_workspace(workspace_dir).index_all(config.knowledge, running_config)
     except (FileNotFoundError, ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -264,16 +405,17 @@ async def index_all_sources():
 
 @router.get("/search")
 async def search_knowledge(
+    request: Request,
     q: str = Query(..., min_length=1),
     limit: int = Query(default=10, ge=1, le=50),
     source_ids: Optional[str] = Query(default=None),
     source_types: Optional[str] = Query(default=None),
 ):
-    config = load_config()
-    _ensure_knowledge_enabled(config)
+    config, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
     ids = [item for item in (source_ids or "").split(",") if item]
     types = [item for item in (source_types or "").split(",") if item]
-    return _manager().search(
+    return _manager_for_workspace(workspace_dir).search(
         query=q,
         config=config.knowledge,
         limit=limit,
@@ -283,18 +425,18 @@ async def search_knowledge(
 
 
 @router.get("/history-backfill/status")
-async def get_history_backfill_status():
+async def get_history_backfill_status(request: Request):
     """Get history backfill status for knowledge enable flow and CTA display."""
-    return _manager().history_backfill_status()
+    _, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    return _manager_for_workspace(workspace_dir).history_backfill_status()
 
 
 @router.post("/history-backfill/run")
-async def run_history_backfill_now():
+async def run_history_backfill_now(request: Request):
     """Run history backfill immediately regardless of runtime auto-backfill toggle."""
-    config = load_config()
-    _ensure_knowledge_enabled(config)
-    manager = _manager()
-    running = config.agents.running
+    config, knowledge_config, running, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
+    manager = _manager_for_workspace(workspace_dir)
     force_running = SimpleNamespace(
         knowledge_auto_collect_chat_files=running.knowledge_auto_collect_chat_files,
         knowledge_auto_collect_chat_urls=running.knowledge_auto_collect_chat_urls,
@@ -304,7 +446,7 @@ async def run_history_backfill_now():
     )
     result = await asyncio.to_thread(
         manager.auto_backfill_history_data,
-        config.knowledge,
+        knowledge_config,
         force_running,
     )
     if result.get("changed"):
@@ -316,20 +458,20 @@ async def run_history_backfill_now():
 
 
 @router.get("/memify/jobs/{job_id}")
-async def get_memify_job_status(job_id: str):
+async def get_memify_job_status(job_id: str, request: Request):
     """Get status of a memify enrichment job."""
     normalized_job_id = (job_id or "").strip()
     if not normalized_job_id:
         raise HTTPException(status_code=400, detail="MEMIFY_JOB_ID_REQUIRED")
 
-    config = load_config()
-    _ensure_knowledge_enabled(config)
-    if not config.knowledge.enabled:
+    config, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
+    if not knowledge_config.enabled:
         raise HTTPException(status_code=400, detail="KNOWLEDGE_DISABLED")
-    if not bool(getattr(config.knowledge, "memify_enabled", False)):
+    if not bool(getattr(knowledge_config, "memify_enabled", False)):
         raise HTTPException(status_code=400, detail="MEMIFY_DISABLED")
 
-    manager = GraphOpsManager(WORKING_DIR)
+    manager = GraphOpsManager(workspace_dir)
     payload = manager.get_memify_status(normalized_job_id)
     if payload is None:
         raise HTTPException(status_code=404, detail="MEMIFY_JOB_NOT_FOUND")
@@ -347,10 +489,13 @@ async def stream_history_backfill_progress(websocket: WebSocket):
         maximum=3000,
     )
 
+    _, _, _, workspace_dir = await _resolve_knowledge_ws_context(websocket)
+    manager = _manager_for_workspace(workspace_dir)
+
     last_fingerprint: str | None = None
     try:
         while True:
-            progress = _manager().get_history_backfill_progress()
+            progress = manager.get_history_backfill_progress()
             fingerprint = json.dumps(
                 progress,
                 ensure_ascii=False,
@@ -371,8 +516,9 @@ async def stream_history_backfill_progress(websocket: WebSocket):
 
 
 @router.get("/backup")
-async def backup_knowledge():
-    manager = _manager()
+async def backup_knowledge(request: Request):
+    _, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    manager = _manager_for_workspace(workspace_dir)
     if not manager.root_dir.exists():
         raise HTTPException(status_code=404, detail="KNOWLEDGE_NOT_FOUND")
 
@@ -389,8 +535,9 @@ async def backup_knowledge():
 
 
 @router.get("/backup/{source_id}")
-async def backup_knowledge_source(source_id: str):
-    manager = _manager()
+async def backup_knowledge_source(source_id: str, request: Request):
+    _, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    manager = _manager_for_workspace(workspace_dir)
     source_dir = manager.get_source_storage_dir(source_id)
     if not source_dir.exists() or not source_dir.is_dir():
         raise HTTPException(status_code=404, detail="KNOWLEDGE_SOURCE_NOT_FOUND")
@@ -410,6 +557,7 @@ async def backup_knowledge_source(source_id: str):
 
 @router.post("/restore")
 async def restore_knowledge_backup(
+    request: Request,
     file: UploadFile = File(...),
     replace_existing: bool = Query(default=True),
 ):
@@ -426,7 +574,8 @@ async def restore_knowledge_backup(
     data = await file.read()
     _validate_zip_data(data)
 
-    manager = _manager()
+    config, _, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
+    manager = _manager_for_workspace(workspace_dir)
     tmp_dir: Path | None = None
     try:
         tmp_dir = await asyncio.to_thread(_extract_zip_to_temp, data)
@@ -455,7 +604,6 @@ async def restore_knowledge_backup(
         manager.remote_blob_dir.mkdir(parents=True, exist_ok=True)
         manager.remote_meta_dir.mkdir(parents=True, exist_ok=True)
 
-        config = load_config()
         config.knowledge.sources = manager.list_sources_from_storage()
         save_config(config)
 

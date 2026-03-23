@@ -667,7 +667,7 @@
     "description": "配置智能体运行参数",
     "reactAgentTitle": "ReAct 智能体",
     "contextManagementTitle": "上下文管理",
-    "knowledgeMaintenanceTitle": "知识库自动维护",
+    "knowledgeMaintenanceTitle": "知识库",
     "knowledgeEnabled": "启用知识库",
     "knowledgeEnabledTooltip": "开启或关闭知识检索与维护能力",
     "autoCollectChatFiles": "自动收集对话文件",

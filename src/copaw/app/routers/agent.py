@@ -520,11 +520,8 @@ async def get_agents_running_config(
     request: Request,
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
-    config = load_config()
-    if _migrate_knowledge_automation_to_running(config):
-        _sync_running_to_knowledge_automation(config)
-        save_config(config)
-    return config.agents.running
+    workspace = await get_agent_for_request(request)
+    return workspace.config.running
 
 
 @router.put(
@@ -541,13 +538,14 @@ async def put_agents_running_config(
     request: Request = None,
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
-    config = load_config()
-    previous_enabled = bool(getattr(config.agents.running, "knowledge_enabled", True))
-    config.agents.running = running_config
-    _sync_running_to_knowledge_automation(config)
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    previous_enabled = bool(getattr(agent_config.running, "knowledge_enabled", True))
+    agent_config.running = running_config
+
     if previous_enabled != running_config.knowledge_enabled:
         sync_knowledge_module_skills(running_config.knowledge_enabled)
-    save_config(config)
+    save_agent_config(workspace.agent_id, agent_config)
     return running_config
 
 

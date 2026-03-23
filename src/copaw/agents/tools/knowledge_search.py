@@ -1,12 +1,35 @@
 # -*- coding: utf-8 -*-
 """Tool to search indexed knowledge chunks."""
 
+from pathlib import Path
+
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...config import load_config
+from ...config.config import load_agent_config
+from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 from ...knowledge import KnowledgeManager
+
+
+def _resolve_knowledge_tool_context():
+    """Resolve runtime flags and storage root for the current agent context."""
+    config = load_config()
+    running = getattr(getattr(config, "agents", None), "running", None)
+    workspace_dir = get_current_workspace_dir() or WORKING_DIR
+
+    workspace_path = Path(workspace_dir).expanduser().resolve()
+    try:
+        for agent_id, profile in (config.agents.profiles or {}).items():
+            profile_path = Path(profile.workspace_dir).expanduser().resolve()
+            if profile_path == workspace_path:
+                agent_config = load_agent_config(agent_id)
+                running = agent_config.running
+                break
+    except Exception:
+        pass
+    return config, running, workspace_dir
 
 
 async def knowledge_search(
@@ -41,7 +64,7 @@ async def knowledge_search(
         )
 
     try:
-        config = load_config()
+        config, running, workspace_dir = _resolve_knowledge_tool_context()
         if not getattr(config, "knowledge", None) or not config.knowledge.enabled:
             return ToolResponse(
                 content=[
@@ -51,7 +74,7 @@ async def knowledge_search(
                     ),
                 ],
             )
-        if not bool(getattr(config.agents.running, "knowledge_enabled", True)):
+        if not bool(getattr(running, "knowledge_enabled", True)):
             return ToolResponse(
                 content=[
                     TextBlock(
@@ -61,12 +84,8 @@ async def knowledge_search(
                 ],
             )
         if not bool(
-            getattr(
-                getattr(config, "agents", None),
-                "running",
-                None,
-            )
-            and getattr(config.agents.running, "knowledge_retrieval_enabled", True)
+            running
+            and getattr(running, "knowledge_retrieval_enabled", True)
         ):
             return ToolResponse(
                 content=[
@@ -79,7 +98,7 @@ async def knowledge_search(
 
         limit = max(1, min(int(max_results), 20))
         threshold = float(min_score)
-        manager = KnowledgeManager(WORKING_DIR)
+        manager = KnowledgeManager(workspace_dir)
         result = manager.search(
             query=query_text,
             config=config.knowledge,
