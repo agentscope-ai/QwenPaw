@@ -4,6 +4,12 @@ import type {
   AgentProfileConfig,
   CreateAgentRequest,
   AgentProfileRef,
+  AgentsSquareSourcesPayload,
+  AgentsSquareSourceSpec,
+  ValidateSquareSourceResponse,
+  AgentSquareItemsResponse,
+  ImportAgentSquareRequest,
+  ImportAgentSquareResponse,
 } from "../types/agents";
 import type { MdFileInfo, MdFileContent } from "../types/workspace";
 
@@ -57,4 +63,31 @@ export const agentsApi = {
   // Agent memory files
   listAgentMemory: (agentId: string) =>
     request<MdFileInfo[]>(`/agents/${agentId}/memory`),
+
+  // Agents Square
+  getSquareSources: () =>
+    request<AgentsSquareSourcesPayload>("/agents/square/sources"),
+
+  updateSquareSources: (payload: AgentsSquareSourcesPayload) =>
+    request<AgentsSquareSourcesPayload>("/agents/square/sources", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  validateSquareSource: (payload: AgentsSquareSourceSpec) =>
+    request<ValidateSquareSourceResponse>("/agents/square/sources/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSquareItems: (refresh = false) =>
+    request<AgentSquareItemsResponse>(
+      `/agents/square/items?refresh=${refresh ? "true" : "false"}`,
+    ),
+
+  importSquareAgent: (payload: ImportAgentSquareRequest) =>
+    request<ImportAgentSquareResponse>("/agents/square/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
