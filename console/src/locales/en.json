@@ -35,6 +35,8 @@
     "heartbeat": "Heartbeat",
     "agent": "Agent",
     "workspace": "Workspace",
+    "projects": "Projects",
+    "pipelines": "Pipelines",
     "skills": "Skills",
     "tools": "Tools",
     "mcp": "MCP",
@@ -46,6 +48,26 @@
     "security": "Security",
     "tokenUsage": "Token Usage",
     "voiceTranscription": "Voice Transcription"
+  },
+  "pipelines": {
+    "title": "Pipelines",
+    "description": "Manage reusable pipeline definitions across projects, then validate and tune in Projects.",
+    "designSessionName": "Pipeline Design",
+    "openChat": "Open Chat to Design",
+    "openProjects": "Open Projects to Run",
+    "totalTemplates": "Template Variants",
+    "totalRuns": "Total Runs",
+    "runningRuns": "Running",
+    "loadFailed": "Failed to load pipeline management data.",
+    "noAgent": "No active agent selected.",
+    "noProjects": "No projects found for the current agent.",
+    "library": "Pipeline Library",
+    "recentRuns": "Recent Runs",
+    "emptyTemplates": "No pipeline templates found yet.",
+    "emptyRuns": "No pipeline runs yet.",
+    "usedIn": "Used in {{count}} projects",
+    "projectLabel": "Project: {{name}}",
+    "goToProjects": "Go to Projects"
   },
   "voiceTranscription": {
     "title": "Voice Transcription",
@@ -761,6 +783,9 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
+    "pipelineOpportunityTitle": "Complex flow detected",
+    "pipelineOpportunityDesc": "This request looks like a reusable multi-step process. You can extract it into a Pipeline for repeated runs.",
+    "pipelineOpportunityAction": "Create Pipeline",
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
       "fileSizeLimit": "Single file cannot exceed 10MB"

@@ -35,6 +35,8 @@
     "heartbeat": "心跳",
     "agent": "智能体",
     "workspace": "工作区",
+    "projects": "项目",
+    "pipelines": "流程",
     "skills": "技能",
     "tools": "工具",
     "mcp": "MCP",
@@ -46,6 +48,26 @@
     "security": "安全",
     "tokenUsage": "Token 消耗",
     "voiceTranscription": "语音转写"
+  },
+  "pipelines": {
+    "title": "流程",
+    "description": "跨项目管理可复用的 Pipeline 定义，并在 Projects 中验证与调优。",
+    "designSessionName": "Pipeline 设计",
+    "openChat": "去对话设计",
+    "openProjects": "去 Projects 执行",
+    "totalTemplates": "模板变体",
+    "totalRuns": "运行总数",
+    "runningRuns": "运行中",
+    "loadFailed": "加载流程管理数据失败。",
+    "noAgent": "当前没有可用的智能体。",
+    "noProjects": "当前智能体还没有项目。",
+    "library": "流程库",
+    "recentRuns": "最近运行",
+    "emptyTemplates": "暂未发现流程模板。",
+    "emptyRuns": "暂未发现流程运行记录。",
+    "usedIn": "已在 {{count}} 个项目中使用",
+    "projectLabel": "项目：{{name}}",
+    "goToProjects": "前往 Projects"
   },
   "workspace": {
     "title": "工作区",
@@ -722,6 +744,9 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
+    "pipelineOpportunityTitle": "检测到复杂流程",
+    "pipelineOpportunityDesc": "这个请求看起来是可复用的多步骤流程，可以提炼为 Pipeline 以便后续重复运行。",
+    "pipelineOpportunityAction": "创建 Pipeline",
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
       "fileSizeLimit": "单文件不超过10MB"
