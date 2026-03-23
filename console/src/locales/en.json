@@ -873,5 +873,24 @@
     "logoutSuccess": "Logged out successfully",
     "sessionExpired": "Session expired, please login again",
     "unauthorized": "Unauthorized, please login"
+  },
+  "account": {
+    "title": "Account",
+    "currentPassword": "Current Password",
+    "currentPasswordRequired": "Please enter your current password",
+    "newUsername": "New Username",
+    "newUsernamePlaceholder": "Leave blank to keep current",
+    "newPassword": "New Password",
+    "newPasswordPlaceholder": "Leave blank to keep current",
+    "confirmPassword": "Confirm New Password",
+    "confirmPasswordPlaceholder": "Re-enter new password",
+    "passwordMismatch": "Passwords do not match",
+    "save": "Save Changes",
+    "updateSuccess": "Account updated successfully",
+    "updateFailed": "Failed to update account",
+    "wrongPassword": "Current password is incorrect",
+    "nothingToUpdate": "Please enter a new username or password",
+    "passwordEmpty": "Password cannot be blank",
+    "usernameEmpty": "Username cannot be blank"
   }
 }

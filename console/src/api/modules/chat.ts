@@ -1,5 +1,6 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
@@ -15,23 +16,6 @@ export interface ChatUploadResponse {
 }
 
 const CONSOLE_FILES_PREFIX = "/console/files";
-
-function buildChatUploadHeaders(): HeadersInit {
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem("copaw_auth_token");
-  if (token) headers.Authorization = `Bearer ${token}`;
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) headers["X-Agent-Id"] = selectedAgent;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
-}
 
 function getSelectedAgentId(): string {
   try {
@@ -54,7 +38,7 @@ export const chatApi = {
     formData.append("file", file);
     const response = await fetch(getApiUrl("/console/upload"), {
       method: "POST",
-      headers: buildChatUploadHeaders(),
+      headers: buildAuthHeaders(),
       body: formData,
     });
     if (!response.ok) {
@@ -117,12 +101,10 @@ export const chatApi = {
       },
     ),
 
-  /** Stop a running console chat (only stop when user clicks stop). chat_id = ChatSpec.id */
-  stopConsoleChat: (chatId: string) =>
-    request<{ stopped: boolean }>(
-      `/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`,
-      { method: "POST" },
-    ),
+  stopChat: (chatId: string) =>
+    request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
+      method: "POST",
+    }),
 };
 
 export const sessionApi = {

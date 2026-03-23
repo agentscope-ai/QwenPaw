@@ -840,6 +840,25 @@
     "sessionExpired": "会话已过期，请重新登录",
     "unauthorized": "未授权，请登录"
   },
+  "account": {
+    "title": "账户管理",
+    "currentPassword": "当前密码",
+    "currentPasswordRequired": "请输入当前密码",
+    "newUsername": "新用户名",
+    "newUsernamePlaceholder": "留空则保持不变",
+    "newPassword": "新密码",
+    "newPasswordPlaceholder": "留空则保持不变",
+    "confirmPassword": "确认新密码",
+    "confirmPasswordPlaceholder": "再次输入新密码",
+    "passwordMismatch": "两次输入的密码不一致",
+    "save": "保存更改",
+    "updateSuccess": "账户更新成功",
+    "updateFailed": "账户更新失败",
+    "wrongPassword": "当前密码不正确",
+    "nothingToUpdate": "请输入新用户名或新密码",
+    "passwordEmpty": "密码不能为空白",
+    "usernameEmpty": "用户名不能为空白"
+  },
   "voiceTranscription": {
     "title": "语音转写",
     "description": "配置如何处理收到的音频和语音消息。",

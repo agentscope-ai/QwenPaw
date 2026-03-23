@@ -826,6 +826,25 @@
     "sessionExpired": "セッションが期限切れです。再度ログインしてください",
     "unauthorized": "未認証です。ログインしてください"
   },
+  "account": {
+    "title": "アカウント管理",
+    "currentPassword": "現在のパスワード",
+    "currentPasswordRequired": "現在のパスワードを入力してください",
+    "newUsername": "新しいユーザー名",
+    "newUsernamePlaceholder": "変更しない場合は空欄",
+    "newPassword": "新しいパスワード",
+    "newPasswordPlaceholder": "変更しない場合は空欄",
+    "confirmPassword": "新しいパスワードの確認",
+    "confirmPasswordPlaceholder": "新しいパスワードを再入力",
+    "passwordMismatch": "パスワードが一致しません",
+    "save": "変更を保存",
+    "updateSuccess": "アカウントが更新されました",
+    "updateFailed": "アカウントの更新に失敗しました",
+    "wrongPassword": "現在のパスワードが正しくありません",
+    "nothingToUpdate": "新しいユーザー名またはパスワードを入力してください",
+    "passwordEmpty": "パスワードを空白にすることはできません",
+    "usernameEmpty": "ユーザー名を空白にすることはできません"
+  },
   "voiceTranscription": {
     "title": "音声文字起こし",
     "description": "受信した音声メッセージの処理方法を設定します。",
