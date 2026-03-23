@@ -8,14 +8,17 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+import json
 import logging
 import os
 import platform
+import uuid
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
+
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
@@ -210,14 +213,17 @@ class MemoryManager(ReMeLight):
             **_kwargs: Additional keyword arguments (ignored)
 
         Returns:
-            str: Condensed summary of the messages
+            str: Condensed summary of the messages, empty string if invalid
         """
+
         self.prepare_model_formatter()
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
 
-        return await super().compact_memory(
+        workspace_dir = agent_config.workspace_dir
+
+        result = await super().compact_memory(
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
@@ -226,7 +232,45 @@ class MemoryManager(ReMeLight):
             max_input_length=agent_config.running.max_input_length,
             compact_ratio=agent_config.running.memory_compact_ratio,
             previous_summary=previous_summary,
+            return_dict=True,
         )
+
+        # Handle unexpected str return (should be dict)
+        if isinstance(result, str):
+            logger.error(
+                f"compact_memory returned str instead of dict, "
+                f"result: {result[:200]}... "
+                "Please install the latest reme package.",
+            )
+            return result
+
+        # result is dict
+        is_valid: bool = result.get("is_valid", True)
+        if not is_valid:
+            # Save invalid result to file
+            unique_id = uuid.uuid4().hex[:8]
+            filename = f"compact_invalid_{unique_id}.json"
+            filepath = os.path.join(workspace_dir, filename)
+
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+                logger.error(
+                    f"Invalid compact result saved to {filepath}. "
+                    f"user_msg: {result.get('user_message', '')[:200]}..., "
+                    "history_compact: "
+                    f"{result.get('history_compact', '')[:200]}...",
+                )
+                logger.error(
+                    "Please upload the log to the community: "
+                    "https://github.com/agentscope-ai/CoPaw/issues",
+                )
+            except Exception as _e:
+                logger.error(f"Failed to save invalid compact result: {_e}")
+
+            return ""
+
+        return result.get("history_compact", "")
 
     async def summary_memory(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a comprehensive summary of the given messages.
