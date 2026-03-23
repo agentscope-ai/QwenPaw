@@ -44,7 +44,6 @@ class ChatSpec(BaseModel):
     status: str = Field(
         default="idle",
         description="Conversation status: idle or running",
-        exclude=True,
     )
 
 

@@ -1,4 +1,5 @@
-import { getApiUrl, getApiToken, clearAuthToken } from "./config";
+import { getApiUrl, clearAuthToken } from "./config";
+import { buildAuthHeaders } from "./authHeaders";
 
 function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   // Normalize extra to a Headers instance for consistent handling
@@ -12,25 +13,8 @@ function buildHeaders(method?: string, extra?: HeadersInit): Headers {
     }
   }
 
-  // Add authorization token if available
-  const token = getApiToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  // Add selected agent ID to all requests (for multi-agent support)
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) {
-        headers.set("X-Agent-Id", selectedAgent);
-      }
-    }
-  } catch (error) {
-    // Ignore localStorage errors
-    console.warn("Failed to get selected agent from storage:", error);
+  for (const [key, value] of Object.entries(buildAuthHeaders())) {
+    headers.set(key, value);
   }
 
   return headers;

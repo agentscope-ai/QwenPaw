@@ -304,7 +304,11 @@ class FeishuChannel(BaseChannel):
         chat_id = (meta.get("feishu_chat_id") or "").strip()
         chat_type = (meta.get("feishu_chat_type") or "p2p").strip()
         if chat_type == "group" and chat_id:
-            return short_session_id_from_full_id(chat_id)
+            # Include app_id suffix to distinguish multiple bots in same group
+            app_suffix = (
+                self.app_id[-4:] if len(self.app_id) >= 4 else self.app_id
+            )
+            return f"{app_suffix}_{short_session_id_from_full_id(chat_id)}"
         if sender_id:
             return short_session_id_from_full_id(sender_id)
         if chat_id:
@@ -407,8 +411,10 @@ class FeishuChannel(BaseChannel):
         import urllib.request
 
         try:
-            # Get access token from SDK client
-            token = self._client.get_tenant_access_token()
+            # Get access token via SDK TokenManager
+            from lark_oapi.core.token import TokenManager
+
+            token = TokenManager.get_self_tenant_token(self._client._config)
             if not token:
                 logger.warning("feishu: failed to get access token")
                 return None
