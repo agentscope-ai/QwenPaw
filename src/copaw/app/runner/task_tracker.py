@@ -106,7 +106,7 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
                 return None
-            q: asyncio.Queue = ()
+            q: asyncio.Queue = asyncio.Queue()
             for sse in state.buffer:
                 q.put_nowait(sse)
             state.queues.append(q)
