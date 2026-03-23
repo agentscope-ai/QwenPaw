@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi import Path as PathParam
-from fastapi import Request
+from fastapi import Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -335,7 +335,7 @@ async def list_agent_files(
     try:
         source = (
             workspace_manager.list_all_working_files()
-            if all
+            if include_all
             else workspace_manager.list_working_mds()
         )
         files = [MdFileInfo.model_validate(file) for file in source]
