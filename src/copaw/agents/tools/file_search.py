@@ -155,7 +155,6 @@ async def grep_search(  # pylint: disable=too-many-branches
     if single_file:
         files = [search_root]
     else:
-
         exclude_dirs = {
             "__pycache__",
             ".git",
