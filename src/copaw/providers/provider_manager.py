@@ -21,6 +21,11 @@ from copaw.providers.provider import (
 )
 from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
+from copaw.providers.codex_provider import (
+    CODEX_BASE_URL,
+    CODEX_DEFAULT_MODELS,
+    CodexProvider,
+)
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
@@ -187,6 +192,17 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_CODEX = CodexProvider(
+    id="codex",
+    name="Codex (Local Auth)",
+    base_url=CODEX_BASE_URL,
+    require_api_key=False,
+    api_key_prefix="",
+    models=CODEX_DEFAULT_MODELS,
+    freeze_url=True,
+    support_connection_check=True,
+)
+
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
     id="azure-openai",
     name="Azure OpenAI",
@@ -323,6 +339,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
+        self._add_builtin(PROVIDER_CODEX)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
@@ -544,6 +561,8 @@ class ProviderManager:
 
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
+        if provider_id == "codex":
+            return CodexProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
             return GeminiProvider.model_validate(data)
         if provider_id == "ollama":
