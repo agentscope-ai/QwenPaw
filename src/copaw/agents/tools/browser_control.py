@@ -457,9 +457,10 @@ def _attach_context_listeners(state: dict, context) -> None:
     context.on("page", on_page)
 
 
+# pylint: disable=too-many-branches,too-many-statements
 async def _ensure_browser(
     state: dict,
-) -> bool:  # pylint: disable=too-many-branches
+) -> bool:
     """Start browser if not running. Return True if ready, False on failure."""
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
@@ -2624,7 +2625,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
             file_upload, fill_form, install, press_key, run_code, drag, hover,
             select_option, tabs, wait_for, pdf, close, cookies_get, cookies_set, cookies_clear.
         url (str):
-            URL to open. Required for action=open or navigate. For cookies_get, optional URL or JSON array of URLs to filter cookies by domain.
+            URL to open. Required for action=open or navigate. For
+            cookies_get, optional URL or JSON array of URLs to filter
+            cookies by domain.
         page_id (str):
             Page/tab identifier, default "default". Use different page_id for
             multiple tabs.
@@ -2666,7 +2669,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
             JSON array string of file paths. Used with action=file_upload.
         fields_json (str):
             JSON object string of form field name to value. Used with
-            action=fill_form. For cookies_set, JSON array of cookie objects with keys: name, value, url (or domain+path), expires, httpOnly, secure, sameSite.
+            action=fill_form. For cookies_set, JSON array of cookie objects
+            with keys: name, value, url (or domain+path), expires, httpOnly,
+            secure, sameSite.
         key (str):
             Key name, e.g. "Enter", "Control+a". Required for
             action=press_key.
