@@ -23,6 +23,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
+from ..utils import file_url_to_local_path
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -436,9 +437,7 @@ class DiscordChannel(BaseChannel):
         meta: Optional[dict] = None,
     ) -> None:
         """Send a media part as a Discord file attachment."""
-        if not self.enabled or not self._client:
-            return
-        if not self._client.is_ready():
+        if not self.enabled or not self._client or not self._client.is_ready():
             return
         import discord
 
@@ -460,7 +459,14 @@ class DiscordChannel(BaseChannel):
 
         temp_path = None
         if url.startswith("file://"):
-            file = discord.File(url[7:])
+            local_path = file_url_to_local_path(url)
+            if not local_path:
+                logger.warning(
+                    "discord send_media: invalid file URL %s",
+                    url,
+                )
+                return
+            file = discord.File(local_path)
         elif url.startswith(("http://", "https://")):
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:
