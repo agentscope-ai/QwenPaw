@@ -720,6 +720,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "vision",
             "multimodal",
             "image_url",
+            "claudecontentblocktoolresult",
+            "object has no attribute 'source'",
         ]
         return any(kw in error_str for kw in keywords)
 

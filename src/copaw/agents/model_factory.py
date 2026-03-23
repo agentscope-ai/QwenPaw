@@ -10,8 +10,9 @@ Example:
 """
 
 
+from copy import deepcopy
 import logging
-from typing import List, Sequence, Tuple, Type, Any, Union, Optional
+from typing import List, Sequence, Tuple, Type, Any, Union, Optional, Literal
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
@@ -76,6 +77,137 @@ def _get_formatter_for_chat_model(
         chat_model_class,
         OpenAIChatFormatter,
     )
+
+
+_TOOL_RESULT_MEDIA_PLACEHOLDER = (
+    "[Historical media omitted from tool result for Anthropic compatibility]"
+)
+
+
+def _is_tool_result_only_user_message(message: dict[str, Any]) -> bool:
+    """Return True when message is a user message containing only tool results.
+
+    Anthropic tool execution sends tool_result blocks as user turns. The
+    trailing suffix of such messages represents the current tool exchange and
+    must be preserved for the next model call.
+    """
+    content = message.get("content")
+    return bool(
+        message.get("role") == "user"
+        and isinstance(content, list)
+        and content
+        and all(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in content
+        )
+    )
+
+
+def _strip_media_from_tool_result_content(
+    content: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Strip media blocks from a single Anthropic tool_result content list."""
+    sanitized: list[dict[str, Any]] = []
+    removed = 0
+    for block in content:
+        if (
+            isinstance(block, dict)
+            and block.get("type") in {"image", "audio", "video"}
+        ):
+            removed += 1
+            continue
+        sanitized.append(block)
+
+    if removed > 0 and not sanitized:
+        sanitized.append(
+            {
+                "type": "text",
+                "text": _TOOL_RESULT_MEDIA_PLACEHOLDER,
+            },
+        )
+
+    return sanitized, removed
+
+
+def _sanitize_anthropic_history_tool_result_media(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Strip media from historical Anthropic tool results before replay.
+
+    Keep the trailing tool_result-only suffix untouched so the current tool
+    exchange still reaches Claude with the full multimodal payload. Any older
+    tool_result messages have already served their purpose and are replayed only
+    as conversation history, where preserving raw media blocks risks provider
+    incompatibilities.
+    """
+    if not messages:
+        return messages
+
+    trailing_tool_result_start = len(messages)
+    while trailing_tool_result_start > 0 and _is_tool_result_only_user_message(
+        messages[trailing_tool_result_start - 1],
+    ):
+        trailing_tool_result_start -= 1
+
+    sanitized_messages: list[dict[str, Any]] | None = None
+
+    for message_index in range(trailing_tool_result_start):
+        message = messages[message_index]
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+
+        for block_index, block in enumerate(content):
+            if not (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and isinstance(block.get("content"), list)
+            ):
+                continue
+
+            sanitized_content, removed = _strip_media_from_tool_result_content(
+                block["content"],
+            )
+            if removed == 0:
+                continue
+
+            if sanitized_messages is None:
+                sanitized_messages = deepcopy(messages)
+
+            sanitized_messages[message_index]["content"][block_index][
+                "content"
+            ] = sanitized_content
+
+    return sanitized_messages or messages
+
+
+class _AnthropicHistoryMediaCompatModel:
+    """Anthropic wrapper that strips replay-only media from old tool results."""
+
+    def __init__(self, model: ChatModelBase) -> None:
+        self._model = model
+
+    async def __call__(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict] | None = None,
+        tool_choice: Literal["auto", "none", "required"] | str | None = None,
+        structured_model: Any | None = None,
+        **generate_kwargs: Any,
+    ) -> Any:
+        sanitized_messages = _sanitize_anthropic_history_tool_result_media(
+            messages,
+        )
+        return await self._model(
+            messages=sanitized_messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            structured_model=structured_model,
+            **generate_kwargs,
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._model, name)
 
 
 # pylint: disable-next=too-many-statements
@@ -341,6 +473,9 @@ def create_model_and_formatter(
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
+
+    if AnthropicChatModel is not None and isinstance(model, AnthropicChatModel):
+        model = _AnthropicHistoryMediaCompatModel(model)
 
     # Wrap with retry logic for transient LLM API errors
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
