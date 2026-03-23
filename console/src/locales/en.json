@@ -515,6 +515,8 @@
     "providerNotConfigured": "Not Ready (not configured)",
     "settings": "Settings",
     "actions": "Actions",
+    "search": "Search",
+    "searchPlaceholder": "Search providers...",
     "custom": "Custom",
     "builtin": "Built-in",
     "addProvider": "Add Provider",

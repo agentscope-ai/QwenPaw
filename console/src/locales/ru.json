@@ -469,6 +469,8 @@
     "unavailable": "Недоступно",
     "providerAvailable": "Готово (есть модели)",
     "providerNoModels": "Не готово (нет моделей)",
+    "search": "Поиск",
+    "searchPlaceholder": "Поиск провайдеров...",
     "providerNotConfigured": "Не готово (не настроено)",
     "settings": "Настройки",
     "actions": "Действия",
