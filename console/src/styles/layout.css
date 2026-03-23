@@ -510,6 +510,27 @@ html.dark-mode .ant-modal-footer {
   border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 
+/* Modal.confirm — confirm dialog dark mode */
+html.dark-mode .ant-modal-confirm-content,
+html.dark-mode .copaw-modal-confirm-content {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .ant-modal-confirm-title,
+html.dark-mode .copaw-modal-confirm-title {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .ant-modal-confirm-body,
+html.dark-mode .copaw-modal-confirm-body {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .ant-modal-confirm-paragraph,
+html.dark-mode .copaw-modal-confirm-paragraph {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
 /* Form labels inside modal */
 html.dark-mode .copaw-modal-body .copaw-form-item-label > label,
 html.dark-mode .copaw-modal-body .ant-form-item-label > label,

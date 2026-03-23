@@ -379,7 +379,11 @@
     "xiaoyiSetupGuide": "Please create an agent on Huawei Developer Platform and get AK/SK and Agent ID. AK/SK can be found in the credential management page.",
     "filterAll": "All",
     "builtin": "Built-in",
-    "custom": "Custom"
+    "custom": "Custom",
+    "feishuRegion": "Region",
+    "feishuRegionTooltip": "Choose Feishu for China or Lark for International",
+    "feishuChina": "Feishu (China)",
+    "feishuInternational": "Lark (International)"
   },
   "sessions": {
     "title": "Sessions",
@@ -797,6 +801,22 @@
         "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter"
       }
     },
+    "fileGuard": {
+      "title": "File Guard",
+      "description": "Protect sensitive files and directories from being accessed by agent tools. Paths added here will be blocked across all tool calls.",
+      "enableLabel": "Enable File Guard",
+      "path": "Path",
+      "actions": "Actions",
+      "add": "Add",
+      "inputPlaceholder": "Enter file or directory path (e.g. ~/.ssh/ or /etc/passwd)",
+      "empty": "No custom sensitive paths configured",
+      "directory": "Directory",
+      "removeConfirm": "Remove this path from the protected list?",
+      "duplicate": "This path is already in the list",
+      "saveSuccess": "File guard settings saved",
+      "saveFailed": "Failed to save file guard settings",
+      "loadFailed": "Failed to load file guard settings"
+    },
     "skillScanner": {
       "title": "Skill Scanner",
       "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
@@ -866,5 +886,24 @@
     "logoutSuccess": "Logged out successfully",
     "sessionExpired": "Session expired, please login again",
     "unauthorized": "Unauthorized, please login"
+  },
+  "account": {
+    "title": "Account",
+    "currentPassword": "Current Password",
+    "currentPasswordRequired": "Please enter your current password",
+    "newUsername": "New Username",
+    "newUsernamePlaceholder": "Leave blank to keep current",
+    "newPassword": "New Password",
+    "newPasswordPlaceholder": "Leave blank to keep current",
+    "confirmPassword": "Confirm New Password",
+    "confirmPasswordPlaceholder": "Re-enter new password",
+    "passwordMismatch": "Passwords do not match",
+    "save": "Save Changes",
+    "updateSuccess": "Account updated successfully",
+    "updateFailed": "Failed to update account",
+    "wrongPassword": "Current password is incorrect",
+    "nothingToUpdate": "Please enter a new username or password",
+    "passwordEmpty": "Password cannot be blank",
+    "usernameEmpty": "Username cannot be blank"
   }
 }

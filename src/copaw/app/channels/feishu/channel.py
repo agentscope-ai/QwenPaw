@@ -16,17 +16,14 @@ import base64
 import asyncio
 import json
 import logging
-import mimetypes
 import re
 import sys
 import threading
-import time
 import types
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import aiohttp
 from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     FileContent,
@@ -50,11 +47,10 @@ from .constants import (
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
-    FEISHU_TOKEN_REFRESH_BEFORE_SECONDS,
-    FEISHU_USER_NAME_FETCH_TIMEOUT,
 )
 from .utils import (
     build_interactive_content_chunks,
+    detect_file_ext,
     extract_json_key,
     extract_post_image_keys,
     extract_post_media_file_keys,
@@ -100,7 +96,10 @@ else:
 
 try:
     import lark_oapi as lark
+    from lark_oapi.api.contact.v3 import GetUserRequest
     from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
         CreateImageRequest,
         CreateImageRequestBody,
         CreateMessageRequest,
@@ -108,10 +107,14 @@ try:
         CreateMessageReactionRequest,
         CreateMessageReactionRequestBody,
         Emoji,
+        GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
 except ImportError:  # pragma: no cover - optional dependency may be missing
     lark = None  # type: ignore[assignment]
+    GetUserRequest = None  # type: ignore[assignment]
+    CreateFileRequest = None  # type: ignore[assignment]
+    CreateFileRequestBody = None  # type: ignore[assignment]
     CreateImageRequest = None  # type: ignore[assignment]
     CreateImageRequestBody = None  # type: ignore[assignment]
     CreateMessageRequest = None  # type: ignore[assignment]
@@ -119,6 +122,7 @@ except ImportError:  # pragma: no cover - optional dependency may be missing
     CreateMessageReactionRequest = None  # type: ignore[assignment]
     CreateMessageReactionRequestBody = None  # type: ignore[assignment]
     Emoji = None  # type: ignore[assignment]
+    GetMessageResourceRequest = None  # type: ignore[assignment]
     P2ImMessageReceiveV1 = None  # type: ignore[assignment]
 finally:
     if (
@@ -173,6 +177,7 @@ class FeishuChannel(BaseChannel):
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        domain: str = "feishu",
     ):
         super().__init__(
             process,
@@ -192,6 +197,7 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
+        self.domain = domain if domain in ("feishu", "lark") else "feishu"
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -212,10 +218,6 @@ class FeishuChannel(BaseChannel):
         self._closed = False
         self._stop_event = threading.Event()
 
-        self._tenant_access_token: Optional[str] = None
-        self._tenant_access_token_expire_at: float = 0.0
-        self._token_lock = asyncio.Lock()
-        self._http: Optional[aiohttp.ClientSession] = None
         self._bot_open_id: Optional[str] = None
 
         # message_id dedup (ordered, trim when over limit)
@@ -256,6 +258,7 @@ class FeishuChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
             require_mention=os.getenv("FEISHU_REQUIRE_MENTION", "0") == "1",
+            domain=os.getenv("FEISHU_DOMAIN", "feishu"),
         )
 
     @classmethod
@@ -288,6 +291,7 @@ class FeishuChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
+            domain=config.domain or "feishu",
         )
 
     def resolve_session_id(
@@ -300,7 +304,11 @@ class FeishuChannel(BaseChannel):
         chat_id = (meta.get("feishu_chat_id") or "").strip()
         chat_type = (meta.get("feishu_chat_type") or "p2p").strip()
         if chat_type == "group" and chat_id:
-            return short_session_id_from_full_id(chat_id)
+            # Include app_id suffix to distinguish multiple bots in same group
+            app_suffix = (
+                self.app_id[-4:] if len(self.app_id) >= 4 else self.app_id
+            )
+            return f"{app_suffix}_{short_session_id_from_full_id(chat_id)}"
         if sender_id:
             return short_session_id_from_full_id(sender_id)
         if chat_id:
@@ -395,79 +403,52 @@ class FeishuChannel(BaseChannel):
             return {"receive_id_type": "open_id", "receive_id": s}
         return {"receive_id_type": "open_id", "receive_id": s}
 
-    async def _get_tenant_access_token(self) -> str:
-        """Fetch and cache tenant_access_token."""
-        now = time.time()
-        if (
-            self._tenant_access_token
-            and now
-            < self._tenant_access_token_expire_at
-            - FEISHU_TOKEN_REFRESH_BEFORE_SECONDS
-        ):
-            return self._tenant_access_token
-
-        async with self._token_lock:
-            now = time.time()
-            if (
-                self._tenant_access_token
-                and now
-                < self._tenant_access_token_expire_at
-                - FEISHU_TOKEN_REFRESH_BEFORE_SECONDS
-            ):
-                return self._tenant_access_token
-
-            url = (
-                "https://open.feishu.cn/open-apis/auth/v3/"
-                "tenant_access_token/internal"
-            )
-            payload = {
-                "app_id": self.app_id,
-                "app_secret": self.app_secret,
-            }
-            async with self._http.post(url, json=payload) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status >= 400:
-                    raise RuntimeError(
-                        f"Feishu token failed status={resp.status} "
-                        f"body={data}",
-                    )
-            if data.get("code") != 0:
-                raise RuntimeError(
-                    f"Feishu token error code={data.get('code')} msg"
-                    f"={data.get('msg')}",
-                )
-            token = data.get("tenant_access_token")
-            if not token:
-                raise RuntimeError("Feishu token missing in response")
-            expire = int(data.get("expire", 3600))
-            self._tenant_access_token = token
-            self._tenant_access_token_expire_at = now + expire
-            return token
-
     async def _fetch_bot_open_id(self) -> Optional[str]:
-        """GET /open-apis/bot/v3/info to get this bot's open_id."""
-        token = await self._get_tenant_access_token()
-        url = "https://open.feishu.cn/open-apis/bot/v3/info"
-        headers = {"Authorization": f"Bearer {token}"}
-        async with self._http.get(url, headers=headers) as resp:
-            data = await resp.json(content_type=None)
-        data = data or {}
-        if data.get("code", -1) != 0:
-            logger.warning(
-                "feishu bot/v3/info error: code=%s msg=%s",
-                data.get("code"),
-                data.get("msg"),
+        """Get this bot's open_id via raw HTTP request.
+
+        No SDK API available for bot info.
+        """
+        import urllib.request
+
+        try:
+            # Get access token via SDK TokenManager
+            from lark_oapi.core.token import TokenManager
+
+            token = TokenManager.get_self_tenant_token(self._client._config)
+            if not token:
+                logger.warning("feishu: failed to get access token")
+                return None
+            base_url = (
+                "https://open.larksuite.com"
+                if self.domain == "lark"
+                else "https://open.feishu.cn"
             )
+            url = f"{base_url}/open-apis/bot/v3/info"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            if data.get("code", -1) != 0:
+                logger.warning(
+                    "feishu bot/v3/info error: code=%s msg=%s",
+                    data.get("code"),
+                    data.get("msg"),
+                )
+                return None
+            return (data.get("bot") or {}).get("open_id")
+        except Exception as e:
+            logger.warning("feishu bot info failed: %s", e)
             return None
-        return (data.get("bot") or {}).get("open_id")
 
     async def _get_user_name_by_open_id(self, open_id: str) -> Optional[str]:
         """Fetch user name (nickname) from Feishu Contact API by open_id.
 
-        Uses Contact v3 GET /open-apis/contact/v3/users/{user_id} with
-        user_id_type=open_id (see Feishu user identity doc:
-        https://open.feishu.cn/document/platform-overveiw/basic-concepts/
-        user-identity-introduction/open-id).
+        Uses SDK contact.v3.user.get with user_id_type=open_id.
         Result is cached. Returns None on failure or missing permission.
         """
         if not open_id or open_id.startswith("unknown_"):
@@ -475,89 +456,38 @@ class FeishuChannel(BaseChannel):
         async with self._nickname_cache_lock:
             if open_id in self._nickname_cache:
                 return self._nickname_cache[open_id]
-        url = (
-            "https://open.feishu.cn/open-apis/contact/v3/users/"
-            f"{open_id}?user_id_type=open_id"
-        )
         try:
-            token = await self._get_tenant_access_token()
-            timeout = aiohttp.ClientTimeout(
-                total=FEISHU_USER_NAME_FETCH_TIMEOUT,
+            req = (
+                GetUserRequest.builder()
+                .user_id(open_id)
+                .user_id_type("open_id")
+                .build()
             )
-            async with self._http.get(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=timeout,
-            ) as resp:
-                body = await resp.text()
-                if resp.status >= 400:
-                    logger.info(
-                        "feishu get user name failed: open_id=%s status=%s",
-                        open_id[:20],
-                        resp.status,
-                    )
-                    return None
-                try:
-                    data = json.loads(body) if body else {}
-                except json.JSONDecodeError:
-                    data = {}
-            if data.get("code") != 0:
+            resp = self._client.contact.v3.user.get(req)
+            if not resp.success():
                 logger.info(
                     "feishu get user name api error: open_id=%s code=%s "
                     "msg=%s",
                     open_id[:20],
-                    data.get("code"),
-                    data.get("msg", ""),
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
                 )
                 return None
-            # Response per Feishu doc: GET contact/v3/users/{user_id}
-            # https://open.feishu.cn/document/server-docs/contact-v3/user/get
-            # Body: { "code": 0, "data": { "user": { "name": ... } } }
-            # "name" can be string or i18n object { "zh_cn": "中文", "en": "en" }
-            user = data.get("data") or {}
-            inner = user.get("user") or {}
+            # Extract name from SDK response
+            user = getattr(resp.data, "user", None) if resp.data else None
             name = None
-            for obj in (inner, user):
-                if not isinstance(obj, dict):
-                    continue
-                raw_name = (
-                    obj.get("name")
-                    or obj.get("real_name")
-                    or obj.get(
-                        "nickname",
-                    )
-                    or obj.get("name_cn")
-                    or obj.get("name_en")
-                    or obj.get(
-                        "en_name",
-                    )
-                )
-                if isinstance(raw_name, str) and raw_name.strip():
-                    name = raw_name.strip()
-                    break
-                if isinstance(raw_name, dict):
-                    name = (
-                        raw_name.get("zh_cn")
-                        or raw_name.get("zh_CN")
-                        or raw_name.get("zh-Cn")
-                        or raw_name.get("zh-CN")
-                        or raw_name.get("en")
-                        or (list(raw_name.values()) or [None])[0]
-                    )
-                    if name and isinstance(name, str):
-                        name = name.strip()
-                        break
-                    first_val = (list(raw_name.values()) or [None])[0]
-                    if isinstance(first_val, str) and first_val.strip():
-                        name = first_val.strip()
+            if user:
+                # Try different name fields
+                for attr in ("name", "en_name", "nickname"):
+                    raw_name = getattr(user, attr, None)
+                    if isinstance(raw_name, str) and raw_name.strip():
+                        name = raw_name.strip()
                         break
             if not name:
                 logger.info(
-                    f"feishu get user name: no name in response (open_id"
-                    f"={(open_id or '')[:20]}). inner_keys"
-                    f"={list(inner.keys()) if inner else []} - app likely "
-                    f"missing contact name permission. Add scope e.g. "
-                    f"contact:user.base:readonly in Feishu console.",
+                    "feishu get user name: no name in response (open_id"
+                    "=%s). app likely missing contact name permission.",
+                    (open_id or "")[:20],
                 )
 
             if name:
@@ -743,10 +673,16 @@ class FeishuChannel(BaseChannel):
                     "file_key",
                     "fileKey",
                 )
+                file_name = extract_json_key(
+                    content_raw,
+                    "file_name",
+                    "fileName",
+                )
                 if file_key:
                     url_or_path = await self._download_file_resource(
                         message_id,
                         file_key,
+                        filename_hint=file_name or "file.bin",
                     )
                     if url_or_path:
                         content_parts.append(
@@ -759,6 +695,35 @@ class FeishuChannel(BaseChannel):
                         text_parts.append("[file: download failed]")
                 else:
                     text_parts.append("[file: missing key]")
+            elif msg_type == "media":
+                # Video message type
+                file_key = extract_json_key(
+                    content_raw,
+                    "file_key",
+                    "fileKey",
+                )
+                file_name = extract_json_key(
+                    content_raw,
+                    "file_name",
+                    "fileName",
+                )
+                if file_key:
+                    url_or_path = await self._download_file_resource(
+                        message_id,
+                        file_key,
+                        filename_hint=file_name or "video.mp4",
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[video: download failed]")
+                else:
+                    text_parts.append("[video: missing key]")
             elif msg_type == "audio":
                 file_key = extract_json_key(
                     content_raw,
@@ -906,32 +871,29 @@ class FeishuChannel(BaseChannel):
         message_id: str,
         image_key: str,
     ) -> Optional[str]:
-        """Download image to media_dir; return local path or None."""
-        token = await self._get_tenant_access_token()
-        url = (
-            f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
-            f"/resources/{image_key}"
-        )
-        headers = {"Authorization": f"Bearer {token}"}
+        """Download image to media_dir using SDK; return local path or None."""
         try:
-            async with self._http.get(
-                url,
-                params={"type": "image"},
-                headers=headers,
-            ) as resp:
-                if resp.status >= 400:
-                    logger.warning(
-                        "feishu image download failed status=%s",
-                        resp.status,
-                    )
-                    return None
-                data = await resp.read()
-                content_type = (
-                    resp.headers.get("Content-Type", "").split(";")[0].strip()
-                )
-            ext = (mimetypes.guess_extension(content_type) or ".jpg").lstrip(
-                ".",
+            req = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(image_key)
+                .type("image")
+                .build()
             )
+            resp = self._client.im.v1.message_resource.get(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu image download failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            # resp.file is a file-like object
+            data = resp.file.read() if resp.file else b""
+            if not data:
+                logger.warning("feishu image download: empty response")
+                return None
+            ext = detect_file_ext(data, default="jpg")
             safe_key = (
                 "".join(c for c in image_key if c.isalnum() or c in "-_.")
                 or "img"
@@ -950,63 +912,36 @@ class FeishuChannel(BaseChannel):
         file_key: str,
         filename_hint: str = "file.bin",
     ) -> Optional[str]:
-        """Download file to media_dir; return local path or None.
-        Uses message resources API (user-sent files); /im/v1/files only
-        allows app-sent files.
-        """
-        token = await self._get_tenant_access_token()
-        url = (
-            f"https://open.feishu.cn/open-apis/im/v1/messages/"
-            f"{message_id}/resources/{file_key}?type=file"
-        )
-        headers = {"Authorization": f"Bearer {token}"}
+        """Download file to media_dir using SDK; return local path or None."""
         try:
-            async with self._http.get(url, headers=headers) as resp:
-                if resp.status >= 400:
-                    logger.warning(
-                        "feishu file download failed status=%s",
-                        resp.status,
-                    )
-                    return None
-                data = await resp.read()
-                disposition = resp.headers.get(
-                    "Content-Disposition",
-                    "",
-                )
-                content_type = (
-                    resp.headers.get("Content-Type", "").split(";")[0].strip()
-                )
-            filename = filename_hint
-            if "filename=" in disposition:
-                part = (
-                    disposition.split("filename=", 1)[-1].strip().strip("'\"")
-                )
-                if part:
-                    part = Path(part).name
-                    if part.strip():
-                        filename = part
-            # Prevent path traversal: keep only the base name.
-            filename = Path(filename).name
-            if not filename.strip():
-                filename = filename_hint
-            # If hint has an extension but chosen filename has none or
-            # .bin/.file, force the hint extension so e.g. audio.opus is kept.
-            hint_ext = Path(filename_hint).suffix
-            if hint_ext and Path(filename).suffix in ("", ".bin", ".file"):
-                filename = (Path(filename).stem or "file") + hint_ext
-            safe_key = (
-                "".join(c for c in file_key if c.isalnum() or c in "-_.")
-                or "file"
+            req = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(file_key)
+                .type("file")
+                .build()
             )
+            resp = self._client.im.v1.message_resource.get(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu file download failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            data = resp.file.read() if resp.file else b""
+            if not data:
+                logger.warning("feishu file download: empty response")
+                return None
+
+            # Use original filename if provided, otherwise detect from content
+            filename = Path(filename_hint).name
+            if not filename.strip() or filename in ("file.bin", "video.mp4"):
+                ext = detect_file_ext(data, default="bin")
+                filename = f"file.{ext}"
             self._media_dir.mkdir(parents=True, exist_ok=True)
-            path = self._media_dir / f"{message_id}_{safe_key}_{filename}"
+            path = self._media_dir / f"{message_id}_{filename}"
             path.write_bytes(data)
-            if path.suffix in (".bin", ".file") and content_type:
-                ext = mimetypes.guess_extension(content_type)
-                if ext:
-                    new_path = path.with_suffix(ext)
-                    path.rename(new_path)
-                    path = new_path
             return str(path)
         except Exception:
             logger.exception("feishu _download_file_resource failed")
@@ -1173,8 +1108,7 @@ class FeishuChannel(BaseChannel):
             return None
 
     async def _upload_file(self, path_or_url: str) -> Optional[str]:
-        """Upload file to Feishu; return file_key. path_or_url can be path."""
-        token = await self._get_tenant_access_token()
+        """Upload file to Feishu using SDK; return file_key."""
         path = Path(path_or_url)
         if not path.exists():
             if path_or_url.startswith(("http://", "https://")):
@@ -1200,65 +1134,59 @@ class FeishuChannel(BaseChannel):
             "xlsx",
             "ppt",
             "pptx",
-            "mp4",
         ):
             file_type = "doc" if ext == "docx" else ext
             file_type = "xls" if ext == "xlsx" else file_type
             file_type = "ppt" if ext == "pptx" else file_type
-        mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        url = "https://open.feishu.cn/open-apis/im/v1/files"
-        form = aiohttp.FormData()
-        form.add_field("file_type", file_type)
-        form.add_field("file_name", path.name)
-        form.add_field(
-            "file",
-            path.read_bytes(),
-            filename=path.name,
-            content_type=mime,
-        )
         try:
-            async with self._http.post(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                data=form,
-            ) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status >= 400:
-                    logger.warning(
-                        "feishu file upload failed status=%s body=%s",
-                        resp.status,
-                        data,
-                    )
-                    return None
-                if data.get("code") != 0:
-                    logger.info(
-                        "feishu _upload_file api code=%s msg=%s",
-                        data.get("code"),
-                        data.get("msg"),
-                    )
-                    return None
-                fk = (data.get("data") or {}).get("file_key")
-                logger.info(
-                    "feishu _upload_file ok: file_key=%s",
-                    fk[:24] if fk else "None",
+            req = (
+                CreateFileRequest.builder()
+                .request_body(
+                    CreateFileRequestBody.builder()
+                    .file_type(file_type)
+                    .file_name(path.name)
+                    .file(path.open("rb"))
+                    .build(),
                 )
-                return fk
+                .build()
+            )
+            resp = self._client.im.v1.file.create(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu file upload failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            fk = getattr(resp.data, "file_key", None) if resp.data else None
+            logger.info(
+                "feishu _upload_file ok: file_key=%s",
+                fk[:24] if fk else "None",
+            )
+            return fk
         except Exception:
             logger.exception("feishu _upload_file failed")
             return None
 
     async def _fetch_bytes_from_url(self, url: str) -> Optional[bytes]:
         """Download binary from URL. Supports http(s):// and file://."""
+        import urllib.request
+
         try:
             path = file_url_to_local_path(url)
             if path is not None:
                 return await asyncio.to_thread(Path(path).read_bytes)
             if url.strip().lower().startswith("file:"):
                 return None
-            async with self._http.get(url) as resp:
+            # Use urllib for simple HTTP downloads
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "CoPaw/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 if resp.status >= 400:
                     return None
-                return await resp.read()
+                return resp.read()
         except Exception:
             logger.exception("feishu _fetch_bytes_from_url failed")
             return None
@@ -1944,12 +1872,14 @@ class FeishuChannel(BaseChannel):
                 "feishu channel is enabled.",
             )
         self._loop = asyncio.get_running_loop()
+        sdk_domain = (
+            lark.LARK_DOMAIN if self.domain == "lark" else lark.FEISHU_DOMAIN
+        )
         self._client = (
             lark.Client.builder()
             .app_id(self.app_id)
-            .app_secret(
-                self.app_secret,
-            )
+            .app_secret(self.app_secret)
+            .domain(sdk_domain)
             .log_level(lark.LogLevel.INFO)
             .build()
         )
@@ -1966,6 +1896,11 @@ class FeishuChannel(BaseChannel):
             self.app_secret,
             event_handler=event_handler,
             log_level=lark.LogLevel.INFO,
+            domain=(
+                "https://open.larksuite.com"
+                if self.domain == "lark"
+                else "https://open.feishu.cn"
+            ),
         )
         self._stop_event.clear()
         self._ws_thread = threading.Thread(
@@ -1973,8 +1908,6 @@ class FeishuChannel(BaseChannel):
             daemon=True,
         )
         self._ws_thread.start()
-        if self._http is None:
-            self._http = aiohttp.ClientSession()
         try:
             self._bot_open_id = await self._fetch_bot_open_id()
             logger.info(
@@ -2006,10 +1939,6 @@ class FeishuChannel(BaseChannel):
             self._ws_thread.join(timeout=5)
             if self._ws_thread.is_alive():
                 logger.warning("feishu ws thread did not stop within timeout")
-
-        if self._http is not None:
-            await self._http.close()
-            self._http = None
 
         self._client = None
         self._ws_client = None

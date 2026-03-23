@@ -26,6 +26,7 @@ from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
+    AudioContent,
     ContentType,
     FileContent,
     ImageContent,
@@ -209,17 +210,11 @@ class ConsoleChannel(BaseChannel):
                         video_url=str(self._media_dir / url),
                     )
             elif content_type == ContentType.AUDIO:
-                url = getattr(part, "data", None) or getattr(
-                    part,
-                    "audio_url",
-                    None,
-                )
+                url = getattr(part, "data", None)
                 if url:
-                    # Todo: support local audio file
-                    return FileContent(
-                        type=ContentType.FILE,
-                        filename=getattr(part, "filename", None) or url,
-                        file_url=str(self._media_dir / url),
+                    return AudioContent(
+                        type=ContentType.AUDIO,
+                        data=str(self._media_dir / url),
                     )
             elif content_type == ContentType.FILE:
                 url = getattr(part, "file_url", None)

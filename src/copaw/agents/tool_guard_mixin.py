@@ -206,6 +206,7 @@ class ToolGuardMixin:
             "tool_name": pending.tool_name
             or fallback.get("tool_name", "unknown"),
             "tool_input": tool_input or fallback.get("tool_input", {}),
+            "guardians": fallback.get("guardians", []),
         }
 
     async def _cleanup_tool_guard_denied_messages(
@@ -251,8 +252,10 @@ class ToolGuardMixin:
         """Intercept sensitive tool calls before execution.
 
         1. If tool is in *denied_tools*, auto-deny unconditionally.
-        2. Check for a one-shot pre-approval.
-        3. If tool is in the guarded scope, run ToolGuardEngine.
+        2. If tool is in the guarded scope, check for a one-shot
+           pre-approval, then run all guardians.
+        3. For non-guarded tools, run only ``always_run`` guardians
+           (e.g. sensitive file path checks).
         4. If findings exist, enter the approval flow.
         5. Otherwise, delegate to ``super()._acting``.
 
@@ -325,17 +328,20 @@ class ToolGuardMixin:
                 guard_result=denied_result,
             )
 
-        if not engine.is_guarded(tool_name):
-            return None
+        guarded = engine.is_guarded(tool_name)
 
-        if await self._consume_preapproval(tool_name, tool_input):
+        if guarded and await self._consume_preapproval(tool_name, tool_input):
             self._tool_guard_pending_info = None
             await self._cleanup_tool_guard_denied_messages(
                 include_denial_response=True,
             )
             return _GuardAction("preapproved", tool_name, tool_input)
 
-        guard_result = engine.guard(tool_name, tool_input)
+        guard_result = engine.guard(
+            tool_name,
+            tool_input,
+            only_always_run=not guarded,
+        )
         if guard_result is not None and guard_result.findings:
             from copaw.security.tool_guard.utils import log_findings
 
@@ -535,9 +541,13 @@ class ToolGuardMixin:
             extra=extra,
         )
 
+        guardians = list(
+            {f.guardian for f in guard_result.findings if f.guardian},
+        )
         self._tool_guard_pending_info = {
             "tool_name": tool_name,
             "tool_input": tool_call.get("input", {}),
+            "guardians": guardians,
         }
 
         findings_text = format_findings_summary(guard_result)
@@ -717,21 +727,53 @@ class ToolGuardMixin:
             )
             return None
 
+    @staticmethod
+    def _guardian_trigger_hint(guardians: list[str]) -> tuple[str, str]:
+        """Return (trigger_label, settings_hint) for the guardian(s)."""
+        has_file = "file_path_tool_guardian" in guardians
+        has_tool = "rule_based_tool_guardian" in guardians
+        if has_file and has_tool:
+            label = "Tool Guard & File Guard / 工具护栏 & 文件护栏"
+            hint_en = (
+                "Triggered by tool guardrails "
+                "(configurable in Security → Tool Guard / File Guard settings)"
+            )
+            hint_zh = "触发工具护栏 & 文件护栏（在安全-工具护栏 / 文件护栏页面可以更改设置）"
+        elif has_file:
+            label = "File Guard / 文件护栏"
+            hint_en = (
+                "Triggered by file guardrails "
+                "(configurable in Security → File Guard settings)"
+            )
+            hint_zh = "触发文件护栏（在安全-文件护栏页面可以更改设置）"
+        else:
+            label = "Tool Guard / 工具护栏"
+            hint_en = (
+                "Triggered by tool guardrails "
+                "(configurable in Security → Tool Guard settings)"
+            )
+            hint_zh = "触发工具护栏（在安全-工具护栏页面可以更改设置）"
+        return label, f"💡 {hint_en}\n💡 {hint_zh}"
+
     async def _emit_waiting_for_approval(self) -> Msg:
         """Emit waiting-for-approval guidance when call is blocked."""
         pending = await self._get_pending_info_for_display()
         tool_name = pending.get("tool_name", "unknown")
         tool_input = pending.get("tool_input", {})
+        guardians: list[str] = pending.get("guardians", [])
         params_text = _json.dumps(
             tool_input,
             ensure_ascii=False,
             indent=2,
         )
+        trigger_label, settings_hint = self._guardian_trigger_hint(guardians)
         return await self._emit_assistant_msg(
             "⏳ Waiting for approval / 等待审批\n\n"
             f"- Tool / 工具: `{tool_name}`\n"
+            f"- Triggered by / 触发来源: `{trigger_label}`\n"
             f"- Parameters / 参数:\n"
             f"```json\n{params_text}\n```\n\n"
+            f"{settings_hint}\n\n"
             "Type `/approve` to approve, "
             "or send any message to deny.\n"
             "输入 `/approve` 批准执行，"
