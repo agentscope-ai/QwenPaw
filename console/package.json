@@ -16,10 +16,11 @@
     "preview:test": "vite preview --mode test"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "^1.1.51",
+    "@agentscope-ai/chat": "file:../../agentscope-spark-design/packages/spark-chat",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.46",
     "@ant-design/x-markdown": "^2.2.2",
+    "@ant-design/icons": "^6.1.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -33,7 +34,9 @@
     "react-i18next": "^16.5.4",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "dayjs": "^1.11.13",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
