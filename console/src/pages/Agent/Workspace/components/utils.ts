@@ -36,7 +36,7 @@ export interface FileTreeNode {
  */
 export const buildFileTree = (
   files: MarkdownFile[],
-  workspacePath: string | null,
+  _workspacePath?: string | null,
 ): FileTreeNode => {
   const root: FileTreeNode = {
     name: "",
