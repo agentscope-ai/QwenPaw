@@ -27,6 +27,20 @@ import "./index.module.less";
 import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
+import { trackNavigation } from "../../utils/navigationTelemetry";
+import { shouldAutoSyncChatUrl } from "./navigationGuards";
+import {
+  PIPELINE_DESIGN_INTENT,
+  buildPipelineDesignBootstrapPrompt,
+  buildPipelineDesignChatPath,
+  clearPipelineForceNewChat,
+  clearPipelineDesignBootstrap,
+  hasPipelineForceNewChat,
+  hasPipelineDesignAutostarted,
+  markPipelineDesignAutostarted,
+  queuePipelineDesignBootstrap,
+  readPipelineDesignBootstrap,
+} from "../../utils/pipelineDesign";
 
 type CopyableContent = {
   type?: string;
@@ -237,6 +251,46 @@ function RuntimeLoadingBridge({
   return null;
 }
 
+function extractLatestUserText(input: any[] = []): string {
+  const latest = input[input.length - 1];
+  const content = latest?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item) => item?.type === "text" && typeof item?.text === "string")
+    .map((item) => item.text as string)
+    .join("\n")
+    .trim();
+}
+
+function shouldSuggestPipelineOpportunity(text: string): boolean {
+  if (!text) return false;
+  if (text.length < 16) return false;
+  const patterns = [
+    /多步|流程|pipeline|管线/i,
+    /批量|自动化|反复|复用/i,
+    /抽取|对齐|校验|分析|报告/i,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function isPipelineDesignBootstrapText(text: string): boolean {
+  if (!text) return false;
+  return (
+    text.includes("pipeline-create-guide") ||
+    text.includes("我想创建一个新的 Pipeline") ||
+    text.includes("I want to create a new Pipeline")
+  );
+}
+
+function buildPipelineOpportunityInlineHint(): string {
+  return [
+    "",
+    "[PipelineDesignHint]",
+    "请把当前需求当作可复用多步骤流程，先用简短问题补齐关键槽位（目标、输入、步骤、质量指标、失败重试、产出物），",
+    "然后给出一个可执行的 Pipeline Draft，并继续在当前会话中迭代，不要要求用户切换到新会话。",
+  ].join("\n");
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -252,6 +306,9 @@ export default function ChatPage() {
   const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
   const [, setReconnectStreaming] = useState(false);
   const reconnectTriggeredForRef = useRef<string | null>(null);
+  const autoPipelinePromptingRef = useRef<string | null>(null);
+  const pipelineIntentCreatingRef = useRef(false);
+  const pipelineOpportunityMuteUntilRef = useRef(0);
   const prevChatIdRef = useRef<string | undefined>(undefined);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
@@ -321,6 +378,12 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === tempId) {
         lastSessionIdRef.current = realId;
+        trackNavigation({
+          source: "chat.onSessionIdResolved",
+          from: `/chat/${tempId}`,
+          to: `/chat/${realId}`,
+          reason: "resolve-temp-session-id",
+        });
         navigateRef.current(`/chat/${realId}`, { replace: true });
       }
     };
@@ -329,6 +392,12 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === removedId) {
         lastSessionIdRef.current = null;
+        trackNavigation({
+          source: "chat.onSessionRemoved",
+          from: `/chat/${removedId}`,
+          to: "/chat",
+          reason: "removed-current-session",
+        });
         navigateRef.current("/chat", { replace: true });
       }
     };
@@ -367,6 +436,66 @@ export default function ChatPage() {
     sessionApi.triggerReconnectSubmit();
   }, [chatId, chatStatus]);
 
+  useEffect(() => {
+    if (!chatId) return;
+
+    const search = new URLSearchParams(location.search);
+    const intent = search.get("intent");
+    const autostart = search.get("autostart");
+
+    if (intent !== PIPELINE_DESIGN_INTENT || autostart !== "1") return;
+    if (hasPipelineDesignAutostarted(chatId)) return;
+    if (autoPipelinePromptingRef.current === chatId) return;
+
+    const source =
+      (search.get("source") as "pipelines_page" | "chat_opportunity" | null) ||
+      "pipelines_page";
+    const bootstrapPrompt =
+      readPipelineDesignBootstrap(chatId) ||
+      buildPipelineDesignBootstrapPrompt({
+        source,
+        agentId: selectedAgent,
+      });
+
+    autoPipelinePromptingRef.current = chatId;
+    // Mute opportunity detection in this warm-up window to avoid duplicate triggers.
+    pipelineOpportunityMuteUntilRef.current = Date.now() + 60 * 1000;
+    let attempts = 0;
+    const maxAttempts = 120;
+
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      const submit = chatRef.current?.input?.submit;
+      if (submit) {
+        submit({ query: bootstrapPrompt });
+        clearPipelineDesignBootstrap(chatId);
+        markPipelineDesignAutostarted(chatId);
+        clearPipelineForceNewChat();
+        autoPipelinePromptingRef.current = null;
+        window.clearInterval(timer);
+        trackNavigation({
+          source: "chat.pipelineAutostart",
+          from: location.pathname + location.search,
+          to: `/chat/${chatId}`,
+          reason: "cleanup-autostart-query",
+        });
+        navigate(`/chat/${chatId}`, { replace: true });
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearPipelineDesignBootstrap(chatId);
+        clearPipelineForceNewChat();
+        autoPipelinePromptingRef.current = null;
+        window.clearInterval(timer);
+      }
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [chatId, location.pathname, location.search, navigate, selectedAgent]);
+
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
@@ -401,15 +530,34 @@ export default function ChatPage() {
 
   const getSessionWrapped = useCallback(async (sessionId: string) => {
     const currentChatId = chatIdRef.current;
+    const search = new URLSearchParams(window.location.search);
+    const forceNewChat = hasPipelineForceNewChat();
+    const blockAutoSyncForPipelineNewChat =
+      (search.get("intent") === PIPELINE_DESIGN_INTENT &&
+        search.get("autostart") === "1" &&
+        search.get("newChat") === "1") ||
+      forceNewChat;
+    const canAutoSyncUrl =
+      shouldAutoSyncChatUrl(currentChatId) && !blockAutoSyncForPipelineNewChat;
 
     if (
       isChatActiveRef.current &&
+      canAutoSyncUrl &&
       sessionId &&
       sessionId !== lastSessionIdRef.current &&
       sessionId !== currentChatId
     ) {
       const urlId = sessionApi.getRealIdForSession(sessionId) ?? sessionId;
       lastSessionIdRef.current = urlId;
+      trackNavigation({
+        source: "chat.getSessionWrapped",
+        from: currentChatId ? `/chat/${currentChatId}` : "/chat",
+        to: `/chat/${urlId}`,
+        reason: "sync-session-selection",
+        meta: {
+          requestedSessionId: sessionId,
+        },
+      });
       navigateRef.current(`/chat/${urlId}`, { replace: true });
     }
 
@@ -421,6 +569,12 @@ export default function ChatPage() {
     const newSessionId = session?.id || result[0]?.id;
     if (isChatActiveRef.current && newSessionId) {
       lastSessionIdRef.current = newSessionId;
+      trackNavigation({
+        source: "chat.createSessionWrapped",
+        from: chatIdRef.current ? `/chat/${chatIdRef.current}` : "/chat",
+        to: `/chat/${newSessionId}`,
+        reason: "create-new-session",
+      });
       navigateRef.current(`/chat/${newSessionId}`, { replace: true });
     }
     return result;
@@ -436,6 +590,57 @@ export default function ChatPage() {
     }),
     [],
   );
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const intent = search.get("intent");
+    const autostart = search.get("autostart");
+    const shouldCreateNewChat =
+      search.get("newChat") === "1" || hasPipelineForceNewChat();
+
+    if (chatId) return;
+    if (intent !== PIPELINE_DESIGN_INTENT || autostart !== "1") return;
+    if (!shouldCreateNewChat) return;
+
+    if (pipelineIntentCreatingRef.current) return;
+    pipelineIntentCreatingRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const sessions = await createSessionWrapped({
+          name: t("pipelines.designSessionName", "Pipeline Design"),
+        });
+        const sessionId = sessions[0]?.id;
+        if (!sessionId || cancelled) return;
+
+        const source =
+          (search.get("source") as "pipelines_page" | "chat_opportunity" | null) ||
+          "pipelines_page";
+        const bootstrapPrompt = buildPipelineDesignBootstrapPrompt({
+          source,
+          agentId: selectedAgent,
+        });
+        queuePipelineDesignBootstrap(sessionId, bootstrapPrompt);
+
+        const to = buildPipelineDesignChatPath(sessionId, source);
+        trackNavigation({
+          source: "chat.pipelineIntentCreateSession",
+          from: location.pathname + location.search,
+          to,
+          reason: "reuse-new-chat-create-flow",
+        });
+        navigate(to, { replace: true });
+      } finally {
+        pipelineIntentCreatingRef.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, createSessionWrapped, location.pathname, location.search, navigate, selectedAgent, t]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
@@ -667,6 +872,28 @@ export default function ChatPage() {
       }
 
       const { input = [], biz_params } = data;
+      const latestUserText = extractLatestUserText(input);
+      const search = new URLSearchParams(location.search);
+      const inPipelineDesignIntent =
+        search.get("intent") === PIPELINE_DESIGN_INTENT &&
+        search.get("autostart") === "1";
+      const muteActive = Date.now() < pipelineOpportunityMuteUntilRef.current;
+      const bootstrapText = isPipelineDesignBootstrapText(latestUserText);
+      const shouldInlinePipelineGuide =
+        !inPipelineDesignIntent &&
+        !muteActive &&
+        !bootstrapText &&
+        shouldSuggestPipelineOpportunity(latestUserText);
+
+      if (shouldInlinePipelineGuide) {
+        const now = Date.now();
+        const cooldownKey = "copaw.pipeline.opportunity.lastAt";
+        const lastAt = Number(localStorage.getItem(cooldownKey) || "0");
+        if (now - lastAt > 30 * 60 * 1000) {
+          localStorage.setItem(cooldownKey, String(now));
+        }
+      }
+
       const session = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
@@ -675,26 +902,36 @@ export default function ChatPage() {
           ? [
               {
                 ...lastMsg,
-                content: lastMsg.content.map((part: any) => {
-                  const p = { ...part };
-                  const toStoredName = (v: string) => {
-                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-                    if (m1) return m1[1];
-                    const m2 = v.match(/^[^/]+\/(.+)$/);
-                    if (m2) return m2[1];
-                    return v;
-                  };
-                  if (p.type === "image" && typeof p.image_url === "string")
-                    p.image_url = toStoredName(p.image_url);
-                  if (p.type === "file" && typeof p.file_url === "string")
-                    p.file_url = toStoredName(p.file_url);
-                  if (p.type === "audio" && typeof p.audio_url === "string")
-                    p["data"] = toStoredName(p.audio_url);
-                  if (p.type === "video" && typeof p.video_url === "string")
-                    p.video_url = toStoredName(p.video_url);
+                content: [
+                  ...lastMsg.content.map((part: any) => {
+                    const p = { ...part };
+                    const toStoredName = (v: string) => {
+                      const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                      if (m1) return m1[1];
+                      const m2 = v.match(/^[^/]+\/(.+)$/);
+                      if (m2) return m2[1];
+                      return v;
+                    };
+                    if (p.type === "image" && typeof p.image_url === "string")
+                      p.image_url = toStoredName(p.image_url);
+                    if (p.type === "file" && typeof p.file_url === "string")
+                      p.file_url = toStoredName(p.file_url);
+                    if (p.type === "audio" && typeof p.audio_url === "string")
+                      p["data"] = toStoredName(p.audio_url);
+                    if (p.type === "video" && typeof p.video_url === "string")
+                      p.video_url = toStoredName(p.video_url);
 
-                  return p;
-                }),
+                    return p;
+                  }),
+                  ...(shouldInlinePipelineGuide
+                    ? [
+                        {
+                          type: "text",
+                          text: buildPipelineOpportunityInlineHint(),
+                        },
+                      ]
+                    : []),
+                ],
               },
             ]
           : lastInput;
@@ -728,7 +965,7 @@ export default function ChatPage() {
         headers: response.headers,
       });
     },
-    [persistStreamSession, setChatStatus, setReconnectStreaming],
+    [location.search, persistStreamSession, setChatStatus, setReconnectStreaming],
   );
 
   const options = useMemo(() => {
@@ -893,6 +1130,12 @@ export default function ChatPage() {
               icon={<SettingOutlined />}
               onClick={() => {
                 setShowModelPrompt(false);
+                trackNavigation({
+                  source: "chat.modelPrompt",
+                  from: location.pathname,
+                  to: "/models",
+                  reason: "configure-model-from-chat",
+                });
                 navigate("/models");
               }}
             >
