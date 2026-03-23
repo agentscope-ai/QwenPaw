@@ -107,7 +107,7 @@ function ModelsPage() {
               <Button
                 type="primary"
                 icon={<SearchOutlined />}
-                onClick={() => {}}
+                onClick={() => fetchAll()}
                 className={styles.searchBtn}
               >
                 {t("models.search")}
