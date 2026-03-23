@@ -67,6 +67,7 @@ class DingTalkConfig(BaseChannelConfig):
 class FeishuConfig(BaseChannelConfig):
     """Feishu/Lark channel: app_id, app_secret; optional encrypt_key,
     verification_token for event handler. media_dir for received media.
+    domain: 'feishu' for China, 'lark' for international.
     """
 
     app_id: str = ""
@@ -74,6 +75,7 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
+    domain: Literal["feishu", "lark"] = "feishu"
 
 
 class QQConfig(BaseChannelConfig):
@@ -754,6 +756,13 @@ class ToolGuardConfig(BaseModel):
     disabled_rules: List[str] = Field(default_factory=list)
 
 
+class FileGuardConfig(BaseModel):
+    """File guard settings under ``security.file_guard``."""
+
+    enabled: bool = True
+    sensitive_files: List[str] = Field(default_factory=list)
+
+
 class SkillScannerWhitelistEntry(BaseModel):
     """A whitelisted skill (identified by name + content hash)."""
 
@@ -798,6 +807,7 @@ class SecurityConfig(BaseModel):
     """Top-level ``security`` section in config.json."""
 
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
+    file_guard: FileGuardConfig = Field(default_factory=FileGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )
