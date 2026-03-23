@@ -31,9 +31,51 @@ CODEX_DEFAULT_MODELS = [
 
 @dataclass(eq=True)
 class CodexCliCredential:
+    """Credential loaded from a local Codex CLI auth file."""
+
     access_token: str
     account_id: str = ""
     source: str = ""
+
+
+def _build_codex_client(
+    *,
+    access_token: str,
+    account_id: str,
+    timeout: float | None = 30,
+) -> AsyncOpenAI:
+    headers = {"originator": "codex_cli_rs"}
+    if account_id:
+        headers["ChatGPT-Account-ID"] = account_id
+    return AsyncOpenAI(
+        api_key=access_token,
+        base_url=CODEX_BASE_URL,
+        default_headers=headers,
+        timeout=timeout,
+    )
+
+
+async def _collect_response_payload(response_or_stream: Any) -> dict[str, Any]:
+    if hasattr(response_or_stream, "__aiter__"):
+        completed_response: Any = None
+        try:
+            async for event in response_or_stream:
+                if getattr(event, "type", None) == "response.completed":
+                    completed_response = getattr(event, "response", None)
+        finally:
+            close = getattr(response_or_stream, "close", None)
+            if close is not None:
+                await close()
+
+        if completed_response is None:
+            raise RuntimeError(
+                "Codex API stream ended without response.completed event",
+            )
+        response_or_stream = completed_response
+
+    if hasattr(response_or_stream, "model_dump"):
+        return response_or_stream.model_dump()
+    return response_or_stream
 
 
 def _resolve_credential_path() -> Path:
@@ -96,46 +138,47 @@ class CodexChatModel(ChatModelBase):
         self._reasoning_effort = reasoning_effort
         self._generate_kwargs = generate_kwargs or {}
 
-    def _client(self, timeout: float | None = 30) -> AsyncOpenAI:
-        headers = {"originator": "codex_cli_rs"}
-        if self._account_id:
-            headers["ChatGPT-Account-ID"] = self._account_id
-        return AsyncOpenAI(
-            api_key=self._access_token,
-            base_url=CODEX_BASE_URL,
-            default_headers=headers,
-            timeout=timeout,
-        )
-
     @staticmethod
-    def _normalize_content(content: Any) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = [CodexChatModel._normalize_content(item) for item in content]
-            return "\n".join(part for part in parts if part).strip()
-        if isinstance(content, dict):
-            block_type = content.get("type")
-            if block_type == "text":
-                text = content.get("text")
-                return text if isinstance(text, str) else ""
-            if block_type == "thinking":
-                thinking = content.get("thinking")
-                return thinking if isinstance(thinking, str) else ""
-            if block_type == "tool_result":
-                result = content.get("output")
-                return CodexChatModel._normalize_content(result)
-            if "text" in content and isinstance(content["text"], str):
-                return content["text"]
-            if "content" in content:
-                return CodexChatModel._normalize_content(content["content"])
+    def _normalize_content_dict(content: dict[str, Any]) -> str:
+        block_type = content.get("type")
+        if block_type == "text":
+            value = content.get("text", "")
+        elif block_type == "thinking":
+            value = content.get("thinking", "")
+        elif block_type == "tool_result":
+            value = content.get("output", "")
+        elif isinstance(content.get("text"), str):
+            value = content["text"]
+        elif "content" in content:
+            value = content["content"]
+        else:
             try:
                 return json.dumps(content, ensure_ascii=False)
             except TypeError:
                 return str(content)
-        return str(content)
+        return CodexChatModel._normalize_content(value)
 
-    def _convert_messages(self, messages: list[dict]) -> tuple[str, list[dict]]:
+    @staticmethod
+    def _normalize_content(content: Any) -> str:
+        normalized = content
+        if isinstance(content, str):
+            return normalized
+        if isinstance(content, list):
+            parts = [
+                CodexChatModel._normalize_content(item)
+                for item in content
+            ]
+            normalized = "\n".join(part for part in parts if part).strip()
+        elif isinstance(content, dict):
+            normalized = CodexChatModel._normalize_content_dict(content)
+        else:
+            normalized = str(content)
+        return normalized
+
+    def _convert_messages(
+        self,
+        messages: list[dict],
+    ) -> tuple[str, list[dict]]:
         instructions_parts: list[str] = []
         input_items: list[dict] = []
 
@@ -199,6 +242,51 @@ class CodexChatModel(ChatModelBase):
             return tool_choice
         return {"type": "function", "name": tool_choice}
 
+    @staticmethod
+    def _collect_reasoning_parts(output_item: dict[str, Any]) -> list[str]:
+        reasoning_parts: list[str] = []
+        for summary_item in output_item.get("summary", []):
+            if not isinstance(summary_item, dict):
+                continue
+            if summary_item.get("type") != "summary_text":
+                continue
+            text = summary_item.get("text", "")
+            if isinstance(text, str) and text:
+                reasoning_parts.append(text)
+        return reasoning_parts
+
+    @staticmethod
+    def _collect_text_parts(output_item: dict[str, Any]) -> list[str]:
+        text_parts: list[str] = []
+        for part in output_item.get("content", []):
+            if part.get("type") != "output_text":
+                continue
+            text = part.get("text", "")
+            if isinstance(text, str) and text:
+                text_parts.append(text)
+        return text_parts
+
+    @staticmethod
+    def _parse_tool_use_block(output_item: dict[str, Any]) -> ToolUseBlock:
+        raw_arguments = output_item.get("arguments", "{}")
+        if isinstance(raw_arguments, dict):
+            parsed_arguments = raw_arguments
+            raw_input = json.dumps(raw_arguments)
+        else:
+            try:
+                parsed_arguments = json.loads(raw_arguments or "{}")
+            except (TypeError, json.JSONDecodeError):
+                parsed_arguments = {}
+            raw_input = raw_arguments
+
+        return ToolUseBlock(
+            type="tool_use",
+            id=output_item.get("call_id", ""),
+            name=output_item.get("name", ""),
+            input=parsed_arguments,
+            raw_input=raw_input,
+        )
+
     def _parse_response(self, response: dict[str, Any]) -> ChatResponse:
         content_blocks: list = []
         reasoning_parts: list[str] = []
@@ -208,39 +296,16 @@ class CodexChatModel(ChatModelBase):
         for output_item in response.get("output", []):
             item_type = output_item.get("type")
             if item_type == "reasoning":
-                for summary_item in output_item.get("summary", []):
-                    if (
-                        isinstance(summary_item, dict)
-                        and summary_item.get("type") == "summary_text"
-                    ):
-                        text = summary_item.get("text", "")
-                        if isinstance(text, str) and text:
-                            reasoning_parts.append(text)
-            elif item_type == "message":
-                for part in output_item.get("content", []):
-                    if part.get("type") == "output_text":
-                        text = part.get("text", "")
-                        if isinstance(text, str) and text:
-                            text_parts.append(text)
-            elif item_type == "function_call":
-                raw_arguments = output_item.get("arguments", "{}")
-                parsed_arguments: dict[str, Any]
-                if isinstance(raw_arguments, dict):
-                    parsed_arguments = raw_arguments
-                else:
-                    try:
-                        parsed_arguments = json.loads(raw_arguments or "{}")
-                    except (TypeError, json.JSONDecodeError):
-                        parsed_arguments = {}
-
+                reasoning_parts.extend(
+                    self._collect_reasoning_parts(output_item),
+                )
+                continue
+            if item_type == "message":
+                text_parts.extend(self._collect_text_parts(output_item))
+                continue
+            if item_type == "function_call":
                 tool_blocks.append(
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=output_item.get("call_id", ""),
-                        name=output_item.get("name", ""),
-                        input=parsed_arguments,
-                        raw_input=raw_arguments if isinstance(raw_arguments, str) else json.dumps(raw_arguments),
-                    ),
+                    self._parse_tool_use_block(output_item),
                 )
 
         if reasoning_parts:
@@ -267,30 +332,11 @@ class CodexChatModel(ChatModelBase):
         )
         return ChatResponse(content=content_blocks, usage=usage)
 
-    async def _collect_response_payload(self, response_or_stream: Any) -> dict[str, Any]:
-        if hasattr(response_or_stream, "__aiter__"):
-            completed_response: Any = None
-            try:
-                async for event in response_or_stream:
-                    event_type = getattr(event, "type", None)
-                    if event_type == "response.completed":
-                        completed_response = getattr(event, "response", None)
-            finally:
-                close = getattr(response_or_stream, "close", None)
-                if close is not None:
-                    await close()
-
-            if completed_response is None:
-                raise RuntimeError(
-                    "Codex API stream ended without response.completed event",
-                )
-            if hasattr(completed_response, "model_dump"):
-                return completed_response.model_dump()
-            return completed_response
-
-        if hasattr(response_or_stream, "model_dump"):
-            return response_or_stream.model_dump()
-        return response_or_stream
+    async def _collect_response_payload(
+        self,
+        response_or_stream: Any,
+    ) -> dict[str, Any]:
+        return await _collect_response_payload(response_or_stream)
 
     async def __call__(
         self,
@@ -319,7 +365,9 @@ class CodexChatModel(ChatModelBase):
                 "effort": reasoning_effort,
             },
         }
-        create_kwargs["instructions"] = instructions or CODEX_DEFAULT_INSTRUCTIONS
+        create_kwargs["instructions"] = (
+            instructions or CODEX_DEFAULT_INSTRUCTIONS
+        )
         converted_tools = self._convert_tools(tools)
         if converted_tools:
             create_kwargs["tools"] = converted_tools
@@ -327,10 +375,15 @@ class CodexChatModel(ChatModelBase):
         if converted_tool_choice is not None:
             create_kwargs["tool_choice"] = converted_tool_choice
 
-        response = await self._client(timeout=merged_kwargs.pop("timeout", 30)).responses.create(
+        client = _build_codex_client(
+            access_token=self._access_token,
+            account_id=self._account_id,
+            timeout=merged_kwargs.pop("timeout", 30),
+        )
+        response = await client.responses.create(
             **create_kwargs,
         )
-        payload = await self._collect_response_payload(response)
+        payload = await _collect_response_payload(response)
         return self._parse_response(payload)
 
 
@@ -344,22 +397,34 @@ class CodexProvider(Provider):
         credential = self._load_credential()
         if credential is None:
             raise RuntimeError(
-                "Codex CLI credential not found. Expected ~/.codex/auth.json or CODEX_AUTH_PATH.",
+                "Codex CLI credential not found. Expected ~/.codex/auth.json "
+                "or CODEX_AUTH_PATH.",
             )
-        return CodexChatModel(
-            model_name=self.models[0].id if self.models else "gpt-5.4",
+        return _build_codex_client(
             access_token=credential.access_token,
             account_id=credential.account_id,
-            stream=False,
-        )._client(timeout=timeout)
+            timeout=timeout,
+        )
 
-    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+    def _get_client_and_credential(
+        self,
+        timeout: float = 5,
+    ) -> tuple[AsyncOpenAI, CodexCliCredential] | tuple[None, None]:
         credential = self._load_credential()
         if credential is None:
-            return False, "Codex CLI credential not found"
+            return None, None
+        return (
+            self._client(timeout=timeout),
+            credential,
+        )
 
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        client, _credential = self._get_client_and_credential(
+            timeout=timeout,
+        )
+        if client is None:
+            return False, "Codex CLI credential not found"
         model_id = self.models[0].id if self.models else "gpt-5.4"
-        client = self._client(timeout=timeout)
         try:
             response = await client.responses.create(
                 model=model_id,
@@ -370,11 +435,7 @@ class CodexProvider(Provider):
                 stream=True,
                 timeout=timeout,
             )
-            await CodexChatModel(
-                model_name=model_id,
-                access_token=credential.access_token,
-                account_id=credential.account_id,
-            )._collect_response_payload(response)
+            await _collect_response_payload(response)
             return True, ""
         except APIError:
             return False, "API error when connecting to Codex"
@@ -390,11 +451,9 @@ class CodexProvider(Provider):
         model_id: str,
         timeout: float = 5,
     ) -> tuple[bool, str]:
-        credential = self._load_credential()
-        if credential is None:
+        client, _credential = self._get_client_and_credential(timeout=timeout)
+        if client is None:
             return False, "Codex CLI credential not found"
-
-        client = self._client(timeout=timeout)
         try:
             response = await client.responses.create(
                 model=model_id,
@@ -405,17 +464,14 @@ class CodexProvider(Provider):
                 stream=True,
                 timeout=timeout,
             )
-            await CodexChatModel(
-                model_name=model_id,
-                access_token=credential.access_token,
-                account_id=credential.account_id,
-            )._collect_response_payload(response)
+            await _collect_response_payload(response)
             return True, ""
         except APIError:
             return False, f"API error when connecting to model '{model_id}'"
         except Exception as exc:
             return False, (
-                f"Unknown exception when connecting to model '{model_id}': {exc}"
+                "Unknown exception when connecting to model "
+                f"'{model_id}': {exc}"
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
