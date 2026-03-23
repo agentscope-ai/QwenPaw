@@ -15,7 +15,7 @@ const getParentDir = (filePath: string): string => {
 
 export const useAgentsData = () => {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
+  const { selectedAgent, agents } = useAgentStore();
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<MarkdownFile | null>(null);
   const [dailyMemories, setDailyMemories] = useState<DailyMemoryFile[]>([]);
@@ -25,6 +25,7 @@ export const useAgentsData = () => {
   const [loading, setLoading] = useState(false);
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<"core" | "all">("core");
 
   useEffect(() => {
     const initializeData = async () => {
@@ -37,7 +38,10 @@ export const useAgentsData = () => {
       setExpandedMemory(false);
 
       const enabled = await fetchEnabledFiles();
-      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const fileList = await agentsApi.listAgentFiles(
+        selectedAgent,
+        viewMode === "all",
+      );
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -69,7 +73,7 @@ export const useAgentsData = () => {
     };
     initializeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgent]);
+  }, [selectedAgent, viewMode]);
 
   // Re-sort when enabledFiles changes (for toggle/reorder operations)
   useEffect(() => {
@@ -128,7 +132,10 @@ export const useAgentsData = () => {
         ? latestEnabledFiles
         : await fetchEnabledFiles();
       // Use agent-specific API
-      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const fileList = await agentsApi.listAgentFiles(
+        selectedAgent,
+        viewMode === "all",
+      );
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -273,7 +280,23 @@ export const useAgentsData = () => {
     }
   };
 
+  const handleDownloadSelected = async (paths: string[]) => {
+    try {
+      setLoading(true);
+      await agentsApi.downloadSelectedFiles(selectedAgent, paths);
+      message.success(t("workspace.downloadSuccess", "Download started"));
+    } catch (e) {
+      console.error("Failed to download files", e);
+      message.error(t("workspace.downloadFailed", "Download failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const hasChanges = fileContent !== originalContent;
+
+  const currentAgent = agents.find((a) => a.id === selectedAgent);
+  const effectiveWorkspacePath = currentAgent?.workspace_dir || workspacePath;
 
   return {
     files,
@@ -282,9 +305,11 @@ export const useAgentsData = () => {
     expandedMemory,
     fileContent,
     loading,
-    workspacePath,
+    workspacePath: effectiveWorkspacePath,
     hasChanges,
     enabledFiles,
+    viewMode,
+    setViewMode,
     setFileContent,
     fetchFiles,
     fetchDailyMemories,
@@ -294,5 +319,6 @@ export const useAgentsData = () => {
     handleReset,
     handleToggleFileEnabled,
     handleReorderFiles,
+    handleDownloadSelected,
   };
 };

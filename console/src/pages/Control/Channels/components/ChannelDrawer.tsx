@@ -390,21 +390,6 @@ export function ChannelDrawer({
         return (
           <>
             <Form.Item
-              name="domain"
-              label={t("channels.feishuRegion")}
-              initialValue="feishu"
-              tooltip={t("channels.feishuRegionTooltip")}
-            >
-              <Select>
-                <Select.Option value="feishu">
-                  {t("channels.feishuChina")}
-                </Select.Option>
-                <Select.Option value="lark">
-                  {t("channels.feishuInternational")}
-                </Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item
               name="app_id"
               label="App ID"
               rules={[{ required: true }]}

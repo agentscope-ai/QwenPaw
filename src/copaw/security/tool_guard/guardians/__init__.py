@@ -23,9 +23,8 @@ class BaseToolGuardian(ABC):
         Human-readable guardian name (used in :attr:`GuardFinding.guardian`).
     """
 
-    def __init__(self, name: str, *, always_run: bool = False) -> None:
+    def __init__(self, name: str) -> None:
         self.name = name
-        self.always_run = always_run
 
     # ------------------------------------------------------------------
     # Abstract interface

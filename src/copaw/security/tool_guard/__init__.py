@@ -42,7 +42,6 @@ from .models import (
 )
 from .engine import ToolGuardEngine
 from .guardians import BaseToolGuardian
-from .guardians.file_guardian import FilePathToolGuardian
 from .guardians.rule_guardian import RuleBasedToolGuardian
 
 __all__ = [
@@ -51,7 +50,6 @@ __all__ = [
     "GuardSeverity",
     "GuardThreatCategory",
     "BaseToolGuardian",
-    "FilePathToolGuardian",
     "RuleBasedToolGuardian",
     "ToolGuardEngine",
     "ToolGuardResult",

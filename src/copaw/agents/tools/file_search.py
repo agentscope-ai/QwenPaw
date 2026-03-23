@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long
 """File search tools: grep (content search) and glob (file discovery)."""
 
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -10,8 +11,8 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
+from ...constant import WORKING_DIR
 from .file_io import _resolve_file_path
 
 # Skip binary / large files
@@ -154,11 +155,23 @@ async def grep_search(  # pylint: disable=too-many-branches
     if single_file:
         files = [search_root]
     else:
-        files = sorted(
-            f
-            for f in search_root.rglob("*")
-            if f.is_file() and _is_text_file(f)
-        )
+        exclude_dirs = {
+            "__pycache__",
+            ".git",
+            "node_modules",
+            "venv",
+            ".venv",
+            "env",
+        }
+        files = []
+        for root, dirs, filenames in os.walk(search_root):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            root_path = Path(root)
+            for fname in filenames:
+                f = root_path / fname
+                if f.is_file() and _is_text_file(f):
+                    files.append(f)
+        files.sort()
 
     for file_path in files:
         if truncated:

@@ -12,7 +12,6 @@ import {
   PlusCircleOutlined,
   SafetyOutlined,
   ScanOutlined,
-  FileProtectOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -23,7 +22,6 @@ import {
   RuleModal,
   PreviewModal,
   SkillScannerSection,
-  FileGuardSection,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -328,23 +326,6 @@ function SecurityPage() {
                       {t("common.save")}
                     </Button>
                   </div>
-                </div>
-              ),
-            },
-            {
-              key: "fileGuard",
-              label: (
-                <span className={styles.tabLabel}>
-                  <FileProtectOutlined />
-                  {t("security.fileGuard.title")}
-                </span>
-              ),
-              children: (
-                <div className={styles.tabContent}>
-                  <p className={styles.tabDescription}>
-                    {t("security.fileGuard.description")}
-                  </p>
-                  <FileGuardSection />
                 </div>
               ),
             },
