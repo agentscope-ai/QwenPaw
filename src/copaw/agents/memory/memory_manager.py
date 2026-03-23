@@ -220,7 +220,7 @@ class MemoryManager(ReMeLight):
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
-
+        add_thinking_block = agent_config.running.compact_with_thinking_block
         workspace_dir = agent_config.workspace_dir
 
         result = await super().compact_memory(
@@ -233,6 +233,7 @@ class MemoryManager(ReMeLight):
             compact_ratio=agent_config.running.memory_compact_ratio,
             previous_summary=previous_summary,
             return_dict=True,
+            add_thinking_block=add_thinking_block,
         )
 
         # Handle unexpected str return (should be dict)
@@ -289,6 +290,7 @@ class MemoryManager(ReMeLight):
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
+        add_thinking_block = agent_config.running.compact_with_thinking_block
         user_tz = load_config().user_timezone or None
 
         return await super().summary_memory(
@@ -301,6 +303,7 @@ class MemoryManager(ReMeLight):
             max_input_length=agent_config.running.max_input_length,
             compact_ratio=agent_config.running.memory_compact_ratio,
             timezone=user_tz,
+            add_thinking_block=add_thinking_block,
         )
 
     async def memory_search(

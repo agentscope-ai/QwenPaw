@@ -338,6 +338,11 @@ class AgentsRunningConfig(BaseModel):
         description="Maximum length for /history command output",
     )
 
+    compact_with_thinking_block: bool = Field(
+        default=True,
+        description="Whether to include thinking blocks when compact",
+    )
+
     embedding_config: EmbeddingConfig = Field(
         default_factory=EmbeddingConfig,
         description="Embedding model configuration",
