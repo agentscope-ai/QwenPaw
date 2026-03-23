@@ -5,12 +5,33 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/messages", tags=["messages"])
+
+
+def _get_multi_agent_manager(request: Request):
+    """Get MultiAgentManager from app state.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        MultiAgentManager instance
+
+    Raises:
+        HTTPException: If manager not initialized
+    """
+
+    if not hasattr(request.app.state, "multi_agent_manager"):
+        raise HTTPException(
+            status_code=500,
+            detail="MultiAgentManager not initialized",
+        )
+    return request.app.state.multi_agent_manager
 
 
 class SendMessageRequest(BaseModel):
@@ -54,6 +75,7 @@ class SendMessageResponse(BaseModel):
 @router.post("/send", response_model=SendMessageResponse)
 async def send_message(
     request: SendMessageRequest,
+    http_request: Request,
     x_agent_id: Optional[str] = Header(None, alias="X-Agent-Id"),
 ) -> SendMessageResponse:
     """Send a text message to a channel.
@@ -63,6 +85,7 @@ async def send_message(
 
     Args:
         request: Message send request with channel, target, and text
+        http_request: FastAPI request object (for accessing app state)
         x_agent_id: Agent ID from X-Agent-Id header (defaults to "default")
 
     Returns:
@@ -84,27 +107,11 @@ async def send_message(
           }'
         ```
     """
-    from ..multi_agent_manager import MultiAgentManager
-    from .._app import app
-
     # Get agent ID (default to "default" if not provided)
     agent_id = x_agent_id or "default"
 
-    # Get multi-agent manager from app state
-    try:
-        multi_agent_manager: MultiAgentManager = app.state.multi_agent_manager
-    except AttributeError as e:
-        logger.error("Failed to get multi-agent manager: %s", e)
-        raise HTTPException(
-            status_code=500,
-            detail="Multi-agent manager not available",
-        ) from e
-
-    if not multi_agent_manager:
-        raise HTTPException(
-            status_code=500,
-            detail="Multi-agent manager not initialized",
-        )
+    # Get multi-agent manager from app state (via request)
+    multi_agent_manager = _get_multi_agent_manager(http_request)
 
     # Get workspace for the agent
     try:
