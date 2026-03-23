@@ -280,18 +280,23 @@ export default function ChatPage() {
 
     const handleCompositionEnd = () => {
       if (!isChatActiveRef.current) return;
+      // Use a slightly longer delay for Safari on macOS, which fires keydown
+      // after compositionend within the same event loop tick.
       setTimeout(() => {
         isComposingRef.current = false;
-      }, 150);
+      }, 200);
     };
 
-    const handleKeyPress = (e: KeyboardEvent) => {
+    const suppressImeEnter = (e: KeyboardEvent) => {
       if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+        // e.isComposing is the standard flag; isComposingRef covers the
+        // post-compositionend grace period needed by Safari.
         if (isComposingRef.current || (e as any).isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
+          e.preventDefault();
           return false;
         }
       }
@@ -299,7 +304,9 @@ export default function ChatPage() {
 
     document.addEventListener("compositionstart", handleCompositionStart, true);
     document.addEventListener("compositionend", handleCompositionEnd, true);
-    document.addEventListener("keypress", handleKeyPress, true);
+    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
+    document.addEventListener("keydown", suppressImeEnter, true);
+    document.addEventListener("keypress", suppressImeEnter, true);
 
     return () => {
       document.removeEventListener(
@@ -312,7 +319,8 @@ export default function ChatPage() {
         handleCompositionEnd,
         true,
       );
-      document.removeEventListener("keypress", handleKeyPress, true);
+      document.removeEventListener("keydown", suppressImeEnter, true);
+      document.removeEventListener("keypress", suppressImeEnter, true);
     };
   }, []);
 
