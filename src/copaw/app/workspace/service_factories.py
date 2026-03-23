@@ -97,6 +97,8 @@ async def create_channel_service(ws: "Workspace", _):
         workspace_dir=ws.workspace_dir,
     )
     ws._service_manager.services["channel_manager"] = cm
+    runner = ws._service_manager.services["runner"]
+    runner.set_channel_manager(cm)
     return cm
     # pylint: enable=protected-access
 
