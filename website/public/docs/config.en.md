@@ -57,7 +57,7 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 | `active_skills/`     | Currently enabled skills                                     |
 | `customized_skills/` | User-created custom skills                                   |
 | `memory/`            | Memory files (auto-managed)                                  |
-| `browser/`            | Browser user data (cookies, cache, localStorage, etc.)      |
+| `browser/`           | Browser user data (cookies, cache, localStorage, etc.)       |
 
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
