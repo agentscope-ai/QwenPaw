@@ -484,3 +484,55 @@ def init_cmd(
         click.echo(f"✓ Heartbeat query saved to {heartbeat_path}")
 
     click.echo("\n✓ Initialization complete!")
+
+    # Run health check after initialization
+    click.echo("\n" + "=" * 60)
+    click.echo("Running system health check...")
+    click.echo("=" * 60)
+
+    from ..config.health import HealthChecker, HealthStatus
+
+    checker = HealthChecker()
+    health = checker.check_all()
+
+    # Display results
+    status_icons = {
+        HealthStatus.HEALTHY: "✓",
+        HealthStatus.DEGRADED: "⚠",
+        HealthStatus.UNHEALTHY: "✗",
+    }
+
+    for check in health.checks:
+        icon = status_icons[check.status]
+        click.echo(f"{icon} {check.name}: {check.message}")
+        if check.suggestion:
+            click.secho(f"  → {check.suggestion}", fg="cyan")
+
+    click.echo()
+    if health.status == HealthStatus.HEALTHY:
+        click.secho(
+            "✓ All checks passed! You're ready to use CoPaw.",
+            fg="green",
+            bold=True,
+        )
+        click.echo("\nNext steps:")
+        click.echo("  • Run 'copaw app' to start the web console")
+        click.echo("  • Visit http://localhost:8088 in your browser")
+    elif health.status == HealthStatus.DEGRADED:
+        click.secho(
+            f"⚠ System is degraded ({health.degraded_count} warnings)",
+            fg="yellow",
+            bold=True,
+        )
+        click.echo(
+            "\nYou can still use CoPaw, but some features may not work.",
+        )
+        click.echo("Run 'copaw health' anytime to check system status.")
+    else:
+        click.secho(
+            f"✗ System has critical issues ({health.unhealthy_count} errors)",
+            fg="red",
+            bold=True,
+        )
+        click.echo("\nPlease fix the errors above before using CoPaw.")
+        click.echo("Run 'copaw health' to check status after fixing.")
