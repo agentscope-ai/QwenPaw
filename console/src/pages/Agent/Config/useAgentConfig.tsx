@@ -43,8 +43,17 @@ export function useAgentConfig() {
   const handleSave = useCallback(async () => {
     try {
       const values = await form.validateFields();
+      const allValues = form.getFieldsValue(true) as AgentsRunningConfig;
+      const payload: AgentsRunningConfig = {
+        ...allValues,
+        ...values,
+        embedding_config: {
+          ...(allValues.embedding_config || {}),
+          ...((values as Partial<AgentsRunningConfig>).embedding_config || {}),
+        },
+      };
       setSaving(true);
-      await api.updateAgentRunningConfig(values as AgentsRunningConfig);
+      await api.updateAgentRunningConfig(payload);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;

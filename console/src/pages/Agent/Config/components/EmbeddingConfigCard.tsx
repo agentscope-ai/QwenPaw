@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import {
   Form,
   Card,
-  Switch,
   Select,
   Input,
   Button,
@@ -11,12 +10,15 @@ import {
   Tooltip,
   message,
 } from "@agentscope-ai/design";
+import { Switch } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type {
   LocalEmbeddingConfig,
+  EmbeddingConfigShape,
   EmbeddingPresetModels,
   EmbeddingModelInfo,
+  EmbeddingResourceHint,
 } from "../../../../api/types";
 import styles from "../index.module.less";
 
@@ -26,8 +28,9 @@ interface EmbeddingConfigCardProps {
   form: ReturnType<typeof Form.useForm>[0];
 }
 
-const DEFAULT_CONFIG: LocalEmbeddingConfig = {
+const DEFAULT_EMBEDDING_CONFIG: Partial<EmbeddingConfigShape> = {
   enabled: false,
+  backend_type: "transformers",
   model_id: "qwen/Qwen3-VL-Embedding-2B",
   model_path: null,
   device: "auto",
@@ -88,7 +91,20 @@ const FALLBACK_PRESET_MODELS: EmbeddingPresetModels = {
 
 export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const { t } = useTranslation();
-  const [enabled, setEnabled] = useState(false);
+  const embeddingConfig = Form.useWatch("embedding_config", form) as
+    | EmbeddingConfigShape
+    | undefined;
+  const embeddingBackendType = Form.useWatch(
+    ["embedding_config", "backend_type"],
+    form,
+  ) as EmbeddingConfigShape["backend_type"] | undefined;
+  const embeddingEnabled = Form.useWatch(
+    ["embedding_config", "enabled"],
+    form,
+  ) as boolean | undefined;
+  /** 本地 transformers：须 backend_type + enabled；勿仅用 enabled（默认常与 openai 同时为 true） */
+  const localActive =
+    embeddingBackendType === "transformers" && embeddingEnabled === true;
   const [presetModels, setPresetModels] =
     useState<EmbeddingPresetModels | null>(null);
   const [loadingPresets, setLoadingPresets] = useState(false);
@@ -102,16 +118,38 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const [selectedModel, setSelectedModel] = useState<EmbeddingModelInfo | null>(
     null,
   );
+  const [resourceHint, setResourceHint] =
+    useState<EmbeddingResourceHint | null>(null);
+  const [localSwitchChecked, setLocalSwitchChecked] = useState(false);
+  // UI interactivity follows the switch state to avoid a "switch on but still disabled" mismatch.
+  const localUiActive = localSwitchChecked || localActive;
 
   // Load preset models on mount
   useEffect(() => {
     loadPresetModels();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const hint = await api.getEmbeddingResourceHint();
+        if (!cancelled && hint) {
+          setResourceHint(hint);
+        }
+      } catch {
+        /* optional hint */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Update selected model info when model_id changes
   useEffect(() => {
     try {
-      const modelId = form?.getFieldValue?.(["local_embedding", "model_id"]);
+      const modelId = embeddingConfig?.model_id;
       if (
         presetModels &&
         modelId &&
@@ -125,24 +163,17 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
     } catch (e) {
       console.error("Error updating selected model:", e);
     }
-  }, [presetModels, form, enabled]);
+  }, [presetModels, embeddingConfig?.model_id]);
 
-  // Watch enabled state
   useEffect(() => {
-    try {
-      const value = form?.getFieldValue?.(["local_embedding", "enabled"]);
-      setEnabled(value === true);
-    } catch (e) {
-      console.error("Error watching enabled state:", e);
-    }
-  }, [form]);
+    setLocalSwitchChecked(localActive);
+  }, [localActive]);
 
   const loadPresetModels = async () => {
     setLoadingPresets(true);
     setLoadError(null);
     try {
       const data = await api.getPresetEmbeddingModels();
-      console.log("Preset models API response:", data);
       // Validate data structure - API returns {multimodal: [...], text: [...]}
       if (data) {
         const multimodal = Array.isArray(data.multimodal)
@@ -150,12 +181,6 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
           : [];
         const text = Array.isArray(data.text) ? data.text : [];
         setPresetModels({ multimodal, text });
-        console.log(
-          "Loaded models from API - multimodal:",
-          multimodal.length,
-          "text:",
-          text.length,
-        );
       } else {
         console.warn("Empty preset models data, using fallback");
         setPresetModels(FALLBACK_PRESET_MODELS);
@@ -175,39 +200,58 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
     }
   };
 
-  const handleEnabledChange = (checked: boolean) => {
-    setEnabled(checked);
-    // Initialize with default config if not exists
-    if (checked) {
-      try {
-        const currentConfig = form?.getFieldValue?.("local_embedding");
-        // Only set defaults if model_id is missing, indicating an uninitialized config
-        if (!currentConfig?.model_id) {
-          form?.setFieldsValue?.({
-            local_embedding: {
-              ...DEFAULT_CONFIG,
-              ...(currentConfig || {}),
-              enabled: true,
-            },
-          });
-        }
-      } catch (e) {
-        console.error("Error initializing config:", e);
+  const handleLocalEmbeddingSwitch = (checked: boolean) => {
+    setLocalSwitchChecked(checked);
+    if (!form) {
+      return;
+    }
+    try {
+      const current = (form.getFieldValue("embedding_config") || {}) as
+        Partial<EmbeddingConfigShape>;
+      if (checked) {
+        const next = {
+          ...DEFAULT_EMBEDDING_CONFIG,
+          ...current,
+          backend_type: "transformers" as const,
+          enabled: true,
+        };
+        form.setFieldsValue({ embedding_config: next });
+      } else {
+        // Keep enabled=true when switching to remote backend, so embedding
+        // remains available via OpenAI-compatible API.
+        form.setFieldsValue({
+          embedding_config: {
+            ...current,
+            backend_type: "openai" as const,
+            enabled: true,
+          },
+        });
       }
+    } catch (e) {
+      console.error("Error updating local embedding switch:", e);
     }
   };
 
   const handleTest = async () => {
     try {
-      const values = form?.getFieldValue?.(
-        "local_embedding",
-      ) as LocalEmbeddingConfig;
-      if (!values?.model_id) {
+      const ec = form?.getFieldValue?.("embedding_config") as
+        | EmbeddingConfigShape
+        | undefined;
+      if (!ec?.model_id) {
         message.warning(
           t("agentConfig.embedding.modelRequired") || "请选择模型",
         );
         return;
       }
+
+      const values: LocalEmbeddingConfig = {
+        enabled: true,
+        model_id: ec.model_id,
+        model_path: ec.model_path,
+        device: ec.device,
+        dtype: ec.dtype,
+        download_source: ec.download_source,
+      };
 
       setTesting(true);
       setTestResult(null);
@@ -242,15 +286,24 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
   const handleDownload = async () => {
     try {
-      const values = form?.getFieldValue?.(
-        "local_embedding",
-      ) as LocalEmbeddingConfig;
-      if (!values?.model_id) {
+      const ec = form?.getFieldValue?.("embedding_config") as
+        | EmbeddingConfigShape
+        | undefined;
+      if (!ec?.model_id) {
         message.warning(
           t("agentConfig.embedding.modelRequired") || "请选择模型",
         );
         return;
       }
+
+      const values: LocalEmbeddingConfig = {
+        enabled: true,
+        model_id: ec.model_id,
+        model_path: ec.model_path,
+        device: ec.device,
+        dtype: ec.dtype,
+        download_source: ec.download_source,
+      };
 
       setDownloading(true);
       try {
@@ -319,16 +372,53 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
       title={titleContent}
       style={{ marginTop: 16 }}
     >
+      {/* 无 name：不向子节点注入 value/onChange。单 child（div）内含 Switch，避免多子节点 Form.Item 误绑 Switch */}
       <Form.Item
-        label={t("agentConfig.embedding.enable") || "启用本地 Embedding"}
-        name={["local_embedding", "enabled"]}
-        valuePropName="checked"
-        tooltip={
-          t("agentConfig.embedding.enableTooltip") ||
-          "开启后将使用本地模型生成文本向量"
+        style={{ marginBottom: 16 }}
+        label={
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontWeight: 500 }}>
+              {t("agentConfig.embedding.enable") || "启用本地 Embedding"}
+            </span>
+            <Tooltip
+              title={
+                t("agentConfig.embedding.enableTooltip") ||
+                "开启后将使用本地 transformers 模型；关闭则使用远程/OpenAI 兼容 API"
+              }
+            >
+              <span style={{ cursor: "help", color: "#999" }}>ⓘ</span>
+            </Tooltip>
+          </span>
         }
       >
-        <Switch onChange={handleEnabledChange} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <Switch
+            id="embedding-local-backend-switch"
+            checked={localSwitchChecked}
+            onChange={handleLocalEmbeddingSwitch}
+            aria-label={
+              t("agentConfig.embedding.enable") || "启用本地 Embedding"
+            }
+          />
+          <span style={{ fontSize: 12, color: "#888" }}>
+            {localUiActive
+              ? "已选本地模型后端"
+              : "当前为远程 API 后端；打开后可测试/下载本地模型"}
+          </span>
+        </div>
       </Form.Item>
 
       {loadError && (
@@ -342,10 +432,83 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         />
       )}
 
+      {resourceHint && (
+        <Alert
+          type="info"
+          showIcon
+          message="本机资源与模型建议（未加载权重）"
+          description={
+            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <div>
+                <strong>系统</strong> {resourceHint.platform} ·{" "}
+                <strong>CPU 逻辑核心</strong> {resourceHint.cpu_count ?? "?"}
+                {resourceHint.ram_total_gb != null && (
+                  <>
+                    {" "}
+                    · <strong>内存</strong> 总计约 {resourceHint.ram_total_gb}{" "}
+                    GB
+                    {resourceHint.ram_available_gb != null && (
+                      <>（可用约 {resourceHint.ram_available_gb} GB）</>
+                    )}
+                  </>
+                )}
+              </div>
+              {Array.isArray(resourceHint.gpus) &&
+              resourceHint.gpus.length > 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <strong>NVIDIA GPU</strong>
+                  <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                    {resourceHint.gpus.map((g) => (
+                      <li key={g.index}>
+                        {g.name}
+                        {g.total_memory_mb != null && (
+                          <> — 显存约 {Math.round(g.total_memory_mb / 1024)} GB</>
+                        )}
+                        {g.source && (
+                          <span style={{ color: "#888" }}> ({g.source})</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : Array.isArray(resourceHint.gpus) ? (
+                <div style={{ marginTop: 8, color: "#666" }}>
+                  未检测到可用 NVIDIA GPU（或未安装驱动）；多模态大模型将主要依赖 CPU
+                  与内存。
+                </div>
+              ) : null}
+              {resourceHint.recommendation ? (
+                <div style={{ marginTop: 10 }}>
+                  <strong>选型建议</strong>
+                  <p style={{ margin: "6px 0 0 0" }}>
+                    {resourceHint.recommendation}
+                  </p>
+                  {resourceHint.model_tiers && (
+                    <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                      <li>{resourceHint.model_tiers.text_small}</li>
+                      <li>{resourceHint.model_tiers.text_mid}</li>
+                      <li>{resourceHint.model_tiers.multimodal_2b}</li>
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+              {resourceHint.note ? (
+                <p style={{ margin: "8px 0 0 0", color: "#888", fontSize: 12 }}>
+                  {resourceHint.note}
+                </p>
+              ) : null}
+            </div>
+          }
+          style={{ marginBottom: 16 }}
+          closable
+          onClose={() => setResourceHint(null)}
+        />
+      )}
+
       <div
         style={{
-          opacity: enabled ? 1 : 0.5,
-          pointerEvents: enabled ? "auto" : "none",
+          opacity: localUiActive ? 1 : 0.5,
+          pointerEvents: localUiActive ? "auto" : "none",
         }}
       >
         {testResult && (
@@ -360,7 +523,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
         <Form.Item
           label={t("agentConfig.embedding.model") || "模型"}
-          name={["local_embedding", "model_id"]}
+          name={["embedding_config", "model_id"]}
           rules={[
             {
               required: true,
@@ -428,7 +591,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
         <Form.Item
           label={t("agentConfig.embedding.downloadSource") || "下载源"}
-          name={["local_embedding", "download_source"]}
+          name={["embedding_config", "download_source"]}
           tooltip={
             t("agentConfig.embedding.downloadSourceTooltip") ||
             "ModelScope 适合中国大陆访问"
@@ -445,7 +608,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
         <Form.Item
           label={t("agentConfig.embedding.device") || "运行设备"}
-          name={["local_embedding", "device"]}
+          name={["embedding_config", "device"]}
           tooltip={
             t("agentConfig.embedding.deviceTooltip") || "auto 自动检测 GPU"
           }
@@ -461,7 +624,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
         <Form.Item
           label={t("agentConfig.embedding.dtype") || "数据精度"}
-          name={["local_embedding", "dtype"]}
+          name={["embedding_config", "dtype"]}
           tooltip={
             t("agentConfig.embedding.dtypeTooltip") || "FP16 速度快且省显存"
           }
@@ -477,7 +640,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
 
         <Form.Item
           label={t("agentConfig.embedding.modelPath") || "本地模型路径（可选）"}
-          name={["local_embedding", "model_path"]}
+          name={["embedding_config", "model_path"]}
           tooltip={
             t("agentConfig.embedding.modelPathTooltip") ||
             "留空自动下载到缓存目录"
@@ -496,7 +659,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
           <Button
             onClick={handleTest}
             loading={testing}
-            disabled={testing || !enabled}
+            disabled={testing || !localUiActive}
             type="default"
           >
             {testing
@@ -506,7 +669,7 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
           <Button
             onClick={handleDownload}
             loading={downloading}
-            disabled={downloading || !enabled}
+            disabled={downloading || !localUiActive}
             type="primary"
           >
             {downloading
