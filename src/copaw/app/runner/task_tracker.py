@@ -15,7 +15,6 @@ from typing import Any, AsyncGenerator, Callable, Coroutine
 
 logger = logging.getLogger(__name__)
 
-_QUEUE_MAX_SIZE = 4096
 _SENTINEL = None
 
 
@@ -107,7 +106,7 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
                 return None
-            q: asyncio.Queue = asyncio.Queue(maxsize=len(state.buffer))
+            q: asyncio.Queue = ()
             for sse in state.buffer:
                 q.put_nowait(sse)
             state.queues.append(q)
@@ -153,13 +152,13 @@ class TaskTracker:
         async with self._lock:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
-                q: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
+                q: asyncio.Queue = asyncio.Queue()
                 for sse in state.buffer:
                     q.put_nowait(sse)
                 state.queues.append(q)
                 return q, False
 
-            my_queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
+            my_queue: asyncio.Queue = asyncio.Queue()
             run = _RunState(
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
