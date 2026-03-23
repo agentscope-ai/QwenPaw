@@ -1,6 +1,7 @@
 export interface MdFileInfo {
   filename: string;
   path: string;
+  rel_path?: string;
   size: number;
   created_time: string;
   modified_time: string;

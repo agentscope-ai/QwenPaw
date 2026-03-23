@@ -178,7 +178,10 @@ export const useAgentsData = () => {
     setLoading(true);
     try {
       // Use agent-specific API
-      const data = await agentsApi.readAgentFile(selectedAgent, file.filename);
+      const data = await agentsApi.readAgentFile(
+        selectedAgent,
+        file.rel_path || file.filename,
+      );
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {
@@ -219,7 +222,11 @@ export const useAgentsData = () => {
         const date = selectedFile.filename.replace(".md", "");
         await api.saveDailyMemory(date, fileContent);
       } else {
-        await api.saveFile(selectedFile.filename, fileContent);
+        await agentsApi.writeAgentFile(
+          selectedAgent,
+          selectedFile.rel_path || selectedFile.filename,
+          fileContent,
+        );
       }
       setOriginalContent(fileContent);
       message.success("Saved successfully");

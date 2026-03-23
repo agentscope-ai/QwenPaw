@@ -47,15 +47,7 @@ export const buildFileTree = (
 
   for (const file of files) {
     // Attempt to derive relative path segments
-    let relPath = file.filename;
-    if (workspacePath && file.path) {
-      // Normalize separators to forward slash
-      const normBase = workspacePath.replace(/\\/g, "/").replace(/\/?$/, "/");
-      const normFull = file.path.replace(/\\/g, "/");
-      if (normFull.startsWith(normBase)) {
-        relPath = normFull.slice(normBase.length);
-      }
-    }
+    let relPath = file.rel_path || file.filename;
 
     const segments = relPath.split("/").filter(Boolean);
 

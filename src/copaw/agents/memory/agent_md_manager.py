@@ -36,6 +36,7 @@ class AgentMdManager:
                 result.append(
                     {
                         "filename": f.name,
+                        "rel_path": f.relative_to(self.working_dir).as_posix(),
                         "size": stat.st_size,
                         "path": str(f),
                         "created_time": datetime.fromtimestamp(
@@ -84,6 +85,7 @@ class AgentMdManager:
                     result.append(
                         {
                             "filename": f.name,
+                            "rel_path": f.relative_to(self.working_dir).as_posix(),
                             "size": stat.st_size,
                             "path": str(f),
                             "created_time": datetime.fromtimestamp(
@@ -145,6 +147,7 @@ class AgentMdManager:
                 result.append(
                     {
                         "filename": f.name,
+                        "rel_path": f.relative_to(self.working_dir).as_posix(),
                         "size": stat.st_size,
                         "path": str(f),
                         "created_time": datetime.fromtimestamp(

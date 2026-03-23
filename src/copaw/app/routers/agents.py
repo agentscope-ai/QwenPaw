@@ -64,6 +64,7 @@ class MdFileInfo(BaseModel):
 
     filename: str
     path: str
+    rel_path: str = ""
     size: int
     created_time: str
     modified_time: str
@@ -345,7 +346,7 @@ async def list_agent_files(
 
 
 @router.get(
-    "/{agentId}/files/{filename}",
+    "/{agentId}/files/{filename:path}",
     response_model=MdFileContent,
     summary="Read agent workspace file",
     description="Read a markdown file from agent's workspace",
@@ -378,7 +379,7 @@ async def read_agent_file(
 
 
 @router.put(
-    "/{agentId}/files/{filename}",
+    "/{agentId}/files/{filename:path}",
     response_model=dict,
     summary="Write agent workspace file",
     description="Create or update a markdown file in agent's workspace",
