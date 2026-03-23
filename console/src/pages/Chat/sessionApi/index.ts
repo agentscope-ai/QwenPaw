@@ -3,7 +3,12 @@ import {
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
-import api, { type ChatSpec, type ChatHistory, type ChatStatus, type Message } from "../../../api";
+import api, {
+  type ChatSpec,
+  type ChatHistory,
+  type ChatStatus,
+  type Message,
+} from "../../../api";
 import { chatApi } from "../../../api/modules/chat";
 
 // ---------------------------------------------------------------------------
@@ -284,7 +289,9 @@ const STORAGE_PREFIX = "copaw_pending_user_msg_";
 function savePendingUserMessage(sessionId: string, text: string): void {
   try {
     sessionStorage.setItem(`${STORAGE_PREFIX}${sessionId}`, text);
-  } catch { /* quota exceeded – ignore */ }
+  } catch {
+    /* quota exceeded – ignore */
+  }
 }
 
 function loadPendingUserMessage(sessionId: string): string {
@@ -298,7 +305,9 @@ function loadPendingUserMessage(sessionId: string): string {
 function clearPendingUserMessage(sessionId: string): void {
   try {
     sessionStorage.removeItem(`${STORAGE_PREFIX}${sessionId}`);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -374,10 +383,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         lastMsg?.cards?.[0]?.data?.input?.[0]?.content,
       );
       if (!text) {
-        lastMsg.cards = buildUserCard({ content: [{ type: "text", text: cachedText }], role: ROLE_USER } as Message).cards;
+        lastMsg.cards = buildUserCard({
+          content: [{ type: "text", text: cachedText }],
+          role: ROLE_USER,
+        } as Message).cards;
       }
     } else {
-      messages.push(buildUserCard({ content: [{ type: "text", text: cachedText }], role: ROLE_USER } as Message));
+      messages.push(
+        buildUserCard({
+          content: [{ type: "text", text: cachedText }],
+          role: ROLE_USER,
+        } as Message),
+      );
     }
   }
 

@@ -255,7 +255,6 @@ export default function ChatPage() {
     };
   }, []);
 
-
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
@@ -529,7 +528,8 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          const chatId = sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+          const chatId =
+            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
           if (chatId) {
             chatApi.stopChat(chatId).catch((err) => {
               console.error("Failed to stop chat:", err);
