@@ -732,6 +732,23 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   margin: 0 auto 0 0 !important;
   justify-content: flex-start !important;
 }
+
+/* BiDi text support for RTL languages (Arabic, Hebrew, Persian) */
+[class*="chat-anywhere-input"],
+[class*="chat-input"],
+[class*="sender-input"],
+[class*="copaw-sender-input"] {
+  direction: auto !important;
+  unicode-bidi: plaintext !important;
+}
+
+[class*="chat-anywhere"] [class*="message-content"],
+[class*="chat-anywhere"] [class*="message-item"] [class*="content"],
+[class*="message-list"] [class*="message-item"] p,
+[class*="message-list"] [class*="message-item"] span {
+  direction: auto !important;
+  unicode-bidi: plaintext !important;
+}
 [class*="chat-anywhere-default-header-right"] > *,
 [class*="default-header-right"] > * {
   margin-right: auto !important;
