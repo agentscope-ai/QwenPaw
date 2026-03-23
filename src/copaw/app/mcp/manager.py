@@ -185,20 +185,35 @@ class MCPClientManager:
         closing the ``AsyncExitStack`` directly — this triggers the
         ``stdio_client`` finally-block that sends SIGTERM/SIGKILL to
         the child process.
+
+        The ``ClientSession`` is registered on the same stack via
+        ``enter_async_context``, so ``stack.aclose()`` exits it in
+        LIFO order — no separate session teardown is needed.
         """
+        if client is None:
+            return
+
         stack = getattr(client, "stack", None)
-        if stack is not None:
-            try:
-                await stack.aclose()
-            except Exception:
-                logger.debug(
-                    "Error during force-cleanup of MCP client",
-                    exc_info=True,
-                )
-            finally:
-                client.stack = None
-                client.session = None
-                client.is_connected = False
+        if stack is None:
+            return
+
+        try:
+            await stack.aclose()
+        except Exception:
+            logger.debug(
+                "Error during force-cleanup of MCP client",
+                exc_info=True,
+            )
+        finally:
+            for attr, default in (
+                ("stack", None),
+                ("session", None),
+                ("is_connected", False),
+            ):
+                try:
+                    setattr(client, attr, default)
+                except Exception:
+                    pass
 
     @staticmethod
     def _build_client(client_config: "MCPClientConfig") -> Any:
