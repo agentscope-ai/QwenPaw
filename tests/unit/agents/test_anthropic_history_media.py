@@ -6,7 +6,7 @@ from copy import deepcopy
 from copaw.agents.model_factory import (
     _sanitize_anthropic_history_tool_result_media,
 )
-from copaw.agents.react_agent import CoPawAgent
+from copaw.agents.react_agent import is_bad_request_or_media_error
 
 
 def _make_tool_result_message(
@@ -66,10 +66,17 @@ def test_sanitize_history_tool_results_strips_media_but_keeps_text() -> None:
     assert tool_result["content"] == [
         {"type": "text", "text": "Image loaded: a.png"},
     ]
+    tool_result["content"][0]["text"] = "mutated"
+    assert (
+        messages[2]["content"][0]["content"][1]["text"]
+        == "Image loaded: a.png"
+    )
     assert messages == original
 
 
-def test_sanitize_history_tool_results_preserves_trailing_current_suffix() -> None:
+def test_sanitize_history_tool_results_preserves_trailing_current_suffix() -> (
+    None
+):
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "look"}]},
         {
@@ -129,15 +136,29 @@ def test_sanitize_history_tool_results_preserves_trailing_current_suffix() -> No
     assert trailing_result["content"][0]["source"]["url"] == "/tmp/b.png"
 
 
-def test_bad_request_detector_matches_anthropic_tool_result_source_bug() -> None:
+def test_bad_request_detector_matches_anthropic_tool_result_source_bug() -> (
+    None
+):
     class FakeAnthropicError(Exception):
         status_code = 500
 
         def __str__(self) -> str:
             return (
                 "Error code: 500 - {'error': {'code': '500', "
-                "\"message\": \"'ClaudeContentBlockToolResult' object "
+                '"message": "\'ClaudeContentBlockToolResult\' object '
                 "has no attribute 'source'\"}}"
             )
 
-    assert CoPawAgent._is_bad_request_or_media_error(FakeAnthropicError())
+    assert is_bad_request_or_media_error(FakeAnthropicError())
+
+
+def test_bad_request_detector_ignores_unrelated_source_attribute_errors() -> (
+    None
+):
+    class FakeGenericError(Exception):
+        status_code = 500
+
+        def __str__(self) -> str:
+            return "RuntimeError: object has no attribute 'source'"
+
+    assert not is_bad_request_or_media_error(FakeGenericError())

@@ -80,7 +80,8 @@ def _get_formatter_for_chat_model(
 
 
 _TOOL_RESULT_MEDIA_PLACEHOLDER = (
-    "[Historical media omitted from tool result for Anthropic compatibility]"
+    "[Historical media omitted from tool result "
+    "for Anthropic compatibility]"
 )
 
 
@@ -99,7 +100,7 @@ def _is_tool_result_only_user_message(message: dict[str, Any]) -> bool:
         and all(
             isinstance(block, dict) and block.get("type") == "tool_result"
             for block in content
-        )
+        ),
     )
 
 
@@ -110,10 +111,11 @@ def _strip_media_from_tool_result_content(
     sanitized: list[dict[str, Any]] = []
     removed = 0
     for block in content:
-        if (
-            isinstance(block, dict)
-            and block.get("type") in {"image", "audio", "video"}
-        ):
+        if isinstance(block, dict) and block.get("type") in {
+            "image",
+            "audio",
+            "video",
+        }:
             removed += 1
             continue
         sanitized.append(block)
@@ -135,10 +137,10 @@ def _sanitize_anthropic_history_tool_result_media(
     """Strip media from historical Anthropic tool results before replay.
 
     Keep the trailing tool_result-only suffix untouched so the current tool
-    exchange still reaches Claude with the full multimodal payload. Any older
-    tool_result messages have already served their purpose and are replayed only
-    as conversation history, where preserving raw media blocks risks provider
-    incompatibilities.
+    exchange still reaches Claude with the full multimodal payload.
+    Any older tool_result messages have already served their purpose
+    and are replayed only as conversation history, where preserving
+    raw media blocks risks provider incompatibilities.
     """
     if not messages:
         return messages
@@ -165,14 +167,37 @@ def _sanitize_anthropic_history_tool_result_media(
             ):
                 continue
 
-            sanitized_content, removed = _strip_media_from_tool_result_content(
-                block["content"],
-            )
+            if sanitized_messages is None:
+                (
+                    sanitized_content,
+                    removed,
+                ) = _strip_media_from_tool_result_content(
+                    block["content"],
+                )
+            else:
+                copied_block = sanitized_messages[message_index]["content"][
+                    block_index
+                ]
+                (
+                    sanitized_content,
+                    removed,
+                ) = _strip_media_from_tool_result_content(
+                    copied_block["content"],
+                )
             if removed == 0:
                 continue
 
             if sanitized_messages is None:
                 sanitized_messages = deepcopy(messages)
+                copied_block = sanitized_messages[message_index]["content"][
+                    block_index
+                ]
+                (
+                    sanitized_content,
+                    removed,
+                ) = _strip_media_from_tool_result_content(
+                    copied_block["content"],
+                )
 
             sanitized_messages[message_index]["content"][block_index][
                 "content"
@@ -181,10 +206,14 @@ def _sanitize_anthropic_history_tool_result_media(
     return sanitized_messages or messages
 
 
-class _AnthropicHistoryMediaCompatModel:
-    """Anthropic wrapper that strips replay-only media from old tool results."""
+class _AnthropicHistoryMediaCompatModel(ChatModelBase):
+    """Anthropic wrapper for replay-only historical tool-result media."""
 
     def __init__(self, model: ChatModelBase) -> None:
+        super().__init__(
+            model_name=getattr(model, "model_name", "unknown"),
+            stream=getattr(model, "stream", True),
+        )
         self._model = model
 
     async def __call__(
@@ -474,7 +503,10 @@ def create_model_and_formatter(
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
-    if AnthropicChatModel is not None and isinstance(model, AnthropicChatModel):
+    if AnthropicChatModel is not None and isinstance(
+        model,
+        AnthropicChatModel,
+    ):
         model = _AnthropicHistoryMediaCompatModel(model)
 
     # Wrap with retry logic for transient LLM API errors
