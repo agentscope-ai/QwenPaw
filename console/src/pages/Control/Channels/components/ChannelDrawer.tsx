@@ -310,6 +310,14 @@ export function ChannelDrawer({
             <Form.Item name="http_proxy_auth" label="HTTP Proxy Auth">
               <Input placeholder="user:password" />
             </Form.Item>
+            <Form.Item
+              name="accept_bot_messages"
+              label={t("channels.acceptBotMessages")}
+              valuePropName="checked"
+              tooltip={t("channels.acceptBotMessagesTooltip")}
+            >
+              <Switch />
+            </Form.Item>
           </>
         );
 

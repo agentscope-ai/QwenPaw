@@ -337,6 +337,8 @@
     "pleaseInputDbPath": "Please input DB path",
     "pleaseInputPollInterval": "Please input poll interval",
     "discordBotToken": "Discord bot token",
+    "acceptBotMessages": "Accept Bot Messages",
+    "acceptBotMessagesTooltip": "When enabled, messages from other bots will be accepted",
     "httpProxyPlaceholder": "http://127.0.0.1:18118",
     "httpProxyAuthPlaceholder": "user:password",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",

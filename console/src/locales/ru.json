@@ -298,6 +298,8 @@
     "pleaseInputDbPath": "Пожалуйста, введите путь к БД",
     "pleaseInputPollInterval": "Пожалуйста, введите интервал опроса",
     "discordBotToken": "Токен Discord-бота",
+    "acceptBotMessages": "Принимать сообщения от ботов",
+    "acceptBotMessagesTooltip": "При включении будут приниматься сообщения от других ботов",
     "httpProxyPlaceholder": "http://127.0.0.1:18118",
     "httpProxyAuthPlaceholder": "user:password",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",

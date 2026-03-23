@@ -303,6 +303,8 @@
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
     "discordBotToken": "Discord机器人令牌",
+    "acceptBotMessages": "接收机器人消息",
+    "acceptBotMessagesTooltip": "开启后，将接收来自其他机器人的消息",
     "httpProxyPlaceholder": "http://127.0.0.1:18118",
     "httpProxyAuthPlaceholder": "用户名:密码",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",

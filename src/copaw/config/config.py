@@ -52,6 +52,7 @@ class DiscordConfig(BaseChannelConfig):
     bot_token: str = ""
     http_proxy: str = ""
     http_proxy_auth: str = ""
+    accept_bot_messages: bool = False
 
 
 class DingTalkConfig(BaseChannelConfig):

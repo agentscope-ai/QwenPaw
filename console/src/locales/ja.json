@@ -293,6 +293,8 @@
     "pleaseInputDbPath": "DBパスを入力してください",
     "pleaseInputPollInterval": "ポーリング間隔を入力してください",
     "discordBotToken": "Discord Botトークン",
+    "acceptBotMessages": "Botメッセージを受信",
+    "acceptBotMessagesTooltip": "有効にすると、他のBotからのメッセージを受信します",
     "httpProxyPlaceholder": "http://127.0.0.1:18118",
     "httpProxyAuthPlaceholder": "ユーザー:パスワード",
     "dbPathPlaceholder": "~/Library/Messages/chat.db",
