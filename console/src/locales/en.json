@@ -87,6 +87,7 @@
     "noFiles": "No files",
     "coreFiles": "Core Files",
     "coreFilesDesc": "Bootstrap persona, identity, and tool guidance.",
+    "allFiles": "All Files",
     "uploadTooltip": "Bootstrap persona, identity, and tool guidance. (ZIP files only, max 100MB)",
     "selectFile": "Select a file to edit",
     "fileContent": "File content...",
@@ -102,7 +103,9 @@
     "configUpdateFailed": "Failed to update system prompt configuration",
     "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾",
     "saveSuccess": "Saved successfully",
-    "saveFailed": "Save failed"
+    "saveFailed": "Save failed",
+    "searchPlaceholder": "Search files…",
+    "noSearchResults": "No files match your search"
   },
   "agent": {
     "management": "Agent Management",

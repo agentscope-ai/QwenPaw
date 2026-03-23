@@ -9,7 +9,11 @@ import logging
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import io
+import zipfile
+from datetime import datetime, timezone
 
 from ...config.config import (
     AgentProfileConfig,
@@ -66,6 +70,11 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str
+
+
+class DownloadFilesRequest(BaseModel):
+    """Request model for downloading multiple files."""
+    files: list[str]
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -302,10 +311,11 @@ async def delete_agent(
     "/{agentId}/files",
     response_model=list[MdFileInfo],
     summary="List agent workspace files",
-    description="List all markdown files in agent's workspace",
+    description="List files in agent's workspace",
 )
 async def list_agent_files(
     agentId: str = PathParam(...),
+    all: bool = False,
     request: Request = None,
 ) -> list[MdFileInfo]:
     """List agent workspace files."""
@@ -319,9 +329,10 @@ async def list_agent_files(
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
 
     try:
+        source = workspace_manager.list_all_working_files() if all else workspace_manager.list_working_mds()
         files = [
             MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_working_mds()
+            for file in source
         ]
         return files
     except Exception as e:
@@ -388,6 +399,50 @@ async def write_agent_file(
         return {"written": True, "filename": filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post(
+    "/{agentId}/files/download",
+    summary="Download selected files as ZIP",
+    description="Download the selected files as a compressed zip archive.",
+)
+async def download_selected_files(
+    agentId: str = PathParam(...),
+    payload: DownloadFilesRequest = Body(...),
+    request: Request = None,
+):
+    """Download selected files as a zip archive."""
+    manager = _get_multi_agent_manager(request)
+    
+    try:
+        workspace = await manager.get_agent(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    workspace_dir = Path(workspace.workspace_dir).resolve()
+    
+    if not workspace_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fpath in payload.files:
+            resolved = (workspace_dir / fpath).resolve()
+            if str(resolved).startswith(str(workspace_dir)) and resolved.is_file():
+                arcname = resolved.relative_to(workspace_dir).as_posix()
+                zf.write(resolved, arcname)
+                
+    buf.seek(0)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"selected_files_{timestamp}.zip"
+    
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+    )
 
 
 @router.get(

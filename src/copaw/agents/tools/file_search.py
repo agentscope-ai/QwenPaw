@@ -154,11 +154,24 @@ async def grep_search(  # pylint: disable=too-many-branches
     if single_file:
         files = [search_root]
     else:
-        files = sorted(
-            f
-            for f in search_root.rglob("*")
-            if f.is_file() and _is_text_file(f)
-        )
+        import os
+        exclude_dirs = {
+            "__pycache__",
+            ".git",
+            "node_modules",
+            "venv",
+            ".venv",
+            "env",
+        }
+        files = []
+        for root, dirs, filenames in os.walk(search_root):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            root_path = Path(root)
+            for fname in filenames:
+                f = root_path / fname
+                if f.is_file() and _is_text_file(f):
+                    files.append(f)
+        files.sort()
 
     for file_path in files:
         if truncated:

@@ -46,25 +46,78 @@ class AgentMdManager:
                 )
         return result
 
+    def list_all_working_files(self) -> list[dict]:
+        """List all files (recursive) with metadata in the working dir.
+        
+        Excludes internal system directories like memory, sessions, etc.
+
+        Returns:
+            list[dict]: A list of dictionaries, each containing:
+                - filename: name of the file
+                - size: file size in bytes
+                - path: absolute path to file
+                - created_time: file creation timestamp
+                - modified_time: file modification timestamp
+        """
+        import os
+        exclude_dirs = {
+            "memory",
+            "sessions",
+            "active_skills",
+            "customized_skills",
+            "file_store",
+            "dialog",
+            "embedding_cache",
+            "__pycache__",
+            ".git",
+        }
+        result = []
+        for root, dirs, files in os.walk(self.working_dir):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            root_path = Path(root)
+            for file_name in files:
+                f = root_path / file_name
+                try:
+                    stat = f.stat()
+                    result.append(
+                        {
+                            "filename": f.name,
+                            "size": stat.st_size,
+                            "path": str(f),
+                            "created_time": datetime.fromtimestamp(
+                                stat.st_ctime,
+                            ).isoformat(),
+                            "modified_time": datetime.fromtimestamp(
+                                stat.st_mtime,
+                            ).isoformat(),
+                        },
+                    )
+                except OSError:
+                    continue
+        return result
+
     def read_working_md(self, md_name: str) -> str:
         """Read markdown file content from the working directory.
 
         Returns:
             str: The file content as string
         """
-        # Auto-append .md extension if not present
-        if not md_name.endswith(".md"):
+        # Append .md extension only if no extension is present
+        if "." not in md_name:
             md_name += ".md"
         file_path = self.working_dir / md_name
         if not file_path.exists():
-            raise FileNotFoundError(f"Working md file not found: {md_name}")
+            # Fallback to appending .md if the exact file didn't exist
+            if not file_path.name.endswith(".md") and (file_path.with_name(file_path.name + ".md")).exists():
+                file_path = file_path.with_name(file_path.name + ".md")
+            else:
+                raise FileNotFoundError(f"Working file not found: {md_name}")
 
         return file_path.read_text(encoding="utf-8")
 
     def write_working_md(self, md_name: str, content: str):
         """Write markdown content to a file in the working directory."""
-        # Auto-append .md extension if not present
-        if not md_name.endswith(".md"):
+        if "." not in md_name:
             md_name += ".md"
         file_path = self.working_dir / md_name
         file_path.write_text(content, encoding="utf-8")

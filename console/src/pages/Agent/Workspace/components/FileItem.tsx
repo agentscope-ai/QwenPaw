@@ -1,5 +1,6 @@
 import React from "react";
 import { Switch, Tooltip } from "@agentscope-ai/design";
+import { Checkbox } from "antd";
 import {
   CaretDownOutlined,
   CaretRightOutlined,
@@ -21,6 +22,9 @@ interface FileItemProps {
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
   onToggleEnabled: (filename: string) => void;
+  viewMode?: "core" | "all";
+  selectedForDownload?: boolean;
+  onSelectForDownload?: (path: string, selected: boolean) => void;
 }
 
 export const FileItem: React.FC<FileItemProps> = ({
@@ -32,6 +36,9 @@ export const FileItem: React.FC<FileItemProps> = ({
   onFileClick,
   onDailyMemoryClick,
   onToggleEnabled,
+  viewMode = "core",
+  selectedForDownload = false,
+  onSelectForDownload,
 }) => {
   const { t } = useTranslation();
   const isSelected = selectedFile?.filename === file.filename;
@@ -76,15 +83,24 @@ export const FileItem: React.FC<FileItemProps> = ({
         }`}
       >
         <div className={styles.fileItemHeader}>
-          {enabled && (
-            <div
-              className={styles.dragHandle}
-              {...attributes}
-              {...listeners}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <HolderOutlined />
-            </div>
+          {viewMode === "all" ? (
+             <Checkbox
+               className={styles.fileCheckbox}
+               checked={selectedForDownload}
+               onChange={(e) => onSelectForDownload?.(file.path, e.target.checked)}
+               onClick={(e) => e.stopPropagation()}
+             />
+          ) : (
+             enabled && (
+              <div
+                className={styles.dragHandle}
+                {...attributes}
+                {...listeners}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <HolderOutlined />
+              </div>
+            )
           )}
           <div className={styles.fileInfo}>
             <div className={styles.fileItemName}>
@@ -92,17 +108,19 @@ export const FileItem: React.FC<FileItemProps> = ({
               {file.filename}
             </div>
             <div className={styles.fileItemMeta}>
-              {formatFileSize(file.size)} · {formatTimeAgo(file.updated_at)}
+              {formatFileSize(file.size)} · {formatTimeAgo(file.modified_time || file.updated_at)}
             </div>
           </div>
           <div className={styles.fileItemActions}>
-            <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
-              <Switch
-                size="small"
-                checked={enabled}
-                onClick={handleToggleClick}
-              />
-            </Tooltip>
+            {viewMode === "core" && (
+              <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
+                <Switch
+                  size="small"
+                  checked={enabled}
+                  onClick={handleToggleClick}
+                />
+              </Tooltip>
+            )}
             {isMemoryFile && (
               <span className={styles.expandIcon}>
                 {expandedMemory ? (
@@ -132,7 +150,7 @@ export const FileItem: React.FC<FileItemProps> = ({
                 <div className={styles.dailyMemoryName}>{daily.date}.md</div>
                 <div className={styles.dailyMemoryMeta}>
                   {formatFileSize(daily.size)} ·{" "}
-                  {formatTimeAgo(daily.updated_at)}
+                  {formatTimeAgo(daily.modified_time || daily.updated_at)}
                 </div>
               </div>
             );

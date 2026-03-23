@@ -18,26 +18,34 @@ from fastapi.responses import StreamingResponse
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 
-def _dir_stats(root: Path) -> tuple[int, int]:
-    """Return (file_count, total_size) for *root* recursively."""
-    count = 0
-    size = 0
-    if root.is_dir():
-        for p in root.rglob("*"):
-            if p.is_file():
-                count += 1
-                size += p.stat().st_size
-    return count, size
-
-
 def _zip_directory(root: Path) -> io.BytesIO:
     """Create an in-memory zip archive of *root* and return the buffer.
 
-    All files **and** directories (including empty ones) are included.
+    Excludes typical large/noise directories like node_modules and .git.
     """
+    import os
+    exclude_dirs = {
+        "__pycache__",
+        ".git",
+        "node_modules",
+        "venv",
+        ".venv",
+        "env",
+    }
+    
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for entry in sorted(root.rglob("*")):
+        entries = []
+        for curr_root, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
+            root_path = Path(curr_root)
+            if root_path != root:
+                entries.append(root_path)
+            for f in files:
+                entries.append(root_path / f)
+                
+        for entry in sorted(entries):
             arcname = entry.relative_to(root).as_posix()
             if entry.is_file():
                 zf.write(entry, arcname)

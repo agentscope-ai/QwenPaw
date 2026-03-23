@@ -87,6 +87,7 @@
     "noFiles": "ファイルなし",
     "coreFiles": "コアファイル",
     "coreFilesDesc": "ペルソナ・アイデンティティ・ツールガイダンスを設定します。",
+    "allFiles": "すべてのファイル",
     "uploadTooltip": "ペルソナ・アイデンティティ・ツールガイダンスを設定します。（ZIPファイルのみ、最大100MB）",
     "selectFile": "編集するファイルを選択",
     "fileContent": "ファイルの内容...",
@@ -100,7 +101,9 @@
     "memoryFileWarning": "MEMORY.md は通常、エージェントがツールを使用してオンデマンドで照会および読み込みます。システムプロンプトに読み込むと、コンテキストが長くなりすぎる可能性があります。",
     "configUpdated": "システムプロンプト設定が更新されました",
     "configUpdateFailed": "システムプロンプト設定の更新に失敗しました",
-    "attribution": "ワークスペースの設計はOpenClawプロジェクトの一部を参考にしています — ありがとう！🐾"
+    "attribution": "ワークスペースの設計はOpenClawプロジェクトの一部を参考にしています — ありがとう！🐾",
+    "searchPlaceholder": "ファイルを検索...",
+    "noSearchResults": "一致するファイルはありません"
   },
   "skills": {
     "title": "スキル",
