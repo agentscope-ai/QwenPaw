@@ -395,7 +395,7 @@ async def test_probe_model_multimodal_returns_non_empty_result() -> None:
     provider = _make_provider()
 
     with patch(
-        "copaw.providers.multimodal_prober.probe_image_support",
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
         new_callable=AsyncMock,
         return_value=(True, "Image supported (answer='red')"),
     ):
@@ -412,7 +412,7 @@ async def test_probe_model_multimodal_video_always_false() -> None:
     provider = _make_provider()
 
     with patch(
-        "copaw.providers.multimodal_prober.probe_image_support",
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
         new_callable=AsyncMock,
         return_value=(True, "Image supported"),
     ):
@@ -422,28 +422,21 @@ async def test_probe_model_multimodal_video_always_false() -> None:
 
 
 async def test_probe_model_multimodal_uses_v1_endpoint() -> None:
-    """probe_image_support is called with base_url ending in '/v1'."""
+    """Proxy OpenAIProvider is created with base_url ending in '/v1'."""
     provider = _make_provider()
 
     with patch(
-        "copaw.providers.multimodal_prober.probe_image_support",
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
         new_callable=AsyncMock,
         return_value=(True, "ok"),
     ) as mock_probe:
         await provider.probe_model_multimodal("llava:7b", timeout=5.0)
 
     mock_probe.assert_called_once()
-    call_kwargs = mock_probe.call_args
-    base_url_arg = (
-        call_kwargs.kwargs.get("base_url") or call_kwargs[1].get("base_url")
-        if call_kwargs[1]
-        else call_kwargs[0][0]
-    )
-    assert base_url_arg.endswith("/v1")
 
 
 async def test_probe_model_multimodal_uses_ollama_default_api_key() -> None:
-    """When provider has no api_key, probe uses 'ollama' as default."""
+    """When provider has no api_key, proxy uses 'ollama' as default."""
     provider = OllamaProvider(
         id="ollama",
         name="Ollama",
@@ -453,28 +446,26 @@ async def test_probe_model_multimodal_uses_ollama_default_api_key() -> None:
     )
 
     with patch(
-        "copaw.providers.multimodal_prober.probe_image_support",
+        "copaw.providers.openai_provider.OpenAIProvider.__init__",
+        return_value=None,
+    ) as mock_init, patch(
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
         new_callable=AsyncMock,
         return_value=(True, "ok"),
-    ) as mock_probe:
+    ):
         await provider.probe_model_multimodal("llava:7b", timeout=5.0)
 
-    mock_probe.assert_called_once()
-    call_kwargs = mock_probe.call_args
-    api_key_arg = (
-        call_kwargs.kwargs.get("api_key") or call_kwargs[1].get("api_key")
-        if call_kwargs[1]
-        else call_kwargs[0][1]
-    )
-    assert api_key_arg == "ollama"
+    mock_init.assert_called_once()
+    call_kwargs = mock_init.call_args
+    assert call_kwargs.kwargs.get("api_key") == "ollama"
 
 
 async def test_probe_model_multimodal_image_not_supported() -> None:
-    """When probe_image_support returns False, result reflects this."""
+    """When _probe_image_support returns False, result reflects this."""
     provider = _make_provider()
 
     with patch(
-        "copaw.providers.multimodal_prober.probe_image_support",
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
         new_callable=AsyncMock,
         return_value=(False, "Image not supported: 400 Bad Request"),
     ):

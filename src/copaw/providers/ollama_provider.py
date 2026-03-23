@@ -168,15 +168,21 @@ class OllamaProvider(Provider):
         model_id: str,
         timeout: float = 10,
     ) -> ProbeResult:
-        """Probe multimodal via Ollama OpenAI endpoint."""
-        from .multimodal_prober import probe_image_support, ProbeResult
+        """Probe multimodal via Ollama OpenAI-compatible endpoint."""
+        from .multimodal_prober import ProbeResult
+        from .openai_provider import OpenAIProvider
 
         openai_url = self.base_url.rstrip("/") + "/v1"
-        img_ok, img_msg = await probe_image_support(
+        proxy = OpenAIProvider(
+            id=self.id,
+            name=self.name,
             base_url=openai_url,
             api_key=self.api_key or "ollama",
-            model_id=model_id,
-            timeout=timeout,
+        )
+        # pylint: disable=protected-access
+        img_ok, img_msg = await proxy._probe_image_support(
+            model_id,
+            timeout,
         )
         return ProbeResult(
             supports_image=img_ok,

@@ -96,10 +96,3 @@ src/.hypothesis/
 
 # Kiro IDE
 .kiro/
-
-# Stray image/doc files (not part of source)
-baidu_image.png
-desktop_screenshot.png
-page-*.png
-web_image.png
-pr-description.md

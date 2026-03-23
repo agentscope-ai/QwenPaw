@@ -21,6 +21,7 @@ from copaw.providers.capability_baseline import (
 )
 from copaw.providers.multimodal_prober import ProbeResult
 from copaw.providers.ollama_provider import OllamaProvider
+from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.provider import (
     ModelInfo as ProviderModelInfo,
     DefaultProvider,
@@ -461,7 +462,8 @@ class TestProperty8OllamaProbeInvariant:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.probe_image_support",
+            "copaw.providers.openai_provider.OpenAIProvider"
+            "._probe_image_support",
             mock_probe,
         ):
             provider = OllamaProvider(
@@ -494,13 +496,17 @@ class TestProperty8OllamaProbeInvariant:
         model_id: str,
         image_supported: bool,
     ) -> None:
-        """probe_image_support is called with base_url + '/v1'."""
+        """Proxy OpenAIProvider is created with base_url + '/v1'."""
         mock_probe = AsyncMock(
             return_value=(image_supported, "mock probe msg"),
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.probe_image_support",
+            "copaw.providers.openai_provider.OpenAIProvider.__init__",
+            return_value=None,
+        ) as mock_init, patch(
+            "copaw.providers.openai_provider.OpenAIProvider"
+            "._probe_image_support",
             mock_probe,
         ):
             provider = OllamaProvider(
@@ -512,12 +518,9 @@ class TestProperty8OllamaProbeInvariant:
             )
             asyncio.run(provider.probe_model_multimodal(model_id))
 
-        mock_probe.assert_called_once()
-        called_url = (
-            mock_probe.call_args[1].get("base_url")
-            or mock_probe.call_args[0][0]
-        )
+        mock_init.assert_called_once()
         expected_url = base_url.rstrip("/") + "/v1"
+        called_url = mock_init.call_args.kwargs.get("base_url")
         assert (
             called_url == expected_url
         ), f"Expected probe URL {expected_url!r}, got {called_url!r}"
@@ -539,12 +542,13 @@ class TestProperty8OllamaProbeInvariant:
         base_url: str,
         model_id: str,
     ) -> None:
-        """supports_image matches whatever probe_image_support returns."""
+        """supports_image matches whatever _probe_image_support returns."""
         for expected_image in (True, False):
             mock_probe = AsyncMock(return_value=(expected_image, "msg"))
 
             with patch(
-                "copaw.providers.multimodal_prober.probe_image_support",
+                "copaw.providers.openai_provider.OpenAIProvider"
+                "._probe_image_support",
                 mock_probe,
             ):
                 provider = OllamaProvider(
@@ -575,11 +579,15 @@ class TestProperty8OllamaProbeInvariant:
         base_url: str,
         model_id: str,
     ) -> None:
-        """When provider has no api_key, probe uses 'ollama' as default."""
+        """When provider has no api_key, proxy uses 'ollama' as default."""
         mock_probe = AsyncMock(return_value=(True, "msg"))
 
         with patch(
-            "copaw.providers.multimodal_prober.probe_image_support",
+            "copaw.providers.openai_provider.OpenAIProvider.__init__",
+            return_value=None,
+        ) as mock_init, patch(
+            "copaw.providers.openai_provider.OpenAIProvider"
+            "._probe_image_support",
             mock_probe,
         ):
             provider = OllamaProvider(
@@ -592,11 +600,8 @@ class TestProperty8OllamaProbeInvariant:
             )
             asyncio.run(provider.probe_model_multimodal(model_id))
 
-        mock_probe.assert_called_once()
-        called_api_key = (
-            mock_probe.call_args[1].get("api_key")
-            or mock_probe.call_args[0][1]
-        )
+        mock_init.assert_called_once()
+        called_api_key = mock_init.call_args.kwargs.get("api_key")
         assert called_api_key == "ollama"
 
 
@@ -1137,17 +1142,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_image_support(model_id),
             )
 
         assert ok is False
@@ -1178,17 +1183,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_video_support(model_id),
             )
 
         assert ok is False
@@ -1221,17 +1226,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_image_support(model_id),
             )
 
         assert ok is False
@@ -1267,17 +1272,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_video_support(model_id),
             )
 
         assert ok is False
@@ -1314,17 +1319,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_image_support(model_id),
             )
 
         assert ok is False
@@ -1359,17 +1364,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_video_support(model_id),
             )
 
         assert ok is False
@@ -1405,17 +1410,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_image_support(model_id),
             )
 
         assert ok is False
@@ -1449,17 +1454,17 @@ class TestProperty3ErrorTypeDistinction:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id=model_id,
-                ),
+                provider._probe_video_support(model_id),
             )
 
         assert ok is False
@@ -1556,17 +1561,17 @@ class TestProperty6ReasoningContentFallback:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="thinking-model",
-                ),
+                provider._probe_image_support("thinking-model"),
             )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
@@ -1597,17 +1602,17 @@ class TestProperty6ReasoningContentFallback:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="thinking-model",
-                ),
+                provider._probe_video_support("thinking-model"),
             )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
@@ -1642,17 +1647,17 @@ class TestProperty6ReasoningContentFallback:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="normal-model",
-                ),
+                provider._probe_image_support("normal-model"),
             )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
@@ -1683,17 +1688,17 @@ class TestProperty6ReasoningContentFallback:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="normal-model",
-                ),
+                provider._probe_video_support("normal-model"),
             )
 
         assert ok is True, f"Expected True but got False, msg={msg!r}"
@@ -1725,17 +1730,17 @@ class TestProperty6ReasoningContentFallback:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_image_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_image_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="no-vision-model",
-                ),
+                provider._probe_image_support("no-vision-model"),
             )
 
         assert ok is False, f"Expected False but got True, msg={msg!r}"
@@ -1763,17 +1768,17 @@ class TestProperty6ReasoningContentFallback:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="no-vision-model",
-                ),
+                provider._probe_video_support("no-vision-model"),
             )
 
         assert ok is False, f"Expected False but got True, msg={msg!r}"
@@ -1858,17 +1863,17 @@ class TestProperty7VideoFallbackChain:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="test-model",
-                ),
+                provider._probe_video_support("test-model"),
             )
 
         if b64_kind == "success":
@@ -1901,17 +1906,17 @@ class TestProperty7VideoFallbackChain:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="test-model",
-                ),
+                provider._probe_video_support("test-model"),
             )
 
         assert ok is False
@@ -1943,17 +1948,17 @@ class TestProperty7VideoFallbackChain:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, _msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="test-model",
-                ),
+                provider._probe_video_support("test-model"),
             )
 
         assert ok is True
@@ -1981,17 +1986,17 @@ class TestProperty7VideoFallbackChain:
         )
 
         with patch(
-            "copaw.providers.multimodal_prober.AsyncOpenAI",
+            "copaw.providers.openai_provider.AsyncOpenAI",
             return_value=mock_client_instance,
         ):
-            from copaw.providers.multimodal_prober import probe_video_support
-
+            provider = OpenAIProvider(
+                id="test",
+                name="Test",
+                base_url="https://fake.api",
+                api_key="test-key",
+            )
             ok, _msg = asyncio.run(
-                probe_video_support(
-                    base_url="https://fake.api",
-                    api_key="test-key",
-                    model_id="test-model",
-                ),
+                provider._probe_video_support("test-model"),
             )
 
         assert ok is True
