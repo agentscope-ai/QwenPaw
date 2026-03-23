@@ -12,7 +12,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
-import { getApiToken, getApiUrl } from "../../api/config";
+import { getApiUrl } from "../../api/config";
+import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -345,21 +346,8 @@ export default function ChatPage() {
     }): Promise<Response> => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        ...buildAuthHeaders(),
       };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
-      }
 
       try {
         const activeModels = await providerApi.getActiveModels();
@@ -539,9 +527,8 @@ export default function ChatPage() {
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
+            ...buildAuthHeaders(),
           };
-          const token = getApiToken();
-          if (token) headers.Authorization = `Bearer ${token}`;
 
           return fetch(getApiUrl("/console/chat"), {
             method: "POST",
