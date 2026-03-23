@@ -21,7 +21,6 @@ from ..constant import (
 from .config import (
     Config,
     HeartbeatConfig,
-    LastApiConfig,
     LastDispatchConfig,
     load_agent_config,
     save_agent_config,
@@ -533,23 +532,6 @@ def update_last_dispatch(
         user_id=user_id,
         session_id=session_id,
     )
-    save_config(config)
-
-
-def read_last_api() -> Optional[Tuple[str, int]]:
-    """Read last API host/port from config (via config load/save)."""
-    config = load_config()
-    host = config.last_api.host
-    port = config.last_api.port
-    if not host or port is None:
-        return None
-    return host, port
-
-
-def write_last_api(host: str, port: int) -> None:
-    """Write last API host/port to config (via config load/save)."""
-    config = load_config()
-    config.last_api = LastApiConfig(host=host, port=port)
     save_config(config)
 
 

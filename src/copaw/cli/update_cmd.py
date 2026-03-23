@@ -20,7 +20,7 @@ from packaging.version import InvalidVersion, Version
 
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
-from ..config.utils import read_last_api
+from ..last_api import read_last_api
 from .process_utils import (
     _base_url,
     _candidate_hosts,

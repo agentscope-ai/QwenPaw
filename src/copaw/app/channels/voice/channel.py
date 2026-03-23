@@ -99,7 +99,7 @@ class VoiceChannel(BaseChannel):
 
         # Start Cloudflare tunnel pointing at the app's serving port
         from copaw.tunnel import CloudflareTunnelDriver
-        from copaw.config.utils import read_last_api
+        from copaw.last_api import read_last_api
 
         self.tunnel_mgr = CloudflareTunnelDriver()
         api_info = read_last_api()
