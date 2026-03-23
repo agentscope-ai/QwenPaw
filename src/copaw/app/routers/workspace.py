@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import shutil
 import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -23,7 +23,7 @@ def _zip_directory(root: Path) -> io.BytesIO:
 
     Excludes typical large/noise directories like node_modules and .git.
     """
-    import os
+
     exclude_dirs = {
         "__pycache__",
         ".git",
@@ -32,19 +32,19 @@ def _zip_directory(root: Path) -> io.BytesIO:
         ".venv",
         "env",
     }
-    
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         entries = []
         for curr_root, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
-            
+
             root_path = Path(curr_root)
             if root_path != root:
                 entries.append(root_path)
             for f in files:
                 entries.append(root_path / f)
-                
+
         for entry in sorted(entries):
             arcname = entry.relative_to(root).as_posix()
             if entry.is_file():

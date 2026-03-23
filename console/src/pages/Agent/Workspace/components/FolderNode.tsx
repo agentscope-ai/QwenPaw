@@ -1,5 +1,9 @@
 import React, { useState } from "react";
-import { CaretRightOutlined, FolderOutlined, FolderOpenOutlined } from "@ant-design/icons";
+import {
+  CaretRightOutlined,
+  FolderOutlined,
+  FolderOpenOutlined,
+} from "@ant-design/icons";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import type { FileTreeNode } from "./utils";
 import { FileItem } from "./FileItem";

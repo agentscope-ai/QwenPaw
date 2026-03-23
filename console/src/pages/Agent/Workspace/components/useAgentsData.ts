@@ -38,7 +38,10 @@ export const useAgentsData = () => {
       setExpandedMemory(false);
 
       const enabled = await fetchEnabledFiles();
-      const fileList = await agentsApi.listAgentFiles(selectedAgent, viewMode === "all");
+      const fileList = await agentsApi.listAgentFiles(
+        selectedAgent,
+        viewMode === "all",
+      );
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -129,7 +132,10 @@ export const useAgentsData = () => {
         ? latestEnabledFiles
         : await fetchEnabledFiles();
       // Use agent-specific API
-      const fileList = await agentsApi.listAgentFiles(selectedAgent, viewMode === "all");
+      const fileList = await agentsApi.listAgentFiles(
+        selectedAgent,
+        viewMode === "all",
+      );
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -259,7 +265,7 @@ export const useAgentsData = () => {
       console.error("Failed to update system prompt files", error);
       message.error(
         t("workspace.configUpdateFailed") ||
-        "Failed to update system prompt configuration",
+          "Failed to update system prompt configuration",
       );
     }
   };

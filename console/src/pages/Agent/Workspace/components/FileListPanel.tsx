@@ -75,7 +75,8 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
     }
   };
 
-  const isAllSelected = files.length > 0 && selectedForDownload.length === files.length;
+  const isAllSelected =
+    files.length > 0 && selectedForDownload.length === files.length;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -126,8 +127,16 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
         style={{ flex: 1, minHeight: 0 }}
       >
         <div className={styles.headerRow}>
-          <h3 className={styles.sectionTitle}>{viewMode === "core" ? t("workspace.coreFiles") : t("workspace.allFiles", "All Files")}</h3>
-          <Button size="small" onClick={() => onRefresh()} icon={<ReloadOutlined />}>
+          <h3 className={styles.sectionTitle}>
+            {viewMode === "core"
+              ? t("workspace.coreFiles")
+              : t("workspace.allFiles", "All Files")}
+          </h3>
+          <Button
+            size="small"
+            onClick={() => onRefresh()}
+            icon={<ReloadOutlined />}
+          >
             {t("common.refresh")}
           </Button>
         </div>
@@ -148,13 +157,23 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
         )}
 
         {viewMode === "all" && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <Checkbox checked={isAllSelected} onChange={(e) => handleSelectAll(e.target.checked)}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            <Checkbox
+              checked={isAllSelected}
+              onChange={(e) => handleSelectAll(e.target.checked)}
+            >
               Select All
             </Checkbox>
-            <Button 
-              size="small" 
-              type="primary" 
+            <Button
+              size="small"
+              type="primary"
               disabled={selectedForDownload.length === 0}
               onClick={() => onDownloadSelected?.(selectedForDownload)}
             >
@@ -198,7 +217,9 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                   onDailyMemoryClick={onDailyMemoryClick}
                   onToggleEnabled={onToggleEnabled}
                   viewMode={viewMode}
-                  selectedForDownload={selectedForDownload.includes(file.path || file.filename)}
+                  selectedForDownload={selectedForDownload.includes(
+                    file.path || file.filename,
+                  )}
                   onSelectForDownload={handleSelectForDownload}
                 />
               ))
@@ -221,7 +242,9 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                     onDailyMemoryClick={onDailyMemoryClick}
                     onToggleEnabled={onToggleEnabled}
                     viewMode={viewMode}
-                    selectedForDownload={selectedForDownload.includes(file.path || file.filename)}
+                    selectedForDownload={selectedForDownload.includes(
+                      file.path || file.filename,
+                    )}
                     onSelectForDownload={handleSelectForDownload}
                   />
                 );
@@ -270,7 +293,9 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                       onDailyMemoryClick={onDailyMemoryClick}
                       onToggleEnabled={onToggleEnabled}
                       viewMode={viewMode}
-                      selectedForDownload={selectedForDownload.includes(file.path || file.filename)}
+                      selectedForDownload={selectedForDownload.includes(
+                        file.path || file.filename,
+                      )}
                       onSelectForDownload={handleSelectForDownload}
                     />
                   );

@@ -84,14 +84,16 @@ export const FileItem: React.FC<FileItemProps> = ({
       >
         <div className={styles.fileItemHeader}>
           {viewMode === "all" ? (
-             <Checkbox
-               className={styles.fileCheckbox}
-               checked={selectedForDownload}
-               onChange={(e) => onSelectForDownload?.(file.path, e.target.checked)}
-               onClick={(e) => e.stopPropagation()}
-             />
+            <Checkbox
+              className={styles.fileCheckbox}
+              checked={selectedForDownload}
+              onChange={(e) =>
+                onSelectForDownload?.(file.path, e.target.checked)
+              }
+              onClick={(e) => e.stopPropagation()}
+            />
           ) : (
-             enabled && (
+            enabled && (
               <div
                 className={styles.dragHandle}
                 {...attributes}
@@ -108,7 +110,8 @@ export const FileItem: React.FC<FileItemProps> = ({
               {file.filename}
             </div>
             <div className={styles.fileItemMeta}>
-              {formatFileSize(file.size)} · {formatTimeAgo(file.modified_time || file.updated_at)}
+              {formatFileSize(file.size)} ·{" "}
+              {formatTimeAgo(file.modified_time || file.updated_at)}
             </div>
           </div>
           <div className={styles.fileItemActions}>

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Agent Markdown manager for reading and writing markdown files in working
 and memory directories."""
+
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -48,7 +50,7 @@ class AgentMdManager:
 
     def list_all_working_files(self) -> list[dict]:
         """List all files (recursive) with metadata in the working dir.
-        
+
         Excludes internal system directories like memory, sessions, etc.
 
         Returns:
@@ -59,7 +61,7 @@ class AgentMdManager:
                 - created_time: file creation timestamp
                 - modified_time: file modification timestamp
         """
-        import os
+
         exclude_dirs = {
             "memory",
             "sessions",
@@ -108,7 +110,10 @@ class AgentMdManager:
         file_path = self.working_dir / md_name
         if not file_path.exists():
             # Fallback to appending .md if the exact file didn't exist
-            if not file_path.name.endswith(".md") and (file_path.with_name(file_path.name + ".md")).exists():
+            if (
+                not file_path.name.endswith(".md")
+                and (file_path.with_name(file_path.name + ".md")).exists()
+            ):
                 file_path = file_path.with_name(file_path.name + ".md")
             else:
                 raise FileNotFoundError(f"Working file not found: {md_name}")

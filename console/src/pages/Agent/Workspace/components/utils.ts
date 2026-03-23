@@ -38,7 +38,12 @@ export const buildFileTree = (
   files: MarkdownFile[],
   workspacePath: string | null,
 ): FileTreeNode => {
-  const root: FileTreeNode = { name: "", id: "_root_", files: [], children: [] };
+  const root: FileTreeNode = {
+    name: "",
+    id: "_root_",
+    files: [],
+    children: [],
+  };
 
   for (const file of files) {
     // Attempt to derive relative path segments
@@ -62,8 +67,7 @@ export const buildFileTree = (
       let current = root;
       for (let i = 0; i < segments.length - 1; i++) {
         const seg = segments[i];
-        const childId =
-          current.id === "_root_" ? seg : `${current.id}.${seg}`;
+        const childId = current.id === "_root_" ? seg : `${current.id}.${seg}`;
         let child = current.children.find((c) => c.name === seg);
         if (!child) {
           child = { name: seg, id: childId, files: [], children: [] };
@@ -77,4 +81,3 @@ export const buildFileTree = (
 
   return root;
 };
-

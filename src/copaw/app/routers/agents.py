@@ -3,29 +3,32 @@
 
 Provides RESTful API for managing multiple agent instances.
 """
+
 import asyncio
+import io
 import json
 import logging
-from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException, Request
-from fastapi import Path as PathParam
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-import io
 import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 
+from fastapi import APIRouter, Body, HTTPException
+from fastapi import Path as PathParam
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from ...agents.memory.agent_md_manager import AgentMdManager
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
+    generate_short_agent_id,
     load_agent_config,
     save_agent_config,
-    generate_short_agent_id,
 )
 from ...config.utils import load_config, save_config
-from ...agents.memory.agent_md_manager import AgentMdManager
-from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
+from ..multi_agent_manager import MultiAgentManager
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,7 @@ class MdFileContent(BaseModel):
 
 class DownloadFilesRequest(BaseModel):
     """Request model for downloading multiple files."""
+
     files: list[str]
 
 
@@ -180,8 +184,8 @@ async def create_agent(
     # Build complete agent config with generated ID
     from ...config.config import (
         ChannelConfig,
-        MCPConfig,
         HeartbeatConfig,
+        MCPConfig,
         ToolsConfig,
     )
 
@@ -315,7 +319,7 @@ async def delete_agent(
 )
 async def list_agent_files(
     agentId: str = PathParam(...),
-    all: bool = False,
+    include_all: bool = Query(False, alias="all"),
     request: Request = None,
 ) -> list[MdFileInfo]:
     """List agent workspace files."""
@@ -329,11 +333,12 @@ async def list_agent_files(
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
 
     try:
-        source = workspace_manager.list_all_working_files() if all else workspace_manager.list_working_mds()
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in source
-        ]
+        source = (
+            workspace_manager.list_all_working_files()
+            if all
+            else workspace_manager.list_working_mds()
+        )
+        files = [MdFileInfo.model_validate(file) for file in source]
         return files
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -413,35 +418,38 @@ async def download_selected_files(
 ):
     """Download selected files as a zip archive."""
     manager = _get_multi_agent_manager(request)
-    
+
     try:
         workspace = await manager.get_agent(agentId)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     workspace_dir = Path(workspace.workspace_dir).resolve()
-    
+
     if not workspace_dir.is_dir():
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for fpath in payload.files:
             resolved = (workspace_dir / fpath).resolve()
-            if str(resolved).startswith(str(workspace_dir)) and resolved.is_file():
+            if (
+                str(resolved).startswith(str(workspace_dir))
+                and resolved.is_file()
+            ):
                 arcname = resolved.relative_to(workspace_dir).as_posix()
                 zf.write(resolved, arcname)
-                
+
     buf.seek(0)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"selected_files_{timestamp}.zip"
-    
+
     return StreamingResponse(
         buf,
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-        }
+        },
     )
 
 
@@ -486,6 +494,7 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
         agent_config: Agent configuration (reserved for future use)
     """
     import shutil
+
     from ...config import load_config as load_global_config
 
     # Create essential subdirectories

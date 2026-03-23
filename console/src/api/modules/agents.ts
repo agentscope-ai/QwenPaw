@@ -42,16 +42,23 @@ export const agentsApi = {
     request<MdFileInfo[]>(`/agents/${agentId}/files${all ? "?all=true" : ""}`),
 
   downloadSelectedFiles: async (agentId: string, files: string[]) => {
-    const response = await fetch(getApiUrl(`/agents/${agentId}/files/download`), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(getApiToken() ? { Authorization: `Bearer ${getApiToken()}` } : {}),
+    const response = await fetch(
+      getApiUrl(`/agents/${agentId}/files/download`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(getApiToken()
+            ? { Authorization: `Bearer ${getApiToken()}` }
+            : {}),
+        },
+        body: JSON.stringify({ files }),
       },
-      body: JSON.stringify({ files }),
-    });
+    );
     if (!response.ok) {
-      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Download failed: ${response.status} ${response.statusText}`,
+      );
     }
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
