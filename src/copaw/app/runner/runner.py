@@ -49,6 +49,40 @@ _DENY_RE = re.compile(
 )
 
 
+def _iter_exception_chain(exc: BaseException):
+    """Yield exception with chained causes/contexts exactly once."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = (
+            current.__cause__
+            if current.__cause__ is not None
+            else current.__context__
+        )
+
+
+def _is_mcp_connection_error(exc: Exception) -> bool:
+    """Best-effort check for MCP connectivity/session failures."""
+    mcp_error_markers = (
+        "not connected",
+        "connect() method first",
+        "session terminated",
+        "closed resource",
+        "closedresourceerror",
+    )
+    for item in _iter_exception_chain(exc):
+        text = f"{item.__class__.__name__}: {item}".lower()
+        if "mcp client is not connected to the server" in text:
+            return True
+        if "mcp" in text and any(
+            marker in text for marker in mcp_error_markers
+        ):
+            return True
+    return False
+
+
 def _is_approval(text: str) -> bool:
     """Return True when *text* expresses approval intent.
 
@@ -354,6 +388,20 @@ class AgentRunner(Runner):
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
             logger.exception(f"Error in query handler: {e}{path_hint}")
+
+            # Last-resort guard: MCP connectivity failures should not surface
+            # as chat-visible "Unknown agent error" payloads.
+            if _is_mcp_connection_error(e):
+                logger.warning(
+                    "Suppressing MCP connectivity error in query output; "
+                    "session_id=%s, user_id=%s, channel=%s, reason=%s",
+                    session_id,
+                    user_id,
+                    channel,
+                    e,
+                )
+                return
+
             if debug_dump_path:
                 setattr(e, "debug_dump_path", debug_dump_path)
                 if hasattr(e, "add_note"):
