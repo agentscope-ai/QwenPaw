@@ -502,7 +502,7 @@ Find `wecom` and fill in the corresponding information, for example:
 
 ---
 
-## WeChat (personal WeChat / OpenClaw)
+## WeChat
 
 CoPaw talks to **personal WeChat** through the **OpenClaw (ilink) HTTP JSON API**: it long-polls `ilink/bot/getupdates` for inbound traffic and uses `ilink/bot/sendmessage` (and related endpoints) for replies and media. This is **not** the same as **[WeCom](#WeCom-WeChat-Work)** (`wecom`), which targets WeChat Work. For personal WeChat you complete QR login (or your OpenClaw deployment’s flow) to obtain a **Bot Token**.
 
@@ -515,6 +515,10 @@ CoPaw talks to **personal WeChat** through the **OpenClaw (ilink) HTTP JSON API*
 
 1. Start CoPaw (`copaw app`) and open the [Console](./console) → **Control → Channels**.
 2. Open the **WeChat** card, click **Log in to WeChat** (or equivalent), and scan the QR code with WeChat.
+
+   ![img.png](img.png)
+
+
 3. After login, **Bot Token** is filled in automatically; confirm **Base URL** matches your ilink gateway.
 4. Save; config is written back and the channel reloads.
 
