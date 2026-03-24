@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { Button, Card, Input } from "@agentscope-ai/design";
-import { Segmented, Checkbox } from "antd";
+import { Button, Card } from "@agentscope-ai/design";
+import { Segmented, Checkbox, Input as AntInput } from "antd";
 import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   DndContext,
@@ -102,7 +102,11 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   const filteredFiles = useMemo(() => {
     if (!searchQuery.trim()) return null;
     const q = searchQuery.trim().toLowerCase();
-    return files.filter((f) => f.filename.toLowerCase().includes(q));
+    return files.filter(
+      (f) =>
+        f.filename.toLowerCase().includes(q) ||
+        (f.rel_path || "").toLowerCase().includes(q),
+    );
   }, [searchQuery, files]);
 
   // Tree for non-search mode
@@ -183,12 +187,11 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
         )}
 
         {/* Search box */}
-        <Input
+        <AntInput
           prefix={<SearchOutlined style={{ color: "#bbb" }} />}
           placeholder={t("workspace.searchPlaceholder", "Search files…")}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          onClear={() => setSearchQuery("")}
           allowClear
           size="small"
           className={styles.searchInput}
@@ -208,7 +211,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
             ) : (
               filteredFiles.map((file) => (
                 <FileItem
-                  key={file.filename}
+                  key={file.path || file.rel_path || file.filename}
                   file={file}
                   selectedFile={selectedFile}
                   expandedMemory={false}
@@ -218,6 +221,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                   onDailyMemoryClick={onDailyMemoryClick}
                   onToggleEnabled={onToggleEnabled}
                   viewMode={viewMode}
+                  showRelPath
                   selectedForDownload={selectedForDownload.includes(
                     file.path || file.filename,
                   )}
@@ -233,7 +237,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                 const isEnabled = enabledFiles.includes(file.filename);
                 return (
                   <FileItem
-                    key={file.filename}
+                    key={file.path || file.rel_path || file.filename}
                     file={file}
                     selectedFile={selectedFile}
                     expandedMemory={expandedMemory}
@@ -284,7 +288,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                   const isEnabled = enabledFiles.includes(file.filename);
                   return (
                     <FileItem
-                      key={file.filename}
+                      key={file.path || file.rel_path || file.filename}
                       file={file}
                       selectedFile={selectedFile}
                       expandedMemory={expandedMemory}

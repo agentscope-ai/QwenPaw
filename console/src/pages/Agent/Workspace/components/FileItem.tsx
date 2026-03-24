@@ -25,6 +25,8 @@ interface FileItemProps {
   viewMode?: "core" | "all";
   selectedForDownload?: boolean;
   onSelectForDownload?: (path: string, selected: boolean) => void;
+  /** When true, show rel_path instead of filename (used in search results to distinguish same-name files) */
+  showRelPath?: boolean;
 }
 
 export const FileItem: React.FC<FileItemProps> = ({
@@ -39,9 +41,14 @@ export const FileItem: React.FC<FileItemProps> = ({
   viewMode = "core",
   selectedForDownload = false,
   onSelectForDownload,
+  showRelPath = false,
 }) => {
   const { t } = useTranslation();
-  const isSelected = selectedFile?.filename === file.filename;
+  const fileId = file.path || file.rel_path || file.filename;
+  const selectedId = selectedFile
+    ? selectedFile.path || selectedFile.rel_path || selectedFile.filename
+    : null;
+  const isSelected = fileId === selectedId;
   const isMemoryFile = file.filename === "MEMORY.md";
 
   const {
@@ -107,7 +114,7 @@ export const FileItem: React.FC<FileItemProps> = ({
           <div className={styles.fileInfo}>
             <div className={styles.fileItemName}>
               {enabled && <span className={styles.enabledBadge}>●</span>}
-              {file.filename}
+              {showRelPath && file.rel_path ? file.rel_path : file.filename}
             </div>
             <div className={styles.fileItemMeta}>
               {formatFileSize(file.size)} ·{" "}

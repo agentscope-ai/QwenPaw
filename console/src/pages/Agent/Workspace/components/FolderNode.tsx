@@ -77,7 +77,7 @@ export const FolderNode: React.FC<FolderNodeProps> = ({
           {/* Direct files inside this folder */}
           {node.files.map((file) => (
             <FileItem
-              key={file.filename}
+              key={file.path || file.rel_path || file.filename}
               file={file}
               selectedFile={selectedFile}
               expandedMemory={expandedMemory}
