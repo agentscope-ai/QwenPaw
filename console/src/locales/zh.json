@@ -693,7 +693,7 @@
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
       "tooltipImageOnly": "当前模型仅支持图片上传，单文件不超过10MB",
-      "tooltipNoMultimodal": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
+      "tooltipNoMultimodal": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理，单文件不超过10MB",
       "fileSizeLimit": "单文件不超过10MB",
       "multimodalDisabled": "当前模型不支持文件上传",
       "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
