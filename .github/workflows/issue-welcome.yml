@@ -78,13 +78,22 @@ jobs:
               }
             }
 
-            // Check if issue uses template properly (bug report check)
-            const isBugReport = issueBody.includes('## CoPaw Version') ||
-                                issueBody.includes('## Environment') ||
-                                issueBody.includes('## Steps to Reproduce');
+            // Check if this is a bug report by title or label
+            const titleContainsBug = /bug/i.test(issueTitle);
+            const labels = context.payload.issue.labels.map(label => label.name);
+            const hasBugLabel = labels.includes('bug');
+            const isBugRelated = titleContainsBug || hasBugLabel;
+
+            // Check if issue uses bug report template
+            const usedBugTemplate = issueBody.includes('## CoPaw Version') ||
+                                    issueBody.includes('## Environment') ||
+                                    issueBody.includes('## Steps to Reproduce');
 
             const hasRequiredInfo = issueBody.includes('## Description') &&
                                      issueBody.length > 100;
+
+            // If bug-related but template not used, need to remind
+            const needBugTemplateReminder = isBugRelated && !usedBugTemplate;
 
             // Build comment
             let comment = '';
@@ -114,17 +123,17 @@ jobs:
                 comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
               }
 
-              if (isBugReport && !hasRequiredInfo) {
-                comment += `### 📋 关于 Bug Report / About Bug Reports\n\n`;
-                comment += `为了帮助我们更快地定位和修复问题，请确保你的 bug report 包含以下信息：\n`;
-                comment += `To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
+              if (needBugTemplateReminder) {
+                comment += `### 📋 关于 Bug Report 模版 / About Bug Report Template\n\n`;
+                comment += `我们注意到你的 issue 似乎与 bug 相关，但没有使用 Bug Report 模版。为了帮助我们更快地定位和修复问题，请确保你的 bug report 包含以下信息：\n`;
+                comment += `We noticed your issue seems to be bug-related, but doesn't use the Bug Report template. To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
                 comment += `- ✅ **CoPaw 版本 / Version** (使用 \`copaw --version\` 查看)\n`;
                 comment += `- ✅ **操作系统 / OS** (macOS/Linux/Windows 及版本)\n`;
                 comment += `- ✅ **复现步骤 / Steps to Reproduce** (详细的步骤)\n`;
                 comment += `- ✅ **实际结果 vs 预期结果 / Actual vs Expected**\n`;
                 comment += `- ✅ **日志或截图 / Logs or Screenshots**\n\n`;
-                comment += `如果你的 issue 缺少这些信息，维护者可能需要额外时间来询问细节。\n`;
-                comment += `Missing information may require maintainers to ask follow-up questions.\n\n`;
+                comment += `你可以编辑 issue 来补充这些信息。如果你的 issue 缺少这些信息，维护者可能需要额外时间来询问细节。\n`;
+                comment += `You can edit your issue to add this information. Missing information may require maintainers to ask follow-up questions.\n\n`;
               }
 
               comment += `我们会尽快查看你的 issue。感谢你对 CoPaw 的支持！\n`;
@@ -159,15 +168,15 @@ jobs:
                 comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
               }
 
-              if (isBugReport && !hasRequiredInfo) {
-                comment += `### 📋 About Bug Reports\n\n`;
-                comment += `To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
+              if (needBugTemplateReminder) {
+                comment += `### 📋 About Bug Report Template\n\n`;
+                comment += `We noticed your issue seems to be bug-related, but doesn't use the Bug Report template. To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
                 comment += `- ✅ **CoPaw Version** (use \`copaw --version\`)\n`;
                 comment += `- ✅ **Operating System** (macOS/Linux/Windows and version)\n`;
                 comment += `- ✅ **Steps to Reproduce** (detailed steps)\n`;
                 comment += `- ✅ **Actual vs Expected Behavior**\n`;
                 comment += `- ✅ **Logs or Screenshots**\n\n`;
-                comment += `Missing information may require us to ask follow-up questions, which can delay the fix.\n\n`;
+                comment += `You can edit your issue to add this information. Missing information may require us to ask follow-up questions, which can delay the fix.\n\n`;
               }
 
               comment += `We'll review your issue soon. Thank you for supporting CoPaw!`;
