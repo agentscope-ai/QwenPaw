@@ -104,6 +104,7 @@ async def create_channel_service(ws: "Workspace", _):
 
     async def _stop_handler(request):
         """Signal the agent to stop via global flag."""
+        _ = request
         return request_agent_stop(agent_name)
 
     for ch in cm.channels:

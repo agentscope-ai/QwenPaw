@@ -118,17 +118,27 @@ async def post_console_chat(
     if user_text.lower() == "/stop":
         from ...agents.middleware.stop_interrupt import request_agent_stop
         from ..agent_context import get_agent_for_request as _get_agent
+
         try:
             ws = await _get_agent(request)
             request_agent_stop(ws.agent_id)
         except Exception:
             pass
+
         async def _stop_ack() -> AsyncGenerator[str, None]:
-            yield f"data: {json.dumps({'status': 'interrupted', 'message': 'Task interrupted. Send your next message.'})}\n\n"
+            payload = {
+                "status": "interrupted",
+                "message": ("Task interrupted. Send your next message."),
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+
         return StreamingResponse(
             _stop_ack(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
         )
     # ── end /stop ───────────────────────────────────────
 

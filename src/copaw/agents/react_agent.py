@@ -737,10 +737,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         structured_model: type[BaseModel] | None = None,
     ) -> Msg:
         """Override to provide a friendlier interrupt message."""
+        del msg
+        del structured_model
         response_msg = Msg(
             self.name,
-            "已收到打断指令，当前任务已暂停。请告诉我接下来要怎么做 —— "
-            "继续刚才的任务、调整方向、还是换个事情？",
+            "已收到打断指令，当前任务已暂停。请告诉我接下来要怎么做 —— 继续刚才的任务、调整方向、还是换个事情？",
             "assistant",
             metadata={"_is_interrupted": True},
         )

@@ -16,6 +16,7 @@ from typing import (
     List,
     Union,
     AsyncIterator,
+    Awaitable,
     Callable,
     TYPE_CHECKING,
 )
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
 # process: accepts AgentRequest, streams Event
 # (including message events with status completed)
 ProcessHandler = Callable[[Any], AsyncIterator["Event"]]
+StopHandler = Callable[[Any], Awaitable[bool]]
 
 # Outgoing part = runtime content types (no Dict[str, Any])
 OutgoingContentPart = Union[
@@ -335,22 +337,28 @@ class BaseChannel(ABC):
                         text = (p["text"] or "").strip()
                         break
 
-            if text.lower() == "/stop" and self._stop_handler:
+            stop_handler = self._stop_handler
+            if text.lower() == "/stop" and stop_handler is not None:
                 # Fire stop handler in the event loop, don't enqueue
-                import asyncio
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.ensure_future(self._handle_stop_from_enqueue(payload))
+                    asyncio.ensure_future(
+                        self._handle_stop_from_enqueue(payload),
+                    )
                 return
 
-            original_cb(payload)
+            if original_cb is not None:
+                original_cb(payload)
 
         self._enqueue = _intercepted_enqueue
 
     async def _handle_stop_from_enqueue(self, payload: Any) -> None:
         """Handle /stop intercepted at enqueue time."""
+        stop_handler = self._stop_handler
         try:
-            stopped = await self._stop_handler(None)
+            if stop_handler is None:
+                return
+            stopped = await stop_handler(None)  # pylint: disable=not-callable
             # Try to send reply
             to_handle = ""
             meta = {}
@@ -562,11 +570,14 @@ class BaseChannel(ABC):
         to_handle = self.get_to_handle_from_request(request)
 
         # ── /stop soft interrupt (all channels) ─────────
-        if self._stop_handler:
+        stop_handler = self._stop_handler
+        if stop_handler is not None:
             user_text = self._extract_user_text(request)
             if user_text and user_text.lower() == "/stop":
                 try:
-                    stopped = await self._stop_handler(request)
+                    stopped = await stop_handler(
+                        request,
+                    )  # pylint: disable=not-callable
                     if stopped:
                         logger.info("/stop: interrupted running task")
                         await self.send_text(
@@ -700,11 +711,16 @@ class BaseChannel(ABC):
         text: str,
         send_meta: dict,
     ) -> None:
-        """Send a simple text message. Channels can override for richer sends."""
+        """Send a simple text message.
+
+        Channels can override for richer sends.
+        """
         try:
-            from ..runner.models import OutgoingContentPart
-            parts = [OutgoingContentPart(type="text", text=text)]
-            await self.send_message_content(to_handle, parts, send_meta)
+            await self.send_content_parts(
+                to_handle,
+                [TextContent(type=ContentType.TEXT, text=text)],
+                send_meta,
+            )
         except Exception as e:
             logger.warning("send_text fallback failed: %s", e)
 

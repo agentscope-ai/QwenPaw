@@ -114,7 +114,10 @@ class TaskTracker:
             return q
 
     async def request_stop(self, run_key: str) -> bool:
-        """Signal a run to stop gracefully. Returns ``True`` if it was running."""
+        """Signal a run to stop gracefully.
+
+        Returns ``True`` if it was running.
+        """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
@@ -126,7 +129,10 @@ class TaskTracker:
             return True
 
     def is_stop_requested(self, run_key: str) -> bool:
-        """Check if stop has been requested for a run (non-async, for hooks)."""
+        """Check if stop has been requested for a run.
+
+        Non-async helper for hooks.
+        """
         flag = self._stop_flags.get(run_key)
         return flag is not None and flag.is_set()
 
