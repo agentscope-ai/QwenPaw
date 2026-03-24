@@ -240,7 +240,7 @@ class EmbeddingConfig(BaseModel):
         default=False,
         description="Whether to use custom dimensions",
     )
-    max_cache_size: int = Field(default=2000, description="Maximum cache size")
+    max_cache_size: int = Field(default=3000, description="Maximum cache size")
     max_input_length: int = Field(
         default=8192,
         description="Maximum input length for embedding",
@@ -254,7 +254,7 @@ class EmbeddingConfig(BaseModel):
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     max_iters: int = Field(
         default=50,
@@ -305,7 +305,7 @@ class AgentsRunningConfig(BaseModel):
     )
 
     tool_result_compact_recent_n: int = Field(
-        default=2,
+        default=1,
         ge=1,
         le=10,
         description="Number of recent messages to use recent_threshold for",
@@ -326,9 +326,9 @@ class AgentsRunningConfig(BaseModel):
     )
 
     tool_result_compact_retention_days: int = Field(
-        default=7,
+        default=3,
         ge=1,
-        le=30,
+        le=10,
         description="Number of days to retain tool result files",
     )
 
@@ -336,6 +336,11 @@ class AgentsRunningConfig(BaseModel):
         default=10000,
         ge=1000,
         description="Maximum length for /history command output",
+    )
+
+    compact_with_thinking_block: bool = Field(
+        default=True,
+        description="Whether to include thinking blocks when compact",
     )
 
     embedding_config: EmbeddingConfig = Field(
