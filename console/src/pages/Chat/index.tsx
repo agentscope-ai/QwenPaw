@@ -589,9 +589,7 @@ export default function ChatPage() {
               const isLt10M = file.size / 1024 / 1024 < 10;
               if (!isLt10M) {
                 message.error(t("chat.attachments.fileSizeLimit"));
-                return options.onError?.(
-                  new Error("File size exceeds 10MB"),
-                );
+                return options.onError?.(new Error("File size exceeds 10MB"));
               }
 
               options.onProgress?.({ percent: 0 });
@@ -599,9 +597,7 @@ export default function ChatPage() {
               options.onProgress?.({ percent: 100 });
               options.onSuccess({ url: chatApi.fileUrl(res.url) });
             } catch (e) {
-              options.onError?.(
-                e instanceof Error ? e : new Error(String(e)),
-              );
+              options.onError?.(e instanceof Error ? e : new Error(String(e)));
             }
           },
         },
