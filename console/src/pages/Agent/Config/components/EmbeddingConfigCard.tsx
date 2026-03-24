@@ -206,8 +206,8 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
       return;
     }
     try {
-      const current = (form.getFieldValue("embedding_config") || {}) as
-        Partial<EmbeddingConfigShape>;
+      const current = (form.getFieldValue("embedding_config") ||
+        {}) as Partial<EmbeddingConfigShape>;
       if (checked) {
         const next = {
           ...DEFAULT_EMBEDDING_CONFIG,
@@ -462,7 +462,10 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
                       <li key={g.index}>
                         {g.name}
                         {g.total_memory_mb != null && (
-                          <> — 显存约 {Math.round(g.total_memory_mb / 1024)} GB</>
+                          <>
+                            {" "}
+                            — 显存约 {Math.round(g.total_memory_mb / 1024)} GB
+                          </>
                         )}
                         {g.source && (
                           <span style={{ color: "#888" }}> ({g.source})</span>
@@ -473,8 +476,8 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
                 </div>
               ) : Array.isArray(resourceHint.gpus) ? (
                 <div style={{ marginTop: 8, color: "#666" }}>
-                  未检测到可用 NVIDIA GPU（或未安装驱动）；多模态大模型将主要依赖 CPU
-                  与内存。
+                  未检测到可用 NVIDIA
+                  GPU（或未安装驱动）；多模态大模型将主要依赖 CPU 与内存。
                 </div>
               ) : null}
               {resourceHint.recommendation ? (
