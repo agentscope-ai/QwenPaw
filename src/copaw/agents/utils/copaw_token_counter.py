@@ -145,6 +145,8 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             estimated minimum.
         """
         if text is not None:
+            if text == "":
+                return 0
             if self._tokenizer_available:
                 try:
                     token_ids = self.tokenizer.encode(text)

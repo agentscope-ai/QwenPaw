@@ -403,15 +403,13 @@ def test_count_messages_with_str_content() -> None:
     print(f"  PASSED: str content messages counted ({token_count} tokens)")
 
 
-def test_count_empty_text_not_fallback_to_messages() -> None:
-    """Empty text should still follow text path, not message path fallback."""
-    print("Testing: empty text follows text path")
+def test_count_empty_text_returns_zero() -> None:
+    """Empty text should return zero explicitly."""
+    print("Testing: empty text returns zero")
     counter = CopawTokenCounter(
         token_count_model="default",
         token_count_use_mirror=True,
     )
-    # With explicit empty text, should return estimate("") == 0,
-    # instead of falling back to messages counting.
     token_count = asyncio.run(
         counter.count(
             messages=[{"role": "user", "content": "hello"}],
@@ -419,7 +417,7 @@ def test_count_empty_text_not_fallback_to_messages() -> None:
         ),
     )
     assert token_count == 0
-    print("  PASSED: empty text does not fallback to messages")
+    print("  PASSED: empty text returns zero")
 
 
 def test_count_none_text_fallback_to_messages() -> None:
@@ -484,7 +482,7 @@ def run_all_tests() -> None:
     test_tokenizer_different_models()
     test_count_messages_with_list_content()
     test_count_messages_with_str_content()
-    test_count_empty_text_not_fallback_to_messages()
+    test_count_empty_text_returns_zero()
     test_count_none_text_fallback_to_messages()
     test_normalize_messages_mixed()
 
