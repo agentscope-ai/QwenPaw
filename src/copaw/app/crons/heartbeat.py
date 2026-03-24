@@ -14,14 +14,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, Optional
 
+from apscheduler.triggers.cron import CronTrigger
+
 from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
     load_config,
 )
 from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
-
-from apscheduler.triggers.cron import CronTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,10 @@ _EVERY_PATTERN = re.compile(
 
 
 def parse_heartbeat_every(every: str) -> int:
-    """Parse interval string (e.g. '30m', '1h') or cron expression (e.g. '0 6 * * *') to total seconds.
+    """Parse interval string or cron expression to total seconds.
 
-    Supports:
-    - Interval formats: 30m, 1h, 2h30m, 90s
-    - Cron expressions: 0 6 * * * (every day at 6:00), 30 8 * * 1-5 (weekdays at 8:30)
+    Supports interval formats: 30m, 1h, 2h30m, 90s
+    Supports cron expressions: 0 6 * * *, 30 8 * * 1-5
     """
     every = (every or "").strip()
     if not every:
