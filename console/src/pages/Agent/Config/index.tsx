@@ -5,6 +5,7 @@ import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
   PageHeader,
   ReactAgentCard,
+  LlmRetryCard,
   ContextManagementCard,
   KnowledgeMaintenanceCard,
 } from "./components";
@@ -30,6 +31,7 @@ function AgentConfigPage() {
   const [contextCompactThreshold, setContextCompactThreshold] = useState(0);
   const [contextCompactReserveThreshold, setContextCompactReserveThreshold] =
     useState(0);
+  const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
 
   const updateCalculatedValues = (values: Record<string, unknown>) => {
     const maxInputLength = Number(values.max_input_length ?? 0);
@@ -101,7 +103,9 @@ function AgentConfigPage() {
           contextCompactReserveThreshold={contextCompactReserveThreshold}
         />
 
-        <KnowledgeMaintenanceCard />
+        <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+  <KnowledgeMaintenanceCard />
+  <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
       </Form>
 
       <div className={styles.footerActions}>

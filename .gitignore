@@ -88,6 +88,12 @@ CLAUDE.md
 *.tmp
 
 # Build cache
-# Includes conda_unpack_wheels/ for Windows packaging workaround
-.cache/
+.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
 .smoke-cognee-working/
+
+# Hypothesis test cache
+.hypothesis/
+src/.hypothesis/
+
+# Kiro IDE
+.kiro/

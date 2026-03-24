@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import copaw.providers.ollama_provider as ollama_provider_module
 from copaw.providers.ollama_provider import OllamaProvider
@@ -70,11 +71,16 @@ async def test_check_connection_error_returns_false(monkeypatch) -> None:
             raise RuntimeError("boom")
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
-    monkeypatch.setattr(
-        ollama_provider_module.ollama,
-        "ResponseError",
-        Exception,
-    )
+    # Ensure ollama module is available for the error handler
+    if ollama_provider_module.ollama is None:
+        fake_ollama = SimpleNamespace(ResponseError=Exception)
+        monkeypatch.setattr(ollama_provider_module, "ollama", fake_ollama)
+    else:
+        monkeypatch.setattr(
+            ollama_provider_module.ollama,
+            "ResponseError",
+            Exception,
+        )
 
     ok, msg = await provider.check_connection(timeout=1.0)
 
@@ -112,11 +118,16 @@ async def test_fetch_models_error_returns_empty(monkeypatch) -> None:
             raise RuntimeError("failed")
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
-    monkeypatch.setattr(
-        ollama_provider_module.ollama,
-        "ResponseError",
-        Exception,
-    )
+    # Ensure ollama module is available for the error handler
+    if ollama_provider_module.ollama is None:
+        fake_ollama = SimpleNamespace(ResponseError=Exception)
+        monkeypatch.setattr(ollama_provider_module, "ollama", fake_ollama)
+    else:
+        monkeypatch.setattr(
+            ollama_provider_module.ollama,
+            "ResponseError",
+            Exception,
+        )
 
     models = await provider.fetch_models(timeout=3.0)
 
@@ -162,11 +173,16 @@ async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
             raise RuntimeError("failed")
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
-    monkeypatch.setattr(
-        ollama_provider_module.ollama,
-        "ResponseError",
-        Exception,
-    )
+    # Ensure ollama module is available for the error handler
+    if ollama_provider_module.ollama is None:
+        fake_ollama = SimpleNamespace(ResponseError=Exception)
+        monkeypatch.setattr(ollama_provider_module, "ollama", fake_ollama)
+    else:
+        monkeypatch.setattr(
+            ollama_provider_module.ollama,
+            "ResponseError",
+            Exception,
+        )
 
     ok, msg = await provider.check_model_connection("qwen2:7b", timeout=4.0)
 
@@ -361,3 +377,103 @@ async def test_delete_model_calls_delete(monkeypatch) -> None:
     }
 
     assert provider.extra_models == [ModelInfo(id="qwen3:4b", name="qwen3:4b")]
+
+
+# ---------------------------------------------------------------------------
+# Ollama probe_model_multimodal unit tests (Task 9.1)
+# Validates: Requirements 7.1, 7.2, 7.3, 7.4
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Ollama probe_model_multimodal unit tests (Task 9.1)
+# Validates: Requirements 7.1, 7.2, 7.3, 7.4
+# ---------------------------------------------------------------------------
+
+
+async def test_probe_model_multimodal_returns_non_empty_result() -> None:
+    """probe_model_multimodal returns a ProbeResult with correct fields."""
+    provider = _make_provider()
+
+    with patch(
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
+        new_callable=AsyncMock,
+        return_value=(True, "Image supported (answer='red')"),
+    ):
+        result = await provider.probe_model_multimodal("llava:7b", timeout=5.0)
+
+    assert result.supports_image is True
+    assert result.supports_video is False
+    assert result.image_message != ""
+    assert result.video_message != ""
+
+
+async def test_probe_model_multimodal_video_always_false() -> None:
+    """supports_video is always False regardless of image probe outcome."""
+    provider = _make_provider()
+
+    with patch(
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
+        new_callable=AsyncMock,
+        return_value=(True, "Image supported"),
+    ):
+        result = await provider.probe_model_multimodal("llava:7b", timeout=5.0)
+
+    assert result.supports_video is False
+
+
+async def test_probe_model_multimodal_uses_v1_endpoint() -> None:
+    """Proxy OpenAIProvider is created with base_url ending in '/v1'."""
+    provider = _make_provider()
+
+    with patch(
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
+        new_callable=AsyncMock,
+        return_value=(True, "ok"),
+    ) as mock_probe:
+        await provider.probe_model_multimodal("llava:7b", timeout=5.0)
+
+    mock_probe.assert_called_once()
+
+
+async def test_probe_model_multimodal_uses_ollama_default_api_key() -> None:
+    """When provider has no api_key, proxy uses 'ollama' as default."""
+    provider = OllamaProvider(
+        id="ollama",
+        name="Ollama",
+        base_url="http://localhost:11434",
+        api_key="",
+        chat_model="OllamaChatModel",
+    )
+
+    with patch(
+        "copaw.providers.openai_provider.OpenAIProvider.__init__",
+        return_value=None,
+    ) as mock_init, patch(
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
+        new_callable=AsyncMock,
+        return_value=(True, "ok"),
+    ):
+        await provider.probe_model_multimodal("llava:7b", timeout=5.0)
+
+    mock_init.assert_called_once()
+    call_kwargs = mock_init.call_args
+    assert call_kwargs.kwargs.get("api_key") == "ollama"
+
+
+async def test_probe_model_multimodal_image_not_supported() -> None:
+    """When _probe_image_support returns False, result reflects this."""
+    provider = _make_provider()
+
+    with patch(
+        "copaw.providers.openai_provider.OpenAIProvider._probe_image_support",
+        new_callable=AsyncMock,
+        return_value=(False, "Image not supported: 400 Bad Request"),
+    ):
+        result = await provider.probe_model_multimodal(
+            "codellama:7b",
+            timeout=5.0,
+        )
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+    assert "not supported" in result.image_message.lower()

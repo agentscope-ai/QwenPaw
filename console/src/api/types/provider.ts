@@ -1,6 +1,9 @@
 export interface ModelInfo {
   id: string;
   name: string;
+  supports_multimodal: boolean | null;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
 }
 
 export interface ProviderInfo {
@@ -139,4 +142,12 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   added_count: number;
+}
+
+export interface ProbeMultimodalResponse {
+  supports_image: boolean;
+  supports_video: boolean;
+  supports_multimodal: boolean;
+  image_message: string;
+  video_message: string;
 }

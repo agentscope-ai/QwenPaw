@@ -17,7 +17,16 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from ...config.context import get_current_workspace_dir
+from ...constant import WORKING_DIR
+
 logger = logging.getLogger(__name__)
+
+
+def _default_download_dir() -> str:
+    """Return the default download directory under the current workspace."""
+    base_dir = get_current_workspace_dir() or WORKING_DIR
+    return str(base_dir / "downloads")
 
 
 def _resolve_local_path(
@@ -146,7 +155,7 @@ def _guess_suffix_from_file_content(path: Path) -> Optional[str]:
 async def download_file_from_base64(
     base64_data: str,
     filename: Optional[str] = None,
-    download_dir: str = "downloads",
+    download_dir: str = "",
 ) -> str:
     """
     Save base64-encoded file data to local download directory.
@@ -154,7 +163,8 @@ async def download_file_from_base64(
     Args:
         base64_data: Base64-encoded file content.
         filename: The filename to save. If not provided, will generate one.
-        download_dir: The directory to save files. Defaults to "downloads".
+        download_dir: The directory to save files. Defaults to
+            workspace_dir/downloads.
 
     Returns:
         The local file path.
@@ -162,7 +172,9 @@ async def download_file_from_base64(
     try:
         file_content = base64.b64decode(base64_data)
 
-        download_path = Path(download_dir)
+        download_path = Path(
+            download_dir if download_dir else _default_download_dir(),
+        )
         download_path.mkdir(parents=True, exist_ok=True)
 
         if not filename:
@@ -184,7 +196,7 @@ async def download_file_from_base64(
 async def download_file_from_url(
     url: str,
     filename: Optional[str] = None,
-    download_dir: str = "downloads",
+    download_dir: str = "",
 ) -> str:
     """
     Download a file from URL to local download directory using wget or curl.
@@ -196,7 +208,8 @@ async def download_file_from_url(
             The filename to save. If not provided, will extract from URL or
             generate a hash-based name.
         download_dir (`str`):
-            The directory to save files. Defaults to "downloads".
+            The directory to save files. Defaults to
+            workspace_dir/downloads.
 
     Returns:
         `str`:
@@ -208,7 +221,9 @@ async def download_file_from_url(
         if local is not None:
             return local
 
-        download_path = Path(download_dir)
+        download_path = Path(
+            download_dir if download_dir else _default_download_dir(),
+        )
         download_path.mkdir(parents=True, exist_ok=True)
         if not filename:
             url_filename = os.path.basename(parsed.path)

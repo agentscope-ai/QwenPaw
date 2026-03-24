@@ -364,7 +364,7 @@ class MessageRenderer:
                 text_parts.append(p.refusal or "")
         body = "\n".join(text_parts) if text_parts else ""
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         for p in parts:
             t = getattr(p, "type", None)
             if t == ContentType.IMAGE and getattr(p, "image_url", None):

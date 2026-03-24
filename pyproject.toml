@@ -17,7 +17,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.3.1.1",
+    "reme-ai==0.3.1.2",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -34,6 +34,7 @@ dependencies = [
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
     "pyyaml>=6.0",
+    "json-repair>=0.30.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -68,6 +69,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pre-commit>=4.2.0",
     "pytest-cov>=6.2.1",
+    "hypothesis>=6.0.0",
 ]
 local = [
     "huggingface_hub>=0.20.0",

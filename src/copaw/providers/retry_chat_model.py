@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
 from agentscope.model import ChatModelBase
@@ -33,6 +34,16 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
 _http_retryable: tuple[type[Exception], ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RetryConfig:
+    """Retry policy for transient LLM API failures."""
+
+    enabled: bool = LLM_MAX_RETRIES > 0
+    max_retries: int = max(LLM_MAX_RETRIES, 1)
+    backoff_base: float = LLM_BACKOFF_BASE
+    backoff_cap: float = LLM_BACKOFF_CAP
 
 
 def _get_openai_retryable() -> tuple[type[Exception], ...]:
@@ -133,9 +144,30 @@ def _is_retryable(exc: Exception) -> bool:
     return False
 
 
-def _compute_backoff(attempt: int) -> float:
+def _normalize_retry_config(retry_config: RetryConfig | None) -> RetryConfig:
+    """Normalize externally supplied retry config into safe bounds."""
+    if retry_config is None:
+        return RetryConfig()
+    normalized_backoff_base = max(0.1, retry_config.backoff_base)
+    normalized_backoff_cap = max(
+        0.5,
+        retry_config.backoff_cap,
+        normalized_backoff_base,
+    )
+    return RetryConfig(
+        enabled=retry_config.enabled,
+        max_retries=max(1, retry_config.max_retries),
+        backoff_base=normalized_backoff_base,
+        backoff_cap=normalized_backoff_cap,
+    )
+
+
+def _compute_backoff(attempt: int, retry_config: RetryConfig) -> float:
     """Exponential back-off: base * 2^(attempt-1), capped."""
-    return min(LLM_BACKOFF_CAP, LLM_BACKOFF_BASE * (2 ** max(0, attempt - 1)))
+    return min(
+        retry_config.backoff_cap,
+        retry_config.backoff_base * (2 ** max(0, attempt - 1)),
+    )
 
 
 class RetryChatModel(ChatModelBase):
@@ -147,9 +179,14 @@ class RetryChatModel(ChatModelBase):
     entire request is retried from scratch.
     """
 
-    def __init__(self, inner: ChatModelBase) -> None:
+    def __init__(
+        self,
+        inner: ChatModelBase,
+        retry_config: RetryConfig | None = None,
+    ) -> None:
         super().__init__(model_name=inner.model_name, stream=inner.stream)
         self._inner = inner
+        self._retry_config = _normalize_retry_config(retry_config)
 
     # Expose the real model's class so that formatter mapping keeps working
     # when code inspects ``model.__class__`` after wrapping.
@@ -162,7 +199,9 @@ class RetryChatModel(ChatModelBase):
         *args: Any,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        retries = LLM_MAX_RETRIES
+        retries = (
+            self._retry_config.max_retries if self._retry_config.enabled else 0
+        )
         attempts = retries + 1
         last_exc: Exception | None = None
 
@@ -190,7 +229,7 @@ class RetryChatModel(ChatModelBase):
                             exc,
                         )
                     raise
-                delay = _compute_backoff(attempt)
+                delay = _compute_backoff(attempt, self._retry_config)
                 logger.warning(
                     "LLM call failed (attempt %d/%d): %s. "
                     "Retrying in %.1fs …",
@@ -234,7 +273,7 @@ class RetryChatModel(ChatModelBase):
                     failed_exc,
                 )
             raise failed_exc
-        delay = _compute_backoff(current_attempt)
+        delay = _compute_backoff(current_attempt, self._retry_config)
         logger.warning(
             "LLM stream failed (attempt %d/%d): %s. Retrying in %.1fs …",
             current_attempt,
@@ -268,7 +307,10 @@ class RetryChatModel(ChatModelBase):
                             retry_exc,
                         )
                     raise
-                retry_delay = _compute_backoff(attempt)
+                retry_delay = _compute_backoff(
+                    attempt,
+                    self._retry_config,
+                )
                 logger.warning(
                     "LLM stream retry failed (attempt %d/%d): %s. "
                     "Retrying in %.1fs …",

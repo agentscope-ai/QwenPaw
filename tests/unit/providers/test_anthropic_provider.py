@@ -186,3 +186,119 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider_info.api_key_prefix == "sk-ant-"
     assert provider_info.is_custom
     assert not provider_info.support_connection_check
+
+
+# ---------------------------------------------------------------------------
+# probe_model_multimodal tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeStream:
+    """Minimal async iterator that yields one chunk then stops."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+async def test_probe_model_multimodal_image_supported(monkeypatch) -> None:
+    """Image probe returns supports_image=True."""
+    provider = _make_provider()
+
+    class FakeMessages:
+        async def create(self, **_kwargs):
+            return _FakeStream()
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    result = await provider.probe_model_multimodal("claude-3-5-sonnet")
+
+    assert result.supports_image is True
+    assert result.supports_video is False
+    assert result.supports_multimodal is True
+    assert "Image supported" in result.image_message
+    assert "Video not supported" in result.video_message
+
+
+async def test_probe_model_multimodal_400_returns_false(monkeypatch) -> None:
+    """When the model returns a 400 APIError, supports_image is False."""
+    provider = _make_provider()
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            raise RuntimeError("image is not supported")
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+    monkeypatch.setattr(
+        anthropic_provider_module.anthropic,
+        "APIError",
+        Exception,
+    )
+
+    result = await provider.probe_model_multimodal("claude-text-only")
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+    assert result.supports_multimodal is False
+
+
+async def test_probe_model_multimodal_timeout_returns_false(
+    monkeypatch,
+) -> None:
+    """Timeout during probe returns safe default (False)."""
+    provider = _make_provider()
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            raise TimeoutError("Connection timed out")
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    result = await provider.probe_model_multimodal("slow-model")
+
+    assert result.supports_image is False
+    assert result.supports_video is False
+    assert result.supports_multimodal is False
+    assert "failed" in result.image_message.lower()
+
+
+async def test_probe_sends_anthropic_image_format(monkeypatch) -> None:
+    """Verify the probe sends the correct Anthropic base64 image format."""
+    provider = _make_provider()
+    captured: list[dict] = []
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            return _FakeStream()
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    await provider.probe_model_multimodal("claude-3-5-sonnet")
+
+    assert len(captured) == 1
+    call = captured[0]
+    assert call["model"] == "claude-3-5-sonnet"
+    assert call["max_tokens"] == 1
+    assert call["stream"] is True
+
+    messages = call["messages"]
+    assert len(messages) == 1
+    content = messages[0]["content"]
+    assert len(content) == 2
+
+    image_block = content[0]
+    assert image_block["type"] == "image"
+    assert image_block["source"]["type"] == "base64"
+    assert image_block["source"]["media_type"] == "image/png"
+    assert len(image_block["source"]["data"]) > 0
+
+    text_block = content[1]
+    assert text_block["type"] == "text"
+    assert text_block["text"] == "hi"

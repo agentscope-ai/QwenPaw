@@ -1014,6 +1014,43 @@ def _get_multi_agent_manager(request: Request | None) -> MultiAgentManager:
     return request.app.state.multi_agent_manager
 
 
+def _read_profile_description(workspace_dir: str) -> str:
+    """Read description from PROFILE.md if exists.
+
+    Extracts identity section from PROFILE.md as fallback description.
+
+    Args:
+        workspace_dir: Path to agent workspace
+
+    Returns:
+        Description text from PROFILE.md, or empty string if not found
+    """
+    try:
+        profile_path = Path(workspace_dir) / "PROFILE.md"
+        if not profile_path.exists():
+            return ""
+
+        content = profile_path.read_text(encoding="utf-8")
+        lines = []
+        in_identity = False
+
+        for line in content.split("\n"):
+            if line.strip().startswith("## 身份") or line.strip().startswith(
+                "## Identity",
+            ):
+                in_identity = True
+                continue
+            if in_identity:
+                if line.strip().startswith("##"):
+                    break
+                if line.strip() and not line.strip().startswith("#"):
+                    lines.append(line.strip())
+
+        return " ".join(lines)[:200] if lines else ""
+    except Exception:  # noqa: E722
+        return ""
+
+
 @router.get(
     "",
     response_model=AgentListResponse,
@@ -1033,11 +1070,23 @@ async def list_agents() -> AgentListResponse:
         # Load agent config to get name and description
         try:
             agent_config = load_agent_config(agent_id)
+            description = agent_config.description or ""
+
+            # Always read PROFILE.md and append/merge
+            profile_desc = _read_profile_description(agent_ref.workspace_dir)
+            if profile_desc:
+                if description.strip():
+                    # Both exist: merge with separator
+                    description = f"{description.strip()} | {profile_desc}"
+                else:
+                    # Only PROFILE.md exists
+                    description = profile_desc
+
             agents.append(
                 AgentSummary(
                     id=agent_id,
                     name=agent_config.name,
-                    description=agent_config.description,
+                    description=description,
                     workspace_dir=agent_ref.workspace_dir,
                     project_count=len(projects),
                     projects=projects,
