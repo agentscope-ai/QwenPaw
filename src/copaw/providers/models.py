@@ -8,9 +8,9 @@ from typing import List
 from pydantic import BaseModel, Field
 
 
-class ModelInfo(BaseModel):
-    id: str = Field(..., description="Model identifier used in API calls")
-    name: str = Field(..., description="Human-readable model name")
+# Re-export ModelInfo from the canonical definition in provider.py to avoid
+# duplicate class definitions.  All runtime code should use this single class.
+from copaw.providers.provider import ModelInfo  # noqa: F401
 
 
 class ProviderDefinition(BaseModel):

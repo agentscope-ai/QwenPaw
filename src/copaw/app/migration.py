@@ -12,10 +12,20 @@ from ..config.config import (
     AgentProfileConfig,
     AgentProfileRef,
     AgentsConfig,
-    AgentsRunningConfig,
     AgentsLLMRoutingConfig,
+    AgentsRunningConfig,
+    ChannelConfig,
+    HeartbeatConfig,
+    MCPConfig,
+    build_qa_agent_tools_config,
+    save_agent_config,
 )
-from ..constant import WORKING_DIR
+from ..constant import (
+    BUILTIN_QA_AGENT_ID,
+    BUILTIN_QA_AGENT_NAME,
+    BUILTIN_QA_AGENT_SKILL_NAMES,
+    WORKING_DIR,
+)
 from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
@@ -309,3 +319,144 @@ def ensure_default_agent_exists() -> None:
         logger.info(
             f"Created default agent with workspace: {default_workspace}",
         )
+
+
+def _other_agent_owns_workspace(
+    profiles: dict[str, AgentProfileRef],
+    workspace: Path,
+    builtin_id: str,
+) -> str | None:
+    """If another profile's workspace resolves to ``workspace``, return its id.
+
+    Prevents creating the builtin QA profile on the canonical path
+    ``workspaces/<builtin_id>/`` when a user already assigned that directory
+    to a different agent: ``save_agent_config`` would overwrite their
+    ``agent.json``.
+    """
+    try:
+        target = workspace.resolve()
+    except OSError:
+        target = workspace.expanduser()
+    for aid, ref in profiles.items():
+        if aid == builtin_id:
+            continue
+        other = Path(ref.workspace_dir).expanduser()
+        try:
+            other_res = other.resolve()
+        except OSError:
+            other_res = other
+        if other_res == target:
+            return aid
+    return None
+
+
+def ensure_qa_agent_exists() -> None:
+    """Ensure the builtin QA agent profile and workspace exist.
+
+    On **first creation** only, ``active_skills`` is seeded from
+    ``BUILTIN_QA_AGENT_SKILL_NAMES`` (e.g. ``guidance``,
+    ``copaw_source_index``), and built-in tools are restricted (see
+    ``build_qa_agent_tools_config``).
+    After that, the user may change skills and tools freely; we do not
+    overwrite their choices on later startups.
+
+    If the canonical QA workspace path is already used by another agent id,
+    builtin creation is **skipped** (with a warning) so that workspace's
+    ``agent.json`` is not overwritten.
+    """
+    from .routers.agents import _initialize_agent_workspace
+
+    config = load_config()
+    qa_id = BUILTIN_QA_AGENT_ID
+
+    if qa_id in config.agents.profiles:
+        agent_ref = config.agents.profiles[qa_id]
+        qa_workspace = Path(agent_ref.workspace_dir).expanduser()
+        agent_existed = True
+    else:
+        qa_workspace = Path(
+            f"{WORKING_DIR}/workspaces/{qa_id}",
+        ).expanduser()
+        agent_existed = False
+
+    qa_workspace.mkdir(parents=True, exist_ok=True)
+
+    chats_file = qa_workspace / "chats.json"
+    if not chats_file.exists():
+        with open(chats_file, "w", encoding="utf-8") as f:
+            json.dump(
+                {"version": 1, "chats": []},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        logger.debug("Created chats.json for QA agent")
+
+    jobs_file = qa_workspace / "jobs.json"
+    if not jobs_file.exists():
+        with open(jobs_file, "w", encoding="utf-8") as f:
+            json.dump(
+                {"version": 1, "jobs": []},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        logger.debug("Created jobs.json for QA agent")
+
+    if agent_existed:
+        return
+
+    other_id = _other_agent_owns_workspace(
+        config.agents.profiles,
+        qa_workspace,
+        qa_id,
+    )
+    if other_id is not None:
+        logger.warning(
+            "Skipping builtin QA profile %r: workspace %s is already used by "
+            "agent %r. Point that agent to another directory or remove it "
+            "from config before the builtin QA slot can be created.",
+            qa_id,
+            qa_workspace,
+            other_id,
+        )
+        return
+
+    logger.info("Creating builtin QA agent...")
+    qa_skill_list = list(BUILTIN_QA_AGENT_SKILL_NAMES)
+
+    language = config.agents.language or "zh"
+    agent_config = AgentProfileConfig(
+        id=qa_id,
+        name=BUILTIN_QA_AGENT_NAME,
+        description=(
+            "Builtin Q&A helper for CoPaw setup, local config under "
+            "COPAW_WORKING_DIR, and documentation. Prefer reading files "
+            "before answering; use absolute paths for code outside this "
+            "workspace."
+        ),
+        workspace_dir=str(qa_workspace),
+        language=language,
+        channels=ChannelConfig(),
+        mcp=MCPConfig(),
+        heartbeat=HeartbeatConfig(),
+        tools=build_qa_agent_tools_config(),
+    )
+
+    _initialize_agent_workspace(
+        qa_workspace,
+        agent_config,
+        active_skill_names=qa_skill_list,
+        builtin_qa_md_seed=True,
+    )
+
+    config.agents.profiles[qa_id] = AgentProfileRef(
+        id=qa_id,
+        workspace_dir=str(qa_workspace),
+    )
+    save_config(config)
+    save_agent_config(qa_id, agent_config)
+    logger.info(
+        "Created builtin QA agent with workspace: %s",
+        qa_workspace,
+    )

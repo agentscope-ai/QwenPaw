@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
-from ..providers.retry_chat_model import RetryChatModel
+from ..providers.retry_chat_model import RetryChatModel, RetryConfig
 from ..token_usage import TokenRecordingModelWrapper
 from ..local_models import create_local_chat_model
 
@@ -307,10 +307,17 @@ def create_model_and_formatter(
 
     # Try to get agent-specific model first
     model_slot = None
+    retry_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
+            retry_config = RetryConfig(
+                enabled=agent_config.running.llm_retry_enabled,
+                max_retries=agent_config.running.llm_max_retries,
+                backoff_base=agent_config.running.llm_backoff_base,
+                backoff_cap=agent_config.running.llm_backoff_cap,
+            )
         except Exception:
             pass
 
@@ -344,7 +351,10 @@ def create_model_and_formatter(
 
     # Wrap with retry logic for transient LLM API errors
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(wrapped_model)
+    wrapped_model = RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+    )
 
     return wrapped_model, formatter
 

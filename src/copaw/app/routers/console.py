@@ -209,7 +209,7 @@ async def get_console_file(
 
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    workspace = await get_agent_for_request(request)
+    workspace = await get_agent_for_request(request, agent_id)
     if workspace.agent_id != agent_id:
         raise HTTPException(status_code=404, detail="Not found")
     console_channel = await workspace.channel_manager.get_channel("console")

@@ -5,6 +5,7 @@ import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
   PageHeader,
   ReactAgentCard,
+  LlmRetryCard,
   ContextManagementCard,
 } from "./components";
 import styles from "./index.module.less";
@@ -29,6 +30,7 @@ function AgentConfigPage() {
   // Force re-render when form values change to refresh derived threshold values
   const [, forceUpdate] = useState({});
   const handleValuesChange = () => forceUpdate({});
+  const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
 
   const getCalculatedValues = () => {
     const values = form.getFieldsValue([
@@ -96,6 +98,8 @@ function AgentConfigPage() {
           contextCompactThreshold={contextCompactThreshold}
           contextCompactReserveThreshold={contextCompactReserveThreshold}
         />
+
+        <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
       </Form>
 
       <div className={styles.footerActions}>
