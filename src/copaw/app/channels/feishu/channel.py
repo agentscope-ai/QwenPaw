@@ -218,6 +218,7 @@ class FeishuChannel(BaseChannel):
         self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
         self._closed = False
         self._stop_event = threading.Event()
+        self._http_client: Any = None
 
         self._bot_open_id: Optional[str] = None
 
@@ -409,6 +410,9 @@ class FeishuChannel(BaseChannel):
 
         No SDK API available for bot info.
         """
+        if not self._http_client:
+            logger.warning("feishu: http client not initialized")
+            return None
         try:
             # Get access token via SDK TokenManager
             from lark_oapi.core.token import TokenManager
@@ -423,15 +427,15 @@ class FeishuChannel(BaseChannel):
                 else "https://open.feishu.cn"
             )
             url = f"{base_url}/open-apis/bot/v3/info"
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                )
-                data = response.json()
+            response = await self._http_client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10.0,
+            )
+            data = response.json()
             if data.get("code", -1) != 0:
                 logger.warning(
                     "feishu bot/v3/info error: code=%s msg=%s",
@@ -1124,6 +1128,7 @@ class FeishuChannel(BaseChannel):
             file_type = "doc" if ext == "docx" else ext
             file_type = "xls" if ext == "xlsx" else file_type
             file_type = "ppt" if ext == "pptx" else file_type
+        file_obj = None
         try:
             file_obj = await asyncio.to_thread(path.open, "rb")
             req = (
@@ -1154,23 +1159,28 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("feishu _upload_file failed")
             return None
+        finally:
+            if file_obj is not None:
+                try:
+                    await asyncio.to_thread(file_obj.close)
+                except Exception:
+                    logger.debug("feishu _upload_file: file close failed")
 
     async def _fetch_bytes_from_url(self, url: str) -> Optional[bytes]:
         """Download binary from URL. Supports http(s):// and file://."""
+        if not self._http_client:
+            logger.warning("feishu: http client not initialized")
+            return None
         try:
             path = file_url_to_local_path(url)
             if path is not None:
                 return await asyncio.to_thread(Path(path).read_bytes)
             if url.strip().lower().startswith("file:"):
                 return None
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    url,
-                    headers={"User-Agent": "CoPaw/1.0"},
-                )
-                if response.status_code >= 400:
-                    return None
-                return response.content
+            response = await self._http_client.get(url)
+            if response.status_code >= 400:
+                return None
+            return response.content
         except Exception:
             logger.exception("feishu _fetch_bytes_from_url failed")
             return None
@@ -1836,6 +1846,10 @@ class FeishuChannel(BaseChannel):
                 "feishu channel is enabled.",
             )
         self._loop = asyncio.get_running_loop()
+        self._http_client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={"User-Agent": "CoPaw/1.0"},
+        )
         sdk_domain = (
             lark.LARK_DOMAIN if self.domain == "lark" else lark.FEISHU_DOMAIN
         )
@@ -1904,8 +1918,15 @@ class FeishuChannel(BaseChannel):
             if self._ws_thread.is_alive():
                 logger.warning("feishu ws thread did not stop within timeout")
 
+        if self._http_client:
+            try:
+                await self._http_client.aclose()
+            except Exception:
+                logger.debug("feishu http_client close failed", exc_info=True)
+
         self._client = None
         self._ws_client = None
         self._ws_thread = None
         self._ws_loop = None
+        self._http_client = None
         logger.info("feishu channel stopped")
