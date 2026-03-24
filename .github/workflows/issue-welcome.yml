@@ -1,0 +1,138 @@
+name: Issue Welcome Bot
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome First-Time Issue Author
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.issue.user.login;
+            const issueNumber = context.payload.issue.number;
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || '';
+
+            // Check if Chinese characters exist in title
+            const hasChinese = /[\u4e00-\u9fff]/.test(issueTitle);
+
+            // Check if this is user's first issue in this repo
+            const { data: userIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: author,
+              state: 'all'
+            });
+
+            const isFirstIssue = userIssues.length === 1;
+
+            if (!isFirstIssue) {
+              console.log(`Not first issue for @${author}, skipping welcome message`);
+              return;
+            }
+
+            // Check if user has starred the repo
+            let hasStarred = false;
+            try {
+              await github.rest.activity.checkRepoIsStarredByAuthenticatedUser({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              hasStarred = true;
+            } catch (error) {
+              if (error.status === 404) {
+                hasStarred = false;
+              }
+            }
+
+            // Alternative: check via user's starred repos
+            if (!hasStarred) {
+              try {
+                const { data: stargazers } = await github.rest.activity.listStargazersForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  per_page: 100
+                });
+                hasStarred = stargazers.some(s => s.login === author);
+              } catch (e) {
+                console.log('Could not verify star status');
+              }
+            }
+
+            // Check if issue uses template properly (bug report check)
+            const isBugReport = issueBody.includes('## CoPaw Version') ||
+                                issueBody.includes('## Environment') ||
+                                issueBody.includes('## Steps to Reproduce');
+
+            const hasRequiredInfo = issueBody.includes('## Description') &&
+                                     issueBody.length > 100;
+
+            // Build comment
+            let comment = '';
+
+            if (hasChinese) {
+              // Bilingual response
+              comment = `## 欢迎来到 CoPaw! 👋 Welcome to CoPaw!\n\n`;
+              comment += `你好 @${author}，感谢你提交的第一个 issue！\n`;
+              comment += `Hi @${author}, thank you for your first issue!\n\n`;
+
+              if (!hasStarred) {
+                comment += `如果你觉得 CoPaw 对你有帮助，欢迎给我们一个 ⭐ star！这将帮助更多人发现这个项目。\n`;
+                comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
+              }
+
+              if (isBugReport && !hasRequiredInfo) {
+                comment += `### 📋 关于 Bug Report / About Bug Reports\n\n`;
+                comment += `为了帮助我们更快地定位和修复问题，请确保你的 bug report 包含以下信息：\n`;
+                comment += `To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
+                comment += `- ✅ **CoPaw 版本 / Version** (使用 \`copaw --version\` 查看)\n`;
+                comment += `- ✅ **操作系统 / OS** (macOS/Linux/Windows 及版本)\n`;
+                comment += `- ✅ **复现步骤 / Steps to Reproduce** (详细的步骤)\n`;
+                comment += `- ✅ **实际结果 vs 预期结果 / Actual vs Expected**\n`;
+                comment += `- ✅ **日志或截图 / Logs or Screenshots**\n\n`;
+                comment += `如果你的 issue 缺少这些信息，维护者可能需要额外时间来询问细节。\n`;
+                comment += `Missing information may require maintainers to ask follow-up questions.\n\n`;
+              }
+
+              comment += `我们会尽快查看你的 issue。感谢你对 CoPaw 的支持！\n`;
+              comment += `We'll review your issue soon. Thank you for supporting CoPaw!`;
+
+            } else {
+              // English only
+              comment = `## Welcome to CoPaw! 👋\n\n`;
+              comment += `Hi @${author}, thank you for your first issue!\n\n`;
+
+              if (!hasStarred) {
+                comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
+              }
+
+              if (isBugReport && !hasRequiredInfo) {
+                comment += `### 📋 About Bug Reports\n\n`;
+                comment += `To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
+                comment += `- ✅ **CoPaw Version** (use \`copaw --version\`)\n`;
+                comment += `- ✅ **Operating System** (macOS/Linux/Windows and version)\n`;
+                comment += `- ✅ **Steps to Reproduce** (detailed steps)\n`;
+                comment += `- ✅ **Actual vs Expected Behavior**\n`;
+                comment += `- ✅ **Logs or Screenshots**\n\n`;
+                comment += `Missing information may require us to ask follow-up questions, which can delay the fix.\n\n`;
+              }
+
+              comment += `We'll review your issue soon. Thank you for supporting CoPaw!`;
+            }
+
+            // Post comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: comment
+            });
+
+            console.log(`Posted welcome comment on issue #${issueNumber} for @${author}`);

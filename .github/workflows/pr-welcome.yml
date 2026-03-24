@@ -1,0 +1,188 @@
+name: PR Welcome Bot
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome and Label First-Time PR Author
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const prNumber = context.payload.pull_request.number;
+            const prTitle = context.payload.pull_request.title;
+            const prBody = context.payload.pull_request.body || '';
+
+            // Check if Chinese characters exist in title
+            const hasChinese = /[\u4e00-\u9fff]/.test(prTitle);
+
+            // Check if this is user's first PR in this repo
+            let isFirstPR = false;
+            try {
+              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author} is:closed`,
+              });
+              isFirstPR = searchResult.total_count === 0;
+
+              if (!isFirstPR) {
+                console.log(`${author} has ${searchResult.total_count} closed PRs, not a first-time contributor`);
+                return;
+              }
+            } catch (err) {
+              if (err.status === 422 && err.message && err.message.includes('cannot be searched')) {
+                console.log(`Search API cannot look up author ${author}, skipping`);
+                return;
+              }
+              throw err;
+            }
+
+            // Add first-time-contributor label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['first-time-contributor'],
+            });
+            console.log(`Labeled PR #${prNumber} as first-time-contributor`);
+
+            // Check if user has starred the repo
+            let hasStarred = false;
+            try {
+              const { data: stargazers } = await github.rest.activity.listStargazersForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+              hasStarred = stargazers.some(s => s.login === author);
+
+              // Check additional pages if needed
+              if (!hasStarred && stargazers.length === 100) {
+                let page = 2;
+                let found = false;
+                while (page <= 5 && !found) {
+                  const { data: moreStars } = await github.rest.activity.listStargazersForRepo({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    per_page: 100,
+                    page: page
+                  });
+                  if (moreStars.length === 0) break;
+                  found = moreStars.some(s => s.login === author);
+                  if (found) hasStarred = true;
+                  page++;
+                }
+              }
+            } catch (e) {
+              console.log('Could not verify star status:', e.message);
+            }
+
+            // Check if PR uses template properly
+            const hasDescription = prBody.includes('## Description') &&
+                                   prBody.length > 100;
+            const hasTypeOfChange = prBody.includes('## Type of Change');
+            const hasComponents = prBody.includes('## Component(s) Affected');
+            const hasChecklist = prBody.includes('## Checklist');
+            const hasTesting = prBody.includes('## Testing');
+
+            const usedTemplate = hasDescription && hasTypeOfChange &&
+                                 hasComponents && hasChecklist;
+
+            // Build comment
+            let comment = '';
+
+            if (hasChinese) {
+              // Bilingual response
+              comment = `## 欢迎来到 CoPaw! 👋 Welcome to CoPaw!\n\n`;
+              comment += `你好 @${author}，感谢你提交的第一个 Pull Request！🎉\n`;
+              comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+
+              if (!hasStarred) {
+                comment += `如果你觉得 CoPaw 对你有帮助，欢迎给我们一个 ⭐ star！这将帮助更多人发现这个项目。\n`;
+                comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
+              }
+
+              if (!usedTemplate) {
+                comment += `### 📋 关于 Pull Request 模版 / About PR Template\n\n`;
+                comment += `为了帮助维护者更快地审查你的 PR，请确保包含以下信息：\n`;
+                comment += `To help maintainers review your PR faster, please make sure to include:\n\n`;
+                comment += `- ✅ **描述 / Description** - 说明这个 PR 做了什么以及为什么 / What this PR does and why\n`;
+                comment += `- ✅ **变更类型 / Type of Change** - Bug fix / Feature / Breaking change / Docs / Refactoring\n`;
+                comment += `- ✅ **影响的组件 / Component(s) Affected** - Core / Console / Channels / Skills / CLI / Docs / Tests / CI/CD\n`;
+                comment += `- ✅ **检查清单 / Checklist**:\n`;
+                comment += `  - 运行 \`pre-commit run --all-files\` 并通过 / Run and pass \`pre-commit run --all-files\`\n`;
+                comment += `  - 运行相关测试并通过 / Run and pass relevant tests\n`;
+                comment += `  - 更新文档（如需要）/ Update docs if needed\n`;
+                comment += `- ✅ **测试方法 / Testing** - 如何测试这些变更 / How to test these changes\n`;
+                comment += `- ✅ **本地验证证据 / Local Verification Evidence**:\n`;
+                comment += `  \`\`\`bash\n`;
+                comment += `  pre-commit run --all-files\n`;
+                comment += `  # paste summary result\n`;
+                comment += `  \n`;
+                comment += `  pytest\n`;
+                comment += `  # paste summary result\n`;
+                comment += `  \`\`\`\n\n`;
+                comment += `完整的 PR 信息可以加快审查速度。你可以编辑 PR 描述来补充这些内容。\n`;
+                comment += `Complete PR information helps speed up the review process. You can edit the PR description to add these details.\n\n`;
+              } else if (usedTemplate && !hasTesting) {
+                comment += `### 💡 小提示 / Quick Tip\n\n`;
+                comment += `看起来你使用了 PR 模版，太棒了！别忘了填写 **Testing** 部分，说明如何测试你的变更。\n`;
+                comment += `Great job using the PR template! Don't forget to fill in the **Testing** section with how to test your changes.\n\n`;
+              }
+
+              comment += `我们会尽快审查你的 PR。感谢你对 CoPaw 的贡献！🚀\n`;
+              comment += `We'll review your PR soon. Thank you for contributing to CoPaw! 🚀`;
+
+            } else {
+              // English only
+              comment = `## Welcome to CoPaw! 👋\n\n`;
+              comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+
+              if (!hasStarred) {
+                comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
+              }
+
+              if (!usedTemplate) {
+                comment += `### 📋 About PR Template\n\n`;
+                comment += `To help maintainers review your PR faster, please make sure to include:\n\n`;
+                comment += `- ✅ **Description** - What this PR does and why\n`;
+                comment += `- ✅ **Type of Change** - Bug fix / Feature / Breaking change / Documentation / Refactoring\n`;
+                comment += `- ✅ **Component(s) Affected** - Core / Console / Channels / Skills / CLI / Documentation / Tests / CI/CD / Scripts\n`;
+                comment += `- ✅ **Checklist**:\n`;
+                comment += `  - Run and pass \`pre-commit run --all-files\`\n`;
+                comment += `  - Run and pass relevant tests (\`pytest\` or as applicable)\n`;
+                comment += `  - Update documentation if needed\n`;
+                comment += `- ✅ **Testing** - How to test these changes\n`;
+                comment += `- ✅ **Local Verification Evidence**:\n`;
+                comment += `  \`\`\`bash\n`;
+                comment += `  pre-commit run --all-files\n`;
+                comment += `  # paste summary result\n`;
+                comment += `  \n`;
+                comment += `  pytest\n`;
+                comment += `  # paste summary result\n`;
+                comment += `  \`\`\`\n\n`;
+                comment += `Complete PR information helps speed up the review process. You can edit the PR description to add these details.\n\n`;
+              } else if (usedTemplate && !hasTesting) {
+                comment += `### 💡 Quick Tip\n\n`;
+                comment += `Great job using the PR template! Don't forget to fill in the **Testing** section with how to test your changes.\n\n`;
+              }
+
+              comment += `We'll review your PR soon. Thank you for contributing to CoPaw! 🚀`;
+            }
+
+            // Post comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: comment
+            });
+
+            console.log(`Posted welcome comment on PR #${prNumber} for @${author}`);
