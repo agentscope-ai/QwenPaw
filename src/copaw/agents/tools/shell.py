@@ -302,6 +302,8 @@ async def execute_shell_command(
                 response_text = stdout_str
             else:
                 response_text = "Command executed successfully (no output)."
+            if stderr_str:
+                response_text += f"\n[stderr]\n{stderr_str}"
         else:
             response_parts = [f"Command failed with exit code {returncode}."]
             if stdout_str:

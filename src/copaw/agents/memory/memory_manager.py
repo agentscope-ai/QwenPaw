@@ -19,6 +19,7 @@ from agentscope.tool import Toolkit, ToolResponse
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
+from copaw.config import load_config
 from copaw.config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
@@ -244,6 +245,7 @@ class MemoryManager(ReMeLight):
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
+        user_tz = load_config().user_timezone or None
 
         return await super().summary_memory(
             messages=messages,
@@ -254,6 +256,7 @@ class MemoryManager(ReMeLight):
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
             compact_ratio=agent_config.running.memory_compact_ratio,
+            timezone=user_tz,
         )
 
     async def memory_search(

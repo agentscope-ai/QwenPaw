@@ -42,6 +42,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
+from ..utils import split_text
 
 logger = logging.getLogger(__name__)
 
@@ -943,13 +944,13 @@ class QQChannel(BaseChannel):
         clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
 
         text_sent = False
-        if clean_text:
+        for chunk in split_text(clean_text) if clean_text else []:
             text_sent = await self._send_text_with_fallback(
                 message_type,
                 sender_id,
                 channel_id,
                 group_openid,
-                clean_text,
+                chunk,
                 msg_id,
                 token,
                 use_markdown,
