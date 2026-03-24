@@ -38,6 +38,10 @@ _CHANNEL_QUEUE_MAXSIZE = 1000
 # Workers per channel: drain same-session from queue and process in parallel
 _CONSUMER_WORKERS_PER_CHANNEL = 4
 
+# Timeout for processing a batch (seconds)
+# Prevents queue blocking when LLM API calls hang
+_PROCESS_BATCH_TIMEOUT = 600
+
 
 def _drain_same_key(
     q: asyncio.Queue,
@@ -348,7 +352,17 @@ class ChannelManager:
                     self._in_progress.add((channel_id, key))
                     batch = _drain_same_key(q, ch, key, payload)
                 try:
-                    await _process_batch(ch, batch)
+                    await asyncio.wait_for(
+                        _process_batch(ch, batch),
+                        timeout=_PROCESS_BATCH_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "_process_batch timeout after %ss: channel=%s key=%s",
+                        _PROCESS_BATCH_TIMEOUT,
+                        channel_id,
+                        key,
+                    )
                 finally:
                     self._in_progress.discard((channel_id, key))
                     pending = self._pending.pop((channel_id, key), [])
