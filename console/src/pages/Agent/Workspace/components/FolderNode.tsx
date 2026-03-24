@@ -58,7 +58,9 @@ export const FolderNode: React.FC<FolderNodeProps> = ({
         onKeyDown={(e) => e.key === "Enter" && setOpen((v) => !v)}
       >
         <span
-          className={`${styles.folderChevron} ${open ? styles.folderChevronOpen : ""}`}
+          className={`${styles.folderChevron} ${
+            open ? styles.folderChevronOpen : ""
+          }`}
         >
           <CaretRightOutlined />
         </span>

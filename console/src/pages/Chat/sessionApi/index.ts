@@ -116,6 +116,18 @@ function contentToRequestParts(
         image_url: toDisplayUrl(c.image_url as string),
         status: "created",
       });
+    } else if (c.type === "audio" && c.data) {
+      parts.push({
+        type: "audio",
+        data: toDisplayUrl(c.data as string),
+        status: "created",
+      });
+    } else if (c.type === "video" && c.video_url) {
+      parts.push({
+        type: "video",
+        video_url: toDisplayUrl(c.video_url as string),
+        status: "created",
+      });
     } else if (c.type === "file" && (c.file_url || c.file_id)) {
       parts.push({
         type: "file",

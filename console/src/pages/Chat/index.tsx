@@ -385,8 +385,8 @@ export default function ChatPage() {
                     p.image_url = toStoredName(p.image_url);
                   if (p.type === "file" && typeof p.file_url === "string")
                     p.file_url = toStoredName(p.file_url);
-                  if (p.type === "audio" && typeof p.audio_url === "string")
-                    p["data"] = toStoredName(p.audio_url);
+                  if (p.type === "audio" && typeof p.data === "string")
+                    p.data = toStoredName(p.data);
                   if (p.type === "video" && typeof p.video_url === "string")
                     p.video_url = toStoredName(p.video_url);
 

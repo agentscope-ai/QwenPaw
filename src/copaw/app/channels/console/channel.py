@@ -26,6 +26,7 @@ from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
+    AudioContent,
     ContentType,
     FileContent,
     ImageContent,
@@ -114,6 +115,17 @@ class ConsoleChannel(BaseChannel):
         else:
             self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Windows stdout encoding fix
+        if sys.platform == "win32":
+            try:
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            except Exception as e:
+                logger.debug(
+                    "Failed to reconfigure stdout encoding on Windows: %s",
+                    e,
+                )
 
     @property
     def media_dir(self) -> Path:
@@ -209,17 +221,11 @@ class ConsoleChannel(BaseChannel):
                         video_url=str(self._media_dir / url),
                     )
             elif content_type == ContentType.AUDIO:
-                url = getattr(part, "data", None) or getattr(
-                    part,
-                    "audio_url",
-                    None,
-                )
+                url = getattr(part, "data", None)
                 if url:
-                    # Todo: support local audio file
-                    return FileContent(
-                        type=ContentType.FILE,
-                        filename=getattr(part, "filename", None) or url,
-                        file_url=str(self._media_dir / url),
+                    return AudioContent(
+                        type=ContentType.AUDIO,
+                        data=str(self._media_dir / url),
                     )
             elif content_type == ContentType.FILE:
                 url = getattr(part, "file_url", None)
@@ -359,6 +365,35 @@ class ConsoleChannel(BaseChannel):
 
     # ── pretty-print helpers ────────────────────────────────────────
 
+    def _safe_print(self, text: str) -> None:
+        """Safely print text, handling Windows encoding and pipe issues.
+
+        On Windows, print() can raise OSError [Errno 22] when output is
+        piped or contains unsupported characters. This wrapper handles
+        such cases gracefully.
+        """
+        try:
+            print(text)
+        except OSError as e:
+            if e.errno == 22:
+                logger.warning(
+                    "Print failed with OSError [Errno 22], attempting "
+                    "fallback encoding",
+                )
+                try:
+                    sys.stdout.buffer.write(
+                        text.encode("utf-8", errors="replace"),
+                    )
+                    sys.stdout.buffer.write(b"\n")
+                    sys.stdout.buffer.flush()
+                except Exception as fallback_err:
+                    logger.error(
+                        "Failed to print even with fallback: %s",
+                        fallback_err,
+                    )
+            else:
+                logger.error("Print failed with OSError: %s", e)
+
     def _print_parts(
         self,
         parts: List[OutgoingContentPart],
@@ -367,33 +402,33 @@ class ConsoleChannel(BaseChannel):
         """Print outgoing content parts to stdout."""
         ts = _ts()
         label = f" ({ev_type})" if ev_type else ""
-        print(
+        self._safe_print(
             f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot{label}{_RESET}",
         )
         for p in parts:
             t = getattr(p, "type", None)
             if t == ContentType.TEXT and getattr(p, "text", None):
-                print(f"{self.bot_prefix}{p.text}")
+                self._safe_print(f"{self.bot_prefix}{p.text}")
             elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
-                print(f"{_RED}⚠ Refusal: {p.refusal}{_RESET}")
+                self._safe_print(f"{_RED}⚠ Refusal: {p.refusal}{_RESET}")
             elif t == ContentType.IMAGE and getattr(p, "image_url", None):
-                print(f"{_YELLOW}🖼  [Image: {p.image_url}]{_RESET}")
+                self._safe_print(f"{_YELLOW}🖼  [Image: {p.image_url}]{_RESET}")
             elif t == ContentType.VIDEO and getattr(p, "video_url", None):
-                print(f"{_YELLOW}🎬 [Video: {p.video_url}]{_RESET}")
+                self._safe_print(f"{_YELLOW}🎬 [Video: {p.video_url}]{_RESET}")
             elif t == ContentType.AUDIO and getattr(p, "data", None):
-                print(f"{_YELLOW}🔊 [Audio]{_RESET}")
+                self._safe_print(f"{_YELLOW}🔊 [Audio]{_RESET}")
             elif t == ContentType.FILE:
                 url = (
                     getattr(p, "file_url", None)
                     or getattr(p, "file_id", None)
                     or ""
                 )
-                print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
-        print()
+                self._safe_print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
+        self._safe_print("")
 
     def _print_error(self, err: str) -> None:
         ts = _ts()
-        print(
+        self._safe_print(
             f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n"
             f"{_RED}{err}{_RESET}\n",
         )
@@ -432,7 +467,7 @@ class ConsoleChannel(BaseChannel):
             return
         ts = _ts()
         prefix = (meta or {}).get("bot_prefix", self.bot_prefix) or ""
-        print(
+        self._safe_print(
             f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n"
             f"{prefix}{text}\n",
         )

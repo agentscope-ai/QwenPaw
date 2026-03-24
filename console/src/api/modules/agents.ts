@@ -73,12 +73,18 @@ export const agentsApi = {
 
   readAgentFile: (agentId: string, filename: string) =>
     request<MdFileContent>(
-      `/agents/${agentId}/files/${filename.split("/").map(encodeURIComponent).join("/")}`,
+      `/agents/${agentId}/files/${filename
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
     ),
 
   writeAgentFile: (agentId: string, filename: string, content: string) =>
     request<{ written: boolean; filename: string }>(
-      `/agents/${agentId}/files/${filename.split("/").map(encodeURIComponent).join("/")}`,
+      `/agents/${agentId}/files/${filename
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
       {
         method: "PUT",
         body: JSON.stringify({ content }),

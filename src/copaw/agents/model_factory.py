@@ -368,7 +368,10 @@ def _create_formatter_instance(
         base_formatter_class,
     )
     kwargs: dict[str, Any] = {}
-    if issubclass(base_formatter_class, OpenAIChatFormatter):
+    if issubclass(
+        base_formatter_class,
+        (OpenAIChatFormatter, GeminiChatFormatter),
+    ):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)
 
