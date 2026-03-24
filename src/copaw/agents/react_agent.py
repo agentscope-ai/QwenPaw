@@ -635,35 +635,36 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         after a page refresh.  Intermediate events that become empty
         after filtering are silently skipped to avoid blank UI flashes.
         """
-        if getattr(self, "_in_summarizing", False):
-            original = msg.content
-            if isinstance(original, list):
-                filtered = [
-                    b
-                    for b in original
-                    if not (
-                        isinstance(b, dict) and b.get("type") == "tool_use"
-                    )
-                ]
-                if len(filtered) != len(original):
-                    if not filtered and not last:
-                        return
-                    msg.content = filtered
+
+        if not getattr(self, "_in_summarizing", False):
+            return await super().print(msg, last, speech=speech)
+
+        original = msg.content
+        modified = False
+
+        if isinstance(original, list):
+            filtered = [
+                b
+                for b in original
+                if not (isinstance(b, dict) and b.get("type") == "tool_use")
+            ]
+            if not filtered and not last:
+                return
+            if len(filtered) != len(original) or last:
+                msg.content = filtered
                 if last:
                     msg.content.append(
                         {"type": "text", "text": self._ROUND_END_NOTICE},
                     )
-                if msg.content is not original:
-                    try:
-                        return await super().print(msg, last, speech=speech)
-                    finally:
-                        msg.content = original
-            elif isinstance(original, str) and last:
-                msg.content = original + self._ROUND_END_NOTICE
-                try:
-                    return await super().print(msg, last, speech=speech)
-                finally:
-                    msg.content = original
+                modified = True
+        elif isinstance(original, str) and last:
+            msg.content = original + self._ROUND_END_NOTICE
+            modified = True
+        if modified:
+            try:
+                return await super().print(msg, last, speech=speech)
+            finally:
+                msg.content = original
         return await super().print(msg, last, speech=speech)
 
     _ROUND_END_NOTICE = (
