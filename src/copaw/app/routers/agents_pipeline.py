@@ -11,13 +11,68 @@ from .agents_pipeline_core import (
     PipelineRunDetail,
     PipelineRunSummary,
     PipelineTemplateInfo,
+    _list_agent_pipeline_templates,
     _create_project_pipeline_run,
+    _save_agent_pipeline_template,
     _list_project_pipeline_runs,
     _list_project_pipeline_templates,
     _load_project_pipeline_run,
 )
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get(
+    "/{agentId}/pipelines/templates",
+    response_model=list[PipelineTemplateInfo],
+    summary="List agent pipeline templates",
+    description="List available agent-level pipeline templates",
+)
+async def list_agent_pipeline_templates(
+    request: Request,
+    agentId: str = PathParam(...),
+) -> list[PipelineTemplateInfo]:
+    """List available agent-level pipeline templates."""
+    manager = agents_router_impl._get_multi_agent_manager(request)
+
+    try:
+        workspace = await manager.get_agent(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    try:
+        return _list_agent_pipeline_templates(Path(workspace.workspace_dir))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.put(
+    "/{agentId}/pipelines/templates/{templateId}",
+    response_model=PipelineTemplateInfo,
+    summary="Save agent pipeline template",
+    description="Create or update one agent-level pipeline template",
+)
+async def save_agent_pipeline_template(
+    request: Request,
+    body: PipelineTemplateInfo,
+    agentId: str = PathParam(...),
+    templateId: str = PathParam(...),
+) -> PipelineTemplateInfo:
+    """Create or update one agent-level pipeline template."""
+    manager = agents_router_impl._get_multi_agent_manager(request)
+
+    try:
+        workspace = await manager.get_agent(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    try:
+        normalized = body.model_copy(update={"id": templateId})
+        return _save_agent_pipeline_template(Path(workspace.workspace_dir), normalized)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(

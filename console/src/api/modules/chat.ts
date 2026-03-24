@@ -56,7 +56,7 @@ export const chatApi = {
         session_id: params.sessionId,
         user_id: params.userId || "default",
         channel: params.channel || "console",
-        stream: true,
+        stream: false,
       }),
     });
 
@@ -69,8 +69,29 @@ export const chatApi = {
       );
     }
 
-    // We only need to kick off backend execution here.
-    await response.body?.cancel().catch(() => undefined);
+    // Drain stream response to completion. In pipeline bootstrap flow, if the
+    // stream is left unread, backend persistence may stay in `running` with
+    // empty history for a long time in some runtimes.
+    if (!response.body) {
+      return;
+    }
+
+    // Keep draining in background so pipeline page can navigate immediately.
+    void (async () => {
+      const reader = response.body!.getReader();
+      try {
+        while (true) {
+          const { done } = await reader.read();
+          if (done) {
+            break;
+          }
+        }
+      } catch {
+        // Swallow background drain errors; caller has already started the run.
+      } finally {
+        reader.releaseLock();
+      }
+    })();
   },
 
   /** Upload a file for chat attachment. Returns URL path for content. */

@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 _PROJECT_PIPELINES_DIRNAME = "pipelines"
 _PROJECT_PIPELINE_TEMPLATES_DIRNAME = "templates"
 _PROJECT_PIPELINE_RUNS_DIRNAME = "runs"
+_AGENT_PIPELINES_DIRNAME = "pipelines"
+_AGENT_PIPELINE_TEMPLATES_DIRNAME = "templates"
 
 
 class PipelineTemplateStep(BaseModel):
@@ -229,6 +231,74 @@ def _list_project_pipeline_templates(project_dir: Path) -> list[PipelineTemplate
         except Exception as exc:
             logger.warning("Skip invalid pipeline template %s: %s", path, exc)
     return templates
+
+
+def _agent_pipeline_templates_dir(workspace_dir: Path) -> Path:
+    templates_dir = (
+        workspace_dir / _AGENT_PIPELINES_DIRNAME / _AGENT_PIPELINE_TEMPLATES_DIRNAME
+    )
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    return templates_dir
+
+
+def _list_agent_pipeline_templates(workspace_dir: Path) -> list[PipelineTemplateInfo]:
+    templates_dir = _agent_pipeline_templates_dir(workspace_dir)
+    templates: list[PipelineTemplateInfo] = []
+
+    for path in sorted(templates_dir.glob("*.json"), key=lambda item: item.name.lower()):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                continue
+            parsed = _parse_pipeline_template_doc(raw, fallback_id=path.stem)
+            if parsed is not None:
+                templates.append(parsed)
+        except Exception as exc:
+            logger.warning("Skip invalid agent pipeline template %s: %s", path, exc)
+
+    return templates
+
+
+def _save_agent_pipeline_template(
+    workspace_dir: Path,
+    template: PipelineTemplateInfo,
+) -> PipelineTemplateInfo:
+    template_id = (template.id or "").strip().lower()
+    template_id = re.sub(r"[^a-z0-9_-]+", "-", template_id).strip("-")
+    if not template_id:
+        raise HTTPException(status_code=400, detail="Invalid pipeline template id")
+
+    normalized = PipelineTemplateInfo(
+        id=template_id,
+        name=(template.name or template_id).strip() or template_id,
+        version=(template.version or "0.1.0").strip() or "0.1.0",
+        description=(template.description or "").strip(),
+        steps=template.steps,
+    )
+
+    template_doc = {
+        "id": normalized.id,
+        "name": normalized.name,
+        "version": normalized.version,
+        "description": normalized.description,
+        "steps": [
+            {
+                "id": step.id,
+                "name": step.name,
+                "kind": step.kind,
+                "description": step.description,
+            }
+            for step in normalized.steps
+        ],
+    }
+
+    target = _agent_pipeline_templates_dir(workspace_dir) / f"{normalized.id}.json"
+    target.write_text(
+        json.dumps(template_doc, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    return normalized
 
 
 def _resolve_pipeline_template(project_dir: Path, template_id: str) -> PipelineTemplateInfo:

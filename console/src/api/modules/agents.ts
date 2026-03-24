@@ -84,6 +84,24 @@ export const agentsApi = {
         .join("/")}`,
     ),
 
+  listAgentPipelineTemplates: (agentId: string) =>
+    request<ProjectPipelineTemplateInfo[]>(
+      `/agents/${agentId}/pipelines/templates`,
+    ),
+
+  saveAgentPipelineTemplate: (
+    agentId: string,
+    templateId: string,
+    body: ProjectPipelineTemplateInfo,
+  ) =>
+    request<ProjectPipelineTemplateInfo>(
+      `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
+
   listProjectPipelineTemplates: (agentId: string, projectId: string) =>
     request<ProjectPipelineTemplateInfo[]>(
       `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/templates`,
