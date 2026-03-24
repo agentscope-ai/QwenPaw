@@ -86,8 +86,10 @@ class TestEmbeddingBackendRegistration:
 
 def _agent_profile_for_memory_tests(
     *,
+    api_key: str = "test-key",
     base_url: str = "http://127.0.0.1:9999/v1",
     model_name: str = "test-embedding-model",
+    backend_type: str = "openai",
     local_embedding: LocalEmbeddingConfig | None = None,
 ) -> AgentProfileConfig:
     """Minimal AgentProfileConfig so MemoryManager can call load_agent_config."""
@@ -98,8 +100,10 @@ def _agent_profile_for_memory_tests(
         workspace_dir="/tmp/test",
         running=AgentsRunningConfig(
             embedding_config=EmbeddingConfig(
+                api_key=api_key,
                 base_url=base_url,
                 model_name=model_name,
+                backend_type=backend_type,  # type: ignore[arg-type]
             ),
             local_embedding=loc,
         ),
@@ -132,7 +136,7 @@ class TestMemoryManagerUsesLocalEmbedding:
         assert mm.agent_id == "test-agent-id"
 
     def test_vector_enabled_passed_to_reme_from_embedding_config(self):
-        """ReMeLight receives vector_enabled True when URL and model are set."""
+        """ReMeLight receives vector_enabled True for valid OpenAI config."""
         from reme.reme_light import ReMeLight  # noqa: E402
 
         from copaw.agents.memory.memory_manager import (
@@ -168,11 +172,9 @@ class TestMemoryManagerUsesLocalEmbedding:
         )  # noqa: E402
 
         profile = _agent_profile_for_memory_tests(
+            api_key="test-k",
             model_name="my-embed-model",
-            local_embedding=LocalEmbeddingConfig(
-                enabled=True,
-                model_id="BAAI/bge-small-zh",
-            ),
+            backend_type="openai",
         )
 
         with (
@@ -188,6 +190,7 @@ class TestMemoryManagerUsesLocalEmbedding:
             )
             emb = mm.get_embedding_config()
 
+        assert emb["backend"] == "openai"
         assert emb["model_name"] == "my-embed-model"
 
 
