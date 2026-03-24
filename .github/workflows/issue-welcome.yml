@@ -11,10 +11,20 @@ jobs:
   welcome:
     runs-on: ubuntu-latest
     steps:
-      - name: Welcome First-Time Issue Author
+      - name: Welcome Issue Author
         uses: actions/github-script@v7
         with:
           script: |
+            // Helper function for English ordinal suffix (1st, 2nd, 3rd, 4th...)
+            function getOrdinalSuffix(num) {
+              const j = num % 10;
+              const k = num % 100;
+              if (j === 1 && k !== 11) return 'st';
+              if (j === 2 && k !== 12) return 'nd';
+              if (j === 3 && k !== 13) return 'rd';
+              return 'th';
+            }
+
             const author = context.payload.issue.user.login;
             const issueNumber = context.payload.issue.number;
             const issueTitle = context.payload.issue.title;
@@ -23,7 +33,7 @@ jobs:
             // Check if Chinese characters exist in title
             const hasChinese = /[\u4e00-\u9fff]/.test(issueTitle);
 
-            // Check if this is user's first issue in this repo
+            // Count user's total issues in this repo
             const { data: userIssues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -31,12 +41,8 @@ jobs:
               state: 'all'
             });
 
-            const isFirstIssue = userIssues.length === 1;
-
-            if (!isFirstIssue) {
-              console.log(`Not first issue for @${author}, skipping welcome message`);
-              return;
-            }
+            const issueCount = userIssues.length;
+            const isFirstIssue = issueCount === 1;
 
             // Check if user has starred the repo
             let hasStarred = false;
@@ -78,10 +84,24 @@ jobs:
             let comment = '';
 
             if (hasChinese) {
-              // Bilingual response
-              comment = `## 欢迎来到 CoPaw! 👋 Welcome to CoPaw!\n\n`;
-              comment += `你好 @${author}，感谢你提交的第一个 issue！\n`;
-              comment += `Hi @${author}, thank you for your first issue!\n\n`;
+              // Bilingual response with logo
+              comment = `<div align="center">\n\n`;
+              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
+              comment += `</div>\n\n`;
+
+              if (isFirstIssue) {
+                comment += `你好 @${author}，感谢你提交的第一个 issue！\n`;
+                comment += `Hi @${author}, thank you for your first issue!\n\n`;
+              } else {
+                comment += `你好 @${author}，这是你提交的第 ${issueCount} 个 issue。\n`;
+                comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
+              }
+
+              // Internationalization reminder for Chinese issues
+              comment += `### 🌍 关于国际化 / About Internationalization\n\n`;
+              comment += `CoPaw 是一个国际化的开源社区。我们建议使用英文提交 issue，这样可以让更多的开发者参与讨论和贡献。当然，如果英文表达有困难，使用中文也完全没问题！\n`;
+              comment += `CoPaw is an international open-source community. We recommend using English for issues so that more developers worldwide can participate in discussions and contributions. Of course, Chinese is totally fine if English is difficult!\n\n`;
 
               if (!hasStarred) {
                 comment += `如果你觉得 CoPaw 对你有帮助，欢迎给我们一个 ⭐ star！这将帮助更多人发现这个项目。\n`;
@@ -105,9 +125,17 @@ jobs:
               comment += `We'll review your issue soon. Thank you for supporting CoPaw!`;
 
             } else {
-              // English only
-              comment = `## Welcome to CoPaw! 👋\n\n`;
-              comment += `Hi @${author}, thank you for your first issue!\n\n`;
+              // English only with logo
+              comment = `<div align="center">\n\n`;
+              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `## Welcome to CoPaw! 🐾\n\n`;
+              comment += `</div>\n\n`;
+
+              if (isFirstIssue) {
+                comment += `Hi @${author}, thank you for your first issue!\n\n`;
+              } else {
+                comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
+              }
 
               if (!hasStarred) {
                 comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
@@ -135,4 +163,4 @@ jobs:
               body: comment
             });
 
-            console.log(`Posted welcome comment on issue #${issueNumber} for @${author}`);
+            console.log(`Posted welcome comment on issue #${issueNumber} for @${author} (issue #${issueCount})`);

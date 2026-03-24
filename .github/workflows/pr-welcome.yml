@@ -99,8 +99,11 @@ jobs:
             let comment = '';
 
             if (hasChinese) {
-              // Bilingual response
-              comment = `## 欢迎来到 CoPaw! 👋 Welcome to CoPaw!\n\n`;
+              // Bilingual response with logo
+              comment = `<div align="center">\n\n`;
+              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
+              comment += `</div>\n\n`;
               comment += `你好 @${author}，感谢你提交的第一个 Pull Request！🎉\n`;
               comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
 
@@ -137,12 +140,23 @@ jobs:
                 comment += `Great job using the PR template! Don't forget to fill in the **Testing** section with how to test your changes.\n\n`;
               }
 
-              comment += `我们会尽快审查你的 PR。感谢你对 CoPaw 的贡献！🚀\n`;
-              comment += `We'll review your PR soon. Thank you for contributing to CoPaw! 🚀`;
+              comment += `### 🙌 加入开发者社区 / Join Developer Community\n\n`;
+              comment += `非常感谢你的贡献！我们诚挚地邀请你加入 CoPaw 官方开发者群！\n`;
+              comment += `Thanks so much for your contribution! We'd love to invite you to join the official CoPaw developer group!\n\n`;
+              comment += `你可以在我们的文档页面的 "Developer Community" 部分找到 Discord 和钉钉群链接：\n`;
+              comment += `You can find the Discord and DingTalk group links under the "Developer Community" section on our docs page:\n`;
+              comment += `https://copaw.agentscope.io/docs/community\n\n`;
+              comment += `我们真诚地感谢你的热情，也期待你未来的更多贡献！😊\n`;
+              comment += `We truly appreciate your enthusiasm—and look forward to your future contributions! 😊\n\n`;
+              comment += `我们会尽快审查你的 PR。\n`;
+              comment += `We'll review your PR soon.`;
 
             } else {
-              // English only
-              comment = `## Welcome to CoPaw! 👋\n\n`;
+              // English only with logo
+              comment = `<div align="center">\n\n`;
+              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `## Welcome to CoPaw! 🐾\n\n`;
+              comment += `</div>\n\n`;
               comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
 
               if (!hasStarred) {
@@ -174,7 +188,11 @@ jobs:
                 comment += `Great job using the PR template! Don't forget to fill in the **Testing** section with how to test your changes.\n\n`;
               }
 
-              comment += `We'll review your PR soon. Thank you for contributing to CoPaw! 🚀`;
+              comment += `### 🙌 Join Developer Community\n\n`;
+              comment += `Thanks so much for your contribution! We'd love to invite you to join the official CoPaw developer group! You can find the Discord and DingTalk group links under the "Developer Community" section on our docs page:\n`;
+              comment += `https://copaw.agentscope.io/docs/community\n\n`;
+              comment += `We truly appreciate your enthusiasm—and look forward to your future contributions! 😊\n\n`;
+              comment += `We'll review your PR soon.`;
             }
 
             // Post comment
