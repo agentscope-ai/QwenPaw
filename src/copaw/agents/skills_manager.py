@@ -1387,7 +1387,6 @@ class SkillService:
         """
         # Validate source
         if source not in {"builtin", "customized", "inactive"}:
-        if source not in {"builtin", "customized", "inactive"}:
             logger.error(
                 "Invalid source '%s'. Must be 'builtin', 'customized', "
                 "or 'inactive'.",
