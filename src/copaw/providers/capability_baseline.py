@@ -382,10 +382,10 @@ class ExpectedCapabilityRegistry:
             ExpectedCapability(
                 provider_id="deepseek",
                 model_id="deepseek-chat",
-                expected_image=True,
+                expected_image=False,
                 expected_video=False,
                 doc_url=_ds_api_doc,
-                note="DeepSeek-V3 supports image input",
+                note="DeepSeek-V3 is text-only",
             ),
         )
         self._register(

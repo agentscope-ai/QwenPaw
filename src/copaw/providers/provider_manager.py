@@ -353,7 +353,7 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="deepseek-chat",
         name="DeepSeek Chat",
-        supports_image=True,
+        supports_image=False,
         supports_video=False,
         probe_source="documentation",
     ),
