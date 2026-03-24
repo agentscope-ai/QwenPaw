@@ -63,6 +63,31 @@ logger = logging.getLogger(__name__)
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
+_MEDIA_ERROR_KEYWORDS = [
+    "image",
+    "audio",
+    "video",
+    "vision",
+    "multimodal",
+    "image_url",
+]
+
+
+def is_bad_request_or_media_error(exc: Exception) -> bool:
+    """Return True for 400-class or known media/tool-result model errors."""
+    status = getattr(exc, "status_code", None)
+    if status == 400:
+        return True
+
+    error_str = str(exc).lower()
+    if any(keyword in error_str for keyword in _MEDIA_ERROR_KEYWORDS):
+        return True
+
+    return (
+        "claudecontentblocktoolresult" in error_str
+        and "attribute 'source'" in error_str
+    )
+
 
 class CoPawAgent(ToolGuardMixin, ReActAgent):
     """CoPaw Agent with integrated tools, skills, and memory management.
@@ -789,20 +814,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         matching provides an extra safety net for providers that use
         non-standard status codes.
         """
-        status = getattr(exc, "status_code", None)
-        if status == 400:
-            return True
-
-        error_str = str(exc).lower()
-        keywords = [
-            "image",
-            "audio",
-            "video",
-            "vision",
-            "multimodal",
-            "image_url",
-        ]
-        return any(kw in error_str for kw in keywords)
+        return is_bad_request_or_media_error(exc)
 
     _MEDIA_PLACEHOLDER = (
         "[Media content removed - model does not support this media type]"
