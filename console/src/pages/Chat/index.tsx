@@ -538,85 +538,64 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
-        attachments: multimodalCaps.supportsMultimodal
-          ? {
-              trigger: function (props: any) {
-                const tooltipKey =
-                  multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
-                    ? "chat.attachments.tooltipImageOnly"
-                    : "chat.attachments.tooltip";
-                return (
-                  <Tooltip title={t(tooltipKey)}>
-                    <IconButton
-                      disabled={props?.disabled}
-                      icon={<SparkAttachmentLine />}
-                      bordered={false}
-                    />
-                  </Tooltip>
+        attachments: {
+          trigger: function (props: any) {
+            const tooltipKey = multimodalCaps.supportsMultimodal
+              ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
+                ? "chat.attachments.tooltipImageOnly"
+                : "chat.attachments.tooltip"
+              : "chat.attachments.tooltipNoMultimodal";
+            return (
+              <Tooltip title={t(tooltipKey)}>
+                <IconButton
+                  disabled={props?.disabled}
+                  icon={<SparkAttachmentLine />}
+                  bordered={false}
+                />
+              </Tooltip>
+            );
+          },
+          accept: "*/*",
+          customRequest: async (options: {
+            file: File;
+            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+            onError?: (e: Error) => void;
+            onProgress?: (e: { percent?: number }) => void;
+          }) => {
+            try {
+              // Warn when model has no multimodal support
+              if (!multimodalCaps.supportsMultimodal) {
+                message.warning(t("chat.attachments.multimodalWarning"));
+              } else if (
+                multimodalCaps.supportsImage &&
+                !multimodalCaps.supportsVideo &&
+                !options.file.type.startsWith("image/")
+              ) {
+                // Warn (not block) when only image is supported
+                message.warning(t("chat.attachments.imageOnlyWarning"));
+              }
+
+              // Check file size limit (10MB)
+              const file = options.file as File;
+              const isLt10M = file.size / 1024 / 1024 < 10;
+              if (!isLt10M) {
+                message.error(t("chat.attachments.fileSizeLimit"));
+                return options.onError?.(
+                  new Error("File size exceeds 10MB"),
                 );
-              },
-              accept:
-                multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
-                  ? "image/*"
-                  : "*/*",
-              customRequest: async (options: {
-                file: File;
-                onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
-                onError?: (e: Error) => void;
-                onProgress?: (e: { percent?: number }) => void;
-              }) => {
-                try {
-                  console.log("options.file", options.file);
+              }
 
-                  // When only image is supported, reject non-image files
-                  if (
-                    multimodalCaps.supportsImage &&
-                    !multimodalCaps.supportsVideo &&
-                    !options.file.type.startsWith("image/")
-                  ) {
-                    message.warning(t("chat.attachments.imageOnlyAccept"));
-                    return options.onError?.(
-                      new Error("Only image files are accepted"),
-                    );
-                  }
-
-                  // Check file size limit (10MB)
-                  const file = options.file as File;
-                  const isLt10M = file.size / 1024 / 1024 < 10;
-                  if (!isLt10M) {
-                    message.error(t("chat.attachments.fileSizeLimit"));
-                    return options.onError?.(
-                      new Error("File size exceeds 10MB"),
-                    );
-                  }
-
-                  options.onProgress?.({ percent: 0 });
-                  const res = await chatApi.uploadFile(options.file);
-                  options.onProgress?.({ percent: 100 });
-                  options.onSuccess({ url: chatApi.fileUrl(res.url) });
-                } catch (e) {
-                  options.onError?.(
-                    e instanceof Error ? e : new Error(String(e)),
-                  );
-                }
-              },
+              options.onProgress?.({ percent: 0 });
+              const res = await chatApi.uploadFile(options.file);
+              options.onProgress?.({ percent: 100 });
+              options.onSuccess({ url: chatApi.fileUrl(res.url) });
+            } catch (e) {
+              options.onError?.(
+                e instanceof Error ? e : new Error(String(e)),
+              );
             }
-          : {
-              trigger: function (_props: any) {
-                return (
-                  <Tooltip title={t("chat.attachments.multimodalDisabled")}>
-                    <IconButton
-                      disabled={true}
-                      icon={<SparkAttachmentLine />}
-                      bordered={false}
-                      style={{ opacity: 0.4, cursor: "not-allowed" }}
-                    />
-                  </Tooltip>
-                );
-              },
-              accept: "",
-              disabled: true,
-            },
+          },
+        },
       },
       session: { multiple: true, api: wrappedSessionApi },
       api: {

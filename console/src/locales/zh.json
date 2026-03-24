@@ -693,9 +693,12 @@
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
       "tooltipImageOnly": "当前模型仅支持图片上传，单文件不超过10MB",
+      "tooltipNoMultimodal": "当前模型未检测到多模态能力，文件可能无法被正确处理",
       "fileSizeLimit": "单文件不超过10MB",
       "multimodalDisabled": "当前模型不支持文件上传",
-      "imageOnlyAccept": "当前模型仅支持图片文件"
+      "multimodalWarning": "当前模型未检测到多模态能力，文件可能无法被正确处理",
+      "imageOnlyAccept": "当前模型仅支持图片文件",
+      "imageOnlyWarning": "当前模型仅检测到图片支持，该文件类型可能无法被正确处理"
     }
   },
   "security": {
