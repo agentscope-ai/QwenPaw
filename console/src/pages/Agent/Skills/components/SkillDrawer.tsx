@@ -105,6 +105,7 @@ export function SkillDrawer({
         ...values,
         content: contentValue || values.content,
         description: description,
+        description: description,
         source: "",
         path: "",
       });

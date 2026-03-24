@@ -70,6 +70,11 @@ def get_inactive_skills_dir() -> Path:
     return Path(__file__).parent / "InactiveSkill"
 
 
+def get_inactive_skills_dir() -> Path:
+    """Get the path to inactive skills directory in the code."""
+    return Path(__file__).parent / "InactiveSkill"
+
+
 def get_customized_skills_dir(workspace_dir: Path) -> Path:
     """Get the path to customized skills directory in workspace_dir."""
     return workspace_dir / "customized_skills"
@@ -1413,6 +1418,8 @@ class SkillService:
         # Get source directory
         if source == "customized":
             base_dir = get_customized_skills_dir(self.workspace_dir)
+        elif source == "inactive":
+            base_dir = get_inactive_skills_dir()
         elif source == "inactive":
             base_dir = get_inactive_skills_dir()
         else:  # builtin
