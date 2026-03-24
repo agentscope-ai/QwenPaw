@@ -85,6 +85,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    max_reconnect_attempts: int = 100
 
 
 class TelegramConfig(BaseChannelConfig):
