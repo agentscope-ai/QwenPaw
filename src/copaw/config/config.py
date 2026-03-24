@@ -728,6 +728,28 @@ class ToolsConfig(BaseModel):
         return self
 
 
+def build_qa_agent_tools_config() -> ToolsConfig:
+    """Tools preset for builtin ``default_qa_agent`` (first workspace init).
+
+    Only these are enabled: execute_shell_command, read_file, edit_file,
+    view_image, get_token_usage. All other built-ins are disabled.
+    """
+    allow = frozenset(
+        {
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "view_image",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
+
+
 class ToolGuardRuleConfig(BaseModel):
     """A single user-defined guard rule (stored in config.json)."""
 
