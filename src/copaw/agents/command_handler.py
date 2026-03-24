@@ -134,6 +134,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
             messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
         )
+
+        if not compact_content:
+            return await self._make_system_msg(
+                "**Compact Failed!**\n\n"
+                "- Memory compaction returned empty result\n"
+                "- Please check the logs for details\n"
+                "- If context exceeds max length, "
+                "please use `/new` or `/clear` to clear the context",
+            )
+
         await self.memory.update_compressed_summary(compact_content)
         updated_count = len(messages)
         self.memory.clear_content()

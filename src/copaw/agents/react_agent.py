@@ -283,6 +283,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         logger.debug("System prompt:\n%s", sys_prompt)
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
+
+        # Inject multimodal capability awareness
+        multimodal_hint = self._build_multimodal_hint()
+        if multimodal_hint:
+            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+
         return sys_prompt
 
     def _setup_memory_manager(
@@ -555,17 +561,121 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    def _get_current_model_supports_multimodal(self) -> bool:
+        """Check if the current active model supports multimodal input."""
+        try:
+            from ..providers.provider_manager import ProviderManager
+
+            manager = ProviderManager.get_instance()
+            active = manager.get_active_model()
+            if not active:
+                return False
+            provider = manager.get_provider(active.provider_id)
+            if not provider:
+                return False
+            for model in provider.models + provider.extra_models:
+                if model.id == active.model:
+                    return bool(model.supports_multimodal)
+            return False
+        except Exception:
+            return False
+
+    def _build_multimodal_hint(self) -> str:
+        """Build a short system-prompt snippet about multimodal."""
+        try:
+            from ..providers.provider_manager import ProviderManager
+
+            manager = ProviderManager.get_instance()
+            active = manager.get_active_model()
+            if not active:
+                return ""
+            provider = manager.get_provider(active.provider_id)
+            if not provider:
+                return ""
+            model_info = None
+            for m in provider.models + provider.extra_models:
+                if m.id == active.model:
+                    model_info = m
+                    break
+            if model_info is None:
+                return ""
+
+            return self._format_multimodal_hint(
+                model_info,
+                active.model,
+            )
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _format_multimodal_hint(model_info, model_name: str) -> str:
+        """Format the multimodal hint string."""
+        parts: list[str] = []
+        if model_info.supports_image is True:
+            parts.append("image")
+        if model_info.supports_video is True:
+            parts.append("video")
+
+        if parts:
+            return (
+                f"[Multimodal capabilities] Your current"
+                f" model ({model_name}) supports "
+                f"{' and '.join(parts)} input. "
+                f"You can understand and describe visual"
+                f" content that users share with you."
+            )
+        if model_info.supports_multimodal is None:
+            return ""
+        return (
+            f"[Multimodal capabilities] Your current"
+            f" model ({model_name}) is text-only. "
+            f"If a user sends an image or video, "
+            f"politely let them know you cannot see "
+            f"it and suggest they switch to a "
+            f"multimodal model (e.g. qwen3.5-plus) "
+            f"or describe the content in text. "
+            f"Do NOT attempt to use browser_use, "
+            f"view_image, or any other tool to "
+            f"indirectly view the image/video — "
+            f"it wastes resources and the result "
+            f"is unreliable."
+        )
+
+    def _proactive_strip_media_blocks(self) -> int:
+        """Proactively strip media blocks from memory before model call.
+
+        Only called when the active model does not support multimodal.
+        Returns the number of blocks stripped.
+        """
+        return self._strip_media_blocks_from_memory()
+
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Override reasoning with media-block fallback.
+        """Override reasoning with proactive media filtering.
 
-        If the model call fails with a bad-request error and memory
-        contains media blocks (image/audio/video), strip them all and
-        retry once.  Calls ``super()._reasoning`` to keep the
-        ToolGuardMixin interception active.
+        1. Proactive layer: if the model does not support
+           multimodal, strip media blocks *before* calling.
+        2. Passive layer: if the model call still fails with a
+           bad-request / media error, strip remaining blocks and retry.
+        3. If the model IS marked as multimodal but still errors on
+           media, log a warning about possibly inaccurate capability flag.
+
+        Calls ``super()._reasoning`` to keep the ToolGuardMixin
+        interception active.
         """
+        # --- Proactive filtering layer ---
+        if not self._get_current_model_supports_multimodal():
+            n = self._proactive_strip_media_blocks()
+            if n > 0:
+                logger.warning(
+                    "Proactively stripped %d media block(s) - "
+                    "model does not support multimodal.",
+                    n,
+                )
+
+        # --- Passive fallback layer (existing logic) ---
         try:
             return await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
@@ -576,6 +686,15 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             if n_stripped == 0:
                 raise
 
+            # If the model is marked as multimodal but still
+            # errored, the capability flag may be wrong.
+            if self._get_current_model_supports_multimodal():
+                logger.warning(
+                    "Model marked multimodal but "
+                    "rejected media. "
+                    "Capability flag may be wrong.",
+                )
+
             logger.warning(
                 "_reasoning failed (%s). "
                 "Stripped %d media block(s) from memory, retrying.",
@@ -585,17 +704,31 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return await super()._reasoning(tool_choice=tool_choice)
 
     async def _summarizing(self) -> Msg:
-        """Override summarizing with media-block fallback and tool_use filter.
+        """Override summarizing with proactive media filtering,
+        passive fallback, and tool_use block filtering.
+
+        1. Proactive layer: if the model does not support multimodal,
+           strip media blocks *before* calling the model.
+        2. Passive layer: if the model call still fails with a
+           bad-request / media error, strip remaining blocks and retry.
+        3. If the model IS marked as multimodal but still errors on
+           media, log a warning about possibly inaccurate capability flag.
 
         Some models (e.g. kimi-k2.5) generate tool_use blocks even when
-        no tools are provided, by mimicking patterns in conversation
-        history.  Since _summarizing has no acting stage, those blocks
-        would be displayed but never executed.
-
-        We set ``_in_summarizing`` so that ``print`` can strip tool_use
-        blocks from streaming chunks *before* they reach the frontend,
-        preventing the visual flash of phantom tool calls.
+        no tools are provided.  We set ``_in_summarizing`` so that
+        ``print`` can strip tool_use blocks from streaming chunks.
         """
+        # --- Proactive filtering layer ---
+        if not self._get_current_model_supports_multimodal():
+            n = self._proactive_strip_media_blocks()
+            if n > 0:
+                logger.warning(
+                    "Proactively stripped %d media block(s) - "
+                    "model does not support multimodal.",
+                    n,
+                )
+
+        # --- Passive fallback layer ---
         self._in_summarizing = True
         try:
             try:
@@ -607,6 +740,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 n_stripped = self._strip_media_blocks_from_memory()
                 if n_stripped == 0:
                     raise
+
+                if self._get_current_model_supports_multimodal():
+                    logger.warning(
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong.",
+                    )
 
                 logger.warning(
                     "_summarizing failed (%s). "
@@ -635,28 +775,36 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         after a page refresh.  Intermediate events that become empty
         after filtering are silently skipped to avoid blank UI flashes.
         """
-        if getattr(self, "_in_summarizing", False) and isinstance(
-            msg.content,
-            list,
-        ):
-            original = msg.content
+
+        if not getattr(self, "_in_summarizing", False):
+            return await super().print(msg, last, speech=speech)
+
+        original = msg.content
+        modified = False
+
+        if isinstance(original, list):
             filtered = [
                 b
                 for b in original
                 if not (isinstance(b, dict) and b.get("type") == "tool_use")
             ]
-            if len(filtered) != len(original):
-                if not filtered and not last:
-                    return
+            if not filtered and not last:
+                return
+            if len(filtered) != len(original) or last:
+                msg.content = filtered
                 if last:
-                    filtered.append(
+                    msg.content.append(
                         {"type": "text", "text": self._ROUND_END_NOTICE},
                     )
-                msg.content = filtered
-                try:
-                    return await super().print(msg, last, speech=speech)
-                finally:
-                    msg.content = original
+                modified = True
+        elif isinstance(original, str) and last:
+            msg.content = original + self._ROUND_END_NOTICE
+            modified = True
+        if modified:
+            try:
+                return await super().print(msg, last, speech=speech)
+            finally:
+                msg.content = original
         return await super().print(msg, last, speech=speech)
 
     _ROUND_END_NOTICE = (
@@ -675,7 +823,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         strip them and append a bilingual notice telling the user this
         round of calls has ended.
         """
-        if not isinstance(msg.content, list):
+        if isinstance(msg.content, str):
+            msg.content += CoPawAgent._ROUND_END_NOTICE
             return msg
 
         filtered = [
@@ -686,14 +835,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             )
         ]
 
-        if len(filtered) == len(msg.content):
-            return msg
-
         n_removed = len(msg.content) - len(filtered)
-        logger.debug(
-            "Stripped %d tool_use block(s) from _summarizing response",
-            n_removed,
-        )
+        if n_removed:
+            logger.debug(
+                "Stripped %d tool_use block(s) from _summarizing response",
+                n_removed,
+            )
 
         filtered.append({"type": "text", "text": CoPawAgent._ROUND_END_NOTICE})
         msg.content = filtered

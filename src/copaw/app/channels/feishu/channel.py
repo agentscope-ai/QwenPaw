@@ -248,7 +248,7 @@ class FeishuChannel(BaseChannel):
             enabled=os.getenv("FEISHU_CHANNEL_ENABLED", "0") == "1",
             app_id=os.getenv("FEISHU_APP_ID", ""),
             app_secret=os.getenv("FEISHU_APP_SECRET", ""),
-            bot_prefix=os.getenv("FEISHU_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("FEISHU_BOT_PREFIX", ""),
             encrypt_key=os.getenv("FEISHU_ENCRYPT_KEY", ""),
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
             media_dir=os.getenv("FEISHU_MEDIA_DIR", ""),
@@ -277,7 +277,7 @@ class FeishuChannel(BaseChannel):
             enabled=config.enabled,
             app_id=config.app_id or "",
             app_secret=config.app_secret or "",
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             encrypt_key=config.encrypt_key or "",
             verification_token=config.verification_token or "",
             media_dir=config.media_dir or "",
@@ -1620,7 +1620,7 @@ class FeishuChannel(BaseChannel):
             [getattr(m, "type", None) for m in media_parts],
         )
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         last_message_id: Optional[str] = None
         if body:
             last_message_id = await self._send_text(

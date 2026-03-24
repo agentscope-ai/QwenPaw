@@ -1,6 +1,6 @@
 ---
 name: cron
-description: 通过 copaw 命令管理定时任务 - 创建、查询、暂停、恢复、删除任务
+description: 定时任务管理：copaw cron list 查询任务，copaw cron create 创建任务，copaw cron pause/resume 暂停/恢复，copaw cron delete 删除。用 -h 查看帮助 | Cron job management - copaw cron list to query jobs, copaw cron create to create jobs, copaw cron pause/resume to pause/resume, copaw cron delete to delete. Use -h for help
 metadata: { "builtin_skill_version": "1.0", "copaw": { "emoji": "⏰" } }
 ---
 
