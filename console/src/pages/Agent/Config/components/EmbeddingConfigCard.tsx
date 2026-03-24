@@ -55,6 +55,14 @@ const DOWNLOAD_SOURCE_OPTIONS = [
   { value: "huggingface", label: "HuggingFace" },
 ];
 
+const REMOTE_BACKEND_OPTIONS: Array<{
+  value: Extract<EmbeddingConfigShape["backend_type"], "openai" | "ollama">;
+  label: string;
+}> = [
+  { value: "openai", label: "OpenAI 兼容 API" },
+  { value: "ollama", label: "Ollama 本地服务" },
+];
+
 // Hardcoded preset models as fallback when API fails
 const FALLBACK_PRESET_MODELS: EmbeddingPresetModels = {
   multimodal: [
@@ -121,6 +129,9 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   const [resourceHint, setResourceHint] =
     useState<EmbeddingResourceHint | null>(null);
   const [localSwitchChecked, setLocalSwitchChecked] = useState(false);
+  const [remoteBackendChoice, setRemoteBackendChoice] = useState<
+    "openai" | "ollama"
+  >("openai");
   // UI interactivity follows the switch state to avoid a "switch on but still disabled" mismatch.
   const localUiActive = localSwitchChecked || localActive;
 
@@ -168,6 +179,12 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   useEffect(() => {
     setLocalSwitchChecked(localActive);
   }, [localActive]);
+
+  useEffect(() => {
+    if (embeddingBackendType === "openai" || embeddingBackendType === "ollama") {
+      setRemoteBackendChoice(embeddingBackendType);
+    }
+  }, [embeddingBackendType]);
 
   const loadPresetModels = async () => {
     setLoadingPresets(true);
@@ -217,18 +234,61 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
         };
         form.setFieldsValue({ embedding_config: next });
       } else {
-        // Keep enabled=true when switching to remote backend, so embedding
-        // remains available via OpenAI-compatible API.
+        const nextRemoteBackend = remoteBackendChoice;
         form.setFieldsValue({
           embedding_config: {
             ...current,
-            backend_type: "openai" as const,
+            backend_type: nextRemoteBackend,
             enabled: true,
+            ...(nextRemoteBackend === "ollama"
+              ? {
+                  base_url:
+                    current.base_url && current.base_url.trim().length > 0
+                      ? current.base_url
+                      : "http://127.0.0.1:11434",
+                  model_name:
+                    current.model_name && current.model_name.trim().length > 0
+                      ? current.model_name
+                      : "mxbai-embed-large",
+                }
+              : {}),
           },
         });
       }
     } catch (e) {
       console.error("Error updating local embedding switch:", e);
+    }
+  };
+
+  const handleRemoteBackendChange = (value: "openai" | "ollama") => {
+    setRemoteBackendChoice(value);
+    if (!form) {
+      return;
+    }
+    try {
+      const current = (form.getFieldValue("embedding_config") ||
+        {}) as Partial<EmbeddingConfigShape>;
+      form.setFieldsValue({
+        embedding_config: {
+          ...current,
+          backend_type: value,
+          enabled: true,
+          ...(value === "ollama"
+            ? {
+                base_url:
+                  current.base_url && current.base_url.trim().length > 0
+                    ? current.base_url
+                    : "http://127.0.0.1:11434",
+                model_name:
+                  current.model_name && current.model_name.trim().length > 0
+                    ? current.model_name
+                    : "mxbai-embed-large",
+              }
+            : {}),
+        },
+      });
+    } catch (e) {
+      console.error("Error updating remote embedding backend:", e);
     }
   };
 
@@ -419,6 +479,24 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
               : "当前为远程 API 后端；打开后可测试/下载本地模型"}
           </span>
         </div>
+      </Form.Item>
+
+      <Form.Item
+        label="远程后端"
+        tooltip="本地开关关闭时生效，可在 OpenAI 兼容 API 与 Ollama 之间切换"
+        style={{ marginBottom: 16 }}
+      >
+        <Select
+          value={remoteBackendChoice}
+          onChange={handleRemoteBackendChange}
+          disabled={localUiActive}
+        >
+          {REMOTE_BACKEND_OPTIONS.map((opt) => (
+            <Option key={opt.value} value={opt.value}>
+              {opt.label}
+            </Option>
+          ))}
+        </Select>
       </Form.Item>
 
       {loadError && (

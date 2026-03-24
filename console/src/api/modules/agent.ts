@@ -2,6 +2,7 @@ import { request } from "../request";
 import type {
   AgentRequest,
   AgentsRunningConfig,
+  EmbeddingConfigShape,
   LocalEmbeddingConfig,
   EmbeddingPresetModels,
   EmbeddingTestResult,
@@ -91,6 +92,16 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/agent/local-whisper-status"),
+
+  // Canonical Embedding APIs
+  getEmbeddingConfig: () =>
+    request<EmbeddingConfigShape>("/config/agents/embedding"),
+
+  updateEmbeddingConfig: (config: EmbeddingConfigShape) =>
+    request<EmbeddingConfigShape>("/config/agents/embedding", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
 
   // Local Embedding APIs
   getLocalEmbeddingConfig: () =>
