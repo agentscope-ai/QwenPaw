@@ -1,8 +1,9 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
-  IAgentScopeRuntimeWebUIRef,
-  IAgentScopeRuntimeWebUISession,
+  type IAgentScopeRuntimeWebUIMessage,
+  type IAgentScopeRuntimeWebUIRef,
+  Stream,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
@@ -19,10 +20,27 @@ import api from "../../api";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import styles from "./index.module.less";
+import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
+import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
+import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
+import "./index.module.less";
 import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
+import { trackNavigation } from "../../utils/navigationTelemetry";
+import { shouldAutoSyncChatUrl } from "./navigationGuards";
+import {
+  PIPELINE_DESIGN_INTENT,
+  buildPipelineDesignBootstrapPrompt,
+  buildPipelineDesignChatPath,
+  clearPipelineForceNewChat,
+  clearPipelineDesignBootstrap,
+  hasPipelineForceNewChat,
+  hasPipelineDesignAutostarted,
+  markPipelineDesignAutostarted,
+  queuePipelineDesignBootstrap,
+  readPipelineDesignBootstrap,
+} from "../../utils/pipelineDesign";
 
 type CopyableContent = {
   type?: string;
@@ -37,6 +55,28 @@ type CopyableMessage = {
 
 type CopyableResponse = {
   output?: CopyableMessage[];
+};
+
+type RuntimeUiMessage = IAgentScopeRuntimeWebUIMessage & {
+  msgStatus?: string;
+  role?: string;
+  cards?: Array<{
+    code: string;
+    data: unknown;
+  }>;
+  history?: boolean;
+};
+
+type StreamResponseData = {
+  status?: string;
+  output?: Array<{
+    content?: unknown[];
+  }>;
+};
+
+type RuntimeLoadingBridgeApi = {
+  getLoading?: () => boolean | string;
+  setLoading?: (loading: boolean | string) => void;
 };
 
 interface CustomWindow extends Window {
@@ -116,6 +156,141 @@ function buildModelError(): Response {
   );
 }
 
+function cloneRuntimeMessages(
+  messages: RuntimeUiMessage[],
+): RuntimeUiMessage[] {
+  return JSON.parse(JSON.stringify(messages)) as RuntimeUiMessage[];
+}
+
+function cloneValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isFinalResponseStatus(status?: string): boolean {
+  return (
+    status === AgentScopeRuntimeRunStatus.Completed ||
+    status === AgentScopeRuntimeRunStatus.Failed ||
+    status === AgentScopeRuntimeRunStatus.Canceled
+  );
+}
+
+function hasRenderableOutput(response: StreamResponseData): boolean {
+  if (response.status === AgentScopeRuntimeRunStatus.Failed) {
+    return true;
+  }
+
+  return (
+    response.output?.some((message) => (message.content?.length ?? 0) > 0) ??
+    false
+  );
+}
+
+function getResponseCardData(
+  message?: RuntimeUiMessage,
+): StreamResponseData | null {
+  const responseCard = message?.cards?.find(
+    (card) => card.code === "AgentScopeRuntimeResponseCard",
+  );
+
+  if (!responseCard?.data) {
+    return null;
+  }
+
+  return cloneValue(responseCard.data as StreamResponseData);
+}
+
+function getStreamingAssistantMessageId(
+  messages: RuntimeUiMessage[],
+): string | null {
+  return (
+    [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          (message.msgStatus === "generating" ||
+            (message.cards?.length ?? 0) === 0),
+      )?.id ||
+    [...messages].reverse().find((message) => message.role === "assistant")
+      ?.id ||
+    null
+  );
+}
+
+function RuntimeLoadingBridge({
+  bridgeRef,
+}: {
+  bridgeRef: { current: RuntimeLoadingBridgeApi | null };
+}) {
+  const { setLoading, getLoading } = useChatAnywhereInput(
+    (value) =>
+      ({
+        setLoading: value.setLoading,
+        getLoading: value.getLoading,
+      }) as RuntimeLoadingBridgeApi,
+  );
+
+  useEffect(() => {
+    if (!setLoading || !getLoading) {
+      bridgeRef.current = null;
+      return;
+    }
+
+    bridgeRef.current = {
+      setLoading,
+      getLoading,
+    };
+
+    return () => {
+      if (bridgeRef.current?.setLoading === setLoading) {
+        bridgeRef.current = null;
+      }
+    };
+  }, [getLoading, setLoading, bridgeRef]);
+
+  return null;
+}
+
+function extractLatestUserText(input: any[] = []): string {
+  const latest = input[input.length - 1];
+  const content = latest?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item) => item?.type === "text" && typeof item?.text === "string")
+    .map((item) => item.text as string)
+    .join("\n")
+    .trim();
+}
+
+function shouldSuggestPipelineOpportunity(text: string): boolean {
+  if (!text) return false;
+  if (text.length < 16) return false;
+  const patterns = [
+    /多步|流程|pipeline|管线/i,
+    /批量|自动化|反复|复用/i,
+    /抽取|对齐|校验|分析|报告/i,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function isPipelineDesignBootstrapText(text: string): boolean {
+  if (!text) return false;
+  return (
+    text.includes("pipeline-create-guide") ||
+    text.includes("我想创建一个新的 Pipeline") ||
+    text.includes("I want to create a new Pipeline")
+  );
+}
+
+function buildPipelineOpportunityInlineHint(): string {
+  return [
+    "",
+    "[PipelineDesignHint]",
+    "请把当前需求当作可复用多步骤流程，先用简短问题补齐关键槽位（目标、输入、步骤、质量指标、失败重试、产出物），",
+    "然后给出一个可执行的 Pipeline Draft，并继续在当前会话中迭代，不要要求用户切换到新会话。",
+  ].join("\n");
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -131,7 +306,11 @@ export default function ChatPage() {
   const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
   const [, setReconnectStreaming] = useState(false);
   const reconnectTriggeredForRef = useRef<string | null>(null);
+  const autoPipelinePromptingRef = useRef<string | null>(null);
+  const pipelineIntentCreatingRef = useRef(false);
+  const pipelineOpportunityMuteUntilRef = useRef(0);
   const prevChatIdRef = useRef<string | undefined>(undefined);
+  const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -158,23 +337,18 @@ export default function ChatPage() {
 
     const handleCompositionEnd = () => {
       if (!isChatActiveRef.current) return;
-      // Use a slightly longer delay for Safari on macOS, which fires keydown
-      // after compositionend within the same event loop tick.
       setTimeout(() => {
         isComposingRef.current = false;
-      }, 200);
+      }, 150);
     };
 
-    const suppressImeEnter = (e: KeyboardEvent) => {
+    const handleKeyPress = (e: KeyboardEvent) => {
       if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
-        // e.isComposing is the standard flag; isComposingRef covers the
-        // post-compositionend grace period needed by Safari.
-        if (isComposingRef.current || (e as KeyboardEvent & { isComposing?: boolean }).isComposing) {
+        if (isComposingRef.current || (e as any).isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
-          e.preventDefault();
           return false;
         }
       }
@@ -182,9 +356,7 @@ export default function ChatPage() {
 
     document.addEventListener("compositionstart", handleCompositionStart, true);
     document.addEventListener("compositionend", handleCompositionEnd, true);
-    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
-    document.addEventListener("keydown", suppressImeEnter, true);
-    document.addEventListener("keypress", suppressImeEnter, true);
+    document.addEventListener("keypress", handleKeyPress, true);
 
     return () => {
       document.removeEventListener(
@@ -197,8 +369,7 @@ export default function ChatPage() {
         handleCompositionEnd,
         true,
       );
-      document.removeEventListener("keydown", suppressImeEnter, true);
-      document.removeEventListener("keypress", suppressImeEnter, true);
+      document.removeEventListener("keypress", handleKeyPress, true);
     };
   }, []);
 
@@ -207,6 +378,12 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === tempId) {
         lastSessionIdRef.current = realId;
+        trackNavigation({
+          source: "chat.onSessionIdResolved",
+          from: `/chat/${tempId}`,
+          to: `/chat/${realId}`,
+          reason: "resolve-temp-session-id",
+        });
         navigateRef.current(`/chat/${realId}`, { replace: true });
       }
     };
@@ -215,6 +392,12 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === removedId) {
         lastSessionIdRef.current = null;
+        trackNavigation({
+          source: "chat.onSessionRemoved",
+          from: `/chat/${removedId}`,
+          to: "/chat",
+          reason: "removed-current-session",
+        });
         navigateRef.current("/chat", { replace: true });
       }
     };
@@ -253,6 +436,66 @@ export default function ChatPage() {
     sessionApi.triggerReconnectSubmit();
   }, [chatId, chatStatus]);
 
+  useEffect(() => {
+    if (!chatId) return;
+
+    const search = new URLSearchParams(location.search);
+    const intent = search.get("intent");
+    const autostart = search.get("autostart");
+
+    if (intent !== PIPELINE_DESIGN_INTENT || autostart !== "1") return;
+    if (hasPipelineDesignAutostarted(chatId)) return;
+    if (autoPipelinePromptingRef.current === chatId) return;
+
+    const source =
+      (search.get("source") as "pipelines_page" | "chat_opportunity" | null) ||
+      "pipelines_page";
+    const bootstrapPrompt =
+      readPipelineDesignBootstrap(chatId) ||
+      buildPipelineDesignBootstrapPrompt({
+        source,
+        agentId: selectedAgent,
+      });
+
+    autoPipelinePromptingRef.current = chatId;
+    // Mute opportunity detection in this warm-up window to avoid duplicate triggers.
+    pipelineOpportunityMuteUntilRef.current = Date.now() + 60 * 1000;
+    let attempts = 0;
+    const maxAttempts = 120;
+
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      const submit = chatRef.current?.input?.submit;
+      if (submit) {
+        submit({ query: bootstrapPrompt });
+        clearPipelineDesignBootstrap(chatId);
+        markPipelineDesignAutostarted(chatId);
+        clearPipelineForceNewChat();
+        autoPipelinePromptingRef.current = null;
+        window.clearInterval(timer);
+        trackNavigation({
+          source: "chat.pipelineAutostart",
+          from: location.pathname + location.search,
+          to: `/chat/${chatId}`,
+          reason: "cleanup-autostart-query",
+        });
+        navigate(`/chat/${chatId}`, { replace: true });
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearPipelineDesignBootstrap(chatId);
+        clearPipelineForceNewChat();
+        autoPipelinePromptingRef.current = null;
+        window.clearInterval(timer);
+      }
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [chatId, location.pathname, location.search, navigate, selectedAgent]);
+
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
@@ -287,26 +530,51 @@ export default function ChatPage() {
 
   const getSessionWrapped = useCallback(async (sessionId: string) => {
     const currentChatId = chatIdRef.current;
+    const search = new URLSearchParams(window.location.search);
+    const forceNewChat = hasPipelineForceNewChat();
+    const blockAutoSyncForPipelineNewChat =
+      (search.get("intent") === PIPELINE_DESIGN_INTENT &&
+        search.get("autostart") === "1" &&
+        search.get("newChat") === "1") ||
+      forceNewChat;
+    const canAutoSyncUrl =
+      shouldAutoSyncChatUrl(currentChatId) && !blockAutoSyncForPipelineNewChat;
 
     if (
       isChatActiveRef.current &&
+      canAutoSyncUrl &&
       sessionId &&
       sessionId !== lastSessionIdRef.current &&
       sessionId !== currentChatId
     ) {
       const urlId = sessionApi.getRealIdForSession(sessionId) ?? sessionId;
       lastSessionIdRef.current = urlId;
+      trackNavigation({
+        source: "chat.getSessionWrapped",
+        from: currentChatId ? `/chat/${currentChatId}` : "/chat",
+        to: `/chat/${urlId}`,
+        reason: "sync-session-selection",
+        meta: {
+          requestedSessionId: sessionId,
+        },
+      });
       navigateRef.current(`/chat/${urlId}`, { replace: true });
     }
 
     return sessionApi.getSession(sessionId);
   }, []);
 
-  const createSessionWrapped = useCallback(async (session: Partial<IAgentScopeRuntimeWebUISession>) => {
+  const createSessionWrapped = useCallback(async (session: any) => {
     const result = await sessionApi.createSession(session);
-    const newSessionId = result[0]?.id;
+    const newSessionId = session?.id || result[0]?.id;
     if (isChatActiveRef.current && newSessionId) {
       lastSessionIdRef.current = newSessionId;
+      trackNavigation({
+        source: "chat.createSessionWrapped",
+        from: chatIdRef.current ? `/chat/${chatIdRef.current}` : "/chat",
+        to: `/chat/${newSessionId}`,
+        reason: "create-new-session",
+      });
       navigateRef.current(`/chat/${newSessionId}`, { replace: true });
     }
     return result;
@@ -320,8 +588,59 @@ export default function ChatPage() {
       updateSession: sessionApi.updateSession.bind(sessionApi),
       removeSession: sessionApi.removeSession.bind(sessionApi),
     }),
-    [createSessionWrapped, getSessionListWrapped, getSessionWrapped],
+    [],
   );
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const intent = search.get("intent");
+    const autostart = search.get("autostart");
+    const shouldCreateNewChat =
+      search.get("newChat") === "1" || hasPipelineForceNewChat();
+
+    if (chatId) return;
+    if (intent !== PIPELINE_DESIGN_INTENT || autostart !== "1") return;
+    if (!shouldCreateNewChat) return;
+
+    if (pipelineIntentCreatingRef.current) return;
+    pipelineIntentCreatingRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const sessions = await createSessionWrapped({
+          name: t("pipelines.designSessionName", "Pipeline Design"),
+        });
+        const sessionId = sessions[0]?.id;
+        if (!sessionId || cancelled) return;
+
+        const source =
+          (search.get("source") as "pipelines_page" | "chat_opportunity" | null) ||
+          "pipelines_page";
+        const bootstrapPrompt = buildPipelineDesignBootstrapPrompt({
+          source,
+          agentId: selectedAgent,
+        });
+        queuePipelineDesignBootstrap(sessionId, bootstrapPrompt);
+
+        const to = buildPipelineDesignChatPath(sessionId, source);
+        trackNavigation({
+          source: "chat.pipelineIntentCreateSession",
+          from: location.pathname + location.search,
+          to,
+          reason: "reuse-new-chat-create-flow",
+        });
+        navigate(to, { replace: true });
+      } finally {
+        pipelineIntentCreatingRef.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, createSessionWrapped, location.pathname, location.search, navigate, selectedAgent, t]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
@@ -333,6 +652,137 @@ export default function ChatPage() {
       }
     },
     [t],
+  );
+
+  const persistSessionMessages = useCallback(
+    async (sessionId: string, messages: RuntimeUiMessage[]) => {
+      if (!sessionId) return;
+      await sessionApi.updateSession({
+        id: sessionId,
+        messages: cloneRuntimeMessages(messages),
+      });
+    },
+    [],
+  );
+
+  const releaseStaleLoadingState = useCallback((sessionId: string) => {
+    const activeChatId = chatIdRef.current;
+    const realSessionId = sessionApi.getRealIdForSession(sessionId);
+    const isBackgroundSession =
+      activeChatId !== sessionId && activeChatId !== realSessionId;
+
+    if (!isBackgroundSession) {
+      return;
+    }
+
+    if (sessionApi.hasLiveMessagesForSession(activeChatId)) {
+      return;
+    }
+
+    runtimeLoadingBridgeRef.current?.setLoading?.(false);
+  }, []);
+
+  const persistStreamSession = useCallback(
+    (sessionId: string, readableStream: ReadableStream<Uint8Array>) => {
+      const initialMessages = cloneRuntimeMessages(
+        (chatRef.current?.messages.getMessages() as RuntimeUiMessage[]) || [],
+      );
+      const assistantMessageId =
+        getStreamingAssistantMessageId(initialMessages) ||
+        `stream-${sessionId}`;
+      const responseBuilder = new AgentScopeRuntimeResponseBuilder({
+        id: "",
+        status: AgentScopeRuntimeRunStatus.Created,
+        created_at: 0,
+      });
+
+      void (async () => {
+        let cachedMessages = initialMessages;
+        let hasStreamActivity = false;
+        let didReleaseLoading = false;
+
+        try {
+          for await (const chunk of Stream({ readableStream })) {
+            let chunkData: unknown;
+            try {
+              chunkData = JSON.parse(chunk.data);
+            } catch {
+              continue;
+            }
+
+            hasStreamActivity = true;
+            const responseData = responseBuilder.handle(
+              chunkData as never,
+            ) as StreamResponseData;
+            const isFinalChunk = isFinalResponseStatus(responseData.status);
+            const existingAssistantMessage = cachedMessages.find(
+              (message) => message.id === assistantMessageId,
+            );
+            const previousResponseData = getResponseCardData(
+              existingAssistantMessage,
+            );
+
+            let nextResponseData: StreamResponseData | null = null;
+            if (hasRenderableOutput(responseData)) {
+              nextResponseData = cloneValue(responseData);
+            } else if (isFinalChunk && previousResponseData) {
+              nextResponseData = {
+                ...previousResponseData,
+                status: responseData.status ?? previousResponseData.status,
+              };
+            }
+
+            if (nextResponseData) {
+              const assistantMessage: RuntimeUiMessage = {
+                ...(existingAssistantMessage || {
+                  id: assistantMessageId,
+                  role: "assistant",
+                }),
+                id: assistantMessageId,
+                role: "assistant",
+                cards: [
+                  {
+                    code: "AgentScopeRuntimeResponseCard",
+                    data: nextResponseData,
+                  },
+                ],
+                msgStatus: isFinalChunk ? "finished" : "generating",
+              };
+
+              const assistantIndex = cachedMessages.findIndex(
+                (message) => message.id === assistantMessageId,
+              );
+              cachedMessages =
+                assistantIndex >= 0
+                  ? [
+                      ...cachedMessages.slice(0, assistantIndex),
+                      assistantMessage,
+                      ...cachedMessages.slice(assistantIndex + 1),
+                    ]
+                  : [...cachedMessages, assistantMessage];
+
+              await persistSessionMessages(sessionId, cachedMessages);
+            }
+
+            if (!isFinalChunk) {
+              continue;
+            }
+
+            releaseStaleLoadingState(sessionId);
+            didReleaseLoading = true;
+          }
+        } catch (error) {
+          console.error("Failed to persist background chat stream:", error);
+        } finally {
+          if (!hasStreamActivity || didReleaseLoading) {
+            return;
+          }
+
+          releaseStaleLoadingState(sessionId);
+        }
+      })();
+    },
+    [persistSessionMessages, releaseStaleLoadingState],
   );
 
   const customFetch = useCallback(
@@ -422,6 +872,28 @@ export default function ChatPage() {
       }
 
       const { input = [], biz_params } = data;
+      const latestUserText = extractLatestUserText(input);
+      const search = new URLSearchParams(location.search);
+      const inPipelineDesignIntent =
+        search.get("intent") === PIPELINE_DESIGN_INTENT &&
+        search.get("autostart") === "1";
+      const muteActive = Date.now() < pipelineOpportunityMuteUntilRef.current;
+      const bootstrapText = isPipelineDesignBootstrapText(latestUserText);
+      const shouldInlinePipelineGuide =
+        !inPipelineDesignIntent &&
+        !muteActive &&
+        !bootstrapText &&
+        shouldSuggestPipelineOpportunity(latestUserText);
+
+      if (shouldInlinePipelineGuide) {
+        const now = Date.now();
+        const cooldownKey = "copaw.pipeline.opportunity.lastAt";
+        const lastAt = Number(localStorage.getItem(cooldownKey) || "0");
+        if (now - lastAt > 30 * 60 * 1000) {
+          localStorage.setItem(cooldownKey, String(now));
+        }
+      }
+
       const session = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
@@ -430,26 +902,36 @@ export default function ChatPage() {
           ? [
               {
                 ...lastMsg,
-                content: lastMsg.content.map((part: any) => {
-                  const p = { ...part };
-                  const toStoredName = (v: string) => {
-                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-                    if (m1) return m1[1];
-                    const m2 = v.match(/^[^/]+\/(.+)$/);
-                    if (m2) return m2[1];
-                    return v;
-                  };
-                  if (p.type === "image" && typeof p.image_url === "string")
-                    p.image_url = toStoredName(p.image_url);
-                  if (p.type === "file" && typeof p.file_url === "string")
-                    p.file_url = toStoredName(p.file_url);
-                  if (p.type === "audio" && typeof p.audio_url === "string")
-                    p["data"] = toStoredName(p.audio_url);
-                  if (p.type === "video" && typeof p.video_url === "string")
-                    p.video_url = toStoredName(p.video_url);
+                content: [
+                  ...lastMsg.content.map((part: any) => {
+                    const p = { ...part };
+                    const toStoredName = (v: string) => {
+                      const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                      if (m1) return m1[1];
+                      const m2 = v.match(/^[^/]+\/(.+)$/);
+                      if (m2) return m2[1];
+                      return v;
+                    };
+                    if (p.type === "image" && typeof p.image_url === "string")
+                      p.image_url = toStoredName(p.image_url);
+                    if (p.type === "file" && typeof p.file_url === "string")
+                      p.file_url = toStoredName(p.file_url);
+                    if (p.type === "audio" && typeof p.audio_url === "string")
+                      p["data"] = toStoredName(p.audio_url);
+                    if (p.type === "video" && typeof p.video_url === "string")
+                      p.video_url = toStoredName(p.video_url);
 
-                  return p;
-                }),
+                    return p;
+                  }),
+                  ...(shouldInlinePipelineGuide
+                    ? [
+                        {
+                          type: "text",
+                          text: buildPipelineOpportunityInlineHint(),
+                        },
+                      ]
+                    : []),
+                ],
               },
             ]
           : lastInput;
@@ -463,14 +945,27 @@ export default function ChatPage() {
         ...biz_params,
       };
 
-      return fetch(getApiUrl("/console/chat"), {
+      const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
+
+      if (!response.ok || !response.body || !requestBody.session_id) {
+        return response;
+      }
+
+      const [uiStream, cacheStream] = response.body.tee();
+      persistStreamSession(requestBody.session_id, cacheStream);
+
+      return new Response(uiStream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     },
-    [setChatStatus, setReconnectStreaming],
+    [location.search, persistStreamSession, setChatStatus, setReconnectStreaming],
   );
 
   const options = useMemo(() => {
@@ -489,7 +984,12 @@ export default function ChatPage() {
         leftHeader: {
           ...defaultConfig.theme.leftHeader,
         },
-        rightHeader: <ModelSelector />,
+        rightHeader: (
+          <>
+            <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+            <ModelSelector />
+          </>
+        ),
       },
       welcome: {
         ...i18nConfig.welcome,
@@ -498,7 +998,7 @@ export default function ChatPage() {
           : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
-        ...i18nConfig.sender,
+        ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         attachments: {
           trigger: function (props: any) {
@@ -585,7 +1085,7 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div style={{ flex: 1, minHeight: 0 }}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
@@ -593,11 +1093,33 @@ export default function ChatPage() {
         />
       </div>
 
-      <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
+      <Modal
+        open={showModelPrompt}
+        closable={false}
+        footer={null}
+        width={480}
+        styles={{
+          content: isDark
+            ? { background: "#1f1f1f", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }
+            : undefined,
+        }}
+      >
         <Result
           icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-          title={t("modelConfig.promptTitle")}
-          subTitle={t("modelConfig.promptMessage")}
+          title={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+            >
+              {t("modelConfig.promptTitle")}
+            </span>
+          }
+          subTitle={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+            >
+              {t("modelConfig.promptMessage")}
+            </span>
+          }
           extra={[
             <Button key="skip" onClick={() => setShowModelPrompt(false)}>
               {t("modelConfig.skipButton")}
@@ -608,6 +1130,12 @@ export default function ChatPage() {
               icon={<SettingOutlined />}
               onClick={() => {
                 setShowModelPrompt(false);
+                trackNavigation({
+                  source: "chat.modelPrompt",
+                  from: location.pathname,
+                  to: "/models",
+                  reason: "configure-model-from-chat",
+                });
                 navigate("/models");
               }}
             >

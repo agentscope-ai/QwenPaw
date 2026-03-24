@@ -12,6 +12,10 @@ import type {
   ImportAgentSquareResponse,
   AgentProjectFileInfo,
   AgentProjectFileContent,
+  ProjectPipelineTemplateInfo,
+  ProjectPipelineRunSummary,
+  ProjectPipelineRunDetail,
+  CreateProjectPipelineRunRequest,
 } from "../types/agents";
 import type { MdFileInfo, MdFileContent } from "../types/workspace";
 
@@ -78,6 +82,34 @@ export const agentsApi = {
         .split("/")
         .map((part) => encodeURIComponent(part))
         .join("/")}`,
+    ),
+
+  listProjectPipelineTemplates: (agentId: string, projectId: string) =>
+    request<ProjectPipelineTemplateInfo[]>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/templates`,
+    ),
+
+  listProjectPipelineRuns: (agentId: string, projectId: string) =>
+    request<ProjectPipelineRunSummary[]>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/runs`,
+    ),
+
+  getProjectPipelineRun: (agentId: string, projectId: string, runId: string) =>
+    request<ProjectPipelineRunDetail>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/runs/${encodeURIComponent(runId)}`,
+    ),
+
+  createProjectPipelineRun: (
+    agentId: string,
+    projectId: string,
+    body: CreateProjectPipelineRunRequest,
+  ) =>
+    request<ProjectPipelineRunDetail>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/runs`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
     ),
 
   // Agents Square

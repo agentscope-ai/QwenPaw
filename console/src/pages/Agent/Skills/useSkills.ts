@@ -41,6 +41,7 @@ export function useSkills() {
   const [marketErrors, setMarketErrors] = useState<MarketError[]>([]);
   const [marketMeta, setMarketMeta] = useState<MarketplaceMeta | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [marketplaceLoading, setMarketplaceLoading] = useState(false);
   const [installingSkillKey, setInstallingSkillKey] = useState<string | null>(
     null,
@@ -123,8 +124,10 @@ export function useSkills() {
         showScanErrorModal(scanError);
         return true;
       }
+      const msg =
+        error instanceof Error && error.message ? error.message : defaultMsg;
       console.error(defaultMsg, error);
-      message.error(defaultMsg);
+      message.error(msg);
       return false;
     },
     [showScanErrorModal],
@@ -259,20 +262,6 @@ export function useSkills() {
     }
   };
 
-  const resetMarkets = async () => {
-    try {
-      const data = await api.resetSkillsMarkets();
-      setMarketConfig(data);
-      setMarkets(data.markets ?? []);
-      message.success("Markets restored");
-      return data;
-    } catch (error) {
-      console.error("Failed to reset markets", error);
-      message.error("Failed to reset markets");
-      return null;
-    }
-  };
-
   const validateMarket = async (market: SkillsMarketSpec) => {
     try {
       const result = await api.validateSkillsMarket(market);
@@ -341,6 +330,34 @@ export function useSkills() {
     } catch (error) {
       handleError(error, "Failed to save");
       return false;
+    }
+  };
+
+  const uploadSkill = async (file: File) => {
+    try {
+      setUploading(true);
+      const result = await api.uploadSkill(file, {
+        enable: false,
+        overwrite: false,
+      });
+      if (result?.count > 0) {
+        message.success(
+          t("skills.uploadSuccess") + `: ${result.imported.join(", ")}`,
+        );
+        await fetchSkills();
+        for (const name of result.imported) {
+          await checkScanWarnings(name);
+        }
+        return true;
+      }
+      message.warning(t("skills.uploadNoChange"));
+      await fetchSkills();
+      return true;
+    } catch (error) {
+      handleError(error, t("skills.uploadFailed"));
+      return false;
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -495,6 +512,7 @@ export function useSkills() {
     marketErrors,
     marketMeta,
     loading,
+    uploading,
     marketplaceLoading,
     installingSkillKey,
     importing,
@@ -502,10 +520,10 @@ export function useSkills() {
     fetchMarkets,
     fetchMarketplace,
     saveMarkets,
-    resetMarkets,
     validateMarket,
     installMarketplaceSkill,
     createSkill,
+    uploadSkill,
     importFromHub,
     toggleEnabled,
     deleteSkill,

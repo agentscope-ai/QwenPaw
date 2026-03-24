@@ -1,39 +1,3 @@
-
-# 🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）
-
-> **⚡ 本库声明 | Repository Statement:**
->
-> - 本仓库专注于数字出版领域智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
->   This repository focuses on intelligent agents and tools for digital publishing, based on AgentScope framework, compatible with upstream agentscope-ai/CoPaw.
-> - 行业相关需求、创新、定制化优先本地处理，框架基础特性和 bug 优先本地修复，积累后再同步到上游。
->   Industry-specific needs, innovation, and customization are handled locally first; framework features and bugs are fixed locally and then synchronized upstream.
-> - 开发协作请务必查阅 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
->   For development and collaboration, please refer to [Development Mode](docs/devops/DEVELOPMENT_MODE.md).
-
-> [!IMPORTANT]
-> **本库构建/分发/下载（Local Edition Build & Distribution）**
->
-> - 本库本地构建与分发入口：`scripts/pack/README.md`（含 macOS `.zip` / Windows `.exe` 产物说明）。
->   Local build/distribution entry: `scripts/pack/README.md` (including macOS `.zip` and Windows `.exe` artifacts).
-> - 本库下载地址（Local Edition Releases）：https://github.com/futuremeng/CoPaw/releases
->   Upstream 下载地址（for comparison only）：https://github.com/agentscope-ai/CoPaw/releases
-> - 本库与 upstream **不要在同一 Python 环境中同时安装**（包名同为 `copaw`），后安装会覆盖先安装。
->   Do **not** install this local edition and upstream in the same Python environment (`copaw` package name is identical); the later install overrides the former.
-> - 桌面端也不要混装：若都命名为 `CoPaw.app` 或同一安装目录，后安装版本会覆盖前安装版本。
->   Do not co-install desktop builds in the same app/install path either; later installs can overwrite earlier versions.
-> - 建议隔离方式：独立虚拟环境（如 `.venv-local` / `.venv-upstream`）或独立容器。
->   Recommended isolation: separate virtual environments (for example, `.venv-local` / `.venv-upstream`) or separate containers.
->
-> **本库版本专有主要特性（Local-only Highlights）**
->
-- Skills Marketplace（Git-backed market aggregation + Console market management + i18n + 覆盖前确认）。
-- Console 知识库入口优化（知识菜单直达与配置路径更清晰）。
-> - 数字出版开发模式与双轨协作文档（本地优先、按需回流 upstream）。
-> - 发布流程增强：`RELEASE.md` / `RELEASE_zh.md`、Release Checklist Issue 模板、PR 发布检查区块。
-> - 本地桌面打包修复：macOS 下 `.venv` Python 优先与 `conda-unpack` 兼容处理。
-
-
-
 <div align="center">
 
 # CoPaw
@@ -115,37 +79,18 @@
 > - **我想在钉钉 / 飞书 / QQ 里聊**：在控制台中进行 [频道配置](https://copaw.agentscope.io/docs/channels)。
 > - **我不想装 Python**：[脚本安装](#脚本安装) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
 
-- [🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）](#-copaw数字出版方向本地特色库--digital-publishing-local-edition)
-- [CoPaw](#copaw)
-  - [新闻](#新闻)
-  - [目录](#目录)
-  - [快速开始](#快速开始)
-    - [pip 安装](#pip-安装)
-    - [脚本安装](#脚本安装)
-    - [桌面应用（Beta）](#桌面应用beta)
-      - [下载](#下载)
-      - [特点](#特点)
-      - [首次启动](#首次启动)
-      - [macOS：绕过系统安全限制](#macos绕过系统安全限制)
-    - [使用 Docker](#使用-docker)
-    - [使用魔搭创空间](#使用魔搭创空间)
-    - [部署到阿里云 ECS](#部署到阿里云-ecs)
-  - [API Key](#api-key)
-    - [CoPaw 配置透传到 Cognee（Ollama / LM Studio / Custom）](#copaw-配置透传到-cogneeollama--lm-studio--custom)
-  - [本地模型](#本地模型)
-  - [Skills 市场配置示例](#skills-市场配置示例)
-  - [文档](#文档)
-  - [常见问题](#常见问题)
-  - [路线图](#路线图)
-    - [Fork 用户路线图（精简版）](#fork-用户路线图精简版)
-    - [参与贡献](#参与贡献)
-  - [从源码安装](#从源码安装)
-  - [为什么叫 CoPaw？](#为什么叫-copaw)
-  - [由谁构建](#由谁构建)
-  - [联系我们](#联系我们)
-  - [遥测数据](#遥测数据)
-  - [许可证](#许可证)
-  - [贡献者](#贡献者)
+- [新闻](#新闻)
+- [快速开始](#快速开始)
+- [API Key](#api-key)
+- [本地模型](#本地模型)
+- [文档](#文档)
+- [常见问题](#常见问题)
+- [路线图](#路线图)
+- [参与贡献](#参与贡献)
+- [从源码安装](#从源码安装)
+- [为什么叫 CoPaw？](#为什么叫-copaw)
+- [由谁构建](#由谁构建)
+- [许可证](#许可证)
 
 ---
 
@@ -392,56 +337,6 @@ docker run -p 127.0.0.1:8088:8088 \
 
 > **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp 或 MLX），则**无需**任何 API Key。
 
-### CoPaw 配置透传到 Cognee（Ollama / LM Studio / Custom）
-
-当你在知识层启用 Cognee 后，CoPaw 现在可以把当前激活的模型配置自动同步给 Cognee（通过环境变量 `LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_API_BASE`）。
-
-推荐最小配置（`config.json`）：
-
-```json
-{
-  "knowledge": {
-    "enabled": true,
-    "engine": {
-      "provider": "cognee",
-      "fallback_to_default": true
-    },
-    "cognee": {
-      "enabled": true,
-      "sync_with_copaw_provider": true,
-      "custom_model_prefix": "openai"
-    }
-  }
-}
-```
-
-说明：
-
-- Ollama：会自动把 CoPaw 里的模型名转成 `ollama/<model>`（例如 `ollama/qwen3:8b`）。
-- LM Studio：会自动转成 `lm_studio/<model>`。
-- 其他自定义 OpenAI 兼容服务：使用 `custom_model_prefix`（例如 `openai`、`hosted_vllm`、`openrouter`）。
-
-如果你想让 Cognee 与聊天主模型隔离（避免“抢调用”）：
-
-1. 关闭自动同步：`sync_with_copaw_provider: false`
-2. 显式指定 Cognee 专用模型：
-
-```json
-{
-  "knowledge": {
-    "cognee": {
-      "enabled": true,
-      "sync_with_copaw_provider": false,
-      "llm_model": "ollama/qwen3:8b",
-      "llm_api_key": "local",
-      "llm_base_url": "http://127.0.0.1:11434/v1"
-    }
-  }
-}
-```
-
-> 提示：Cognee 基于 LiteLLM，很多 provider 需要 `provider/model` 形式（如 `gemini/gemini-2.0-flash`、`openrouter/...`）。
-
 ---
 
 ## 本地模型
@@ -477,7 +372,7 @@ copaw app # 启动服务
   "skills_market": {
     "markets": [
       {
-        "id": "futuremeng/editor-skills",
+        "id": "editor_skills",
         "name": "Editor Skills",
         "type": "git",
         "url": "https://github.com/futuremeng/editor-skills",
@@ -552,29 +447,9 @@ copaw app # 启动服务
 
 *状态说明：进行中 — 正在推进；计划中 — 已排期或设计中，也**欢迎贡献**；**征集中** — 我们**非常欢迎**社区参与；长期规划 — 中长期路线。*
 
-### Fork 用户路线图（精简版）
-
-> 以下为 fork 侧面向用户的能力进展，不替代上方 upstream 主路线图。
-
-| 方向 | 你可以期待什么 | 状态 |
-| --- | --- | --- |
-| **技能市场** | Skills Marketplace：Git 聚合、控制台市场管理、覆盖前确认 | 已完成 |
-|  | 子项：已集成 [futuremeng/editor-skills](https://github.com/futuremeng/editor-skills) | 已完成 |
-| **知识库** | 知识沉淀能力持续可用并迭代优化 | 进行中 |
-| **知识库增强** | 基于 cognee 的知识库增强能力 | 计划中 |
-| **多智能体协同（自托管）** | LangGraph + Plane + CoPaw：构建自托管多智能体人机协同任务系统 | 计划中 |
-|  | 阶段 1：Plane 集成技能（Issue/Comment 的 CRUD 与状态流转） | 计划中 |
-|  | 阶段 2：LangGraph 编排（任务分解、执行、human interrupt） | 计划中 |
-|  | 阶段 3：Webhook 闭环（Plane 评论触发 Agent 续跑） | 计划中 |
-| **MCP 扩展** | 内置 jiulu_mcp 与 mineru_mcp | 计划中 |
-
-与 upstream 重合项（如“多模态记忆融合增强”）的处理策略：当 upstream 提供可用能力时，优先评估迁移；若能力或成本不匹配，则保留 fork 实现以保障可用性。
-
-开发路线图详细版请见：[docs/devops/FORK_ROADMAP.md](docs/devops/FORK_ROADMAP.md)。
-
 ### 参与贡献
 
-CoPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，阅读 [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始，并在执行正式发布时参照 [RELEASE_zh.md](RELEASE_zh.md)。我们特别欢迎：
+CoPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
 
 - **横向拓展** — 新频道、模型提供商、Skills、MCP。
 - **已有功能扩展与完善** — 展示与交互优化、下载提示、Windows 路径兼容等。

@@ -134,6 +134,47 @@
   overflow: auto;
 }
 
+.runToolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.templateSelect {
+  flex: 1;
+}
+
+.runList {
+  margin-bottom: 12px;
+}
+
+.stepPanel {
+  border-top: 1px solid #f0f0f0;
+  padding-top: 12px;
+}
+
+.subSectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.progressLine {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.stepItem {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
 .listItem {
   width: 100%;
   text-align: left;
@@ -187,6 +228,75 @@
   overflow: auto;
 }
 
+.rightTabs {
+  height: 100%;
+
+  :global(.ant-tabs-content-holder) {
+    height: calc(100% - 48px);
+  }
+
+  :global(.ant-tabs-content) {
+    height: 100%;
+  }
+
+  :global(.ant-tabs-tabpane) {
+    height: 100%;
+  }
+}
+
+.artifactPanel {
+  height: 100%;
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+}
+
+.artifactList {
+  width: 340px;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 12px;
+  border-right: 1px solid #f0f0f0;
+}
+
+.previewPane {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.metricPanel {
+  padding: 12px;
+}
+
+.metricSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.metricSummaryCard {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fafafa;
+}
+
+.metricSummaryValue {
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #262626;
+}
+
+.metricBlock {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
 .previewContent {
   margin: 0;
   padding: 16px;
@@ -215,6 +325,20 @@
   .columnRight {
     width: 100%;
     min-height: 240px;
+  }
+
+  .artifactPanel {
+    flex-direction: column;
+  }
+
+  .artifactList {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .metricSummaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .panelExtraText {

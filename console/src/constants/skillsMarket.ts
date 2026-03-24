@@ -2,7 +2,7 @@ import type { SkillsMarketSpec } from "../api/types";
 
 export const DEFAULT_SKILLS_MARKET_TEMPLATES: SkillsMarketSpec[] = [
   {
-    id: "futuremeng/editor-skills",
+    id: "editor_skills",
     name: "Editor Skills",
     url: "https://github.com/futuremeng/editor-skills",
     branch: "main",

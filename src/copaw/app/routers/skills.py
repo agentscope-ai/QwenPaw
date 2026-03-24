@@ -3,7 +3,6 @@ import asyncio
 import json
 import logging
 import re
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -25,7 +24,7 @@ from ...agents.skills_hub import (
     search_hub_skills,
     install_skill_from_hub,
 )
-from ...constant import WORKING_DIR
+from ...config import load_config, save_config
 from ...config.config import (
     SkillMarketSpec,
     SkillsMarketCacheConfig,
@@ -33,7 +32,6 @@ from ...config.config import (
     SkillsMarketInstallConfig,
 )
 from ...security.skill_scanner import SkillScanError
-from ...config.config import SkillMarketSpec, SkillsMarketConfig
 
 
 logger = logging.getLogger(__name__)
@@ -175,115 +173,9 @@ _MARKETPLACE_CACHE: dict[str, Any] = {
     "errors": [],
     "meta": {},
 }
-_SKILLS_MARKET_DEFAULT_DIR = Path(__file__).resolve().parents[2] / "skills_market"
-_SKILLS_MARKET_CONFIG_PATH = WORKING_DIR / "skills_market" / "config.json"
-_SKILLS_MARKET_DEFAULT_PATH = _SKILLS_MARKET_DEFAULT_DIR / "default.json"
 
 
 router = APIRouter(prefix="/skills", tags=["skills"])
-
-
-def _ensure_skills_market_config_initialized() -> None:
-    """Ensure skills_market/config.json exists, bootstrap from default.json."""
-    if _SKILLS_MARKET_CONFIG_PATH.exists():
-        return
-
-    _SKILLS_MARKET_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    if _SKILLS_MARKET_DEFAULT_PATH.exists():
-        shutil.copyfile(_SKILLS_MARKET_DEFAULT_PATH, _SKILLS_MARKET_CONFIG_PATH)
-        return
-
-    fallback_payload = {
-        "version": 1,
-        "markets": [],
-        "cache": {"ttl_sec": 600},
-        "install": {"overwrite_default": False},
-    }
-    _SKILLS_MARKET_CONFIG_PATH.write_text(
-        json.dumps(fallback_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _load_market_payload_from_file(path: Path) -> SkillsMarketPayload:
-    """Load Skills Market payload from file."""
-    try:
-        raw_text = path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"MARKETS_CONFIG_READ_FAILED: {path.name}: {exc}",
-        ) from exc
-
-    if not raw_text:
-        raise HTTPException(
-            status_code=500,
-            detail=f"MARKETS_CONFIG_INVALID: {path.name} is empty",
-        )
-
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"MARKETS_CONFIG_INVALID_JSON: {path.name}: {exc}",
-        ) from exc
-
-    return SkillsMarketPayload.model_validate(parsed)
-
-
-def _load_current_market_config() -> SkillsMarketConfig:
-    """Load current market config from skills_market/config.json."""
-    _ensure_skills_market_config_initialized()
-    payload = _load_market_payload_from_file(_SKILLS_MARKET_CONFIG_PATH)
-    return _payload_to_market_config(payload)
-
-
-def _load_default_market_config() -> SkillsMarketConfig:
-    """Load bundled market defaults from skills_market/default.json."""
-    if not _SKILLS_MARKET_DEFAULT_PATH.exists():
-        _ensure_skills_market_config_initialized()
-        return _load_current_market_config()
-
-    payload = _load_market_payload_from_file(_SKILLS_MARKET_DEFAULT_PATH)
-    return _payload_to_market_config(payload)
-
-
-def _save_current_market_config(market_cfg: SkillsMarketConfig) -> None:
-    """Persist current market config to skills_market/config.json."""
-    _SKILLS_MARKET_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = _market_config_to_payload(market_cfg)
-    _SKILLS_MARKET_CONFIG_PATH.write_text(
-        json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, indent=2)
-        + "\n",
-        encoding="utf-8",
-    )
-
-
-def _reset_current_market_config_to_default() -> SkillsMarketConfig:
-    """Reset current market config by copying default.json to config.json."""
-    _SKILLS_MARKET_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    if _SKILLS_MARKET_DEFAULT_PATH.exists():
-        shutil.copyfile(_SKILLS_MARKET_DEFAULT_PATH, _SKILLS_MARKET_CONFIG_PATH)
-        return _load_current_market_config()
-
-    _SKILLS_MARKET_CONFIG_PATH.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "markets": [],
-                "cache": {"ttl_sec": 600},
-                "install": {"overwrite_default": False},
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return _load_current_market_config()
 
 
 def _extract_github_market_spec(
@@ -480,12 +372,13 @@ def _generate_market_index_from_directory(
 def _load_market_index(
     market: SkillMarketSpec,
 ) -> tuple[dict[str, Any], list[str]]:
-    market_url = _normalize_market_url(market.url)
+    normalized_market = _normalize_market_spec(market)
+    market_url = _normalize_market_url(normalized_market.url)
     with tempfile.TemporaryDirectory(prefix="copaw-market-") as tmp:
         repo_dir = Path(tmp) / "repo"
         clone_args = ["clone", "--depth", "1"]
-        if market.branch:
-            clone_args += ["--branch", market.branch]
+        if normalized_market.branch:
+            clone_args += ["--branch", normalized_market.branch]
         clone_args += [market_url, str(repo_dir)]
         clone_result = _run_git_command(clone_args, timeout_sec=40)
         if clone_result.returncode != 0:
@@ -495,7 +388,7 @@ def _load_market_index(
             )
 
         # Resolve branch from local clone when user did not specify one.
-        effective_branch = (market.branch or "").strip()
+        effective_branch = (normalized_market.branch or "").strip()
         if not effective_branch:
             branch_result = _run_git_command(
                 ["rev-parse", "--abbrev-ref", "HEAD"],
@@ -505,13 +398,13 @@ def _load_market_index(
             if branch_result.returncode == 0:
                 effective_branch = branch_result.stdout.strip()
 
-        target_path = repo_dir / (market.path or "index.json")
+        target_path = repo_dir / (normalized_market.path or "index.json")
         warnings: list[str] = []
         if target_path.is_file():
             return json.loads(target_path.read_text(encoding="utf-8")), warnings
         if target_path.is_dir():
             return _generate_market_index_from_directory(
-                market,
+                normalized_market,
                 target_path,
                 effective_branch=effective_branch,
             )
@@ -519,13 +412,13 @@ def _load_market_index(
             parent_dir = target_path.parent
             if parent_dir.is_dir():
                 return _generate_market_index_from_directory(
-                    market,
+                    normalized_market,
                     parent_dir,
                     effective_branch=effective_branch,
                 )
         raise ValueError(
             "MARKET_INDEX_INVALID: index or skills directory not found at "
-            f"{market.path}"
+            f"{normalized_market.path}"
         )
 
 
@@ -560,7 +453,8 @@ def _extract_market_items(
 
         skill_id = str(raw.get("skill_id") or "").strip()
         name = str(raw.get("name") or "").strip() or skill_id
-        source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
+        source_raw = raw.get("source")
+        source: dict[str, Any] = source_raw if isinstance(source_raw, dict) else {}
         source_url = str(source.get("url") or market.url).strip()
         source_branch = str(source.get("branch") or market.branch or "main").strip()
         source_path = str(source.get("path") or "").strip()
@@ -590,7 +484,8 @@ def _extract_market_items(
                 or next(iter(description.values()), "")
             )
 
-        tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+        tags_raw = raw.get("tags")
+        tags: list[Any] = tags_raw if isinstance(tags_raw, list) else []
         items.append(
             MarketplaceItem(
                 market_id=market.id,
@@ -632,10 +527,11 @@ def _aggregate_marketplace(
         key=lambda m: m.order,
     )
     for market in enabled_markets:
+        normalized_market = _normalize_market_spec(market)
         try:
-            index_doc, warnings = _load_market_index(market)
+            index_doc, warnings = _load_market_index(normalized_market)
             extracted_items, extracted_errors = _extract_market_items(
-                market,
+                normalized_market,
                 index_doc,
             )
             items.extend(extracted_items)
@@ -782,31 +678,18 @@ async def search_hub(
         for item in results
     ]
 
-
 @router.get("/markets", response_model=SkillsMarketPayload)
 async def get_markets() -> SkillsMarketPayload:
-    market_cfg = _load_current_market_config()
-    return _market_config_to_payload(market_cfg)
-
-
-@router.get("/markets/defaults", response_model=SkillsMarketPayload)
-async def get_market_defaults() -> SkillsMarketPayload:
-    market_cfg = _load_default_market_config()
-    return _market_config_to_payload(market_cfg)
+    config = load_config()
+    return _market_config_to_payload(config.skills_market)
 
 
 @router.put("/markets", response_model=SkillsMarketPayload)
 async def put_markets(payload: SkillsMarketPayload) -> SkillsMarketPayload:
+    config = load_config()
     market_cfg = _payload_to_market_config(payload)
-    _save_current_market_config(market_cfg)
-    with _MARKETPLACE_CACHE_LOCK:
-        _MARKETPLACE_CACHE["expires_at"] = 0.0
-    return _market_config_to_payload(market_cfg)
-
-
-@router.post("/markets/reset", response_model=SkillsMarketPayload)
-async def reset_markets() -> SkillsMarketPayload:
-    market_cfg = _reset_current_market_config_to_default()
+    config.skills_market = market_cfg
+    save_config(config)
     with _MARKETPLACE_CACHE_LOCK:
         _MARKETPLACE_CACHE["expires_at"] = 0.0
     return _market_config_to_payload(market_cfg)
@@ -867,9 +750,9 @@ async def validate_market(payload: ValidateMarketRequest) -> dict[str, Any]:
 
 @router.get("/marketplace")
 async def get_marketplace(refresh: bool = False) -> dict[str, Any]:
-    market_cfg = _load_current_market_config()
+    config = load_config()
     items, errors, meta = _aggregate_marketplace(
-        market_cfg,
+        config.skills_market,
         refresh=refresh,
     )
     return {
@@ -887,6 +770,8 @@ def _github_token_hint(bundle_url: str) -> str:
     if "skills.sh" in lower or "github.com" in lower:
         return " Tip: set GITHUB_TOKEN (or GH_TOKEN) to avoid rate limits."
     return ""
+
+
 async def _hub_task_set_status(
     task_id: str,
     status: HubInstallTaskStatus,
@@ -1068,16 +953,16 @@ async def install_from_hub(
 async def install_from_marketplace(
     request_body: InstallMarketplaceRequest,
     request: Request,
-) -> dict[str, Any]:
+):
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
-    market_cfg = _load_current_market_config()
+    config = load_config()
     overwrite = request_body.overwrite or bool(
-        market_cfg.install.overwrite_default,
+        config.skills_market.install.overwrite_default,
     )
-    items, _, _ = _aggregate_marketplace(market_cfg, refresh=False)
+    items, _, _ = _aggregate_marketplace(config.skills_market, refresh=False)
     selected = None
     for item in items:
         if (
@@ -1332,7 +1217,7 @@ async def create_skill(
 @router.post("/{skill_name}/disable")
 async def disable_skill(
     skill_name: str,
-    request: Request = None,
+    request: Request,
 ):
     """Disable skill for active agent."""
     from ..agent_context import get_agent_for_request
@@ -1367,7 +1252,7 @@ async def disable_skill(
 @router.post("/{skill_name}/enable")
 async def enable_skill(
     skill_name: str,
-    request: Request = None,
+    request: Request,
 ):
     """Enable skill for active agent."""
     from ..agent_context import get_agent_for_request

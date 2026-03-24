@@ -234,6 +234,18 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
 const isLocalTimestamp = (id: string): boolean => /^\d+$/.test(id);
 
+let lastLocalSessionId = 0;
+
+function generateLocalSessionId(): string {
+  const now = Date.now();
+  if (now <= lastLocalSessionId) {
+    lastLocalSessionId += 1;
+  } else {
+    lastLocalSessionId = now;
+  }
+  return String(lastLocalSessionId);
+}
+
 /**
  * Resolve and persist the real backend UUID for a local timestamp session.
  * Stores the real UUID as realId while keeping the timestamp as id, so the
@@ -528,7 +540,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // never appears as a list item. The component will call createSession on
     // the next submit via ensureSession.
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
-      return this.createEmptySession(Date.now().toString());
+      return this.createEmptySession(generateLocalSessionId());
     }
 
     // --- Regular backend UUID ---
@@ -587,7 +599,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   async createSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
-    session.id = Date.now().toString();
+    session.id = generateLocalSessionId();
 
     const extended: ExtendedSession = {
       ...session,

@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
-import { Button, Form, Modal } from "@agentscope-ai/design";
-import { AppstoreOutlined, DownloadOutlined, PlusOutlined } from "@ant-design/icons";
+import { useEffect, useRef, useState } from "react";
+import { Button, Form, Modal, message } from "@agentscope-ai/design";
+import {
+  AppstoreOutlined,
+  DownloadOutlined,
+  PlusOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
 import type { SkillSpec, SkillsMarketSpec } from "../../../api/types";
 import { SkillCard, SkillDrawer, MarketplaceDrawer } from "./components";
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
+import { createDefaultSkillsMarketTemplates } from "../../../constants/skillsMarket";
 import styles from "./index.module.less";
 
 function SkillsPage() {
@@ -17,6 +23,7 @@ function SkillsPage() {
     marketErrors,
     marketMeta,
     loading,
+    uploading,
     marketplaceLoading,
     installingSkillKey,
     importing,
@@ -24,9 +31,9 @@ function SkillsPage() {
     validateMarket,
     fetchMarketplace,
     saveMarkets,
-    resetMarkets,
     installMarketplaceSkill,
     createSkill,
+    uploadSkill,
     importFromHub,
     toggleEnabled,
     deleteSkill,
@@ -45,6 +52,36 @@ function SkillsPage() {
   const [marketOverwriteDefault, setMarketOverwriteDefault] = useState(false);
   const [savingMarkets, setSavingMarkets] = useState(false);
   const [form] = Form.useForm<SkillSpec>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const MAX_UPLOAD_SIZE_MB = 100;
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      message.warning(t("skills.zipOnly"));
+      return;
+    }
+
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > MAX_UPLOAD_SIZE_MB) {
+      message.warning(
+        t("skills.fileSizeExceeded", { size: sizeMB.toFixed(1) }),
+      );
+      return;
+    }
+
+    await uploadSkill(file);
+  };
 
   useEffect(() => {
     setMarketDrafts(markets || []);
@@ -296,21 +333,8 @@ function SkillsPage() {
     }
   };
 
-  const handleResetMarketTemplates = async () => {
-    setSavingMarkets(true);
-    try {
-      const resetPayload = await resetMarkets();
-      if (resetPayload) {
-        setMarketDrafts(resetPayload.markets ?? []);
-        setMarketCacheTtl(resetPayload.cache?.ttl_sec ?? 600);
-        setMarketOverwriteDefault(
-          resetPayload.install?.overwrite_default ?? false,
-        );
-        await fetchMarketplace(true);
-      }
-    } finally {
-      setSavingMarkets(false);
-    }
+  const handleResetMarketTemplates = () => {
+    setMarketDrafts(createDefaultSkillsMarketTemplates());
   };
 
   const getSkillsFromMarket = (marketId: string) => {
@@ -463,6 +487,22 @@ function SkillsPage() {
           <p className={styles.description}>{t("skills.description")}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="file"
+            accept=".zip"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            style={{ display: "none" }}
+          />
+          <Button
+            type="primary"
+            onClick={handleUploadClick}
+            icon={<UploadOutlined />}
+            loading={uploading}
+            disabled={uploading}
+          >
+            {t("skills.uploadSkill")}
+          </Button>
           <Button
             type="primary"
             onClick={handleImportFromHub}

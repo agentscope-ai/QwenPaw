@@ -1,6 +1,5 @@
-import { getApiUrl } from "../config";
 import { request } from "../request";
-import { buildAuthHeaders } from "../authHeaders";
+import { getApiUrl, getApiToken } from "../config";
 import type {
   HubSkillSpec,
   InstallMarketplacePayload,
@@ -19,6 +18,30 @@ declare const BASE_URL: string;
 function getStreamApiUrl(): string {
   const base = typeof BASE_URL === "string" ? BASE_URL : "";
   return `${base}/api`;
+}
+
+function buildHeaders(): HeadersInit {
+  const headers: Record<string, string> = {};
+
+  const token = getApiToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const selectedAgent = parsed?.state?.selectedAgent;
+      if (selectedAgent) {
+        headers["X-Agent-Id"] = selectedAgent;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to get selected agent from storage:", error);
+  }
+
+  return headers;
 }
 
 export const skillApi = {
@@ -61,18 +84,10 @@ export const skillApi = {
 
   getSkillsMarkets: () => request<SkillsMarketsPayload>("/skills/markets"),
 
-  getSkillsMarketDefaults: () =>
-    request<SkillsMarketsPayload>("/skills/markets/defaults"),
-
   updateSkillsMarkets: (payload: SkillsMarketsPayload) =>
     request<SkillsMarketsPayload>("/skills/markets", {
       method: "PUT",
       body: JSON.stringify(payload),
-    }),
-
-  resetSkillsMarkets: () =>
-    request<SkillsMarketsPayload>("/skills/markets/reset", {
-      method: "POST",
     }),
 
   validateSkillsMarket: (payload: SkillsMarketSpec) =>
@@ -242,7 +257,7 @@ export const skillApi = {
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
 
-    const headers = buildAuthHeaders();
+    const headers = buildHeaders();
 
     const response = await fetch(url, {
       method: "POST",

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import json
-import shutil
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal
 
@@ -68,7 +67,6 @@ class DingTalkConfig(BaseChannelConfig):
 class FeishuConfig(BaseChannelConfig):
     """Feishu/Lark channel: app_id, app_secret; optional encrypt_key,
     verification_token for event handler. media_dir for received media.
-    domain: 'feishu' for China, 'lark' for international.
     """
 
     app_id: str = ""
@@ -76,7 +74,6 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
-    domain: Literal["feishu", "lark"] = "feishu"
 
 
 class QQConfig(BaseChannelConfig):
@@ -171,30 +168,6 @@ class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
     model_config = ConfigDict(extra="allow")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_legacy_null_media_dir(cls, data):
-        """Convert legacy/null media_dir values to field defaults.
-
-        Older config.json files may contain explicit null for media_dir.
-        Pydantic v2 does not coerce null into str fields, so we remove the key
-        to let model defaults apply.
-        """
-        if not isinstance(data, dict):
-            return data
-
-        payload = dict(data)
-        for channel_key in ("imessage", "dingtalk", "feishu", "mattermost"):
-            channel_cfg = payload.get(channel_key)
-            if channel_cfg is None:
-                payload.pop(channel_key, None)
-                continue
-            if isinstance(channel_cfg, dict) and channel_cfg.get("media_dir") is None:
-                normalized = dict(channel_cfg)
-                normalized.pop("media_dir", None)
-                payload[channel_key] = normalized
-        return payload
 
     imessage: IMessageChannelConfig = IMessageChannelConfig()
     discord: DiscordConfig = DiscordConfig()
@@ -363,65 +336,6 @@ class AgentsRunningConfig(BaseModel):
         description="Maximum length for /history command output",
     )
 
-    knowledge_enabled: bool = Field(
-        default=True,
-        description="Whether knowledge runtime is enabled for the active agent.",
-    )
-
-    knowledge_retrieval_enabled: bool = Field(
-        default=True,
-        description="Whether tools can retrieve from indexed knowledge.",
-    )
-
-    knowledge_retrieval_top_k: int = Field(
-        default=4,
-        ge=1,
-        le=20,
-        description="Number of knowledge hits injected into chat context.",
-    )
-
-    knowledge_retrieval_max_context_chars: int = Field(
-        default=1800,
-        ge=300,
-        le=8000,
-        description="Maximum characters for injected retrieval context.",
-    )
-
-    knowledge_retrieval_min_score: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=100.0,
-        description="Minimum lexical score threshold for injected hits.",
-    )
-
-    knowledge_auto_collect_chat_files: bool = Field(
-        default=False,
-        description="Auto-collect file attachments from chat into knowledge.",
-    )
-
-    knowledge_auto_collect_chat_urls: bool = Field(
-        default=True,
-        description="Auto-collect URLs from chat messages into knowledge.",
-    )
-
-    knowledge_auto_collect_long_text: bool = Field(
-        default=False,
-        description="Auto-collect long chat text into knowledge as text sources.",
-    )
-
-    knowledge_long_text_min_chars: int = Field(
-        default=2000,
-        ge=200,
-        description="Minimum chars for long-text auto-collection.",
-    )
-
-    knowledge_chunk_size: int = Field(
-        default=1200,
-        ge=200,
-        le=8000,
-        description="Default chunk size used by knowledge indexing.",
-    )
-
     embedding_config: EmbeddingConfig = Field(
         default_factory=EmbeddingConfig,
         description="Embedding model configuration",
@@ -540,18 +454,6 @@ class AgentProfileConfig(BaseModel):
 
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_legacy_null_defaults(cls, data):
-        """Convert legacy null defaults to model default_factory."""
-        if not isinstance(data, dict):
-            return data
-
-        payload = dict(data)
-        if payload.get("defaults") is None:
-            payload.pop("defaults", None)
-        return payload
 
     active_agent: str = Field(
         default="default",
@@ -676,7 +578,6 @@ class MCPClientConfig(BaseModel):
             normalized = raw_transport.strip().lower()
             transport_alias_map = {
                 "streamablehttp": "streamable_http",
-                "streamable-http": "streamable_http",
                 "http": "streamable_http",
                 "stdio": "stdio",
                 "sse": "sse",
@@ -743,25 +644,21 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="execute_shell_command",
             enabled=True,
             description="Execute shell commands",
-            display_to_user=True,
         ),
         "read_file": BuiltinToolConfig(
             name="read_file",
             enabled=True,
             description="Read file contents",
-            display_to_user=True,
         ),
         "write_file": BuiltinToolConfig(
             name="write_file",
             enabled=True,
             description="Write content to file",
-            display_to_user=True,
         ),
         "edit_file": BuiltinToolConfig(
             name="edit_file",
             enabled=True,
             description="Edit file using find-and-replace",
-            display_to_user=True,
         ),
         "grep_search": BuiltinToolConfig(
             name="grep_search",
@@ -777,13 +674,11 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="browser_use",
             enabled=True,
             description="Browser automation and web interaction",
-            display_to_user=True,
         ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
             enabled=True,
             description="Capture desktop screenshots",
-            display_to_user=True,
         ),
         "view_image": BuiltinToolConfig(
             name="view_image",
@@ -796,25 +691,21 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="send_file_to_user",
             enabled=True,
             description="Send files to user",
-            display_to_user=True,
         ),
         "get_current_time": BuiltinToolConfig(
             name="get_current_time",
             enabled=True,
             description="Get current date and time",
-            display_to_user=True,
         ),
         "set_user_timezone": BuiltinToolConfig(
             name="set_user_timezone",
             enabled=True,
             description="Set user timezone",
-            display_to_user=True,
         ),
         "get_token_usage": BuiltinToolConfig(
             name="get_token_usage",
             enabled=True,
             description="Get llm token usage",
-            display_to_user=True,
         ),
     }
 
@@ -863,13 +754,6 @@ class ToolGuardConfig(BaseModel):
     disabled_rules: List[str] = Field(default_factory=list)
 
 
-class FileGuardConfig(BaseModel):
-    """File guard settings under ``security.file_guard``."""
-
-    enabled: bool = True
-    sensitive_files: List[str] = Field(default_factory=list)
-
-
 class SkillScannerWhitelistEntry(BaseModel):
     """A whitelisted skill (identified by name + content hash)."""
 
@@ -914,316 +798,10 @@ class SecurityConfig(BaseModel):
     """Top-level ``security`` section in config.json."""
 
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
-    file_guard: FileGuardConfig = Field(default_factory=FileGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )
 
-class KnowledgeSourceSpec(BaseModel):
-    """A single knowledge source definition."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str = Field(
-        ...,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-        description="Stable source id",
-    )
-    name: str = Field(..., min_length=1, max_length=120, description="Display name")
-    type: Literal["file", "directory", "url", "text", "chat"] = Field(
-        default="file",
-        description="Source type",
-    )
-    location: str = Field(
-        default="",
-        description="Filesystem path or URL location",
-    )
-    content: str = Field(
-        default="",
-        description="Inline text content when type is text",
-    )
-    enabled: bool = Field(default=True)
-    recursive: bool = Field(default=False)
-    tags: List[str] = Field(default_factory=list)
-    summary: str = Field(default="")
-
-    @model_validator(mode="after")
-    def validate_source(self):
-        if self.type in {"file", "directory", "url"} and not self.location.strip():
-            raise ValueError(
-                f"location is required for knowledge source type '{self.type}'",
-            )
-        if self.type == "text" and not (
-            self.content.strip() or self.location.strip()
-        ):
-            raise ValueError(
-                "content or location is required for knowledge source type 'text'",
-            )
-        return self
-
-
-class KnowledgeIndexConfig(BaseModel):
-    """Knowledge indexing behavior."""
-
-    chunk_size: int = Field(default=1200, ge=200, le=8000)
-    chunk_overlap: int = Field(default=150, ge=0, le=2000)
-    include_globs: List[str] = Field(default_factory=list)
-    exclude_globs: List[str] = Field(default_factory=list)
-    max_file_size: int = Field(
-        default=5 * 1024 * 1024,
-        ge=1024,
-        description="Max single-file size (bytes) for indexing/downloading.",
-    )
-
-
-class KnowledgeAutomationConfig(BaseModel):
-    """Deprecated legacy automation section for compatibility."""
-
-    knowledge_auto_collect_chat_files: bool = Field(default=False)
-    knowledge_auto_collect_chat_urls: bool = Field(default=True)
-    knowledge_auto_collect_long_text: bool = Field(default=False)
-    knowledge_long_text_min_chars: int = Field(default=2000, ge=200)
-    url_exclude_private_addresses: bool = Field(default=True)
-    url_exclude_token_params: bool = Field(default=True)
-    url_exclude_patterns: List[str] = Field(default_factory=list)
-
-
-class KnowledgeConfig(BaseModel):
-    """Knowledge feature configuration."""
-
-    version: int = Field(default=1, ge=1)
-    enabled: bool = Field(default=False)
-    engine: Literal["local_lexical", "cognee"] = Field(
-        default="local_lexical",
-    )
-    sources: List[KnowledgeSourceSpec] = Field(default_factory=list)
-    index: KnowledgeIndexConfig = Field(default_factory=KnowledgeIndexConfig)
-    automation: KnowledgeAutomationConfig = Field(
-        default_factory=KnowledgeAutomationConfig,
-    )
-    graph_query_enabled: bool = Field(default=False)
-    allow_cypher_query: bool = Field(default=False)
-    memify_enabled: bool = Field(default=False)
-    triplet_search_enabled: bool = Field(default=False)
-
-
-class SkillMarketSpec(BaseModel):
-    """A single skills market entry."""
-
-    id: str = Field(..., description="Stable market id")
-    name: str = Field(..., description="Display name")
-    type: Literal["git"] = Field(default="git")
-    url: str = Field(..., description="Git repository URL")
-    branch: str = Field(default="", description="Optional branch")
-    path: str = Field(
-        default="index.json",
-        description="Path to market index file in repo",
-    )
-    enabled: bool = Field(default=True)
-    order: int = Field(default=999)
-    trust: Optional[Literal["official", "community", "custom"]] = None
-
-
-class SkillsMarketCacheConfig(BaseModel):
-    """Cache policy for market index aggregation."""
-
-    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
-
-
-class SkillsMarketInstallConfig(BaseModel):
-    """Default install behavior for marketplace installs."""
-
-    overwrite_default: bool = Field(default=False)
-
-
-def _load_skills_market_file_defaults() -> dict:
-    """Load bundled Skills Market defaults from JSON."""
-
-    default_payload = {
-        "version": 1,
-        "markets": [],
-        "cache": {"ttl_sec": 600},
-        "install": {
-            "overwrite_default": False,
-        },
-    }
-    default_dir = Path(__file__).resolve().parent.parent / "skills_market"
-    runtime_dir = WORKING_DIR / "skills_market"
-    config_path = runtime_dir / "config.json"
-    default_path = default_dir / "default.json"
-
-    # config.json is current state source of truth; initialize it from default.json.
-    if not config_path.exists() and default_path.exists():
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copyfile(default_path, config_path)
-        except OSError:
-            pass
-
-    raw_text = ""
-    for path in (config_path, default_path):
-        try:
-            raw_text = path.read_text(encoding="utf-8").strip()
-            if raw_text:
-                break
-        except OSError:
-            continue
-
-    if not raw_text:
-        return default_payload
-
-    try:
-        loaded = json.loads(raw_text)
-    except json.JSONDecodeError:
-        return default_payload
-
-    if not isinstance(loaded, dict):
-        return default_payload
-
-    payload = dict(default_payload)
-    payload["version"] = loaded.get("version", payload["version"])
-    payload["markets"] = loaded.get("markets", payload["markets"])
-
-    cache = loaded.get("cache")
-    if isinstance(cache, dict):
-        payload["cache"] = {**payload["cache"], **cache}
-
-    install = loaded.get("install")
-    if isinstance(install, dict):
-        payload["install"] = {**payload["install"], **install}
-
-    return payload
-
-
-class SkillsMarketConfig(BaseModel):
-    """Skills market root config."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _merge_bundled_defaults(cls, data):
-        if data is None:
-            return _load_skills_market_file_defaults()
-        if not isinstance(data, dict):
-            return data
-
-        payload = _load_skills_market_file_defaults()
-        merged = dict(payload)
-        for key, value in data.items():
-            if key in {"cache", "install"} and isinstance(value, dict):
-                merged[key] = {**payload.get(key, {}), **value}
-            else:
-                merged[key] = value
-        return merged
-
-    version: int = Field(default=1, ge=1)
-    markets: List[SkillMarketSpec] = Field(default_factory=list)
-    cache: SkillsMarketCacheConfig = Field(
-        default_factory=SkillsMarketCacheConfig,
-    )
-    install: SkillsMarketInstallConfig = Field(
-        default_factory=SkillsMarketInstallConfig,
-    )
-
-
-class AgentsSquareSourceSpec(BaseModel):
-    """A single Agents Square source entry."""
-
-    id: str = Field(..., description="Stable source id")
-    name: str = Field(..., description="Display name")
-    type: Literal["git"] = Field(default="git")
-    provider: Literal["agency_markdown_repo", "index_json_repo"] = Field(
-        default="agency_markdown_repo",
-    )
-    url: str = Field(..., description="Git repository URL")
-    branch: str = Field(default="", description="Optional branch")
-    path: str = Field(
-        default=".",
-        description="Path to source root in repository",
-    )
-    enabled: bool = Field(default=True)
-    order: int = Field(default=999)
-    trust: Optional[Literal["official", "community", "custom"]] = None
-    license_hint: str = Field(default="")
-    pinned: bool = Field(
-        default=False,
-        description="Pinned sources cannot be removed via API",
-    )
-
-
-class AgentsSquareCacheConfig(BaseModel):
-    """Cache policy for Agents Square item aggregation."""
-
-    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
-
-
-class AgentsSquareInstallConfig(BaseModel):
-    """Default install behavior for Agents Square imports."""
-
-    overwrite_default: bool = Field(default=False)
-    preserve_workspace_files: bool = Field(default=True)
-
-
-def _load_agents_square_file_defaults() -> dict:
-    """Load bundled Agents Square defaults from JSON."""
-
-    default_payload = {
-        "version": 1,
-        "sources": [],
-        "cache": {"ttl_sec": 600},
-        "install": {
-            "overwrite_default": False,
-            "preserve_workspace_files": True,
-        },
-    }
-    default_dir = Path(__file__).resolve().parent.parent / "agents_square"
-    runtime_dir = WORKING_DIR / "agents_square"
-    config_path = runtime_dir / "config.json"
-    default_path = default_dir / "default.json"
-
-    # config.json is current state source of truth; initialize it from default.json.
-    if not config_path.exists() and default_path.exists():
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copyfile(default_path, config_path)
-        except OSError:
-            pass
-
-    raw_text = ""
-    for path in (config_path, default_path):
-        try:
-            raw_text = path.read_text(encoding="utf-8").strip()
-            if raw_text:
-                break
-        except OSError:
-            continue
-
-    if not raw_text:
-        return default_payload
-
-    try:
-        loaded = json.loads(raw_text)
-    except json.JSONDecodeError:
-        return default_payload
-
-    if not isinstance(loaded, dict):
-        return default_payload
-
-    payload = dict(default_payload)
-    payload["version"] = loaded.get("version", payload["version"])
-    payload["sources"] = loaded.get("sources", payload["sources"])
-
-    cache = loaded.get("cache")
-    if isinstance(cache, dict):
-        payload["cache"] = {**payload["cache"], **cache}
-
-    install = loaded.get("install")
-    if isinstance(install, dict):
-        payload["install"] = {**payload["install"], **install}
-
-    return payload
-
 
 class SkillMarketSpec(BaseModel):
     """A single skills market entry."""
@@ -1264,168 +842,6 @@ class SkillsMarketConfig(BaseModel):
     )
     install: SkillsMarketInstallConfig = Field(
         default_factory=SkillsMarketInstallConfig,
-    )
-
-
-class KnowledgeSourceSpec(BaseModel):
-    """A single knowledge source definition."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str = Field(
-        ...,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-        description="Stable source id",
-    )
-    name: str = Field(..., min_length=1, max_length=120, description="Display name")
-    type: Literal["file", "directory", "url", "text", "chat"] = Field(
-        default="file",
-        description="Source type",
-    )
-    location: str = Field(
-        default="",
-        description="Filesystem path or URL location",
-    )
-    content: str = Field(
-        default="",
-        description="Inline text content when type is text",
-    )
-    enabled: bool = Field(default=True)
-    recursive: bool = Field(default=False)
-    tags: List[str] = Field(default_factory=list)
-    summary: str = Field(default="")
-
-    @model_validator(mode="after")
-    def validate_source(self):
-        if self.type in {"file", "directory", "url"} and not self.location.strip():
-            raise ValueError(
-                f"location is required for knowledge source type '{self.type}'",
-            )
-        if self.type == "text" and not (
-            self.content.strip() or self.location.strip()
-        ):
-            raise ValueError(
-                "content or location is required for knowledge source type 'text'",
-            )
-        return self
-
-
-class KnowledgeIndexConfig(BaseModel):
-    """Knowledge indexing behavior."""
-
-    chunk_size: int = Field(default=1200, ge=200, le=8000)
-    chunk_overlap: int = Field(default=150, ge=0, le=2000)
-    include_globs: List[str] = Field(default_factory=list)
-    exclude_globs: List[str] = Field(default_factory=list)
-    max_file_size: int = Field(
-        default=5 * 1024 * 1024,
-        ge=1024,
-        description="Max single-file size (bytes) for indexing/downloading.",
-    )
-
-
-class KnowledgeAutomationConfig(BaseModel):
-    """Deprecated legacy automation section for compatibility."""
-
-    knowledge_auto_collect_chat_files: bool = Field(default=False)
-    knowledge_auto_collect_chat_urls: bool = Field(default=True)
-    knowledge_auto_collect_long_text: bool = Field(default=False)
-    knowledge_long_text_min_chars: int = Field(default=2000, ge=200)
-    url_exclude_private_addresses: bool = Field(default=True)
-    url_exclude_token_params: bool = Field(default=True)
-    url_exclude_patterns: List[str] = Field(default_factory=list)
-
-
-class KnowledgeConfig(BaseModel):
-    """Knowledge feature configuration."""
-
-    version: int = Field(default=1, ge=1)
-    enabled: bool = Field(default=False)
-    engine: Literal["local_lexical", "cognee"] = Field(
-        default="local_lexical",
-    )
-    sources: List[KnowledgeSourceSpec] = Field(default_factory=list)
-    index: KnowledgeIndexConfig = Field(default_factory=KnowledgeIndexConfig)
-    automation: KnowledgeAutomationConfig = Field(
-        default_factory=KnowledgeAutomationConfig,
-    )
-    graph_query_enabled: bool = Field(default=False)
-    allow_cypher_query: bool = Field(default=False)
-    memify_enabled: bool = Field(default=False)
-    triplet_search_enabled: bool = Field(default=False)
-
-
-class SkillMarketSpec(BaseModel):
-    """A single skills market entry."""
-
-    id: str = Field(..., description="Stable market id")
-    name: str = Field(..., description="Display name")
-    type: Literal["git"] = Field(default="git")
-    url: str = Field(..., description="Git repository URL")
-    branch: str = Field(default="", description="Optional branch")
-    path: str = Field(
-        default="index.json",
-        description="Path to market index file in repo",
-    )
-    enabled: bool = Field(default=True)
-    order: int = Field(default=999)
-    trust: Optional[Literal["official", "community", "custom"]] = None
-
-
-class SkillsMarketCacheConfig(BaseModel):
-    """Cache policy for market index aggregation."""
-
-    ttl_sec: int = Field(default=600, ge=0, le=24 * 3600)
-
-
-class SkillsMarketInstallConfig(BaseModel):
-    """Default install behavior for marketplace installs."""
-
-    overwrite_default: bool = Field(default=False)
-
-
-class SkillsMarketConfig(BaseModel):
-    """Skills market root config."""
-
-    version: int = Field(default=1, ge=1)
-    markets: List[SkillMarketSpec] = Field(default_factory=list)
-    cache: SkillsMarketCacheConfig = Field(
-        default_factory=SkillsMarketCacheConfig,
-    )
-    install: SkillsMarketInstallConfig = Field(
-        default_factory=SkillsMarketInstallConfig,
-    )
-
-
-class AgentsSquareConfig(BaseModel):
-    """Agents Square root config."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _merge_bundled_defaults(cls, data):
-        if data is None:
-            return _load_agents_square_file_defaults()
-        if not isinstance(data, dict):
-            return data
-
-        payload = _load_agents_square_file_defaults()
-        merged = dict(payload)
-        for key, value in data.items():
-            if key in {"cache", "install"} and isinstance(value, dict):
-                merged[key] = {**payload.get(key, {}), **value}
-            else:
-                merged[key] = value
-        return merged
-
-    version: int = Field(default=1, ge=1)
-    sources: List[AgentsSquareSourceSpec] = Field(default_factory=list)
-    cache: AgentsSquareCacheConfig = Field(
-        default_factory=AgentsSquareCacheConfig,
-    )
-    install: AgentsSquareInstallConfig = Field(
-        default_factory=AgentsSquareInstallConfig,
     )
 
 
@@ -1437,12 +853,8 @@ class Config(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
-    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     skills_market: SkillsMarketConfig = Field(
         default_factory=SkillsMarketConfig,
-    )
-    agents_square: AgentsSquareConfig = Field(
-        default_factory=AgentsSquareConfig,
     )
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
@@ -1546,14 +958,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         return fallback_config
 
     with open(agent_config_path, "r", encoding="utf-8") as f:
-        raw_data = json.load(f)
-
-    if not isinstance(raw_data, dict):
-        raise ValueError(
-            f"Invalid agent config format for '{agent_id}': expected object",
-        )
-
-    data = raw_data
+        data = json.load(f)
 
     # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
     # This keeps COPAW_WORKING_DIR effective even if existing agent.json
@@ -1565,7 +970,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     except Exception:
         pass
 
-    return AgentProfileConfig.model_validate(data)
+    return AgentProfileConfig(**data)
 
 
 def save_agent_config(

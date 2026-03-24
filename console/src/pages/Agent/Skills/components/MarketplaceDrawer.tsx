@@ -22,7 +22,7 @@ export interface MarketplaceDrawerProps {
   onUpdateMarket: (idx: number, patch: Partial<SkillsMarketSpec>) => void;
   onValidateMarket: (idx: number, draft?: SkillsMarketSpec) => Promise<void>;
   onSaveMarkets: () => Promise<void>;
-  onResetMarketTemplates: () => void | Promise<void>;
+  onResetMarketTemplates: () => void;
   onCacheTtlChange: (val: number) => void;
   onOverwriteDefaultChange: (val: boolean) => void;
   // Marketplace items
@@ -110,8 +110,6 @@ export function MarketplaceDrawer({
   const [marketSearch, setMarketSearch] = useState("");
   const prevOpenRef = useRef(false);
   const stopBulkRef = useRef(false);
-  const shouldFocusUrlRef = useRef(false);
-  const marketUrlInputRef = useRef<HTMLInputElement | null>(null);
 
   const marketIdOptions = Array.from(
     new Set(marketplace.map((item) => item.market_id).filter(Boolean)),
@@ -171,14 +169,6 @@ export function MarketplaceDrawer({
       setSelectedMarketId("__all__");
     }
   }, [selectedMarketId, marketIdOptions]);
-
-  useEffect(() => {
-    if (!shouldFocusUrlRef.current) return;
-    if (editingMarketIdx === null) return;
-    if (!marketUrlInputRef.current) return;
-    marketUrlInputRef.current.focus();
-    shouldFocusUrlRef.current = false;
-  }, [editingMarketIdx, marketDrafts.length]);
 
   // Auto-refresh marketplace items when drawer first opens and list is empty
   useEffect(() => {
@@ -316,7 +306,6 @@ export function MarketplaceDrawer({
 
   const handleAddMarketRow = () => {
     const nextIndex = marketDrafts.length;
-    shouldFocusUrlRef.current = true;
     onAddMarket();
     setRowBackup(null);
     setEditingMarketIdx(nextIndex);
@@ -445,8 +434,8 @@ export function MarketplaceDrawer({
       title: t("skills.marketResetTemplate"),
       content: t("skills.marketResetTemplateConfirm"),
       okType: "danger",
-      onOk: async () => {
-        await onResetMarketTemplates();
+      onOk: () => {
+        onResetMarketTemplates();
       },
     });
   };
@@ -532,7 +521,6 @@ export function MarketplaceDrawer({
                   />
                   <input
                     className={styles.marketInputWide}
-                    ref={marketUrlInputRef}
                     value={market.url}
                     onChange={(e) =>
                       onUpdateMarket(idx, { url: e.target.value })
@@ -542,9 +530,6 @@ export function MarketplaceDrawer({
                     }}
                     placeholder={t("skills.marketUrlPlaceholder")}
                   />
-                  <div className={styles.marketUrlHint}>
-                    {t("skills.marketUrlExample")}
-                  </div>
                   {isGithubTreeUrl(market.url) ? (
                     <div className={styles.marketUrlHint}>
                       {t("skills.marketUrlNormalizeHint")}

@@ -1,40 +1,4 @@
-
-# 🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）
-
-> **⚡ 本库声明 | Repository Statement:**
->
-> - 本仓库专注于数字出版领域智能代理与工具开发，基于 AgentScope 框架，兼容上游 agentscope-ai/CoPaw。
->   This repository focuses on intelligent agents and tools for digital publishing, based on AgentScope framework, compatible with upstream agentscope-ai/CoPaw.
-> - 行业相关需求、创新、定制化优先本地处理，框架基础特性和 bug 优先本地修复，积累后再同步到上游。
->   Industry-specific needs, innovation, and customization are handled locally first; framework features and bugs are fixed locally and then synchronized upstream.
-> - 开发协作请务必查阅 [开发模式说明](docs/devops/DEVELOPMENT_MODE.md)。
->   For development and collaboration, please refer to [Development Mode](docs/devops/DEVELOPMENT_MODE.md).
-
-> [!IMPORTANT]
-> **本库构建/分发/下载（Local Edition Build & Distribution）**
->
-> - 本库本地构建与分发入口：`scripts/pack/README.md`（含 macOS `.zip` / Windows `.exe` 产物说明）。
->   Local build/distribution entry: `scripts/pack/README.md` (including macOS `.zip` and Windows `.exe` artifacts).
-> - 本库下载地址（Local Edition Releases）：https://github.com/futuremeng/CoPaw/releases
->   Upstream 下载地址（for comparison only）：https://github.com/agentscope-ai/CoPaw/releases
-> - 本库与 upstream **不要在同一 Python 环境中同时安装**（包名同为 `copaw`），后安装会覆盖先安装。
->   Do **not** install this local edition and upstream in the same Python environment (`copaw` package name is identical); the later install overrides the former.
-> - 桌面端也不要混装：若都命名为 `CoPaw.app` 或同一安装目录，后安装版本会覆盖前安装版本。
->   Do not co-install desktop builds in the same app/install path either; later installs can overwrite earlier ones.
-> - 建议隔离方式：独立虚拟环境（如 `.venv-local` / `.venv-upstream`）或独立容器。
->   Recommended isolation: separate virtual environments (for example, `.venv-local` / `.venv-upstream`) or separate containers.
->
-> **本库版本专有主要特性（Local-only Highlights）**
->
-- Skills Marketplace（Git-backed market aggregation + Console market management + i18n + 覆盖前确认）。
-- Console 知识库入口优化（知识菜单直达与配置路径更清晰）。
-> - 数字出版开发模式与双轨协作文档（本地优先、按需回流 upstream）。
-> - 发布流程增强：`RELEASE.md` / `RELEASE_zh.md`、Release Checklist Issue 模板、PR 发布检查区块。
-> - 本地桌面打包修复：macOS 下 `.venv` Python 优先与 `conda-unpack` 兼容处理。
-
-
 <div align="center">
-
 
 # CoPaw
 
@@ -115,36 +79,18 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 > - **I want to chat in DingTalk / Feishu / QQ**: Configure [channels](https://copaw.agentscope.io/docs/channels) in the Console.
 > - **I don’t want to install Python**: [Script install](#script-install) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud deployment.
 
-- [🚀 CoPaw（数字出版方向本地特色库 | Digital Publishing Local Edition）](#-copaw数字出版方向本地特色库--digital-publishing-local-edition)
-- [CoPaw](#copaw)
-  - [News](#news)
-  - [Table of Contents](#table-of-contents)
-  - [Quick Start](#quick-start)
-    - [pip install](#pip-install)
-    - [Desktop Application (Beta)](#desktop-application-beta)
-      - [Download](#download)
-      - [Features](#features)
-      - [First Launch](#first-launch)
-      - [macOS: Bypass System Security Restrictions](#macos-bypass-system-security-restrictions)
-    - [Using Docker](#using-docker)
-    - [Using ModelScope](#using-modelscope)
-    - [Deploy on Alibaba Cloud ECS](#deploy-on-alibaba-cloud-ecs)
-  - [API Key](#api-key)
-    - [Pass CoPaw model config to Cognee (Ollama / LM Studio / Custom)](#pass-copaw-model-config-to-cognee-ollama--lm-studio--custom)
-  - [Local Models](#local-models)
-  - [Skills Marketplace Example](#skills-marketplace-example)
-  - [Documentation](#documentation)
-  - [FAQ](#faq)
-  - [Roadmap](#roadmap)
-    - [Fork User Roadmap (Condensed)](#fork-user-roadmap-condensed)
-    - [Get involved](#get-involved)
-  - [Install from source](#install-from-source)
-  - [Why CoPaw?](#why-copaw)
-  - [Built by](#built-by)
-  - [Contact us](#contact-us)
-  - [Telemetry](#telemetry)
-  - [License](#license)
-  - [Contributors](#contributors)
+- [News](#news)
+- [Quick Start](#quick-start)
+- [API Key](#api-key)
+- [Local Models](#local-models)
+- [Documentation](#documentation)
+- [FAQ](#faq)
+- [Roadmap](#roadmap)
+- [Contributing](#get-involved)
+- [Install from source](#install-from-source)
+- [Why CoPaw?](#why-copaw)
+- [Built by](#built-by)
+- [License](#license)
 
 ---
 
@@ -158,10 +104,7 @@ If you prefer managing Python yourself:
 pip install copaw
 copaw init --defaults
 copaw app
-# 🌐 多语言入口
-
-| [English](README.md) | [中文](README_zh.md) | [日本語](README_ja.md) |
-
+```
 
 Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
 
@@ -170,6 +113,7 @@ Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with 
 ### Script install
 
 No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
+
 **macOS / Linux:**
 
 ```bash
@@ -391,56 +335,6 @@ Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in 
 
 > **Using local models only?** If you use [Local Models](#local-models) (llama.cpp or MLX), you do **not** need any API key.
 
-### Pass CoPaw model config to Cognee (Ollama / LM Studio / Custom)
-
-When Cognee is enabled in the knowledge layer, CoPaw can now sync the current active provider/model into Cognee LLM environment variables (`LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_API_BASE`).
-
-Recommended minimal setup in `config.json`:
-
-```json
-{
-  "knowledge": {
-    "enabled": true,
-    "engine": {
-      "provider": "cognee",
-      "fallback_to_default": true
-    },
-    "cognee": {
-      "enabled": true,
-      "sync_with_copaw_provider": true,
-      "custom_model_prefix": "openai"
-    }
-  }
-}
-```
-
-Behavior:
-
-- Ollama: model is auto-mapped to `ollama/<model>` (for example `ollama/qwen3:8b`).
-- LM Studio: model is auto-mapped to `lm_studio/<model>`.
-- Other custom OpenAI-compatible providers: use `custom_model_prefix` (for example `openai`, `hosted_vllm`, `openrouter`).
-
-If you want to isolate Cognee from your chat primary model (avoid call contention):
-
-1. Set `sync_with_copaw_provider` to `false`.
-2. Configure a dedicated Cognee model explicitly:
-
-```json
-{
-  "knowledge": {
-    "cognee": {
-      "enabled": true,
-      "sync_with_copaw_provider": false,
-      "llm_model": "ollama/qwen3:8b",
-      "llm_api_key": "local",
-      "llm_base_url": "http://127.0.0.1:11434/v1"
-    }
-  }
-}
-```
-
-> Note: Cognee uses LiteLLM routing, and many providers require `provider/model` format (for example `gemini/gemini-2.0-flash`, `openrouter/...`).
-
 ## Local Models
 
 CoPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://copaw.agentscope.io/docs/models#local-providers-llamacpp--mlx) for details.
@@ -472,7 +366,7 @@ Example source for the `editor-skills` repository:
   "skills_market": {
     "markets": [
       {
-        "id": "futuremeng/editor-skills",
+        "id": "editor_skills",
         "name": "Editor Skills",
         "type": "git",
         "url": "https://github.com/futuremeng/editor-skills",
@@ -548,29 +442,9 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 *Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planned* — longer-horizon roadmap.
 
-### Fork User Roadmap (Condensed)
-
-> The following tracks fork-side user-facing capabilities and does not replace the upstream roadmap above.
-
-| Area | What to expect | Status |
-| --- | --- | --- |
-| **Skills Marketplace** | Git-backed aggregation, Console market management, overwrite confirmation | Completed |
-|  | Sub-item: integrated [futuremeng/editor-skills](https://github.com/futuremeng/editor-skills) | Completed |
-| **Knowledge Base** | Continuous availability and iterative improvements for knowledge accumulation | In Progress |
-| **Knowledge Base Enhancement** | cognee-based knowledge enhancement | Planned |
-| **Self-hosted Multi-agent Collaboration** | LangGraph + Plane + CoPaw: self-hosted multi-agent human-in-the-loop task system | Planned |
-|  | Phase 1: Plane integration skill (Issue/Comment CRUD and status transitions) | Planned |
-|  | Phase 2: LangGraph orchestration (task decomposition, execution, human interrupt) | Planned |
-|  | Phase 3: Webhook loop closure (Plane comments trigger agent resume) | Planned |
-| **MCP Extensions** | Built-in `jiulu_mcp` and `mineru_mcp` | Planned |
-
-For overlap with upstream items (for example, multimodal memory fusion), we evaluate migration first when upstream capabilities are production-ready; if capability fit or migration cost is not acceptable, we keep fork implementations to preserve usability.
-
-Detailed fork roadmap: [docs/devops/FORK_ROADMAP.md](docs/devops/FORK_ROADMAP.md).
-
 ### Get involved
 
-We are building CoPaw in the open and welcome contributions of all kinds! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started, and follow [RELEASE.md](RELEASE.md) when preparing an official release. We particularly welcome:
+We are building CoPaw in the open and welcome contributions of all kinds! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
 
 - **Horizontal expansion** — new channels, model providers, skills, MCPs.
 - **Existing feature extension** — display and UX improvements, download hints, Windows path compatibility, and the like.

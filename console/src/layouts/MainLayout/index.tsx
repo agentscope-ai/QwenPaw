@@ -1,5 +1,5 @@
 import { Layout } from "antd";
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate } from "react-router-dom";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsoleCronBubble from "../../components/ConsoleCronBubble";
@@ -10,11 +10,11 @@ import SessionsPage from "../../pages/Control/Sessions";
 import CronJobsPage from "../../pages/Control/CronJobs";
 import HeartbeatPage from "../../pages/Control/Heartbeat";
 import AgentConfigPage from "../../pages/Agent/Config";
-import KnowledgePage from "../../pages/Agent/Knowledge";
 import SkillsPage from "../../pages/Agent/Skills";
 import ToolsPage from "../../pages/Agent/Tools";
 import WorkspacePage from "../../pages/Agent/Workspace";
 import ProjectsPage from "../../pages/Agent/Projects";
+import PipelinesPage from "../../pages/Agent/Pipelines";
 import MCPPage from "../../pages/Agent/MCP";
 import ModelsPage from "../../pages/Settings/Models";
 import EnvironmentsPage from "../../pages/Settings/Environments";
@@ -31,12 +31,12 @@ const pathToKey: Record<string, string> = {
   "/sessions": "sessions",
   "/cron-jobs": "cron-jobs",
   "/heartbeat": "heartbeat",
-  "/knowledge": "knowledge",
   "/skills": "skills",
   "/tools": "tools",
   "/mcp": "mcp",
   "/workspace": "workspace",
   "/projects": "projects",
+  "/pipelines": "pipelines",
   "/agents": "agents",
   "/models": "models",
   "/environments": "environments",
@@ -50,7 +50,6 @@ export default function MainLayout() {
   const location = useLocation();
   const currentPath = location.pathname;
   const selectedKey = pathToKey[currentPath] || "chat";
-  const isChatPage = currentPath === "/" || currentPath.startsWith("/chat");
 
   return (
     <Layout className={styles.mainLayout}>
@@ -60,38 +59,30 @@ export default function MainLayout() {
         <Content className="page-container">
           <ConsoleCronBubble />
           <div className="page-content">
-            <div
-              style={{
-                display: isChatPage ? undefined : "none",
-                height: "100%",
-              }}
-            >
-              <Chat />
-            </div>
-            {!isChatPage && (
-              <Routes>
-                <Route path="/channels" element={<ChannelsPage />} />
-                <Route path="/sessions" element={<SessionsPage />} />
-                <Route path="/cron-jobs" element={<CronJobsPage />} />
-                <Route path="/heartbeat" element={<HeartbeatPage />} />
-                <Route path="/knowledge" element={<KnowledgePage />} />
-                <Route path="/skills" element={<SkillsPage />} />
-                <Route path="/tools" element={<ToolsPage />} />
-                <Route path="/mcp" element={<MCPPage />} />
-                <Route path="/workspace" element={<WorkspacePage />} />
-                <Route path="/projects" element={<ProjectsPage />} />
-                <Route path="/agents" element={<AgentsPage />} />
-                <Route path="/models" element={<ModelsPage />} />
-                <Route path="/environments" element={<EnvironmentsPage />} />
-                <Route path="/agent-config" element={<AgentConfigPage />} />
-                <Route path="/security" element={<SecurityPage />} />
-                <Route path="/token-usage" element={<TokenUsagePage />} />
-                <Route
-                  path="/voice-transcription"
-                  element={<VoiceTranscriptionPage />}
-                />
-              </Routes>
-            )}
+            <Routes>
+              <Route path="/" element={<Navigate to="/chat" replace />} />
+              <Route path="/chat/*" element={<Chat />} />
+              <Route path="/channels" element={<ChannelsPage />} />
+              <Route path="/sessions" element={<SessionsPage />} />
+              <Route path="/cron-jobs" element={<CronJobsPage />} />
+              <Route path="/heartbeat" element={<HeartbeatPage />} />
+              <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/tools" element={<ToolsPage />} />
+              <Route path="/mcp" element={<MCPPage />} />
+              <Route path="/workspace" element={<WorkspacePage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/pipelines" element={<PipelinesPage />} />
+              <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/models" element={<ModelsPage />} />
+              <Route path="/environments" element={<EnvironmentsPage />} />
+              <Route path="/agent-config" element={<AgentConfigPage />} />
+              <Route path="/security" element={<SecurityPage />} />
+              <Route path="/token-usage" element={<TokenUsagePage />} />
+              <Route
+                path="/voice-transcription"
+                element={<VoiceTranscriptionPage />}
+              />
+            </Routes>
           </div>
         </Content>
       </Layout>

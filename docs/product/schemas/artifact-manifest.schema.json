@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://copaw.dev/schemas/artifact-manifest.schema.json",
+  "title": "CoPaw ArtifactManifest",
+  "type": "object",
+  "required": [
+    "artifact_id",
+    "run_id",
+    "step_id",
+    "generated_at",
+    "outputs"
+  ],
+  "properties": {
+    "artifact_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "step_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "producer": { "type": "string" },
+    "inputs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "role", "format"],
+        "properties": {
+          "path": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": ["primary", "secondary", "log", "evidence", "preview"]
+          },
+          "format": {
+            "type": "string",
+            "enum": ["json", "md", "csv", "html", "txt", "bin"]
+          },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string" },
+          "human_readable": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "source"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["input-snippet", "rule-hit", "llm-output", "human-decision"]
+          },
+          "source": { "type": "string" },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

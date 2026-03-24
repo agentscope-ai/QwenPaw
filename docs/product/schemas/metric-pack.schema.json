@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://copaw.dev/schemas/metric-pack.schema.json",
+  "title": "CoPaw MetricPack",
+  "type": "object",
+  "required": [
+    "run_id",
+    "step_id",
+    "generated_at",
+    "metrics"
+  ],
+  "properties": {
+    "run_id": { "type": "string" },
+    "step_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "value", "unit"],
+        "properties": {
+          "key": { "type": "string" },
+          "value": { "type": "number" },
+          "unit": { "type": "string" },
+          "description": { "type": "string" },
+          "baseline": { "type": "number" },
+          "delta": { "type": "number" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "quality_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["metric_key", "comparator", "threshold", "passed", "severity"],
+        "properties": {
+          "metric_key": { "type": "string" },
+          "comparator": {
+            "type": "string",
+            "enum": [">=", "<=", "in_range"]
+          },
+          "threshold": {},
+          "passed": { "type": "boolean" },
+          "severity": {
+            "type": "string",
+            "enum": ["warn", "block"]
+          },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}
