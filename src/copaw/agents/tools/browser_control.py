@@ -676,13 +676,12 @@ async def _action_start(
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
                     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+                    extra_args = _chromium_launch_args()
                     context = await pw.chromium.launch_persistent_context(
                         user_data_dir=user_data_dir,
                         headless=state["headless"],
                         executable_path=exe if exe else None,
-                        args=_chromium_launch_args()
-                        if _chromium_launch_args()
-                        else [],
+                        args=extra_args if extra_args else [],
                     )
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
@@ -793,7 +792,10 @@ async def _action_stop(state: dict) -> ToolResponse:
                 except Exception:
                     pass
             if state["playwright"] is not None:
-                await state["playwright"].stop()
+                try:
+                    await state["playwright"].stop()
+                except Exception:
+                    pass
         except Exception as e:
             return _tool_response(
                 json.dumps(
