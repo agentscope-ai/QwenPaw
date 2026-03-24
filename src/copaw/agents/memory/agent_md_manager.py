@@ -86,7 +86,7 @@ class AgentMdManager:
                         {
                             "filename": f.name,
                             "rel_path": f.relative_to(
-                                self.working_dir
+                                self.working_dir,
                             ).as_posix(),
                             "size": stat.st_size,
                             "path": str(f),
