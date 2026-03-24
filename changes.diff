@@ -1,0 +1,598 @@
+diff --git a/.gitignore b/.gitignore
+index c7c3e5f..00900ac 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -19,6 +19,8 @@ dist/
+ # Console frontend build (generated in Docker/CI, do not commit)
+ src/copaw/console/dist/
+ src/copaw/console/
++src/copaw/app/static/
++src/copaw/web/
+ 
+ # frontend (website)
+ website/node_modules/
+diff --git a/console/src/api/types/skill.ts b/console/src/api/types/skill.ts
+index af20574..a2ba724 100644
+--- a/console/src/api/types/skill.ts
++++ b/console/src/api/types/skill.ts
+@@ -5,6 +5,7 @@ export interface SkillSpec {
+   source: string;
+   path: string;
+   enabled?: boolean;
++  builtin?: boolean;
+ }
+ 
+ export interface HubSkillSpec {
+diff --git a/console/src/layouts/MainLayout/index.tsx b/console/src/layouts/MainLayout/index.tsx
+index 01e8188..00bdef1 100644
+--- a/console/src/layouts/MainLayout/index.tsx
++++ b/console/src/layouts/MainLayout/index.tsx
+@@ -20,6 +20,7 @@ import SecurityPage from "../../pages/Settings/Security";
+ import TokenUsagePage from "../../pages/Settings/TokenUsage";
+ import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
+ import AgentsPage from "../../pages/Settings/Agents";
++import DefaultSkillsPage from "../../pages/Settings/DefaultSkills";
+ 
+ const { Content } = Layout;
+ 
+@@ -40,6 +41,7 @@ const pathToKey: Record<string, string> = {
+   "/security": "security",
+   "/token-usage": "token-usage",
+   "/voice-transcription": "voice-transcription",
++  "/default-skills": "default-skills",
+ };
+ 
+ export default function MainLayout() {
+@@ -76,6 +78,10 @@ export default function MainLayout() {
+                 path="/voice-transcription"
+                 element={<VoiceTranscriptionPage />}
+               />
++              <Route
++                path="/default-skills"
++                element={<DefaultSkillsPage />}
++              />
+             </Routes>
+           </div>
+         </Content>
+diff --git a/console/src/layouts/Sidebar.tsx b/console/src/layouts/Sidebar.tsx
+index 004bc8a..1a9cfea 100644
+--- a/console/src/layouts/Sidebar.tsx
++++ b/console/src/layouts/Sidebar.tsx
+@@ -43,6 +43,7 @@ import {
+   Bot,
+   LogOut,
+   UserCog,
++  Package,
+ } from "lucide-react";
+ import api from "../api";
+ import { clearAuthToken } from "../api/config";
+@@ -356,6 +357,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
+           label: t("nav.tokenUsage"),
+           icon: <BarChart3 size={16} />,
+         },
++        {
++          key: "default-skills",
++          label: t("nav.defaultSkills"),
++          icon: <Package size={16} />,
++        },
+         {
+           key: "voice-transcription",
+           label: t("nav.voiceTranscription"),
+diff --git a/console/src/layouts/constants.ts b/console/src/layouts/constants.ts
+index c08d246..db5502b 100644
+--- a/console/src/layouts/constants.ts
++++ b/console/src/layouts/constants.ts
+@@ -34,6 +34,7 @@ export const KEY_TO_PATH: Record<string, string> = {
+   security: "/security",
+   "token-usage": "/token-usage",
+   "voice-transcription": "/voice-transcription",
++  "default-skills": "/default-skills",
+ };
+ 
+ export const KEY_TO_LABEL: Record<string, string> = {
+diff --git a/console/src/locales/en.json b/console/src/locales/en.json
+index 27843bc..f4880a9 100644
+--- a/console/src/locales/en.json
++++ b/console/src/locales/en.json
+@@ -45,6 +45,7 @@
+     "environments": "Environments",
+     "security": "Security",
+     "tokenUsage": "Token Usage",
++    "defaultSkills": "Built-in Skills",
+     "voiceTranscription": "Voice Transcription"
+   },
+   "voiceTranscription": {
+@@ -892,5 +893,38 @@
+     "nothingToUpdate": "Please enter a new username or password",
+     "passwordEmpty": "Password cannot be blank",
+     "usernameEmpty": "Username cannot be blank"
++  },
++  "defaultSkills": {
++    "title": "Built-in Skills",
++    "description": "Manage CoPaw's built-in and inactive skills",
++    "searchPlaceholder": "Search skills...",
++    "upload": "Upload Skill",
++    "importFromHub": "Import Skill",
++    "create": "Create Skill",
++    "statusEnabled": "Enabled for current Agent",
++    "statusDisabled": "Disabled for current Agent",
++    "builtin": "Built-in",
++    "inactive": "Inactive",
++    "enableInAgent": "Enable for current Agent",
++    "moveToInactive": "Move to Inactive",
++    "moveToBuiltin": "Move to Built-in",
++    "loadFailed": "Failed to load built-in skills",
++    "enabledSuccess": "Skill enabled",
++    "disabledSuccess": "Skill disabled",
++    "toggleFailed": "Action failed",
++    "movedToInactive": "Moved to inactive",
++    "movedToBuiltin": "Moved to built-in",
++    "moveFailed": "Move failed",
++    "deleteConfirmTitle": "Confirm Delete",
++    "deleteConfirmContent": "Are you sure you want to delete this skill? This action cannot be undone.",
++    "deletedSuccess": "Skill deleted",
++    "deleteFailed": "Delete failed",
++    "uploadSuccess": "Successfully imported {{count}} skill(s)",
++    "uploadFailed": "Upload failed",
++    "noSkillsImported": "No skills were imported",
++    "createComingSoon": "Create feature coming soon",
++    "importComingSoon": "Import from Hub coming soon",
++    "noResults": "No matching skills found",
++    "noSkills": "No skills yet"
+   }
+ }
+diff --git a/console/src/locales/zh.json b/console/src/locales/zh.json
+index 5acbe09..a8a1aa6 100644
+--- a/console/src/locales/zh.json
++++ b/console/src/locales/zh.json
+@@ -45,6 +45,7 @@
+     "environments": "环境变量",
+     "security": "安全",
+     "tokenUsage": "Token 消耗",
++    "defaultSkills": "内置技能",
+     "voiceTranscription": "语音转写"
+   },
+   "workspace": {
+@@ -859,6 +860,39 @@
+     "passwordEmpty": "密码不能为空白",
+     "usernameEmpty": "用户名不能为空白"
+   },
++  "defaultSkills": {
++    "title": "内置技能",
++    "description": "管理 CoPaw 的内置和非内置技能",
++    "searchPlaceholder": "搜索技能...",
++    "upload": "上传技能",
++    "importFromHub": "导入技能",
++    "create": "创建技能",
++    "statusEnabled": "当前 Agent 已启用",
++    "statusDisabled": "当前 Agent 未启用",
++    "builtin": "内置技能",
++    "inactive": "非内置",
++    "enableInAgent": "在当前 Agent 启用",
++    "moveToInactive": "移动到非内置",
++    "moveToBuiltin": "移动到内置",
++    "loadFailed": "加载内置技能失败",
++    "enabledSuccess": "已启用技能",
++    "disabledSuccess": "已禁用技能",
++    "toggleFailed": "操作失败",
++    "movedToInactive": "已移动到非内置",
++    "movedToBuiltin": "已移动到内置",
++    "moveFailed": "移动失败",
++    "deleteConfirmTitle": "确认删除",
++    "deleteConfirmContent": "确定要删除这个技能吗？此操作不可撤销。",
++    "deletedSuccess": "已删除技能",
++    "deleteFailed": "删除失败",
++    "uploadSuccess": "成功导入 {{count}} 个技能",
++    "uploadFailed": "上传失败",
++    "noSkillsImported": "没有导入任何技能",
++    "createComingSoon": "创建功能即将上线",
++    "importComingSoon": "从 Hub 导入功能即将上线",
++    "noResults": "没有找到匹配的技能",
++    "noSkills": "暂无技能"
++  },
+   "voiceTranscription": {
+     "title": "语音转写",
+     "description": "配置如何处理收到的音频和语音消息。",
+diff --git a/src/copaw/agents/skills_hub.py b/src/copaw/agents/skills_hub.py
+index 72c96af..b20d307 100644
+--- a/src/copaw/agents/skills_hub.py
++++ b/src/copaw/agents/skills_hub.py
+@@ -1616,3 +1616,47 @@ def install_skill_from_hub(
+             enabled=enabled,
+             source_url=source_url,
+         )
++
++
++def install_skill_from_hub_to_builtin(
++    *,
++    bundle_url: str,
++    version: str = "",
++    overwrite: bool = False,
++    cancel_checker: Any | None = None,
++) -> HubInstallResult:
++    if not bundle_url or not _is_http_url(bundle_url):
++        raise ValueError("bundle_url must be a valid http(s) URL")
++    with _with_cancel_checker(cancel_checker):
++        _ensure_not_cancelled()
++        data, source_url = _resolve_bundle_from_url(bundle_url, version)
++
++        name, content, references, scripts, extra_files = _normalize_bundle(
++            data,
++        )
++        if not name:
++            fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
++            name = _safe_fallback_name(fallback)
++        name = _sanitize_skill_dir_name(name)
++
++        _ensure_not_cancelled()
++        from .skills_manager import SkillService
++
++        skill_service = SkillService(Path("."))
++        created = skill_service.create_default_skill(
++            name=name,
++            content=content,
++            references=references,
++            scripts=scripts,
++        )
++        if not created:
++            raise RuntimeError(
++                f"Failed to create skill '{name}'. "
++                "This skill already exists.",
++            )
++
++        return HubInstallResult(
++            name=name,
++            enabled=False,
++            source_url=source_url,
++        )
+diff --git a/src/copaw/agents/skills_manager.py b/src/copaw/agents/skills_manager.py
+index 277a037..d89e8dd 100644
+--- a/src/copaw/agents/skills_manager.py
++++ b/src/copaw/agents/skills_manager.py
+@@ -65,6 +65,11 @@ def get_builtin_skills_dir() -> Path:
+     return Path(__file__).parent / "skills"
+ 
+ 
++def get_inactive_skills_dir() -> Path:
++    """Get the path to inactive skills directory in the code."""
++    return Path(__file__).parent / "InactiveSkill"
++
++
+ def get_customized_skills_dir(workspace_dir: Path) -> Path:
+     """Get the path to customized skills directory in workspace_dir."""
+     return workspace_dir / "customized_skills"
+@@ -1084,6 +1089,271 @@ class SkillService:
+             if tmp_dir and tmp_dir.is_dir():
+                 shutil.rmtree(tmp_dir, ignore_errors=True)
+ 
++    def list_all_default_skills(self) -> list[SkillInfo]:
++        """
++        List all skills from builtin and inactive directories.
++
++        Returns:
++            List of SkillInfo with name, content, source, and path.
++        """
++        skills: list[SkillInfo] = []
++        skills.extend(
++            _read_skills_from_dir(get_builtin_skills_dir(), "builtin"),
++        )
++        skills.extend(
++            _read_skills_from_dir(get_inactive_skills_dir(), "inactive"),
++        )
++        return _dedupe_skills_by_name(skills)
++
++    def create_default_skill(
++        self,
++        name: str,
++        content: str,
++        references: dict[str, Any] | None = None,
++        scripts: dict[str, Any] | None = None,
++    ) -> bool:
++        """
++        Create a new skill in builtin directory.
++
++        Args:
++            name: Skill name (will be the directory name).
++            content: Content of SKILL.md file.
++            references: Optional tree structure for references/ subdirectory.
++            scripts: Optional tree structure for scripts/ subdirectory.
++
++        Returns:
++            True if skill was created successfully, False otherwise.
++        """
++        try:
++            post = frontmatter.loads(content)
++            skill_name = post.get("name", None)
++            skill_description = post.get("description", None)
++
++            if not skill_name or not skill_description:
++                logger.error(
++                    "SKILL.md content must have YAML Front Matter "
++                    "with 'name' and 'description' fields.",
++                )
++                return False
++        except Exception as e:
++            logger.error(
++                "Failed to parse SKILL.md YAML Front Matter: %s",
++                e,
++            )
++            return False
++
++        builtin_dir = get_builtin_skills_dir()
++        builtin_dir.mkdir(parents=True, exist_ok=True)
++
++        skill_dir = builtin_dir / name
++        skill_md = skill_dir / "SKILL.md"
++
++        if skill_dir.exists():
++            logger.debug(
++                "Skill '%s' already exists in builtin directory.",
++                name,
++            )
++            return False
++
++        try:
++            skill_dir.mkdir(parents=True, exist_ok=True)
++            skill_md.write_text(content, encoding="utf-8")
++
++            if references:
++                references_dir = skill_dir / "references"
++                references_dir.mkdir(parents=True, exist_ok=True)
++                _create_files_from_tree(references_dir, references)
++
++            if scripts:
++                scripts_dir = skill_dir / "scripts"
++                scripts_dir.mkdir(parents=True, exist_ok=True)
++                _create_files_from_tree(scripts_dir, scripts)
++
++            logger.debug("Created skill '%s' in builtin directory.", name)
++            return True
++        except Exception as e:
++            logger.error(
++                "Failed to create skill '%s': %s",
++                name,
++                e,
++            )
++            return False
++
++    def move_to_inactive(self, name: str) -> bool:
++        """
++        Move a skill from builtin to inactive directory.
++
++        Args:
++            name: Skill name to move.
++
++        Returns:
++            True if skill was moved successfully, False otherwise.
++        """
++        builtin_dir = get_builtin_skills_dir() / name
++        inactive_dir = get_inactive_skills_dir() / name
++
++        if not builtin_dir.exists():
++            logger.debug(
++                "Skill '%s' not found in builtin directory.",
++                name,
++            )
++            return False
++
++        if inactive_dir.exists():
++            logger.debug(
++                "Skill '%s' already exists in inactive directory.",
++                name,
++            )
++            return False
++
++        try:
++            shutil.move(str(builtin_dir), str(inactive_dir))
++            logger.debug(
++                "Moved skill '%s' from builtin to inactive directory.",
++                name,
++            )
++            return True
++        except Exception as e:
++            logger.error(
++                "Failed to move skill '%s' to inactive: %s",
++                name,
++                e,
++            )
++            return False
++
++    def move_to_builtin(self, name: str) -> bool:
++        """
++        Move a skill from inactive to builtin directory.
++
++        Args:
++            name: Skill name to move.
++
++        Returns:
++            True if skill was moved successfully, False otherwise.
++        """
++        inactive_dir = get_inactive_skills_dir() / name
++        builtin_dir = get_builtin_skills_dir() / name
++
++        if not inactive_dir.exists():
++            logger.debug(
++                "Skill '%s' not found in inactive directory.",
++                name,
++            )
++            return False
++
++        if builtin_dir.exists():
++            logger.debug(
++                "Skill '%s' already exists in builtin directory.",
++                name,
++            )
++            return False
++
++        try:
++            shutil.move(str(inactive_dir), str(builtin_dir))
++            logger.debug(
++                "Moved skill '%s' from inactive to builtin directory.",
++                name,
++            )
++            return True
++        except Exception as e:
++            logger.error(
++                "Failed to move skill '%s' to builtin: %s",
++                name,
++                e,
++            )
++            return False
++
++    def delete_inactive_skill(self, name: str) -> bool:
++        """
++        Delete a skill from inactive directory permanently.
++
++        Args:
++            name: Skill name to delete.
++
++        Returns:
++            True if skill was deleted successfully, False otherwise.
++        """
++        inactive_dir = get_inactive_skills_dir() / name
++
++        if not inactive_dir.exists():
++            logger.debug(
++                "Skill '%s' not found in inactive directory.",
++                name,
++            )
++            return False
++
++        try:
++            shutil.rmtree(inactive_dir)
++            logger.debug(
++                "Deleted skill '%s' from inactive directory.",
++                name,
++            )
++            return True
++        except Exception as e:
++            logger.error(
++                "Failed to delete skill '%s' from inactive: %s",
++                name,
++                e,
++            )
++            return False
++
++    def import_to_builtin_from_zip(
++        self,
++        data: bytes,
++        overwrite: bool = False,
++    ) -> dict:
++        """Import skill(s) to builtin directory from a zip archive."""
++        if not zipfile.is_zipfile(io.BytesIO(data)):
++            raise ValueError("Uploaded file is not a valid zip archive")
++
++        builtin_dir = get_builtin_skills_dir()
++        builtin_dir.mkdir(parents=True, exist_ok=True)
++        tmp_dir: Path | None = None
++
++        try:
++            tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_skill_upload_"))
++            _extract_and_validate_zip(data, tmp_dir)
++
++            real = [e for e in tmp_dir.iterdir() if not _is_hidden(e.name)]
++            extract_root = real[0] if len(real) == 1 and real[0].is_dir() else tmp_dir
++
++            found = _find_skill_dirs(extract_root)
++            if not found:
++                raise ValueError(
++                    "No valid skills found in zip. Each skill "
++                    "directory must contain a SKILL.md with "
++                    "valid YAML frontmatter.",
++                )
++
++            imported = []
++            for skill_dir, name in found:
++                target_dir = builtin_dir / name
++                if target_dir.exists() and not overwrite:
++                    continue
++                try:
++                    post = frontmatter.loads((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
++                    if not post.get("name") or not post.get("description"):
++                        continue
++                    if target_dir.exists():
++                        shutil.rmtree(target_dir)
++                    shutil.copytree(
++                        skill_dir,
++                        target_dir,
++                        ignore=shutil.ignore_patterns("__MACOSX", ".*"),
++                    )
++                    imported.append(name)
++                    logger.info("Imported skill '%s' to builtin from zip.", name)
++                except Exception:
++                    continue
++
++            return {
++                "imported": imported,
++                "count": len(imported),
++            }
++        finally:
++            if tmp_dir and tmp_dir.is_dir():
++                shutil.rmtree(tmp_dir, ignore_errors=True)
++
+     def load_skill_file(  # pylint: disable=too-many-return-statements
+         self,
+         skill_name: str,
+@@ -1098,30 +1368,15 @@ class SkillService:
+             file_path: Relative path to the file within the skill directory.
+                 Must start with "references/" or "scripts/".
+                 Example: "references/doc.md" or "scripts/utils/helper.py"
+-            source: Source directory, must be "builtin" or "customized".
++            source: Source directory, must be "builtin", "customized", or "inactive".
+ 
+         Returns:
+             File content as string, or None if failed.
+-
+-        Examples:
+-            # Load from customized skills
+-            content = load_skill_file(
+-                "my_skill",
+-                "references/doc.md",
+-                "customized"
+-            )
+-
+-            # Load nested file from builtin
+-            content = load_skill_file(
+-                "builtin_skill",
+-                "scripts/utils/helper.py",
+-                "builtin"
+-            )
+         """
+         # Validate source
+-        if source not in {"builtin", "customized"}:
++        if source not in {"builtin", "customized", "inactive"}:
+             logger.error(
+-                "Invalid source '%s'. Must be 'builtin' or 'customized'.",
++                "Invalid source '%s'. Must be 'builtin', 'customized', or 'inactive'.",
+                 source,
+             )
+             return None
+@@ -1150,6 +1405,8 @@ class SkillService:
+         # Get source directory
+         if source == "customized":
+             base_dir = get_customized_skills_dir(self.workspace_dir)
++        elif source == "inactive":
++            base_dir = get_inactive_skills_dir()
+         else:  # builtin
+             base_dir = get_builtin_skills_dir()
+ 
+diff --git a/src/copaw/app/routers/__init__.py b/src/copaw/app/routers/__init__.py
+index 7731958..842941f 100644
+--- a/src/copaw/app/routers/__init__.py
++++ b/src/copaw/app/routers/__init__.py
+@@ -14,6 +14,7 @@ from .envs import router as envs_router
+ from .ollama_models import router as ollama_models_router
+ from .mcp import router as mcp_router
+ from .tools import router as tools_router
++from .default_skills import router as default_skills_router
+ from ..crons.api import router as cron_router
+ from ..runner.api import router as runner_router
+ from .console import router as console_router
+@@ -36,6 +37,7 @@ router.include_router(providers_router)
+ router.include_router(runner_router)
+ router.include_router(skills_router)
+ router.include_router(skills_stream_router)
++router.include_router(default_skills_router)
+ router.include_router(tools_router)
+ router.include_router(workspace_router)
+ router.include_router(envs_router)

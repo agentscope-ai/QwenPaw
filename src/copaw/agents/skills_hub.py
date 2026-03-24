@@ -1616,3 +1616,47 @@ def install_skill_from_hub(
             enabled=enabled,
             source_url=source_url,
         )
+
+
+def install_skill_from_hub_to_builtin(
+    *,
+    bundle_url: str,
+    version: str = "",
+    overwrite: bool = False,
+    cancel_checker: Any | None = None,
+) -> HubInstallResult:
+    if not bundle_url or not _is_http_url(bundle_url):
+        raise ValueError("bundle_url must be a valid http(s) URL")
+    with _with_cancel_checker(cancel_checker):
+        _ensure_not_cancelled()
+        data, source_url = _resolve_bundle_from_url(bundle_url, version)
+
+        name, content, references, scripts, extra_files = _normalize_bundle(
+            data,
+        )
+        if not name:
+            fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
+            name = _safe_fallback_name(fallback)
+        name = _sanitize_skill_dir_name(name)
+
+        _ensure_not_cancelled()
+        from .skills_manager import SkillService
+
+        skill_service = SkillService(Path("."))
+        created = skill_service.create_default_skill(
+            name=name,
+            content=content,
+            references=references,
+            scripts=scripts,
+        )
+        if not created:
+            raise RuntimeError(
+                f"Failed to create skill '{name}'. "
+                "This skill already exists.",
+            )
+
+        return HubInstallResult(
+            name=name,
+            enabled=False,
+            source_url=source_url,
+        )

@@ -43,6 +43,7 @@ import {
   Bot,
   LogOut,
   UserCog,
+  Package,
 } from "lucide-react";
 import api from "../api";
 import { clearAuthToken } from "../api/config";
@@ -355,6 +356,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "token-usage",
           label: t("nav.tokenUsage"),
           icon: <BarChart3 size={16} />,
+        },
+        {
+          key: "default-skills",
+          label: t("nav.defaultSkills"),
+          icon: <Package size={16} />,
         },
         {
           key: "voice-transcription",

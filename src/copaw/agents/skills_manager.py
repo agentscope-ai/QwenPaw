@@ -65,6 +65,11 @@ def get_builtin_skills_dir() -> Path:
     return Path(__file__).parent / "skills"
 
 
+def get_inactive_skills_dir() -> Path:
+    """Get the path to inactive skills directory in the code."""
+    return Path(__file__).parent / "InactiveSkill"
+
+
 def get_customized_skills_dir(workspace_dir: Path) -> Path:
     """Get the path to customized skills directory in workspace_dir."""
     return workspace_dir / "customized_skills"
@@ -1084,6 +1089,271 @@ class SkillService:
             if tmp_dir and tmp_dir.is_dir():
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def list_all_default_skills(self) -> list[SkillInfo]:
+        """
+        List all skills from builtin and inactive directories.
+
+        Returns:
+            List of SkillInfo with name, content, source, and path.
+        """
+        skills: list[SkillInfo] = []
+        skills.extend(
+            _read_skills_from_dir(get_builtin_skills_dir(), "builtin"),
+        )
+        skills.extend(
+            _read_skills_from_dir(get_inactive_skills_dir(), "inactive"),
+        )
+        return _dedupe_skills_by_name(skills)
+
+    def create_default_skill(
+        self,
+        name: str,
+        content: str,
+        references: dict[str, Any] | None = None,
+        scripts: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Create a new skill in builtin directory.
+
+        Args:
+            name: Skill name (will be the directory name).
+            content: Content of SKILL.md file.
+            references: Optional tree structure for references/ subdirectory.
+            scripts: Optional tree structure for scripts/ subdirectory.
+
+        Returns:
+            True if skill was created successfully, False otherwise.
+        """
+        try:
+            post = frontmatter.loads(content)
+            skill_name = post.get("name", None)
+            skill_description = post.get("description", None)
+
+            if not skill_name or not skill_description:
+                logger.error(
+                    "SKILL.md content must have YAML Front Matter "
+                    "with 'name' and 'description' fields.",
+                )
+                return False
+        except Exception as e:
+            logger.error(
+                "Failed to parse SKILL.md YAML Front Matter: %s",
+                e,
+            )
+            return False
+
+        builtin_dir = get_builtin_skills_dir()
+        builtin_dir.mkdir(parents=True, exist_ok=True)
+
+        skill_dir = builtin_dir / name
+        skill_md = skill_dir / "SKILL.md"
+
+        if skill_dir.exists():
+            logger.debug(
+                "Skill '%s' already exists in builtin directory.",
+                name,
+            )
+            return False
+
+        try:
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_md.write_text(content, encoding="utf-8")
+
+            if references:
+                references_dir = skill_dir / "references"
+                references_dir.mkdir(parents=True, exist_ok=True)
+                _create_files_from_tree(references_dir, references)
+
+            if scripts:
+                scripts_dir = skill_dir / "scripts"
+                scripts_dir.mkdir(parents=True, exist_ok=True)
+                _create_files_from_tree(scripts_dir, scripts)
+
+            logger.debug("Created skill '%s' in builtin directory.", name)
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to create skill '%s': %s",
+                name,
+                e,
+            )
+            return False
+
+    def move_to_inactive(self, name: str) -> bool:
+        """
+        Move a skill from builtin to inactive directory.
+
+        Args:
+            name: Skill name to move.
+
+        Returns:
+            True if skill was moved successfully, False otherwise.
+        """
+        builtin_dir = get_builtin_skills_dir() / name
+        inactive_dir = get_inactive_skills_dir() / name
+
+        if not builtin_dir.exists():
+            logger.debug(
+                "Skill '%s' not found in builtin directory.",
+                name,
+            )
+            return False
+
+        if inactive_dir.exists():
+            logger.debug(
+                "Skill '%s' already exists in inactive directory.",
+                name,
+            )
+            return False
+
+        try:
+            shutil.move(str(builtin_dir), str(inactive_dir))
+            logger.debug(
+                "Moved skill '%s' from builtin to inactive directory.",
+                name,
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to move skill '%s' to inactive: %s",
+                name,
+                e,
+            )
+            return False
+
+    def move_to_builtin(self, name: str) -> bool:
+        """
+        Move a skill from inactive to builtin directory.
+
+        Args:
+            name: Skill name to move.
+
+        Returns:
+            True if skill was moved successfully, False otherwise.
+        """
+        inactive_dir = get_inactive_skills_dir() / name
+        builtin_dir = get_builtin_skills_dir() / name
+
+        if not inactive_dir.exists():
+            logger.debug(
+                "Skill '%s' not found in inactive directory.",
+                name,
+            )
+            return False
+
+        if builtin_dir.exists():
+            logger.debug(
+                "Skill '%s' already exists in builtin directory.",
+                name,
+            )
+            return False
+
+        try:
+            shutil.move(str(inactive_dir), str(builtin_dir))
+            logger.debug(
+                "Moved skill '%s' from inactive to builtin directory.",
+                name,
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to move skill '%s' to builtin: %s",
+                name,
+                e,
+            )
+            return False
+
+    def delete_inactive_skill(self, name: str) -> bool:
+        """
+        Delete a skill from inactive directory permanently.
+
+        Args:
+            name: Skill name to delete.
+
+        Returns:
+            True if skill was deleted successfully, False otherwise.
+        """
+        inactive_dir = get_inactive_skills_dir() / name
+
+        if not inactive_dir.exists():
+            logger.debug(
+                "Skill '%s' not found in inactive directory.",
+                name,
+            )
+            return False
+
+        try:
+            shutil.rmtree(inactive_dir)
+            logger.debug(
+                "Deleted skill '%s' from inactive directory.",
+                name,
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to delete skill '%s' from inactive: %s",
+                name,
+                e,
+            )
+            return False
+
+    def import_to_builtin_from_zip(
+        self,
+        data: bytes,
+        overwrite: bool = False,
+    ) -> dict:
+        """Import skill(s) to builtin directory from a zip archive."""
+        if not zipfile.is_zipfile(io.BytesIO(data)):
+            raise ValueError("Uploaded file is not a valid zip archive")
+
+        builtin_dir = get_builtin_skills_dir()
+        builtin_dir.mkdir(parents=True, exist_ok=True)
+        tmp_dir: Path | None = None
+
+        try:
+            tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_skill_upload_"))
+            _extract_and_validate_zip(data, tmp_dir)
+
+            real = [e for e in tmp_dir.iterdir() if not _is_hidden(e.name)]
+            extract_root = real[0] if len(real) == 1 and real[0].is_dir() else tmp_dir
+
+            found = _find_skill_dirs(extract_root)
+            if not found:
+                raise ValueError(
+                    "No valid skills found in zip. Each skill "
+                    "directory must contain a SKILL.md with "
+                    "valid YAML frontmatter.",
+                )
+
+            imported = []
+            for skill_dir, name in found:
+                target_dir = builtin_dir / name
+                if target_dir.exists() and not overwrite:
+                    continue
+                try:
+                    post = frontmatter.loads((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+                    if not post.get("name") or not post.get("description"):
+                        continue
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir)
+                    shutil.copytree(
+                        skill_dir,
+                        target_dir,
+                        ignore=shutil.ignore_patterns("__MACOSX", ".*"),
+                    )
+                    imported.append(name)
+                    logger.info("Imported skill '%s' to builtin from zip.", name)
+                except Exception:
+                    continue
+
+            return {
+                "imported": imported,
+                "count": len(imported),
+            }
+        finally:
+            if tmp_dir and tmp_dir.is_dir():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
     def load_skill_file(  # pylint: disable=too-many-return-statements
         self,
         skill_name: str,
@@ -1098,30 +1368,15 @@ class SkillService:
             file_path: Relative path to the file within the skill directory.
                 Must start with "references/" or "scripts/".
                 Example: "references/doc.md" or "scripts/utils/helper.py"
-            source: Source directory, must be "builtin" or "customized".
+            source: Source directory, must be "builtin", "customized", or "inactive".
 
         Returns:
             File content as string, or None if failed.
-
-        Examples:
-            # Load from customized skills
-            content = load_skill_file(
-                "my_skill",
-                "references/doc.md",
-                "customized"
-            )
-
-            # Load nested file from builtin
-            content = load_skill_file(
-                "builtin_skill",
-                "scripts/utils/helper.py",
-                "builtin"
-            )
         """
         # Validate source
-        if source not in {"builtin", "customized"}:
+        if source not in {"builtin", "customized", "inactive"}:
             logger.error(
-                "Invalid source '%s'. Must be 'builtin' or 'customized'.",
+                "Invalid source '%s'. Must be 'builtin', 'customized', or 'inactive'.",
                 source,
             )
             return None
@@ -1150,6 +1405,8 @@ class SkillService:
         # Get source directory
         if source == "customized":
             base_dir = get_customized_skills_dir(self.workspace_dir)
+        elif source == "inactive":
+            base_dir = get_inactive_skills_dir()
         else:  # builtin
             base_dir = get_builtin_skills_dir()
 

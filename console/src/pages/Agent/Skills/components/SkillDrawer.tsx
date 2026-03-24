@@ -97,9 +97,14 @@ export function SkillDrawer({
       message.warning(t("skills.editNotSupported"));
       onClose();
     } else {
+      // Parse description from frontmatter
+      const frontmatter = parseFrontmatter(contentValue || values.content);
+      const description = frontmatter?.description || "";
+      
       onSubmit({
         ...values,
         content: contentValue || values.content,
+        description: description,
         source: "",
         path: "",
       });

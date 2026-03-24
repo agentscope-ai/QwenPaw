@@ -1,0 +1,334 @@
+.container {
+  padding: 24px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.description {
+  font-size: 14px;
+  color: var(--text-color-secondary);
+  margin: 0;
+}
+
+.headerRight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.searchInput {
+  width: 280px;
+}
+
+.skillsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.skillCard {
+  transition: all 0.3s ease;
+  border: 2px solid var(--border-color);
+}
+
+.skillCard:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.builtinCard {
+  border-color: #615ced;
+  box-shadow: 0 2px 8px rgba(97, 92, 237, 0.15);
+}
+
+.inactiveCard {
+  border-color: var(--border-color);
+  background-color: var(--background-color-secondary);
+}
+
+.enabledCard {
+  border-color: #615ced !important;
+  border-width: 2px;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.zapIcon {
+  color: #615ced;
+  font-size: 20px;
+}
+
+.skillTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+
+.statusContainer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.statusDot.enabled {
+  background-color: #52c41a;
+}
+
+.statusDot.disabled {
+  background-color: #d9d9d9;
+}
+
+.statusText {
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+
+.statusText.enabled {
+  color: #52c41a;
+}
+
+.statusText.disabled {
+  color: #999;
+}
+
+.descriptionSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.infoLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.infoBlock {
+  font-size: 12px;
+  color: var(--text-color);
+  background-color: #f5f6fa; // 浅色模式下的灰色背景
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.descriptionContent {
+  line-height: 1.45;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  max-height: 64px;
+}
+
+.metaStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.infoSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.builtinTag {
+  display: inline-block;
+  padding: 2px 8px;
+  background-color: rgba(97, 92, 237, 0.1);
+  color: #615ced;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.inactiveTag {
+  display: inline-block;
+  padding: 2px 8px;
+  background-color: var(--background-color-tertiary);
+  color: var(--text-color-secondary);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.singleLineValue {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pathValue {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.actionButton {
+  font-size: 13px;
+}
+
+.deleteButton {
+  margin-left: auto;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--text-color-secondary);
+}
+
+/* Import modal styles - 复用 Agent/Skills 的样式 */
+.importHintBlock {
+  margin-bottom: 12px;
+}
+
+.importHintTitle {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.importHintList {
+  margin: 8px 0;
+  padding: 0 0 0 20px;
+  font-size: 12px;
+  color: #999;
+}
+
+.importUrlInput {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  outline: none;
+  font-size: 14px;
+
+  &:focus {
+    border-color: #615ced;
+  }
+}
+
+.importUrlError {
+  margin-top: 8px;
+  color: #ff4d4f;
+  font-size: 13px;
+}
+
+.importLoadingText {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+/* Dark mode specific styles */
+:global(.dark-mode) {
+  .infoBlock {
+    background-color: #ffffff0D !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+  }
+  
+  .builtinTag {
+    background-color: rgba(97, 92, 237, 0.15);
+    color: #8b87f0;
+  }
+  
+  .inactiveTag {
+    background-color: #2a2a2a;
+    color: rgba(255, 255, 255, 0.65);
+  }
+  
+  .statusDot.disabled {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+  
+  .statusText.disabled {
+    color: rgba(255, 255, 255, 0.45);
+  }
+  
+  .descriptionContent {
+    color: rgba(255, 255, 255, 0.85) !important;
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 3 !important;
+    line-clamp: 3 !important;
+    overflow: hidden !important;
+    max-height: 64px !important;
+  }
+  
+  .emptyState {
+    color: rgba(255, 255, 255, 0.65);
+  }
+  
+  .importHintList li {
+    background-color: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.65);
+  }
+  
+  .importUrlInput {
+    border-color: rgba(255, 255, 255, 0.15);
+    background-color: #2a2a2a;
+    color: rgba(255, 255, 255, 0.85);
+  }
+  
+  .importUrlInput:focus {
+    border-color: #8b87f0;
+    box-shadow: 0 0 0 2px rgba(139, 135, 240, 0.2);
+  }
+  
+  .importLoadingText {
+    color: rgba(255, 255, 255, 0.65);
+  }
+}

@@ -42,7 +42,8 @@
     "tokenUsage": "トークン使用量",
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
-    "agents": "エージェント管理"
+    "agents": "エージェント管理",
+    "defaultSkills": "ビルトインスキル"
   },
   "agent": {
     "management": "エージェント管理",
@@ -109,7 +110,7 @@
     "enterSkillUrl": "スキルのURLを入力",
     "supportedSkillUrlSources": "現在サポートされているスキルURLのソース:",
     "urlExamples": "URLの例:",
-    "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
+    "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始める必要があります",
     "source": "ソース",
     "path": "パス",
     "skillDescription": "説明",
@@ -143,7 +144,13 @@
     "uploadFailed": "スキルのアップロードに失敗しました",
     "uploadNoChange": "新しいスキルはインポートされませんでした。既に存在する可能性があります",
     "zipOnly": "アップロードは .zip ファイルのみ対応しています",
-    "fileSizeExceeded": "ファイルサイズが100MBの制限を超えています。現在のファイル: {{size}}MB"
+    "fileSizeExceeded": "ファイルサイズが100MBの制限を超えています。現在のファイル: {{size}}MB",
+    "enabledForCurrentAgent": "現在のエージェントで有効化",
+    "manageBuiltInAndInactiveSkills": "CoPawのビルトインおよび非アクティブスキルを管理",
+    "moveToInactive": "非アクティブに移動",
+    "importSkill": "スキルをインポート",
+    "pleaseProvideUrl": "スキルURLを入力してください",
+    "invalidUrlProtocol": "http:// または https:// で始まる有効なURLを入力してください"
   },
   "mcp": {
     "title": "MCPクライアント",
@@ -878,5 +885,38 @@
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "Whisper API 文字起こしは OpenAI 互換の /v1/audio/transcriptions エンドポイントを使用します。Whisper 対応エンドポイントを持つプロバイダー（例: OpenAI）の設定が必要です。上記で具体的なプロバイダーを選択して文字起こしを有効にしてください。",
     "transcriptionInfoDescLocal": "ローカル Whisper 文字起こしは、お使いのマシン上で直接 openai-whisper ライブラリを実行します。ffmpeg（音声デコード用）と openai-whisper Python パッケージの両方のインストールが必要です。API キーやネットワーク接続は不要です。インストール：uv pip install 'copaw[whisper]'。"
+  },
+  "defaultSkills": {
+    "title": "ビルトインスキル",
+    "description": "CoPaw のビルトインスキルと非アクティブスキルを管理",
+    "searchPlaceholder": "スキルを検索...",
+    "upload": "スキルをアップロード",
+    "importFromHub": "スキルをインポート",
+    "create": "スキルを作成",
+    "statusEnabled": "現在のエージェントで有効",
+    "statusDisabled": "現在のエージェントで無効",
+    "builtin": "ビルトイン",
+    "inactive": "非アクティブ",
+    "enableInAgent": "現在のエージェントで有効化",
+    "moveToInactive": "非アクティブに移動",
+    "moveToBuiltin": "ビルトインに移動",
+    "loadFailed": "ビルトインスキルの読み込みに失敗しました",
+    "enabledSuccess": "スキルを有効化しました",
+    "disabledSuccess": "スキルを無効化しました",
+    "toggleFailed": "操作に失敗しました",
+    "movedToInactive": "非アクティブに移動しました",
+    "movedToBuiltin": "ビルトインに移動しました",
+    "moveFailed": "移動に失敗しました",
+    "deleteConfirmTitle": "削除の確認",
+    "deleteConfirmContent": "このスキルを削除してもよろしいですか？この操作は取り消せません。",
+    "deletedSuccess": "スキルを削除しました",
+    "deleteFailed": "削除に失敗しました",
+    "uploadSuccess": "{{count}}個のスキルを正常にインポートしました",
+    "uploadFailed": "アップロードに失敗しました",
+    "noSkillsImported": "スキルがインポートされませんでした",
+    "createComingSoon": "作成機能は近日公開予定です",
+    "importComingSoon": "ハブからのインポート機能は近日公開予定です",
+    "noResults": "一致するスキルが見つかりませんでした",
+    "noSkills": "まだスキルがありません"
   }
 }
