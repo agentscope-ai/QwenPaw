@@ -5,13 +5,14 @@ import json
 import logging
 import os
 import plistlib
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
 import uuid
+
+from json_repair import repair_json
 
 from pydantic import ValidationError
 
@@ -427,22 +428,6 @@ def _remove_bad_field(data: dict, loc: list) -> bool:
     return False
 
 
-def _try_repair_json(raw: str) -> Optional[dict]:
-    """Attempt basic JSON repairs for common hand-edit errors.
-
-    Handles BOM, trailing commas, and full-line ``//`` comments.
-    Returns parsed dict on success, ``None`` on failure.
-    """
-    text = raw.lstrip("\ufeff")
-    text = re.sub(r"^\s*//[^\n]*$", "", text, flags=re.MULTILINE)
-    text = re.sub(r",(\s*[}\]])", r"\1", text)
-    try:
-        result = json.loads(text)
-        return result if isinstance(result, dict) else None
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-
 def _backup_config_file(config_path: Path, reason: str) -> Optional[Path]:
     """Backup *config_path* before falling back to defaults."""
     try:
@@ -466,9 +451,9 @@ def _backup_config_file(config_path: Path, reason: str) -> Optional[Path]:
 def _read_config_data(config_path: Path) -> Optional[dict]:
     """Read *config_path* and return parsed dict.
 
-    Attempts JSON repair (BOM, trailing commas, line comments) when
-    standard parsing fails.  Creates a backup and returns ``None`` when
-    the file is unrecoverable.
+    Uses ``json_repair`` to handle common syntax issues (trailing
+    commas, missing quotes, comments, BOM, etc.).  Creates a backup and
+    returns ``None`` when the file is unrecoverable.
     """
     try:
         with open(config_path, "r", encoding="utf-8") as file:
@@ -480,16 +465,15 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        data = _try_repair_json(raw)
-        if data is None:
+        data = repair_json(raw, return_objects=True)
+        if not isinstance(data, dict):
             _backup_config_file(
                 config_path,
                 "JSON syntax error, repair failed",
             )
             return None
         logger.warning(
-            "Config %s had JSON syntax issues; auto-repaired "
-            "(trailing commas, comments, etc.).",
+            "Config %s had JSON syntax issues that were auto-repaired.",
             config_path,
         )
 
