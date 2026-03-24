@@ -188,6 +188,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
           placeholder={t("workspace.searchPlaceholder", "Search files…")}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onClear={() => setSearchQuery("")}
           allowClear
           size="small"
           className={styles.searchInput}
@@ -210,8 +211,8 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                   key={file.filename}
                   file={file}
                   selectedFile={selectedFile}
-                  expandedMemory={expandedMemory}
-                  dailyMemories={dailyMemories}
+                  expandedMemory={false}
+                  dailyMemories={[]}
                   enabled={enabledFiles.includes(file.filename)}
                   onFileClick={onFileClick}
                   onDailyMemoryClick={onDailyMemoryClick}
