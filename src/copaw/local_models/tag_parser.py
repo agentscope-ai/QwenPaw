@@ -92,6 +92,28 @@ def _generate_call_id() -> str:
     return f"call_{uuid.uuid4().hex[:12]}"
 
 
+def _normalize_tool_arguments(arguments: object) -> tuple[dict, str]:
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+        except (json.JSONDecodeError, TypeError):
+            return {}, arguments
+        return (parsed if isinstance(parsed, dict) else {}), arguments
+
+    if isinstance(arguments, dict):
+        return arguments, json.dumps(arguments, ensure_ascii=False)
+
+    if arguments is None:
+        return {}, ""
+
+    try:
+        raw_arguments = json.dumps(arguments, ensure_ascii=False)
+    except TypeError:
+        raw_arguments = ""
+
+    return {}, raw_arguments
+
+
 def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
     """
     Parse the JSON content between a ``<tool_call>`` / ``</tool_call>`` pair.
@@ -106,23 +128,29 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
         logger.warning("Failed to parse tool call JSON: %s", raw_text[:200])
         return None
 
-    name = data.get("name", "")
+    if not isinstance(data, dict):
+        logger.warning("Tool call JSON must decode to an object: %s", raw_text[:200])
+        return None
+
+    function_data = data.get("function")
+    if isinstance(function_data, dict):
+        name = function_data.get("name", "")
+        arguments_value = function_data.get("arguments", {})
+    else:
+        name = data.get("name", "")
+        arguments_value = data.get("arguments", {})
+
     if not name:
         logger.warning("Tool call missing 'name' field: %s", raw_text[:200])
         return None
 
-    arguments = data.get("arguments", {})
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except (json.JSONDecodeError, TypeError):
-            arguments = {}
+    arguments, raw_arguments = _normalize_tool_arguments(arguments_value)
 
     return ParsedToolCall(
-        id=_generate_call_id(),
+        id=data.get("id") or _generate_call_id(),
         name=name,
         arguments=arguments,
-        raw_arguments=json.dumps(arguments, ensure_ascii=False),
+        raw_arguments=raw_arguments,
     )
 
 
@@ -141,9 +169,9 @@ def extract_thinking_from_text(text: str) -> TextWithThinking:
 
     Returns a :class:`TextWithThinking` with:
 
-    * ``thinking``       – the reasoning content (empty if none found)
-    * ``remaining_text`` – everything outside the think tags
-    * ``has_open_tag``   – ``True`` if ``<think>`` opened but not closed yet
+    * ``thinking``       the reasoning content (empty if none found)
+    * ``remaining_text`` everything outside the think tags
+    * ``has_open_tag``   ``True`` if ``<think>`` opened but not closed yet
     """
     match = _THINK_RE.search(text)
     if match:
@@ -154,7 +182,7 @@ def extract_thinking_from_text(text: str) -> TextWithThinking:
             remaining_text=remaining,
         )
 
-    # No complete block — check for an unclosed <think>.
+    # No complete block; check for an unclosed <think>.
     open_idx = text.find(THINK_START)
     if open_idx != -1:
         remaining = text[:open_idx].strip()
@@ -178,17 +206,17 @@ def parse_tool_calls_from_text(text: str) -> TextWithToolCalls:
 
     Returns a :class:`TextWithToolCalls` with:
 
-    * ``text_before`` – all text before the first ``<tool_call>`` tag
-    * ``text_after``  – all text after the last ``</tool_call>`` tag
-    * ``tool_calls``  – successfully parsed tool calls
-    * ``has_open_tag`` – whether there is an unclosed ``<tool_call>``
+    * ``text_before`` all text before the first ``<tool_call>`` tag
+    * ``text_after``  all text after the last ``</tool_call>`` tag
+    * ``tool_calls``  successfully parsed tool calls
+    * ``has_open_tag`` whether there is an unclosed ``<tool_call>``
         (streaming)
-    * ``partial_tool_text`` – content after the unclosed tag
+    * ``partial_tool_text`` content after the unclosed tag
     """
     matches = list(_TOOL_CALL_RE.finditer(text))
 
     if not matches:
-        # No complete blocks.  Check for an unclosed opening tag.
+        # No complete blocks. Check for an unclosed opening tag.
         open_idx = text.rfind(TOOL_CALL_START)
         if open_idx != -1:
             return TextWithToolCalls(
