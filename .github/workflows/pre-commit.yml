@@ -4,11 +4,11 @@ on: [push, pull_request]
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: true
     env:
-      OS: ubuntu-latest
+      OS: ubuntu-24.04
       PYTHON: "3.10"
     steps:
       - uses: actions/checkout@v4
