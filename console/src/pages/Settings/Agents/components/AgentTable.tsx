@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { Bot } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
+import { buildAgentAvatarUrl } from "../../../../api/modules/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
@@ -38,7 +39,7 @@ export function AgentTable({
           <Avatar
             size={28}
             shape="square"
-            src={record.avatar_url || undefined}
+            src={buildAgentAvatarUrl(record.id, record.avatar_url)}
             icon={<Bot size={16} strokeWidth={2} />}
             className={styles.agentAvatarPlaceholder}
           />

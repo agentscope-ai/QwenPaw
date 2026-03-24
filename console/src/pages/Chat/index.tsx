@@ -468,11 +468,9 @@ export default function ChatPage() {
       },
       welcome: {
         ...i18nConfig.welcome,
-        avatar:
-          currentAgent?.avatar_url ||
-          (isDark
-            ? `${import.meta.env.BASE_URL}copaw-dark.png`
-            : `${import.meta.env.BASE_URL}copaw-symbol.svg`),
+        avatar: isDark
+          ? `${import.meta.env.BASE_URL}copaw-dark.png`
+          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
         ...(i18nConfig as any)?.sender,

@@ -2,7 +2,7 @@ import { Select, message, Badge, Avatar } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, Layers, CheckCircle } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
-import { agentsApi } from "../../api/modules/agents";
+import { agentsApi, buildAgentAvatarUrl } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
@@ -67,7 +67,7 @@ export default function AgentSelector() {
                 <Avatar
                   size={20}
                   shape="square"
-                  src={agent.avatar_url || undefined}
+                  src={buildAgentAvatarUrl(agent.id, agent.avatar_url)}
                   icon={<Bot size={12} strokeWidth={2} />}
                   className={styles.selectedAgentAvatar}
                 />
@@ -80,7 +80,7 @@ export default function AgentSelector() {
                 <Avatar
                   size={30}
                   shape="square"
-                  src={agent.avatar_url || undefined}
+                  src={buildAgentAvatarUrl(agent.id, agent.avatar_url)}
                   icon={<Bot size={16} strokeWidth={2} />}
                   className={styles.agentOptionAvatar}
                 />
