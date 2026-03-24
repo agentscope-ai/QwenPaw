@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     define: {
-      BASE_URL: JSON.stringify(apiBaseUrl),
+      VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
