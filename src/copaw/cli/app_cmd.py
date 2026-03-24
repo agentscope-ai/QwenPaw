@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import click
 import uvicorn
@@ -83,11 +84,31 @@ def app_cmd(
             SuppressPathAccessLogFilter(paths),
         )
 
+    run_kwargs = {
+        "host": host,
+        "port": port,
+        "reload": reload,
+        "workers": workers,
+        "log_level": log_level,
+    }
+
+    if reload:
+        repo_root = Path(__file__).resolve().parents[3]
+        run_kwargs.update(
+            {
+                "reload_dirs": [str(repo_root / "src"), str(repo_root / "tests")],
+                "reload_excludes": [
+                    ".venv/*",
+                    "**/.venv/*",
+                    "node_modules/*",
+                    "**/node_modules/*",
+                    ".git/*",
+                    "**/.git/*",
+                ],
+            },
+        )
+
     uvicorn.run(
         "copaw.app._app:app",
-        host=host,
-        port=port,
-        reload=reload,
-        workers=workers,
-        log_level=log_level,
+        **run_kwargs,
     )

@@ -320,16 +320,14 @@ class MemoryManager(ReMeLight):
         add_thinking_block = agent_config.running.compact_with_thinking_block
         workspace_dir = agent_config.workspace_dir
 
-    token_counter_kwarg = self._token_counter_kwarg("compact_memory")
-
         result = await super().compact_memory(
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-        **{token_counter_kwarg: token_counter},
-        language=agent_config.language,
-        max_input_length=agent_config.running.max_input_length,
-        compact_ratio=agent_config.running.memory_compact_ratio,
+            **{token_counter_kwarg: token_counter},
+            language=agent_config.language,
+            max_input_length=agent_config.running.max_input_length,
+            compact_ratio=agent_config.running.memory_compact_ratio,
             previous_summary=previous_summary,
             return_dict=True,
             add_thinking_block=add_thinking_block,
@@ -393,13 +391,11 @@ class MemoryManager(ReMeLight):
         add_thinking_block = agent_config.running.compact_with_thinking_block
         user_tz = load_config().user_timezone or None
 
-    token_counter_kwarg = self._token_counter_kwarg("summary_memory")
-
         return await super().summary_memory(
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-        **{token_counter_kwarg: token_counter},
+            **{token_counter_kwarg: token_counter},
             toolkit=self.summary_toolkit,
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
