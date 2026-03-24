@@ -22,7 +22,11 @@ from pydantic import BaseModel
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
-from .prompt import build_system_prompt_from_working_dir
+from .prompt import (
+    build_multimodal_hint,
+    build_system_prompt_from_working_dir,
+    get_active_model_supports_multimodal,
+)
 from .skills_manager import (
     ensure_skills_initialized,
     get_working_skills_dir,
@@ -213,17 +217,26 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "get_token_usage": get_token_usage,
         }
 
+        multimodal = get_active_model_supports_multimodal()
+
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
             # If tool not in config, enable by default (backward compatibility)
-            if enabled_tools.get(tool_name, True):
-                toolkit.register_tool_function(
-                    tool_func,
-                    namesake_strategy=namesake_strategy,
-                )
-                logger.debug("Registered tool: %s", tool_name)
-            else:
+            if not enabled_tools.get(tool_name, True):
                 logger.debug("Skipped disabled tool: %s", tool_name)
+                continue
+
+            if tool_name == "view_image" and not multimodal:
+                logger.debug(
+                    "Skipped view_image — model does not support multimodal",
+                )
+                continue
+
+            toolkit.register_tool_function(
+                tool_func,
+                namesake_strategy=namesake_strategy,
+            )
+            logger.debug("Registered tool: %s", tool_name)
 
         return toolkit
 
@@ -281,13 +294,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             heartbeat_enabled=heartbeat_enabled,
         )
         logger.debug("System prompt:\n%s", sys_prompt)
-        if self._env_context is not None:
-            sys_prompt = sys_prompt + "\n\n" + self._env_context
 
         # Inject multimodal capability awareness
-        multimodal_hint = self._build_multimodal_hint()
+        multimodal_hint = build_multimodal_hint()
         if multimodal_hint:
             sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+
+        if self._env_context is not None:
+            sys_prompt = sys_prompt + "\n\n" + self._env_context
 
         return sys_prompt
 
@@ -561,86 +575,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
-    def _get_current_model_supports_multimodal(self) -> bool:
-        """Check if the current active model supports multimodal input."""
-        try:
-            from ..providers.provider_manager import ProviderManager
-
-            manager = ProviderManager.get_instance()
-            active = manager.get_active_model()
-            if not active:
-                return False
-            provider = manager.get_provider(active.provider_id)
-            if not provider:
-                return False
-            for model in provider.models + provider.extra_models:
-                if model.id == active.model:
-                    return bool(model.supports_multimodal)
-            return False
-        except Exception:
-            return False
-
-    def _build_multimodal_hint(self) -> str:
-        """Build a short system-prompt snippet about multimodal."""
-        try:
-            from ..providers.provider_manager import ProviderManager
-
-            manager = ProviderManager.get_instance()
-            active = manager.get_active_model()
-            if not active:
-                return ""
-            provider = manager.get_provider(active.provider_id)
-            if not provider:
-                return ""
-            model_info = None
-            for m in provider.models + provider.extra_models:
-                if m.id == active.model:
-                    model_info = m
-                    break
-            if model_info is None:
-                return ""
-
-            return self._format_multimodal_hint(
-                model_info,
-                active.model,
-            )
-        except Exception:
-            return ""
-
-    @staticmethod
-    def _format_multimodal_hint(model_info, model_name: str) -> str:
-        """Format the multimodal hint string."""
-        parts: list[str] = []
-        if model_info.supports_image is True:
-            parts.append("image")
-        if model_info.supports_video is True:
-            parts.append("video")
-
-        if parts:
-            return (
-                f"[Multimodal capabilities] Your current"
-                f" model ({model_name}) supports "
-                f"{' and '.join(parts)} input. "
-                f"You can understand and describe visual"
-                f" content that users share with you."
-            )
-        if model_info.supports_multimodal is None:
-            return ""
-        return (
-            f"[Multimodal capabilities] Your current"
-            f" model ({model_name}) is text-only. "
-            f"If a user sends an image or video, "
-            f"politely let them know you cannot see "
-            f"it and suggest they switch to a "
-            f"multimodal model (e.g. qwen3.5-plus) "
-            f"or describe the content in text. "
-            f"Do NOT attempt to use browser_use, "
-            f"view_image, or any other tool to "
-            f"indirectly view the image/video — "
-            f"it wastes resources and the result "
-            f"is unreliable."
-        )
-
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -666,7 +600,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         interception active.
         """
         # --- Proactive filtering layer ---
-        if not self._get_current_model_supports_multimodal():
+        if not get_active_model_supports_multimodal():
             n = self._proactive_strip_media_blocks()
             if n > 0:
                 logger.warning(
@@ -688,7 +622,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
             # If the model is marked as multimodal but still
             # errored, the capability flag may be wrong.
-            if self._get_current_model_supports_multimodal():
+            if get_active_model_supports_multimodal():
                 logger.warning(
                     "Model marked multimodal but "
                     "rejected media. "
@@ -719,7 +653,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         ``print`` can strip tool_use blocks from streaming chunks.
         """
         # --- Proactive filtering layer ---
-        if not self._get_current_model_supports_multimodal():
+        if not get_active_model_supports_multimodal():
             n = self._proactive_strip_media_blocks()
             if n > 0:
                 logger.warning(
@@ -741,7 +675,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 if n_stripped == 0:
                     raise
 
-                if self._get_current_model_supports_multimodal():
+                if get_active_model_supports_multimodal():
                     logger.warning(
                         "Model marked multimodal but "
                         "rejected media. "

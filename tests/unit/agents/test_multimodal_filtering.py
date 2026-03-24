@@ -139,16 +139,17 @@ def test_proactive_media_filtering_correctness(
     # Build agent with populated memory
     agent = _build_agent_with_memory(messages_content)
 
-    # Mock _get_current_model_supports_multimodal to return our random bool
-    agent._get_current_model_supports_multimodal = MagicMock(
-        return_value=supports_multimodal,
-    )
-
     # Execute the proactive filtering logic (mirrors _reasoning preamble)
-    if not agent._get_current_model_supports_multimodal():
-        stripped = agent._proactive_strip_media_blocks()
-    else:
-        stripped = 0
+    with patch(
+        "copaw.agents.prompt.get_active_model_supports_multimodal",
+        return_value=supports_multimodal,
+    ):
+        from copaw.agents.prompt import get_active_model_supports_multimodal
+
+        if not get_active_model_supports_multimodal():
+            stripped = agent._proactive_strip_media_blocks()
+        else:
+            stripped = 0
 
     # Count media blocks remaining in memory AFTER filtering
     total_media_after = 0
@@ -213,19 +214,22 @@ def test_proactive_filtering_log_records_correct_count(
     # Build agent with one message containing the generated content
     agent = _build_agent_with_memory([content])
 
-    # Model does NOT support multimodal → proactive filtering should fire
-    agent._get_current_model_supports_multimodal = MagicMock(
-        return_value=False,
-    )
-
     # Capture log output from the react_agent logger
     import logging as _logging
 
     react_logger = _logging.getLogger("copaw.agents.react_agent")
 
-    with patch.object(react_logger, "warning") as mock_warning:
+    with (
+        patch(
+            "copaw.agents.prompt.get_active_model_supports_multimodal",
+            return_value=False,
+        ),
+        patch.object(react_logger, "warning") as mock_warning,
+    ):
+        from copaw.agents.prompt import get_active_model_supports_multimodal
+
         # Execute proactive filtering (mirrors _reasoning preamble)
-        if not agent._get_current_model_supports_multimodal():
+        if not get_active_model_supports_multimodal():
             stripped = agent._proactive_strip_media_blocks()
             if stripped > 0:
                 react_logger.warning(
@@ -335,9 +339,6 @@ def test_multimodal_marked_model_error_fallback(
     # Build agent mock with real memory and real methods
     agent = _build_agent_with_memory([content])
 
-    # Model IS marked as multimodal
-    agent._get_current_model_supports_multimodal = MagicMock(return_value=True)
-
     # Bind the real _is_bad_request_or_media_error static method
     agent._is_bad_request_or_media_error = (
         CoPawAgent._is_bad_request_or_media_error
@@ -378,23 +379,22 @@ def test_multimodal_marked_model_error_fallback(
 
     react_logger = _logging.getLogger("copaw.agents.react_agent")
 
-    with patch.object(react_logger, "warning") as mock_warning:
-        # We need to run the _reasoning method.
-        # Since it calls super()._reasoning,
-        # we bind the real _reasoning method but
-        # patch the super() call.
-        # The simplest approach: replicate the
-        # passive fallback logic from _reasoning
-        # which is what we're actually testing.
+    with (
+        patch(
+            "copaw.agents.prompt.get_active_model_supports_multimodal",
+            return_value=True,
+        ),
+        patch.object(react_logger, "warning") as mock_warning,
+    ):
+        from copaw.agents.prompt import get_active_model_supports_multimodal
 
-        # Execute the _reasoning flow manually (mirrors the actual method)
         loop = asyncio.new_event_loop()
         try:
 
             async def run_reasoning_flow():
                 # --- Proactive filtering layer ---
                 # supports_multimodal=True, so this block should NOT execute
-                if not agent._get_current_model_supports_multimodal():
+                if not get_active_model_supports_multimodal():
                     n = agent._proactive_strip_media_blocks()
                     if n > 0:
                         react_logger.warning(
@@ -414,7 +414,7 @@ def test_multimodal_marked_model_error_fallback(
                     if n_stripped == 0:
                         raise
 
-                    if agent._get_current_model_supports_multimodal():
+                    if get_active_model_supports_multimodal():
                         react_logger.warning(
                             "Model marked multimodal but "
                             "rejected media. "

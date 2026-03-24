@@ -309,9 +309,69 @@ def build_bootstrap_guidance(
     )
 
 
+def _get_active_model_info():
+    """Resolve the active model's ModelInfo and model name.
+
+    Returns:
+        A ``(ModelInfo, model_name)`` tuple, or *None* when the active
+        model cannot be resolved (no active model, provider missing, etc.).
+    """
+    try:
+        from ..providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        active = manager.get_active_model()
+        if not active:
+            return None
+        provider = manager.get_provider(active.provider_id)
+        if not provider:
+            return None
+        for m in provider.models + provider.extra_models:
+            if m.id == active.model:
+                return m, active.model
+        return None
+    except Exception:
+        return None
+
+
+def get_active_model_supports_multimodal() -> bool:
+    """Check if the current active model supports multimodal input."""
+    result = _get_active_model_info()
+    if result is None:
+        return False
+    model_info, _ = result
+    return bool(model_info.supports_multimodal)
+
+
+def build_multimodal_hint() -> str:
+    """Build a short system-prompt snippet describing multimodal capability."""
+    result = _get_active_model_info()
+    if result is None:
+        return ""
+    return format_multimodal_hint(*result)
+
+
+def format_multimodal_hint(model_info, _model_name: str) -> str:
+    """Format the multimodal hint string for the system prompt."""
+    if (
+        model_info.supports_image
+        or model_info.supports_video
+        or model_info.supports_multimodal is None
+    ):
+        return ""
+    return (
+        "It appears that you can only understand text content. "
+        " Please honestly inform the user about this when "
+        " their input includes multimodal information."
+    )
+
+
 __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
+    "build_multimodal_hint",
+    "format_multimodal_hint",
+    "get_active_model_supports_multimodal",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

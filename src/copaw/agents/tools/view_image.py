@@ -21,27 +21,6 @@ _IMAGE_EXTENSIONS = {
 }
 
 
-def _current_model_supports_multimodal() -> bool:
-    """Check if the active model supports multimodal input."""
-    try:
-        from copaw.providers.provider_manager import ProviderManager
-
-        manager = ProviderManager.get_instance()
-        active = manager.get_active_model()
-        if not active:
-            return False
-        provider = manager.get_provider(active.provider_id)
-        if not provider:
-            return False
-        for model in provider.models + provider.extra_models:
-            if model.id == active.model:
-                return bool(model.supports_multimodal)
-        return False
-    except Exception:
-        # If we can't determine, allow the image through (safe default)
-        return True
-
-
 async def view_image(image_path: str) -> ToolResponse:
     """Load an image file into the LLM context so the model can see it.
 
@@ -56,20 +35,7 @@ async def view_image(image_path: str) -> ToolResponse:
         `ToolResponse`:
             An ImageBlock the model can inspect, or an error message.
     """
-    # Check if the current model supports multimodal input
-    if not _current_model_supports_multimodal():
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=(
-                        "Error: The current model is text-only and cannot "
-                        "process images. Please ask the user to switch to a "
-                        "multimodal model (e.g. qwen3.5-plus) to view images."
-                    ),
-                ),
-            ],
-        )
+
     image_path = unicodedata.normalize(
         "NFC",
         os.path.expanduser(image_path),
