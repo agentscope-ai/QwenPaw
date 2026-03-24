@@ -8,6 +8,16 @@ from copaw.providers.ollama_provider import OllamaProvider
 from copaw.providers.provider import ModelInfo
 
 
+def _patch_ollama_response_error(monkeypatch) -> None:
+    """Patch ResponseError when the optional ollama SDK is not installed."""
+    mod = ollama_provider_module.ollama
+    if mod is None:
+        mod = SimpleNamespace(ResponseError=Exception)
+        monkeypatch.setattr(ollama_provider_module, "ollama", mod)
+    else:
+        monkeypatch.setattr(mod, "ResponseError", Exception)
+
+
 def _make_provider() -> OllamaProvider:
     return OllamaProvider(
         id="ollama",
@@ -70,11 +80,7 @@ async def test_check_connection_error_returns_false(monkeypatch) -> None:
             raise RuntimeError("boom")
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
-    monkeypatch.setattr(
-        ollama_provider_module.ollama,
-        "ResponseError",
-        Exception,
-    )
+    _patch_ollama_response_error(monkeypatch)
 
     ok, msg = await provider.check_connection(timeout=1.0)
 
@@ -112,11 +118,7 @@ async def test_fetch_models_error_returns_empty(monkeypatch) -> None:
             raise RuntimeError("failed")
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
-    monkeypatch.setattr(
-        ollama_provider_module.ollama,
-        "ResponseError",
-        Exception,
-    )
+    _patch_ollama_response_error(monkeypatch)
 
     models = await provider.fetch_models(timeout=3.0)
 
@@ -162,11 +164,7 @@ async def test_check_model_connection_error_returns_false(monkeypatch) -> None:
             raise RuntimeError("failed")
 
     monkeypatch.setattr(provider, "_client", lambda timeout=5: FakeClient())
-    monkeypatch.setattr(
-        ollama_provider_module.ollama,
-        "ResponseError",
-        Exception,
-    )
+    _patch_ollama_response_error(monkeypatch)
 
     ok, msg = await provider.check_model_connection("qwen2:7b", timeout=4.0)
 

@@ -20,8 +20,7 @@ import pytest  # noqa: E402
 pytestmark = pytest.mark.filterwarnings(
     "ignore:Failed to find CUDA.:UserWarning:triton",
 )
-from types import SimpleNamespace  # noqa: E402
-from unittest.mock import patch, MagicMock  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
 
 from copaw.agents.memory.embedding_adapter import (
     create_embedding_adapter,
@@ -30,6 +29,9 @@ from copaw.agents.memory.local_embedding_model import (
     LocalEmbeddingModel,
 )  # noqa: E402
 from copaw.config.config import (  # noqa: E402
+    AgentProfileConfig,
+    AgentsRunningConfig,
+    EmbeddingConfig,
     LocalEmbeddingConfig,
 )
 
@@ -79,95 +81,111 @@ class TestEmbeddingBackendRegistration:
             assert "local_embedding_config" in reme_config
 
 
+def _agent_profile_for_memory_tests(
+    *,
+    base_url: str = "http://127.0.0.1:9999/v1",
+    model_name: str = "test-embedding-model",
+    local_embedding: LocalEmbeddingConfig | None = None,
+) -> AgentProfileConfig:
+    """Minimal AgentProfileConfig so MemoryManager can call load_agent_config."""
+    loc = local_embedding or LocalEmbeddingConfig(enabled=False)
+    return AgentProfileConfig(
+        id="test-agent-id",
+        name="Test Agent",
+        workspace_dir="/tmp/test",
+        running=AgentsRunningConfig(
+            embedding_config=EmbeddingConfig(
+                base_url=base_url,
+                model_name=model_name,
+            ),
+            local_embedding=loc,
+        ),
+    )
+
+
 class TestMemoryManagerUsesLocalEmbedding:
-    """Test that MemoryManager actually uses local embedding."""
+    """Test MemoryManager embedding config wiring (ReMe + agent profile)."""
 
-    def test_memory_manager_creates_adapter(self):
-        """Verify MemoryManager creates embedding adapter on init."""
+    def test_memory_manager_initializes_with_patched_agent_config(self):
+        """MemoryManager loads embedding settings via load_agent_config."""
+        from reme.reme_light import ReMeLight  # noqa: E402
+
         from copaw.agents.memory.memory_manager import (
             MemoryManager,
         )  # noqa: E402
-
-        # This should create MemoryManager even without ReMe fully configured
-        try:
-            mm = MemoryManager(
-                working_dir="/tmp/test",
-                agent_id="test-agent-id",
-            )
-            # Verify adapter was created
-            assert hasattr(mm, "_embedding_adapter")
-            assert mm._embedding_adapter is not None
-        except ImportError as e:
-            if "reme" in str(e).lower():
-                pytest.skip("ReMe not available")
-            raise
-        except Exception as e:
-            # Other exceptions should fail the test
-            pytest.fail(f"MemoryManager initialization failed: {e}")
-
-    def test_vector_enabled_reflects_embedding_mode(self):
-        """Verify vector_enabled is set based on embedding mode."""
-        from copaw.agents.memory.memory_manager import (
-            MemoryManager,
-        )  # noqa: E402
-
-        try:
-            mm = MemoryManager(
-                working_dir="/tmp/test",
-                agent_id="test-agent-id",
-            )
-            # Verify vector_enabled is set and is boolean
-            assert hasattr(
-                mm,
-                "_vector_enabled",
-            ), "MemoryManager should have _vector_enabled attribute"
-            assert isinstance(
-                mm._vector_enabled,
-                bool,
-            ), "_vector_enabled should be boolean"
-        except ImportError as e:
-            if "reme" in str(e).lower():
-                pytest.skip("ReMe not available")
-            raise
-
-    def test_memory_manager_uses_agent_local_embedding_config(self):
-        """Verify MemoryManager passes agent-scoped local embedding config."""
-        from copaw.agents.memory.memory_manager import (
-            MemoryManager,
-        )  # noqa: E402
-
-        local_embedding = LocalEmbeddingConfig(
-            enabled=True,
-            model_id="BAAI/bge-small-zh",
-        )
-        fake_adapter = MagicMock()
-        fake_adapter.determine_mode.return_value = SimpleNamespace(
-            mode="disabled",
-            vector_enabled=False,
-            fallback_applied=True,
-            fallback_reason="test",
-        )
-        fake_adapter.get_reme_embedding_config.return_value = {}
-        fake_adapter.is_local_registered = False
-        fake_adapter.strict_local = False
 
         with (
             patch(
-                "copaw.agents.memory.memory_manager.create_embedding_adapter",
-                return_value=fake_adapter,
-            ) as mock_create_adapter,
-            patch.object(
-                MemoryManager.__bases__[0],
-                "__init__",
-                return_value=None,
+                "copaw.agents.memory.memory_manager.load_agent_config",
+                return_value=_agent_profile_for_memory_tests(),
             ),
+            patch.object(ReMeLight, "__init__", lambda self, **kwargs: None),
         ):
-            MemoryManager(working_dir="/tmp/test", agent_id="test-agent-id")
+            mm = MemoryManager(
+                working_dir="/tmp/test",
+                agent_id="test-agent-id",
+            )
 
-        passed_local_config = mock_create_adapter.call_args.kwargs[
-            "local_config"
-        ]
-        assert passed_local_config is local_embedding
+        assert mm.agent_id == "test-agent-id"
+
+    def test_vector_enabled_passed_to_reme_from_embedding_config(self):
+        """ReMeLight receives vector_enabled True when URL and model are set."""
+        from reme.reme_light import ReMeLight  # noqa: E402
+
+        from copaw.agents.memory.memory_manager import (
+            MemoryManager,
+        )  # noqa: E402
+
+        captured: dict = {}
+
+        def _capture_reme_init(_self, **kwargs):
+            captured.update(kwargs)
+
+        with (
+            patch(
+                "copaw.agents.memory.memory_manager.load_agent_config",
+                return_value=_agent_profile_for_memory_tests(),
+            ),
+            patch.object(ReMeLight, "__init__", _capture_reme_init),
+        ):
+            MemoryManager(
+                working_dir="/tmp/test",
+                agent_id="test-agent-id",
+            )
+
+        fs = captured.get("default_file_store_config", {})
+        assert fs.get("vector_enabled") is True
+
+    def test_get_embedding_config_reads_agent_running_fields(self):
+        """get_embedding_config reflects agent running.embedding_config."""
+        from reme.reme_light import ReMeLight  # noqa: E402
+
+        from copaw.agents.memory.memory_manager import (
+            MemoryManager,
+        )  # noqa: E402
+
+        profile = _agent_profile_for_memory_tests(
+            model_name="my-embed-model",
+            local_embedding=LocalEmbeddingConfig(
+                enabled=True,
+                model_id="BAAI/bge-small-zh",
+            ),
+        )
+
+        with (
+            patch(
+                "copaw.agents.memory.memory_manager.load_agent_config",
+                return_value=profile,
+            ),
+            patch.object(ReMeLight, "__init__", lambda self, **kwargs: None),
+        ):
+            mm = MemoryManager(
+                working_dir="/tmp/test",
+                agent_id="test-agent-id",
+            )
+            emb = mm.get_embedding_config()
+
+        assert emb["model_name"] == "my-embed-model"
 
 
 class TestEmbeddingActuallyGeneratesVectors:
