@@ -38,101 +38,356 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="Qwen/Qwen3.5-122B-A10B",
         name="Qwen3.5-122B-A10B",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
     ),
     ModelInfo(id="ZhipuAI/GLM-5", name="GLM-5"),
 ]
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(id="qwen3-max", name="Qwen3 Max"),
+    ModelInfo(
+        id="qwen3-max",
+        name="Qwen3 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="qwen3-235b-a22b-thinking-2507",
         name="Qwen3 235B A22B Thinking",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
     ),
-    ModelInfo(id="deepseek-v3.2", name="DeepSeek-V3.2"),
+    ModelInfo(
+        id="deepseek-v3.2",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(id="qwen3.5-plus", name="Qwen3.5 Plus"),
+    ModelInfo(
+        id="qwen3.5-plus",
+        name="Qwen3.5 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
     ModelInfo(id="glm-5", name="GLM-5"),
     ModelInfo(id="glm-4.7", name="GLM-4.7"),
     ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
     ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
-    ModelInfo(id="qwen3-max-2026-01-23", name="Qwen3 Max 2026-01-23"),
-    ModelInfo(id="qwen3-coder-next", name="Qwen3 Coder Next"),
-    ModelInfo(id="qwen3-coder-plus", name="Qwen3 Coder Plus"),
+    ModelInfo(
+        id="qwen3-max-2026-01-23",
+        name="Qwen3 Max 2026-01-23",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3-coder-next",
+        name="Qwen3 Coder Next",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3-coder-plus",
+        name="Qwen3 Coder Plus",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gpt-5.2", name="GPT-5.2"),
-    ModelInfo(id="gpt-5", name="GPT-5"),
-    ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
-    ModelInfo(id="gpt-5-nano", name="GPT-5 Nano"),
-    ModelInfo(id="gpt-4.1", name="GPT-4.1"),
-    ModelInfo(id="gpt-4.1-mini", name="GPT-4.1 Mini"),
-    ModelInfo(id="gpt-4.1-nano", name="GPT-4.1 Nano"),
-    ModelInfo(id="o3", name="o3"),
-    ModelInfo(id="o4-mini", name="o4-mini"),
-    ModelInfo(id="gpt-4o", name="GPT-4o"),
-    ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
+    ModelInfo(
+        id="gpt-5.2",
+        name="GPT-5.2",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5",
+        name="GPT-5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-mini",
+        name="GPT-5 Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-nano",
+        name="GPT-5 Nano",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1",
+        name="GPT-4.1",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-mini",
+        name="GPT-4.1 Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-nano",
+        name="GPT-4.1 Nano",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="o3",
+        name="o3",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="o4-mini",
+        name="o4-mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gpt-5-chat", name="GPT-5 Chat"),
-    ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
-    ModelInfo(id="gpt-5-nano", name="GPT-5 Nano"),
-    ModelInfo(id="gpt-4.1", name="GPT-4.1"),
-    ModelInfo(id="gpt-4.1-mini", name="GPT-4.1 Mini"),
-    ModelInfo(id="gpt-4.1-nano", name="GPT-4.1 Nano"),
-    ModelInfo(id="gpt-4o", name="GPT-4o"),
-    ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
+    ModelInfo(
+        id="gpt-5-chat",
+        name="GPT-5 Chat",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-mini",
+        name="GPT-5 Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-nano",
+        name="GPT-5 Nano",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1",
+        name="GPT-4.1",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-mini",
+        name="GPT-4.1 Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-nano",
+        name="GPT-4.1 Nano",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 MINIMAX_MODELS: List[ModelInfo] = [
-    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
-    ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
-    ModelInfo(id="MiniMax-M2.7", name="MiniMax M2.7"),
-    ModelInfo(id="MiniMax-M2.7-highspeed", name="MiniMax M2.7 Highspeed"),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5-highspeed",
+        name="MiniMax M2.5 Highspeed",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.7",
+        name="MiniMax M2.7",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.7-highspeed",
+        name="MiniMax M2.7 Highspeed",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 KIMI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="kimi-k2-0905-preview",
         name="Kimi K2 0905 Preview",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
     ),
     ModelInfo(
         id="kimi-k2-0711-preview",
         name="Kimi K2 0711 Preview",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
     ),
     ModelInfo(
         id="kimi-k2-turbo-preview",
         name="Kimi K2 Turbo Preview",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
     ),
-    ModelInfo(id="kimi-k2-thinking", name="Kimi K2 Thinking"),
+    ModelInfo(
+        id="kimi-k2-thinking",
+        name="Kimi K2 Thinking",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="kimi-k2-thinking-turbo",
         name="Kimi K2 Thinking Turbo",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
     ),
 ]
 
 DEEPSEEK_MODELS: List[ModelInfo] = [
-    ModelInfo(id="deepseek-chat", name="DeepSeek Chat"),
-    ModelInfo(id="deepseek-reasoner", name="DeepSeek Reasoner"),
+    ModelInfo(
+        id="deepseek-chat",
+        name="DeepSeek Chat",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-reasoner",
+        name="DeepSeek Reasoner",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 ANTHROPIC_MODELS: List[ModelInfo] = []
 
 GEMINI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gemini-3.1-pro-preview", name="Gemini 3.1 Pro Preview"),
-    ModelInfo(id="gemini-3-flash-preview", name="Gemini 3 Flash Preview"),
+    ModelInfo(
+        id="gemini-3.1-pro-preview",
+        name="Gemini 3.1 Pro Preview",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-3-flash-preview",
+        name="Gemini 3 Flash Preview",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="gemini-3.1-flash-lite-preview",
         name="Gemini 3.1 Flash Lite Preview",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
     ),
-    ModelInfo(id="gemini-2.5-pro", name="Gemini 2.5 Pro"),
-    ModelInfo(id="gemini-2.5-flash", name="Gemini 2.5 Flash"),
-    ModelInfo(id="gemini-2.5-flash-lite", name="Gemini 2.5 Flash Lite"),
-    ModelInfo(id="gemini-2.0-flash", name="Gemini 2.0 Flash"),
+    ModelInfo(
+        id="gemini-2.5-pro",
+        name="Gemini 2.5 Pro",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.5-flash",
+        name="Gemini 2.5 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.5-flash-lite",
+        name="Gemini 2.5 Flash Lite",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.0-flash",
+        name="Gemini 2.0 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
 ]
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
@@ -755,21 +1010,41 @@ class ProviderManager:
             self.active_model = active_model
 
     def _apply_default_annotations(self):
-        """Apply doc-based default annotations for unprobed models."""
+        """Apply doc-based default annotations for unprobed models.
+
+        Models that already carry static annotations (supports_image /
+        supports_video set at definition time) only need the derived
+        supports_multimodal flag computed.  Models with no annotations
+        at all fall back to the ExpectedCapabilityRegistry.
+        """
         from .capability_baseline import ExpectedCapabilityRegistry
 
         registry = ExpectedCapabilityRegistry()
         for provider in self.builtin_providers.values():
             for model in provider.models:
-                if model.supports_multimodal is None:
-                    expected = registry.get_expected(provider.id, model.id)
-                    if expected:
-                        model.supports_image = expected.expected_image
-                        model.supports_video = expected.expected_video
-                        model.supports_multimodal = (
-                            expected.expected_image or False
-                        ) or (expected.expected_video or False)
-                        model.probe_source = "documentation"
+                # Already fully annotated (e.g. by a prior probe) → skip
+                if model.supports_multimodal is not None:
+                    continue
+
+                # Static annotations present → compute derived flag only
+                if (
+                    model.supports_image is not None
+                    or model.supports_video is not None
+                ):
+                    model.supports_multimodal = bool(
+                        model.supports_image or model.supports_video,
+                    )
+                    continue
+
+                # No annotations at all → fall back to registry
+                expected = registry.get_expected(provider.id, model.id)
+                if expected:
+                    model.supports_image = expected.expected_image
+                    model.supports_video = expected.expected_video
+                    model.supports_multimodal = bool(
+                        expected.expected_image or expected.expected_video,
+                    )
+                    model.probe_source = "documentation"
 
     def update_local_models(self):
         """Update the model list of a local provider."""

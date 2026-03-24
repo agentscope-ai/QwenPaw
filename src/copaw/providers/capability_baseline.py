@@ -109,10 +109,10 @@ class ExpectedCapabilityRegistry:
             ExpectedCapability(
                 provider_id="modelscope",
                 model_id="Qwen/Qwen3.5-122B-A10B",
-                expected_image=None,
-                expected_video=None,
+                expected_image=True,
+                expected_video=True,
                 doc_url=_ms_doc,
-                note="Multimodal capability not specified in ModelScope docs",
+                note="Qwen3.5 is natively multimodal (image+video)",
             ),
         )
         self._register(
@@ -175,10 +175,10 @@ class ExpectedCapabilityRegistry:
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
                 model_id="qwen3.5-plus",
-                expected_image=None,
-                expected_video=None,
+                expected_image=True,
+                expected_video=True,
                 doc_url=_acp_doc,
-                note="Multimodal capability not specified in docs",
+                note="Qwen3.5-Plus is natively multimodal (image+video)",
             ),
         )
         self._register(
