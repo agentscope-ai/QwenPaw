@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { Card, Button, Tag } from "@agentscope-ai/design";
 import { AppstoreOutlined } from "@ant-design/icons";
-import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
+import type { ProviderInfo } from "../../../../../api/types";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
 
 interface LocalProviderCardProps {
   provider: ProviderInfo;
-  activeModels: ActiveModelsInfo | null;
   onSaved: () => void;
   isHover: boolean;
   onMouseEnter: () => void;
@@ -17,7 +16,6 @@ interface LocalProviderCardProps {
 
 export function LocalProviderCard({
   provider,
-  activeModels,
   onSaved,
   isHover,
   onMouseEnter,
@@ -27,12 +25,7 @@ export function LocalProviderCard({
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
   const totalCount = provider.models.length + provider.extra_models.length;
-  const isActiveLlmProvider =
-    activeModels?.active_llm?.provider_id === provider.id;
-  const hasActiveModel =
-    isActiveLlmProvider && !!activeModels?.active_llm?.model;
-  const statusReady = totalCount > 0 || hasActiveModel;
-  const displayCount = totalCount > 0 ? totalCount : hasActiveModel ? 1 : 0;
+  const statusReady = totalCount > 0;
   const statusLabel = statusReady
     ? t("models.available")
     : t("models.unavailable");
@@ -43,7 +36,7 @@ export function LocalProviderCard({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`${styles.providerCard} ${
-        isActiveLlmProvider ? styles.enabledCard : ""
+        statusReady ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
       <div style={{ marginBottom: 16 }}>
@@ -86,8 +79,8 @@ export function LocalProviderCard({
           <div className={styles.infoRow}>
             <span className={styles.infoLabel}>{t("models.model")}:</span>
             <span className={styles.infoValue}>
-              {displayCount > 0
-                ? t("models.modelsCount", { count: displayCount })
+              {totalCount > 0
+                ? t("models.modelsCount", { count: totalCount })
                 : t("models.localDownloadFirst")}
             </span>
           </div>
