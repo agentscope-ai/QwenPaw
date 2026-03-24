@@ -54,12 +54,14 @@
 
 ## 新闻
 
-[2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.0.7]** **新增：** Tool Guard 安全守卫——拦截危险工具调用并等待用户审批；Mattermost 和 Matrix 频道集成；Discord/钉钉/飞书/Telegram @提及过滤；Telegram Markdown 渲染；飞书表情回应和富文本媒体解析；QQ 图片发送；LLM 调用自动重试与指数退避；LM Studio 提供商；Token 用量统计面板；提供商 `generate_kwargs` 编辑器；工作区文件拖拽排序；聊天中模型切换；智能体语言选择；上下文管理配置界面；切换页面保留聊天状态；AI 技能优化与流式输出；技能卡片描述展示；中国用户自动选择 PyPI 镜像。
-- **[v0.0.7]** **优化：** 提供商连接测试错误提示；工作区压缩和会话读取异步化；提供商 ID 冲突自动解决；模型发现改为手动触发；Token 记录集中化；内置技能文档和 Shell PATH 处理；Himalaya 邮件技能；记忆文档重组；配置与安全页面重构。
-- **[v0.0.7]** **修复：** 钉钉认证失败清理；Discord 超长消息拆分；频道配置类型对齐（Matrix/Mattermost/MQTT）；Windows Shell 编码和进程树清理；桌面应用 SSL 证书、输入法和外部链接导航；魔术命令会话状态保护；Ollama 弹窗渲染；聊天请求去重。
-- **[v0.0.7]** **贡献者：** 感谢新贡献者：[@2catycm](https://github.com/2catycm)、[@2niuhe](https://github.com/2niuhe)、[@yingdachen](https://github.com/yingdachen)、[@Atletico1999](https://github.com/Atletico1999)、[@buecker](https://github.com/buecker)、[@Cirilla-zmh](https://github.com/Cirilla-zmh)、[@gnipping](https://github.com/gnipping)、[@Nufe-muzi](https://github.com/Nufe-muzi)、[@FuKunZ](https://github.com/FuKunZ)、[@JasonBuildAI](https://github.com/JasonBuildAI)、[@StarMoonCity](https://github.com/StarMoonCity)、[@walker83](https://github.com/walker83)、[@lllcy](https://github.com/lllcy)。
+- **[v0.1.0] 新增：** 多工作区架构，支持 Agent 切换器；技能安全扫描和危险 Shell 命令检测；可选 Web 认证；企业微信和小艺通道；钉钉 AI 卡片回复；Gemini、DeepSeek、MiniMax、Kimi 模型供应商；控制台暗色模式和多模态聊天；基于 SSE 的流式对话（支持重连）；Whisper 语音转文字；`view_image` 多模态对话工具；LobeHub、魔搭和 Zip 压缩包技能导入；`glob_search` 和 `grep_search` 内置搜索工具；时区选择器；`copaw update` 自升级命令。
+- **[v0.1.0] 优化：** 优雅的生命周期管理（Agent 零停机重载）；动态 Agent 级 Token 计数；配置加载保护；控制台多语言改进（含聊天提示词本地化）；Windows 桌面端字节码预编译加速启动；QQ 频道回复逻辑优化和私聊支持。
+- **[v0.1.0] 修复：** Telegram 消息线程、媒体处理和自动重连；Discord 跨频道消息合并和防抖泛化；飞书通道重载；Ollama/LM Studio 上下文长度和错误提示；定时任务工作区修复；聊天会话导航持久化；Windows 跨磁盘文件移动、AutoRun stderr 和 GBK 编码。
+- **[v0.1.0] 贡献者：** 感谢新贡献者：[@dipeshbabu](https://github.com/dipeshbabu)、[@sljeff](https://github.com/sljeff)、[@octo-patch](https://github.com/octo-patch)、[@Alexxigang](https://github.com/Alexxigang)、[@howyoungchen](https://github.com/howyoungchen)、[@nphenix](https://github.com/nphenix)、[@skyfaker](https://github.com/skyfaker)、[@hh0592821](https://github.com/hh0592821)、[@futuremeng](https://github.com/futuremeng)、[@toby1123yjh](https://github.com/toby1123yjh)、[@hiyuchang](https://github.com/hiyuchang)、[@hanson-hex](https://github.com/hanson-hex)、[@JackyMao1999](https://github.com/JackyMao1999)、[@mvanhorn](https://github.com/mvanhorn)、[@yuanxs21](https://github.com/yuanxs21)、[@aissac](https://github.com/aissac)、[@lcq225](https://github.com/lcq225)、[@Justin-lu](https://github.com/Justin-lu)、[@rowanchen-com](https://github.com/rowanchen-com)、[@pzlav](https://github.com/pzlav)、[@mautops](https://github.com/mautops)、[@hikariming](https://github.com/hikariming)、[@Vanlee0129](https://github.com/Vanlee0129)、[@JiwaniZakir](https://github.com/JiwaniZakir)、[@EuanTop](https://github.com/EuanTop)。
+
+[2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
@@ -106,7 +108,7 @@ copaw app
 
 在浏览器打开 **http://127.0.0.1:8088/** 即可使用控制台（与 CoPaw 对话、配置 Agent）。若要在钉钉、飞书、QQ 等 app 内对话，请参考 [文档](https://copaw.agentscope.io/docs/channels) 接入频道。
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01kUEGsC1XolpzIWdsu_!!6000000002971-2-tps-3822-2064.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
 
 ### 脚本安装
 

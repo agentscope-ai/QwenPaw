@@ -2,16 +2,23 @@
 
 **Magic commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
 
-| Command         | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
-| --------------- | ------ | ------------------ | ------------------ | ----------------------------- |
-| `/history`      | ⚡ No  | -                  | -                  | 📋 Message list + Token stats |
-| `/message`      | ⚡ No  | -                  | -                  | 📄 Specified message details  |
-| `/compact_str`  | ⚡ No  | -                  | -                  | 📝 Compressed summary content |
-| `/compact`      | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
-| `/new`          | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
-| `/clear`        | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
-| `/dump_history` | ⚡ No  | 💾 Save            | -                  | 📁 Exported history file path |
-| `/load_history` | ⚡ No  | 📥 Restore         | -                  | ✅ History load result        |
+### Context Management
+
+| Command    | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
+| ---------- | ------ | ------------------ | ------------------ | ----------------------------- |
+| `/compact` | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
+| `/new`     | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
+| `/clear`   | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
+
+### Context Debugging
+
+| Command         | Response Content              |
+| --------------- | ----------------------------- |
+| `/history`      | 📋 Message list + Token stats |
+| `/message`      | 📄 Specified message details  |
+| `/compact_str`  | 📝 Compressed summary content |
+| `/dump_history` | 📁 Exported history file path |
+| `/load_history` | ✅ History load result        |
 
 ---
 

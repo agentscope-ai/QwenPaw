@@ -5,6 +5,7 @@ import {
   useRef,
   createContext,
   useContext,
+  isValidElement,
 } from "react";
 import {
   Link,
@@ -129,6 +130,21 @@ function headingText(children: React.ReactNode): string {
   if (children && typeof children === "object" && "props" in children)
     return headingText((children as React.ReactElement).props.children);
   return "";
+}
+
+function isMermaidBlockNode(children: React.ReactNode): boolean {
+  if (Array.isArray(children)) return children.some(isMermaidBlockNode);
+  if (!isValidElement(children)) return false;
+  if (children.type === MermaidBlock) return true;
+
+  const props = children.props as {
+    className?: string;
+    children?: React.ReactNode;
+  };
+  const className = props.className ?? "";
+  if (className.split(/\s+/).includes("language-mermaid")) return true;
+
+  return isMermaidBlockNode(props.children);
 }
 
 interface DocEntry {
@@ -647,6 +663,9 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                         components={{
                           pre: ({ children, ...props }) => {
                             const langCtx = useContext(LangContext);
+                            if (isMermaidBlockNode(children)) {
+                              return <>{children}</>;
+                            }
                             return (
                               <CodeBlockWithCopy lang={langCtx}>
                                 <pre {...props}>{children}</pre>
@@ -698,7 +717,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                             const langCode = match?.[1];
                             if (langCode === "mermaid") {
                               const chart = String(children).replace(/\n$/, "");
-                              return <MermaidBlock chart={chart} />;
+                              return <MermaidBlock key={chart} chart={chart} />;
                             }
                             // inline code vs block code
                             const isInline = !className;

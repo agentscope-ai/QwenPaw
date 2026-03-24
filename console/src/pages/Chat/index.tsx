@@ -1,7 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
-  IAgentScopeRuntimeWebUIRef,
+  type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
@@ -11,15 +11,18 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
-import Weather from "./Weather";
-import { getApiToken, getApiUrl } from "../../api/config";
-import { providerApi } from "../../api/modules/provider";
 import { chatApi } from "../../api/modules/chat";
-import api from "../../api";
+import { getApiUrl } from "../../api/config";
+import { buildAuthHeaders } from "../../api/authHeaders";
+import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import "./index.module.less";
+import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
+import styles from "./index.module.less";
+import { Tooltip } from "antd";
+import { IconButton } from "@agentscope-ai/design";
+import { SparkAttachmentLine } from "@agentscope-ai/icons";
 
 type CopyableContent = {
   type?: string;
@@ -34,6 +37,11 @@ type CopyableMessage = {
 
 type CopyableResponse = {
   output?: CopyableMessage[];
+};
+
+type RuntimeLoadingBridgeApi = {
+  getLoading?: () => boolean | string;
+  setLoading?: (loading: boolean | string) => void;
 };
 
 interface CustomWindow extends Window {
@@ -113,6 +121,40 @@ function buildModelError(): Response {
   );
 }
 
+function RuntimeLoadingBridge({
+  bridgeRef,
+}: {
+  bridgeRef: { current: RuntimeLoadingBridgeApi | null };
+}) {
+  const { setLoading, getLoading } = useChatAnywhereInput(
+    (value) =>
+      ({
+        setLoading: value.setLoading,
+        getLoading: value.getLoading,
+      }) as RuntimeLoadingBridgeApi,
+  );
+
+  useEffect(() => {
+    if (!setLoading || !getLoading) {
+      bridgeRef.current = null;
+      return;
+    }
+
+    bridgeRef.current = {
+      setLoading,
+      getLoading,
+    };
+
+    return () => {
+      if (bridgeRef.current?.setLoading === setLoading) {
+        bridgeRef.current = null;
+      }
+    };
+  }, [getLoading, setLoading, bridgeRef]);
+
+  return null;
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -129,10 +171,7 @@ export default function ChatPage() {
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
-  const [, setReconnectStreaming] = useState(false);
-  const reconnectTriggeredForRef = useRef<string | null>(null);
-  const prevChatIdRef = useRef<string | undefined>(undefined);
+  const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
@@ -147,11 +186,6 @@ export default function ChatPage() {
   navigateRef.current = navigate;
 
   useEffect(() => {
-    sessionApi.setChatRef(chatRef);
-    return () => sessionApi.setChatRef(null);
-  }, []);
-
-  useEffect(() => {
     const handleCompositionStart = () => {
       if (!isChatActiveRef.current) return;
       isComposingRef.current = true;
@@ -159,18 +193,23 @@ export default function ChatPage() {
 
     const handleCompositionEnd = () => {
       if (!isChatActiveRef.current) return;
+      // Use a slightly longer delay for Safari on macOS, which fires keydown
+      // after compositionend within the same event loop tick.
       setTimeout(() => {
         isComposingRef.current = false;
-      }, 150);
+      }, 200);
     };
 
-    const handleKeyPress = (e: KeyboardEvent) => {
+    const suppressImeEnter = (e: KeyboardEvent) => {
       if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+        // e.isComposing is the standard flag; isComposingRef covers the
+        // post-compositionend grace period needed by Safari.
         if (isComposingRef.current || (e as any).isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
+          e.preventDefault();
           return false;
         }
       }
@@ -178,7 +217,9 @@ export default function ChatPage() {
 
     document.addEventListener("compositionstart", handleCompositionStart, true);
     document.addEventListener("compositionend", handleCompositionEnd, true);
-    document.addEventListener("keypress", handleKeyPress, true);
+    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
+    document.addEventListener("keydown", suppressImeEnter, true);
+    document.addEventListener("keypress", suppressImeEnter, true);
 
     return () => {
       document.removeEventListener(
@@ -191,7 +232,8 @@ export default function ChatPage() {
         handleCompositionEnd,
         true,
       );
-      document.removeEventListener("keypress", handleKeyPress, true);
+      document.removeEventListener("keydown", suppressImeEnter, true);
+      document.removeEventListener("keypress", suppressImeEnter, true);
     };
   }, []);
 
@@ -217,34 +259,6 @@ export default function ChatPage() {
       sessionApi.onSessionRemoved = null;
     };
   }, []);
-
-  // Fetch chat status when viewing a chat (for running indicator and reconnect)
-  useEffect(() => {
-    if (!chatId || chatId === "undefined" || chatId === "null") {
-      setChatStatus("idle");
-      return;
-    }
-    const realId = sessionApi.getRealIdForSession(chatId) ?? chatId;
-    api.getChat(realId).then(
-      (res) => setChatStatus((res.status as "idle" | "running") ?? "idle"),
-      () => setChatStatus("idle"),
-    );
-  }, [chatId]);
-
-  // Trigger reconnect when session status becomes "running" so the library
-  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
-  // run after React has updated and the chat input ref is ready, avoiding
-  // a fixed timeout and race conditions.
-  useEffect(() => {
-    if (prevChatIdRef.current !== chatId) {
-      prevChatIdRef.current = chatId;
-      reconnectTriggeredForRef.current = null;
-    }
-    if (!chatId || chatStatus !== "running") return;
-    if (reconnectTriggeredForRef.current === chatId) return;
-    reconnectTriggeredForRef.current = chatId;
-    sessionApi.triggerReconnectSubmit();
-  }, [chatId, chatStatus]);
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -297,7 +311,7 @@ export default function ChatPage() {
 
   const createSessionWrapped = useCallback(async (session: any) => {
     const result = await sessionApi.createSession(session);
-    const newSessionId = result[0]?.id;
+    const newSessionId = session?.id || result[0]?.id;
     if (isChatActiveRef.current && newSessionId) {
       lastSessionIdRef.current = newSessionId;
       navigateRef.current(`/chat/${newSessionId}`, { replace: true });
@@ -333,72 +347,11 @@ export default function ChatPage() {
       input?: any[];
       biz_params?: any;
       signal?: AbortSignal;
-      reconnect?: boolean;
-      session_id?: string;
-      user_id?: string;
-      channel?: string;
     }): Promise<Response> => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        ...buildAuthHeaders(),
       };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
-      }
-
-      const shouldReconnect =
-        data.reconnect || data.biz_params?.reconnect === true;
-      const reconnectSessionId =
-        data.session_id ?? window.currentSessionId ?? "";
-      if (shouldReconnect && reconnectSessionId) {
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            reconnect: true,
-            session_id: reconnectSessionId,
-            user_id: data.user_id ?? window.currentUserId ?? "default",
-            channel: data.channel ?? window.currentChannel ?? "console",
-          }),
-        });
-        if (!res.ok || !res.body) return res;
-        const onStreamEnd = () => {
-          setChatStatus("idle");
-          setReconnectStreaming(false);
-        };
-        const stream = res.body;
-        const transformed = new ReadableStream({
-          start(controller) {
-            const reader = stream.getReader();
-            function pump() {
-              reader.read().then(({ done, value }) => {
-                if (done) {
-                  controller.close();
-                  onStreamEnd();
-                  return;
-                }
-                controller.enqueue(value);
-                return pump();
-              });
-            }
-            pump();
-          },
-        });
-        return new Response(transformed, {
-          headers: res.headers,
-          status: res.status,
-        });
-      }
 
       try {
         const activeModels = await providerApi.getActiveModels();
@@ -416,25 +369,78 @@ export default function ChatPage() {
 
       const { input = [], biz_params } = data;
       const session = input[input.length - 1]?.session || {};
-      const sessionId = window.currentSessionId || session?.session_id || "";
+      const lastInput = input.slice(-1);
+      const lastMsg = lastInput[0];
+      const rewrittenInput =
+        lastMsg?.content && Array.isArray(lastMsg.content)
+          ? [
+              {
+                ...lastMsg,
+                content: lastMsg.content.map((part: any) => {
+                  const p = { ...part };
+                  const toStoredName = (v: string) => {
+                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                    if (m1) return m1[1];
+                    const m2 = v.match(/^[^/]+\/(.+)$/);
+                    if (m2) return m2[1];
+                    return v;
+                  };
+                  if (p.type === "image" && typeof p.image_url === "string")
+                    p.image_url = toStoredName(p.image_url);
+                  if (p.type === "file" && typeof p.file_url === "string")
+                    p.file_url = toStoredName(p.file_url);
+                  if (p.type === "audio" && typeof p.data === "string")
+                    p.data = toStoredName(p.data);
+                  if (p.type === "video" && typeof p.video_url === "string")
+                    p.video_url = toStoredName(p.video_url);
+
+                  return p;
+                }),
+              },
+            ]
+          : lastInput;
 
       const requestBody = {
-        input: input.slice(-1),
-        session_id: sessionId,
+        input: rewrittenInput,
+        session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || "default",
         channel: window.currentChannel || session?.channel || "console",
         stream: true,
         ...biz_params,
       };
 
-      return fetch(getApiUrl("/console/chat"), {
+      const backendChatId =
+        sessionApi.getRealIdForSession(requestBody.session_id) ??
+        chatIdRef.current ??
+        requestBody.session_id;
+      if (backendChatId) {
+        const userText = rewrittenInput
+          .filter((m: any) => m.role === "user")
+          .map((m: any) => {
+            if (typeof m.content === "string") return m.content;
+            if (!Array.isArray(m.content)) return "";
+            return m.content
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.text || "")
+              .join("\n");
+          })
+          .join("\n")
+          .trim();
+        if (userText) {
+          sessionApi.setLastUserMessage(backendChatId, userText);
+        }
+      }
+
+      const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
+
+      return response;
     },
-    [setChatStatus, setReconnectStreaming],
+    [],
   );
 
   const options = useMemo(() => {
@@ -453,7 +459,12 @@ export default function ChatPage() {
         leftHeader: {
           ...defaultConfig.theme.leftHeader,
         },
-        rightHeader: <ModelSelector />,
+        rightHeader: (
+          <>
+            <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+            <ModelSelector />
+          </>
+        ),
       },
       welcome: {
         ...i18nConfig.welcome,
@@ -466,23 +477,76 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
+        attachments: {
+          trigger: function (props: any) {
+            return (
+              <Tooltip title={t("chat.attachments.tooltip")}>
+                <IconButton
+                  disabled={props?.disabled}
+                  icon={<SparkAttachmentLine />}
+                  bordered={false}
+                />
+              </Tooltip>
+            );
+          },
+          accept: "*/*",
+          customRequest: async (options: {
+            file: File;
+            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+            onError?: (e: Error) => void;
+            onProgress?: (e: { percent?: number }) => void;
+          }) => {
+            try {
+              console.log("options.file", options.file);
+
+              // Check file size limit (10MB)
+              const file = options.file as File;
+              const isLt10M = file.size / 1024 / 1024 < 10;
+              if (!isLt10M) {
+                message.error(t("chat.attachments.fileSizeLimit"));
+                return options.onError?.(new Error("File size exceeds 10MB"));
+              }
+
+              options.onProgress?.({ percent: 0 });
+              const res = await chatApi.uploadFile(options.file);
+              options.onProgress?.({ percent: 100 });
+              options.onSuccess({ url: chatApi.fileUrl(res.url) });
+            } catch (e) {
+              options.onError?.(e instanceof Error ? e : new Error(String(e)));
+            }
+          },
+        },
       },
       session: { multiple: true, api: wrappedSessionApi },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          const chatIdForStop = data?.session_id
-            ? sessionApi.getRealIdForSession(data.session_id) ?? data.session_id
-            : "";
-          if (chatIdForStop) {
-            chatApi.stopConsoleChat(chatIdForStop).then(
-              () => setChatStatus("idle"),
-              (err) => {
-                console.error("stopConsoleChat failed:", err);
-              },
-            );
+          const chatId =
+            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+          if (chatId) {
+            chatApi.stopChat(chatId).catch((err) => {
+              console.error("Failed to stop chat:", err);
+            });
           }
+        },
+        async reconnect(data: { session_id: string; signal?: AbortSignal }) {
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            ...buildAuthHeaders(),
+          };
+
+          return fetch(getApiUrl("/console/chat"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              reconnect: true,
+              session_id: window.currentSessionId || data.session_id,
+              user_id: window.currentUserId || "default",
+              channel: window.currentChannel || "console",
+            }),
+            signal: data.signal,
+          });
         },
       },
       actions: {
@@ -499,9 +563,6 @@ export default function ChatPage() {
           },
         ],
         replace: true,
-      },
-      customToolRenderConfig: {
-        "weather search mock": Weather,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [
@@ -522,7 +583,7 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className={styles.chatMessagesArea}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={`${refreshKey}:${selectedAgent}:${
@@ -532,11 +593,33 @@ export default function ChatPage() {
         />
       </div>
 
-      <Modal open={showModelPrompt} closable={false} footer={null} width={480}>
+      <Modal
+        open={showModelPrompt}
+        closable={false}
+        footer={null}
+        width={480}
+        styles={{
+          content: isDark
+            ? { background: "#1f1f1f", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }
+            : undefined,
+        }}
+      >
         <Result
           icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-          title={t("modelConfig.promptTitle")}
-          subTitle={t("modelConfig.promptMessage")}
+          title={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+            >
+              {t("modelConfig.promptTitle")}
+            </span>
+          }
+          subTitle={
+            <span
+              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+            >
+              {t("modelConfig.promptMessage")}
+            </span>
+          }
           extra={[
             <Button key="skip" onClick={() => setShowModelPrompt(false)}>
               {t("modelConfig.skipButton")}

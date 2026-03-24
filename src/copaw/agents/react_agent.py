@@ -4,6 +4,7 @@
 This module provides the main CoPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
+
 import asyncio
 import logging
 import os
@@ -35,6 +36,8 @@ from .tools import (
     execute_shell_command,
     get_current_time,
     get_token_usage,
+    glob_search,
+    grep_search,
     read_file,
     send_file_to_user,
     set_user_timezone,
@@ -117,20 +120,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Extract configuration from agent_config
         running_config = agent_config.running
-        self._max_input_length = running_config.max_input_length
         self._language = agent_config.language
-
-        # Memory compaction settings from config
-        self._memory_compact_threshold = (
-            running_config.memory_compact_threshold
-        )
-        self._memory_compact_reserve = running_config.memory_compact_reserve
-        self._enable_tool_result_compact = (
-            running_config.enable_tool_result_compact
-        )
-        self._tool_result_compact_keep_n = (
-            running_config.tool_result_compact_keep_n
-        )
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
@@ -168,7 +158,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             memory=self.memory,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
-            agent_config=agent_config,
         )
 
         # Register hooks
@@ -213,6 +202,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "read_file": read_file,
             "write_file": write_file,
             "edit_file": edit_file,
+            "grep_search": grep_search,
+            "glob_search": glob_search,
             "browser_use": browser_use,
             "desktop_screenshot": desktop_screenshot,
             "view_image": view_image,
@@ -276,10 +267,20 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             else None
         )
 
+        # Check if heartbeat is enabled in agent config
+        heartbeat_enabled = False
+        if (
+            hasattr(self._agent_config, "heartbeat")
+            and self._agent_config.heartbeat is not None
+        ):
+            heartbeat_enabled = self._agent_config.heartbeat.enabled
+
         sys_prompt = build_system_prompt_from_working_dir(
             working_dir=self._workspace_dir,
             agent_id=agent_id,
+            heartbeat_enabled=heartbeat_enabled,
         )
+        logger.debug("System prompt:\n%s", sys_prompt)
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
@@ -341,7 +342,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
-                agent_config=self._agent_config,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
@@ -424,12 +424,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         client_name,
                     )
             except Exception as e:  # pylint: disable=broad-except
-                logger.exception(
-                    "Unexpected error registering MCP client '%s': %s",
+                logger.warning(
+                    "Failed to register MCP client '%s', skipping: %s",
                     client_name,
                     e,
+                    exc_info=True,
                 )
-                raise
 
     async def _recover_mcp_client(self, client: Any) -> Any | None:
         """Recover MCP client from broken session and return healthy client."""
@@ -531,11 +531,17 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
                 return rebuilt_client
 
+            raw_headers = rebuild_info.get("headers") or {}
+            headers = (
+                {k: os.path.expandvars(v) for k, v in raw_headers.items()}
+                if raw_headers
+                else None
+            )
             rebuilt_client = HttpStatefulClient(
                 name=name,
                 transport=transport,
                 url=rebuild_info.get("url"),
-                headers=rebuild_info.get("headers"),
+                headers=headers,
             )
             setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
             return rebuilt_client
@@ -579,24 +585,119 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return await super()._reasoning(tool_choice=tool_choice)
 
     async def _summarizing(self) -> Msg:
-        """Override summarizing with the same media-block fallback."""
+        """Override summarizing with media-block fallback and tool_use filter.
+
+        Some models (e.g. kimi-k2.5) generate tool_use blocks even when
+        no tools are provided, by mimicking patterns in conversation
+        history.  Since _summarizing has no acting stage, those blocks
+        would be displayed but never executed.
+
+        We set ``_in_summarizing`` so that ``print`` can strip tool_use
+        blocks from streaming chunks *before* they reach the frontend,
+        preventing the visual flash of phantom tool calls.
+        """
+        self._in_summarizing = True
         try:
-            return await super()._summarizing()
-        except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
-                raise
+            try:
+                msg = await super()._summarizing()
+            except Exception as e:
+                if not self._is_bad_request_or_media_error(e):
+                    raise
 
-            n_stripped = self._strip_media_blocks_from_memory()
-            if n_stripped == 0:
-                raise
+                n_stripped = self._strip_media_blocks_from_memory()
+                if n_stripped == 0:
+                    raise
 
-            logger.warning(
-                "_summarizing failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
-                e,
-                n_stripped,
+                logger.warning(
+                    "_summarizing failed (%s). "
+                    "Stripped %d media block(s) from memory, retrying.",
+                    e,
+                    n_stripped,
+                )
+                msg = await super()._summarizing()
+        finally:
+            self._in_summarizing = False
+
+        return self._strip_tool_use_from_msg(msg)
+
+    async def print(
+        self,
+        msg: Msg,
+        last: bool = True,
+        speech: Any = None,
+    ) -> None:
+        """Filter tool_use blocks during _summarizing before they hit the
+        message queue, preventing the frontend from briefly rendering
+        phantom tool calls that will never be executed.
+
+        On the *final* streaming event (``last=True``), append the
+        round-end notice so users see it immediately instead of only
+        after a page refresh.  Intermediate events that become empty
+        after filtering are silently skipped to avoid blank UI flashes.
+        """
+        if getattr(self, "_in_summarizing", False) and isinstance(
+            msg.content,
+            list,
+        ):
+            original = msg.content
+            filtered = [
+                b
+                for b in original
+                if not (isinstance(b, dict) and b.get("type") == "tool_use")
+            ]
+            if len(filtered) != len(original):
+                if not filtered and not last:
+                    return
+                if last:
+                    filtered.append(
+                        {"type": "text", "text": self._ROUND_END_NOTICE},
+                    )
+                msg.content = filtered
+                try:
+                    return await super().print(msg, last, speech=speech)
+                finally:
+                    msg.content = original
+        return await super().print(msg, last, speech=speech)
+
+    _ROUND_END_NOTICE = (
+        "\n\n---\n"
+        "本轮调用已达最大次数，回复已终止，请继续输入。\n"
+        "Maximum iterations reached for this round. "
+        "Please send a new message to continue."
+    )
+
+    @staticmethod
+    def _strip_tool_use_from_msg(msg: Msg) -> Msg:
+        """Remove tool_use blocks from a message and append a user notice.
+
+        When _summarizing is called without tools, some models still
+        return tool_use blocks.  Those blocks can never be executed, so
+        strip them and append a bilingual notice telling the user this
+        round of calls has ended.
+        """
+        if not isinstance(msg.content, list):
+            return msg
+
+        filtered = [
+            block
+            for block in msg.content
+            if not (
+                isinstance(block, dict) and block.get("type") == "tool_use"
             )
-            return await super()._summarizing()
+        ]
+
+        if len(filtered) == len(msg.content):
+            return msg
+
+        n_removed = len(msg.content) - len(filtered)
+        logger.debug(
+            "Stripped %d tool_use block(s) from _summarizing response",
+            n_removed,
+        )
+
+        filtered.append({"type": "text", "text": CoPawAgent._ROUND_END_NOTICE})
+        msg.content = filtered
+        return msg
 
     @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:
@@ -718,6 +819,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return msg
 
         # Normal message processing
+        logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
         return await super().reply(msg=msg, structured_model=structured_model)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:

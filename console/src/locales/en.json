@@ -95,7 +95,7 @@
     "downloadSuccess": "Workspace downloaded successfully",
     "downloadFailed": "Workspace download failed",
     "zipOnly": "Only .zip files are supported for upload",
-    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB",
+    "fileSizeLimit": "File size exceeds 100MB limit. Current file: {{size}}MB",
     "systemPromptToggleTooltip": "Enable/disable this file in system prompt",
     "memoryFileWarning": "MEMORY.md is typically queried on-demand by the agent using tools. Loading it into the system prompt may cause the context to become too long.",
     "configUpdated": "System prompt configuration updated",
@@ -190,7 +190,13 @@
     "noContentToOptimize": "No content to optimize",
     "cancelImport": "Cancel Import",
     "importCancelled": "Skill import cancelled",
-    "importTimeout": "Skill import timed out. Please retry or check your network."
+    "importTimeout": "Skill import timed out. Please retry or check your network.",
+    "uploadSkill": "Upload Skill",
+    "uploadSuccess": "Skill uploaded successfully",
+    "uploadFailed": "Skill upload failed",
+    "uploadNoChange": "No new skills were imported. They may already exist.",
+    "zipOnly": "Only .zip files are supported for upload",
+    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB"
   },
   "mcp": {
     "title": "MCP Clients",
@@ -382,7 +388,11 @@
     "xiaoyiSetupGuide": "Please create an agent on Huawei Developer Platform and get AK/SK and Agent ID. AK/SK can be found in the credential management page.",
     "filterAll": "All",
     "builtin": "Built-in",
-    "custom": "Custom"
+    "custom": "Custom",
+    "feishuRegion": "Region",
+    "feishuRegionTooltip": "Choose Feishu for China or Lark for International",
+    "feishuChina": "Feishu (China)",
+    "feishuInternational": "Lark (International)"
   },
   "sessions": {
     "title": "Sessions",
@@ -433,6 +443,11 @@
     "variables": "variables",
     "showValue": "Show value",
     "hideValue": "Hide value"
+  },
+  "modelSelector": {
+    "selectModel": "Select model",
+    "noConfiguredModels": "No configured models",
+    "switchFailed": "Failed to switch model"
   },
   "tokenUsage": {
     "title": "Token Usage",
@@ -513,6 +528,8 @@
     "providerNotConfigured": "Not Ready (not configured)",
     "settings": "Settings",
     "actions": "Actions",
+    "search": "Search",
+    "searchPlaceholder": "Search providers...",
     "custom": "Custom",
     "builtin": "Built-in",
     "addProvider": "Add Provider",
@@ -620,13 +637,20 @@
     "contextCompactReserveThreshold": "Context Reserve Threshold",
     "contextCompactReserveThresholdTooltip": "Context reserve threshold (tokens), auto-calculated from max input length and reserve ratio",
     "contextCompactReserveThresholdPlaceholder": "Auto-calculated",
-    "enableToolResultCompact": "Enable Tool Result Compact",
-    "enableToolResultCompactTooltip": "Whether to compact tool result messages in context",
-    "toolResultCompactKeepN": "Tool Result Compact Keep Count",
-    "toolResultCompactKeepNTooltip": "Number of tool result messages to keep when compacting",
-    "toolResultCompactKeepNPlaceholder": "Enter keep count",
-    "toolResultCompactKeepNRequired": "Tool result keep count is required",
-    "toolResultCompactKeepNMin": "Tool result keep count must be at least 1",
+    "toolResultCompactRecentN": "Tool Result recent_n",
+    "toolResultCompactRecentNTooltip": "Number of tool results to use recent threshold for",
+    "toolResultCompactRecentNRequired": "Tool result recent_n is required",
+    "toolResultCompactOldThreshold": "Max Characters for Tool Results Beyond recent_n",
+    "toolResultCompactOldThresholdTooltip": "Tool results beyond recent_n exceeding this character limit will be compacted",
+    "toolResultCompactOldThresholdPlaceholder": "Enter character threshold",
+    "toolResultCompactOldThresholdRequired": "Max characters for tool results beyond recent_n is required",
+    "toolResultCompactRecentThreshold": "Max Characters for Tool Results Within recent_n",
+    "toolResultCompactRecentThresholdTooltip": "Tool results within recent_n exceeding this character limit will be compacted",
+    "toolResultCompactRecentThresholdPlaceholder": "Enter character threshold",
+    "toolResultCompactRecentThresholdRequired": "Max characters for tool results within recent_n is required",
+    "toolResultCompactRetentionDays": "Tool Result File Retention Days",
+    "toolResultCompactRetentionDaysTooltip": "Number of days to retain compacted tool result files, expired files are auto-cleaned",
+    "toolResultCompactRetentionDaysRequired": "Tool result file retention days is required",
     "language": "Agent Language",
     "languageTooltip": "Language for agent persona files (SOUL.md, AGENTS.md, etc.). Changing this will re-copy MD files in the selected language.",
     "languageConfirmTitle": "Change Agent Language",
@@ -661,8 +685,8 @@
     "allDisabled": "All tools are already disabled"
   },
   "modelConfig": {
-    "promptTitle": "LLM Model Required",
-    "promptMessage": "Chat requires an LLM model to function. Without a configured model, conversations and messages cannot be sent to the backend for processing and storage, and will be lost after a page refresh. Would you like to configure a model now?",
+    "promptTitle": "LLM Model Required — Select in Chat After Configuration",
+    "promptMessage": "Chat requires an LLM model to function. Please configure a model first, then select it from the model selector at the top of the Chat page.",
     "configureButton": "Configure Model",
     "skipButton": "Skip",
     "chatDisabledTitle": "Chat Disabled",
@@ -698,7 +722,11 @@
     "greeting": "Hello, how can I help you today?",
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
-    "prompt2": "Can you tell me what skills you have?"
+    "prompt2": "Can you tell me what skills you have?",
+    "attachments": {
+      "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
+      "fileSizeLimit": "Single file cannot exceed 10MB"
+    }
   },
   "security": {
     "title": "Security",
@@ -769,6 +797,22 @@
         "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter"
       }
     },
+    "fileGuard": {
+      "title": "File Guard",
+      "description": "Protect sensitive files and directories from being accessed by agent tools. Paths added here will be blocked across all tool calls.",
+      "enableLabel": "Enable File Guard",
+      "path": "Path",
+      "actions": "Actions",
+      "add": "Add",
+      "inputPlaceholder": "Enter file or directory path (e.g. ~/.ssh/ or /etc/passwd)",
+      "empty": "No custom sensitive paths configured",
+      "directory": "Directory",
+      "removeConfirm": "Remove this path from the protected list?",
+      "duplicate": "This path is already in the list",
+      "saveSuccess": "File guard settings saved",
+      "saveFailed": "Failed to save file guard settings",
+      "loadFailed": "Failed to load file guard settings"
+    },
     "skillScanner": {
       "title": "Skill Scanner",
       "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
@@ -838,5 +882,24 @@
     "logoutSuccess": "Logged out successfully",
     "sessionExpired": "Session expired, please login again",
     "unauthorized": "Unauthorized, please login"
+  },
+  "account": {
+    "title": "Account",
+    "currentPassword": "Current Password",
+    "currentPasswordRequired": "Please enter your current password",
+    "newUsername": "New Username",
+    "newUsernamePlaceholder": "Leave blank to keep current",
+    "newPassword": "New Password",
+    "newPasswordPlaceholder": "Leave blank to keep current",
+    "confirmPassword": "Confirm New Password",
+    "confirmPasswordPlaceholder": "Re-enter new password",
+    "passwordMismatch": "Passwords do not match",
+    "save": "Save Changes",
+    "updateSuccess": "Account updated successfully",
+    "updateFailed": "Failed to update account",
+    "wrongPassword": "Current password is incorrect",
+    "nothingToUpdate": "Please enter a new username or password",
+    "passwordEmpty": "Password cannot be blank",
+    "usernameEmpty": "Username cannot be blank"
   }
 }

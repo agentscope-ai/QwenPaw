@@ -238,6 +238,75 @@ def register_user(username: str, password: str) -> Optional[str]:
     return create_token(username)
 
 
+def auto_register_from_env() -> None:
+    """Auto-register admin user from environment variables.
+
+    Called once during application startup.  If ``COPAW_AUTH_ENABLED``
+    is truthy and both ``COPAW_AUTH_USERNAME`` and ``COPAW_AUTH_PASSWORD``
+    are set, the admin account is created automatically — useful for
+    Docker, Kubernetes, server-panel, and other automated deployments
+    where interactive web registration is not practical.
+
+    Skips silently when:
+    - authentication is not enabled
+    - a user has already been registered
+    - either env var is missing or empty
+    """
+    if not is_auth_enabled():
+        return
+    if has_registered_users():
+        return
+
+    username = os.environ.get("COPAW_AUTH_USERNAME", "").strip()
+    password = os.environ.get("COPAW_AUTH_PASSWORD", "").strip()
+    if not username or not password:
+        return
+
+    token = register_user(username, password)
+    if token:
+        logger.info(
+            "Auto-registered user '%s' from environment variables",
+            username,
+        )
+
+
+def update_credentials(
+    current_password: str,
+    new_username: Optional[str] = None,
+    new_password: Optional[str] = None,
+) -> Optional[str]:
+    """Update the registered user's username and/or password.
+
+    Requires the current password for verification.  Returns a new
+    token on success (because the username may have changed), or
+    ``None`` if verification fails.
+    """
+    data = _load_auth_data()
+    user = data.get("user")
+    if not user:
+        return None
+
+    stored_hash = user.get("password_hash", "")
+    stored_salt = user.get("password_salt", "")
+    if not verify_password(current_password, stored_hash, stored_salt):
+        return None
+
+    if new_username and new_username.strip():
+        user["username"] = new_username.strip()
+
+    if new_password:
+        pw_hash, salt = _hash_password(new_password)
+        user["password_hash"] = pw_hash
+        user["password_salt"] = salt
+        # Rotate JWT secret to invalidate all existing sessions
+        data["jwt_secret"] = secrets.token_hex(32)
+
+    data["user"] = user
+    _save_auth_data(data)
+    logger.info("Credentials updated for user '%s'", user["username"])
+    return create_token(user["username"])
+
+
 # ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------

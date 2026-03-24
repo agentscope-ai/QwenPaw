@@ -52,6 +52,53 @@ In **Settings → Security → Tool Guard** you can:
 
 ---
 
+## File Guard
+
+The **File Guard** blocks agent tools from accessing sensitive files and directories. It runs on **every tool call** (not just guarded tools), scanning file path parameters and shell command arguments to enforce a deny list of protected paths.
+
+### How it works
+
+1. When any tool is called, the File Guard checks whether its parameters contain a path that matches the sensitive-file list.
+2. For known file tools (`read_file`, `write_file`, `edit_file`, etc.), the `file_path` parameter is checked directly.
+3. For `execute_shell_command`, file paths are extracted from the command string (including redirection targets like `>`, `>>`, `<`).
+4. For all other tools, every string parameter that looks like a file path is scanned.
+5. If a match is found, the tool call is blocked with a HIGH-severity finding.
+
+By default, the `.copaw.secret` directory (where authentication credentials and API keys are stored) is included in the sensitive-file list.
+
+### Configuration
+
+In `config.json`:
+
+```json
+{
+  "security": {
+    "file_guard": {
+      "enabled": true,
+      "sensitive_files": ["~/.ssh/", "/etc/passwd"]
+    }
+  }
+}
+```
+
+| Field             | Description                                              |
+| ----------------- | -------------------------------------------------------- |
+| `enabled`         | Enable or disable File Guard entirely (default: `true`). |
+| `sensitive_files` | File/directory paths to block from tool access.          |
+
+Paths ending with `/` are treated as directory guards — all files and subdirectories within them are blocked recursively.
+
+### Console management
+
+In **Settings → Security → File Guard** you can:
+
+- Toggle File Guard on/off
+- View the list of protected sensitive paths
+- Add new file or directory paths to protect
+- Remove paths from the protected list
+
+---
+
 ## Skill Scanner
 
 The **Skill Scanner** automatically scans skills for security threats (command injection, data exfiltration, hardcoded secrets, etc.) before they are enabled or installed.
@@ -128,25 +175,43 @@ CoPaw supports optional web login authentication to protect the Console from una
 5. After login, a signed token (valid for 7 days) is stored in the browser's localStorage. All API requests include this token automatically.
 6. Requests from **localhost** (`127.0.0.1` / `::1`) bypass authentication entirely, so CLI commands (`copaw app`, `copaw chat`, etc.) continue to work without a token.
 
+### Environment variables
+
+| Variable              | Description                          | Required                     |
+| --------------------- | ------------------------------------ | ---------------------------- |
+| `COPAW_AUTH_ENABLED`  | Set to `true` to enable auth         | Yes                          |
+| `COPAW_AUTH_USERNAME` | Pre-set admin username on first boot | Optional (auto-registration) |
+| `COPAW_AUTH_PASSWORD` | Pre-set admin password on first boot | Optional (auto-registration) |
+
+- `COPAW_AUTH_ENABLED=true` is the only variable required to turn on authentication.
+- `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` are optional. When both are set and no user has been registered yet, CoPaw automatically creates the admin account on startup — useful for Docker orchestration, Kubernetes, server management panels (1Panel, Portainer, CasaOS, etc.), and other automated deployments where interactive web registration is not practical.
+- If the auto-registration variables are not set, the first user registers through the web UI on first visit (the original behavior).
+
 ### Enable authentication
 
 #### Script install / pip install
 
-Set the environment variable before starting:
+Set the environment variable before starting. Add `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` if you want the admin account created automatically.
 
 **Linux / macOS:**
 
 ```bash
 export COPAW_AUTH_ENABLED=true
+# Optional: pre-set admin credentials for automated setup
+# export COPAW_AUTH_USERNAME=admin
+# export COPAW_AUTH_PASSWORD=mypassword
 copaw app
 ```
 
-To make it permanent, add the `export` line to your `~/.bashrc`, `~/.zshrc`, or equivalent.
+To make it permanent, add the `export` lines to your `~/.bashrc`, `~/.zshrc`, or equivalent.
 
 **Windows (CMD):**
 
 ```cmd
 set COPAW_AUTH_ENABLED=true
+rem Optional: pre-set admin credentials for automated setup
+rem set COPAW_AUTH_USERNAME=admin
+rem set COPAW_AUTH_PASSWORD=mypassword
 copaw app
 ```
 
@@ -154,22 +219,29 @@ copaw app
 
 ```powershell
 $env:COPAW_AUTH_ENABLED = "true"
+# Optional: pre-set admin credentials for automated setup
+# $env:COPAW_AUTH_USERNAME = "admin"
+# $env:COPAW_AUTH_PASSWORD = "mypassword"
 copaw app
 ```
 
 #### Docker
 
-Pass the environment variable with `-e`:
+Pass the environment variables with `-e`:
 
 ```bash
 docker run -e COPAW_AUTH_ENABLED=true \
+  -e COPAW_AUTH_USERNAME=admin \
+  -e COPAW_AUTH_PASSWORD=mypassword \
   -p 127.0.0.1:8088:8088 \
   -v copaw-data:/app/working \
   -v copaw-secrets:/app/working.secret \
   agentscope/copaw:latest
 ```
 
-Or use `docker-compose.yml`:
+> Remove the `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` lines if you prefer to register through the web UI on first visit.
+
+#### docker-compose.yml
 
 ```yaml
 services:
@@ -179,6 +251,8 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       - COPAW_AUTH_ENABLED=true
+      - COPAW_AUTH_USERNAME=admin
+      - COPAW_AUTH_PASSWORD=mypassword
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret
@@ -190,6 +264,8 @@ You can also use a `.env` file:
 
 ```
 COPAW_AUTH_ENABLED=true
+COPAW_AUTH_USERNAME=admin
+COPAW_AUTH_PASSWORD=mypassword
 ```
 
 Then pass it to Docker with `--env-file .env`, or source it in your shell before running `copaw app`.

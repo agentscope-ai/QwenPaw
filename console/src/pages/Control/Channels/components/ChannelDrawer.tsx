@@ -1,5 +1,4 @@
 import {
-  Alert,
   Drawer,
   Form,
   Input,
@@ -9,6 +8,7 @@ import {
   Select,
   message,
 } from "@agentscope-ai/design";
+import { Alert, ConfigProvider } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
@@ -53,7 +53,6 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wecom",
   "mattermost",
   "matrix",
-  "xiaoyi",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -298,7 +297,11 @@ export function ChannelDrawer({
       case "discord":
         return (
           <>
-            <Form.Item name="bot_token" label="Bot Token">
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+            >
               <Input.Password placeholder="Discord bot token" />
             </Form.Item>
             <Form.Item name="http_proxy" label="HTTP Proxy">
@@ -313,10 +316,18 @@ export function ChannelDrawer({
       case "dingtalk":
         return (
           <>
-            <Form.Item name="client_id" label="Client ID">
+            <Form.Item
+              name="client_id"
+              label="Client ID"
+              rules={[{ required: true }]}
+            >
               <Input />
             </Form.Item>
-            <Form.Item name="client_secret" label="Client Secret">
+            <Form.Item
+              name="client_secret"
+              label="Client Secret"
+              rules={[{ required: true }]}
+            >
               <Input.Password />
             </Form.Item>
             <Form.Item
@@ -379,6 +390,21 @@ export function ChannelDrawer({
         return (
           <>
             <Form.Item
+              name="domain"
+              label={t("channels.feishuRegion")}
+              initialValue="feishu"
+              tooltip={t("channels.feishuRegionTooltip")}
+            >
+              <Select>
+                <Select.Option value="feishu">
+                  {t("channels.feishuChina")}
+                </Select.Option>
+                <Select.Option value="lark">
+                  {t("channels.feishuInternational")}
+                </Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
               name="app_id"
               label="App ID"
               rules={[{ required: true }]}
@@ -407,10 +433,18 @@ export function ChannelDrawer({
       case "qq":
         return (
           <>
-            <Form.Item name="app_id" label="App ID">
+            <Form.Item
+              name="app_id"
+              label="App ID"
+              rules={[{ required: true }]}
+            >
               <Input />
             </Form.Item>
-            <Form.Item name="client_secret" label="Client Secret">
+            <Form.Item
+              name="client_secret"
+              label="Client Secret"
+              rules={[{ required: true }]}
+            >
               <Input.Password />
             </Form.Item>
           </>
@@ -419,7 +453,11 @@ export function ChannelDrawer({
       case "telegram":
         return (
           <>
-            <Form.Item name="bot_token" label="Bot Token">
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+            >
               <Input.Password placeholder="Telegram bot token from BotFather" />
             </Form.Item>
             <Form.Item name="http_proxy" label="HTTP Proxy">
@@ -549,7 +587,11 @@ export function ChannelDrawer({
             >
               <Input placeholder="https://mattermost.example.com" />
             </Form.Item>
-            <Form.Item name="bot_token" label="Bot Token">
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+            >
               <Input.Password placeholder="Mattermost bot token" />
             </Form.Item>
             <Form.Item name="media_dir" label="Media Dir">
@@ -575,21 +617,25 @@ export function ChannelDrawer({
       case "voice":
         return (
           <>
-            <Alert
-              type="info"
-              showIcon
-              message={t("channels.voiceSetupGuide")}
-              style={{ marginBottom: 16 }}
-            />
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.voiceSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
             <Form.Item
               name="twilio_account_sid"
               label={t("channels.twilioAccountSid")}
+              rules={[{ required: true }]}
             >
               <Input placeholder="ACxxxxxxxx" />
             </Form.Item>
             <Form.Item
               name="twilio_auth_token"
               label={t("channels.twilioAuthToken")}
+              rules={[{ required: true }]}
             >
               <Input.Password />
             </Form.Item>
@@ -672,12 +718,14 @@ export function ChannelDrawer({
       case "xiaoyi":
         return (
           <>
-            <Alert
-              type="info"
-              showIcon
-              message={t("channels.xiaoyiSetupGuide")}
-              style={{ marginBottom: 16 }}
-            />
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.xiaoyiSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
             <Form.Item
               name="ak"
               label="Access Key (AK)"
@@ -794,6 +842,15 @@ export function ChannelDrawer({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
+  const drawerFooter = (
+    <div className={styles.formActions}>
+      <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button type="primary" loading={saving} onClick={() => form.submit()}>
+        {t("common.save")}
+      </Button>
+    </div>
+  );
+
   return (
     <Drawer
       width={420}
@@ -802,6 +859,7 @@ export function ChannelDrawer({
       open={open}
       onClose={onClose}
       destroyOnClose
+      footer={drawerFooter}
     >
       {activeKey && (
         <Form
@@ -810,7 +868,11 @@ export function ChannelDrawer({
           initialValues={initialValues}
           onFinish={onSubmit}
         >
-          <Form.Item name="enabled" label="Enabled" valuePropName="checked">
+          <Form.Item
+            name="enabled"
+            label={t("common.enabled")}
+            valuePropName="checked"
+          >
             <Switch />
           </Form.Item>
 
@@ -847,15 +909,6 @@ export function ChannelDrawer({
 
           {CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) &&
             renderAccessControlFields()}
-
-          <Form.Item>
-            <div className={styles.formActions}>
-              <Button onClick={onClose}>{t("common.cancel")}</Button>
-              <Button type="primary" htmlType="submit" loading={saving}>
-                {t("common.save")}
-              </Button>
-            </div>
-          </Form.Item>
         </Form>
       )}
     </Drawer>

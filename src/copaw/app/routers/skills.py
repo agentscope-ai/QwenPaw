@@ -7,7 +7,7 @@ import uuid
 from enum import Enum
 from typing import Any
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from ...agents.skills_manager import (
@@ -211,16 +211,6 @@ async def search_hub(
     ]
 
 
-def _github_token_hint(bundle_url: str) -> str:
-    """Hint to set GITHUB_TOKEN when URL is from GitHub/skills.sh."""
-    if not bundle_url:
-        return ""
-    lower = bundle_url.lower()
-    if "skills.sh" in lower or "github.com" in lower:
-        return " Tip: set GITHUB_TOKEN (or GH_TOKEN) to avoid rate limits."
-    return ""
-
-
 async def _hub_task_set_status(
     task_id: str,
     status: HubInstallTaskStatus,
@@ -339,14 +329,13 @@ async def _run_hub_install_task(
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
-            error=str(e) + _github_token_hint(body.bundle_url),
+            error=str(e),
         )
     except Exception as e:  # pylint: disable=broad-except
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
-            error=f"Skill hub import failed: {e}"
-            + _github_token_hint(body.bundle_url),
+            error=f"Skill hub import failed: {e}",
         )
     finally:
         await _hub_task_pop_runtime(task_id)
@@ -381,16 +370,14 @@ async def install_from_hub(
         )
         raise HTTPException(status_code=400, detail=detail) from e
     except RuntimeError as e:
-        detail = str(e) + _github_token_hint(request_body.bundle_url)
+        detail = str(e)
         logger.exception(
             "Skill hub install failed (upstream/rate limit): %s",
             e,
         )
         raise HTTPException(status_code=502, detail=detail) from e
     except Exception as e:
-        detail = f"Skill hub import failed: {e}" + _github_token_hint(
-            request_body.bundle_url,
-        )
+        detail = f"Skill hub import failed: {e}"
         logger.exception("Skill hub import failed: %s", e)
         raise HTTPException(status_code=502, detail=detail) from e
     return {
@@ -463,6 +450,68 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
         task.status = HubInstallTaskStatus.CANCELLED
         task.updated_at = time.time()
     return {"task_id": task_id, "status": "cancelled"}
+
+
+_ALLOWED_ZIP_TYPES = {
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/octet-stream",
+}
+_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+@router.post("/upload")
+async def upload_skill_zip(
+    request: Request,
+    file: UploadFile = File(...),
+    enable: bool = False,
+    overwrite: bool = False,
+):
+    """Import skill(s) from an uploaded zip file."""
+    from ..agent_context import get_agent_for_request
+
+    if file.content_type and file.content_type not in _ALLOWED_ZIP_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Expected a zip file, "
+                f"got content-type: {file.content_type}"
+            ),
+        )
+
+    data = await file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"File too large ({len(data) // (1024 * 1024)} MB). "
+                f"Maximum is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+            ),
+        )
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    skill_service = SkillService(workspace_dir)
+
+    try:
+        result = await asyncio.to_thread(
+            skill_service.import_from_zip,
+            data,
+            overwrite,
+            enable,
+        )
+    except SkillScanError as e:
+        return _scan_error_response(e)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Zip skill upload failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="Skill upload failed",
+        ) from e
+
+    return result
 
 
 @router.post("/batch-disable")

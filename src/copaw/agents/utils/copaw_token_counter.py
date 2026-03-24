@@ -157,7 +157,7 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
 _token_counter_cache: dict[tuple, CopawTokenCounter] = {}
 
 
-def _get_copaw_token_counter(
+def get_copaw_token_counter(
     agent_config: "AgentProfileConfig",
 ) -> CopawTokenCounter:
     """Get or create a token counter instance for the given agent conf.

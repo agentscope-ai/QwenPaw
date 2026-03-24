@@ -67,6 +67,7 @@ class DingTalkConfig(BaseChannelConfig):
 class FeishuConfig(BaseChannelConfig):
     """Feishu/Lark channel: app_id, app_secret; optional encrypt_key,
     verification_token for event handler. media_dir for received media.
+    domain: 'feishu' for China, 'lark' for international.
     """
 
     app_id: str = ""
@@ -74,6 +75,7 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
+    domain: Literal["feishu", "lark"] = "feishu"
 
 
 class QQConfig(BaseChannelConfig):
@@ -119,6 +121,7 @@ class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
+    media_dir: Optional[str] = None
 
 
 class WecomConfig(BaseChannelConfig):
@@ -213,8 +216,45 @@ class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
 
 
+class EmbeddingConfig(BaseModel):
+    """Embedding model configuration."""
+
+    model_config = ConfigDict(extra="allow")
+
+    backend: str = Field(
+        default="openai",
+        description="Embedding backend (openai, etc.)",
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for embedding provider",
+    )
+    base_url: str = Field(default="", description="Base URL for embedding API")
+    model_name: str = Field(default="", description="Embedding model name")
+    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    enable_cache: bool = Field(
+        default=True,
+        description="Whether to enable embedding cache",
+    )
+    use_dimensions: bool = Field(
+        default=False,
+        description="Whether to use custom dimensions",
+    )
+    max_cache_size: int = Field(default=2000, description="Maximum cache size")
+    max_input_length: int = Field(
+        default=8192,
+        description="Maximum input length for embedding",
+    )
+    max_batch_size: int = Field(
+        default=10,
+        description="Maximum batch size for embedding",
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
+
+    model_config = ConfigDict(extra="allow")
 
     max_iters: int = Field(
         default=50,
@@ -264,24 +304,43 @@ class AgentsRunningConfig(BaseModel):
         description="Ratio of memory to reserve when compact memory",
     )
 
-    enable_tool_result_compact: bool = Field(
-        default=True,
-        description="Whether to compact tool result messages in memory",
-    )
-
-    tool_result_compact_keep_n: int = Field(
-        default=3,
+    tool_result_compact_recent_n: int = Field(
+        default=2,
         ge=1,
         le=10,
-        description=(
-            "Number of tool result messages to keep in memory when compacting"
-        ),
+        description="Number of recent messages to use recent_threshold for",
+    )
+
+    tool_result_compact_old_threshold: int = Field(
+        default=1000,
+        ge=100,
+        description="Character threshold for old messages "
+        "in tool result compaction",
+    )
+
+    tool_result_compact_recent_threshold: int = Field(
+        default=30000,
+        ge=1000,
+        description="Character threshold for recent messages "
+        "in tool result compaction",
+    )
+
+    tool_result_compact_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        description="Number of days to retain tool result files",
     )
 
     history_max_length: int = Field(
         default=10000,
         ge=1000,
         description="Maximum length for /history command output",
+    )
+
+    embedding_config: EmbeddingConfig = Field(
+        default_factory=EmbeddingConfig,
+        description="Embedding model configuration",
     )
 
     @property
@@ -607,6 +666,16 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Edit file using find-and-replace",
         ),
+        "grep_search": BuiltinToolConfig(
+            name="grep_search",
+            enabled=True,
+            description="Search file contents by pattern",
+        ),
+        "glob_search": BuiltinToolConfig(
+            name="glob_search",
+            enabled=True,
+            description="Find files matching a glob pattern",
+        ),
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
@@ -691,6 +760,13 @@ class ToolGuardConfig(BaseModel):
     disabled_rules: List[str] = Field(default_factory=list)
 
 
+class FileGuardConfig(BaseModel):
+    """File guard settings under ``security.file_guard``."""
+
+    enabled: bool = True
+    sensitive_files: List[str] = Field(default_factory=list)
+
+
 class SkillScannerWhitelistEntry(BaseModel):
     """A whitelisted skill (identified by name + content hash)."""
 
@@ -735,6 +811,7 @@ class SecurityConfig(BaseModel):
     """Top-level ``security`` section in config.json."""
 
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
+    file_guard: FileGuardConfig = Field(default_factory=FileGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )

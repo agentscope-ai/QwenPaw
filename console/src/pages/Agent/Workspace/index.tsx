@@ -32,11 +32,11 @@ export default function WorkspacePage() {
 
   const handleDownload = async () => {
     try {
-      const blob = await workspaceApi.downloadWorkspace();
+      const { blob, filename } = await workspaceApi.downloadWorkspace();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `workspace-${new Date().toISOString().split("T")[0]}.zip`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);

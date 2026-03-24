@@ -102,6 +102,11 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/copaw:latest
 ```
 
+5. If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:
+   - Uninstall CoPaw from your PC
+   - Download the latest version from: https://github.com/agentscope-ai/CoPaw/releases
+   - Reinstall
+
 After upgrading, restart the service with `copaw app`.
 
 ### How to initialize and start CoPaw service
@@ -121,6 +126,71 @@ copaw app
 The default Console URL is `http://127.0.0.1:8088/`. After quick init, you can
 open Console and customize settings. See
 [Quick Start](https://copaw.agentscope.io/docs/quickstart).
+
+### Port 8088 conflict on Windows
+
+On Windows, Hyper-V and WSL2 may reserve certain port ranges, which can conflict
+with CoPaw's default port **8088**. This affects all installation methods
+(pip, script, Docker, desktop app).
+
+**Symptoms:**
+
+- Error: `Address already in use` or `OSError: [Errno 98] Address already in use`
+- Error: `An attempt was made to access a socket in a way forbidden by its access permissions`
+- CoPaw fails to start, or browser cannot connect to `http://127.0.0.1:8088/`
+
+**Check if port 8088 is reserved on Windows:**
+
+Open PowerShell or CMD and run:
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+If 8088 appears in the excluded ranges, it's reserved by the system.
+
+**Solution: Use a different port**
+
+**For pip / script installation:**
+
+```bash
+copaw app --port 8090
+```
+
+Then open `http://127.0.0.1:8090/` in your browser.
+
+**For Docker:**
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+Then open `http://127.0.0.1:8090/` in your browser.
+
+**For Windows Desktop App:**
+
+Currently, the desktop app uses port 8088 by default. If you encounter this
+issue, you can:
+
+1. Run `copaw app --port 8090` from a terminal instead
+2. Or exclude port 8088 from Windows reserved ranges (requires administrator
+   privileges and may affect other services)
+
+**Advanced: Prevent Windows from reserving port 8088**
+
+Run the following in an elevated PowerShell (run as Administrator):
+
+```powershell
+# Exclude port 8088 from the dynamic port range
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+# Restart Windows for changes to take effect
+```
+
+> ⚠️ **Warning**: This changes system-wide port configuration. Only do this if
+> you understand the implications.
 
 ### Open-source repository
 

@@ -89,7 +89,17 @@ class OpenAIProvider(Provider):
             client = self._client(timeout=timeout)
             res = await client.chat.completions.create(
                 model=model_id,
-                messages=[{"role": "user", "content": "ping"}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "ping",
+                            },
+                        ],
+                    },
+                ],
                 timeout=timeout,
                 max_tokens=1,
                 stream=True,

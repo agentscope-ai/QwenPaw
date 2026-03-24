@@ -8,15 +8,14 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentscope.agent._react_agent import _MemoryMark
 from agentscope.message import Msg, TextBlock
 
+from ..config.config import load_agent_config
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 
 if TYPE_CHECKING:
     from .memory import MemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
-    from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
         memory: "ReMeInMemoryMemory",
         memory_manager: "MemoryManager | None" = None,
         enable_memory_manager: bool = True,
-        agent_config: "AgentProfileConfig | None" = None,
     ):
         """Initialize command handler.
 
@@ -75,18 +73,19 @@ class CommandHandler(ConversationCommandHandlerMixin):
             memory: Agent's ReMeInMemoryMemory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
-            agent_config: Agent profile configuration containing running
-                settings including max_input_length and history_max_length.
         """
         self.agent_name = agent_name
         self.memory = memory
         self.memory_manager = memory_manager
         self._enable_memory_manager = enable_memory_manager
 
-        # Extract configuration from agent_config
-        self.agent_config = agent_config
-        self._max_input_length = agent_config.running.max_input_length
-        self._history_max_length = agent_config.running.history_max_length
+    def _get_agent_config(self):
+        """Get hot-reloaded agent config.
+
+        Returns:
+            AgentProfileConfig: The current agent configuration
+        """
+        return load_agent_config(self.memory_manager.agent_id)
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -136,11 +135,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             previous_summary=self.memory.get_compressed_summary(),
         )
         await self.memory.update_compressed_summary(compact_content)
-        updated_count = await self.memory.mark_messages_compressed(messages)
-        logger.info(
-            f"Marked {updated_count} messages as compacted "
-            f"with:\n{compact_content}",
-        )
+        updated_count = len(messages)
+        self.memory.clear_content()
         return await self._make_system_msg(
             f"**Compact Complete!**\n\n"
             f"- Messages compacted: {updated_count}\n"
@@ -168,8 +164,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self.memory_manager.add_async_summary_task(messages=messages)
         self.memory.clear_compressed_summary()
 
-        updated_count = await self.memory.mark_messages_compressed(messages)
-        logger.info(f"Marked {updated_count} messages as compacted")
+        self.memory.clear_content()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -213,17 +208,19 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /history command."""
+        agent_config = self._get_agent_config()
+        running_config = agent_config.running
         history_str = await self.memory.get_history_str(
-            max_input_length=self._max_input_length,
+            max_input_length=running_config.max_input_length,
         )
 
         # Truncate if too long
-        if len(history_str) > self._history_max_length:
-            half = self._history_max_length // 2
+        if len(history_str) > running_config.history_max_length:
+            half = running_config.history_max_length // 2
             history_str = f"{history_str[:half]}\n...\n{history_str[-half:]}"
 
         history_str += (
-            "\n\n- Use /message <index> to view full message content"
+            "\n\n---\n\n- Use /message <index> to view full message content"
         )
 
         # Add compact summary hint if available
@@ -274,6 +271,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Returns:
             System message with the requested message content
         """
+        agent_config = self._get_agent_config()
+        history_max_length = agent_config.running.history_max_length
+
         if not args:
             return await self._make_system_msg(
                 "**Usage: /message <index>**\n\n"
@@ -307,8 +307,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # Handle content display with truncation
         content_str = str(msg.content)
         truncated = False
-        if len(content_str) > self._history_max_length:
-            half = self._history_max_length // 2
+        if len(content_str) > history_max_length:
+            half = history_max_length // 2
             content_str = f"{content_str[:half]}\n...\n{content_str[-half:]}"
             truncated = True
 
@@ -339,9 +339,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Returns:
             System message with dump result
         """
-        history_file = (
-            Path(self.agent_config.workspace_dir) / DEBUG_HISTORY_FILE
-        )
+        agent_config = self._get_agent_config()
+        history_file = Path(agent_config.workspace_dir) / DEBUG_HISTORY_FILE
 
         try:
             # Check if there's a compressed summary
@@ -396,9 +395,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Returns:
             System message with load result
         """
-        history_file = (
-            Path(self.agent_config.workspace_dir) / DEBUG_HISTORY_FILE
-        )
+        agent_config = self._get_agent_config()
+        history_file = Path(agent_config.workspace_dir) / DEBUG_HISTORY_FILE
 
         if not history_file.exists():
             return await self._make_system_msg(
@@ -472,7 +470,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
             RuntimeError: If command is not recognized
         """
         messages = await self.memory.get_memory(
-            exclude_mark=_MemoryMark.COMPRESSED,
             prepend_summary=False,
         )
         # Parse command and arguments

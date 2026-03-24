@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Empty, Modal } from "@agentscope-ai/design";
+import { Button, Empty, Modal, Input } from "@agentscope-ai/design";
 import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
@@ -17,6 +17,7 @@ function normalizeTransport(raw?: unknown): MCPTransport | undefined {
       return "sse";
     case "streamablehttp":
     case "streamable_http":
+    case "streamable-http":
     case "http":
       return "streamable_http";
     default:
@@ -253,18 +254,13 @@ function MCPPage() {
             </li>
           </ul>
         </div>
-        <textarea
+        <Input.TextArea
           value={newClientJson}
           onChange={(e) => setNewClientJson(e.target.value)}
+          autoSize={{ minRows: 15, maxRows: 25 }}
           style={{
-            width: "100%",
-            minHeight: 400,
             fontFamily: "Monaco, Courier New, monospace",
             fontSize: 13,
-            padding: 16,
-            border: "1px solid #d9d9d9",
-            borderRadius: 4,
-            resize: "vertical",
           }}
         />
       </Modal>

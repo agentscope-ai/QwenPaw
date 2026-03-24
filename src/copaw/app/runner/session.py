@@ -170,13 +170,12 @@ class SafeJSONSession(SessionBase):
 
         cur[path[-1]] = value
 
-        async with aiofiles.open(
+        with open(
             session_save_path,
             "w",
             encoding="utf-8",
-            errors="surrogatepass",
         ) as f:
-            await f.write(json.dumps(states, ensure_ascii=False))
+            f.write(json.dumps(states, ensure_ascii=False))
 
         logger.info(
             "Updated session state key '%s' in %s successfully.",

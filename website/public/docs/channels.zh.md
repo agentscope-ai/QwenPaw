@@ -459,7 +459,9 @@
 可在工作台点击智能机器人-创建机器人，选择API模式创建-通过长链接配置
 
 ![创建机器人1](https://img.alicdn.com/imgextra/i3/O1CN01lcA2rX1fm2P19SLcB_!!6000000004048-2-tps-1440-814.png)
+
 ![新建机器人2](https://img.alicdn.com/imgextra/i1/O1CN014R3a0f1mnb3qbycMV_!!6000000004999-2-tps-1440-814.png)
+
 ![新建机器人3](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
 
 获取`Bot ID`和`Secret`
@@ -723,6 +725,14 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | **agent_id** | 代理唯一标识   | -                                                |
 | **ws_url**   | WebSocket 地址 | `wss://hag.cloud.huawei.com/openclaw/v1/ws/link` |
 
+### 支持的文件类型
+
+**图片**：JPEG, JPG, PNG, BMP, WEBP
+
+**文件**：PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT
+
+> 注：小艺平台限制，不支持视频和音频文件。
+
 ---
 
 ## 附录
@@ -761,7 +771,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
 | Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
-| 小艺       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 小艺       | ✓        | ✓        | ✗        | ✗        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 
 说明：
 
@@ -773,7 +783,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
-- **小艺**：当前仅支持文本。
+- **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
 
 ### 通过 HTTP 修改配置
 

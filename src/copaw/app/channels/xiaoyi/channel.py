@@ -10,23 +10,26 @@ import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import aiohttp
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
+    FileContent,
+    ImageContent,
     ContentType,
     TextContent,
 )
 
 from ....config.config import XiaoYiConfig as XiaoYiChannelConfig
+from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
     OnReplySent,
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..renderer import MessageRenderer, RenderStyle
 from .auth import generate_auth_headers
 from .constants import (
     CONNECTION_TIMEOUT,
@@ -36,6 +39,7 @@ from .constants import (
     RECONNECT_DELAYS,
     TEXT_CHUNK_LIMIT,
 )
+from .utils import download_file
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +48,6 @@ if TYPE_CHECKING:
 
 
 # Class-level registry to track active connections per agent_id
-# This prevents multiple channel instances with same agent_id from conflicting
 _active_connections: Dict[str, "XiaoYiChannel"] = {}
 _active_connections_lock = asyncio.Lock()
 
@@ -73,10 +76,8 @@ class XiaoYiChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
         bot_prefix: str = "",
-        dm_policy: str = "open",
-        group_policy: str = "open",
-        allow_from: Optional[List[str]] = None,
-        deny_message: str = "",
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
     ):
         super().__init__(
             process,
@@ -84,23 +85,7 @@ class XiaoYiChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
-            dm_policy=dm_policy,
-            group_policy=group_policy,
-            allow_from=allow_from,
-            deny_message=deny_message,
         )
-
-        # XiaoYi platform supports markdown and code fences
-        # Tool call arguments should be in code blocks for better readability
-        self._render_style = RenderStyle(
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
-            supports_markdown=True,
-            supports_code_fence=True,
-            use_emoji=True,
-        )
-        self._renderer = MessageRenderer(self._render_style)
 
         self.enabled = enabled
         self.ak = ak
@@ -109,6 +94,20 @@ class XiaoYiChannel(BaseChannel):
         self.ws_url = ws_url
         self.task_timeout_ms = task_timeout_ms
         self.bot_prefix = bot_prefix
+
+        # Workspace directory for agent-specific storage
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR / "xiaoyi"
+        self._media_dir.mkdir(parents=True, exist_ok=True)
 
         # WebSocket state
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
@@ -146,6 +145,7 @@ class XiaoYiChannel(BaseChannel):
                 "wss://hag.cloud.huawei.com/openclaw/v1/ws/link",
             ),
             on_reply_sent=on_reply_sent,
+            media_dir=os.getenv("XIAOYI_MEDIA_DIR", ""),
         )
 
     @classmethod
@@ -157,8 +157,8 @@ class XiaoYiChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "XiaoYiChannel":
-        """Create channel from config object."""
         if isinstance(config, dict):
             return cls(
                 process=process,
@@ -179,10 +179,8 @@ class XiaoYiChannel(BaseChannel):
                 filter_tool_messages=filter_tool_messages,
                 filter_thinking=filter_thinking,
                 bot_prefix=config.get("bot_prefix", ""),
-                dm_policy=config.get("dm_policy", "open"),
-                group_policy=config.get("group_policy", "open"),
-                allow_from=config.get("allow_from"),
-                deny_message=config.get("deny_message", ""),
+                media_dir=config.get("media_dir", ""),
+                workspace_dir=workspace_dir,
             )
 
         return cls(
@@ -198,10 +196,8 @@ class XiaoYiChannel(BaseChannel):
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
             bot_prefix=config.bot_prefix,
-            dm_policy=config.dm_policy,
-            group_policy=config.group_policy,
-            allow_from=list(config.allow_from) if config.allow_from else None,
-            deny_message=config.deny_message,
+            media_dir=getattr(config, "media_dir", ""),
+            workspace_dir=workspace_dir,
         )
 
     def _validate_config(self) -> None:
@@ -495,8 +491,6 @@ class XiaoYiChannel(BaseChannel):
     async def _handle_a2a_request(self, message: Dict[str, Any]) -> None:
         """Handle A2A request message."""
         try:
-            # Extract session ID
-            # (prefer params.sessionId, fallback to top-level)
             session_id = message.get("params", {}).get(
                 "sessionId",
             ) or message.get("sessionId")
@@ -506,26 +500,38 @@ class XiaoYiChannel(BaseChannel):
                 logger.warning("XiaoYi: No sessionId in message")
                 return
 
-            # Store session -> task mapping
             self._session_task_map[session_id] = task_id
 
-            # Extract text from message parts
-            text_parts = []
+            # Extract content parts
+            text_parts: List[str] = []
+            content_parts: List[Any] = []
             params = message.get("params", {})
             msg = params.get("message", {})
             parts = msg.get("parts", [])
 
             for part in parts:
-                if part.get("kind") == "text" and part.get("text"):
+                kind = part.get("kind")
+                if kind == "text" and part.get("text"):
                     text_parts.append(part["text"])
+                elif kind == "file":
+                    await self._process_file_part(
+                        part,
+                        text_parts,
+                        content_parts,
+                    )
 
-            content = " ".join(text_parts)
-            if not content.strip():
+            # Build content
+            text_content = " ".join(text_parts).strip()
+            if text_content:
+                content_parts.insert(
+                    0,
+                    TextContent(type=ContentType.TEXT, text=text_content),
+                )
+
+            if not content_parts:
                 logger.debug("XiaoYi: Empty message content, skipping")
                 return
 
-            # Build native payload
-            content_parts = [TextContent(type=ContentType.TEXT, text=content)]
             native = {
                 "channel_id": self.channel,
                 "sender_id": session_id,
@@ -546,6 +552,47 @@ class XiaoYiChannel(BaseChannel):
             logger.error(
                 f"XiaoYi: Error handling A2A request: {e}",
                 exc_info=True,
+            )
+
+    async def _process_file_part(
+        self,
+        part: Dict[str, Any],
+        text_parts: List[str],
+        content_parts: List[Any],
+    ) -> None:
+        """Process a file part from A2A message."""
+        file_info = part.get("file", {})
+        file_url = file_info.get("uri", "")
+        filename = file_info.get("name", "file")
+        mime_type = file_info.get("mimeType", "")
+
+        if not file_url:
+            return
+
+        local_path = await download_file(
+            url=file_url,
+            media_dir=self._media_dir,
+            filename=filename,
+        )
+
+        if not local_path:
+            text_parts.append(f"[{filename}: download failed]")
+            return
+
+        if mime_type.startswith("image/"):
+            content_parts.append(
+                ImageContent(
+                    type=ContentType.IMAGE,
+                    image_url=local_path,
+                ),
+            )
+        else:
+            content_parts.append(
+                FileContent(
+                    type=ContentType.FILE,
+                    file_url=local_path,
+                    filename=filename,
+                ),
             )
 
     async def _handle_clear_context(self, message: Dict[str, Any]) -> None:
@@ -803,6 +850,40 @@ class XiaoYiChannel(BaseChannel):
 
         return chunks
 
+    def _build_artifact_msg(
+        self,
+        session_id: str,
+        task_id: str,
+        message_id: str,
+        parts: List[Dict[str, Any]],
+        last_chunk: bool = False,
+        final: bool = False,
+    ) -> Dict[str, Any]:
+        """Build artifact-update message for XiaoYi A2A protocol."""
+        artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
+        json_rpc_response = {
+            "jsonrpc": "2.0",
+            "id": message_id,
+            "result": {
+                "taskId": task_id,
+                "kind": "artifact-update",
+                "append": True,
+                "lastChunk": last_chunk,
+                "final": final,
+                "artifact": {
+                    "artifactId": artifact_id,
+                    "parts": parts,
+                },
+            },
+        }
+        return {
+            "msgType": "agent_response",
+            "agentId": self.agent_id,
+            "sessionId": session_id,
+            "taskId": task_id,
+            "msgDetail": json.dumps(json_rpc_response),
+        }
+
     async def _send_chunk(
         self,
         session_id: str,
@@ -812,39 +893,17 @@ class XiaoYiChannel(BaseChannel):
     ) -> None:
         """Send a single text chunk via WebSocket."""
         if not self._ws or not self._connected:
-            logger.warning("XiaoYi: Cannot send chunk - not connected")
             return
-
-        artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
-
-        json_rpc_response = {
-            "jsonrpc": "2.0",
-            "id": message_id,
-            "result": {
-                "taskId": task_id,
-                "kind": "artifact-update",
-                "append": True,  # Append to previous messages
-                "lastChunk": False,  # Not the last chunk
-                "final": False,  # Not final, more content may come
-                "artifact": {
-                    "artifactId": artifact_id,
-                    "parts": [{"kind": "text", "text": text}],
-                },
-            },
-        }
-
-        msg = {
-            "msgType": "agent_response",
-            "agentId": self.agent_id,
-            "sessionId": session_id,
-            "taskId": task_id,
-            "msgDetail": json.dumps(json_rpc_response),
-        }
-
+        msg = self._build_artifact_msg(
+            session_id,
+            task_id,
+            message_id,
+            [{"kind": "text", "text": text}],
+        )
         try:
             await self._ws.send_json(msg)
         except Exception as e:
-            logger.error(f"XiaoYi: Failed to send message: {e}")
+            logger.error(f"XiaoYi: Failed to send chunk: {e}")
 
     async def _send_reasoning_chunk(
         self,
@@ -853,44 +912,15 @@ class XiaoYiChannel(BaseChannel):
         message_id: str,
         reasoning_text: str,
     ) -> None:
-        """Send a single reasoning/thinking chunk via WebSocket."""
+        """Send a reasoning/thinking chunk via WebSocket."""
         if not self._ws or not self._connected:
-            logger.warning(
-                "XiaoYi: Cannot send reasoning chunk - not connected",
-            )
             return
-
-        artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
-
-        json_rpc_response = {
-            "jsonrpc": "2.0",
-            "id": message_id,
-            "result": {
-                "taskId": task_id,
-                "kind": "artifact-update",
-                "append": True,
-                "lastChunk": False,
-                "final": False,
-                "artifact": {
-                    "artifactId": artifact_id,
-                    "parts": [
-                        {
-                            "kind": "reasoningText",
-                            "reasoningText": reasoning_text,
-                        },
-                    ],
-                },
-            },
-        }
-
-        msg = {
-            "msgType": "agent_response",
-            "agentId": self.agent_id,
-            "sessionId": session_id,
-            "taskId": task_id,
-            "msgDetail": json.dumps(json_rpc_response),
-        }
-
+        msg = self._build_artifact_msg(
+            session_id,
+            task_id,
+            message_id,
+            [{"kind": "reasoningText", "reasoningText": reasoning_text}],
+        )
         try:
             await self._ws.send_json(msg)
         except Exception as e:
@@ -905,35 +935,14 @@ class XiaoYiChannel(BaseChannel):
         """Send final empty message to end the stream."""
         if not self.enabled or not self._ws or not self._connected:
             return
-
-        artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
-
-        json_rpc_response = {
-            "jsonrpc": "2.0",
-            "id": message_id,
-            "result": {
-                "taskId": task_id,
-                "kind": "artifact-update",
-                "append": True,
-                "lastChunk": True,
-                "final": True,
-                "artifact": {
-                    "artifactId": artifact_id,
-                    "parts": [
-                        {"kind": "text", "text": ""},
-                    ],  # Empty text for final
-                },
-            },
-        }
-
-        msg = {
-            "msgType": "agent_response",
-            "agentId": self.agent_id,
-            "sessionId": session_id,
-            "taskId": task_id,
-            "msgDetail": json.dumps(json_rpc_response),
-        }
-
+        msg = self._build_artifact_msg(
+            session_id,
+            task_id,
+            message_id,
+            [{"kind": "text", "text": ""}],
+            last_chunk=True,
+            final=True,
+        )
         try:
             await self._ws.send_json(msg)
         except Exception as e:
@@ -958,66 +967,44 @@ class XiaoYiChannel(BaseChannel):
 
         part_type = getattr(part, "type", None)
 
-        # Build artifact part based on content type
-        artifact_part: Dict[str, Any] = {"kind": "text"}
-
         if part_type == ContentType.IMAGE:
-            img_url = getattr(part, "image_url", "")
             artifact_part = {
                 "kind": "file",
                 "file": {
                     "name": "image",
                     "mimeType": "image/png",
-                    "uri": img_url,
+                    "uri": getattr(part, "image_url", ""),
                 },
             }
         elif part_type == ContentType.VIDEO:
-            vid_url = getattr(part, "video_url", "")
             artifact_part = {
                 "kind": "file",
                 "file": {
                     "name": "video",
                     "mimeType": "video/mp4",
-                    "uri": vid_url,
+                    "uri": getattr(part, "video_url", ""),
                 },
             }
         elif part_type == ContentType.FILE:
-            file_url = getattr(part, "file_url", "")
             artifact_part = {
                 "kind": "file",
                 "file": {
                     "name": getattr(part, "file_name", "file"),
                     "mimeType": "application/octet-stream",
-                    "uri": file_url,
+                    "uri": getattr(part, "file_url", ""),
                 },
             }
+        else:
+            return
 
-        artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
-
-        json_rpc_response = {
-            "jsonrpc": "2.0",
-            "id": str(uuid.uuid4()),
-            "result": {
-                "taskId": task_id,
-                "kind": "artifact-update",
-                "append": True,
-                "lastChunk": True,
-                "final": True,
-                "artifact": {
-                    "artifactId": artifact_id,
-                    "parts": [artifact_part],
-                },
-            },
-        }
-
-        msg = {
-            "msgType": "agent_response",
-            "agentId": self.agent_id,
-            "sessionId": session_id,
-            "taskId": task_id,
-            "msgDetail": json.dumps(json_rpc_response),
-        }
-
+        msg = self._build_artifact_msg(
+            session_id,
+            task_id,
+            str(uuid.uuid4()),
+            [artifact_part],
+            last_chunk=True,
+            final=True,
+        )
         try:
             await self._ws.send_json(msg)
         except Exception as e:
@@ -1301,32 +1288,12 @@ class XiaoYiChannel(BaseChannel):
             return
 
         # Send as single message with proper parts
-        artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
-
-        json_rpc_response = {
-            "jsonrpc": "2.0",
-            "id": message_id,
-            "result": {
-                "taskId": task_id,
-                "kind": "artifact-update",
-                "append": True,
-                "lastChunk": False,
-                "final": False,
-                "artifact": {
-                    "artifactId": artifact_id,
-                    "parts": artifact_parts,
-                },
-            },
-        }
-
-        msg = {
-            "msgType": "agent_response",
-            "agentId": self.agent_id,
-            "sessionId": session_id,
-            "taskId": task_id,
-            "msgDetail": json.dumps(json_rpc_response),
-        }
-
+        msg = self._build_artifact_msg(
+            session_id,
+            task_id,
+            message_id,
+            artifact_parts,
+        )
         try:
             await self._ws.send_json(msg)
         except Exception as e:
