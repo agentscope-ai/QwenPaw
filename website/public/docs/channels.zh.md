@@ -497,6 +497,63 @@
 
 ---
 
+## 微信
+
+CoPaw 通过 **微信 OpenClaw（ilink）HTTP JSON API** 接入**个人微信**：长轮询调用 `ilink/bot/getupdates` 收消息，通过 `ilink/bot/sendmessage` 等接口发消息与媒体。这与 **[企业微信](#企业微信)**（`wecom`）不同：本通道面向个人微信托管协议，需在控制台完成扫码或使用 OpenClaw 提供的登录流程以获取 **Bot Token**。
+
+### 前置条件
+
+- 可访问的 **OpenClaw / ilink 服务 Base URL**（例如 `https://ilinkai.weixin.qq.com`，以你实际部署为准）。
+- 安装 **`cryptography`**（`pip install cryptography`），用于入站 CDN 媒体 AES 解密及上传链路中的加密。
+
+### 在控制台配置（推荐）
+
+1. 启动 CoPaw（`copaw app`），打开 [控制台](./console) → **控制 → 频道**。
+2. 打开 **微信（WeChat）** 卡片，点击 **登录微信**，使用微信扫码完成登录。
+
+   ![img.png](img.png)
+
+3. 登录成功后 **Bot Token** 会自动写入；请确认 **Base URL** 与你的 ilink 网关地址一致。
+4. 保存后配置会写回并自动重载。
+
+可选：**UIN**（固定 `X-WECHAT-UIN` 种子；留空则使用实例内稳定随机值）、**Poll Timeout / Request Timeout**、**Typing Enabled**（是否发送「正在输入」状态）。
+
+### 手动编辑 config.json
+
+在 `~/.copaw/config.json` 的 `channels.wechat` 中填写，例如：
+
+```json
+"wechat": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "base_url": "https://ilinkai.weixin.qq.com",
+  "bot_token": "扫码登录后由控制台写入或从后端复制",
+  "uin": "",
+  "poll_timeout_ms": 35000,
+  "request_timeout_ms": 15000,
+  "state_dir": "",
+  "media_dir": "",
+  "cdn_base_url": "",
+  "max_send_retries": 3,
+  "typing_enabled": true
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| **base_url** | OpenClaw ilink API 根地址（必填），不要带多余路径后缀。 |
+| **bot_token** | 鉴权 Token；通常由控制台扫码登录后自动填充。 |
+| **uin** | 可选；微信侧身份种子，留空则使用稳定 fallback。 |
+| **poll_timeout_ms** | 长轮询 `getupdates` 超时（默认 35000）。 |
+| **request_timeout_ms** | 普通 HTTP 请求超时（默认 15000）。 |
+| **state_dir** | 状态目录（`get_updates_buf`、各会话 `context_token` 等）；留空为 `~/.copaw/state/wechat`。 |
+| **media_dir** | 媒体目录；留空为工作目录默认。入站 CDN 文件会保存到 `media_dir/inbound/`。 |
+| **cdn_base_url** | 微信 C2C CDN 根地址；留空使用默认 `https://novac2c.cdn.weixin.qq.com/c2c`。仅当你明确使用其他 CDN 基址时填写。 |
+| **max_send_retries** | 发送失败时的最大重试次数（默认 3）。 |
+| **typing_enabled** | 是否在回复前尝试发送「正在输入」状态（默认 true）。 |
+
+---
+
 ## Telegram
 
 ### 获取 Telegram 机器人凭证
@@ -746,6 +803,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                           |
 | Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                             |
 | QQ         | qq         | app_id, client_secret                                                                   |
+| 微信（个人） | wechat     | base_url, bot_token；可选 uin, cdn_base_url, state_dir, media_dir, poll_timeout_ms |
 | Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                       |
@@ -767,6 +825,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 微信（个人） | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | ✓        |
 | 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
@@ -780,6 +839,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
+- **微信（个人）**：长轮询收消息；入站图片/视频/语音/文件会从微信 CDN 解密并落盘为本地路径；发送支持文本、图片、视频与文件；发送语音消息为 🚧 施工中。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
