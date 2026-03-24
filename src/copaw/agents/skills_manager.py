@@ -1334,7 +1334,7 @@ class SkillService:
                     continue
                 try:
                     post = frontmatter.loads(
-                        (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+                        (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
                     )
                     if not post.get("name") or not post.get("description"):
                         continue
@@ -1347,7 +1347,8 @@ class SkillService:
                     )
                     imported.append(name)
                     logger.info(
-                        "Imported skill '%s' to builtin from zip.", name
+                        "Imported skill '%s' to builtin from zip.",
+                        name,
                     )
                 except Exception:
                     continue

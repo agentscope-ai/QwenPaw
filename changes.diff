@@ -8,7 +8,7 @@ index c7c3e5f..00900ac 100644
  src/copaw/console/
 +src/copaw/app/static/
 +src/copaw/web/
- 
+
  # frontend (website)
  website/node_modules/
 diff --git a/console/src/api/types/skill.ts b/console/src/api/types/skill.ts
@@ -21,7 +21,7 @@ index af20574..a2ba724 100644
    enabled?: boolean;
 +  builtin?: boolean;
  }
- 
+
  export interface HubSkillSpec {
 diff --git a/console/src/layouts/MainLayout/index.tsx b/console/src/layouts/MainLayout/index.tsx
 index 01e8188..00bdef1 100644
@@ -32,16 +32,16 @@ index 01e8188..00bdef1 100644
  import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
  import AgentsPage from "../../pages/Settings/Agents";
 +import DefaultSkillsPage from "../../pages/Settings/DefaultSkills";
- 
+
  const { Content } = Layout;
- 
+
 @@ -40,6 +41,7 @@ const pathToKey: Record<string, string> = {
    "/security": "security",
    "/token-usage": "token-usage",
    "/voice-transcription": "voice-transcription",
 +  "/default-skills": "default-skills",
  };
- 
+
  export default function MainLayout() {
 @@ -76,6 +78,10 @@ export default function MainLayout() {
                  path="/voice-transcription"
@@ -88,7 +88,7 @@ index c08d246..db5502b 100644
    "voice-transcription": "/voice-transcription",
 +  "default-skills": "/default-skills",
  };
- 
+
  export const KEY_TO_LABEL: Record<string, string> = {
 diff --git a/console/src/locales/en.json b/console/src/locales/en.json
 index 27843bc..f4880a9 100644
@@ -251,8 +251,8 @@ index 277a037..d89e8dd 100644
 +++ b/src/copaw/agents/skills_manager.py
 @@ -65,6 +65,11 @@ def get_builtin_skills_dir() -> Path:
      return Path(__file__).parent / "skills"
- 
- 
+
+
 +def get_inactive_skills_dir() -> Path:
 +    """Get the path to inactive skills directory in the code."""
 +    return Path(__file__).parent / "InactiveSkill"
@@ -264,7 +264,7 @@ index 277a037..d89e8dd 100644
 @@ -1084,6 +1089,271 @@ class SkillService:
              if tmp_dir and tmp_dir.is_dir():
                  shutil.rmtree(tmp_dir, ignore_errors=True)
- 
+
 +    def list_all_default_skills(self) -> list[SkillInfo]:
 +        """
 +        List all skills from builtin and inactive directories.
@@ -539,7 +539,7 @@ index 277a037..d89e8dd 100644
                  Example: "references/doc.md" or "scripts/utils/helper.py"
 -            source: Source directory, must be "builtin" or "customized".
 +            source: Source directory, must be "builtin", "customized", or "inactive".
- 
+
          Returns:
              File content as string, or None if failed.
 -
@@ -575,7 +575,7 @@ index 277a037..d89e8dd 100644
 +            base_dir = get_inactive_skills_dir()
          else:  # builtin
              base_dir = get_builtin_skills_dir()
- 
+
 diff --git a/src/copaw/app/routers/__init__.py b/src/copaw/app/routers/__init__.py
 index 7731958..842941f 100644
 --- a/src/copaw/app/routers/__init__.py
