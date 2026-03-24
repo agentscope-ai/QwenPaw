@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: v4.3.0
     hooks:
       - id: check-ast
         exclude: '(?x)(.*/skills/.*|^scripts/pack/)'
