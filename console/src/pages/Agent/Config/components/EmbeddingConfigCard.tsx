@@ -181,7 +181,10 @@ export function EmbeddingConfigCard({ form }: EmbeddingConfigCardProps) {
   }, [localActive]);
 
   useEffect(() => {
-    if (embeddingBackendType === "openai" || embeddingBackendType === "ollama") {
+    if (
+      embeddingBackendType === "openai" ||
+      embeddingBackendType === "ollama"
+    ) {
       setRemoteBackendChoice(embeddingBackendType);
     }
   }, [embeddingBackendType]);
