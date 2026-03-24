@@ -205,10 +205,10 @@ class ExpectedCapabilityRegistry:
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
                 model_id="MiniMax-M2.5",
-                expected_image=True,
+                expected_image=False,
                 expected_video=False,
                 doc_url=_acp_doc,
-                note="MiniMax M2.5 supports image input",
+                note="MiniMax models are text-only",
             ),
         )
         self._register(
@@ -265,7 +265,6 @@ class ExpectedCapabilityRegistry:
             "gpt-4.1",
             "gpt-4.1-mini",
             "gpt-4.1-nano",
-            "o3",
             "o4-mini",
             "gpt-4o",
             "gpt-4o-mini",
@@ -275,10 +274,20 @@ class ExpectedCapabilityRegistry:
                     provider_id="openai",
                     model_id=mid,
                     expected_image=True,
-                    expected_video=False,
+                    expected_video=True,
                     doc_url=_oai_doc,
                 ),
             )
+        self._register(
+            ExpectedCapability(
+                provider_id="openai",
+                model_id="o3",
+                expected_image=True,
+                expected_video=False,
+                doc_url=_oai_doc,
+                note="o3 supports image but not video",
+            ),
+        )
 
         # ---------------------------------------------------------------
         # 5. Azure OpenAI
@@ -302,7 +311,7 @@ class ExpectedCapabilityRegistry:
                     provider_id="azure-openai",
                     model_id=mid,
                     expected_image=True,
-                    expected_video=False,
+                    expected_video=True,
                     doc_url=_az_doc,
                 ),
             )
@@ -442,9 +451,10 @@ class ExpectedCapabilityRegistry:
                 ExpectedCapability(
                     provider_id="minimax",
                     model_id=mid,
-                    expected_image=True,
+                    expected_image=False,
                     expected_video=False,
                     doc_url=_mm_doc,
+                    note="MiniMax models are text-only",
                 ),
             )
 
@@ -462,9 +472,10 @@ class ExpectedCapabilityRegistry:
                 ExpectedCapability(
                     provider_id="minimax-cn",
                     model_id=mid,
-                    expected_image=True,
+                    expected_image=False,
                     expected_video=False,
                     doc_url=_mm_cn_doc,
+                    note="MiniMax models are text-only",
                 ),
             )
 

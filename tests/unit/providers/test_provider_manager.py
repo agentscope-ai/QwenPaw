@@ -504,7 +504,7 @@ def test_apply_default_annotations_sets_documentation_probe_source(
     mgr, originals = _make_minimal_manager(monkeypatch, tmp_path)
 
     # Set up a builtin provider with supports_multimodal=None
-    # openai/gpt-4o: expected_image=True, expected_video=False
+    # openai/gpt-4o: expected_image=True, expected_video=True
 
     model = ModelInfo(id="gpt-4o", name="GPT-4o")
     assert model.supports_multimodal is None  # precondition
@@ -522,7 +522,7 @@ def test_apply_default_annotations_sets_documentation_probe_source(
 
     assert model.probe_source == "documentation"
     assert model.supports_image is True
-    assert model.supports_video is False
+    assert model.supports_video is True
     assert model.supports_multimodal is True
 
 
@@ -671,7 +671,7 @@ async def test_probe_model_multimodal_no_warning_when_matching(
 
     mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
 
-    # openai/gpt-4o expects image=True, video=False — return matching values
+    # openai/gpt-4o expects image=True, video=True — return matching values
     model = ModelInfo(id="gpt-4o", name="GPT-4o")
     provider = OpenAIProvider(
         id="openai",
@@ -684,9 +684,9 @@ async def test_probe_model_multimodal_no_warning_when_matching(
     async def fake_probe(self_prov, model_id, timeout=10):
         return ProbeResult(
             supports_image=True,
-            supports_video=False,
+            supports_video=True,
             image_message="ok",
-            video_message="not supported",
+            video_message="ok",
         )
 
     monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
