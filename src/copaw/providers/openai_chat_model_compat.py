@@ -11,6 +11,10 @@ from typing import Any, AsyncGenerator, Type
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
 from pydantic import BaseModel
+from ..local_models.tag_parser import (
+    extract_thinking_from_text,
+    text_contains_think_tag,
+)
 
 
 def _clone_with_overrides(obj: Any, **overrides: Any) -> Any:
@@ -199,6 +203,40 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             response=sanitized_response,
             structured_model=structured_model,
         ):
+            if parsed and isinstance(parsed.content, list):
+                new_content = []
+                for block in parsed.content:
+                    text_val = block.get("text") if isinstance(block, dict) else None
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") == "text"
+                        and isinstance(text_val, str)
+                        and text_contains_think_tag(text_val)
+                    ):
+                        parsed_thinking = extract_thinking_from_text(
+                            text_val or "",
+                        )
+                        if parsed_thinking.thinking:
+                            new_content.append(
+                                {
+                                    "type": "thinking",
+                                    "thinking": parsed_thinking.thinking,
+                                },
+                            )
+                        if parsed_thinking.remaining_text:
+                            new_content.append(
+                                {
+                                    "type": "text",
+                                    "text": parsed_thinking.remaining_text,
+                                },
+                            )
+                    else:
+                        new_content.append(block)
+                parsed = ChatResponse(
+                    content=new_content,
+                    usage=parsed.usage,
+                    metadata=getattr(parsed, "metadata", None),
+                )
             if sanitized_response.extra_contents:
                 for block in parsed.content:
                     if block.get("type") != "tool_use":
