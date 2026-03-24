@@ -1,17 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Factory for creating chat models and formatters.
-
-This module provides a unified factory for creating chat model instances
-and their corresponding formatters based on configuration.
-
-Example:
-    >>> from copaw.agents.model_factory import create_model_and_formatter
-    >>> model, formatter = create_model_and_formatter()
-"""
-
+"""Factory for creating chat models and formatters."""
 
 import logging
-from typing import List, Sequence, Tuple, Type, Any, Union, Optional
+from typing import Any, List, Optional, Sequence, Tuple, Type, Union
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
@@ -31,10 +22,13 @@ except ImportError:  # pragma: no cover - compatibility fallback
     GeminiChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
+from ..local_models import create_local_chat_model
 from ..providers import ProviderManager
+from ..providers.models import ModelSlotConfig
 from ..providers.retry_chat_model import RetryChatModel
 from ..token_usage import TokenRecordingModelWrapper
-from ..local_models import create_local_chat_model
+
+logger = logging.getLogger(__name__)
 
 
 def _file_url_to_path(url: str) -> str:
@@ -42,16 +36,11 @@ def _file_url_to_path(url: str) -> str:
     Strip file:// to path. On Windows file:///C:/path -> C:/path not /C:/path.
     """
     s = url.removeprefix("file://")
-    # Windows: file:///C:/path yields "/C:/path"; remove leading slash.
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
     return s
 
 
-logger = logging.getLogger(__name__)
-
-
-# Mapping from chat model class to formatter class
 _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
     OpenAIChatModel: OpenAIChatFormatter,
 }
@@ -64,14 +53,6 @@ if GeminiChatModel is not None and GeminiChatFormatter is not None:
 def _get_formatter_for_chat_model(
     chat_model_class: Type[ChatModelBase],
 ) -> Type[FormatterBase]:
-    """Get the appropriate formatter class for a chat model.
-
-    Args:
-        chat_model_class: The chat model class
-
-    Returns:
-        Corresponding formatter class, defaults to OpenAIChatFormatter
-    """
     return _CHAT_MODEL_FORMATTER_MAP.get(
         chat_model_class,
         OpenAIChatFormatter,
@@ -82,32 +63,13 @@ def _get_formatter_for_chat_model(
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
 ) -> Type[FormatterBase]:
-    """Create a formatter class with file block support.
-
-    This factory function extends any Formatter class to support file blocks
-    in tool results, which are not natively supported by AgentScope.
-
-    Args:
-        base_formatter_class: Base formatter class to extend
-
-    Returns:
-        Enhanced formatter class with file block support
-    """
+    """Create a formatter class with file block support."""
 
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
-        # pylint: disable=too-many-branches
+        # pylint: disable=too-many-branches,too-many-statements
         async def _format(self, msgs):
-            """Override to sanitize tool messages, handle thinking blocks,
-            and relay ``extra_content`` (Gemini thought_signature).
-
-            This prevents OpenAI API errors from improperly paired
-            tool messages, preserves reasoning_content from "thinking"
-            blocks that the base formatter skips, and ensures
-            ``extra_content`` on tool_use blocks (e.g. Gemini
-            thought_signature) is carried through to the API request.
-            """
             msgs = _sanitize_tool_messages(msgs)
 
             reasoning_contents = {}
@@ -128,8 +90,6 @@ def _create_file_block_support_formatter(
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
 
-            # Convert file:// URLs to paths,
-            # TODO: remove this after AgentScope updated
             for msg in msgs:
                 for block in msg.get_content_blocks():
                     if block.get("type") == "audio":
@@ -152,24 +112,25 @@ def _create_file_block_support_formatter(
                             tc["extra_content"] = ec
 
             if reasoning_contents:
-                # Build a list of reasoning values aligned with surviving
-                # assistant messages.  The parent formatter drops
-                # thinking-only messages (no content/tool_calls), so we
-                # predict survivors and collect reasoning only for those.
                 aligned_reasoning = []
-                for m in (msg for msg in msgs if msg.role == "assistant"):
+                for msg in (m for m in msgs if m.role == "assistant"):
                     is_thinking_only = (
-                        isinstance(m.content, list)
-                        and m.content
-                        and all(b.get("type") == "thinking" for b in m.content)
+                        isinstance(msg.content, list)
+                        and msg.content
+                        and all(
+                            block.get("type") == "thinking"
+                            for block in msg.content
+                        )
                     )
                     if not is_thinking_only:
                         aligned_reasoning.append(
-                            reasoning_contents.get(id(m)),
+                            reasoning_contents.get(id(msg)),
                         )
 
                 out_assistant = [
-                    m for m in messages if m.get("role") == "assistant"
+                    message
+                    for message in messages
+                    if message.get("role") == "assistant"
                 ]
 
                 if len(aligned_reasoning) != len(out_assistant):
@@ -181,9 +142,11 @@ def _create_file_block_support_formatter(
                         len(out_assistant),
                     )
                 else:
-                    for i, out_msg in enumerate(out_assistant):
-                        if aligned_reasoning[i]:
-                            out_msg["reasoning_content"] = aligned_reasoning[i]
+                    for index, out_msg in enumerate(out_assistant):
+                        if aligned_reasoning[index]:
+                            out_msg["reasoning_content"] = aligned_reasoning[
+                                index
+                            ]
 
             return _strip_top_level_message_name(messages)
 
@@ -191,20 +154,9 @@ def _create_file_block_support_formatter(
         def convert_tool_result_to_string(
             output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
-            """Extend parent class to support file blocks.
-
-            Uses try-first strategy for compatibility with parent class.
-
-            Args:
-                output: Tool result output (string or list of blocks)
-
-            Returns:
-                Tuple of (text_representation, multimodal_data)
-            """
             if isinstance(output, str):
                 return output, []
 
-            # Try parent class method first
             try:
                 return base_formatter_class.convert_tool_result_to_string(
                     output,
@@ -213,7 +165,6 @@ def _create_file_block_support_formatter(
                 if "Unsupported block type: file" not in str(e):
                     raise
 
-                # Handle output containing file blocks
                 textual_output = []
                 multimodal_data = []
 
@@ -230,14 +181,12 @@ def _create_file_block_support_formatter(
                             "",
                         )
                         file_name = block.get("name", file_path)
-
                         textual_output.append(
                             f"The returned file '{file_name}' "
                             f"can be found at: {file_path}",
                         )
                         multimodal_data.append((file_path, block))
                     else:
-                        # Delegate other block types to parent class
                         (
                             text,
                             data,
@@ -249,13 +198,12 @@ def _create_file_block_support_formatter(
 
                 if len(textual_output) == 0:
                     return "", multimodal_data
-                elif len(textual_output) == 1:
+                if len(textual_output) == 1:
                     return textual_output[0], multimodal_data
-                else:
-                    return (
-                        "\n".join("- " + _ for _ in textual_output),
-                        multimodal_data,
-                    )
+                return (
+                    "\n".join("- " + item for item in textual_output),
+                    multimodal_data,
+                )
 
     FileBlockSupportFormatter.__name__ = (
         f"FileBlockSupport{base_formatter_class.__name__}"
@@ -263,119 +211,227 @@ def _create_file_block_support_formatter(
     return FileBlockSupportFormatter
 
 
-def _strip_top_level_message_name(
-    messages: list[dict],
-) -> list[dict]:
-    """Strip top-level `name` from OpenAI chat messages.
-
-    Some strict OpenAI-compatible backends reject `messages[*].name`
-    (especially for assistant/tool roles) and may return 500/400 on
-    follow-up turns. Keep function/tool names unchanged.
-    """
+def _strip_top_level_message_name(messages: list[dict]) -> list[dict]:
     for message in messages:
         message.pop("name", None)
     return messages
 
 
+def _has_configured_slot(slot: ModelSlotConfig | None) -> bool:
+    return bool(slot and slot.provider_id and slot.model)
+
+
+def _get_chat_model_class_for_provider(
+    provider_id: str,
+    *,
+    manager: ProviderManager,
+) -> Type[ChatModelBase]:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise ValueError(f"Provider '{provider_id}' not found.")
+    if provider.is_local:
+        return OpenAIChatModel
+    return provider.get_chat_model_cls()
+
+
+def _create_model_instance_for_provider(
+    model_slot: ModelSlotConfig,
+    *,
+    manager: ProviderManager,
+) -> Tuple[ChatModelBase, Type[ChatModelBase]]:
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ValueError(f"Provider '{model_slot.provider_id}' not found.")
+
+    if provider.is_local:
+        model = create_local_chat_model(
+            model_id=model_slot.model,
+            stream=True,
+            generate_kwargs={"max_tokens": None},
+        )
+        return model, OpenAIChatModel
+
+    return (
+        provider.get_chat_model_instance(
+            model_slot.model,
+        ),
+        provider.get_chat_model_cls(),
+    )
+
+
+def _create_routing_endpoint(
+    model_slot: ModelSlotConfig,
+    *,
+    manager: ProviderManager,
+):
+    from .routing_chat_model import RoutingEndpoint
+
+    provider_id = model_slot.provider_id
+    chat_model_class = _get_chat_model_class_for_provider(
+        provider_id,
+        manager=manager,
+    )
+
+    def _load_endpoint() -> tuple[ChatModelBase, FormatterBase]:
+        model, loaded_chat_model_class = _create_model_instance_for_provider(
+            model_slot,
+            manager=manager,
+        )
+        formatter = _create_formatter_instance(loaded_chat_model_class)
+        wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+        wrapped_model = RetryChatModel(wrapped_model)
+        return wrapped_model, formatter
+
+    return RoutingEndpoint(
+        provider_id=provider_id,
+        model_name=model_slot.model,
+        formatter_family=_get_formatter_for_chat_model(chat_model_class),
+        loader=_load_endpoint,
+    )
+
+
+def _create_routing_model_and_formatter(
+    local_slot: ModelSlotConfig,
+    cloud_slot: ModelSlotConfig,
+    routing_cfg,
+    *,
+    manager: ProviderManager,
+) -> Optional[Tuple[ChatModelBase, FormatterBase]]:
+    from .routing_chat_model import RoutingChatModel
+
+    try:
+        local_endpoint = _create_routing_endpoint(
+            local_slot,
+            manager=manager,
+        )
+        cloud_endpoint = _create_routing_endpoint(
+            cloud_slot,
+            manager=manager,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to create routing endpoint(s).",
+            exc_info=True,
+        )
+        return None
+
+    if local_endpoint.formatter_family is not cloud_endpoint.formatter_family:
+        return None
+
+    model: ChatModelBase = RoutingChatModel(
+        local_endpoint=local_endpoint,
+        cloud_endpoint=cloud_endpoint,
+        routing_cfg=routing_cfg,
+    )
+    return model, _create_formatter_from_family(
+        local_endpoint.formatter_family,
+    )
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
-    """Factory method to create model and formatter instances.
+    """Factory method to create model and formatter instances."""
 
-    This method handles both local and remote models, selecting the
-    appropriate chat model class and formatter based on configuration.
-
-    Args:
-        agent_id: Optional agent ID to load agent-specific model config.
-            If None, tries to get from context, then falls back to global.
-
-    Returns:
-        Tuple of (model_instance, formatter_instance)
-
-    Example:
-        >>> model, formatter = create_model_and_formatter()
-    """
     from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
+    from ..config.utils import load_config
 
-    # Determine agent_id (parameter > context > None)
     if agent_id is None:
         try:
             agent_id = get_current_agent_id()
         except Exception:
             pass
 
-    # Try to get agent-specific model first
+    manager = ProviderManager.get_instance()
     model_slot = None
+    routing_cfg = None
+
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
+            routing_cfg = agent_config.llm_routing
         except Exception:
             pass
 
-    # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ValueError(
-                f"Provider '{model_slot.provider_id}' not found.",
+    if routing_cfg is None:
+        routing_cfg = load_config().agents.llm_routing
+
+    if _has_configured_slot(routing_cfg.local):
+        cloud_slot = (
+            routing_cfg.cloud
+            if _has_configured_slot(routing_cfg.cloud)
+            else (
+                model_slot
+                if _has_configured_slot(model_slot)
+                else manager.get_active_model()
             )
-        if provider.is_local:
-            model = create_local_chat_model(
-                model_id=model_slot.model,
-                stream=True,
-                generate_kwargs={"max_tokens": None},
+        )
+        if routing_cfg.enabled and _has_configured_slot(cloud_slot):
+            assert cloud_slot is not None
+            routed_model = _create_routing_model_and_formatter(
+                routing_cfg.local,
+                cloud_slot,
+                routing_cfg,
+                manager=manager,
             )
-        else:
-            model = provider.get_chat_model_instance(model_slot.model)
+            if routed_model is not None:
+                return routed_model
+
+    if _has_configured_slot(model_slot):
+        assert model_slot is not None
         provider_id = model_slot.provider_id
+        model, chat_model_class = _create_model_instance_for_provider(
+            model_slot,
+            manager=manager,
+        )
     else:
-        # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
-        provider_id = (
-            ProviderManager.get_instance().get_active_model().provider_id
+        active_model = manager.get_active_model()
+        if active_model is None:
+            raise ValueError("No active model configured.")
+        provider_id = active_model.provider_id
+        provider = manager.get_provider(provider_id)
+        if provider is None:
+            raise ValueError(f"Active provider '{provider_id}' not found.")
+        chat_model_class = (
+            OpenAIChatModel
+            if provider.is_local
+            else provider.get_chat_model_cls()
         )
 
-    # Create the formatter based on the real model class
-    formatter = _create_formatter_instance(model.__class__)
-
-    # Wrap with retry logic for transient LLM API errors
+    formatter = _create_formatter_instance(chat_model_class)
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
     wrapped_model = RetryChatModel(wrapped_model)
-
     return wrapped_model, formatter
 
 
 def _create_formatter_instance(
     chat_model_class: Type[ChatModelBase],
 ) -> FormatterBase:
-    """Create a formatter instance for the given chat model class.
-
-    The formatter is enhanced with file block support for handling
-    file outputs in tool results.
-
-    Args:
-        chat_model_class: The chat model class
-
-    Returns:
-        Formatter instance with file block support
-    """
     base_formatter_class = _get_formatter_for_chat_model(chat_model_class)
+    return _create_formatter_from_family(base_formatter_class)
+
+
+def _create_formatter_from_family(
+    base_formatter_class: Type[FormatterBase],
+) -> FormatterBase:
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
+    image_promoting_bases: tuple[type, ...] = tuple(
+        base
+        for base in (OpenAIChatFormatter, GeminiChatFormatter)
+        if base is not None
+    )
     kwargs: dict[str, Any] = {}
-    if issubclass(
+    if image_promoting_bases and issubclass(
         base_formatter_class,
-        (OpenAIChatFormatter, GeminiChatFormatter),
+        image_promoting_bases,
     ):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)
 
 
-__all__ = [
-    "create_model_and_formatter",
-]
+__all__ = ["create_model_and_formatter"]
