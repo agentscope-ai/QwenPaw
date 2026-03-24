@@ -12,6 +12,52 @@ pytestmark = pytest.mark.integration
 class TestEmbeddingApiEndpoints:
     """Tests for local embedding API endpoints."""
 
+    def test_get_canonical_embedding_config(self, running_app):
+        """Canonical endpoint returns embedding_config with backend_type."""
+        client = running_app
+        response = client.get("/api/config/agents/embedding")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "backend_type" in data
+        assert data["backend_type"] in ["openai", "transformers", "ollama"]
+
+    def test_update_canonical_embedding_config_to_ollama(self, running_app):
+        """Canonical endpoint can switch backend_type to ollama."""
+        client = running_app
+        payload = {
+            "enabled": True,
+            "backend_type": "ollama",
+            "backend": "openai",
+            "api_key": "",
+            "base_url": "http://127.0.0.1:11434",
+            "model_name": "mxbai-embed-large",
+            "dimensions": 1024,
+            "enable_cache": True,
+            "use_dimensions": False,
+            "max_cache_size": 3000,
+            "max_input_length": 8192,
+            "max_batch_size": 10,
+            "model_id": "qwen/Qwen3-VL-Embedding-2B",
+            "model_path": None,
+            "device": "auto",
+            "dtype": "fp16",
+            "download_source": "modelscope",
+        }
+
+        response = client.put("/api/config/agents/embedding", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["backend_type"] == "ollama"
+        assert data["base_url"] == "http://127.0.0.1:11434"
+        assert data["model_name"] == "mxbai-embed-large"
+
+        # local-embedding compatibility slice should be disabled when backend
+        # is not transformers.
+        local_resp = client.get("/api/config/agents/local-embedding")
+        assert local_resp.status_code == 200
+        assert local_resp.json()["enabled"] is False
+
     def test_preset_models_returns_valid_structure(self, running_app):
         """Test that preset-models endpoint returns valid model list."""
         client = running_app
