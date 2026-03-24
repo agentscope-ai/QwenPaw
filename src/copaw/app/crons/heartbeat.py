@@ -21,6 +21,8 @@ from ...config import (
 )
 from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
 
+from apscheduler.triggers.cron import CronTrigger
+
 logger = logging.getLogger(__name__)
 
 # Pattern for "30m", "1h", "2h30m", "90s"
@@ -31,21 +33,44 @@ _EVERY_PATTERN = re.compile(
 
 
 def parse_heartbeat_every(every: str) -> int:
-    """Parse interval string (e.g. '30m', '1h') to total seconds."""
+    """Parse interval string (e.g. '30m', '1h') or cron expression (e.g. '0 6 * * *') to total seconds.
+
+    Supports:
+    - Interval formats: 30m, 1h, 2h30m, 90s
+    - Cron expressions: 0 6 * * * (every day at 6:00), 30 8 * * 1-5 (weekdays at 8:30)
+    """
     every = (every or "").strip()
     if not every:
         return 30 * 60  # default 30 min
+
+    # First try to match interval format (e.g., "30m", "1h")
     m = _EVERY_PATTERN.match(every)
-    if not m:
-        logger.warning("heartbeat every=%r invalid, using 30m", every)
-        return 30 * 60
-    hours = int(m.group("hours") or 0)
-    minutes = int(m.group("minutes") or 0)
-    seconds = int(m.group("seconds") or 0)
-    total = hours * 3600 + minutes * 60 + seconds
-    if total <= 0:
-        return 30 * 60
-    return total
+    if m:
+        hours = int(m.group("hours") or 0)
+        minutes = int(m.group("minutes") or 0)
+        seconds = int(m.group("seconds") or 0)
+        total = hours * 3600 + minutes * 60 + seconds
+        if total <= 0:
+            return 30 * 60
+        return total
+
+    # If not an interval, try cron expression
+    try:
+        trigger = CronTrigger.from_crontab(every)
+        now = datetime.now()
+        next_run = trigger.get_next_run_time(now)
+        if next_run:
+            # Calculate seconds until next run
+            delta = next_run - now
+            total_seconds = int(delta.total_seconds())
+            if total_seconds > 0:
+                return total_seconds
+    except Exception:
+        pass
+
+    # Invalid format
+    logger.warning("heartbeat every=%r invalid, using 30m", every)
+    return 30 * 60
 
 
 def _in_active_hours(active_hours: Any) -> bool:
