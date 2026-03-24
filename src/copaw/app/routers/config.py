@@ -21,6 +21,7 @@ from ...config.config import (
     ConsoleConfig,
     DingTalkConfig,
     DiscordConfig,
+    EmbeddingConfig,
     FeishuConfig,
     HeartbeatConfig,
     IMessageChannelConfig,
@@ -44,6 +45,25 @@ from .schemas_config import (
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+def _apply_local_embedding_slice(
+    ec: EmbeddingConfig,
+    body: LocalEmbeddingBody,
+) -> EmbeddingConfig:
+    """Persist local-embedding card into canonical ``embedding_config``."""
+    d = body.model_dump()
+    return ec.model_copy(
+        update={
+            "backend_type": "transformers",
+            "enabled": d["enabled"],
+            "model_id": d["model_id"],
+            "model_path": d["model_path"],
+            "device": d["device"],
+            "dtype": d["dtype"],
+            "download_source": d["download_source"],
+        },
+    )
 
 
 _CHANNEL_CONFIG_CLASS_MAP = {
@@ -458,7 +478,7 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
 async def get_local_embedding() -> LocalEmbeddingConfig:
     """Return current local embedding config."""
     config = load_config()
-    return config.agents.running.local_embedding
+    return config.agents.running.embedding_config.to_local_embedding_config()
 
 
 @router.put(
@@ -478,9 +498,12 @@ async def put_local_embedding(
     Note: Changes take effect after application restart.
     """
     config = load_config()
-    config.agents.running.local_embedding = body
+    config.agents.running.embedding_config = _apply_local_embedding_slice(
+        config.agents.running.embedding_config,
+        body,
+    )
     save_config(config)
-    return body
+    return config.agents.running.embedding_config.to_local_embedding_config()
 
 
 # ── Security / File Guard ────────────────────────────────────────────
@@ -684,6 +707,18 @@ async def get_preset_embedding_models() -> dict:
             if v.get("type") == "text"
         ],
     }
+
+
+@router.get(
+    "/agents/embedding/resource-hint",
+    summary="Embedding resource hint (Track C)",
+    description="Lightweight capacity hint; does not load models",
+)
+async def get_embedding_resource_hint() -> dict:
+    """Return CPU/GPU hint for embedding (ADR-003 Track C)."""
+    from ...embedding.resource_eval import embedding_resource_hint
+
+    return embedding_resource_hint()
 
 
 # ── Security / Skill Scanner ────────────────────────────────────────

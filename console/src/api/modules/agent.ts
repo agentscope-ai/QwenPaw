@@ -6,6 +6,7 @@ import type {
   EmbeddingPresetModels,
   EmbeddingTestResult,
   ModelDownloadStatus,
+  EmbeddingResourceHint,
 } from "../types";
 
 // Agent API
@@ -117,4 +118,7 @@ export const agentApi = {
     request<EmbeddingPresetModels>(
       "/config/agents/local-embedding/preset-models",
     ),
+
+  getEmbeddingResourceHint: () =>
+    request<EmbeddingResourceHint>("/config/agents/embedding/resource-hint"),
 };

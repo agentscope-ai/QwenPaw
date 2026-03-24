@@ -25,6 +25,9 @@ from unittest.mock import MagicMock, patch  # noqa: E402
 from copaw.agents.memory.embedding_adapter import (
     create_embedding_adapter,
 )  # noqa: E402
+from copaw.agents.memory.embedding_client import (
+    EmbeddingClient,
+)  # noqa: E402
 from copaw.agents.memory.local_embedding_model import (
     LocalEmbeddingModel,
 )  # noqa: E402
@@ -59,7 +62,7 @@ class TestEmbeddingBackendRegistration:
             # Verify it's in the registry
             assert "local" in R.embedding_models
             # Verify it's our class
-            assert R.embedding_models["local"] == LocalEmbeddingModel
+            assert R.embedding_models["local"] == EmbeddingClient
 
     def test_backend_config_passed_to_reme(self):
         """Verify backend config is correctly passed to ReMeLight."""

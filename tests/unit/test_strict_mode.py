@@ -88,10 +88,10 @@ class TestStrictLocalMode:
         )
         non_strict_result = non_strict_adapter.determine_mode()
 
-        # Non-strict should use remote since local is disabled
+        # openai path: remote without prior local failure
         assert non_strict_result.mode == "remote"
         assert non_strict_result.vector_enabled is True
-        assert non_strict_result.fallback_applied is True
+        assert non_strict_result.fallback_applied is False
 
     def test_strict_mode_via_environment_variable(self, monkeypatch):
         """Test strict mode can be enabled via environment variable."""
@@ -214,11 +214,11 @@ class TestFallbackBehavior:
 
         result = adapter.determine_mode()
 
-        if result.mode == "remote":
-            # Fallback occurred
+        # ADR-003: no cross-backend fallback; local failure yields disabled
+        if result.mode == "disabled":
             assert result.fallback_applied is True
             assert result.fallback_reason is not None
-            assert "Local unavailable" in result.fallback_reason
+            assert "Local unavailable" in (result.fallback_reason or "")
 
 
 if __name__ == "__main__":

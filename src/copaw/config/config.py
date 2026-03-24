@@ -2,7 +2,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal
+from typing import Any, Optional, Union, Dict, List, Literal
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
@@ -219,20 +219,47 @@ class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
 
 
+EmbeddingBackendType = Literal["openai", "transformers", "ollama"]
+
+_LEGACY_LOCAL_EMBEDDING_KEYS: tuple[str, ...] = (
+    "model_id",
+    "model_path",
+    "device",
+    "dtype",
+    "download_source",
+)
+
+
 class EmbeddingConfig(BaseModel):
-    """Embedding model configuration for remote API providers."""
+    """Canonical embedding runtime configuration (ADR-003).
+
+    Single source of truth for OpenAI-compatible remote, local transformers,
+    and Ollama backends. ``backend_type`` selects the active backend; do not
+    infer it from model name strings.
+    """
 
     model_config = ConfigDict(extra="allow")
 
+    enabled: bool = Field(
+        default=True,
+        description="Master switch for embedding for this agent",
+    )
+    backend_type: EmbeddingBackendType = Field(
+        default="openai",
+        description="Explicit backend: openai | transformers | ollama",
+    )
     backend: str = Field(
         default="openai",
-        description="Embedding backend (openai, etc.)",
+        description="ReMe registry name for remote OpenAI-compatible APIs",
     )
     api_key: str = Field(
         default="",
         description="API key for embedding provider",
     )
-    base_url: str = Field(default="", description="Base URL for embedding API")
+    base_url: str = Field(
+        default="",
+        description="Base URL (remote OpenAI-compatible API or Ollama host)",
+    )
     model_name: str = Field(default="", description="Embedding model name")
     dimensions: int = Field(default=1024, description="Embedding dimensions")
     enable_cache: bool = Field(
@@ -252,6 +279,38 @@ class EmbeddingConfig(BaseModel):
         default=10,
         description="Maximum batch size for embedding",
     )
+    # Local / transformers (also stored when backend_type is transformers)
+    model_id: str = Field(
+        default="qwen/Qwen3-VL-Embedding-2B",
+        description="Model identifier for local transformers embedding",
+    )
+    model_path: Optional[str] = Field(
+        default=None,
+        description="Local path to model weights (optional)",
+    )
+    device: str = Field(
+        default="auto",
+        description="Device for local inference: auto/cuda/cpu",
+    )
+    dtype: Literal["fp16", "bf16", "fp32"] = Field(
+        default="fp16",
+        description="Data type for local model weights",
+    )
+    download_source: Literal["modelscope", "huggingface"] = Field(
+        default="modelscope",
+        description="Download source for local models",
+    )
+
+    def to_local_embedding_config(self) -> "LocalEmbeddingConfig":
+        """Build :class:`LocalEmbeddingConfig` for local embedder classes."""
+        return LocalEmbeddingConfig(
+            enabled=bool(self.enabled and self.backend_type == "transformers"),
+            model_id=self.model_id,
+            model_path=self.model_path,
+            device=self.device,
+            dtype=self.dtype,
+            download_source=self.download_source,
+        )
 
 
 class LocalEmbeddingConfig(BaseModel):
@@ -421,8 +480,38 @@ class AgentsRunningConfig(BaseModel):
 
     embedding_config: EmbeddingConfig = Field(
         default_factory=EmbeddingConfig,
-        description="Embedding model configuration",
+        description="Canonical embedding model configuration (ADR-003)",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_local_embedding(cls, data: Any) -> Any:
+        """Merge legacy ``local_embedding`` into ``embedding_config``."""
+        if not isinstance(data, dict):
+            return data
+        legacy = data.pop("local_embedding", None)
+        ec = data.get("embedding_config")
+        if ec is None:
+            ec = {}
+        if not isinstance(ec, dict):
+            return data
+        if legacy is not None and isinstance(legacy, dict):
+            if legacy.get("enabled"):
+                ec["backend_type"] = "transformers"
+                ec["enabled"] = True
+                for key in _LEGACY_LOCAL_EMBEDDING_KEYS:
+                    if key in legacy and legacy[key] is not None:
+                        ec[key] = legacy[key]
+        data["embedding_config"] = ec
+        ec = data["embedding_config"]
+        if isinstance(ec, dict) and "backend_type" not in ec:
+            bt = ec.get("backend", "openai")
+            if bt in ("openai", "transformers", "ollama"):
+                ec["backend_type"] = bt
+            else:
+                ec["backend_type"] = "openai"
+            data["embedding_config"] = ec
+        return data
 
     @property
     def memory_compact_reserve(self) -> int:
@@ -433,13 +522,6 @@ class AgentsRunningConfig(BaseModel):
     def memory_compact_threshold(self) -> int:
         """Memory compact threshold size (tokens)."""
         return int(self.max_input_length * self.memory_compact_ratio)
-
-    local_embedding: LocalEmbeddingConfig = Field(
-        default_factory=LocalEmbeddingConfig,
-        description=(
-            "Local embedding model configuration for vector memory search"
-        ),
-    )
 
 
 class AgentsLLMRoutingConfig(BaseModel):

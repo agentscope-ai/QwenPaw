@@ -1,32 +1,36 @@
 # -*- coding: utf-8 -*-
 """Embedding adapter layer for CoPaw-ReMe integration.
 
-Handles local embedding backend registration, availability detection,
-configuration generation, and fallback strategies.
+Handles embedding backend registration, configuration generation, and
+``vector_enabled`` for file store (ADR-003).
+
+ReMe-facing dict contract (``reme-ai``): values merged into
+``service_config.embedding_models["default"]``; ``backend`` must match a name
+registered on ``R.embedding_models`` — built-in remote uses ``"openai"``;
+CoPaw registers ``"local"`` (transformers via :class:`EmbeddingClient`) and
+``"ollama"`` (:class:`OllamaEmbeddingModel`).
+Use :func:`get_reme_embedding_and_vector_enabled` as the **single builder** for
+``default_embedding_model_config`` and restart (TASK T-R01).
 """
 
 import importlib.util
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Dict, Literal, Optional
 
-from copaw.config.config import LocalEmbeddingConfig
+from copaw.config.config import EmbeddingConfig, LocalEmbeddingConfig
 
 logger = logging.getLogger(__name__)
 
-# Environment variable names
 ENV_EMBEDDING_API_KEY = "EMBEDDING_API_KEY"
 ENV_EMBEDDING_BASE_URL = "EMBEDDING_BASE_URL"
 ENV_EMBEDDING_MODEL_NAME = "EMBEDDING_MODEL_NAME"
-ENV_EMBEDDING_DIMENSIONS = "EMBEDDING_DIMENSIONS"
 ENV_STRICT_LOCAL = "COPAW_STRICT_LOCAL_EMBEDDING"
 
-# Default values
 DEFAULT_EMBEDDING_DIMENSIONS = 1024
 DEFAULT_LOCAL_EMBEDDING_DIMENSIONS = 2048
 
-# Lightweight local model dimension hints (kept import-free on purpose).
 LOCAL_MODEL_DIMENSIONS: dict[str, int] = {
     "qwen/Qwen3-VL-Embedding-2B": 2048,
     "BAAI/bge-small-zh": 512,
@@ -34,12 +38,51 @@ LOCAL_MODEL_DIMENSIONS: dict[str, int] = {
     "BAAI/bge-m3": 1024,
 }
 
+# ReMe registry is process-global; register each backend name at most once.
+_GLOBAL_COPAW_EMBEDDING_BACKENDS_REGISTERED: bool = False
+
+
+def _legacy_merge_embedding_config(
+    file_config: Optional[EmbeddingConfig],
+    local_config: Optional[LocalEmbeddingConfig],
+    remote_file_config: Optional[EmbeddingConfig],
+) -> EmbeddingConfig:
+    """Merge legacy local_config / remote_file_config into one model."""
+    if file_config is not None and remote_file_config is not None:
+        base = file_config.model_copy(
+            update=remote_file_config.model_dump(exclude_unset=True),
+        )
+    elif remote_file_config is not None:
+        base = remote_file_config.model_copy(deep=True)
+    elif file_config is not None:
+        base = file_config.model_copy(deep=True)
+    else:
+        base = EmbeddingConfig()
+
+    if local_config is None:
+        return base
+
+    updates: Dict[str, Any] = {
+        "model_id": local_config.model_id,
+        "model_path": local_config.model_path,
+        "device": local_config.device,
+        "dtype": local_config.dtype,
+        "download_source": local_config.download_source,
+    }
+    if local_config.enabled:
+        updates["backend_type"] = "transformers"
+        updates["enabled"] = True
+    else:
+        updates["backend_type"] = "openai"
+        updates["enabled"] = True
+    return base.model_copy(update=updates)
+
 
 @dataclass
 class EmbeddingModeResult:
     """Result of embedding mode detection."""
 
-    mode: Literal["local", "remote", "disabled"]
+    mode: Literal["local", "remote", "ollama", "disabled"]
     vector_enabled: bool
     backend_config: Dict[str, Any]
     fallback_applied: bool
@@ -48,7 +91,7 @@ class EmbeddingModeResult:
 
 @dataclass
 class RemoteEmbeddingConfig:
-    """Configuration for remote embedding service."""
+    """Resolved remote embedding service fields."""
 
     api_key: str
     base_url: str
@@ -57,21 +100,24 @@ class RemoteEmbeddingConfig:
 
 
 class EmbeddingAdapter:
-    """Adapter for embedding configuration and ReMe integration.
-
-    Responsibilities:
-    1. Register local backend to ReMe before ReMeLight initialization
-    2. Detect local/remote embedding availability
-    3. Generate appropriate configuration for ReMeLight
-    4. Handle fallback from local to remote
-    """
+    """Adapter for canonical :class:`EmbeddingConfig` and ReMe integration."""
 
     def __init__(
         self,
-        local_config: Optional[LocalEmbeddingConfig] = None,
+        file_config: Optional[EmbeddingConfig] = None,
         strict_local: bool = False,
-    ):
-        self.local_config = local_config or LocalEmbeddingConfig()
+        *,
+        local_config: Optional[LocalEmbeddingConfig] = None,
+        remote_file_config: Optional[EmbeddingConfig] = None,
+    ) -> None:
+        if local_config is not None or remote_file_config is not None:
+            self._file_config = _legacy_merge_embedding_config(
+                file_config,
+                local_config,
+                remote_file_config,
+            )
+        else:
+            self._file_config = file_config or EmbeddingConfig()
         self.strict_local = strict_local or os.getenv(
             ENV_STRICT_LOCAL,
             "",
@@ -80,306 +126,282 @@ class EmbeddingAdapter:
             "1",
             "yes",
         )
-        self._local_backend_registered = False
-        self._reme_available = False
+        self._copaw_backends_registered = False
         self._current_mode: Optional[
-            Literal["local", "remote", "disabled"]
+            Literal["local", "remote", "ollama", "disabled"]
         ] = None
         self._remote_config: Optional[RemoteEmbeddingConfig] = None
 
-    def _check_reme_compatibility(self) -> tuple[bool, Optional[str]]:
-        """Check if ReMe is available and compatible.
+    @property
+    def _local(self) -> LocalEmbeddingConfig:
+        return self._file_config.to_local_embedding_config()
 
-        Returns:
-            (is_compatible, error_reason)
-        """
+    def _check_reme_compatibility(self) -> tuple[bool, Optional[str]]:
         try:
-            # Try to import ReMe registry
             from reme.core.registry_factory import R  # type: ignore[import]
 
-            # Check if embedding_models registry exists
             if not hasattr(R, "embedding_models"):
                 return (
                     False,
                     "ReMe registry does not have embedding_models attribute",
                 )
-
-            # Check if register method exists
             if not hasattr(R.embedding_models, "register"):
                 return (
                     False,
                     "ReMe embedding_models registry "
                     "does not have register method",
                 )
-
             return True, None
         except ImportError as e:
             return False, f"ReMe not installed: {e}"
         except (RuntimeError, AttributeError, TypeError) as e:
             return False, f"ReMe compatibility check failed: {e}"
 
-    def register_local_backend(self) -> bool:
-        """Register local backend to ReMe registry.
-
-        Returns:
-            True if registration successful, False otherwise.
-        """
-        if self._local_backend_registered:
-            logger.debug("Local backend already registered")
+    def register_copaw_embedding_backends(self) -> bool:
+        """Register CoPaw ``local`` (transformers) and ``ollama`` backends."""
+        global _GLOBAL_COPAW_EMBEDDING_BACKENDS_REGISTERED
+        if (
+            self._copaw_backends_registered
+            or _GLOBAL_COPAW_EMBEDDING_BACKENDS_REGISTERED
+        ):
+            self._copaw_backends_registered = True
             return True
 
-        # Check ReMe compatibility
         is_compatible, error_reason = self._check_reme_compatibility()
         if not is_compatible:
             logger.warning(
                 "ReMe compatibility check failed",
-                extra={
-                    "error_reason": error_reason,
-                },
+                extra={"error_reason": error_reason},
             )
             return False
 
-        # Import LocalEmbeddingModel
         try:
-            from copaw.agents.memory.local_embedding_model import (
-                LocalEmbeddingModel,
+            from copaw.agents.memory.embedding_client import EmbeddingClient
+            from copaw.agents.memory.ollama_embedding_model import (
+                OllamaEmbeddingModel,
             )
+            from reme.core.registry_factory import R  # type: ignore[import]
         except ImportError as e:
             logger.warning(
-                "LocalEmbeddingModel not available",
+                "Embedding client/backends not available",
                 extra={"error": str(e)},
             )
             return False
 
-        # Register to ReMe registry
         try:
-            from reme.core.registry_factory import R  # type: ignore[import]
-
-            R.embedding_models.register("local")(LocalEmbeddingModel)
-            self._local_backend_registered = True
-            self._reme_available = True
-
+            R.embedding_models.register("local")(EmbeddingClient)
+            R.embedding_models.register("ollama")(OllamaEmbeddingModel)
+            self._copaw_backends_registered = True
+            _GLOBAL_COPAW_EMBEDDING_BACKENDS_REGISTERED = True
             logger.info(
-                "Local embedding backend registered to ReMe",
-                extra={
-                    "backend": "local",
-                    "model_class": LocalEmbeddingModel.__name__,
-                },
+                "CoPaw embedding backends registered to ReMe",
+                extra={"backends": ("local", "ollama")},
             )
             return True
         except (RuntimeError, AttributeError, TypeError) as e:
             logger.error(
-                "Failed to register local backend to ReMe",
+                "Failed to register CoPaw embedding backends",
                 extra={"error": str(e)},
             )
             return False
 
-    def _check_dependencies(self) -> tuple[bool, Optional[str]]:
-        """Check if required dependencies are available.
+    def register_local_backend(self) -> bool:
+        """Alias for :meth:`register_copaw_embedding_backends`."""
+        return self.register_copaw_embedding_backends()
 
-        Returns:
-            (has_dependencies, error_reason)
-        """
+    def _check_dependencies(self) -> tuple[bool, Optional[str]]:
         if importlib.util.find_spec("torch") is None:
             return False, "torch not installed"
-
         if importlib.util.find_spec("transformers") is None:
             return False, "transformers not installed"
-
         return True, None
 
     def _check_model_available(self) -> tuple[bool, Optional[str]]:
-        """Check if the configured model is available.
-
-        Returns:
-            (is_available, error_reason)
-        """
-        # If local path is specified, check if it exists
-        if self.local_config.model_path:
-            if not os.path.exists(self.local_config.model_path):
+        lc = self._local
+        if lc.model_path:
+            if not os.path.exists(lc.model_path):
                 return (
                     False,
-                    "Local model path does not exist: "
-                    f"{self.local_config.model_path}",
+                    "Local model path does not exist: " f"{lc.model_path}",
                 )
             return True, None
-
-        # Otherwise, assume it can be downloaded
-        # (we'll verify during actual load)
-        # The LocalEmbedder will handle model download/checking
-        # We just do basic validation here
-        if not self.local_config.model_id:
+        if not lc.model_id:
             return False, "Model ID not configured"
-
         logger.debug(
             "Model availability will be checked during initialization",
-            extra={"model_id": self.local_config.model_id},
+            extra={"model_id": lc.model_id},
         )
         return True, None
 
     def _check_local_available(self) -> tuple[bool, Optional[str]]:
-        """Check if local embedding is available.
-
-        Returns:
-            (is_available, error_reason)
-        """
-        # Check if enabled in config
-        if not self.local_config.enabled:
-            return False, "Local embedding not enabled in config"
-
-        # Check dependencies
+        lc = self._local
+        if not lc.enabled:
+            return False, "Local transformers embedding not enabled in config"
         has_deps, dep_error = self._check_dependencies()
         if not has_deps:
             return False, f"Missing dependencies: {dep_error}"
-
-        # Check model availability
         model_available, model_error = self._check_model_available()
         if not model_available:
             return False, f"Model not available: {model_error}"
-
         return True, None
 
-    def _check_remote_available(self) -> tuple[bool, Optional[str]]:
-        """Check if remote embedding is available.
-
-        Returns:
-            (is_available, error_reason)
-        """
-        api_key = os.getenv(ENV_EMBEDDING_API_KEY)
-        base_url = os.getenv(ENV_EMBEDDING_BASE_URL)
-        model_name = os.getenv(ENV_EMBEDDING_MODEL_NAME)
-
-        if not api_key:
-            return False, f"{ENV_EMBEDDING_API_KEY} not set"
-
-        if not base_url:
-            return False, f"{ENV_EMBEDDING_BASE_URL} not set"
-
-        if not model_name:
-            return False, f"{ENV_EMBEDDING_MODEL_NAME} not set"
-
-        # Store the config for later use
-        dimensions_raw = os.getenv(
-            ENV_EMBEDDING_DIMENSIONS,
-            str(DEFAULT_EMBEDDING_DIMENSIONS),
+    def _merge_remote_credentials(self) -> tuple[str, str, str, int]:
+        file_cfg = self._file_config
+        api_key = (file_cfg.api_key or "") or os.getenv(
+            ENV_EMBEDDING_API_KEY,
+            "",
         )
-        try:
-            dimensions = int(dimensions_raw)
-        except ValueError:
-            logger.warning(
-                "Invalid embedding dimensions, using default",
-                extra={
-                    "env_key": ENV_EMBEDDING_DIMENSIONS,
-                    "env_value": dimensions_raw,
-                    "default_dimensions": DEFAULT_EMBEDDING_DIMENSIONS,
-                },
+        base_url = (file_cfg.base_url or "") or os.getenv(
+            ENV_EMBEDDING_BASE_URL,
+            "",
+        )
+        model_name = (file_cfg.model_name or "") or os.getenv(
+            ENV_EMBEDDING_MODEL_NAME,
+            "",
+        )
+        dimensions = file_cfg.dimensions
+        return api_key, base_url, model_name, dimensions
+
+    def _check_remote_available(self) -> tuple[bool, Optional[str]]:
+        (
+            api_key,
+            base_url,
+            model_name,
+            dimensions,
+        ) = self._merge_remote_credentials()
+        if not api_key:
+            return (
+                False,
+                f"{ENV_EMBEDDING_API_KEY} not set and empty in config",
             )
-            dimensions = DEFAULT_EMBEDDING_DIMENSIONS
+        if not base_url:
+            return (
+                False,
+                f"{ENV_EMBEDDING_BASE_URL} not set and empty in config",
+            )
+        if not model_name:
+            return (
+                False,
+                f"{ENV_EMBEDDING_MODEL_NAME} not set and empty in config",
+            )
         self._remote_config = RemoteEmbeddingConfig(
             api_key=api_key,
             base_url=base_url,
             model_name=model_name,
             dimensions=dimensions,
         )
-
         return True, None
 
-    def determine_mode(self) -> EmbeddingModeResult:
-        """Determine embedding mode and configuration.
+    def _check_ollama_available(self) -> tuple[bool, Optional[str]]:
+        base = (self._file_config.base_url or "").strip()
+        model = (self._file_config.model_name or "").strip()
+        if not base:
+            return False, "Ollama base_url is empty"
+        if not model:
+            return False, "Ollama model_name is empty"
+        return True, None
 
-        This is the main entry point for mode detection and fallback logic.
-        Following ADR-002: Local -> Remote (fallback) -> Disabled (fallback)
-
-        Returns:
-            EmbeddingModeResult with mode, config, and fallback info.
-        """
-        fallback_reason = None
-
-        # Step 1: Try local mode (if enabled)
-        local_available, local_error = self._check_local_available()
-        if local_available:
-            # Try to register local backend
-            if self.register_local_backend():
-                self._current_mode = "local"
-                result = EmbeddingModeResult(
-                    mode="local",
-                    vector_enabled=True,
-                    backend_config=self.get_reme_embedding_config(),
-                    fallback_applied=False,
-                    fallback_reason=None,
-                )
-                self._log_mode_result(result)
-                return result
-            else:
-                local_error = "Failed to register local backend to ReMe"
-
-        # Local failed - determine if we should fallback
-        # Strict mode: only fail if local was explicitly enabled but failed
-        if self.strict_local and self.local_config.enabled:
-            # Strict mode: fail immediately (fail-fast per ADR-002)
-            error_msg = (
-                f"Local embedding failed in strict mode: "
-                f"{local_error}. To enable fallback to remote, "
-                "set COPAW_STRICT_LOCAL_EMBEDDING=false"
-            )
-            logger.error(
-                "Embedding initialization failed in strict mode",
-                extra={
-                    "error": local_error,
-                    "strict_local": self.strict_local,
-                    "local_enabled": self.local_config.enabled,
-                },
-            )
-            raise RuntimeError(error_msg)
-
-        # Step 2: Fallback to remote mode
-        fallback_reason = f"Local unavailable: {local_error}"
-
-        remote_available, remote_error = self._check_remote_available()
-        if remote_available:
-            self._current_mode = "remote"
-            result = EmbeddingModeResult(
-                mode="remote",
-                vector_enabled=True,
-                backend_config=self.get_reme_embedding_config(),
-                fallback_applied=True,
-                fallback_reason=fallback_reason,
-            )
-            self._log_mode_result(result)
-            return result
-
-        # Step 3: Fallback to disabled
-        fallback_reason = (
-            f"{fallback_reason}; Remote unavailable: {remote_error}"
+    def _result_success(
+        self,
+        mode: Literal["local", "remote", "ollama"],
+    ) -> EmbeddingModeResult:
+        """Set mode and build a successful :class:`EmbeddingModeResult`."""
+        self._current_mode = mode
+        result = EmbeddingModeResult(
+            mode=mode,
+            vector_enabled=True,
+            backend_config=self.get_reme_embedding_config(),
+            fallback_applied=False,
+            fallback_reason=None,
         )
+        self._log_mode_result(result)
+        return result
+
+    def _result_disabled(
+        self,
+        *,
+        fallback_applied: bool,
+        fallback_reason: str,
+    ) -> EmbeddingModeResult:
+        """Set mode to disabled and log."""
         self._current_mode = "disabled"
         result = EmbeddingModeResult(
             mode="disabled",
             vector_enabled=False,
             backend_config={},
-            fallback_applied=True,
+            fallback_applied=fallback_applied,
             fallback_reason=fallback_reason,
         )
         self._log_mode_result(result)
-        logger.warning(
-            "Embedding disabled: both local and remote unavailable",
-            extra={"fallback_reason": fallback_reason},
-        )
         return result
 
-    def _log_mode_result(self, result: EmbeddingModeResult) -> None:
-        """Log mode result with structured fields per ADR-002.
+    # pylint: disable-next=too-many-return-statements
+    def determine_mode(self) -> EmbeddingModeResult:
+        """Resolve embedding mode from explicit ``backend_type``."""
+        fc = self._file_config
+        if not fc.enabled:
+            return self._result_disabled(
+                fallback_applied=False,
+                fallback_reason="Embedding disabled in config",
+            )
 
-        Args:
-            result: The mode result to log.
-        """
-        # Get ReMe version if available
+        if fc.backend_type == "transformers":
+            local_ok, local_err = self._check_local_available()
+            if local_ok:
+                if self.register_copaw_embedding_backends():
+                    return self._result_success("local")
+                local_err = "Failed to register CoPaw embedding backends"
+            if self.strict_local:
+                msg = (
+                    f"Local embedding failed in strict mode: {local_err}. "
+                    f"Set {ENV_STRICT_LOCAL}=false to allow "
+                    "returning disabled instead of raising."
+                )
+                logger.error(
+                    "Embedding initialization failed in strict mode",
+                    extra={
+                        "error": local_err,
+                        "strict_local": self.strict_local,
+                    },
+                )
+                raise RuntimeError(msg)
+            return self._result_disabled(
+                fallback_applied=True,
+                fallback_reason=f"Local unavailable: {local_err}",
+            )
+
+        if fc.backend_type == "openai":
+            remote_ok, remote_err = self._check_remote_available()
+            if remote_ok:
+                return self._result_success("remote")
+            return self._result_disabled(
+                fallback_applied=True,
+                fallback_reason=f"Remote unavailable: {remote_err}",
+            )
+
+        if fc.backend_type == "ollama":
+            ollama_ok, ollama_err = self._check_ollama_available()
+            if ollama_ok:
+                if self.register_copaw_embedding_backends():
+                    return self._result_success("ollama")
+                ollama_err = "Failed to register CoPaw embedding backends"
+            return self._result_disabled(
+                fallback_applied=True,
+                fallback_reason=f"Ollama unavailable: {ollama_err}",
+            )
+
+        return self._result_disabled(
+            fallback_applied=True,
+            fallback_reason="Unknown backend_type",
+        )
+
+    def _log_mode_result(self, result: EmbeddingModeResult) -> None:
         reme_version = "unknown"
         try:
             import reme
 
             reme_version = getattr(reme, "__version__", "unknown")
-        except Exception:
+        except ImportError:
             pass
 
         log_data = {
@@ -399,121 +421,115 @@ class EmbeddingAdapter:
             logger.info("Embedding mode determined", extra=log_data)
 
     def _get_local_dimensions(self) -> int:
-        """Infer local embedding dimensions from model metadata.
-
-        Uses preset metadata first and falls back to a local-safe default.
-        """
-        preset_dims = LOCAL_MODEL_DIMENSIONS.get(self.local_config.model_id)
+        preset_dims = LOCAL_MODEL_DIMENSIONS.get(self._file_config.model_id)
         if preset_dims is not None:
             return preset_dims
         return DEFAULT_LOCAL_EMBEDDING_DIMENSIONS
 
     def get_reme_embedding_config(self) -> Dict[str, Any]:
-        """Generate embedding model config for ReMeLight.
-
-        Returns:
-            Configuration dict for default_embedding_model_config parameter.
-        """
         if self._current_mode is None:
-            # Determine mode if not already done
             self.determine_mode()
 
         if self._current_mode == "local":
-            # LocalEmbeddingConfig does not expose dimensions as public field.
-            # Infer by model preset and keep a local-safe fallback.
+            lc = self._local
             dimensions = self._get_local_dimensions()
-
-            # Build config for ReMe
-            config = {
+            config: Dict[str, Any] = {
                 "backend": "local",
-                "model_name": self.local_config.model_id,
+                "model_name": lc.model_id,
                 "dimensions": dimensions,
-                "local_embedding_config": self.local_config,
+                "local_embedding_config": lc,
             }
-
-            # Add optional parameters if present in config
-            if hasattr(self.local_config, "device"):
-                config["device"] = self.local_config.device
-            if hasattr(self.local_config, "dtype"):
-                config["dtype"] = self.local_config.dtype
-
+            config["device"] = lc.device
+            config["dtype"] = lc.dtype
             return config
 
-        elif self._current_mode == "remote" and self._remote_config:
-            return {
-                "backend": "openai",  # ReMe uses openai backend for remote
+        if self._current_mode == "remote" and self._remote_config:
+            out: Dict[str, Any] = {
+                "backend": "openai",
                 "api_key": self._remote_config.api_key,
                 "base_url": self._remote_config.base_url,
                 "model_name": self._remote_config.model_name,
                 "dimensions": self._remote_config.dimensions,
             }
+            fc = self._file_config
+            out.update(
+                {
+                    "enable_cache": fc.enable_cache,
+                    "use_dimensions": fc.use_dimensions,
+                    "max_cache_size": fc.max_cache_size,
+                    "max_input_length": fc.max_input_length,
+                    "max_batch_size": fc.max_batch_size,
+                },
+            )
+            return out
 
-        else:
-            # Disabled mode - return empty config
-            return {}
+        if self._current_mode == "ollama":
+            fc = self._file_config
+            return {
+                "backend": "ollama",
+                "api_key": "",
+                "base_url": fc.base_url.rstrip("/"),
+                "model_name": fc.model_name,
+                "dimensions": fc.dimensions,
+                "enable_cache": fc.enable_cache,
+                "max_input_length": fc.max_input_length,
+                "max_batch_size": fc.max_batch_size,
+            }
+
+        return {}
 
     def get_file_store_config(self) -> Dict[str, Any]:
-        """Generate file store config with vector_enabled.
-
-        Returns:
-            Configuration dict for default_file_store_config parameter.
-        """
         if self._current_mode is None:
-            # Determine mode if not already done
             result = self.determine_mode()
             vector_enabled = result.vector_enabled
         else:
-            vector_enabled = self._current_mode in ("local", "remote")
-
-        return {
-            "vector_enabled": vector_enabled,
-        }
+            vector_enabled = self._current_mode in (
+                "local",
+                "remote",
+                "ollama",
+            )
+        return {"vector_enabled": vector_enabled}
 
     @property
-    def current_mode(self) -> Optional[Literal["local", "remote", "disabled"]]:
-        """Get current embedding mode.
-
-        Returns:
-            Current mode or None if not determined yet.
-        """
+    def current_mode(
+        self,
+    ) -> Optional[Literal["local", "remote", "ollama", "disabled"]]:
         return self._current_mode
 
     @property
     def is_local_registered(self) -> bool:
-        """Check if local backend is registered.
-
-        Returns:
-            True if local backend is registered.
-        """
-        return self._local_backend_registered
+        return self._copaw_backends_registered
 
 
 def create_embedding_adapter(
-    local_config: Optional[LocalEmbeddingConfig] = None,
+    file_config: Optional[EmbeddingConfig] = None,
     strict_local: bool = False,
+    *,
+    local_config: Optional[LocalEmbeddingConfig] = None,
+    remote_file_config: Optional[EmbeddingConfig] = None,
 ) -> EmbeddingAdapter:
-    """Factory function to create and initialize EmbeddingAdapter.
+    """Create an :class:`EmbeddingAdapter` for a canonical embedding config.
 
-    This is the main entry point for MemoryManager to use.
-
-    Args:
-        local_config: Optional local embedding configuration.
-        strict_local: If True, fail when local is unavailable
-            instead of fallback.
-
-    Returns:
-        Initialized EmbeddingAdapter instance.
-
-    Example:
-        >>> adapter = create_embedding_adapter(
-        ...     local_config=LocalEmbeddingConfig(enabled=True),
-        ...     strict_local=False,
-        ... )
-        >>> result = adapter.determine_mode()
-        >>> print(f"Mode: {result.mode}, "
-        ...       f"Vector enabled: {result.vector_enabled}")
+    Legacy keyword-only arguments ``local_config`` and ``remote_file_config``
+    are merged into a single :class:`EmbeddingConfig` for compatibility with
+    older call sites.
     """
-    adapter = EmbeddingAdapter(local_config, strict_local)
-    # Note: We don't auto-register here to allow lazy registration
-    # The determine_mode() call will trigger registration if needed
-    return adapter
+    return EmbeddingAdapter(
+        file_config,
+        strict_local,
+        local_config=local_config,
+        remote_file_config=remote_file_config,
+    )
+
+
+def get_reme_embedding_and_vector_enabled(
+    embedding_config: Optional[EmbeddingConfig] = None,
+    strict_local: bool = False,
+) -> tuple[Dict[str, Any], bool]:
+    """Build ReMe embedding dict and ``vector_enabled`` (T-R01)."""
+    adapter = create_embedding_adapter(embedding_config, strict_local)
+    result = adapter.determine_mode()
+    return adapter.get_reme_embedding_config(), result.vector_enabled
+
+
+build_reme_embedding_dict_for_running = get_reme_embedding_and_vector_enabled

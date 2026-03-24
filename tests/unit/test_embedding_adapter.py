@@ -3,22 +3,35 @@
 # pylint: disable=protected-access,unused-import
 """Unit tests for embedding adapter."""
 
+import importlib.util
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+_SRC = Path(__file__).resolve().parent.parent.parent / "src"
+sys.path.insert(0, str(_SRC))
 
-import os  # noqa: E402
-import pytest  # noqa: E402
+from copaw.config.config import EmbeddingConfig  # noqa: E402
 
-from copaw.agents.memory.embedding_adapter import (  # noqa: E402
-    EmbeddingAdapter,
-    DEFAULT_EMBEDDING_DIMENSIONS,
-    EmbeddingModeResult,
-    RemoteEmbeddingConfig,
-    create_embedding_adapter,
+_EMB_PATH = _SRC / "copaw" / "agents" / "memory" / "embedding_adapter.py"
+_spec = importlib.util.spec_from_file_location(
+    "copaw.agents.memory.embedding_adapter",
+    _EMB_PATH,
 )
-from copaw.config.config import LocalEmbeddingConfig  # noqa: E402
+if _spec is None or _spec.loader is None:
+    raise RuntimeError("Cannot load embedding_adapter module")
+_emb = importlib.util.module_from_spec(_spec)
+sys.modules["copaw.agents.memory.embedding_adapter"] = _emb
+_spec.loader.exec_module(_emb)
+
+EmbeddingAdapter = _emb.EmbeddingAdapter
+DEFAULT_EMBEDDING_DIMENSIONS = _emb.DEFAULT_EMBEDDING_DIMENSIONS
+EmbeddingModeResult = _emb.EmbeddingModeResult
+RemoteEmbeddingConfig = _emb.RemoteEmbeddingConfig
+create_embedding_adapter = _emb.create_embedding_adapter
+get_reme_embedding_and_vector_enabled = (
+    _emb.get_reme_embedding_and_vector_enabled
+)
 
 
 class TestEmbeddingAdapter:
@@ -26,40 +39,35 @@ class TestEmbeddingAdapter:
 
     def test_create_adapter(self):
         """Test adapter creation."""
-        config = LocalEmbeddingConfig(enabled=False)
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
-        )
+        config = EmbeddingConfig(enabled=False)
+        adapter = create_embedding_adapter(config, strict_local=False)
 
         assert isinstance(adapter, EmbeddingAdapter)
-        assert adapter.local_config == config
+        assert adapter._file_config.enabled is False
         assert adapter.strict_local is False
 
     def test_determine_mode_disabled(self):
-        """Test mode determination when both local and remote unavailable."""
-        config = LocalEmbeddingConfig(enabled=False)
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
-        )
+        """Disabled in config yields disabled mode."""
+        config = EmbeddingConfig(enabled=False)
+        adapter = create_embedding_adapter(config, strict_local=False)
 
         result = adapter.determine_mode()
 
         assert result.mode == "disabled"
         assert result.vector_enabled is False
-        assert result.fallback_applied is True
-        assert result.fallback_reason is not None
+        assert result.fallback_applied is False
 
     def test_check_remote_available_no_env(self):
-        """Test remote availability check without env vars."""
-        config = LocalEmbeddingConfig(enabled=False)
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
+        """Remote availability check without env vars."""
+        config = EmbeddingConfig(
+            enabled=True,
+            backend_type="openai",
+            api_key="",
+            base_url="",
+            model_name="",
         )
+        adapter = create_embedding_adapter(config, strict_local=False)
 
-        # Ensure env vars are not set
         for key in [
             "EMBEDDING_API_KEY",
             "EMBEDDING_BASE_URL",
@@ -70,15 +78,13 @@ class TestEmbeddingAdapter:
         available, reason = adapter._check_remote_available()
 
         assert available is False
+        assert reason is not None
         assert "EMBEDDING_API_KEY" in reason
 
     def test_get_file_store_config(self):
         """Test file store config generation."""
-        config = LocalEmbeddingConfig(enabled=False)
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
-        )
+        config = EmbeddingConfig(enabled=False)
+        adapter = create_embedding_adapter(config, strict_local=False)
 
         store_config = adapter.get_file_store_config()
 
@@ -86,15 +92,13 @@ class TestEmbeddingAdapter:
         assert store_config["vector_enabled"] is False
 
     def test_local_config_uses_preset_dimensions(self):
-        """Test local config dimensions are inferred from model presets."""
-        config = LocalEmbeddingConfig(
+        """Local config dimensions are inferred from model presets."""
+        config = EmbeddingConfig(
             enabled=True,
+            backend_type="transformers",
             model_id="BAAI/bge-small-zh",
         )
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
-        )
+        adapter = create_embedding_adapter(config, strict_local=False)
         adapter._current_mode = "local"
 
         embedding_config = adapter.get_reme_embedding_config()
@@ -103,12 +107,13 @@ class TestEmbeddingAdapter:
         assert embedding_config["dimensions"] == 512
 
     def test_local_config_uses_2048_when_model_unknown(self):
-        """Test unknown local model falls back to 2048 dimensions."""
-        config = LocalEmbeddingConfig(enabled=True, model_id="unknown/model")
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
+        """Unknown local model falls back to 2048 dimensions."""
+        config = EmbeddingConfig(
+            enabled=True,
+            backend_type="transformers",
+            model_id="unknown/model",
         )
+        adapter = create_embedding_adapter(config, strict_local=False)
         adapter._current_mode = "local"
 
         embedding_config = adapter.get_reme_embedding_config()
@@ -116,26 +121,55 @@ class TestEmbeddingAdapter:
         assert embedding_config["backend"] == "local"
         assert embedding_config["dimensions"] == 2048
 
-    def test_check_remote_available_invalid_dimensions(self, monkeypatch):
-        """Test invalid dimensions env falls back to default safely."""
-        config = LocalEmbeddingConfig(enabled=False)
-        adapter = create_embedding_adapter(
-            local_config=config,
-            strict_local=False,
+    def test_remote_file_config_without_env(self, monkeypatch):
+        """Remote creds from agent JSON without embedding env vars."""
+        for key in (
+            "EMBEDDING_API_KEY",
+            "EMBEDDING_BASE_URL",
+            "EMBEDDING_MODEL_NAME",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+        remote = EmbeddingConfig(
+            enabled=True,
+            backend_type="openai",
+            backend="openai",
+            api_key="file-key",
+            base_url="https://api.example.com/v1",
+            model_name="text-embedding-3-small",
         )
-        monkeypatch.setenv("EMBEDDING_API_KEY", "test-key")
-        monkeypatch.setenv("EMBEDDING_BASE_URL", "https://api.example.com")
-        monkeypatch.setenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")
-        monkeypatch.setenv("EMBEDDING_DIMENSIONS", "invalid-int")
+        adapter = create_embedding_adapter(remote)
 
-        available, reason = adapter._check_remote_available()
+        ok, _reason = adapter._check_remote_available()
 
-        assert available is True
-        assert reason is None
+        assert ok is True
         assert adapter._remote_config is not None
-        assert (
-            adapter._remote_config.dimensions == DEFAULT_EMBEDDING_DIMENSIONS
+        assert adapter._remote_config.api_key == "file-key"
+        assert adapter._remote_config.base_url == "https://api.example.com/v1"
+
+    def test_get_reme_embedding_remote_from_file(self, monkeypatch):
+        """Builder returns openai dict + vector when file remote is set."""
+        for key in (
+            "EMBEDDING_API_KEY",
+            "EMBEDDING_BASE_URL",
+            "EMBEDDING_MODEL_NAME",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+        remote = EmbeddingConfig(
+            enabled=True,
+            backend_type="openai",
+            backend="openai",
+            api_key="k",
+            base_url="https://api.openai.com/v1",
+            model_name="text-embedding-3-small",
         )
+        emb, vec = get_reme_embedding_and_vector_enabled(remote)
+
+        assert vec is True
+        assert emb["backend"] == "openai"
+        assert emb["api_key"] == "k"
+        assert emb["model_name"] == "text-embedding-3-small"
 
 
 class TestEmbeddingModeResult:

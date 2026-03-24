@@ -180,10 +180,9 @@ class TestStrictMode:
 
         result = adapter.determine_mode()
 
-        # Should fallback to remote
         assert result.mode == "remote"
         assert result.vector_enabled is True
-        assert result.fallback_applied is True
+        assert result.fallback_applied is False
 
 
 class TestEmbeddingModeResult:

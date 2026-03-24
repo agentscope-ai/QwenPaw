@@ -48,8 +48,9 @@ class TestVectorOutputProperties:
             assert data.get("success") is True
             # The test endpoint doesn't return embeddings directly,
             # but we verify the model loaded correctly
-            if "model_info" in data:
-                assert "dimensions" in data["model_info"]
+            mi = data.get("model_info")
+            if isinstance(mi, dict):
+                assert "dimensions" in mi
 
     def test_model_info_contains_dimensions(self, running_app):
         """Test model_info contains correct dimensions."""
@@ -71,8 +72,8 @@ class TestVectorOutputProperties:
 
         if response.status_code == 200:
             data = response.json()
-            if "model_info" in data:
-                model_info = data["model_info"]
+            model_info = data.get("model_info")
+            if isinstance(model_info, dict):
                 assert model_info["dimensions"] == 2048
                 assert model_info["model_type"] == "multimodal"
 

@@ -106,6 +106,7 @@ class TestEmbeddingApiEndpoints:
         response = client.post(
             "/api/config/agents/local-embedding/test",
             json=test_config,
+            timeout=300.0,
         )
 
         # Accept 200 (success) or 500 (model load failed due to missing model)
@@ -125,6 +126,7 @@ class TestEmbeddingApiEndpoints:
         response = client.post(
             "/api/config/agents/local-embedding/download",
             json=download_config,
+            timeout=300.0,
         )
 
         # Accept 200 (success) or 500 (download failed)

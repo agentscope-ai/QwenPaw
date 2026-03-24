@@ -40,6 +40,7 @@ class TestLocalEmbeddingRealModel:
         response = client.post(
             "/api/config/agents/local-embedding/test",
             json=test_config,
+            timeout=300.0,
         )
 
         # With real model loaded, we expect either:
