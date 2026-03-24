@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, Input, Modal, Tooltip, message } from "@agentscope-ai/design";
+import {
+  Button,
+  Card,
+  Input,
+  Modal,
+  Tooltip,
+  message,
+} from "@agentscope-ai/design";
 import {
   CheckOutlined,
   CloudUploadOutlined,
@@ -115,9 +122,7 @@ function SkillPoolPage() {
   const openEdit = (skill: PoolSkillSpec) => {
     setMode("edit");
     setActiveSkill(skill);
-    setName(
-      skill.protected ? `${skill.name}_custom` : skill.name,
-    );
+    setName(skill.protected ? `${skill.name}_custom` : skill.name);
     setContent(skill.content);
     setConfigText(JSON.stringify(skill.config || {}, null, 2));
   };
@@ -140,7 +145,9 @@ function SkillPoolPage() {
         message.warning(t("skillPool.nameConflict"));
         return;
       }
-      message.error(error instanceof Error ? error.message : t("skills.uploadFailed"));
+      message.error(
+        error instanceof Error ? error.message : t("skills.uploadFailed"),
+      );
     }
   };
 
@@ -175,7 +182,11 @@ function SkillPoolPage() {
         message.warning(`${t("skillPool.nameConflict")}: ${conflictNames}`);
         return;
       }
-      message.error(error instanceof Error ? error.message : t("common.download") + " failed");
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("common.download") + " failed",
+      );
     }
   };
 
@@ -200,21 +211,23 @@ function SkillPoolPage() {
               source_name: activeSkill?.name,
               config: parsedConfig,
             })
-          : await api.createSkillPoolSkill({
-              name: name.trim(),
-              content,
-              config: parsedConfig,
-            }).then((created) => ({
-              success: true,
-              mode: "edit" as const,
-              name: created.name,
-            }));
+          : await api
+              .createSkillPoolSkill({
+                name: name.trim(),
+                content,
+                config: parsedConfig,
+              })
+              .then((created) => ({
+                success: true,
+                mode: "edit" as const,
+                name: created.name,
+              }));
       message.success(
         mode === "edit" && result.mode === "fork"
           ? `${t("common.create")}: ${result.name}`
           : mode === "edit"
-            ? t("common.save")
-            : t("common.create"),
+          ? t("common.save")
+          : t("common.create"),
       );
       closeModal();
       await loadData();
@@ -225,7 +238,9 @@ function SkillPoolPage() {
         message.warning(t("skillPool.nameConflict"));
         return;
       }
-      message.error(error instanceof Error ? error.message : t("common.save") + " failed");
+      message.error(
+        error instanceof Error ? error.message : t("common.save") + " failed",
+      );
     }
   };
 
@@ -252,12 +267,18 @@ function SkillPoolPage() {
   ) => {
     setSyncing(true);
     try {
-      const result: FetchLatestResult =
-        await api.fetchLatestSkillPoolBuiltins(approveConflicts, previewOnly);
+      const result: FetchLatestResult = await api.fetchLatestSkillPoolBuiltins(
+        approveConflicts,
+        previewOnly,
+      );
       if (previewOnly && !approveConflicts) {
-        const additions = Array.isArray(result.additions) ? result.additions : [];
+        const additions = Array.isArray(result.additions)
+          ? result.additions
+          : [];
         const updates = Array.isArray(result.updates) ? result.updates : [];
-        const conflicts = Array.isArray(result.conflicts) ? result.conflicts : [];
+        const conflicts = Array.isArray(result.conflicts)
+          ? result.conflicts
+          : [];
         if (!additions.length && !updates.length && !conflicts.length) {
           message.info(t("skillPool.upToDate"));
           return;
@@ -299,7 +320,9 @@ function SkillPoolPage() {
         return;
       }
       if (result.synced?.length) {
-        message.success(t("skillPool.synced", { names: result.synced.join(", ") }));
+        message.success(
+          t("skillPool.synced", { names: result.synced.join(", ") }),
+        );
       } else {
         message.info(t("skillPool.upToDate"));
       }
@@ -320,7 +343,9 @@ function SkillPoolPage() {
     try {
       const result = await api.uploadSkillPoolZip(file, { overwrite: false });
       if (result.count > 0) {
-        message.success(t("skillPool.imported", { names: result.imported.join(", ") }));
+        message.success(
+          t("skillPool.imported", { names: result.imported.join(", ") }),
+        );
       } else {
         message.info(t("skillPool.noNewImports"));
       }
@@ -455,7 +480,9 @@ function SkillPoolPage() {
             <Card key={skill.name} className={styles.skillCard}>
               <div className={styles.cardBody}>
                 <div className={styles.cardHeader}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
                     <span className={styles.fileIcon}>
                       {getSkillVisual(skill.name, skill.content)}
                     </span>
@@ -470,20 +497,28 @@ function SkillPoolPage() {
                   </span>
                 </div>
                 <div className={styles.descriptionSection}>
-                  <div className={styles.infoLabel}>{t("skillPool.descriptionLabel")}</div>
-                  <div className={`${styles.infoBlock} ${styles.descriptionContent}`}>
+                  <div className={styles.infoLabel}>
+                    {t("skillPool.descriptionLabel")}
+                  </div>
+                  <div
+                    className={`${styles.infoBlock} ${styles.descriptionContent}`}
+                  >
                     {skill.description || "-"}
                   </div>
                 </div>
                 <div className={styles.metaStack}>
                   <div className={styles.infoSection}>
-                    <div className={styles.infoLabel}>{t("skillPool.version")}</div>
+                    <div className={styles.infoLabel}>
+                      {t("skillPool.version")}
+                    </div>
                     <div className={styles.infoBlock}>
                       {skill.version_text || skill.commit_text || "-"}
                     </div>
                   </div>
                   <div className={styles.infoSection}>
-                    <div className={styles.infoLabel}>{t("skillPool.path")}</div>
+                    <div className={styles.infoLabel}>
+                      {t("skillPool.path")}
+                    </div>
                     <div className={`${styles.infoBlock} ${styles.pathValue}`}>
                       {skill.path}
                     </div>
@@ -663,7 +698,9 @@ function SkillPoolPage() {
                     return (
                       <div
                         key={skill.name}
-                        className={`${styles.pickerCard} ${sel ? styles.pickerCardSelected : ""}`}
+                        className={`${styles.pickerCard} ${
+                          sel ? styles.pickerCardSelected : ""
+                        }`}
                         onClick={() => setWorkspaceSkillName(skill.name)}
                       >
                         {sel && (
@@ -701,7 +738,9 @@ function SkillPoolPage() {
                           {skill.name}
                         </div>
                         <div className={styles.pickerCardMeta}>
-                          {skill.version_text || skill.commit_text || skill.source}
+                          {skill.version_text ||
+                            skill.commit_text ||
+                            skill.source}
                         </div>
                       </div>
                     ))}
@@ -724,7 +763,9 @@ function SkillPoolPage() {
                   </div>
                   <div className={styles.pickerGrid}>
                     <div
-                      className={`${styles.pickerCard} ${styles.pickerAllCard} ${
+                      className={`${styles.pickerCard} ${
+                        styles.pickerAllCard
+                      } ${
                         targetWorkspaceIds.includes("__all__")
                           ? styles.pickerCardSelected
                           : ""
@@ -747,7 +788,9 @@ function SkillPoolPage() {
                       return (
                         <div
                           key={ws.agent_id}
-                          className={`${styles.pickerCard} ${sel ? styles.pickerCardSelected : ""}`}
+                          className={`${styles.pickerCard} ${
+                            sel ? styles.pickerCardSelected : ""
+                          }`}
                           onClick={() => {
                             if (targetWorkspaceIds.includes("__all__")) {
                               setTargetWorkspaceIds([ws.agent_id]);

@@ -159,9 +159,12 @@ export const skillApi = {
     ),
 
   deleteSkillPoolSkill: (skillName: string) =>
-    request<{ deleted: boolean }>(`/skills/pool/${encodeURIComponent(skillName)}`, {
-      method: "DELETE",
-    }),
+    request<{ deleted: boolean }>(
+      `/skills/pool/${encodeURIComponent(skillName)}`,
+      {
+        method: "DELETE",
+      },
+    ),
 
   uploadWorkspaceSkillToPool: (payload: {
     workspace_id: string;
@@ -200,13 +203,10 @@ export const skillApi = {
         suggested_name: string;
         reason?: string;
       }>;
-    }>(
-      "/skills/pool/fetch-latest",
-      {
-        method: "POST",
-        body: JSON.stringify({ approve_conflicts, preview_only }),
-      },
-    ),
+    }>("/skills/pool/fetch-latest", {
+      method: "POST",
+      body: JSON.stringify({ approve_conflicts, preview_only }),
+    }),
 
   updateSkillChannels: (skillName: string, channels: string[]) =>
     request<{ updated: boolean; channels: string[] }>(
@@ -242,10 +242,7 @@ export const skillApi = {
       `/skills/pool/${encodeURIComponent(skillName)}/config`,
     ),
 
-  updatePoolSkillConfig: (
-    skillName: string,
-    config: Record<string, unknown>,
-  ) =>
+  updatePoolSkillConfig: (skillName: string, config: Record<string, unknown>) =>
     request<{ updated: boolean }>(
       `/skills/pool/${encodeURIComponent(skillName)}/config`,
       {

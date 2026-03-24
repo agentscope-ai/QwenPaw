@@ -434,11 +434,11 @@ can read them via `os.environ`.
 
 Skills extend the agent's capabilities. In the current model they live in two places:
 
-| Directory                     | Purpose                                                             |
-| ----------------------------- | ------------------------------------------------------------------- |
-| Built-in (in source code)     | Shipped with CoPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
-| `~/.copaw/skill_pool/`        | Local shared pool for built-ins and shared skills                   |
-| `~/.copaw/workspaces/{agent_id}/skills/` | Skills present in one workspace                          |
+| Directory                                | Purpose                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| Built-in (in source code)                | Shipped with CoPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
+| `~/.copaw/skill_pool/`                   | Local shared pool for built-ins and shared skills                   |
+| `~/.copaw/workspaces/{agent_id}/skills/` | Skills present in one workspace                                     |
 
 Each skill is a directory with a `SKILL.md` file (YAML front matter with `name`
 and `description`), and optional `references/` and `scripts/` subdirectories.

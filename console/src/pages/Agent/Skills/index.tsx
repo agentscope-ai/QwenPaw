@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Form, Modal, Select, Tooltip, message } from "@agentscope-ai/design";
+import {
+  Button,
+  Form,
+  Modal,
+  Select,
+  Tooltip,
+  message,
+} from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   ImportOutlined,
@@ -41,7 +48,9 @@ function SkillsPage() {
   const [form] = Form.useForm<SkillSpec>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
-  const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(null);
+  const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
+    null,
+  );
   const [poolSkillNames, setPoolSkillNames] = useState<string[]>([]);
   const [workspaceSkillNames, setWorkspaceSkillNames] = useState<string[]>([]);
   const [rename, setRename] = useState("");
@@ -49,7 +58,10 @@ function SkillsPage() {
   const MAX_UPLOAD_SIZE_MB = 100;
 
   useEffect(() => {
-    void api.listSkillPoolSkills().then(setPoolSkills).catch(() => undefined);
+    void api
+      .listSkillPoolSkills()
+      .then(setPoolSkills)
+      .catch(() => undefined);
   }, [loading]);
 
   const workspaceSkillOptions = useMemo(
@@ -234,7 +246,9 @@ function SkillsPage() {
         message.warning(t("skills.nameConflict"));
         return;
       }
-      message.error(error instanceof Error ? error.message : t("skills.uploadFailed"));
+      message.error(
+        error instanceof Error ? error.message : t("skills.uploadFailed"),
+      );
     }
   };
 
@@ -248,7 +262,9 @@ function SkillsPage() {
             {
               workspace_id: selectedAgent,
               target_name:
-                poolSkillNames.length === 1 ? rename.trim() || undefined : undefined,
+                poolSkillNames.length === 1
+                  ? rename.trim() || undefined
+                  : undefined,
             },
           ],
         });
@@ -264,7 +280,11 @@ function SkillsPage() {
         message.warning(t("skills.nameConflict"));
         return;
       }
-      message.error(error instanceof Error ? error.message : t("common.download") + " failed");
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("common.download") + " failed",
+      );
     }
   };
 
@@ -467,7 +487,9 @@ function SkillsPage() {
       <Modal
         open={poolModal !== null}
         onCancel={closePoolModal}
-        onOk={poolModal === "upload" ? handleUploadToPool : handleDownloadFromPool}
+        onOk={
+          poolModal === "upload" ? handleUploadToPool : handleDownloadFromPool
+        }
         title={
           poolModal === "upload"
             ? t("skills.uploadToPool")
@@ -481,7 +503,9 @@ function SkillsPage() {
                 <Button
                   size="small"
                   onClick={() =>
-                    setWorkspaceSkillNames(workspaceSkillOptions.map((item) => item.value))
+                    setWorkspaceSkillNames(
+                      workspaceSkillOptions.map((item) => item.value),
+                    )
                   }
                 >
                   {t("skills.selectAll")}
@@ -504,7 +528,9 @@ function SkillsPage() {
                 <Button
                   size="small"
                   onClick={() =>
-                    setPoolSkillNames(poolSkillOptions.map((item) => item.value))
+                    setPoolSkillNames(
+                      poolSkillOptions.map((item) => item.value),
+                    )
                   }
                 >
                   {t("skills.selectAll")}
@@ -531,8 +557,8 @@ function SkillsPage() {
                     ? t("skills.renameSingleOnly")
                     : undefined
                   : poolSkillNames.length > 1
-                    ? t("skills.renameSingleOnly")
-                    : undefined
+                  ? t("skills.renameSingleOnly")
+                  : undefined
               }
             >
               <input

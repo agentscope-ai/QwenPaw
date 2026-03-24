@@ -171,7 +171,7 @@ metadata is kept for UI and tooling hints, not as a hard activation gate.
 
 Skill `config` in the Console is not just stored metadata. When a skill is
 effective for the current workspace and channel, CoPaw injects that config into
- the runtime environment for that agent turn, then restores the environment
+the runtime environment for that agent turn, then restores the environment
 after the turn completes.
 
 Supported injection paths:

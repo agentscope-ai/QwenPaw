@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Drawer, Form, Input, Button, Select, message } from "@agentscope-ai/design";
+import {
+  Drawer,
+  Form,
+  Input,
+  Button,
+  Select,
+  message,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
@@ -104,11 +111,14 @@ export function SkillDrawer({
         channels: editingSkill.channels || ["all"],
       });
       setConfigError("");
-      api.getSkillConfig(editingSkill.name).then((res) => {
-        setConfigText(JSON.stringify(res.config || {}, null, 2));
-      }).catch(() => {
-        setConfigText(JSON.stringify(editingSkill.config || {}, null, 2));
-      });
+      api
+        .getSkillConfig(editingSkill.name)
+        .then((res) => {
+          setConfigText(JSON.stringify(res.config || {}, null, 2));
+        })
+        .catch(() => {
+          setConfigText(JSON.stringify(editingSkill.config || {}, null, 2));
+        });
     } else {
       setContentValue("");
       setConfigText("{}");
@@ -336,7 +346,6 @@ export function SkillDrawer({
             <Form.Item name="path" label="Path">
               <Input disabled />
             </Form.Item>
-
           </>
         )}
       </Form>

@@ -195,9 +195,7 @@ export function SkillCard({
             <div className={styles.infoLabel}>{t("skills.source")}</div>
             <div>
               <span
-                className={
-                  isBuiltin ? styles.builtinTag : styles.customizedTag
-                }
+                className={isBuiltin ? styles.builtinTag : styles.customizedTag}
               >
                 {displaySource}
               </span>
