@@ -70,13 +70,27 @@
 
 .columns {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+  width: 100%;
   min-height: 0;
 }
 
 .columnCard {
   min-height: 320px;
+
+  :global(.ant-card) {
+    height: 100%;
+  }
+
+  :global(.ant-card-body) {
+    height: calc(100% - 57px);
+    overflow: auto;
+  }
+}
+
+.columnSpanTwo {
+  grid-column: span 2;
 }
 
 .list {
@@ -86,12 +100,36 @@
 }
 
 .listItem {
+  width: 100%;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  text-align: left;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: #d9d9d9;
+    background-color: #fafafa;
+  }
+}
+
+.listItemStatic {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.selected {
+  border: 2px solid #1677ff;
+  background: #f0f7ff;
 }
 
 .listItemHeader {
@@ -105,9 +143,83 @@
   font-size: 12px;
 }
 
+.versionSelect {
+  width: 180px;
+}
+
+.nodesActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chatFrame {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  display: block;
+}
+
+.chatLoadingWrap {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chatColumn {
+  min-height: 0;
+
+  :global(.ant-card) {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+
+  :global(.ant-card-body) {
+    height: calc(100% - 57px) !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(.pipeline-anywhere-chat-host),
+  :global(.pipeline-anywhere-chat-host [class*="chat-anywhere-layout"]),
+  :global(.pipeline-anywhere-chat-host [class*="chat-anywhere-chat"]),
+  :global(.pipeline-anywhere-chat-host [class*="chat-anywhere-message-list"]) {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+  }
+}
+
+.runActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .runLink {
   padding-left: 0;
   align-self: flex-start;
+}
+
+@media (max-width: 1439px) {
+  .columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .columnSpanTwo {
+    grid-column: span 2;
+  }
 }
 
 @media (max-width: 992px) {
@@ -117,5 +229,21 @@
 
   .columns {
     grid-template-columns: 1fr;
+  }
+
+  .versionSelect {
+    width: 140px;
+  }
+
+  .nodesActions {
+    gap: 6px;
+  }
+
+  .columnSpanTwo {
+    grid-column: span 1;
+  }
+
+  .chatFrame {
+    min-height: 0;
   }
 }

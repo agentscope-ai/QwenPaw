@@ -23,6 +23,8 @@ const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 // const CARD_REQUEST = "AgentScopeRuntimeRequestCard";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 const CHAT_HISTORY_PAGE_SIZE = 80;
+const RUNNING_EMPTY_HISTORY_RETRY_COUNT = 40;
+const RUNNING_EMPTY_HISTORY_RETRY_DELAY_MS = 500;
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -525,34 +527,58 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private async getAllChatMessages(
     chatId: string,
   ): Promise<{ messages: Message[]; status: "idle" | "running" }> {
-    const allMessages: Message[] = [];
-    let offset = 0;
-    let latestStatus: "idle" | "running" = "idle";
+    const fetchPagedHistory = async (): Promise<{
+      messages: Message[];
+      status: "idle" | "running";
+    }> => {
+      const allMessages: Message[] = [];
+      let offset = 0;
+      let latestStatus: "idle" | "running" = "idle";
 
-    while (true) {
-      const chatHistory = await api.getChat(chatId, {
-        offset,
-        limit: CHAT_HISTORY_PAGE_SIZE,
-      });
-      const pageMessages = chatHistory.messages || [];
-      latestStatus = chatHistory.status ?? latestStatus;
+      while (true) {
+        const chatHistory = await api.getChat(chatId, {
+          offset,
+          limit: CHAT_HISTORY_PAGE_SIZE,
+        });
+        const pageMessages = chatHistory.messages || [];
+        latestStatus = chatHistory.status ?? latestStatus;
 
-      allMessages.push(...pageMessages);
+        allMessages.push(...pageMessages);
 
-      const hasMoreByFlag = chatHistory.has_more === true;
-      const hasMoreByTotal =
-        typeof chatHistory.total === "number"
-          ? offset + pageMessages.length < chatHistory.total
-          : false;
-      const hasMore = hasMoreByFlag || hasMoreByTotal;
+        const hasMoreByFlag = chatHistory.has_more === true;
+        const hasMoreByTotal =
+          typeof chatHistory.total === "number"
+            ? offset + pageMessages.length < chatHistory.total
+            : false;
+        const hasMore = hasMoreByFlag || hasMoreByTotal;
 
-      if (!hasMore || pageMessages.length === 0) {
-        break;
+        if (!hasMore || pageMessages.length === 0) {
+          break;
+        }
+        offset += pageMessages.length;
       }
-      offset += pageMessages.length;
+
+      return { messages: allMessages, status: latestStatus };
+    };
+
+    let history = await fetchPagedHistory();
+
+    // Newly-created chats can briefly report `running` with empty history.
+    // Retry for a short window so first assistant chunks can be observed.
+    for (
+      let i = 0;
+      i < RUNNING_EMPTY_HISTORY_RETRY_COUNT &&
+      history.status === "running" &&
+      history.messages.length === 0;
+      i += 1
+    ) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, RUNNING_EMPTY_HISTORY_RETRY_DELAY_MS);
+      });
+      history = await fetchPagedHistory();
     }
 
-    return { messages: allMessages, status: latestStatus };
+    return history;
   }
 
   /**

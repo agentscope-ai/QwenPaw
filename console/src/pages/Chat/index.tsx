@@ -455,6 +455,54 @@ export default function ChatPage() {
     prevSelectedAgentRef.current = selectedAgent;
   }, [selectedAgent]);
 
+  useEffect(() => {
+    if (!chatId) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 24;
+    const intervalMs = 1500;
+
+    const pollSessionHydration = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      attempts += 1;
+
+      try {
+        const session = await sessionApi.getSession(chatId);
+        const messages = (session.messages as RuntimeUiMessage[] | undefined) || [];
+        const hasAssistantMessage = messages.some(
+          (message) => message.role === "assistant",
+        );
+        const isIdle =
+          (session as { status?: "idle" | "running" }).status === "idle";
+
+        if (hasAssistantMessage || isIdle) {
+          setRefreshKey((prev) => prev + 1);
+          return;
+        }
+      } catch {
+        // Ignore transient polling failures and continue retrying.
+      }
+
+      if (!cancelled && attempts < maxAttempts) {
+        setTimeout(() => {
+          void pollSessionHydration();
+        }, intervalMs);
+      }
+    };
+
+    void pollSessionHydration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId]);
+
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
     const currentChatId = chatIdRef.current;
