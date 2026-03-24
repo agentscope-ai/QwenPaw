@@ -216,9 +216,9 @@ class ExpectedCapabilityRegistry:
                 provider_id="aliyun-codingplan",
                 model_id="kimi-k2.5",
                 expected_image=True,
-                expected_video=False,
+                expected_video=True,
                 doc_url=_acp_doc,
-                note="Kimi K2.5 supports image input",
+                note="Kimi K2.5 supports image and video input",
             ),
         )
         self._register(
@@ -312,8 +312,17 @@ class ExpectedCapabilityRegistry:
         #    https://platform.moonshot.cn/docs/intro
         # ---------------------------------------------------------------
         _kimi_doc = "https://platform.moonshot.cn/docs/intro"
+        self._register(
+            ExpectedCapability(
+                provider_id="kimi-cn",
+                model_id="kimi-k2.5",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_kimi_doc,
+                note="Kimi K2.5 supports image and video input",
+            ),
+        )
         for mid in (
-            "kimi-k2.5",
             "kimi-k2-0905-preview",
             "kimi-k2-0711-preview",
             "kimi-k2-turbo-preview",
@@ -324,9 +333,10 @@ class ExpectedCapabilityRegistry:
                 ExpectedCapability(
                     provider_id="kimi-cn",
                     model_id=mid,
-                    expected_image=True,
+                    expected_image=False,
                     expected_video=False,
                     doc_url=_kimi_doc,
+                    note="K2 series (non-K2.5) is text-only",
                 ),
             )
 
@@ -335,8 +345,17 @@ class ExpectedCapabilityRegistry:
         #    https://platform.moonshot.ai/docs/intro
         # ---------------------------------------------------------------
         _kimi_intl_doc = "https://platform.moonshot.ai/docs/intro"
+        self._register(
+            ExpectedCapability(
+                provider_id="kimi-intl",
+                model_id="kimi-k2.5",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_kimi_intl_doc,
+                note="Kimi K2.5 supports image and video input",
+            ),
+        )
         for mid in (
-            "kimi-k2.5",
             "kimi-k2-0905-preview",
             "kimi-k2-0711-preview",
             "kimi-k2-turbo-preview",
@@ -347,9 +366,10 @@ class ExpectedCapabilityRegistry:
                 ExpectedCapability(
                     provider_id="kimi-intl",
                     model_id=mid,
-                    expected_image=True,
+                    expected_image=False,
                     expected_video=False,
                     doc_url=_kimi_intl_doc,
+                    note="K2 series (non-K2.5) is text-only",
                 ),
             )
 
