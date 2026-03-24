@@ -177,9 +177,6 @@ class EmbeddingAdapter:
 
         try:
             from copaw.agents.memory.embedding_client import EmbeddingClient
-            from copaw.agents.memory.ollama_embedding_model import (
-                OllamaEmbeddingModel,
-            )
             from reme.core.registry_factory import R  # type: ignore[import]
         except ImportError as e:
             logger.warning(
@@ -190,7 +187,7 @@ class EmbeddingAdapter:
 
         try:
             R.embedding_models.register("local")(EmbeddingClient)
-            R.embedding_models.register("ollama")(OllamaEmbeddingModel)
+            R.embedding_models.register("ollama")(EmbeddingClient)
             self._copaw_backends_registered = True
             _GLOBAL_COPAW_EMBEDDING_BACKENDS_REGISTERED = True
             logger.info(
@@ -435,6 +432,7 @@ class EmbeddingAdapter:
             dimensions = self._get_local_dimensions()
             config: Dict[str, Any] = {
                 "backend": "local",
+                "backend_type": "transformers",
                 "model_name": lc.model_id,
                 "dimensions": dimensions,
                 "local_embedding_config": lc,
@@ -467,6 +465,7 @@ class EmbeddingAdapter:
             fc = self._file_config
             return {
                 "backend": "ollama",
+                "backend_type": "ollama",
                 "api_key": "",
                 "base_url": fc.base_url.rstrip("/"),
                 "model_name": fc.model_name,

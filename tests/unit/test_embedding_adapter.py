@@ -104,6 +104,7 @@ class TestEmbeddingAdapter:
         embedding_config = adapter.get_reme_embedding_config()
 
         assert embedding_config["backend"] == "local"
+        assert embedding_config["backend_type"] == "transformers"
         assert embedding_config["dimensions"] == 512
 
     def test_local_config_uses_2048_when_model_unknown(self):
@@ -119,6 +120,7 @@ class TestEmbeddingAdapter:
         embedding_config = adapter.get_reme_embedding_config()
 
         assert embedding_config["backend"] == "local"
+        assert embedding_config["backend_type"] == "transformers"
         assert embedding_config["dimensions"] == 2048
 
     def test_remote_file_config_without_env(self, monkeypatch):
@@ -170,6 +172,23 @@ class TestEmbeddingAdapter:
         assert emb["backend"] == "openai"
         assert emb["api_key"] == "k"
         assert emb["model_name"] == "text-embedding-3-small"
+
+    def test_get_reme_embedding_ollama_contains_backend_type(self):
+        """Ollama mode emits explicit backend_type for EmbeddingClient."""
+        cfg = EmbeddingConfig(
+            enabled=True,
+            backend_type="ollama",
+            base_url="http://127.0.0.1:11434",
+            model_name="mxbai-embed-large",
+            dimensions=1024,
+        )
+        adapter = create_embedding_adapter(cfg, strict_local=False)
+        result = adapter.determine_mode()
+
+        assert result.mode == "ollama"
+        emb = adapter.get_reme_embedding_config()
+        assert emb["backend"] == "ollama"
+        assert emb["backend_type"] == "ollama"
 
 
 class TestEmbeddingModeResult:
