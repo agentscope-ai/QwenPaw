@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import copaw.providers.anthropic_provider as anthropic_provider_module
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.provider import ModelInfo
 
 
 def _make_provider(is_custom: bool = False) -> AnthropicProvider:
@@ -56,6 +57,42 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
 
     assert ok is False
     assert msg == "Anthropic API error"
+
+
+async def test_check_connection_falls_back_to_model_ping_when_disabled() -> None:
+    provider = _make_provider()
+    provider.support_connection_check = False
+    provider.models = [ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5")]
+
+    captured: dict[str, object] = {}
+
+    async def fake_check_model_connection(
+        model_id: str,
+        timeout: float = 5,
+    ) -> tuple[bool, str]:
+        captured["model_id"] = model_id
+        captured["timeout"] = timeout
+        return True, ""
+
+    provider.check_model_connection = fake_check_model_connection
+
+    ok, msg = await provider.check_connection(timeout=2.5)
+
+    assert ok is True
+    assert msg == ""
+    assert captured == {"model_id": "MiniMax-M2.5", "timeout": 2.5}
+
+
+async def test_check_connection_without_direct_support_needs_model() -> None:
+    provider = _make_provider()
+    provider.support_connection_check = False
+    provider.models = []
+    provider.extra_models = []
+
+    ok, msg = await provider.check_connection(timeout=2.5)
+
+    assert ok is False
+    assert msg == "Connection check requires at least one configured model"
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
