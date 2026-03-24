@@ -33,6 +33,7 @@ dependencies = [
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
     "pyyaml>=6.0",
+    "json-repair>=0.30.0",
 ]
 
 [tool.setuptools.dynamic]
