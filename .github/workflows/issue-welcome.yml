@@ -33,16 +33,22 @@ jobs:
             // Check if Chinese characters exist in title
             const hasChinese = /[\u4e00-\u9fff]/.test(issueTitle);
 
-            // Count user's total issues in this repo
-            const { data: userIssues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              creator: author,
-              state: 'all'
-            });
+            // Count user's total issues in this repo using search API
+            let issueCount = 0;
+            let hasValidIssueCount = false;
+            let isFirstIssue = false;
 
-            const issueCount = userIssues.length;
-            const isFirstIssue = issueCount === 1;
+            try {
+              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:issue author:${author}`,
+              });
+              issueCount = searchResult.total_count;
+              hasValidIssueCount = true;
+              isFirstIssue = issueCount === 1;
+            } catch (err) {
+              console.log(`Could not get issue count for ${author}, will skip count display`);
+              hasValidIssueCount = false;
+            }
 
             // Check if user has starred the repo
             let hasStarred = false;
@@ -90,12 +96,17 @@ jobs:
               comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
               comment += `</div>\n\n`;
 
-              if (isFirstIssue) {
-                comment += `你好 @${author}，感谢你提交的第一个 issue！\n`;
-                comment += `Hi @${author}, thank you for your first issue!\n\n`;
+              if (hasValidIssueCount) {
+                if (isFirstIssue) {
+                  comment += `你好 @${author}，感谢你提交的第一个 issue！\n`;
+                  comment += `Hi @${author}, thank you for your first issue!\n\n`;
+                } else {
+                  comment += `你好 @${author}，这是你提交的第 ${issueCount} 个 issue。\n`;
+                  comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
+                }
               } else {
-                comment += `你好 @${author}，这是你提交的第 ${issueCount} 个 issue。\n`;
-                comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
+                comment += `你好 @${author}，感谢你提交 issue！\n`;
+                comment += `Hi @${author}, thank you for your issue!\n\n`;
               }
 
               if (!hasStarred) {
@@ -134,10 +145,14 @@ jobs:
               comment += `## Welcome to CoPaw! 🐾\n\n`;
               comment += `</div>\n\n`;
 
-              if (isFirstIssue) {
-                comment += `Hi @${author}, thank you for your first issue!\n\n`;
+              if (hasValidIssueCount) {
+                if (isFirstIssue) {
+                  comment += `Hi @${author}, thank you for your first issue!\n\n`;
+                } else {
+                  comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
+                }
               } else {
-                comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
+                comment += `Hi @${author}, thank you for your issue!\n\n`;
               }
 
               if (!hasStarred) {
@@ -166,4 +181,7 @@ jobs:
               body: comment
             });
 
-            console.log(`Posted welcome comment on issue #${issueNumber} for @${author} (issue #${issueCount})`);
+            const logMessage = hasValidIssueCount
+              ? `Posted welcome comment on issue #${issueNumber} for @${author} (issue #${issueCount})`
+              : `Posted welcome comment on issue #${issueNumber} for @${author}`;
+            console.log(logMessage);

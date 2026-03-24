@@ -34,15 +34,19 @@ jobs:
               return 'th';
             }
 
-            // Count user's total PRs in this repo
-            const { data: userPRs } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              creator: author,
-              state: 'all'
-            });
-
-            const prCount = userPRs.length;
+            // Count user's total PRs in this repo using search API
+            let prCount = 0;
+            let hasValidPRCount = false;
+            try {
+              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author}`,
+              });
+              prCount = searchResult.total_count;
+              hasValidPRCount = true;
+            } catch (err) {
+              console.log(`Could not get PR count for ${author}, will skip count display`);
+              hasValidPRCount = false;
+            }
 
             // Check if this is user's first PR (for labeling)
             let isFirstPR = false;
@@ -122,12 +126,17 @@ jobs:
               comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
               comment += `</div>\n\n`;
 
-              if (isFirstPR) {
-                comment += `你好 @${author}，感谢你提交的第一个 Pull Request！🎉\n`;
-                comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+              if (hasValidPRCount) {
+                if (isFirstPR) {
+                  comment += `你好 @${author}，感谢你提交的第一个 Pull Request！🎉\n`;
+                  comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+                } else {
+                  comment += `你好 @${author}，这是你提交的第 ${prCount} 个 Pull Request。\n`;
+                  comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+                }
               } else {
-                comment += `你好 @${author}，这是你提交的第 ${prCount} 个 Pull Request。\n`;
-                comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+                comment += `你好 @${author}，感谢你的 Pull Request！🎉\n`;
+                comment += `Hi @${author}, thank you for your Pull Request! 🎉\n\n`;
               }
 
               if (!hasStarred) {
@@ -181,10 +190,14 @@ jobs:
               comment += `## Welcome to CoPaw! 🐾\n\n`;
               comment += `</div>\n\n`;
 
-              if (isFirstPR) {
-                comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+              if (hasValidPRCount) {
+                if (isFirstPR) {
+                  comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+                } else {
+                  comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+                }
               } else {
-                comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+                comment += `Hi @${author}, thank you for your Pull Request! 🎉\n\n`;
               }
 
               if (!hasStarred) {
@@ -231,4 +244,7 @@ jobs:
               body: comment
             });
 
-            console.log(`Posted welcome comment on PR #${prNumber} for @${author} (PR #${prCount}${isFirstPR ? ', first-time contributor' : ''})`);
+            const logMessage = hasValidPRCount
+              ? `Posted welcome comment on PR #${prNumber} for @${author} (PR #${prCount}${isFirstPR ? ', first-time contributor' : ''})`
+              : `Posted welcome comment on PR #${prNumber} for @${author}${isFirstPR ? ' (first-time contributor)' : ''}`;
+            console.log(logMessage);
