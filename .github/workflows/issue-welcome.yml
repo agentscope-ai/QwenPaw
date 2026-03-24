@@ -98,11 +98,6 @@ jobs:
                 comment += `Hi @${author}, this is your ${issueCount}${getOrdinalSuffix(issueCount)} issue.\n\n`;
               }
 
-              // Internationalization reminder for Chinese issues
-              comment += `### 🌍 关于国际化 / About Internationalization\n\n`;
-              comment += `CoPaw 是一个国际化的开源社区。我们建议使用英文提交 issue，这样可以让更多的开发者参与讨论和贡献。当然，如果英文表达有困难，使用中文也完全没问题！\n`;
-              comment += `CoPaw is an international open-source community. We recommend using English for issues so that more developers worldwide can participate in discussions and contributions. Of course, Chinese is totally fine if English is difficult!\n\n`;
-
               if (!hasStarred) {
                 comment += `如果你觉得 CoPaw 对你有帮助，欢迎给我们一个 ⭐ star！这将帮助更多人发现这个项目。\n`;
                 comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
@@ -122,7 +117,15 @@ jobs:
               }
 
               comment += `我们会尽快查看你的 issue。感谢你对 CoPaw 的支持！\n`;
-              comment += `We'll review your issue soon. Thank you for supporting CoPaw!`;
+              comment += `We'll review your issue soon. Thank you for supporting CoPaw!\n\n`;
+
+              // Internationalization reminder at the end
+              comment += `---\n\n`;
+              comment += `> **🌍 关于国际化 / About Internationalization**\n`;
+              comment += `> \n`;
+              comment += `> CoPaw 是一个国际化的开源社区。我们建议使用英文提交 issue，这样可以让更多的开发者参与讨论和贡献。\n`;
+              comment += `> \n`;
+              comment += `> CoPaw is an international open-source community. We recommend using English for issues so that more developers worldwide can participate in discussions and contributions.`;
 
             } else {
               // English only with logo
