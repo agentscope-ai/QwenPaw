@@ -110,10 +110,6 @@ function SkillsPage() {
 
   const handleCreate = () => {
     setEditingSkill(null);
-    form.resetFields();
-    form.setFieldsValue({
-      enabled: false,
-    });
     setDrawerOpen(true);
   };
 
@@ -156,7 +152,6 @@ function SkillsPage() {
 
   const handleEdit = (skill: SkillSpec) => {
     setEditingSkill(skill);
-    form.setFieldsValue(skill);
     setDrawerOpen(true);
   };
 

@@ -51,16 +51,6 @@ function AgentConfigPage() {
   const { contextCompactThreshold, contextCompactReserveThreshold } =
     getCalculatedValues();
 
-  if (loading) {
-    return (
-      <div className={styles.configPage}>
-        <div className={styles.centerState}>
-          <span className={styles.stateText}>{t("common.loading")}</span>
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className={styles.configPage}>
@@ -78,11 +68,18 @@ function AgentConfigPage() {
     <div className={styles.configPage}>
       <PageHeader />
 
+      {loading && (
+        <div className={styles.centerState}>
+          <span className={styles.stateText}>{t("common.loading")}</span>
+        </div>
+      )}
+
       <Form
         form={form}
         layout="vertical"
         className={styles.form}
         onValuesChange={handleValuesChange}
+        style={{ display: loading ? "none" : undefined }}
       >
         <ReactAgentCard
           language={language}

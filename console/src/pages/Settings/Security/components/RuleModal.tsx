@@ -88,7 +88,7 @@ export function RuleModal({
       okText={t("common.confirm")}
       cancelText={t("common.cancel")}
       width={640}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Form.Item

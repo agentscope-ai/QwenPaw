@@ -401,7 +401,7 @@ export default function ProjectsPage() {
               title={
                 <span className={styles.sectionTitle}>{t("projects.list", "Projects")}</span>
               }
-              bodyStyle={{ padding: 12 }}
+              styles={{ body: { padding: 12 } }}
             >
               <div className={styles.scrollContainer}>
                 {projects.map((project) => {
@@ -431,7 +431,7 @@ export default function ProjectsPage() {
               title={
                 <span className={styles.sectionTitle}>{t("projects.pipeline.title", "Pipeline")}</span>
               }
-              bodyStyle={{ padding: 12 }}
+              styles={{ body: { padding: 12 } }}
               extra={
                 <Text type="secondary" className={styles.panelExtraText}>
                   {selectedRunSummary?.status || t("projects.pipeline.noRun", "No run")}
@@ -533,7 +533,7 @@ export default function ProjectsPage() {
               title={
                 <span className={styles.sectionTitle}>{t("projects.preview", "Workbench")}</span>
               }
-              bodyStyle={{ padding: 0 }}
+              styles={{ body: { padding: 0 } }}
               extra={
                 <Text type="secondary" className={styles.panelExtraText}>
                   {selectedProject?.id || ""}

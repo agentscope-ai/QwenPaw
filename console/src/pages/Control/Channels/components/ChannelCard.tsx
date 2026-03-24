@@ -42,7 +42,7 @@ export function ChannelCard({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={getCardClassNames()}
-      bodyStyle={{ padding: 20 }}
+      styles={{ body: { padding: 20 } }}
     >
       <div className={styles.cardHeader}>
         <Tooltip title={label} placement="top">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   Button,
@@ -54,12 +54,13 @@ export default function AgentsPage() {
   const [savingSources, setSavingSources] = useState(false);
   const [togglingSourceKey, setTogglingSourceKey] = useState<string | null>(null);
   const [validatingSourceKey, setValidatingSourceKey] = useState<string | null>(null);
+  const [pendingFormValues, setPendingFormValues] =
+    useState<Record<string, unknown> | null>(null);
   const [form] = Form.useForm();
 
   const handleCreate = () => {
     setEditingAgent(null);
-    form.resetFields();
-    form.setFieldsValue({
+    setPendingFormValues({
       workspace_dir: "",
     });
     setModalVisible(true);
@@ -69,13 +70,26 @@ export default function AgentsPage() {
     try {
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
-      form.setFieldsValue(config);
+      setPendingFormValues(config as unknown as Record<string, unknown>);
       setModalVisible(true);
     } catch (error) {
       console.error("Failed to load agent config:", error);
       message.error(t("agent.loadConfigFailed"));
     }
   };
+
+  useEffect(() => {
+    if (!modalVisible) {
+      return;
+    }
+
+    if (pendingFormValues) {
+      form.setFieldsValue(pendingFormValues);
+      return;
+    }
+
+    form.resetFields();
+  }, [form, modalVisible, pendingFormValues]);
 
   const handleDelete = async (agentId: string) => {
     try {

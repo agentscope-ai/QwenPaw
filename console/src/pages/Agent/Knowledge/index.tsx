@@ -382,12 +382,18 @@ function KnowledgePage() {
       if (!runningConfig) {
         return;
       }
-      enableConfigForm.setFieldsValue(runningConfig);
       setEnableModalNeedsBackfillChoice(needsBackfillChoice);
       setEnableModalOpen(true);
     },
-    [enableConfigForm, runningConfig],
+    [runningConfig],
   );
+
+  useEffect(() => {
+    if (!enableModalOpen || !runningConfig) {
+      return;
+    }
+    enableConfigForm.setFieldsValue(runningConfig);
+  }, [enableConfigForm, enableModalOpen, runningConfig]);
 
   const handleConfirmEnable = useCallback(
     async (runBackfillNow: boolean) => {
@@ -1453,7 +1459,7 @@ function KnowledgePage() {
           resetDraftState();
         }}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}
@@ -1617,7 +1623,7 @@ function KnowledgePage() {
             </Space>
           )
         }
-        destroyOnClose={false}
+        destroyOnHidden={false}
       >
         <Space direction="vertical" size={12} className={styles.fullWidth}>
           <Typography.Paragraph style={{ marginBottom: 0 }}>

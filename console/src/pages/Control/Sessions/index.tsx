@@ -176,7 +176,7 @@ function SessionsPage() {
         />
       </div>
 
-      <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
+      <Card className={styles.tableCard} styles={{ body: { padding: 0 } }}>
         <Table
           columns={columns}
           dataSource={filteredSessions}

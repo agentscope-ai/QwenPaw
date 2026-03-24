@@ -23,7 +23,6 @@ import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScope
 import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
 import "./index.module.less";
-import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
 import { trackNavigation } from "../../utils/navigationTelemetry";
@@ -932,13 +931,13 @@ export default function ChatPage() {
         attachments: {
           trigger: function (props: AttachmentTriggerProps) {
             return (
-              <Tooltip title={t("chat.attachments.tooltip")}>
+              <span key="attachment-trigger" title={t("chat.attachments.tooltip")}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}
                   bordered={false}
                 />
-              </Tooltip>
+              </span>
             );
           },
           accept: "*/*",
@@ -985,8 +984,9 @@ export default function ChatPage() {
       actions: {
         list: [
           {
+            key: "copy",
             icon: (
-              <span title={t("common.copy")}>
+              <span key="copy-action-icon" title={t("common.copy")}>
                 <SparkCopyLine />
               </span>
             ),

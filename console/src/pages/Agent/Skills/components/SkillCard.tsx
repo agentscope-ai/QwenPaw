@@ -142,7 +142,7 @@ export function SkillCard({
           <Tooltip
             title={skill.description || "-"}
             placement="top"
-            overlayStyle={{ maxWidth: 360 }}
+            styles={{ root: { maxWidth: 360 } }}
           >
             <div className={`${styles.infoBlock} ${styles.descriptionContent}`}>
               {skill.description || "-"}

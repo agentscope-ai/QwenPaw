@@ -106,29 +106,15 @@ function SecurityPage() {
   // Rule modal handlers
   const openAddRule = useCallback(() => {
     setEditingRule(null);
-    editForm.resetFields();
-    editForm.setFieldsValue({
-      severity: "HIGH",
-      category: "command_injection",
-      tools: [],
-      params: [],
-      patterns: "",
-      exclude_patterns: "",
-    });
     setEditModal(true);
-  }, [editForm]);
+  }, []);
 
   const openEditRule = useCallback(
     (rule: MergedRule) => {
       setEditingRule(rule);
-      editForm.setFieldsValue({
-        ...rule,
-        patterns: rule.patterns.join("\n"),
-        exclude_patterns: rule.exclude_patterns.join("\n"),
-      });
       setEditModal(true);
     },
-    [editForm],
+    [],
   );
 
   const handleEditSave = useCallback(async () => {

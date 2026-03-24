@@ -67,7 +67,7 @@ export default function AgentSelector() {
         className={styles.agentSelector}
         placeholder={t("agent.selectAgent")}
         optionLabelProp="label"
-        popupClassName={styles.agentSelectorDropdown}
+        classNames={{ popup: { root: styles.agentSelectorDropdown } }}
         suffixIcon={
           <div className={styles.agentSelectorSuffix}>
             <Badge count={agentCount} showZero className={styles.agentBadge} />

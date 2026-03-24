@@ -100,17 +100,23 @@ export function SkillDrawer({
   );
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     if (editingSkill) {
       setContentValue(editingSkill.content);
       form.setFieldsValue({
         name: editingSkill.name,
         content: editingSkill.content,
+        source: editingSkill.source,
+        path: editingSkill.path,
       });
     } else {
       setContentValue("");
       form.resetFields();
     }
-  }, [editingSkill, form]);
+  }, [editingSkill, form, open]);
 
   const handleSubmit = (values: { name: string; content: string }) => {
     if (editingSkill) {
@@ -227,7 +233,6 @@ export function SkillDrawer({
       title={editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
       open={open}
       onClose={onClose}
-      destroyOnClose
       footer={drawerFooter}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit}>

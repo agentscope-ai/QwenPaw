@@ -251,7 +251,7 @@ export const createColumns = (
               </div>
             }
             placement="topLeft"
-            overlayInnerStyle={{ maxWidth: 400 }}
+            styles={{ body: { maxWidth: 400 } }}
           >
             <code
               style={{
