@@ -14,7 +14,7 @@ from ..agent_context import get_agent_for_request
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
-from ...providers.models import ModelSlotConfig
+from ...providers.models import ModelFallbackConfig, ModelSlotConfig
 
 
 logger = logging.getLogger(__name__)
@@ -474,3 +474,65 @@ async def set_active_model(
         )
 
     return ActiveModelsInfo(active_llm=manager.get_active_model())
+
+
+@router.get(
+    "/config/fallback",
+    response_model=Optional[ModelFallbackConfig],
+    summary="Get model fallback configuration",
+)
+async def get_fallback_config(
+    request: Request,
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> Optional[ModelFallbackConfig]:
+    """Get the model fallback configuration for the current agent."""
+    try:
+        workspace = await get_agent_for_request(request)
+        config = manager.load_fallback_config(workspace.agent_id)
+        # Config not found is OK - return null
+        if config is None:
+            return None
+        return config
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (like 401, 403)
+    except FileNotFoundError:
+        # Agent config file doesn't exist yet
+        return None
+    except Exception as e:
+        logger.error(f"Failed to load fallback config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load fallback configuration",
+        ) from e
+
+
+@router.put(
+    "/config/fallback",
+    response_model=ModelFallbackConfig,
+    summary="Set model fallback configuration",
+)
+async def set_fallback_config(
+    request: Request,
+    body: ModelFallbackConfig = Body(...),
+) -> ModelFallbackConfig:
+    """Set the model fallback configuration for the current agent."""
+    try:
+        workspace = await get_agent_for_request(request)
+        agent_config = load_agent_config(workspace.agent_id)
+        agent_config.fallback_config = body
+        save_agent_config(workspace.agent_id, agent_config)
+        return body
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except FileNotFoundError as e:
+        logger.error(f"Agent config not found: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Agent configuration not found",
+        ) from e
+    except Exception as e:
+        logger.error(f"Failed to save fallback config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save fallback configuration",
+        ) from e

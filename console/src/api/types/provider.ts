@@ -151,3 +151,16 @@ export interface ProbeMultimodalResponse {
   image_message: string;
   video_message: string;
 }
+
+/* ---- Model Fallback Configuration ---- */
+
+export interface FallbackModelConfig {
+  provider_id: string;
+  model: string;
+}
+
+export interface ModelFallbackConfig {
+  fallbacks: FallbackModelConfig[];
+  cooldown_enabled: boolean;
+  max_fallbacks: number;
+}

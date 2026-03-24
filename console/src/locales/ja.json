@@ -639,7 +639,21 @@
     "timezoneSaveFailed": "タイムゾーンの更新に失敗しました",
     "saveSuccess": "設定を保存しました",
     "saveFailed": "設定の保存に失敗しました",
-    "loadFailed": "設定の読み込みに失敗しました"
+    "loadFailed": "設定の読み込みに失敗しました",
+    "modelFallbackTitle": "モデルフォールバック設定",
+    "modelFallbackDescription": "プライマリモデルが失敗した場合、自動的にバックアップモデルに切り替えます",
+    "fallbackProvider": "バックアップ Provider",
+    "fallbackModel": "バックアップモデル",
+    "addFallback": "バックアップモデルを追加",
+    "removeFallback": "削除",
+    "cooldownEnabled": "クールダウン機構を有効にする",
+    "cooldownEnabledTooltip": "有効にすると、失敗したプロバイダーは一時的にフォールバックとして使用されなくなります",
+    "maxFallbacks": "最大フォールバック回数",
+    "maxFallbacksPlaceholder": "1-10 を入力",
+    "fallbackProviderRequired": "Provider を選択してください",
+    "fallbackModelRequired": "モデルを選択してください",
+    "maxFallbacksRequired": "最大フォールバック回数を入力してください",
+    "fallbackSaveFailed": "フォールバック設定の保存に失敗しましたが、他の設定は保存されました"
   },
   "tools": {
     "title": "ビルトインツール",

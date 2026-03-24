@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
+from ..providers.fallback_chat_model import FallbackChatModel
 from ..providers.retry_chat_model import RetryChatModel, RetryConfig
 from ..token_usage import TokenRecordingModelWrapper
 from ..local_models import create_local_chat_model
@@ -349,12 +350,39 @@ def create_model_and_formatter(
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
-    # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(
-        wrapped_model,
-        retry_config=retry_config,
-    )
+    # Load fallback configuration
+    fallback_config = None
+    try:
+        manager = ProviderManager.get_instance()
+        fallback_config = manager.load_fallback_config(agent_id)
+    except Exception:
+        pass
+
+    # Wrap with fallback logic if configured
+    if fallback_config and fallback_config.fallbacks:
+        # Wrap primary model with retry logic first, then fallback
+        # This ensures transient errors on primary model trigger retry
+        # before falling back to backup models
+        inner_wrapped = TokenRecordingModelWrapper(provider_id, model)
+        inner_wrapped = RetryChatModel(
+            inner_wrapped,
+            retry_config=retry_config,
+        )
+
+        wrapped_model = FallbackChatModel(
+            inner=inner_wrapped,
+            fallback_config=fallback_config,
+            provider_manager=manager,
+            primary_provider_id=provider_id,
+            primary_model=getattr(model, "model_name", None),
+        )
+    else:
+        # Standard wrapping: TokenRecording → Retry → Model
+        wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+        wrapped_model = RetryChatModel(
+            wrapped_model,
+            retry_config=retry_config,
+        )
 
     return wrapped_model, formatter
 

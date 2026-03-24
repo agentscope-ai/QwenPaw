@@ -7,6 +7,7 @@ import {
   ReactAgentCard,
   LlmRetryCard,
   ContextManagementCard,
+  ModelFallbackCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -21,6 +22,7 @@ function AgentConfigPage() {
     savingLang,
     timezone,
     savingTimezone,
+    providers,
     fetchConfig,
     handleSave,
     handleLanguageChange,
@@ -100,6 +102,8 @@ function AgentConfigPage() {
         />
 
         <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+
+        <ModelFallbackCard providers={providers} />
       </Form>
 
       <div className={styles.footerActions}>
