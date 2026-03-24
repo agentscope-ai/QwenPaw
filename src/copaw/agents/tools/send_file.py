@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long,too-many-return-statements
+import logging
 import os
 import mimetypes
+import tempfile
 import unicodedata
 
 from agentscope.tool import ToolResponse
@@ -14,6 +16,9 @@ from agentscope.message import (
 )
 
 from ..schema import FileBlock
+from .file_io import _is_cloud_mode
+
+_logger = logging.getLogger(__name__)
 
 
 def _auto_as_type(mt: str) -> str:
@@ -24,6 +29,35 @@ def _auto_as_type(mt: str) -> str:
     if mt.startswith("video/"):
         return "video"
     return "file"
+
+
+async def _download_from_sandbox(file_path: str) -> str:
+    """Download a file from the OpenSandbox to a local temp location.
+
+    Returns the local temp file path.
+    """
+    from ...fs_backend.adapter import get_fs_adapter
+    adapter = get_fs_adapter()
+    result = await adapter.read_file(file_path)
+    if not result.success:
+        raise IOError(f"Failed to read file from sandbox: {result.error_message}")
+
+    # Preserve the original filename and extension
+    basename = os.path.basename(file_path)
+    _, ext = os.path.splitext(basename)
+
+    tmp_dir = tempfile.mkdtemp(prefix="copaw_send_")
+    local_path = os.path.join(tmp_dir, basename)
+
+    content = result.data
+    if isinstance(content, bytes):
+        with open(local_path, "wb") as f:
+            f.write(content)
+    else:
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    return local_path
 
 
 async def send_file_to_user(
@@ -44,6 +78,20 @@ async def send_file_to_user(
     # (e.g. macOS stores filenames as NFD but paths from the LLM arrive as NFC,
     # causing os.path.exists to return False for files that do exist).
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
+
+    # In cloud mode, download the file from sandbox first
+    if _is_cloud_mode():
+        try:
+            file_path = await _download_from_sandbox(file_path)
+        except Exception as e:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Failed to download file from sandbox: {e}",
+                    ),
+                ],
+            )
 
     if not os.path.exists(file_path):
         return ToolResponse(

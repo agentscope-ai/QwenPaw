@@ -88,7 +88,31 @@ _state: dict[str, Any] = {
     "_sync_browser": None,  # sync browser handle for hybrid mode
     "_sync_context": None,  # sync context handle for hybrid mode
     "_sync_playwright": None,  # sync playwright handle for hybrid mode
+    "_cdp_mode": False,  # True when connected via CDP to remote browser
 }
+
+# --- Cloud browser (CDP) support ---
+# When OpenSandbox is active with a Chrome image, browser operations are
+# routed to the remote Chromium via Chrome DevTools Protocol (CDP).
+_cdp_endpoint_url: Optional[str] = None
+
+
+def set_cdp_endpoint(url: str) -> None:
+    """Set the CDP endpoint URL for remote browser in OpenSandbox."""
+    global _cdp_endpoint_url
+    _cdp_endpoint_url = url
+    logger.info("Browser CDP endpoint set: %s", url)
+
+
+def get_cdp_endpoint() -> Optional[str]:
+    """Get the CDP endpoint URL, or None if not in cloud browser mode."""
+    return _cdp_endpoint_url
+
+
+def clear_cdp_endpoint() -> None:
+    """Clear the CDP endpoint (revert to local browser)."""
+    global _cdp_endpoint_url
+    _cdp_endpoint_url = None
 
 # Stop the browser after this many seconds of inactivity (default 30 minutes).
 _BROWSER_IDLE_TIMEOUT = 1800.0
@@ -127,6 +151,7 @@ def _reset_browser_state() -> None:
     _state["page_counter"] = 0
     _state["last_activity_time"] = 0.0
     _state["headless"] = True
+    _state["_cdp_mode"] = False
 
 
 async def _idle_watchdog(idle_seconds: float = _BROWSER_IDLE_TIMEOUT) -> None:
@@ -741,6 +766,22 @@ async def _ensure_browser() -> bool:  # pylint: disable=too-many-branches
             _state["_sync_playwright"] = pw
             _state["_sync_browser"] = browser
             _state["_sync_context"] = context
+        elif _cdp_endpoint_url:
+            # Cloud mode: connect to remote Chrome via CDP
+            async_playwright = _ensure_playwright_async()
+            pw = await async_playwright().start()
+            pw_browser = await pw.chromium.connect_over_cdp(_cdp_endpoint_url)
+            contexts = pw_browser.contexts
+            if contexts:
+                context = contexts[0]
+            else:
+                context = await pw_browser.new_context()
+            _attach_context_listeners(context)
+            _state["playwright"] = pw
+            _state["browser"] = pw_browser
+            _state["context"] = context
+            _state["_cdp_mode"] = True
+            logger.info("Browser connected via CDP: %s", _cdp_endpoint_url)
         else:
             # Standard mode: use async Playwright
             async_playwright = _ensure_playwright_async()
@@ -853,6 +894,24 @@ async def _action_start(
             _state["_sync_browser"] = browser
             _state["_sync_context"] = context
             _state["_sync_headless"] = not headed
+        elif _cdp_endpoint_url:
+            # Cloud mode: connect to remote Chrome via CDP
+            async_playwright = _ensure_playwright_async()
+            pw = await async_playwright().start()
+            pw_browser = await pw.chromium.connect_over_cdp(_cdp_endpoint_url)
+            # CDP connection provides existing contexts; use the default one
+            # or create a new one if none exist.
+            contexts = pw_browser.contexts
+            if contexts:
+                context = contexts[0]
+            else:
+                context = await pw_browser.new_context()
+            _attach_context_listeners(context)
+            _state["playwright"] = pw
+            _state["browser"] = pw_browser
+            _state["context"] = context
+            _state["_cdp_mode"] = True
+            logger.info("Browser connected via CDP: %s", _cdp_endpoint_url)
         else:
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
@@ -892,11 +951,12 @@ async def _action_start(
             _state["context"] = context
         _touch_activity()
         _start_idle_watchdog()
-        msg = (
-            "Browser started (visible window)"
-            if not _state["headless"]
-            else "Browser started"
-        )
+        if _state.get("_cdp_mode"):
+            msg = "Browser started (CDP remote)"
+        elif not _state["headless"]:
+            msg = "Browser started (visible window)"
+        else:
+            msg = "Browser started"
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": msg},

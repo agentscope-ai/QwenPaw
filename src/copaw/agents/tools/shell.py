@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
-"""The shell command tool."""
+"""The shell command tool - executes locally or in OpenSandbox cloud sandbox."""
 
 import asyncio
 import locale
+import logging
 import os
 import subprocess
 import sys
@@ -16,6 +17,34 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
+
+_logger = logging.getLogger(__name__)
+
+# Global OpenSandbox instance reference (set by app initialization)
+_opensandbox_instance = None
+_cloud_working_dir = "/workspace"
+
+
+def set_opensandbox_instance(sandbox):
+    """Set the OpenSandbox instance for command execution."""
+    global _opensandbox_instance
+    _opensandbox_instance = sandbox
+
+
+def get_opensandbox_instance():
+    """Get the current OpenSandbox instance."""
+    return _opensandbox_instance
+
+
+def set_cloud_working_dir(path: str):
+    """Set the default working directory for cloud command execution."""
+    global _cloud_working_dir
+    _cloud_working_dir = path
+
+
+def get_cloud_working_dir() -> str:
+    """Get the cloud working directory."""
+    return _cloud_working_dir
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -152,6 +181,79 @@ async def execute_shell_command(
     """
 
     cmd = (command or "").strip()
+
+    # Try to execute in OpenSandbox cloud sandbox first
+    sandbox = get_opensandbox_instance()
+    if sandbox is not None:
+        try:
+            from datetime import timedelta
+            from opensandbox.models.execd import RunCommandOpts
+
+            working_dir_str = str(cwd) if cwd else get_cloud_working_dir()
+            opts = RunCommandOpts(
+                working_directory=working_dir_str,
+                timeout=timedelta(seconds=timeout),
+            )
+            result = await asyncio.wait_for(
+                sandbox.commands.run(cmd, opts=opts),
+                timeout=timeout + 5,  # buffer for network latency
+            )
+
+            # Build response from Execution result
+            stdout_parts = [
+                msg.text for msg in result.logs.stdout
+            ]
+            stderr_parts = [
+                msg.text for msg in result.logs.stderr
+            ]
+            stdout_str = "".join(stdout_parts)
+            stderr_str = "".join(stderr_parts)
+
+            if result.error:
+                returncode = 1
+                if not stderr_str:
+                    stderr_str = (
+                        f"{result.error.name}: {result.error.value}"
+                    )
+            else:
+                returncode = 0
+
+            if returncode == 0:
+                response_text = stdout_str or (
+                    "Command executed successfully (no output)."
+                )
+            else:
+                response_parts = [
+                    f"Command failed with exit code {returncode}.",
+                ]
+                if stdout_str:
+                    response_parts.append(f"\n[stdout]\n{stdout_str}")
+                if stderr_str:
+                    response_parts.append(f"\n[stderr]\n{stderr_str}")
+                response_text = "".join(response_parts)
+
+            return ToolResponse(
+                content=[
+                    TextBlock(type="text", text=response_text),
+                ],
+            )
+        except asyncio.TimeoutError:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Command execution exceeded the timeout "
+                            f"of {timeout} seconds."
+                        ),
+                    ),
+                ],
+            )
+        except Exception as e:
+            _logger.warning(
+                "OpenSandbox command execution failed, "
+                "falling back to local: %s", e,
+            )
 
     # Set working directory
     # Use current workspace_dir from context, fallback to WORKING_DIR

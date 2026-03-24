@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -10,12 +11,25 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
+from ...fs_backend.adapter import get_fs_adapter
 from .utils import truncate_file_output, read_file_safe
+
+_logger = logging.getLogger(__name__)
+
+
+def _is_cloud_mode() -> bool:
+    """Check if the cloud file system backend is active."""
+    try:
+        adapter = get_fs_adapter()
+        return adapter.is_cloud and adapter._backend is not None
+    except Exception:
+        return False
 
 
 def _resolve_file_path(file_path: str) -> str:
     """Resolve file path: use absolute path as-is,
     resolve relative path from current workspace or WORKING_DIR.
+    In cloud mode, resolve relative paths from the cloud working directory.
 
     Args:
         file_path: The input file path (absolute or relative).
@@ -23,6 +37,16 @@ def _resolve_file_path(file_path: str) -> str:
     Returns:
         The resolved absolute file path as string.
     """
+    if _is_cloud_mode():
+        # In cloud mode, do string-based path resolution
+        # (no local filesystem access for path resolution)
+        path = file_path.strip()
+        if path.startswith("/") or path.startswith("~"):
+            return path
+        from .shell import get_cloud_working_dir  # avoid circular import
+        cloud_dir = get_cloud_working_dir()
+        return f"{cloud_dir.rstrip('/')}/{path}"
+
     path = Path(file_path).expanduser()
     if path.is_absolute():
         return str(path)
@@ -31,6 +55,72 @@ def _resolve_file_path(file_path: str) -> str:
         workspace_dir = get_current_workspace_dir() or WORKING_DIR
         return str(workspace_dir / file_path)
 
+
+# ---------------------------------------------------------------------------
+# Cloud-aware I/O helpers
+# ---------------------------------------------------------------------------
+
+async def _file_exists(file_path: str) -> bool:
+    """Check if file exists (cloud-aware)."""
+    if _is_cloud_mode():
+        adapter = get_fs_adapter()
+        result = await adapter.exists(file_path)
+        return result.success and result.data
+    return os.path.exists(file_path)
+
+
+async def _is_file(file_path: str) -> bool:
+    """Check if path is a file (cloud-aware)."""
+    if _is_cloud_mode():
+        adapter = get_fs_adapter()
+        result = await adapter.get_file_info(file_path)
+        if result.success and result.data:
+            return result.data.exists and not result.data.is_directory
+        return False
+    return os.path.isfile(file_path)
+
+
+async def _read_content(file_path: str) -> str:
+    """Read file content (cloud-aware)."""
+    if _is_cloud_mode():
+        adapter = get_fs_adapter()
+        result = await adapter.read_file(file_path)
+        if not result.success:
+            raise IOError(result.error_message)
+        return result.data
+    return read_file_safe(file_path)
+
+
+async def _write_content(file_path: str, content: str) -> None:
+    """Write file content (cloud-aware)."""
+    if _is_cloud_mode():
+        adapter = get_fs_adapter()
+        result = await adapter.write_file(file_path, content)
+        if not result.success:
+            raise IOError(result.error_message)
+        return
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+async def _append_content(file_path: str, content: str) -> None:
+    """Append content to file (cloud-aware)."""
+    if _is_cloud_mode():
+        adapter = get_fs_adapter()
+        # Cloud: read existing + write concatenated
+        read_result = await adapter.read_file(file_path)
+        existing = read_result.data if read_result.success else ""
+        result = await adapter.write_file(file_path, existing + content)
+        if not result.success:
+            raise IOError(result.error_message)
+        return
+    with open(file_path, "a", encoding="utf-8") as f:
+        f.write(content)
+
+
+# ---------------------------------------------------------------------------
+# Tool functions
+# ---------------------------------------------------------------------------
 
 async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
@@ -80,7 +170,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
     file_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(file_path):
+    if not await _file_exists(file_path):
         return ToolResponse(
             content=[
                 TextBlock(
@@ -90,7 +180,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
             ],
         )
 
-    if not os.path.isfile(file_path):
+    if not await _is_file(file_path):
         return ToolResponse(
             content=[
                 TextBlock(
@@ -101,7 +191,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
     try:
-        content = read_file_safe(file_path)
+        content = await _read_content(file_path)
         all_lines = content.split("\n")
         total = len(all_lines)
 
@@ -188,8 +278,7 @@ async def write_file(
     file_path = _resolve_file_path(file_path)
 
     try:
-        with open(file_path, "w", encoding="utf-8") as file:
-            file.write(content)
+        await _write_content(file_path, content)
         return ToolResponse(
             content=[
                 TextBlock(
@@ -239,7 +328,7 @@ async def edit_file(
 
     resolved_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(resolved_path):
+    if not await _file_exists(resolved_path):
         return ToolResponse(
             content=[
                 TextBlock(
@@ -249,7 +338,7 @@ async def edit_file(
             ],
         )
 
-    if not os.path.isfile(resolved_path):
+    if not await _is_file(resolved_path):
         return ToolResponse(
             content=[
                 TextBlock(
@@ -260,7 +349,7 @@ async def edit_file(
         )
 
     try:
-        content = read_file_safe(resolved_path)
+        content = await _read_content(resolved_path)
     except Exception as e:
         return ToolResponse(
             content=[
@@ -329,8 +418,7 @@ async def append_file(
     file_path = _resolve_file_path(file_path)
 
     try:
-        with open(file_path, "a", encoding="utf-8") as file:
-            file.write(content)
+        await _append_content(file_path, content)
         return ToolResponse(
             content=[
                 TextBlock(

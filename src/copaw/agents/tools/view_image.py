@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Load an image file into the LLM context for visual analysis."""
 
+import logging
 import mimetypes
 import os
 import unicodedata
@@ -8,6 +9,10 @@ from pathlib import Path
 
 from agentscope.message import ImageBlock, TextBlock
 from agentscope.tool import ToolResponse
+
+from .file_io import _is_cloud_mode
+
+_logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {
     ".png",
@@ -39,7 +44,24 @@ async def view_image(image_path: str) -> ToolResponse:
         "NFC",
         os.path.expanduser(image_path),
     )
-    resolved = Path(image_path).resolve()
+
+    # In cloud mode, download the image from sandbox first
+    if _is_cloud_mode():
+        try:
+            from .send_file import _download_from_sandbox
+            local_path = await _download_from_sandbox(image_path)
+            resolved = Path(local_path).resolve()
+        except Exception as e:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Failed to download image from sandbox: {e}",
+                    ),
+                ],
+            )
+    else:
+        resolved = Path(image_path).resolve()
 
     if not resolved.exists() or not resolved.is_file():
         return ToolResponse(

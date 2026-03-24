@@ -3,7 +3,10 @@
 # pylint: disable=line-too-long
 """File search tools: grep (content search) and glob (file discovery)."""
 
+import asyncio
+import logging
 import re
+import shlex
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +15,10 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
-from .file_io import _resolve_file_path
+from ...fs_backend.adapter import get_fs_adapter
+from .file_io import _resolve_file_path, _is_cloud_mode
+
+_logger = logging.getLogger(__name__)
 
 # Skip binary / large files
 _BINARY_EXTENSIONS = frozenset(
@@ -80,6 +86,168 @@ def _is_text_file(path: Path) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Cloud helpers: execute grep/find via sandbox shell
+# ---------------------------------------------------------------------------
+
+async def _grep_cloud(
+    pattern: str,
+    search_path: str,
+    is_regex: bool,
+    case_sensitive: bool,
+    context_lines: int,
+) -> ToolResponse:
+    """Execute grep in the OpenSandbox cloud sandbox."""
+    adapter = get_fs_adapter()
+    sandbox = adapter.sandbox
+
+    # Build grep command flags
+    flags = ["-rn"]
+    if not case_sensitive:
+        flags.append("-i")
+    if context_lines > 0:
+        flags.append(f"-C {context_lines}")
+    if not is_regex:
+        flags.append("-F")  # Fixed string matching
+    flags.append(f"--max-count={_MAX_MATCHES}")
+
+    grep_flags = " ".join(flags)
+    cmd = f"grep {grep_flags} -- {shlex.quote(pattern)} {shlex.quote(search_path)} 2>/dev/null || true"
+
+    try:
+        from datetime import timedelta
+        from opensandbox.models.execd import RunCommandOpts
+
+        opts = RunCommandOpts(timeout=timedelta(seconds=30))
+        result = await asyncio.wait_for(
+            sandbox.commands.run(cmd, opts=opts),
+            timeout=35,
+        )
+
+        stdout_parts = [msg.text for msg in result.logs.stdout]
+        output = "".join(stdout_parts).strip()
+
+        if not output:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"No matches found for pattern: {pattern}",
+                    ),
+                ],
+            )
+
+        lines = output.split("\n")
+        truncated = len(lines) > _MAX_MATCHES
+        if truncated:
+            lines = lines[:_MAX_MATCHES]
+
+        text = "\n".join(lines)
+        if truncated:
+            text += f"\n\n(Results truncated at {_MAX_MATCHES} matches.)"
+
+        return ToolResponse(
+            content=[TextBlock(type="text", text=text)],
+        )
+    except Exception as e:
+        _logger.warning("Cloud grep failed, falling back to local: %s", e)
+        raise  # Let caller handle fallback
+
+
+async def _glob_cloud(
+    pattern: str,
+    search_path: str,
+) -> ToolResponse:
+    """Execute glob/find in the OpenSandbox cloud sandbox."""
+    adapter = get_fs_adapter()
+    sandbox = adapter.sandbox
+
+    # Use find command for glob matching in the sandbox
+    # Convert glob pattern to find -name or -path patterns
+    if "**" in pattern:
+        # Recursive pattern: find -path "**/pattern"
+        # e.g., "**/*.py" -> find . -name "*.py"
+        name_part = pattern.replace("**/", "")
+        cmd = (
+            f"find {shlex.quote(search_path)} "
+            f"-name {shlex.quote(name_part)} "
+            f"-maxdepth 20 2>/dev/null "
+            f"| head -{_MAX_MATCHES + 1}"
+        )
+    else:
+        cmd = (
+            f"find {shlex.quote(search_path)} "
+            f"-maxdepth 1 -name {shlex.quote(pattern)} "
+            f"2>/dev/null "
+            f"| head -{_MAX_MATCHES + 1}"
+        )
+
+    try:
+        from datetime import timedelta
+        from opensandbox.models.execd import RunCommandOpts
+
+        opts = RunCommandOpts(timeout=timedelta(seconds=30))
+        result = await asyncio.wait_for(
+            sandbox.commands.run(cmd, opts=opts),
+            timeout=35,
+        )
+
+        stdout_parts = [msg.text for msg in result.logs.stdout]
+        output = "".join(stdout_parts).strip()
+
+        if not output:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"No files matched pattern: {pattern}",
+                    ),
+                ],
+            )
+
+        lines = output.split("\n")
+        truncated = len(lines) > _MAX_MATCHES
+        if truncated:
+            lines = lines[:_MAX_MATCHES]
+
+        # Make paths relative to search_path for cleaner output
+        results = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith(search_path):
+                rel = line[len(search_path):].lstrip("/")
+                results.append(rel if rel else ".")
+            else:
+                results.append(line)
+
+        if not results:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"No files matched pattern: {pattern}",
+                    ),
+                ],
+            )
+
+        text = "\n".join(results)
+        if truncated:
+            text += f"\n\n(Results truncated at {_MAX_MATCHES} entries.)"
+
+        return ToolResponse(
+            content=[TextBlock(type="text", text=text)],
+        )
+    except Exception as e:
+        _logger.warning("Cloud glob failed, falling back to local: %s", e)
+        raise  # Let caller handle fallback
+
+
+# ---------------------------------------------------------------------------
+# Tool functions
+# ---------------------------------------------------------------------------
+
 async def grep_search(  # pylint: disable=too-many-branches
     pattern: str,
     path: Optional[str] = None,
@@ -112,6 +280,19 @@ async def grep_search(  # pylint: disable=too-many-branches
                 ),
             ],
         )
+
+    # Resolve search path
+    if _is_cloud_mode():
+        search_root_str = (
+            _resolve_file_path(path) if path else _resolve_file_path(".")
+        )
+        try:
+            return await _grep_cloud(
+                pattern, search_root_str, is_regex, case_sensitive, context_lines,
+            )
+        except Exception:
+            _logger.warning("Cloud grep failed, falling back to local search")
+            # Fall through to local search
 
     search_root = (
         Path(_resolve_file_path(path))
@@ -240,6 +421,17 @@ async def glob_search(
                 ),
             ],
         )
+
+    # Cloud mode: use sandbox find command
+    if _is_cloud_mode():
+        search_root_str = (
+            _resolve_file_path(path) if path else _resolve_file_path(".")
+        )
+        try:
+            return await _glob_cloud(pattern, search_root_str)
+        except Exception:
+            _logger.warning("Cloud glob failed, falling back to local search")
+            # Fall through to local search
 
     search_root = (
         Path(_resolve_file_path(path))
