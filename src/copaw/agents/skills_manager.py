@@ -70,11 +70,6 @@ def get_inactive_skills_dir() -> Path:
     return Path(__file__).parent / "InactiveSkill"
 
 
-def get_inactive_skills_dir() -> Path:
-    """Get the path to inactive skills directory in the code."""
-    return Path(__file__).parent / "InactiveSkill"
-
-
 def get_customized_skills_dir(workspace_dir: Path) -> Path:
     """Get the path to customized skills directory in workspace_dir."""
     return workspace_dir / "customized_skills"
