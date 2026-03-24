@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from agentscope.model import OpenAIChatModel
 
 from copaw.agents import model_factory
+from copaw.agents.routing_chat_model import RoutingChatModel
 import copaw.config.config as config_module
 import copaw.config.utils as config_utils
-from copaw.agents.routing_chat_model import RoutingChatModel
 from copaw.config.config import AgentsLLMRoutingConfig
 from copaw.providers.models import ModelSlotConfig
 
@@ -167,6 +168,12 @@ def test_routing_uses_agent_active_cloud_fallback(
     agent_config = SimpleNamespace(
         active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
         llm_routing=routing_cfg,
+        running=SimpleNamespace(
+            llm_retry_enabled=False,
+            llm_max_retries=0,
+            llm_backoff_base=0.1,
+            llm_backoff_cap=1.0,
+        ),
     )
     manager = FakeManager(
         providers={
@@ -191,90 +198,6 @@ def test_routing_uses_agent_active_cloud_fallback(
     assert not created
 
 
-@pytest.mark.asyncio
-async def test_create_model_and_formatter_loads_only_selected_cloud_route(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    routing_cfg = AgentsLLMRoutingConfig(
-        enabled=True,
-        mode="cloud_first",
-        local=ModelSlotConfig(provider_id="mlx", model="Qwen3-4B"),
-        cloud=ModelSlotConfig(
-            provider_id="aliyun-codingplan",
-            model="qwen3.5-plus",
-        ),
-    )
-    agent_config = SimpleNamespace(
-        active_model=ModelSlotConfig(provider_id="mlx", model="Qwen3-4B"),
-        llm_routing=routing_cfg,
-    )
-    manager = FakeManager(
-        providers={
-            "mlx": FakeProvider("mlx", is_local=True),
-            "aliyun-codingplan": FakeProvider("aliyun-codingplan"),
-        },
-        active_model=ModelSlotConfig(provider_id="mlx", model="Qwen3-4B"),
-    )
-    created = _patch_common_mocks(monkeypatch, manager=manager)
-    _patch_config_loaders(monkeypatch, agent_config=agent_config)
-
-    model, _ = model_factory.create_model_and_formatter(agent_id="agent-1")
-
-    assert isinstance(model, RoutingChatModel)
-    assert not created
-
-    response = await model(
-        messages=[{"role": "user", "content": "hi"}],
-        tools=None,
-    )
-
-    assert response.provider_id == "aliyun-codingplan"
-    assert response.model_name == "qwen3.5-plus"
-    assert created == [("aliyun-codingplan", "qwen3.5-plus", False)]
-
-
-@pytest.mark.asyncio
-async def test_create_model_and_formatter_loads_local_route_on_first_use(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    routing_cfg = AgentsLLMRoutingConfig(
-        enabled=True,
-        mode="local_first",
-        local=ModelSlotConfig(
-            provider_id="llamacpp",
-            model="Qwen2.5-0.5B-Instruct-GGUF",
-        ),
-        cloud=None,
-    )
-    agent_config = SimpleNamespace(
-        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
-        llm_routing=routing_cfg,
-    )
-    manager = FakeManager(
-        providers={
-            "llamacpp": FakeProvider("llamacpp", is_local=True),
-            "openai": FakeProvider("openai"),
-        },
-        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
-    )
-    created = _patch_common_mocks(monkeypatch, manager=manager)
-    _patch_config_loaders(monkeypatch, agent_config=agent_config)
-
-    model, _ = model_factory.create_model_and_formatter(agent_id="agent-1")
-
-    assert isinstance(model, RoutingChatModel)
-    assert not created
-
-    response = await model(
-        messages=[{"role": "user", "content": "hi"}],
-        tools=None,
-    )
-
-    assert response.provider_id == "llamacpp"
-    assert response.model_name == "Qwen2.5-0.5B-Instruct-GGUF"
-    assert created == [("llamacpp", "Qwen2.5-0.5B-Instruct-GGUF", True)]
-
-
 def test_create_model_and_formatter_uses_explicit_cloud_slot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -290,6 +213,12 @@ def test_create_model_and_formatter_uses_explicit_cloud_slot(
     agent_config = SimpleNamespace(
         active_model=ModelSlotConfig(provider_id="mlx", model="Qwen3-4B"),
         llm_routing=routing_cfg,
+        running=SimpleNamespace(
+            llm_retry_enabled=False,
+            llm_max_retries=0,
+            llm_backoff_base=0.1,
+            llm_backoff_cap=1.0,
+        ),
     )
     manager = FakeManager(
         providers={
@@ -310,6 +239,156 @@ def test_create_model_and_formatter_uses_explicit_cloud_slot(
     assert not created
 
 
+def test_routing_enabled_requires_local_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routing_cfg = AgentsLLMRoutingConfig(enabled=True)
+    agent_config = SimpleNamespace(
+        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
+        llm_routing=routing_cfg,
+        running=SimpleNamespace(
+            llm_retry_enabled=False,
+            llm_max_retries=0,
+            llm_backoff_base=0.1,
+            llm_backoff_cap=1.0,
+        ),
+    )
+    manager = FakeManager(
+        providers={"openai": FakeProvider("openai")},
+        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
+    )
+    _patch_common_mocks(monkeypatch, manager=manager)
+    _patch_config_loaders(monkeypatch, agent_config=agent_config)
+
+    with pytest.raises(ValueError, match="local slot is not configured"):
+        model_factory.create_model_and_formatter(agent_id="agent-1")
+
+
+def test_routing_enabled_requires_resolved_cloud_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routing_cfg = AgentsLLMRoutingConfig(
+        enabled=True,
+        local=ModelSlotConfig(provider_id="llamacpp", model="Qwen3-4B"),
+        cloud=None,
+    )
+    agent_config = SimpleNamespace(
+        active_model=None,
+        llm_routing=routing_cfg,
+        running=SimpleNamespace(
+            llm_retry_enabled=False,
+            llm_max_retries=0,
+            llm_backoff_base=0.1,
+            llm_backoff_cap=1.0,
+        ),
+    )
+    manager = FakeManager(
+        providers={"llamacpp": FakeProvider("llamacpp", is_local=True)},
+        active_model=None,
+    )
+    _patch_common_mocks(monkeypatch, manager=manager)
+    _patch_config_loaders(monkeypatch, agent_config=agent_config)
+
+    with pytest.raises(ValueError, match="cloud slot could not be resolved"):
+        model_factory.create_model_and_formatter(agent_id="agent-1")
+
+
+def test_routing_enabled_formatter_mismatch_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LocalFormatter:
+        __name__ = "LocalFormatter"
+
+    class CloudFormatter:
+        __name__ = "CloudFormatter"
+
+    routing_cfg = AgentsLLMRoutingConfig(
+        enabled=True,
+        local=ModelSlotConfig(provider_id="llamacpp", model="Qwen3-4B"),
+        cloud=ModelSlotConfig(provider_id="openai", model="gpt-5"),
+    )
+    agent_config = SimpleNamespace(
+        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
+        llm_routing=routing_cfg,
+        running=SimpleNamespace(
+            llm_retry_enabled=False,
+            llm_max_retries=0,
+            llm_backoff_base=0.1,
+            llm_backoff_cap=1.0,
+        ),
+    )
+    manager = FakeManager(
+        providers={
+            "llamacpp": FakeProvider("llamacpp", is_local=True),
+            "openai": FakeProvider("openai"),
+        },
+        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5"),
+    )
+    _patch_common_mocks(monkeypatch, manager=manager)
+    _patch_config_loaders(monkeypatch, agent_config=agent_config)
+
+    monkeypatch.setattr(
+        model_factory,
+        "_create_routing_endpoint",
+        lambda model_slot, manager, retry_config=None: SimpleNamespace(
+            provider_id=model_slot.provider_id,
+            model_name=model_slot.model,
+            formatter_family=(
+                LocalFormatter
+                if model_slot.provider_id == "llamacpp"
+                else CloudFormatter
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="same formatter family"):
+        model_factory.create_model_and_formatter(agent_id="agent-1")
+
+
+def test_create_model_and_formatter_logs_agent_config_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = FakeManager(
+        providers={"openai": FakeProvider("openai")},
+        active_model=ModelSlotConfig(provider_id="openai", model="gpt-5-mini"),
+    )
+    _patch_common_mocks(monkeypatch, manager=manager)
+    monkeypatch.setattr(
+        config_module,
+        "load_agent_config",
+        lambda agent_id: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        config_utils,
+        "load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(
+                llm_routing=AgentsLLMRoutingConfig(enabled=False),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        model_factory.ProviderManager,
+        "get_active_chat_model",
+        lambda: SimpleNamespace(model_name="gpt-5-mini"),
+    )
+    warning_mock = MagicMock()
+    monkeypatch.setattr(model_factory.logger, "warning", warning_mock)
+
+    model, formatter = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+    )
+
+    warning_mock.assert_called_once()
+    assert "Failed to load agent config for agent '%s'" in (
+        warning_mock.call_args.args[0]
+    )
+    assert warning_mock.call_args.args[1] == "agent-1"
+    assert not isinstance(model, RoutingChatModel)
+    assert model.model_name == "gpt-5-mini"
+    assert formatter.formatter_for == "OpenAIChatModel"
+
+
 def test_routing_disabled_uses_manager_active_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -321,6 +400,12 @@ def test_routing_disabled_uses_manager_active_model(
     agent_config = SimpleNamespace(
         active_model=None,
         llm_routing=routing_cfg,
+        running=SimpleNamespace(
+            llm_retry_enabled=False,
+            llm_max_retries=0,
+            llm_backoff_base=0.1,
+            llm_backoff_cap=1.0,
+        ),
     )
     manager = FakeManager(
         providers={"openai": FakeProvider("openai")},

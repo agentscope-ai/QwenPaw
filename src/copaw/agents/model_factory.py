@@ -301,29 +301,25 @@ def _create_routing_model_and_formatter(
     *,
     manager: ProviderManager,
     retry_config: RetryConfig | None = None,
-) -> Optional[Tuple[ChatModelBase, FormatterBase]]:
+) -> Tuple[ChatModelBase, FormatterBase]:
     from .routing_chat_model import RoutingChatModel
 
-    try:
-        local_endpoint = _create_routing_endpoint(
-            local_slot,
-            manager=manager,
-            retry_config=retry_config,
-        )
-        cloud_endpoint = _create_routing_endpoint(
-            cloud_slot,
-            manager=manager,
-            retry_config=retry_config,
-        )
-    except Exception:
-        logger.warning(
-            "Failed to create routing endpoint(s).",
-            exc_info=True,
-        )
-        return None
+    local_endpoint = _create_routing_endpoint(
+        local_slot,
+        manager=manager,
+        retry_config=retry_config,
+    )
+    cloud_endpoint = _create_routing_endpoint(
+        cloud_slot,
+        manager=manager,
+        retry_config=retry_config,
+    )
 
     if local_endpoint.formatter_family is not cloud_endpoint.formatter_family:
-        return None
+        raise ValueError(
+            "LLM routing requires local and cloud slots to share the same "
+            "formatter family.",
+        )
 
     model: ChatModelBase = RoutingChatModel(
         local_endpoint=local_endpoint,
@@ -348,7 +344,11 @@ def create_model_and_formatter(
         try:
             agent_id = get_current_agent_id()
         except Exception:
-            pass
+            logger.warning(
+                "Failed to resolve current agent id; falling back to global "
+                "model selection.",
+                exc_info=True,
+            )
 
     manager = ProviderManager.get_instance()
     model_slot = None
@@ -366,12 +366,22 @@ def create_model_and_formatter(
                 backoff_cap=agent_config.running.llm_backoff_cap,
             )
         except Exception:
-            pass
+            logger.warning(
+                "Failed to load agent config for agent '%s'; falling back to "
+                "global model selection.",
+                agent_id,
+                exc_info=True,
+            )
 
     if routing_cfg is None:
         routing_cfg = load_config().agents.llm_routing
 
-    if _has_configured_slot(routing_cfg.local):
+    if routing_cfg.enabled:
+        if not _has_configured_slot(routing_cfg.local):
+            raise ValueError(
+                "LLM routing is enabled but the local slot is not configured.",
+            )
+
         cloud_slot = (
             routing_cfg.cloud
             if _has_configured_slot(routing_cfg.cloud)
@@ -381,17 +391,20 @@ def create_model_and_formatter(
                 else manager.get_active_model()
             )
         )
-        if routing_cfg.enabled and _has_configured_slot(cloud_slot):
-            assert cloud_slot is not None
-            routed_model = _create_routing_model_and_formatter(
-                routing_cfg.local,
-                cloud_slot,
-                routing_cfg,
-                manager=manager,
-                retry_config=retry_config,
+        if not _has_configured_slot(cloud_slot):
+            raise ValueError(
+                "LLM routing is enabled but the cloud slot could not be "
+                "resolved from routing config, agent config, or active model.",
             )
-            if routed_model is not None:
-                return routed_model
+
+        assert cloud_slot is not None
+        return _create_routing_model_and_formatter(
+            routing_cfg.local,
+            cloud_slot,
+            routing_cfg,
+            manager=manager,
+            retry_config=retry_config,
+        )
 
     if _has_configured_slot(model_slot):
         assert model_slot is not None
