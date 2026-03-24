@@ -10,6 +10,7 @@ import type {
   TestProviderRequest,
   TestModelRequest,
   DiscoverModelsResponse,
+  ProbeMultimodalResponse,
 } from "../types";
 
 export const providerApi = {
@@ -86,5 +87,13 @@ export const providerApi = {
         method: "POST",
         body: body ? JSON.stringify(body) : undefined,
       },
+    ),
+
+  probeMultimodal: (providerId: string, modelId: string) =>
+    request<ProbeMultimodalResponse>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/probe-multimodal`,
+      { method: "POST" },
     ),
 };

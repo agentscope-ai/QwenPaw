@@ -41,91 +41,6 @@ from ..__version__ import __version__  # noqa: E402
 
 _record("..__version__", time.perf_counter() - _t)
 
-_t = time.perf_counter()
-from .app_cmd import app_cmd  # noqa: E402
-
-_record(".app_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .channels_cmd import channels_group  # noqa: E402
-
-_record(".channels_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .chats_cmd import chats_group  # noqa: E402
-
-_record(".chats_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .daemon_cmd import daemon_group  # noqa: E402
-
-_record(".daemon_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .clean_cmd import clean_cmd  # noqa: E402
-
-_record(".clean_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .cron_cmd import cron_group  # noqa: E402
-
-_record(".cron_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .env_cmd import env_group  # noqa: E402
-
-_record(".env_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .init_cmd import init_cmd  # noqa: E402
-
-_record(".init_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .providers_cmd import models_group  # noqa: E402
-
-_record(".providers_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .skills_cmd import skills_group  # noqa: E402
-
-_record(".skills_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .uninstall_cmd import uninstall_cmd  # noqa: E402
-
-_record(".uninstall_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .desktop_cmd import desktop_cmd  # noqa: E402
-
-_record(".desktop_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .update_cmd import update_cmd  # noqa: E402
-
-_record(".update_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .shutdown_cmd import shutdown_cmd  # noqa: E402
-
-_record(".shutdown_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .auth_cmd import auth_group  # noqa: E402
-
-_record(".auth_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .agents_cmd import agents_group  # noqa: E402
-
-_record(".agents_cmd", time.perf_counter() - _t)
-
-_t = time.perf_counter()
-from .message_cmd import message_group  # noqa: E402
-
-_record(".message_cmd", time.perf_counter() - _t)
-
 _total = time.perf_counter() - _t0_main
 _init_timings.append(("(total imports)", _total))
 logger.debug("%.3fs (total imports)", _total)
@@ -137,7 +52,88 @@ def log_init_timings() -> None:
         logger.debug("%.3fs %s", elapsed, label)
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+class LazyGroup(click.Group):
+    """Click group that supports lazy loading of subcommands."""
+
+    def __init__(self, *args, lazy_subcommands=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lazy_subcommands = lazy_subcommands or {}
+
+    def list_commands(self, ctx):
+        """Return all command names (both eager and lazy)."""
+        base = super().list_commands(ctx)
+        return sorted(set(base) | set(self.lazy_subcommands.keys()))
+
+    def get_command(self, ctx, cmd_name):
+        """Get command, loading lazily if needed."""
+        # Try eager commands first
+        cmd = super().get_command(ctx, cmd_name)
+        if cmd is not None:
+            return cmd
+
+        # Try lazy commands
+        if cmd_name in self.lazy_subcommands:
+            module_path, attr_name, label = self.lazy_subcommands[cmd_name]
+            _t = time.perf_counter()
+            try:
+                module = __import__(module_path, fromlist=[attr_name])
+                cmd = getattr(module, attr_name)
+                _record(label, time.perf_counter() - _t)
+                # Cache for next time
+                self.add_command(cmd, cmd_name)
+                return cmd
+            except Exception as e:
+                logger.error(f"Failed to load command '{cmd_name}': {e}")
+                return None
+
+        return None
+
+
+@click.group(
+    cls=LazyGroup,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    lazy_subcommands={
+        "app": ("copaw.cli.app_cmd", "app_cmd", ".app_cmd"),
+        "channels": (
+            "copaw.cli.channels_cmd",
+            "channels_group",
+            ".channels_cmd",
+        ),
+        "channel": (
+            "copaw.cli.channels_cmd",
+            "channels_group",
+            ".channels_cmd",
+        ),
+        "daemon": ("copaw.cli.daemon_cmd", "daemon_group", ".daemon_cmd"),
+        "chats": ("copaw.cli.chats_cmd", "chats_group", ".chats_cmd"),
+        "chat": ("copaw.cli.chats_cmd", "chats_group", ".chats_cmd"),
+        "clean": ("copaw.cli.clean_cmd", "clean_cmd", ".clean_cmd"),
+        "cron": ("copaw.cli.cron_cmd", "cron_group", ".cron_cmd"),
+        "env": ("copaw.cli.env_cmd", "env_group", ".env_cmd"),
+        "init": ("copaw.cli.init_cmd", "init_cmd", ".init_cmd"),
+        "models": (
+            "copaw.cli.providers_cmd",
+            "models_group",
+            ".providers_cmd",
+        ),
+        "skills": ("copaw.cli.skills_cmd", "skills_group", ".skills_cmd"),
+        "uninstall": (
+            "copaw.cli.uninstall_cmd",
+            "uninstall_cmd",
+            ".uninstall_cmd",
+        ),
+        "desktop": ("copaw.cli.desktop_cmd", "desktop_cmd", ".desktop_cmd"),
+        "update": ("copaw.cli.update_cmd", "update_cmd", ".update_cmd"),
+        "shutdown": (
+            "copaw.cli.shutdown_cmd",
+            "shutdown_cmd",
+            ".shutdown_cmd",
+        ),
+        "auth": ("copaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
+        "agents": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
+        "agent": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
+    },
+)
 @click.version_option(version=__version__, prog_name="CoPaw")
 @click.option("--host", default=None, help="API Host")
 @click.option(
@@ -163,22 +159,3 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     ctx.ensure_object(dict)
     ctx.obj["host"] = host
     ctx.obj["port"] = port
-
-
-cli.add_command(app_cmd)
-cli.add_command(channels_group)
-cli.add_command(daemon_group)
-cli.add_command(chats_group)
-cli.add_command(clean_cmd)
-cli.add_command(cron_group)
-cli.add_command(env_group)
-cli.add_command(init_cmd)
-cli.add_command(models_group)
-cli.add_command(skills_group)
-cli.add_command(uninstall_cmd)
-cli.add_command(desktop_cmd)
-cli.add_command(update_cmd)
-cli.add_command(shutdown_cmd)
-cli.add_command(auth_group)
-cli.add_command(agents_group)
-cli.add_command(message_group)

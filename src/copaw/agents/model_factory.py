@@ -25,7 +25,7 @@ from .utils.tool_message_utils import _sanitize_tool_messages
 from ..local_models import create_local_chat_model
 from ..providers import ProviderManager
 from ..providers.models import ModelSlotConfig
-from ..providers.retry_chat_model import RetryChatModel
+from ..providers.retry_chat_model import RetryChatModel, RetryConfig
 from ..token_usage import TokenRecordingModelWrapper
 
 logger = logging.getLogger(__name__)
@@ -263,6 +263,7 @@ def _create_routing_endpoint(
     model_slot: ModelSlotConfig,
     *,
     manager: ProviderManager,
+    retry_config: RetryConfig | None = None,
 ):
     from .routing_chat_model import RoutingEndpoint
 
@@ -279,7 +280,10 @@ def _create_routing_endpoint(
         )
         formatter = _create_formatter_instance(loaded_chat_model_class)
         wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-        wrapped_model = RetryChatModel(wrapped_model)
+        wrapped_model = RetryChatModel(
+            wrapped_model,
+            retry_config=retry_config,
+        )
         return wrapped_model, formatter
 
     return RoutingEndpoint(
@@ -296,6 +300,7 @@ def _create_routing_model_and_formatter(
     routing_cfg,
     *,
     manager: ProviderManager,
+    retry_config: RetryConfig | None = None,
 ) -> Optional[Tuple[ChatModelBase, FormatterBase]]:
     from .routing_chat_model import RoutingChatModel
 
@@ -303,10 +308,12 @@ def _create_routing_model_and_formatter(
         local_endpoint = _create_routing_endpoint(
             local_slot,
             manager=manager,
+            retry_config=retry_config,
         )
         cloud_endpoint = _create_routing_endpoint(
             cloud_slot,
             manager=manager,
+            retry_config=retry_config,
         )
     except Exception:
         logger.warning(
@@ -346,12 +353,18 @@ def create_model_and_formatter(
     manager = ProviderManager.get_instance()
     model_slot = None
     routing_cfg = None
-
+    retry_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
             routing_cfg = agent_config.llm_routing
+            retry_config = RetryConfig(
+                enabled=agent_config.running.llm_retry_enabled,
+                max_retries=agent_config.running.llm_max_retries,
+                backoff_base=agent_config.running.llm_backoff_base,
+                backoff_cap=agent_config.running.llm_backoff_cap,
+            )
         except Exception:
             pass
 
@@ -375,6 +388,7 @@ def create_model_and_formatter(
                 cloud_slot,
                 routing_cfg,
                 manager=manager,
+                retry_config=retry_config,
             )
             if routed_model is not None:
                 return routed_model
@@ -403,7 +417,10 @@ def create_model_and_formatter(
 
     formatter = _create_formatter_instance(chat_model_class)
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(wrapped_model)
+    wrapped_model = RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+    )
     return wrapped_model, formatter
 
 

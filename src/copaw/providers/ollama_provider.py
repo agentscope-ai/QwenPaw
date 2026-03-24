@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, List
+from typing import TYPE_CHECKING, Any, List
 
 try:
     import ollama
@@ -14,6 +14,9 @@ except ImportError:
 from agentscope.model import ChatModelBase
 
 from copaw.providers.provider import ModelInfo, Provider
+
+if TYPE_CHECKING:
+    from copaw.providers.multimodal_prober import ProbeResult
 
 
 class OllamaProvider(Provider):
@@ -159,6 +162,34 @@ class OllamaProvider(Provider):
             return False, f"Failed to delete model '{model_id}'"
         self.extra_models = await self.fetch_models()
         return True, ""
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+    ) -> ProbeResult:
+        """Probe multimodal via Ollama OpenAI-compatible endpoint."""
+        from .multimodal_prober import ProbeResult
+        from .openai_provider import OpenAIProvider
+
+        openai_url = self.base_url.rstrip("/") + "/v1"
+        proxy = OpenAIProvider(
+            id=self.id,
+            name=self.name,
+            base_url=openai_url,
+            api_key=self.api_key or "ollama",
+        )
+        # pylint: disable=protected-access
+        img_ok, img_msg = await proxy._probe_image_support(
+            model_id,
+            timeout,
+        )
+        return ProbeResult(
+            supports_image=img_ok,
+            supports_video=False,
+            image_message=img_msg,
+            video_message="Ollama does not support video input",
+        )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat

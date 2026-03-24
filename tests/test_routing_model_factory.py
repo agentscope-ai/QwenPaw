@@ -110,7 +110,7 @@ def _patch_common_mocks(
     monkeypatch.setattr(
         model_factory,
         "RetryChatModel",
-        lambda model: model,
+        lambda model, retry_config=None: model,
     )
     monkeypatch.setattr(
         model_factory,

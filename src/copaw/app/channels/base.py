@@ -727,7 +727,7 @@ class BaseChannel(ABC):
         body = "\n".join(text_parts) if text_parts else ""
         prefix = (meta or {}).get("bot_prefix", "") or ""
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         for m in media_parts:
             t = getattr(m, "type", None)
             if t == ContentType.IMAGE and getattr(m, "image_url", None):

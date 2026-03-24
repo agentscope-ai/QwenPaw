@@ -15,6 +15,7 @@ import { chatApi } from "../../api/modules/chat";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
+import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -171,6 +172,13 @@ export default function ChatPage() {
 
   const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
+
+  // Multimodal capability state for the active model
+  const [multimodalCaps, setMultimodalCaps] = useState<{
+    supportsMultimodal: boolean;
+    supportsImage: boolean;
+    supportsVideo: boolean;
+  }>({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
   isChatActiveRef.current =
     location.pathname === "/" || location.pathname.startsWith("/chat");
 
@@ -269,6 +277,74 @@ export default function ChatPage() {
     }
     prevSelectedAgentRef.current = selectedAgent;
   }, [selectedAgent]);
+
+  // Fetch multimodal capabilities for the active model
+  const fetchMultimodalCaps = useCallback(async () => {
+    try {
+      const [providers, activeModels] = await Promise.all([
+        providerApi.listProviders(),
+        providerApi.getActiveModels(),
+      ]);
+      const activeProviderId = activeModels?.active_llm?.provider_id;
+      const activeModelId = activeModels?.active_llm?.model;
+      if (!activeProviderId || !activeModelId) {
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
+        return;
+      }
+      const provider = (providers as ProviderInfo[]).find(
+        (p) => p.id === activeProviderId,
+      );
+      if (!provider) {
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
+        return;
+      }
+      const allModels: ModelInfo[] = [
+        ...(provider.models ?? []),
+        ...(provider.extra_models ?? []),
+      ];
+      const model = allModels.find((m) => m.id === activeModelId);
+      setMultimodalCaps({
+        supportsMultimodal: model?.supports_multimodal ?? false,
+        supportsImage: model?.supports_image ?? false,
+        supportsVideo: model?.supports_video ?? false,
+      });
+    } catch {
+      setMultimodalCaps({
+        supportsMultimodal: false,
+        supportsImage: false,
+        supportsVideo: false,
+      });
+    }
+  }, []);
+
+  // Fetch caps on mount and whenever refreshKey changes (model switch triggers refreshKey++)
+  useEffect(() => {
+    fetchMultimodalCaps();
+  }, [fetchMultimodalCaps, refreshKey]);
+
+  // Also poll caps when navigating back to chat (model may have been changed on settings page)
+  useEffect(() => {
+    if (isChatActiveRef.current) {
+      fetchMultimodalCaps();
+    }
+  }, [location.pathname, fetchMultimodalCaps]);
+
+  // Listen for model-switched event from ModelSelector
+  useEffect(() => {
+    const handler = () => {
+      fetchMultimodalCaps();
+    };
+    window.addEventListener("model-switched", handler);
+    return () => window.removeEventListener("model-switched", handler);
+  }, [fetchMultimodalCaps]);
 
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
@@ -471,10 +547,16 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
+        allowSpeech: true,
         attachments: {
           trigger: function (props: any) {
+            const tooltipKey = multimodalCaps.supportsMultimodal
+              ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
+                ? "chat.attachments.tooltipImageOnly"
+                : "chat.attachments.tooltip"
+              : "chat.attachments.tooltipNoMultimodal";
             return (
-              <Tooltip title={t("chat.attachments.tooltip")}>
+              <Tooltip title={t(tooltipKey)}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}
@@ -491,7 +573,17 @@ export default function ChatPage() {
             onProgress?: (e: { percent?: number }) => void;
           }) => {
             try {
-              console.log("options.file", options.file);
+              // Warn when model has no multimodal support
+              if (!multimodalCaps.supportsMultimodal) {
+                message.warning(t("chat.attachments.multimodalWarning"));
+              } else if (
+                multimodalCaps.supportsImage &&
+                !multimodalCaps.supportsVideo &&
+                !options.file.type.startsWith("image/")
+              ) {
+                // Warn (not block) when only image is supported
+                message.warning(t("chat.attachments.imageOnlyWarning"));
+              }
 
               // Check file size limit (10MB)
               const file = options.file as File;
@@ -559,7 +651,7 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
+  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark, multimodalCaps]);
 
   return (
     <div
