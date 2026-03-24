@@ -1,6 +1,6 @@
 ---
 name: channel_message
-description: Use this skill to proactively send a one-way message to a user/session/channel, usually only when the user explicitly asks to send to a channel/session or when proactive notification is needed. First query sessions with copaw chats list, then push with copaw channel send. | 当需要主动向用户/会话/频道单向推送消息时使用，通常仅在用户明确要求发往某个 channel / 会话，或需要主动通知时使用；先用 copaw chats list 查 session，再用 copaw channel send 推送
+description: Use this skill to proactively send a one-way message to a user/session/channel, usually only when the user explicitly asks to send to a channel/session or when proactive notification is needed. First query sessions with copaw chats list, then push with copaw channels send. | 当需要主动向用户/会话/频道单向推送消息时使用，通常仅在用户明确要求发往某个 channel / 会话，或需要主动通知时使用；先用 copaw chats list 查 session，再用 copaw channels send 推送
 metadata: { "builtin_skill_version": "1.0", "copaw": { "emoji": "📤" } }
 ---
 
@@ -19,7 +19,7 @@ metadata: { "builtin_skill_version": "1.0", "copaw": { "emoji": "📤" } }
 - 用户明确要求"处理完后通知我"
 
 ### 不应使用
-- 如果只是当前会话中的正常回复，**不要使用 `copaw channel send`**
+- 如果只是当前会话中的正常回复，**不要使用 `copaw channels send`**
 - 需要和用户进行双向对话并立即等待回复
 - 还不知道目标 session 是哪个
 - 想当然猜测 `target-user` 或 `target-session`
@@ -51,7 +51,7 @@ copaw chats list --agent-id <your_agent> --user-id <user_id>
 ### 2) 发送消息
 
 ```bash
-copaw channel send \
+copaw channels send \
   --agent-id <your_agent> \
   --channel <channel> \
   --target-user <user_id> \
@@ -68,7 +68,7 @@ copaw channel send \
 2. copaw chats list 查询目标 session
 3. 从结果中获取 user_id 和 session_id
 4. 若有多个 session，优先选最近活跃的
-5. copaw channel send 发送消息
+5. copaw channels send 发送消息
 6. 结束（无回复）
 ```
 
@@ -78,7 +78,7 @@ copaw channel send \
 
 ### 必填参数
 
-`copaw channel send` 必须同时提供：
+`copaw channels send` 必须同时提供：
 - `--agent-id`
 - `--channel`
 - `--target-user`
@@ -101,7 +101,7 @@ copaw chats list --agent-id <your_agent> --channel <channel>
 
 ### 单向推送
 
-`copaw channel send` 只负责发送，不等待回复。
+`copaw channels send` 只负责发送，不等待回复。
 
 ---
 
@@ -112,7 +112,7 @@ copaw chats list --agent-id <your_agent> --channel <channel>
 ```bash
 copaw chats list --agent-id notify_bot --channel feishu
 
-copaw channel send \
+copaw channels send \
   --agent-id notify_bot \
   --channel feishu \
   --target-user manager_id \
@@ -125,7 +125,7 @@ copaw channel send \
 ```bash
 copaw chats list --agent-id task_bot --channel console
 
-copaw channel send \
+copaw channels send \
   --agent-id task_bot \
   --channel console \
   --target-user alice \
@@ -138,7 +138,7 @@ copaw channel send \
 ```bash
 copaw chats list --agent-id analyst_bot --user-id alice
 
-copaw channel send \
+copaw channels send \
   --agent-id analyst_bot \
   --channel console \
   --target-user alice \
@@ -152,7 +152,7 @@ copaw channel send \
 
 ### 错误 1：把正常回复当成 channel send
 
-如果你正在当前会话里直接回复用户，不要使用 `copaw channel send`。
+如果你正在当前会话里直接回复用户，不要使用 `copaw channels send`。
 
 ### 错误 2：没查 session 就直接发
 
@@ -193,7 +193,7 @@ copaw chats list --agent-id <your_agent> --user-id <user_id>
 ### 查看可用频道
 
 ```bash
-copaw channel list --agent-id <your_agent>
+copaw channels list --agent-id <your_agent>
 ```
 
 ---
@@ -201,11 +201,11 @@ copaw channel list --agent-id <your_agent>
 ## 与 Agent Chat 的区别
 
 - **copaw agents chat**：发给其他 agent，双向，有回复
-- **copaw channel send**：发给用户/会话/频道，单向，无回复
+- **copaw channels send**：发给用户/会话/频道，单向，无回复
 
 **选择原则**：
 - 要找其他 agent 协作 → `copaw agents chat`
-- 要主动给用户推送消息 → `copaw channel send`
+- 要主动给用户推送消息 → `copaw channels send`
 
 ---
 
@@ -221,7 +221,7 @@ copaw channel list --agent-id <your_agent>
 - `--user-id`：按用户筛选
 - `--base-url`：覆盖API地址
 
-### copaw channel send
+### copaw channels send
 
 **必填参数**（5个）：
 - `--agent-id`：发送方agent ID
@@ -240,8 +240,8 @@ copaw channel list --agent-id <your_agent>
 随时使用 `-h` 查看详细帮助：
 
 ```bash
-copaw channel -h
-copaw channel send -h
+copaw channels -h
+copaw channels send -h
 copaw chats -h
 copaw chats list -h
 ```

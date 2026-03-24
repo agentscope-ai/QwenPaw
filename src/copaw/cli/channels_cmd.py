@@ -1180,7 +1180,7 @@ def send_cmd(
         session_id: "alice_session_001"
 
       Step 3 - Send message using queried parameters:
-        copaw channel send --agent-id my_bot --channel console \\
+        copaw channels send --agent-id my_bot --channel console \\
           --target-user alice --target-session alice_session_001 \\
           --text "Hello!"
 
@@ -1192,7 +1192,7 @@ def send_cmd(
       SESSION=$(echo "$SESSIONS" | jq -r '.[0].session_id')
 
       # Send message
-      copaw channel send --agent-id bot --channel console \\
+      copaw channels send --agent-id bot --channel console \\
         --target-user "$USER" --target-session "$SESSION" \\
         --text "Automated notification"
 
