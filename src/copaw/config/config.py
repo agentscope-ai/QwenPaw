@@ -732,7 +732,7 @@ def build_qa_agent_tools_config() -> ToolsConfig:
     """Tools preset for builtin ``default_qa_agent`` (first workspace init).
 
     Only these are enabled: execute_shell_command, read_file, edit_file,
-    view_image, get_token_usage. All other built-ins are disabled.
+    write_file, view_image. All other built-ins are disabled.
     """
     allow = frozenset(
         {
