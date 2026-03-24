@@ -162,6 +162,60 @@ metadata (可选):
 Skill 下载到 workspace 后，会复制到该 workspace 的 `skills/` 目录，而是否启用
 由 `skill.json` 决定。requirement 元数据主要用于前端展示和工具提示，不作为硬性启用门槛。
 
+### Skill Config 运行时注入
+
+控制台中的 Skill `config` 不只是展示字段；当某个 Skill 在当前 workspace 和频道下生效时，
+CoPaw 会在该次 Agent 运行期间把它注入到运行时环境中，Skill 结束后再回滚。
+
+当前支持的注入方式：
+
+- `config.env`：按键值对注入为环境变量；若宿主进程中该变量已存在，则不会覆盖。
+- `config.api_key` 或 `config.apiKey`：若该 Skill 只声明了一个 `metadata.requires.env`
+  变量，则会自动映射到那个变量。
+- 整个 `config`：会额外注入为 `COPAW_SKILL_CONFIG_<SKILL_NAME>`，值为 JSON 字符串。
+
+示例：
+
+```json
+{
+  "api_key": "sk-demo",
+  "env": {
+    "BASE_URL": "https://api.example.com"
+  },
+  "timeout": 30
+}
+```
+
+若 `SKILL.md` 中声明：
+
+```markdown
+---
+name: my_skill
+description: demo
+metadata:
+  requires:
+    env: [MY_SKILL_API_KEY]
+---
+```
+
+则运行时可读取：
+
+- `MY_SKILL_API_KEY` ← 自动来自 `config.api_key`
+- `BASE_URL` ← 来自 `config.env.BASE_URL`
+- `COPAW_SKILL_CONFIG_MY_SKILL` ← 完整 JSON 配置
+
+Python 示例：
+
+```python
+import json
+import os
+
+api_key = os.environ.get("MY_SKILL_API_KEY", "")
+base_url = os.environ.get("BASE_URL", "")
+cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
+timeout = cfg.get("timeout", 30)
+```
+
 ---
 
 ## 相关页面

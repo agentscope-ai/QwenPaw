@@ -28,6 +28,7 @@ from .prompt import (
     get_active_model_supports_multimodal,
 )
 from .skills_manager import (
+    apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
@@ -959,7 +960,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             else:
                 self.memory._long_term_memory = ""
 
-        return await super().reply(msg=msg, structured_model=structured_model)
+        request_context = getattr(self, "_request_context", {}) or {}
+        channel_name = request_context.get("channel", "console")
+        workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+        with apply_skill_config_env_overrides(workspace_dir, channel_name):
+            return await super().reply(
+                msg=msg,
+                structured_model=structured_model,
+            )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""

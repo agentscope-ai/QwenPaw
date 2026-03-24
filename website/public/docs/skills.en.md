@@ -167,6 +167,62 @@ the pool: downloading a skill copies it into that workspace's `skills/`
 directory, and `skill.json` decides whether it is enabled there. Requirement
 metadata is kept for UI and tooling hints, not as a hard activation gate.
 
+### Skill config runtime injection
+
+Skill `config` in the Console is not just stored metadata. When a skill is
+effective for the current workspace and channel, CoPaw injects that config into
+ the runtime environment for that agent turn, then restores the environment
+after the turn completes.
+
+Supported injection paths:
+
+- `config.env`: injected as environment variables; existing host env vars are not overwritten.
+- `config.api_key` or `config.apiKey`: if the skill declares exactly one
+  `metadata.requires.env` entry, CoPaw maps the API key into that env var automatically.
+- Entire `config`: also injected as `COPAW_SKILL_CONFIG_<SKILL_NAME>` as a JSON string.
+
+Example:
+
+```json
+{
+  "api_key": "sk-demo",
+  "env": {
+    "BASE_URL": "https://api.example.com"
+  },
+  "timeout": 30
+}
+```
+
+If `SKILL.md` declares:
+
+```markdown
+---
+name: my_skill
+description: demo
+metadata:
+  requires:
+    env: [MY_SKILL_API_KEY]
+---
+```
+
+The skill can read:
+
+- `MY_SKILL_API_KEY` ← auto-filled from `config.api_key`
+- `BASE_URL` ← from `config.env.BASE_URL`
+- `COPAW_SKILL_CONFIG_MY_SKILL` ← full JSON config
+
+Python example:
+
+```python
+import json
+import os
+
+api_key = os.environ.get("MY_SKILL_API_KEY", "")
+base_url = os.environ.get("BASE_URL", "")
+cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
+timeout = cfg.get("timeout", 30)
+```
+
 ---
 
 ## Related pages

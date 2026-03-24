@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -71,6 +72,9 @@ class SkillRequirements(BaseModel):
 
     require_bins: list[str] = Field(default_factory=list)
     require_envs: list[str] = Field(default_factory=list)
+
+
+_ACTIVE_SKILL_ENV_ENTRIES: dict[str, dict[str, Any]] = {}
 
 
 def get_builtin_skills_dir() -> Path:
@@ -386,6 +390,144 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
         require_bins=list(requires.get("bins", [])),
         require_envs=list(requires.get("env", [])),
     )
+
+
+def _stringify_skill_env_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _skill_config_env_var_name(skill_name: str) -> str:
+    normalized = [
+        char if char.isalnum() else "_"
+        for char in str(skill_name or "").upper()
+    ]
+    return f"COPAW_SKILL_CONFIG_{''.join(normalized).strip('_') or 'DEFAULT'}"
+
+
+def _build_skill_config_env_overrides(
+    skill_name: str,
+    config: dict[str, Any],
+    require_envs: list[str],
+) -> dict[str, str]:
+    overrides: dict[str, str] = {}
+
+    env_config = config.get("env")
+    if isinstance(env_config, dict):
+        for raw_key, raw_value in env_config.items():
+            env_key = str(raw_key or "").strip()
+            if not env_key or raw_value in (None, ""):
+                continue
+            overrides[env_key] = _stringify_skill_env_value(raw_value)
+
+    api_key = config.get("api_key")
+    if api_key in (None, ""):
+        api_key = config.get("apiKey")
+
+    normalized_required_envs = [
+        str(env_name).strip()
+        for env_name in require_envs
+        if str(env_name).strip()
+    ]
+    if api_key not in (None, "") and len(normalized_required_envs) == 1:
+        overrides.setdefault(
+            normalized_required_envs[0],
+            _stringify_skill_env_value(api_key),
+        )
+
+    overrides[_skill_config_env_var_name(skill_name)] = json.dumps(
+        config,
+        ensure_ascii=False,
+    )
+    return overrides
+
+
+def _acquire_skill_env_key(key: str, value: str) -> bool:
+    active = _ACTIVE_SKILL_ENV_ENTRIES.get(key)
+    if active is not None:
+        if active["value"] != value:
+            return False
+        active["count"] += 1
+        if os.environ.get(key) is None:
+            os.environ[key] = value
+        return True
+
+    if os.environ.get(key) is not None:
+        return False
+
+    _ACTIVE_SKILL_ENV_ENTRIES[key] = {
+        "baseline": None,
+        "value": value,
+        "count": 1,
+    }
+    os.environ[key] = value
+    return True
+
+
+def _release_skill_env_key(key: str) -> None:
+    active = _ACTIVE_SKILL_ENV_ENTRIES.get(key)
+    if active is None:
+        return
+
+    active["count"] -= 1
+    if active["count"] > 0:
+        if os.environ.get(key) is None:
+            os.environ[key] = active["value"]
+        return
+
+    _ACTIVE_SKILL_ENV_ENTRIES.pop(key, None)
+    os.environ.pop(key, None)
+
+
+@contextmanager
+def apply_skill_config_env_overrides(
+    workspace_dir: Path,
+    channel_name: str,
+) -> Iterator[None]:
+    """Inject effective skill config into env for one agent turn.
+
+    Mirrors the provider-style runtime injection pattern without requiring
+    skill registration changes. Skill scripts can read:
+
+    - explicit env values from ``config.env``
+    - a single required env auto-filled from ``config.api_key``/``apiKey``
+    - the full JSON config from ``COPAW_SKILL_CONFIG_<SKILL_NAME>``
+    """
+    manifest = reconcile_workspace_manifest(workspace_dir)
+    entries = manifest.get("skills", {})
+    active_keys: list[str] = []
+
+    try:
+        for skill_name in resolve_effective_skills(
+            workspace_dir,
+            channel_name,
+        ):
+            entry = entries.get(skill_name) or {}
+            config = entry.get("config") or {}
+            if not isinstance(config, dict) or not config:
+                continue
+
+            requirements = entry.get("requirements") or {}
+            require_envs = requirements.get("require_envs") or []
+            overrides = _build_skill_config_env_overrides(
+                skill_name,
+                config,
+                list(require_envs),
+            )
+            for env_key, env_value in overrides.items():
+                if not _acquire_skill_env_key(env_key, env_value):
+                    logger.warning(
+                        "Skipped env override '%s' for skill '%s'",
+                        env_key,
+                        skill_name,
+                    )
+                    continue
+                active_keys.append(env_key)
+        yield
+    finally:
+        for env_key in reversed(active_keys):
+            _release_skill_env_key(env_key)
 
 
 def _build_skill_metadata(
