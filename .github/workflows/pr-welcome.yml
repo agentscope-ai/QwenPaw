@@ -133,6 +133,30 @@ jobs:
                 } else {
                   comment += `你好 @${author}，这是你提交的第 ${prCount} 个 Pull Request。\n`;
                   comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+
+                  // Milestone celebration with progressive medal system
+                  // 🏆 = 100, 🎖️ = 50, 🏅 = 10
+                  let isMilestone = false;
+                  let medalEmoji = '';
+
+                  if (prCount % 10 === 0) {
+                    isMilestone = true;
+
+                    // Calculate medal composition
+                    const hundreds = Math.floor(prCount / 100);
+                    const remainder1 = prCount % 100;
+                    const fifties = Math.floor(remainder1 / 50);
+                    const remainder2 = remainder1 % 50;
+                    const tens = Math.floor(remainder2 / 10);
+
+                    medalEmoji = '🏆'.repeat(hundreds) + '🎖️'.repeat(fifties) + '🏅'.repeat(tens);
+                  }
+
+                  if (isMilestone) {
+                    comment += `### 🎁 里程碑庆祝 / Milestone Celebration\n\n`;
+                    comment += `${medalEmoji} 恭喜！这是你的第 ${prCount} 个贡献，感谢你对 CoPaw 的持续支持！你是 CoPaw 社区的重要成员！🐾\n`;
+                    comment += `${medalEmoji} Congratulations! This is your ${prCount}${getOrdinalSuffix(prCount)} contribution. Thank you for your continued support! You're an important member of the CoPaw community! 🐾\n\n`;
+                  }
                 }
               } else {
                 comment += `你好 @${author}，感谢你的 Pull Request！🎉\n`;
@@ -203,6 +227,29 @@ jobs:
                   comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
                 } else {
                   comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+
+                  // Milestone celebration with progressive medal system
+                  // 🏆 = 100, 🎖️ = 50, 🏅 = 10
+                  let isMilestone = false;
+                  let medalEmoji = '';
+
+                  if (prCount % 10 === 0) {
+                    isMilestone = true;
+
+                    // Calculate medal composition
+                    const hundreds = Math.floor(prCount / 100);
+                    const remainder1 = prCount % 100;
+                    const fifties = Math.floor(remainder1 / 50);
+                    const remainder2 = remainder1 % 50;
+                    const tens = Math.floor(remainder2 / 10);
+
+                    medalEmoji = '🏆'.repeat(hundreds) + '🎖️'.repeat(fifties) + '🏅'.repeat(tens);
+                  }
+
+                  if (isMilestone) {
+                    comment += `### 🎁 Milestone Celebration\n\n`;
+                    comment += `${medalEmoji} Congratulations! This is your ${prCount}${getOrdinalSuffix(prCount)} contribution. Thank you for your continued support! You're an important member of the CoPaw community! 🐾\n\n`;
+                  }
                 }
               } else {
                 comment += `Hi @${author}, thank you for your Pull Request! 🎉\n\n`;
