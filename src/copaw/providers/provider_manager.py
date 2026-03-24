@@ -42,7 +42,13 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
         supports_video=True,
         probe_source="documentation",
     ),
-    ModelInfo(id="ZhipuAI/GLM-5", name="GLM-5"),
+    ModelInfo(
+        id="ZhipuAI/GLM-5",
+        name="GLM-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
@@ -77,10 +83,34 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
         supports_video=True,
         probe_source="documentation",
     ),
-    ModelInfo(id="glm-5", name="GLM-5"),
-    ModelInfo(id="glm-4.7", name="GLM-4.7"),
-    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
-    ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
+    ModelInfo(
+        id="glm-5",
+        name="GLM-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-4.7",
+        name="GLM-4.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="qwen3-max-2026-01-23",
         name="Qwen3 Max 2026-01-23",

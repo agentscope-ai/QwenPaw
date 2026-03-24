@@ -119,10 +119,10 @@ class ExpectedCapabilityRegistry:
             ExpectedCapability(
                 provider_id="modelscope",
                 model_id="ZhipuAI/GLM-5",
-                expected_image=None,
-                expected_video=None,
+                expected_image=False,
+                expected_video=False,
                 doc_url=_ms_doc,
-                note="Multimodal capability not specified in ModelScope docs",
+                note="GLM-5 is text/code model, no vision input",
             ),
         )
 
@@ -185,40 +185,40 @@ class ExpectedCapabilityRegistry:
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
                 model_id="glm-5",
-                expected_image=None,
-                expected_video=None,
+                expected_image=False,
+                expected_video=False,
                 doc_url=_acp_doc,
-                note="Multimodal capability not specified in docs",
+                note="GLM-5 is text/code model, no vision input",
             ),
         )
         self._register(
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
                 model_id="glm-4.7",
-                expected_image=None,
-                expected_video=None,
+                expected_image=False,
+                expected_video=False,
                 doc_url=_acp_doc,
-                note="Multimodal capability not specified in docs",
+                note="GLM-4.7 is text/code model, no vision input",
             ),
         )
         self._register(
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
                 model_id="MiniMax-M2.5",
-                expected_image=None,
-                expected_video=None,
+                expected_image=True,
+                expected_video=False,
                 doc_url=_acp_doc,
-                note="Multimodal capability not specified in docs",
+                note="MiniMax M2.5 supports image input",
             ),
         )
         self._register(
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
                 model_id="kimi-k2.5",
-                expected_image=None,
-                expected_video=None,
+                expected_image=True,
+                expected_video=False,
                 doc_url=_acp_doc,
-                note="Multimodal capability not specified in docs",
+                note="Kimi K2.5 supports image input",
             ),
         )
         self._register(
