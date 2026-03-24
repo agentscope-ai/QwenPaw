@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
+import uuid
+
+from json_repair import repair_json
+
 from pydantic import ValidationError
 
 from ..constant import (
@@ -26,6 +32,8 @@ from .config import (
     load_agent_config,
     save_agent_config,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -420,6 +428,61 @@ def _remove_bad_field(data: dict, loc: list) -> bool:
     return False
 
 
+def _backup_config_file(config_path: Path, reason: str) -> Optional[Path]:
+    """Backup *config_path* before falling back to defaults."""
+    try:
+        short_id = uuid.uuid4().hex[:8]
+        backup_path = config_path.with_suffix(f".{short_id}.bak")
+        shutil.copy2(config_path, backup_path)
+        logger.error(
+            "Config file %s is unusable (%s). "
+            "Original backed up to: %s. "
+            "Falling back to default configuration.",
+            config_path,
+            reason,
+            backup_path,
+        )
+        return backup_path
+    except OSError as exc:
+        logger.error("Failed to backup config file %s: %s", config_path, exc)
+        return None
+
+
+def _read_config_data(config_path: Path) -> Optional[dict]:
+    """Read *config_path* and return parsed dict.
+
+    Uses ``json_repair`` to handle common syntax issues (trailing
+    commas, missing quotes, comments, BOM, etc.).  Creates a backup and
+    returns ``None`` when the file is unrecoverable.
+    """
+    try:
+        with open(config_path, "r", encoding="utf-8") as file:
+            raw = file.read()
+    except UnicodeDecodeError:
+        _backup_config_file(config_path, "encoding error")
+        return None
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = repair_json(raw, return_objects=True)
+        if not isinstance(data, dict):
+            _backup_config_file(
+                config_path,
+                "JSON syntax error, repair failed",
+            )
+            return None
+        logger.warning(
+            "Config %s had JSON syntax issues that were auto-repaired.",
+            config_path,
+        )
+
+    if not isinstance(data, dict):
+        _backup_config_file(config_path, "root value is not a JSON object")
+        return None
+    return data
+
+
 def load_config(config_path: Optional[Path] = None) -> Config:
     """Load config from file. Returns default Config if file is missing."""
     if config_path is None:
@@ -427,10 +490,8 @@ def load_config(config_path: Optional[Path] = None) -> Config:
     if not config_path.is_file():
         return Config()
 
-    try:
-        with open(config_path, "r", encoding="utf-8") as file:
-            data = json.load(file)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    data = _read_config_data(config_path)
+    if data is None:
         return Config()
 
     data = _normalize_working_dir_bound_paths(data)
@@ -451,11 +512,16 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             if loc and _remove_bad_field(data, loc):
                 fixed_any = True
         if not fixed_any:
-            raise
+            _backup_config_file(config_path, "validation error")
+            return Config()
 
     try:
         return Config.model_validate(data)
     except ValidationError:
+        _backup_config_file(
+            config_path,
+            "validation error after field removal",
+        )
         return Config()
 
 
