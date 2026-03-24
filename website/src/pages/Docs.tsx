@@ -1,11 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useRef,
-  createContext,
-  useContext,
-} from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Link,
   useParams,
@@ -13,6 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -34,7 +28,7 @@ import {
   CircleHelp,
   Users,
   GitBranch,
-  Map,
+  Map as MapIcon,
   Menu,
   Cpu,
   ChevronRight,
@@ -44,24 +38,13 @@ import {
   Check,
   type LucideIcon,
 } from "lucide-react";
-import { Nav } from "../components/Nav";
-import { Footer } from "../components/Footer";
-import { MermaidBlock } from "../components/MermaidBlock";
-import { DocSearch } from "../components/DocSearch";
-import { DocSearchResults } from "../components/DocSearchResults";
-import type { SiteConfig } from "../config";
-import { type Lang, t } from "../i18n";
+import { MermaidBlock } from "@/components/MermaidBlock";
+import { DocSearch } from "@/components/DocSearch";
+import { DocSearchResults } from "@/components/DocSearchResults";
 /* Code block theme: defined in index.css for high contrast */
 
-const LangContext = createContext<Lang>("en");
-
-function CodeBlockWithCopy({
-  children,
-  lang,
-}: {
-  children: React.ReactNode;
-  lang: Lang;
-}) {
+function CodeBlockWithCopy({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const wrapRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -78,18 +61,18 @@ function CodeBlockWithCopy({
         type="button"
         className="docs-code-copy"
         onClick={handleCopy}
-        aria-label={t(lang, "docs.copy")}
-        title={t(lang, "docs.copy")}
+        aria-label={t("docs.copy")}
+        title={t("docs.copy")}
       >
         {copied ? (
           <>
             <Check size={14} aria-hidden />
-            <span>{t(lang, "docs.copied")}</span>
+            <span>{t("docs.copied")}</span>
           </>
         ) : (
           <>
             <Copy size={14} aria-hidden />
-            <span>{t(lang, "docs.copy")}</span>
+            <span>{t("docs.copy")}</span>
           </>
         )}
       </button>
@@ -112,12 +95,17 @@ function parseToc(
   md: string,
 ): Array<{ level: 2 | 3; text: string; id: string }> {
   const toc: Array<{ level: 2 | 3; text: string; id: string }> = [];
+  const idCounter = new Map<string, number>();
   const re = /^#{2,3}\s+(.+)$/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(md)) !== null) {
     const level = m[0].startsWith("###") ? 3 : 2;
     const text = m[1].replace(/#+\s*$/, "").trim();
-    toc.push({ level, text, id: slugifyHeading(text) });
+    const baseId = slugifyHeading(text);
+    const count = (idCounter.get(baseId) ?? 0) + 1;
+    idCounter.set(baseId, count);
+    const id = count === 1 ? baseId : `${baseId}-${count}`;
+    toc.push({ level, text, id });
   }
   return toc;
 }
@@ -196,7 +184,7 @@ const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
   faq: CircleHelp,
   community: Users,
   contributing: GitBranch,
-  roadmap: Map,
+  roadmap: MapIcon,
 };
 
 const DOC_SLUGS: DocEntry[] = [
@@ -237,60 +225,9 @@ const ALL_SLUGS = [
   "comparison", // Hidden page, accessible only via FAQ link
 ];
 
-const DOC_TITLES: Record<Lang, Record<string, string>> = {
-  zh: {
-    "docs.intro": "项目介绍",
-    "docs.quickstart": "快速开始",
-    "docs.desktop": "桌面应用",
-    "docs.console": "控制台",
-    "docs.multiAgent": "多智能体工作区",
-    "docs.models": "模型",
-    "docs.channels": "频道配置",
-    "docs.heartbeat": "心跳",
-    "docs.cli": "CLI",
-    "docs.skills": "Skills",
-    "docs.security": "安全",
-    "docs.mcp": "MCP",
-    "docs.memory": "记忆",
-    "docs.context": "上下文",
-    "docs.config": "配置与工作目录",
-    "docs.commands": "魔法命令",
-    "docs.faq": "FAQ 常见问题",
-    "docs.community": "问题反馈与交流",
-    "docs.contributing": "开源与贡献",
-    "docs.roadmap": "路线图",
-  },
-  en: {
-    "docs.intro": "Introduction",
-    "docs.quickstart": "Quick start",
-    "docs.desktop": "Desktop App",
-    "docs.console": "Console",
-    "docs.multiAgent": "Multi-Agent Workspace",
-    "docs.models": "Models",
-    "docs.channels": "Channels",
-    "docs.heartbeat": "Heartbeat",
-    "docs.cli": "CLI",
-    "docs.skills": "Skills",
-    "docs.security": "Security",
-    "docs.mcp": "MCP",
-    "docs.memory": "Memory",
-    "docs.context": "Context",
-    "docs.config": "Config & working dir",
-    "docs.commands": "Magic commands",
-    "docs.faq": "FAQ",
-    "docs.community": "Bug reports & community",
-    "docs.contributing": "Open source & contribution",
-    "docs.roadmap": "Roadmap",
-  },
-};
-
-interface DocsProps {
-  config: SiteConfig;
-  lang: Lang;
-  onLangClick: () => void;
-}
-
-export function Docs({ config, lang, onLangClick }: DocsProps) {
+export function Docs() {
+  const { t, i18n } = useTranslation();
+  const lang: "zh" | "en" = i18n.resolvedLanguage === "zh" ? "zh" : "en";
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -307,6 +244,25 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
   const articleRef = useRef<HTMLDivElement | null>(null);
   const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set([0]));
   const faqData = useMemo(() => parseFaqContent(content), [content]);
+  const headingIdCounter = new Map<string, number>();
+  const getHeadingId = (children: React.ReactNode) => {
+    const baseId = slugifyHeading(headingText(children));
+    const count = (headingIdCounter.get(baseId) ?? 0) + 1;
+    headingIdCounter.set(baseId, count);
+    return count === 1 ? baseId : `${baseId}-${count}`;
+  };
+  const mobileBreadcrumb = useMemo(() => {
+    for (const entry of DOC_SLUGS) {
+      if (entry.slug === activeSlug) {
+        return { current: t(entry.titleKey) };
+      }
+      const child = entry.children?.find((c) => c.slug === activeSlug);
+      if (child) {
+        return { parent: t(entry.titleKey), current: t(child.titleKey) };
+      }
+    }
+    return { current: t("docs.intro") };
+  }, [activeSlug, t]);
 
   useEffect(() => {
     const el = articleRef.current;
@@ -427,42 +383,40 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
     return () => container.removeEventListener("scroll", onScroll);
   }, [content]);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [activeSlug, isSearchPage, searchQ]);
+
   return (
     <>
-      <Nav
-        projectName={config.projectName}
-        lang={lang}
-        onLangClick={onLangClick}
-        docsPath={config.docsPath}
-        repoUrl={config.repoUrl}
-      />
-      <div className="docs-layout">
+      <div className="docs-layout relative">
+        {sidebarOpen && (
+          <button
+            type="button"
+            className="fixed inset-0 z-30 bg-black/40 md:hidden"
+            aria-label={t("docs.closeSidebar")}
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
         <aside
-          style={{
-            width: "16rem",
-            flexShrink: 0,
-            borderRight: "1px solid var(--border)",
-            padding: "var(--space-4) var(--space-2)",
-            background: "var(--surface)",
-          }}
-          className={sidebarOpen ? "docs-sidebar open" : "docs-sidebar"}
+          className={[
+            "docs-sidebar z-40 w-64 shrink-0 border-r border-(--border) bg-(--surface) px-2 py-4",
+            "fixed left-0 top-14 bottom-0 overflow-y-auto transition-transform duration-200 md:static md:top-auto md:bottom-auto md:translate-x-0",
+            sidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full md:translate-x-0",
+          ].join(" ")}
         >
           <button
             type="button"
-            className="docs-sidebar-toggle"
+            className="mb-2 inline-flex items-center rounded-md p-2 text-(--text) hover:bg-(--bg) md:hidden"
             onClick={() => setSidebarOpen((o) => !o)}
-            aria-label="Toggle sidebar"
-            style={{
-              display: "none",
-              background: "none",
-              border: "none",
-              padding: "var(--space-2)",
-            }}
+            aria-label={t("docs.toggleSidebar")}
           >
             <Menu size={24} />
           </button>
-          <DocSearch lang={lang} initialQuery={isSearchPage ? searchQ : ""} />
-          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <DocSearch initialQuery={isSearchPage ? searchQ : ""} />
+          <nav className="flex flex-col gap-0.5">
             {DOC_SLUGS.map((entry) => {
               const { slug: s, titleKey, children } = entry;
               const isParentActive =
@@ -473,71 +427,53 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                 <div key={s}>
                   <Link
                     to={`/docs/${s}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "var(--space-1)",
-                      padding: "var(--space-2)",
-                      borderRadius: "0.375rem",
-                      fontSize: "0.9375rem",
-                      color:
-                        activeSlug === s ? "var(--text)" : "var(--text-muted)",
-                      background:
-                        activeSlug === s ? "var(--bg)" : "transparent",
-                    }}
+                    className={[
+                      "flex items-center gap-1 rounded-md px-2 py-2 text-[0.9375rem] transition-colors",
+                      activeSlug === s
+                        ? "bg-(--bg) text-(--text)"
+                        : "text-(--text-muted) hover:bg-(--bg)/60 hover:text-(--text)",
+                    ].join(" ")}
+                    onClick={() => setSidebarOpen(false)}
                   >
                     <ParentIcon size={16} strokeWidth={1.5} aria-hidden />
-                    {DOC_TITLES[lang][titleKey] ?? titleKey}
+                    {t(titleKey)}
                     {children && children.length > 0 && (
                       <ChevronDown
                         size={14}
-                        style={{
-                          marginLeft: "auto",
-                          transform: isParentActive
-                            ? "rotate(0deg)"
-                            : "rotate(-90deg)",
-                          transition: "transform 0.15s",
-                        }}
+                        className={[
+                          "ml-auto transition-transform duration-150",
+                          isParentActive ? "rotate-0" : "-rotate-90",
+                        ].join(" ")}
                       />
                     )}
                     {!children && activeSlug === s && (
-                      <ChevronRight size={16} style={{ marginLeft: "auto" }} />
+                      <ChevronRight size={16} className="ml-auto" />
                     )}
                   </Link>
                   {children && isParentActive && (
-                    <div style={{ paddingLeft: "1.25rem" }}>
+                    <div className="pl-5">
                       {children.map(({ slug: cs, titleKey: ct }) => {
                         const ChildIcon = DOC_SLUG_ICONS[cs] ?? BookOpen;
                         return (
                           <Link
                             key={cs}
                             to={`/docs/${cs}`}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "var(--space-1)",
-                              padding: "var(--space-1) var(--space-2)",
-                              borderRadius: "0.375rem",
-                              fontSize: "0.875rem",
-                              color:
-                                activeSlug === cs
-                                  ? "var(--text)"
-                                  : "var(--text-muted)",
-                              background:
-                                activeSlug === cs ? "var(--bg)" : "transparent",
-                            }}
+                            className={[
+                              "flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors",
+                              activeSlug === cs
+                                ? "bg-(--bg) text-(--text)"
+                                : "text-(--text-muted) hover:bg-(--bg)/60 hover:text-(--text)",
+                            ].join(" ")}
+                            onClick={() => setSidebarOpen(false)}
                           >
                             <ChildIcon
                               size={14}
                               strokeWidth={1.5}
                               aria-hidden
                             />
-                            {DOC_TITLES[lang][ct] ?? ct}
+                            {t(ct)}
                             {activeSlug === cs && (
-                              <ChevronRight
-                                size={14}
-                                style={{ marginLeft: "auto" }}
-                              />
+                              <ChevronRight size={14} className="ml-auto" />
                             )}
                           </Link>
                         );
@@ -549,15 +485,49 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
             })}
           </nav>
         </aside>
-        <main className="docs-main">
+        <main className="docs-main relative min-w-0">
           <div className="docs-content-scroll" ref={articleRef}>
+            <div className="border-y border-(--border)/60 bg-(--surface) py-3 md:hidden">
+              <div
+                className="flex items-center gap-2"
+                onClick={() => setSidebarOpen((o) => !o)}
+              >
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-(--text-muted) hover:bg-(--bg)"
+                  aria-label={
+                    sidebarOpen
+                      ? t("docs.closeSidebar")
+                      : t("docs.toggleSidebar")
+                  }
+                >
+                  <Menu size={18} />
+                </button>
+                <div className="min-w-0 text-sm">
+                  {mobileBreadcrumb.parent ? (
+                    <>
+                      <span className="align-middle text-(--text-muted)">
+                        {mobileBreadcrumb.parent}
+                      </span>
+                      <ChevronRight
+                        size={14}
+                        className="mx-1 inline align-middle text-(--text-muted)"
+                      />
+                    </>
+                  ) : null}
+                  <span className="align-middle font-semibold text-(--text)">
+                    {mobileBreadcrumb.current}
+                  </span>
+                </div>
+              </div>
+            </div>
             {isSearchPage ? (
-              <DocSearchResults lang={lang} query={searchQ} />
+              <DocSearchResults query={searchQ} />
             ) : (
               <>
                 <article className="docs-content">
                   {activeSlug === "faq" ? (
-                    <LangContext.Provider value={lang}>
+                    <>
                       {faqData.intro ? (
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -566,18 +536,13 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                           {faqData.intro}
                         </ReactMarkdown>
                       ) : null}
-                      <div style={{ marginTop: "1rem" }}>
+                      <div className="mt-4">
                         {faqData.items.map((item, idx) => {
                           const opened = openFaqSet.has(idx);
                           return (
                             <section
                               key={`${item.question}-${idx}`}
-                              style={{
-                                border: "1px solid var(--border)",
-                                borderRadius: "0.5rem",
-                                marginBottom: "0.75rem",
-                                background: "var(--surface)",
-                              }}
+                              className="mb-3 rounded-lg border border-(--border) bg-(--surface)"
                             >
                               <button
                                 type="button"
@@ -589,43 +554,20 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                                     return next;
                                   });
                                 }}
-                                style={{
-                                  width: "100%",
-                                  textAlign: "left",
-                                  background: "transparent",
-                                  border: "none",
-                                  padding: "0.9rem 1rem",
-                                  cursor: "pointer",
-                                  fontSize: "1rem",
-                                  fontWeight: 600,
-                                  color: "var(--text)",
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  alignItems: "center",
-                                  gap: "0.75rem",
-                                }}
+                                className="flex w-full items-center justify-between gap-3 bg-transparent px-4 py-4 text-left text-base font-semibold text-(--text)"
                                 aria-expanded={opened}
                               >
                                 <span>{item.question}</span>
                                 <ChevronDown
                                   size={16}
-                                  style={{
-                                    flexShrink: 0,
-                                    transform: opened
-                                      ? "rotate(180deg)"
-                                      : "rotate(0deg)",
-                                    transition: "transform 0.15s ease",
-                                  }}
+                                  className={[
+                                    "shrink-0 transition-transform duration-150 ease-in-out",
+                                    opened ? "rotate-180" : "rotate-0",
+                                  ].join(" ")}
                                 />
                               </button>
                               {opened ? (
-                                <div
-                                  className="docs-faq-answer"
-                                  style={{
-                                    padding: "0.75rem 1rem 0.5rem 1rem",
-                                    borderTop: "1px solid var(--border)",
-                                  }}
-                                >
+                                <div className="docs-faq-answer border-t border-(--border) px-4 pb-2 pt-3 *:first:mt-0 *:last:mb-0">
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     rehypePlugins={[rehypeRaw, rehypeHighlight]}
@@ -638,116 +580,101 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                           );
                         })}
                       </div>
-                    </LangContext.Provider>
+                    </>
                   ) : (
-                    <LangContext.Provider value={lang}>
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeRaw, rehypeHighlight]}
-                        components={{
-                          pre: ({ children, ...props }) => {
-                            const langCtx = useContext(LangContext);
-                            return (
-                              <CodeBlockWithCopy lang={langCtx}>
-                                <pre {...props}>{children}</pre>
-                              </CodeBlockWithCopy>
-                            );
-                          },
-                          a: ({ href, children }) => {
-                            const trimmed = href?.replace(/\.md$/, "") ?? "";
-                            const isRelative =
-                              trimmed.startsWith("./") ||
-                              trimmed.startsWith("/docs/");
-                            if (isRelative) {
-                              const path = trimmed.startsWith("./")
-                                ? "/docs/" + trimmed.slice(2)
-                                : trimmed;
-                              const [pathname, hash] = path.split("#");
-                              const to = hash
-                                ? `${pathname}#${hash}`
-                                : pathname;
-                              return <Link to={to}>{children}</Link>;
-                            }
-                            return (
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {children}
-                              </a>
-                            );
-                          },
-                          h2: ({ children }) => {
-                            const id = slugifyHeading(headingText(children));
-                            return <h2 id={id}>{children}</h2>;
-                          },
-                          h3: ({ children }) => {
-                            const id = slugifyHeading(headingText(children));
-                            return <h3 id={id}>{children}</h3>;
-                          },
-                          table: ({ children }) => (
-                            <div className="docs-table-wrap">
-                              <table>{children}</table>
-                            </div>
-                          ),
-                          code: ({ className, children, ...props }) => {
-                            const match = /language-(\w+)/.exec(
-                              className || "",
-                            );
-                            const langCode = match?.[1];
-                            if (langCode === "mermaid") {
-                              const chart = String(children).replace(/\n$/, "");
-                              return <MermaidBlock chart={chart} />;
-                            }
-                            // inline code vs block code
-                            const isInline = !className;
-                            if (isInline) {
-                              return (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              );
-                            }
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                      components={{
+                        pre: ({ children, ...props }) => {
+                          return (
+                            <CodeBlockWithCopy>
+                              <pre {...props}>{children}</pre>
+                            </CodeBlockWithCopy>
+                          );
+                        },
+                        a: ({ href, children }) => {
+                          const trimmed = href?.replace(/\.md$/, "") ?? "";
+                          const isRelative =
+                            trimmed.startsWith("./") ||
+                            trimmed.startsWith("/docs/");
+                          if (isRelative) {
+                            const path = trimmed.startsWith("./")
+                              ? "/docs/" + trimmed.slice(2)
+                              : trimmed;
+                            const [pathname, hash] = path.split("#");
+                            const to = hash ? `${pathname}#${hash}` : pathname;
+                            return <Link to={to}>{children}</Link>;
+                          }
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {children}
+                            </a>
+                          );
+                        },
+                        h2: ({ children }) => {
+                          const id = getHeadingId(children);
+                          return <h2 id={id}>{children}</h2>;
+                        },
+                        h3: ({ children }) => {
+                          const id = getHeadingId(children);
+                          return <h3 id={id}>{children}</h3>;
+                        },
+                        table: ({ children }) => (
+                          <div className="docs-table-wrap">
+                            <table>{children}</table>
+                          </div>
+                        ),
+                        code: ({ className, children, ...props }) => {
+                          const match = /language-(\w+)/.exec(className || "");
+                          const langCode = match?.[1];
+                          if (langCode === "mermaid") {
+                            const chart = String(children).replace(/\n$/, "");
+                            return <MermaidBlock chart={chart} />;
+                          }
+                          // inline code vs block code
+                          const isInline = !className;
+                          if (isInline) {
                             return (
                               <code className={className} {...props}>
                                 {children}
                               </code>
                             );
-                          },
-                          img: ({ src, alt }) => {
-                            const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
-                              src ?? "",
-                            );
-                            if (isVideo) {
-                              return (
-                                <video src={src ?? undefined} controls>
-                                  {alt ?? "您的浏览器不支持 video 标签。"}
-                                </video>
-                              );
-                            }
+                          }
+                          return (
+                            <code className={className} {...props}>
+                              {children}
+                            </code>
+                          );
+                        },
+                        img: ({ src, alt }) => {
+                          const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
+                            src ?? "",
+                          );
+                          if (isVideo) {
                             return (
-                              <img src={src ?? undefined} alt={alt ?? ""} />
+                              <video src={src ?? undefined} controls>
+                                {alt ?? t("docs.videoNotSupported")}
+                              </video>
                             );
-                          },
-                        }}
-                      >
-                        {content}
-                      </ReactMarkdown>
-                    </LangContext.Provider>
+                          }
+                          return <img src={src ?? undefined} alt={alt ?? ""} />;
+                        },
+                      }}
+                    >
+                      {content}
+                    </ReactMarkdown>
                   )}
                 </article>
-                <footer
-                  className="docs-page-footer"
-                  aria-label="Document footer"
-                >
-                  <Footer lang={lang} />
-                </footer>
               </>
             )}
           </div>
           {!isSearchPage && toc.length > 0 && (
-            <aside className="docs-toc" aria-label="On this page">
+            <aside className="docs-toc" aria-label={t("docs.onThisPage")}>
               <nav className="docs-toc-nav">
                 {toc.map(({ level, text, id }) => (
                   <a
@@ -787,25 +714,12 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
           onClick={() =>
             articleRef.current?.scrollTo({ top: 0, behavior: "smooth" })
           }
-          aria-label={t(lang, "docs.backToTop")}
+          aria-label={t("docs.backToTop")}
         >
           <ArrowUp size={20} aria-hidden />
-          <span>{t(lang, "docs.backToTop")}</span>
+          <span>{t("docs.backToTop")}</span>
         </button>
       )}
-      <style>{`
-        .docs-faq-answer > :first-child {
-          margin-top: 0;
-        }
-        .docs-faq-answer > :last-child {
-          margin-bottom: 0;
-        }
-        @media (max-width: 768px) {
-          .docs-sidebar { position: fixed; left: 0; top: 3.5rem; bottom: 0; z-index: 20; transform: translateX(-100%); transition: transform 0.2s; }
-          .docs-sidebar.open { transform: translateX(0); }
-          .docs-sidebar-toggle { display: flex !important; }
-        }
-      `}</style>
     </>
   );
 }

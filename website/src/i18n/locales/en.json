@@ -1,0 +1,218 @@
+{
+  "nav": {
+    "docs": "Docs",
+    "more": "More",
+    "releaseNotes": "Release Notes",
+    "copaw": "Copaw",
+    "download": "Download",
+    "github": "GitHub",
+    "githubComingSoon": "Coming Soon",
+    "lang": "中文",
+    "agentscopeTeam": "AgentScope"
+  },
+  "hero": {
+    "titleleft": "Your Personal",
+    "titleright": "AI assistant,",
+    "slogan": "Works for you, grows with you",
+    "sub": "Easy to install, deploy on your own machine & on the cloud; supports multiple chat apps",
+    "cta": "Read the docs",
+    "quickStart": "Quick Start",
+    "pipInstall": "Pip Install"
+  },
+  "follow": {
+    "title": "Follow us",
+    "sub": "Follow us for the latest CoPaw updates",
+    "xiaohongshu": "Rednote:",
+    "x": "X:"
+  },
+  "brandstory": {
+    "title": "Why CoPaw?",
+    "para1": "CoPaw represents both a Co Personal Agent Workstation and a \"co-paw\"—a partner always by your side.",
+    "para2": "More than just a cold tool, CoPaw is a warm \"little paw\" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life."
+  },
+  "features": {
+    "title": "Key capabilities",
+    "channels": {
+      "title": "Every channel",
+      "desc": "DingTalk, Feishu, QQ, Discord, iMessage, and more — one assistant, connect as you need."
+    },
+    "private": {
+      "title": "Under your control",
+      "desc": "Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders and collaboration to any channel."
+    },
+    "skills": {
+      "title": "Skills",
+      "desc": "Built-in Cron; custom skills in your workspace, auto-loaded."
+    }
+  },
+  "testimonials": {
+    "title": "What people say",
+    "viewAll": "View all",
+    "1": "This is what a personal assistant should be: one entry, every channel.",
+    "2": "Cron and heartbeat are super practical. Add your own skills; data stays local.",
+    "3": "Teams who want full control love it."
+  },
+  "usecases": {
+    "title": "What you can do with CoPaw",
+    "sub": "",
+    "category": {
+      "social": "Social media",
+      "creative": "Creative & building",
+      "productivity": "Productivity",
+      "research": "Research & learning",
+      "assistant": "Desktop & files",
+      "explore": "Explore more"
+    },
+    "social": {
+      "1": "Daily digest of hot posts from Xiaohongshu, Zhihu, and Reddit based on your interests, with recommendations that improve over time.",
+      "2": "Daily summaries of new videos from Bilibili or YouTube by channel or keyword, saving you time browsing.",
+      "3": "Analyze your Xiaohongshu or Zhihu account to uncover content patterns and inform what to post next."
+    },
+    "creative": {
+      "1": "Describe your goal to CoPaw and set it to run overnight; get a working draft by the next day.",
+      "2": "From topic selection and material gathering to direction setting, CoPaw supports the full video content workflow."
+    },
+    "productivity": {
+      "1": "Daily digests of newsletters and important emails, delivered to your DingTalk, Feishu or QQ chat.",
+      "2": "Contacts surfaced from email and calendar, with natural-language search for people and past interactions.",
+      "3": "Log diet and symptoms; CoPaw analyzes and surfaces patterns over time."
+    },
+    "research": {
+      "1": "Track tech and AI company earnings and news; get key points and summaries automatically.",
+      "2": "Save links, articles, and posts to a personal knowledge base and reuse them across workflows."
+    },
+    "assistant": {
+      "1": "Organize and search local files, read and summarize documents; request files in DingTalk, Feishu or QQ and receive them in the current chat."
+    },
+    "explore": {
+      "1": "Explore more possibilities—combine Skills and cron into your own agentic app."
+    }
+  },
+  "quickstart": {
+    "title": "Quick start",
+    "serviceNotice": "Your personal AI assistant in minutes. One command, or double-click the app—do it yourself, done easily.",
+    "hintBefore": "Install → init → start. Configure channels to use CoPaw on DingTalk, Feishu, QQ, etc. See ",
+    "hintLink": "docs",
+    "hintAfter": ".",
+    "method": {
+      "pip": "pip",
+      "script": "Script",
+      "docker": "Docker",
+      "cloud": "Cloud",
+      "desktop": "Desktop"
+    },
+    "desc": {
+      "pip": "If you prefer managing Python yourself",
+      "script": "No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.",
+      "docker": "Quick deployment with official Docker images, isolated environment and easy management",
+      "cloud": "One-click cloud deployment or online execution, no local setup required",
+      "desktop": "Standalone desktop app with bundled Python environment, all dependencies, and frontend assets. Double-click to run, no command line, no prerequisites required."
+    },
+    "platform": {
+      "mac": "macOS / Linux",
+      "windows": "Windows"
+    },
+    "shell": {
+      "cmd": "CMD",
+      "ps": "PowerShell"
+    },
+    "docker": {
+      "hub": "Docker Hub"
+    },
+    "cloud": {
+      "aliyun": "Aliyun",
+      "modelscope": "ModelScope",
+      "aliyunDeploy": "Deploy on Aliyun ECS",
+      "aliyunDoc": "View Documentation",
+      "modelscopeGo": "Go to ModelScope Studio"
+    },
+    "desktop": {
+      "platforms": "Supported Platforms",
+      "downloadGithub": "Download from GitHub",
+      "viewGuide": "View User Guide",
+      "recommended": "recommended"
+    },
+    "badgeBeta": "Beta"
+  },
+  "footer": {
+    "text": "CoPaw — Works for you, grows with you",
+    "sections": {
+      "builtBy": "Built by",
+      "resources": "Resources",
+      "terms": "Terms"
+    },
+    "links": {
+      "docs": "Docs",
+      "blog": "Blog",
+      "changelog": "Changelog",
+      "termsOfService": "Terms of Service",
+      "privacyPolicy": "Privacy Policy"
+    },
+    "social": {
+      "x": "X",
+      "github": "GitHub",
+      "discord": "Discord",
+      "youtube": "YouTube"
+    },
+    "copyright": "© 2026 COPAW PRIVATE LIMITED, All rights reserved.",
+    "poweredBy": {
+      "p1": "Built by ",
+      "p2": " with ",
+      "p3": ", ",
+      "p3b": ", and ",
+      "p4": ".",
+      "team": "AgentScope team",
+      "agentscope": "AgentScope",
+      "runtime": "AgentScope Runtime",
+      "reme": "ReMe"
+    },
+    "inspiredBy": {
+      "text": "Partly inspired by ",
+      "name": "OpenClaw"
+    },
+    "thanksSkills": {
+      "text": "Thanks to ",
+      "name": "anthropics/skills",
+      "suffix": " for the Agent Skills spec and examples."
+    }
+  },
+  "docs": {
+    "intro": "Introduction",
+    "quickstart": "Quick start",
+    "desktop": "Desktop App",
+    "console": "Console",
+    "multiAgent": "Multi-Agent Workspace",
+    "models": "Models",
+    "channels": "Channels",
+    "skills": "Skills",
+    "mcp": "MCP",
+    "memory": "Memory",
+    "context": "Context",
+    "commands": "Magic commands",
+    "heartbeat": "Heartbeat",
+    "config": "Config & working dir",
+    "security": "Security",
+    "cli": "CLI",
+    "faq": "FAQ",
+    "community": "Bug reports & community",
+    "contributing": "Open source & contribution",
+    "roadmap": "Roadmap",
+    "toggleSidebar": "Toggle sidebar",
+    "closeSidebar": "Close sidebar",
+    "onThisPage": "On this page",
+    "videoNotSupported": "Your browser does not support the video tag.",
+    "backToTop": "Back to top",
+    "copy": "Copy",
+    "copied": "Copied",
+    "searchPlaceholder": "Search docs",
+    "searchLoading": "Loading…",
+    "searchNoResults": "No results",
+    "searchResultsTitle": "Search results",
+    "searchResultsTitleEmpty": "Search docs",
+    "searchHint": "Enter a keyword and press Enter to search."
+  },
+  "releaseNotes": {
+    "title": "Release Notes",
+    "noReleases": "No release notes available"
+  }
+}

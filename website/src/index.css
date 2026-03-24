@@ -1,6 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --font-newsreader: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
 /* Original light palette */
 :root {
-  --bg: #fafaf9;
+  --bg: #FEFBF9;
   --surface: #ffffff;
   --text: #1c1c1c;
   --text-muted: #6b6b6b;
@@ -9,6 +16,11 @@
   --mascot-accent: #d97706;
   --logo-paw: #a8a29e;
   --logo-paw-soft: #d6d3d1;
+  --color-primary: #FF9D4D;
+  --color-secondary: #FDE8D7;
+  --color-text: rgba(20, 20, 19, 0.88);
+  --color-text-secondary: rgba(20, 20, 19, 0.65);
+  --color-text-tertiary: rgba(20, 20, 19, 0.45);
 }
 
 :root {
@@ -43,7 +55,7 @@ body {
   font-size: 1rem;
   line-height: 1.6;
   color: var(--text);
-  background: var(--bg);
+  background: var(--surface);
 }
 
 #root {
@@ -65,6 +77,24 @@ button {
   font-family: inherit;
   font-size: inherit;
   cursor: pointer;
+}
+
+@keyframes copaw-channels-marquee-right {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0%);
+  }
+}
+
+@keyframes copaw-channels-marquee-left {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
 }
 
 .hero-section {
@@ -710,6 +740,15 @@ button {
 @media (max-width: 1024px) {
   .docs-toc {
     display: none;
+  }
+
+  .docs-main {
+    gap: 0;
+    padding: var(--space-2);
+  }
+
+  .docs-main .docs-content-scroll {
+    padding-right: 0;
   }
 
   .docs-back-to-top {
