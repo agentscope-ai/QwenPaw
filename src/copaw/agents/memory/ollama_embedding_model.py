@@ -52,7 +52,15 @@ class OllamaEmbeddingModel(BaseEmbeddingModel):
         raw = (self.base_url or "").strip()
         if not raw:
             return "http://127.0.0.1:11434"
-        return raw.rstrip("/")
+        normalized = raw.rstrip("/")
+        # Users may copy OpenAI-compatible Ollama URLs like
+        # http://host:11434/v1 or http://host:11434/api.
+        # ReMe ollama backend always calls /api/embed directly.
+        for suffix in ("/v1", "/api"):
+            if normalized.lower().endswith(suffix):
+                normalized = normalized[: -len(suffix)]
+                break
+        return normalized.rstrip("/")
 
     def _embed_sync(self, input_text: List[str]) -> List[List[float]]:
         if not input_text:
