@@ -337,6 +337,15 @@ export default function ChatPage() {
     }
   }, [location.pathname, fetchMultimodalCaps]);
 
+  // Listen for model-switched event from ModelSelector
+  useEffect(() => {
+    const handler = () => {
+      fetchMultimodalCaps();
+    };
+    window.addEventListener("model-switched", handler);
+    return () => window.removeEventListener("model-switched", handler);
+  }, [fetchMultimodalCaps]);
+
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
     const currentChatId = chatIdRef.current;

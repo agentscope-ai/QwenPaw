@@ -131,6 +131,8 @@ export default function ModelSelector() {
       setActiveModels({
         active_llm: { provider_id: providerId, model: modelId },
       });
+      // Notify ChatPage to refresh multimodal capabilities
+      window.dispatchEvent(new CustomEvent("model-switched"));
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("modelSelector.switchFailed");

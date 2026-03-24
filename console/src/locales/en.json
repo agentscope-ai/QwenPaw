@@ -727,12 +727,12 @@
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
       "tooltipImageOnly": "Current model supports image upload only, single file up to 10MB",
-      "tooltipNoMultimodal": "No multimodal capability detected for current model, files may not be processed correctly",
+      "tooltipNoMultimodal": "No multimodal capability detected for current model, images or videos may not be processed correctly",
       "fileSizeLimit": "Single file cannot exceed 10MB",
       "multimodalDisabled": "Current model does not support file upload",
-      "multimodalWarning": "No multimodal capability detected for current model, file may not be processed correctly",
+      "multimodalWarning": "No multimodal capability detected for current model, images or videos may not be processed correctly",
       "imageOnlyAccept": "Current model only supports image files",
-      "imageOnlyWarning": "Current model only supports images, this file type may not be processed correctly"
+      "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     }
   },
   "security": {
