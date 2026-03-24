@@ -249,7 +249,7 @@ score = min(1.0, base_score + phrase_bonus)  # 上限 1.0
 | "网络断开后自动重试连接的逻辑"                         | 0.78     | 0.0       | 0.78×0.7 = **0.546**           | 2    |
 | "修复了 handleWebSocketReconnect 的空指针异常"         | 0.40     | 0.5       | 0.40×0.7 + 0.5×0.3 = **0.430** | 3    |
 
-``mermaid
+```mermaid
 graph LR
     Query[搜索查询] --> Vector[向量语义搜索 × 0.7]
 Query --> BM25[BM25 全文检索 × 0.3]
