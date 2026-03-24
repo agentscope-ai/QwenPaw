@@ -46,9 +46,7 @@ class IMessageChannelConfig(BaseChannelConfig):
     db_path: str = "~/Library/Messages/chat.db"
     poll_sec: float = 1.0
     media_dir: Optional[str] = None
-    max_decoded_size: int = (
-        10 * 1024 * 1024
-    )  # 10MB default limit for Base64 data
+    max_decoded_size: int = 10 * 1024 * 1024  # 10MB default limit for Base64 data
 
 
 class DiscordConfig(BaseChannelConfig):
@@ -124,6 +122,7 @@ class ConsoleConfig(BaseChannelConfig):
     """Console channel: prints agent responses to stdout."""
 
     enabled: bool = True
+    filter_thinking: bool = True
     media_dir: Optional[str] = None
 
 
@@ -262,9 +261,7 @@ class AgentsRunningConfig(BaseModel):
     max_iters: int = Field(
         default=50,
         ge=1,
-        description=(
-            "Maximum number of reasoning-acting iterations for ReAct agent"
-        ),
+        description=("Maximum number of reasoning-acting iterations for ReAct agent"),
     )
 
     llm_retry_enabled: bool = Field(
@@ -298,8 +295,7 @@ class AgentsRunningConfig(BaseModel):
         """Validate LLM retry backoff relationships."""
         if self.llm_backoff_cap < self.llm_backoff_base:
             raise ValueError(
-                "llm_backoff_cap must be greater than or equal to "
-                "llm_backoff_base",
+                "llm_backoff_cap must be greater than or equal to " "llm_backoff_base",
             )
         return self
 
@@ -311,9 +307,7 @@ class AgentsRunningConfig(BaseModel):
     token_count_estimate_divisor: float = Field(
         default=3.75,
         gt=1,
-        description=(
-            "Divisor for character-based token estimation " "(len / divisor)"
-        ),
+        description=("Divisor for character-based token estimation " "(len / divisor)"),
     )
 
     token_count_use_mirror: bool = Field(
@@ -324,9 +318,7 @@ class AgentsRunningConfig(BaseModel):
     max_input_length: int = Field(
         default=128 * 1024,  # 128K = 131072 tokens
         ge=1000,
-        description=(
-            "Maximum input length (tokens) for the model context window"
-        ),
+        description=("Maximum input length (tokens) for the model context window"),
     )
 
     memory_compact_ratio: float = Field(
@@ -353,8 +345,7 @@ class AgentsRunningConfig(BaseModel):
     tool_result_compact_old_threshold: int = Field(
         default=1000,
         ge=100,
-        description="Character threshold for old messages "
-        "in tool result compaction",
+        description="Character threshold for old messages " "in tool result compaction",
     )
 
     tool_result_compact_recent_threshold: int = Field(
@@ -729,8 +720,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "view_image": BuiltinToolConfig(
             name="view_image",
             enabled=True,
-            description="Load an image into LLM context "
-            "for visual analysis",
+            description="Load an image into LLM context " "for visual analysis",
             display_to_user=False,
         ),
         "send_file_to_user": BuiltinToolConfig(
@@ -933,11 +923,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
                 else None
             ),
             mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
-            tools=(
-                config.tools
-                if hasattr(config, "tools") and config.tools
-                else None
-            ),
+            tools=(config.tools if hasattr(config, "tools") and config.tools else None),
             security=(
                 config.security
                 if hasattr(config, "security") and config.security
@@ -951,8 +937,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
             ),
             llm_routing=(
                 config.agents.llm_routing
-                if hasattr(config.agents, "llm_routing")
-                and config.agents.llm_routing
+                if hasattr(config.agents, "llm_routing") and config.agents.llm_routing
                 else AgentsLLMRoutingConfig()
             ),
             system_prompt_files=(
@@ -1057,14 +1042,10 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         channels=config.channels if config.channels else None,
         mcp=config.mcp if config.mcp else None,
         heartbeat=(
-            legacy_agents.defaults.heartbeat
-            if legacy_agents.defaults
-            else None
+            legacy_agents.defaults.heartbeat if legacy_agents.defaults else None
         ),
         running=(
-            legacy_agents.running
-            if legacy_agents.running
-            else AgentsRunningConfig()
+            legacy_agents.running if legacy_agents.running else AgentsRunningConfig()
         ),
         llm_routing=(
             legacy_agents.llm_routing

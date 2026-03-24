@@ -733,6 +733,7 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
+    "executing": "Working on it...",
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
       "fileSizeLimit": "Single file cannot exceed 10MB"

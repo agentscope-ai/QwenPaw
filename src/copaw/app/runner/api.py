@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
+
 from __future__ import annotations
 from typing import Optional
 from uuid import uuid4
@@ -12,8 +13,8 @@ from .models import (
     ChatSpec,
     ChatHistory,
 )
+from ..message_filters import filter_runtime_messages
 from .utils import agentscope_msg_to_message
-
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -171,6 +172,16 @@ async def get_chat(
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)
+    channel_config = getattr(
+        getattr(workspace.config, "channels", None),
+        chat_spec.channel,
+        None,
+    )
+    filter_thinking = getattr(channel_config, "filter_thinking", False)
+    messages = filter_runtime_messages(
+        messages,
+        filter_thinking=filter_thinking,
+    )
     return ChatHistory(messages=messages, status=status)
 
 

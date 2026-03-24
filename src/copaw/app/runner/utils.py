@@ -63,8 +63,7 @@ def build_env_context(
         parts.append(f"- Channel: {channel}")
 
     parts.append(
-        f"- OS: {platform.system()} {platform.release()} "
-        f"({platform.machine()})",
+        f"- OS: {platform.system()} {platform.release()} " f"({platform.machine()})",
     )
 
     if working_dir is not None:
@@ -85,9 +84,7 @@ def build_env_context(
             "then use edit_file for partial updates or appending.",
         )
 
-    return (
-        "====================\n" + "\n".join(parts) + "\n===================="
-    )
+    return "====================\n" + "\n".join(parts) + "\n===================="
 
 
 def _is_local_file_url(url: str) -> bool:

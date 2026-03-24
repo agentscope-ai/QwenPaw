@@ -349,6 +349,8 @@ export default function ChatPage() {
         ...buildAuthHeaders(),
       };
 
+      runtimeLoadingBridgeRef.current?.setLoading?.(t("chat.executing"));
+
       try {
         const activeModels = await providerApi.getActiveModels();
         if (
@@ -436,7 +438,7 @@ export default function ChatPage() {
 
       return response;
     },
-    [],
+    [t],
   );
 
   const options = useMemo(() => {
@@ -516,6 +518,7 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
+          runtimeLoadingBridgeRef.current?.setLoading?.(false);
           const chatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
           if (chatId) {
@@ -529,6 +532,8 @@ export default function ChatPage() {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),
           };
+
+          runtimeLoadingBridgeRef.current?.setLoading?.(t("chat.executing"));
 
           return fetch(getApiUrl("/console/chat"), {
             method: "POST",
