@@ -35,6 +35,7 @@ dependencies = [
     "tzdata>=2024.1",
     "pyyaml>=6.0",
     "modelscope>=1.18.0",
+    "json-repair>=0.30.0",
 ]
 
 [tool.setuptools.dynamic]
