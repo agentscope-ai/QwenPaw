@@ -164,12 +164,14 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             except (TypeError, Exception) as e:
                 # Fallback: estimate from concatenated text
                 total_text = " ".join(
-                    m.get("content", "") if isinstance(m, dict)
+                    m.get("content", "")
+                    if isinstance(m, dict)
                     else str(getattr(m, "content", m))
                     for m in normalized
                 )
                 logger.debug(
-                    "Token count fallback to estimation: %s", e,
+                    "Token count fallback to estimation: %s",
+                    e,
                 )
                 return self.estimate_tokens(total_text)
 
@@ -201,11 +203,17 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             elif hasattr(msg, "content"):
                 content = msg.content
                 if isinstance(content, list):
-                    normalized.append({
-                        "role": getattr(msg, "role", "user"),
-                        "content": _extract_text_from_blocks(content),
-                        **({"name": msg.name} if hasattr(msg, "name") else {}),
-                    })
+                    normalized.append(
+                        {
+                            "role": getattr(msg, "role", "user"),
+                            "content": _extract_text_from_blocks(content),
+                            **(
+                                {"name": msg.name}
+                                if hasattr(msg, "name")
+                                else {}
+                            ),
+                        },
+                    )
                 else:
                     normalized.append(msg)
             else:

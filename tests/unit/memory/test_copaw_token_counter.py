@@ -369,8 +369,12 @@ def test_count_messages_with_list_content() -> None:
             "role": "assistant",
             "content": [
                 {"type": "text", "text": "Hello world"},
-                {"type": "tool_use", "id": "t1", "name": "read_file",
-                 "input": {"path": "test.py"}},
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "read_file",
+                    "input": {"path": "test.py"},
+                },
             ],
         },
         {
@@ -408,10 +412,12 @@ def test_count_empty_text_not_fallback_to_messages() -> None:
     )
     # With explicit empty text, should return estimate("") == 0,
     # instead of falling back to messages counting.
-    token_count = asyncio.run(counter.count(
-        messages=[{"role": "user", "content": "hello"}],
-        text="",
-    ))
+    token_count = asyncio.run(
+        counter.count(
+            messages=[{"role": "user", "content": "hello"}],
+            text="",
+        ),
+    )
     assert token_count == 0
     print("  PASSED: empty text does not fallback to messages")
 
@@ -423,10 +429,12 @@ def test_count_none_text_fallback_to_messages() -> None:
         token_count_model="default",
         token_count_use_mirror=True,
     )
-    token_count = asyncio.run(counter.count(
-        messages=[{"role": "user", "content": "hello"}],
-        text=None,
-    ))
+    token_count = asyncio.run(
+        counter.count(
+            messages=[{"role": "user", "content": "hello"}],
+            text=None,
+        ),
+    )
     assert token_count > 0
     print("  PASSED: none text falls back to messages")
 
@@ -434,13 +442,18 @@ def test_count_none_text_fallback_to_messages() -> None:
 def test_normalize_messages_mixed() -> None:
     """Test _normalize_messages with mixed content types."""
     print("Testing: normalize messages mixed content")
-    normalized = CopawTokenCounter._normalize_messages([
-        {"role": "assistant", "content": [
-            {"type": "text", "text": "part1"},
-            {"type": "text", "text": "part2"},
-        ]},
-        {"role": "user", "content": "plain string"},
-    ])
+    normalized = CopawTokenCounter._normalize_messages(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "part1"},
+                    {"type": "text", "text": "part2"},
+                ],
+            },
+            {"role": "user", "content": "plain string"},
+        ],
+    )
     assert isinstance(normalized[0]["content"], str)
     assert "part1" in normalized[0]["content"]
     assert "part2" in normalized[0]["content"]
