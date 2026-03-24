@@ -79,7 +79,8 @@ jobs:
             }
 
             // Check if this is a bug report by title or label
-            const titleContainsBug = /\bbug\b/i.test(issueTitle) || /^\s*\[bug\]\s*:/i.test(issueTitle);
+            // Match "bug", "bugs", or "[Bug]:" prefix (case-insensitive)
+            const titleContainsBug = /\bbug(s)?\b/i.test(issueTitle) || /^\s*\[bug\]\s*:/i.test(issueTitle);
             const labels = context.payload.issue.labels.map(label => label.name);
             const hasBugLabel = labels.some(name => name && name.toLowerCase() === 'bug');
             const isBugRelated = titleContainsBug || hasBugLabel;
