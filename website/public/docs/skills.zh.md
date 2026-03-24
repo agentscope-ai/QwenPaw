@@ -117,7 +117,7 @@
 ### 步骤
 
 1. 在 `~/.copaw/customized_skills/` 下新建一个目录，例如 `my_skill`。
-2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；可选在文件开头用 YAML front matter 写 `name`、`description`、`metadata`，方便在 Agent 或控制台里展示。
+2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；必须在文件开头用 YAML front matter 写 `name`、`description`，可选写 `metadata`（用于在 Agent 或控制台里展示更多信息）。
 
 ### 目录结构示例
 

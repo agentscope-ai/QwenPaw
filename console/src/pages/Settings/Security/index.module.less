@@ -23,6 +23,16 @@
   margin: 0;
 }
 
+:global(.dark-mode) {
+  .title {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
 /* ---- Content Container ---- */
 .content {
   width: 100%;
@@ -97,6 +107,45 @@
 
   .footerButtons {
     border-top-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .formCard,
+  .tableCard {
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  .tableCard {
+    :global(.ant-table-thead > tr > th) {
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(255, 255, 255, 0.7);
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+
+    :global(.ant-table-tbody > tr:hover > td) {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .form {
+    :global {
+      .ant-form-item-label > label {
+        color: rgba(255, 255, 255, 0.85);
+      }
+    }
+  }
+
+  .skillScannerConfigItem + .skillScannerConfigItem {
+    border-left-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .skillScannerLabel {
+    color: rgba(255, 255, 255, 0.85);
   }
 }
 
@@ -223,6 +272,10 @@
   font-weight: 600;
   margin: 0;
   color: #1a1a1a;
+}
+
+:global(.dark-mode) .sectionTitle {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* ---- Table Card ---- */

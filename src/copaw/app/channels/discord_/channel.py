@@ -23,6 +23,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
+from ..utils import file_url_to_local_path
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -246,7 +247,7 @@ class DiscordChannel(BaseChannel):
                 "",
             ),
             http_proxy_auth=os.getenv("DISCORD_HTTP_PROXY_AUTH", ""),
-            bot_prefix=os.getenv("DISCORD_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("DISCORD_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("DISCORD_DM_POLICY", "open"),
             group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
@@ -271,7 +272,7 @@ class DiscordChannel(BaseChannel):
             token=config.bot_token or "",
             http_proxy=config.http_proxy,
             http_proxy_auth=config.http_proxy_auth or "",
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -436,9 +437,7 @@ class DiscordChannel(BaseChannel):
         meta: Optional[dict] = None,
     ) -> None:
         """Send a media part as a Discord file attachment."""
-        if not self.enabled or not self._client:
-            return
-        if not self._client.is_ready():
+        if not self.enabled or not self._client or not self._client.is_ready():
             return
         import discord
 
@@ -460,7 +459,14 @@ class DiscordChannel(BaseChannel):
 
         temp_path = None
         if url.startswith("file://"):
-            file = discord.File(url[7:])
+            local_path = file_url_to_local_path(url)
+            if not local_path:
+                logger.warning(
+                    "discord send_media: invalid file URL %s",
+                    url,
+                )
+                return
+            file = discord.File(local_path)
         elif url.startswith(("http://", "https://")):
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:

@@ -52,6 +52,53 @@ In **Settings → Security → Tool Guard** you can:
 
 ---
 
+## File Guard
+
+The **File Guard** blocks agent tools from accessing sensitive files and directories. It runs on **every tool call** (not just guarded tools), scanning file path parameters and shell command arguments to enforce a deny list of protected paths.
+
+### How it works
+
+1. When any tool is called, the File Guard checks whether its parameters contain a path that matches the sensitive-file list.
+2. For known file tools (`read_file`, `write_file`, `edit_file`, etc.), the `file_path` parameter is checked directly.
+3. For `execute_shell_command`, file paths are extracted from the command string (including redirection targets like `>`, `>>`, `<`).
+4. For all other tools, every string parameter that looks like a file path is scanned.
+5. If a match is found, the tool call is blocked with a HIGH-severity finding.
+
+By default, the `.copaw.secret` directory (where authentication credentials and API keys are stored) is included in the sensitive-file list.
+
+### Configuration
+
+In `config.json`:
+
+```json
+{
+  "security": {
+    "file_guard": {
+      "enabled": true,
+      "sensitive_files": ["~/.ssh/", "/etc/passwd"]
+    }
+  }
+}
+```
+
+| Field             | Description                                              |
+| ----------------- | -------------------------------------------------------- |
+| `enabled`         | Enable or disable File Guard entirely (default: `true`). |
+| `sensitive_files` | File/directory paths to block from tool access.          |
+
+Paths ending with `/` are treated as directory guards — all files and subdirectories within them are blocked recursively.
+
+### Console management
+
+In **Settings → Security → File Guard** you can:
+
+- Toggle File Guard on/off
+- View the list of protected sensitive paths
+- Add new file or directory paths to protect
+- Remove paths from the protected list
+
+---
+
 ## Skill Scanner
 
 The **Skill Scanner** automatically scans skills for security threats (command injection, data exfiltration, hardcoded secrets, etc.) before they are enabled or installed.

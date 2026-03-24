@@ -1,5 +1,6 @@
 import { request } from "../request";
-import { getApiUrl, getApiToken } from "../config";
+import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type { HubSkillSpec, SkillSpec } from "../types";
 
 // Declare BASE_URL as global (injected by Vite)
@@ -204,11 +205,7 @@ export const skillApi = {
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
 
-    const headers: Record<string, string> = {};
-    const token = getApiToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+    const headers = buildAuthHeaders();
 
     const response = await fetch(url, {
       method: "POST",

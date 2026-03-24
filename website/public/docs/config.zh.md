@@ -176,6 +176,10 @@ copaw app
   },
   "running": {
     "max_iters": 50,
+    "llm_retry_enabled": true,
+    "llm_max_retries": 3,
+    "llm_backoff_base": 1.0,
+    "llm_backoff_cap": 10.0,
     "max_input_length": 131072
   },
   "language": "zh",
@@ -266,10 +270,17 @@ copaw app
 
 **`agents.running`** — Agent 运行时行为配置
 
-| 字段               | 类型 | 默认值          | 说明                                                                                       |
-| ------------------ | ---- | --------------- | ------------------------------------------------------------------------------------------ |
-| `max_iters`        | int  | `50`            | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                            |
-| `max_input_length` | int  | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数）。记忆压缩将在达到此值的 80% 时触发（必须 ≥ 1000） |
+| 字段                | 类型  | 默认值          | 说明                                                                                       |
+| ------------------- | ----- | --------------- | ------------------------------------------------------------------------------------------ |
+| `max_iters`         | int   | `50`            | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                            |
+| `llm_retry_enabled` | bool  | `true`          | 是否对限流、超时、连接中断等瞬时 LLM API 错误自动重试                                      |
+| `llm_max_retries`   | int   | `3`             | 瞬时 LLM API 错误的最大重试次数。需与 `llm_retry_enabled` 配合使用，必须 ≥ 1               |
+| `llm_backoff_base`  | float | `1.0`           | 指数退避的基础等待时间（秒，必须 ≥ 0.1）                                                   |
+| `llm_backoff_cap`   | float | `10.0`          | 退避等待时间上限（秒，必须 ≥ 0.5，且必须大于等于 `llm_backoff_base`）                      |
+| `max_input_length`  | int   | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数）。记忆压缩将在达到此值的 80% 时触发（必须 ≥ 1000） |
+
+这些重试配置也可以在控制台的 **Agent → Configuration** 页面中修改。保存后会对新的
+LLM 请求生效，不需要重启服务。
 
 **`agents.defaults.heartbeat`** — 心跳定时任务
 

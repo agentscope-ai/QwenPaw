@@ -1,9 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
-  type IAgentScopeRuntimeWebUIMessage,
   type IAgentScopeRuntimeWebUIRef,
-  Stream,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, message } from "antd";
@@ -14,16 +12,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
-import { getApiToken, getApiUrl } from "../../api/config";
+import { getApiUrl } from "../../api/config";
+import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import api from "../../api";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
-import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
-import "./index.module.less";
+import styles from "./index.module.less";
 import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
@@ -41,23 +37,6 @@ type CopyableMessage = {
 
 type CopyableResponse = {
   output?: CopyableMessage[];
-};
-
-type RuntimeUiMessage = IAgentScopeRuntimeWebUIMessage & {
-  msgStatus?: string;
-  role?: string;
-  cards?: Array<{
-    code: string;
-    data: unknown;
-  }>;
-  history?: boolean;
-};
-
-type StreamResponseData = {
-  status?: string;
-  output?: Array<{
-    content?: unknown[];
-  }>;
 };
 
 type RuntimeLoadingBridgeApi = {
@@ -142,67 +121,6 @@ function buildModelError(): Response {
   );
 }
 
-function cloneRuntimeMessages(
-  messages: RuntimeUiMessage[],
-): RuntimeUiMessage[] {
-  return JSON.parse(JSON.stringify(messages)) as RuntimeUiMessage[];
-}
-
-function cloneValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function isFinalResponseStatus(status?: string): boolean {
-  return (
-    status === AgentScopeRuntimeRunStatus.Completed ||
-    status === AgentScopeRuntimeRunStatus.Failed ||
-    status === AgentScopeRuntimeRunStatus.Canceled
-  );
-}
-
-function hasRenderableOutput(response: StreamResponseData): boolean {
-  if (response.status === AgentScopeRuntimeRunStatus.Failed) {
-    return true;
-  }
-
-  return (
-    response.output?.some((message) => (message.content?.length ?? 0) > 0) ??
-    false
-  );
-}
-
-function getResponseCardData(
-  message?: RuntimeUiMessage,
-): StreamResponseData | null {
-  const responseCard = message?.cards?.find(
-    (card) => card.code === "AgentScopeRuntimeResponseCard",
-  );
-
-  if (!responseCard?.data) {
-    return null;
-  }
-
-  return cloneValue(responseCard.data as StreamResponseData);
-}
-
-function getStreamingAssistantMessageId(
-  messages: RuntimeUiMessage[],
-): string | null {
-  return (
-    [...messages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === "assistant" &&
-          (message.msgStatus === "generating" ||
-            (message.cards?.length ?? 0) === 0),
-      )?.id ||
-    [...messages].reverse().find((message) => message.role === "assistant")
-      ?.id ||
-    null
-  );
-}
-
 function RuntimeLoadingBridge({
   bridgeRef,
 }: {
@@ -249,10 +167,6 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [chatStatus, setChatStatus] = useState<"idle" | "running">("idle");
-  const [, setReconnectStreaming] = useState(false);
-  const reconnectTriggeredForRef = useRef<string | null>(null);
-  const prevChatIdRef = useRef<string | undefined>(undefined);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
   const isComposingRef = useRef(false);
@@ -268,11 +182,6 @@ export default function ChatPage() {
   navigateRef.current = navigate;
 
   useEffect(() => {
-    sessionApi.setChatRef(chatRef);
-    return () => sessionApi.setChatRef(null);
-  }, []);
-
-  useEffect(() => {
     const handleCompositionStart = () => {
       if (!isChatActiveRef.current) return;
       isComposingRef.current = true;
@@ -280,18 +189,23 @@ export default function ChatPage() {
 
     const handleCompositionEnd = () => {
       if (!isChatActiveRef.current) return;
+      // Use a slightly longer delay for Safari on macOS, which fires keydown
+      // after compositionend within the same event loop tick.
       setTimeout(() => {
         isComposingRef.current = false;
-      }, 150);
+      }, 200);
     };
 
-    const handleKeyPress = (e: KeyboardEvent) => {
+    const suppressImeEnter = (e: KeyboardEvent) => {
       if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+        // e.isComposing is the standard flag; isComposingRef covers the
+        // post-compositionend grace period needed by Safari.
         if (isComposingRef.current || (e as any).isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
+          e.preventDefault();
           return false;
         }
       }
@@ -299,7 +213,9 @@ export default function ChatPage() {
 
     document.addEventListener("compositionstart", handleCompositionStart, true);
     document.addEventListener("compositionend", handleCompositionEnd, true);
-    document.addEventListener("keypress", handleKeyPress, true);
+    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
+    document.addEventListener("keydown", suppressImeEnter, true);
+    document.addEventListener("keypress", suppressImeEnter, true);
 
     return () => {
       document.removeEventListener(
@@ -312,7 +228,8 @@ export default function ChatPage() {
         handleCompositionEnd,
         true,
       );
-      document.removeEventListener("keypress", handleKeyPress, true);
+      document.removeEventListener("keydown", suppressImeEnter, true);
+      document.removeEventListener("keypress", suppressImeEnter, true);
     };
   }, []);
 
@@ -338,34 +255,6 @@ export default function ChatPage() {
       sessionApi.onSessionRemoved = null;
     };
   }, []);
-
-  // Fetch chat status when viewing a chat (for running indicator and reconnect)
-  useEffect(() => {
-    if (!chatId || chatId === "undefined" || chatId === "null") {
-      setChatStatus("idle");
-      return;
-    }
-    const realId = sessionApi.getRealIdForSession(chatId) ?? chatId;
-    api.getChat(realId).then(
-      (res) => setChatStatus((res.status as "idle" | "running") ?? "idle"),
-      () => setChatStatus("idle"),
-    );
-  }, [chatId]);
-
-  // Trigger reconnect when session status becomes "running" so the library
-  // consumes the SSE stream. Done here (not in sessionApi.getSession) so we
-  // run after React has updated and the chat input ref is ready, avoiding
-  // a fixed timeout and race conditions.
-  useEffect(() => {
-    if (prevChatIdRef.current !== chatId) {
-      prevChatIdRef.current = chatId;
-      reconnectTriggeredForRef.current = null;
-    }
-    if (!chatId || chatStatus !== "running") return;
-    if (reconnectTriggeredForRef.current === chatId) return;
-    reconnectTriggeredForRef.current = chatId;
-    sessionApi.triggerReconnectSubmit();
-  }, [chatId, chatStatus]);
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -449,208 +338,16 @@ export default function ChatPage() {
     [t],
   );
 
-  const persistSessionMessages = useCallback(
-    async (sessionId: string, messages: RuntimeUiMessage[]) => {
-      if (!sessionId) return;
-      await sessionApi.updateSession({
-        id: sessionId,
-        messages: cloneRuntimeMessages(messages),
-      });
-    },
-    [],
-  );
-
-  const releaseStaleLoadingState = useCallback((sessionId: string) => {
-    const activeChatId = chatIdRef.current;
-    const realSessionId = sessionApi.getRealIdForSession(sessionId);
-    const isBackgroundSession =
-      activeChatId !== sessionId && activeChatId !== realSessionId;
-
-    if (!isBackgroundSession) {
-      return;
-    }
-
-    if (sessionApi.hasLiveMessagesForSession(activeChatId)) {
-      return;
-    }
-
-    runtimeLoadingBridgeRef.current?.setLoading?.(false);
-  }, []);
-
-  const persistStreamSession = useCallback(
-    (sessionId: string, readableStream: ReadableStream<Uint8Array>) => {
-      const initialMessages = cloneRuntimeMessages(
-        (chatRef.current?.messages.getMessages() as RuntimeUiMessage[]) || [],
-      );
-      const assistantMessageId =
-        getStreamingAssistantMessageId(initialMessages) ||
-        `stream-${sessionId}`;
-      const responseBuilder = new AgentScopeRuntimeResponseBuilder({
-        id: "",
-        status: AgentScopeRuntimeRunStatus.Created,
-        created_at: 0,
-      });
-
-      void (async () => {
-        let cachedMessages = initialMessages;
-        let hasStreamActivity = false;
-        let didReleaseLoading = false;
-
-        try {
-          for await (const chunk of Stream({ readableStream })) {
-            let chunkData: unknown;
-            try {
-              chunkData = JSON.parse(chunk.data);
-            } catch {
-              continue;
-            }
-
-            hasStreamActivity = true;
-            const responseData = responseBuilder.handle(
-              chunkData as never,
-            ) as StreamResponseData;
-            const isFinalChunk = isFinalResponseStatus(responseData.status);
-            const existingAssistantMessage = cachedMessages.find(
-              (message) => message.id === assistantMessageId,
-            );
-            const previousResponseData = getResponseCardData(
-              existingAssistantMessage,
-            );
-
-            let nextResponseData: StreamResponseData | null = null;
-            if (hasRenderableOutput(responseData)) {
-              nextResponseData = cloneValue(responseData);
-            } else if (isFinalChunk && previousResponseData) {
-              nextResponseData = {
-                ...previousResponseData,
-                status: responseData.status ?? previousResponseData.status,
-              };
-            }
-
-            if (nextResponseData) {
-              const assistantMessage: RuntimeUiMessage = {
-                ...(existingAssistantMessage || {
-                  id: assistantMessageId,
-                  role: "assistant",
-                }),
-                id: assistantMessageId,
-                role: "assistant",
-                cards: [
-                  {
-                    code: "AgentScopeRuntimeResponseCard",
-                    data: nextResponseData,
-                  },
-                ],
-                msgStatus: isFinalChunk ? "finished" : "generating",
-              };
-
-              const assistantIndex = cachedMessages.findIndex(
-                (message) => message.id === assistantMessageId,
-              );
-              cachedMessages =
-                assistantIndex >= 0
-                  ? [
-                      ...cachedMessages.slice(0, assistantIndex),
-                      assistantMessage,
-                      ...cachedMessages.slice(assistantIndex + 1),
-                    ]
-                  : [...cachedMessages, assistantMessage];
-
-              await persistSessionMessages(sessionId, cachedMessages);
-            }
-
-            if (!isFinalChunk) {
-              continue;
-            }
-
-            releaseStaleLoadingState(sessionId);
-            didReleaseLoading = true;
-          }
-        } catch (error) {
-          console.error("Failed to persist background chat stream:", error);
-        } finally {
-          if (!hasStreamActivity || didReleaseLoading) {
-            return;
-          }
-
-          releaseStaleLoadingState(sessionId);
-        }
-      })();
-    },
-    [persistSessionMessages, releaseStaleLoadingState],
-  );
-
   const customFetch = useCallback(
     async (data: {
       input?: any[];
       biz_params?: any;
       signal?: AbortSignal;
-      reconnect?: boolean;
-      session_id?: string;
-      user_id?: string;
-      channel?: string;
     }): Promise<Response> => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        ...buildAuthHeaders(),
       };
-      const token = getApiToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
-      }
-
-      const shouldReconnect =
-        data.reconnect || data.biz_params?.reconnect === true;
-      const reconnectSessionId =
-        data.session_id ?? window.currentSessionId ?? "";
-      if (shouldReconnect && reconnectSessionId) {
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            reconnect: true,
-            session_id: reconnectSessionId,
-            user_id: data.user_id ?? window.currentUserId ?? "default",
-            channel: data.channel ?? window.currentChannel ?? "console",
-          }),
-        });
-        if (!res.ok || !res.body) return res;
-        const onStreamEnd = () => {
-          setChatStatus("idle");
-          setReconnectStreaming(false);
-        };
-        const stream = res.body;
-        const transformed = new ReadableStream({
-          start(controller) {
-            const reader = stream.getReader();
-            function pump() {
-              reader.read().then(({ done, value }) => {
-                if (done) {
-                  controller.close();
-                  onStreamEnd();
-                  return;
-                }
-                controller.enqueue(value);
-                return pump();
-              });
-            }
-            pump();
-          },
-        });
-        return new Response(transformed, {
-          headers: res.headers,
-          status: res.status,
-        });
-      }
 
       try {
         const activeModels = await providerApi.getActiveModels();
@@ -688,8 +385,8 @@ export default function ChatPage() {
                     p.image_url = toStoredName(p.image_url);
                   if (p.type === "file" && typeof p.file_url === "string")
                     p.file_url = toStoredName(p.file_url);
-                  if (p.type === "audio" && typeof p.audio_url === "string")
-                    p["data"] = toStoredName(p.audio_url);
+                  if (p.type === "audio" && typeof p.data === "string")
+                    p.data = toStoredName(p.data);
                   if (p.type === "video" && typeof p.video_url === "string")
                     p.video_url = toStoredName(p.video_url);
 
@@ -708,6 +405,28 @@ export default function ChatPage() {
         ...biz_params,
       };
 
+      const backendChatId =
+        sessionApi.getRealIdForSession(requestBody.session_id) ??
+        chatIdRef.current ??
+        requestBody.session_id;
+      if (backendChatId) {
+        const userText = rewrittenInput
+          .filter((m: any) => m.role === "user")
+          .map((m: any) => {
+            if (typeof m.content === "string") return m.content;
+            if (!Array.isArray(m.content)) return "";
+            return m.content
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.text || "")
+              .join("\n");
+          })
+          .join("\n")
+          .trim();
+        if (userText) {
+          sessionApi.setLastUserMessage(backendChatId, userText);
+        }
+      }
+
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
@@ -715,20 +434,9 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      if (!response.ok || !response.body || !requestBody.session_id) {
-        return response;
-      }
-
-      const [uiStream, cacheStream] = response.body.tee();
-      persistStreamSession(requestBody.session_id, cacheStream);
-
-      return new Response(uiStream, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
+      return response;
     },
-    [persistStreamSession, setChatStatus, setReconnectStreaming],
+    [],
   );
 
   const options = useMemo(() => {
@@ -808,17 +516,31 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          const chatIdForStop = data?.session_id
-            ? sessionApi.getRealIdForSession(data.session_id) ?? data.session_id
-            : "";
-          if (chatIdForStop) {
-            chatApi.stopConsoleChat(chatIdForStop).then(
-              () => setChatStatus("idle"),
-              (err) => {
-                console.error("stopConsoleChat failed:", err);
-              },
-            );
+          const chatId =
+            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+          if (chatId) {
+            chatApi.stopChat(chatId).catch((err) => {
+              console.error("Failed to stop chat:", err);
+            });
           }
+        },
+        async reconnect(data: { session_id: string; signal?: AbortSignal }) {
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            ...buildAuthHeaders(),
+          };
+
+          return fetch(getApiUrl("/console/chat"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              reconnect: true,
+              session_id: window.currentSessionId || data.session_id,
+              user_id: window.currentUserId || "default",
+              channel: window.currentChannel || "console",
+            }),
+            signal: data.signal,
+          });
         },
       },
       actions: {
@@ -848,7 +570,7 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className={styles.chatMessagesArea}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
