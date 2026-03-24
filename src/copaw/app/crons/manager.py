@@ -14,7 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from ...config import get_heartbeat_config
 
 from ..console_push_store import append as push_store_append
-from .executor import CronExecutor
+from .executor import CronExecutor, CronDispatchChannelNotFoundError
 from .heartbeat import parse_heartbeat_every, run_heartbeat_once
 from .models import CronJobSpec, CronJobState
 from .repo.base import BaseJobRepository
@@ -344,6 +344,15 @@ class CronManager:
                     job.id,
                 )
                 raise
+            except CronDispatchChannelNotFoundError as e:
+                st.last_status = "error"
+                st.last_error = repr(e)
+                logger.warning(
+                    "cron _execute_once: job_id=%s status=error "
+                    "dispatch_channel_missing=%s",
+                    job.id,
+                    e,
+                )
             except Exception as e:  # pylint: disable=broad-except
                 st.last_status = "error"
                 st.last_error = repr(e)
