@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import warnings
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -323,11 +324,28 @@ class MCPClientManager:
         if headers:
             headers = {k: os.path.expandvars(v) for k, v in headers.items()}
 
-        client = HttpStatefulClient(
-            name=client_config.name,
-            transport=client_config.transport,
-            url=client_config.url,
-            headers=headers or None,
-        )
+        transport = client_config.transport
+        if transport == "sse":
+            logger.info(
+                "MCP client '%s' uses legacy transport 'sse'; "
+                "using 'streamable_http' instead.",
+                client_config.name,
+            )
+            transport = "streamable_http"
+
+        # agentscope currently emits this deprecation from inside dependency
+        # internals even when using streamable_http; suppress it locally only.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Use `streamable_http_client` instead\.",
+                category=DeprecationWarning,
+            )
+            client = HttpStatefulClient(
+                name=client_config.name,
+                transport=transport,
+                url=client_config.url,
+                headers=headers or None,
+            )
         setattr(client, "_copaw_rebuild_info", rebuild_info)
         return client

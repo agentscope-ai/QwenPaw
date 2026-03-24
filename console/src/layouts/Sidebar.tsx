@@ -22,6 +22,7 @@ import {
   UsersRound,
   CalendarClock,
   Activity,
+  Database,
   Sparkles,
   Briefcase,
   FolderOpen,
@@ -262,6 +263,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "workspace",
           label: t("nav.workspace"),
           icon: <Briefcase size={16} />,
+        },
+        {
+          key: "knowledge",
+          label: t("nav.knowledge"),
+          icon: <Database size={16} />,
         },
         {
           key: "projects",
