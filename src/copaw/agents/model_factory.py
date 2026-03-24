@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Factory for creating chat models and formatters."""
+"""Factory for creating chat models and formatters.
+
+This module provides a unified factory for creating chat model instances
+and their corresponding formatters based on configuration.
+
+Example:
+    >>> from copaw.agents.model_factory import create_model_and_formatter
+    >>> model, formatter = create_model_and_formatter()
+"""
 
 import logging
 from typing import Any, List, Optional, Sequence, Tuple, Type, Union
@@ -36,11 +44,13 @@ def _file_url_to_path(url: str) -> str:
     Strip file:// to path. On Windows file:///C:/path -> C:/path not /C:/path.
     """
     s = url.removeprefix("file://")
+    # Windows: file:///C:/path yields "/C:/path"; remove leading slash.
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
     return s
 
 
+# Mapping from chat model class to formatter class
 _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
     OpenAIChatModel: OpenAIChatFormatter,
 }
@@ -53,6 +63,14 @@ if GeminiChatModel is not None and GeminiChatFormatter is not None:
 def _get_formatter_for_chat_model(
     chat_model_class: Type[ChatModelBase],
 ) -> Type[FormatterBase]:
+    """Get the appropriate formatter class for a chat model.
+
+    Args:
+        chat_model_class: The chat model class
+
+    Returns:
+        Corresponding formatter class, defaults to OpenAIChatFormatter
+    """
     return _CHAT_MODEL_FORMATTER_MAP.get(
         chat_model_class,
         OpenAIChatFormatter,
@@ -63,13 +81,32 @@ def _get_formatter_for_chat_model(
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
 ) -> Type[FormatterBase]:
-    """Create a formatter class with file block support."""
+    """Create a formatter class with file block support.
+
+    This factory function extends any Formatter class to support file blocks
+    in tool results, which are not natively supported by AgentScope.
+
+    Args:
+        base_formatter_class: Base formatter class to extend
+
+    Returns:
+        Enhanced formatter class with file block support
+    """
 
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
         # pylint: disable=too-many-branches,too-many-statements
         async def _format(self, msgs):
+            """Override to sanitize tool messages, handle thinking blocks,
+            and relay ``extra_content`` (Gemini thought_signature).
+
+            This prevents OpenAI API errors from improperly paired
+            tool messages, preserves reasoning_content from "thinking"
+            blocks that the base formatter skips, and ensures
+            ``extra_content`` on tool_use blocks (e.g. Gemini
+            thought_signature) is carried through to the API request.
+            """
             msgs = _sanitize_tool_messages(msgs)
 
             reasoning_contents = {}
@@ -90,6 +127,8 @@ def _create_file_block_support_formatter(
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
 
+            # Convert file:// URLs to paths,
+            # TODO: remove this after AgentScope updated
             for msg in msgs:
                 for block in msg.get_content_blocks():
                     if block.get("type") == "audio":
@@ -112,6 +151,10 @@ def _create_file_block_support_formatter(
                             tc["extra_content"] = ec
 
             if reasoning_contents:
+                # Build a list of reasoning values aligned with surviving
+                # assistant messages.  The parent formatter drops
+                # thinking-only messages (no content/tool_calls), so we
+                # predict survivors and collect reasoning only for those.
                 aligned_reasoning = []
                 for msg in (m for m in msgs if m.role == "assistant"):
                     is_thinking_only = (
@@ -154,9 +197,20 @@ def _create_file_block_support_formatter(
         def convert_tool_result_to_string(
             output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
+            """Extend parent class to support file blocks.
+
+            Uses try-first strategy for compatibility with parent class.
+
+            Args:
+                output: Tool result output (string or list of blocks)
+
+            Returns:
+                Tuple of (text_representation, multimodal_data)
+            """
             if isinstance(output, str):
                 return output, []
 
+            # Try parent class method first
             try:
                 return base_formatter_class.convert_tool_result_to_string(
                     output,
@@ -165,6 +219,7 @@ def _create_file_block_support_formatter(
                 if "Unsupported block type: file" not in str(e):
                     raise
 
+                # Handle output containing file blocks
                 textual_output = []
                 multimodal_data = []
 
@@ -187,6 +242,7 @@ def _create_file_block_support_formatter(
                         )
                         multimodal_data.append((file_path, block))
                     else:
+                        # Delegate other block types to parent class
                         (
                             text,
                             data,
