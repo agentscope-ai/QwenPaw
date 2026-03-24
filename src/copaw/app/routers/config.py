@@ -470,6 +470,37 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
 
 
 @router.get(
+    "/agents/embedding",
+    response_model=EmbeddingConfig,
+    summary="Get canonical embedding config",
+    description="Return current canonical embedding configuration",
+)
+async def get_embedding_config() -> EmbeddingConfig:
+    """Return canonical embedding config used by backend_type routing."""
+    config = load_config()
+    return config.agents.running.embedding_config
+
+
+@router.put(
+    "/agents/embedding",
+    response_model=EmbeddingConfig,
+    summary="Update canonical embedding config",
+    description=(
+        "Update canonical embedding configuration "
+        "(backend_type: openai/transformers/ollama)"
+    ),
+)
+async def put_embedding_config(
+    body: EmbeddingConfig = Body(...),
+) -> EmbeddingConfig:
+    """Update canonical embedding config block."""
+    config = load_config()
+    config.agents.running.embedding_config = body
+    save_config(config)
+    return config.agents.running.embedding_config
+
+
+@router.get(
     "/agents/local-embedding",
     response_model=LocalEmbeddingConfig,
     summary="Get local embedding config",
