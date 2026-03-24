@@ -50,31 +50,41 @@ jobs:
               hasValidIssueCount = false;
             }
 
-            // Check if user has starred the repo
+            // Check if user has starred the repo by listing user's starred
+            // repos
             let hasStarred = false;
             try {
-              // Use the user starred check API to verify if specific user
-              // starred the repo
-              await github.request(
-                'GET /users/{username}/starred/{owner}/{repo}',
-                {
+              const fullRepoName = `${context.repo.owner}/${context.repo.repo}`;
+              let page = 1;
+              let found = false;
+
+              while (page <= 10 && !found) {
+                const { data: starredRepos } = await github.rest.activity.listReposStarredByUser({
                   username: author,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                  per_page: 100,
+                  page: page
+                });
+
+                if (starredRepos.length === 0) break;
+
+                found = starredRepos.some(repo => repo.full_name === fullRepoName);
+                if (found) {
+                  hasStarred = true;
+                  console.log(`User ${author} has starred the repo`);
+                  break;
                 }
-              );
-              hasStarred = true;
-              console.log(`User ${author} has starred the repo`);
-            } catch (error) {
-              if (error.status === 404) {
-                hasStarred = false;
-                console.log(`User ${author} has not starred the repo`);
-              } else {
-                console.log(
-                  `Could not verify star status for ${author}:`,
-                  error.message
-                );
+
+                page++;
               }
+
+              if (!found) {
+                console.log(`User ${author} has not starred the repo`);
+              }
+            } catch (error) {
+              console.log(
+                `Could not verify star status for ${author}:`,
+                error.message
+              );
             }
 
             // Check if this is a bug report by title or label
