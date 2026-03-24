@@ -86,10 +86,8 @@ _workspace_states: dict[str, dict[str, Any]] = {}
 
 def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
     """Create a fresh browser state dict for a workspace."""
-    from pathlib import Path as _Path
-
     user_data_dir = (
-        str(_Path(workspace_dir) / "browser" / "user_data")
+        str(Path(workspace_dir) / "browser" / "user_data")
         if workspace_dir
         else ""
     )
@@ -512,9 +510,7 @@ async def _ensure_browser(
                 # dir is available, otherwise fall back to a plain new_context.
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
-                    from pathlib import Path as _Path
-
-                    _Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+                    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
                     extra_args = _chromium_launch_args()
                     context = await pw.chromium.launch_persistent_context(
                         user_data_dir=user_data_dir,
@@ -654,9 +650,7 @@ async def _action_start(
                 # Use persistent context so cookies/storage survive browser restarts
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
-                    from pathlib import Path as _Path
-
-                    _Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+                    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
                     context = await pw.chromium.launch_persistent_context(
                         user_data_dir=user_data_dir,
                         headless=state["headless"],
