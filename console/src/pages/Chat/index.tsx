@@ -262,38 +262,45 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (tempId, realId) => {
+    sessionApi.onSessionIdResolved = (realId) => {
       if (!isChatActiveRef.current) return;
-      if (chatIdRef.current === tempId) {
-        lastSessionIdRef.current = realId;
-        navigateRef.current(`/chat/${realId}`, { replace: true });
-      }
+      // Update URL when realId is resolved, regardless of current chatId
+      // (chatId may be undefined if URL was cleared in onSessionCreated)
+      lastSessionIdRef.current = realId;
+      navigateRef.current(`/chat/${realId}`, { replace: true });
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
       if (!isChatActiveRef.current) return;
-      if (chatIdRef.current === removedId) {
+      // Clear URL when current session is removed
+      // Check if removed session matches current session (by realId or sessionId)
+      const currentRealId = sessionApi.getRealIdForSession(
+        chatIdRef.current || "",
+      );
+      if (chatIdRef.current === removedId || currentRealId === removedId) {
         lastSessionIdRef.current = null;
         navigateRef.current("/chat", { replace: true });
       }
     };
 
-    sessionApi.onSessionSelected = (sessionId: string | null | undefined, realId: string | null) => {
+    sessionApi.onSessionSelected = (
+      sessionId: string | null | undefined,
+      realId: string | null,
+    ) => {
       if (!isChatActiveRef.current) return;
-      if (
-        sessionId &&
-        sessionId !== lastSessionIdRef.current &&
-        sessionId !== chatIdRef.current
-      ) {
-        lastSessionIdRef.current = realId;
-        navigateRef.current(`/chat/${realId}`, { replace: true });
+      // Update URL when session is selected and different from current
+      const targetId = realId || sessionId;
+      if (targetId && targetId !== lastSessionIdRef.current) {
+        lastSessionIdRef.current = targetId;
+        navigateRef.current(`/chat/${targetId}`, { replace: true });
       }
     };
 
-    sessionApi.onSessionCreated = (sessionId) => {
+    sessionApi.onSessionCreated = () => {
       if (!isChatActiveRef.current) return;
-      lastSessionIdRef.current = sessionId;
-      navigateRef.current(`/chat/${sessionId}`, { replace: true });
+      // Clear URL when creating new session, wait for realId resolution to update
+      lastSessionIdRef.current = null;
+      navigateRef.current("/chat", { replace: true });
     };
 
     return () => {
@@ -560,7 +567,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [
+    wrappedSessionApi,
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+  ]);
 
   return (
     <div

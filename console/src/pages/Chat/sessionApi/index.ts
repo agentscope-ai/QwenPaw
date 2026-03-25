@@ -372,7 +372,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Called when a session is selected from the session list.
    * Consumers can register here to update the URL when switching sessions.
    */
-  onSessionSelected: ((sessionId: string | null | undefined, realId: string | null) => void) | null = null;
+  onSessionSelected:
+    | ((sessionId: string | null | undefined, realId: string | null) => void)
+    | null = null;
 
   /**
    * Called when a new session is created.
@@ -494,6 +496,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.sessionListRequest;
   }
 
+  /** Track the last session ID that triggered onSessionSelected to avoid duplicate calls. */
+  private lastSelectedSessionId: string | null = null;
+
   async getSession(sessionId: string) {
     const existingRequest = this.sessionRequests.get(sessionId);
     if (existingRequest) return existingRequest;
@@ -502,7 +507,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.set(sessionId, requestPromise);
 
     try {
-      return await requestPromise;
+      const session = await requestPromise;
+      // Trigger onSessionSelected only when session actually changes
+      if (sessionId !== this.lastSelectedSessionId) {
+        this.lastSelectedSessionId = sessionId;
+        const extendedSession = session as ExtendedSession;
+        const realId = extendedSession.realId || null;
+        this.onSessionSelected?.(sessionId, realId);
+      }
+      return session;
     } finally {
       this.sessionRequests.delete(sessionId);
     }
@@ -653,6 +666,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.updateWindowVariables(extended);
     // this.sessionList.unshift(extended);
+    this.onSessionCreated?.(session.id);
     return this.sessionList;
   }
 
