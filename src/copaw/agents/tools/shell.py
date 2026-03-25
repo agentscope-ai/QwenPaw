@@ -6,11 +6,8 @@
 import asyncio
 import locale
 import os
-import re
-import signal
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -19,40 +16,6 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
-
-# Pattern to detect sudo commands that require password input
-# Matches 'sudo' but not 'sudo -n' (non-interactive mode)
-_SUDO_PASSWORD_PATTERN = re.compile(r'\bsudo\b(?!\s+-n)')
-
-# Common permission-related error patterns
-_PERMISSION_ERROR_PATTERNS = [
-    r'\[sudo\].*password',
-    r'Permission denied',
-    r'Operation not permitted',
-    r'Access denied',
-    r'Authentication failure',
-    r'sudo:.*a password is required',
-    r'is not in the sudoers file',
-]
-
-
-def _check_sudo_requires_password(cmd: str) -> bool:
-    """Check if command contains sudo that may require password.
-
-    Returns True if the command uses sudo without -n flag.
-    """
-    return bool(_SUDO_PASSWORD_PATTERN.search(cmd))
-
-
-def _check_permission_error(stderr: str, returncode: int) -> bool:
-    """Check if the error is related to permission issues."""
-    if returncode == 0:
-        return False
-    stderr_lower = stderr.lower()
-    return any(
-        re.search(pattern, stderr_lower, re.IGNORECASE)
-        for pattern in _PERMISSION_ERROR_PATTERNS
-    )
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -72,29 +35,6 @@ def _kill_process_tree_win32(pid: int) -> None:
         pass
 
 
-def _sanitize_win_cmd(cmd: str) -> str:
-    """Fix common LLM escaping artefacts for Windows ``cmd.exe``.
-
-    LLMs sometimes produce commands with backslash-escaped double quotes
-    (``\\"``) — valid in bash/JSON but meaningless to ``cmd.exe``.  When
-    *every* double-quote in the command is preceded by a backslash, it is
-    almost certainly a double-escape artefact, so we strip them.
-    """
-    if '\\"' in cmd and '"' not in cmd.replace('\\"', ""):
-        return cmd.replace('\\"', '"')
-    return cmd
-
-
-def _read_temp_file(path: str) -> str:
-    """Read a temporary output file and return its decoded content."""
-    try:
-        with open(path, "rb") as f:
-            return smart_decode(f.read())
-    except OSError:
-        return ""
-
-
-# pylint: disable=too-many-branches, too-many-statements
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
@@ -106,13 +46,10 @@ def _execute_subprocess_sync(
     This function runs in a separate thread to avoid Windows asyncio
     subprocess limitations.
 
-    stdout/stderr are redirected to temporary files instead of pipes.
-    On Windows, child processes inherit pipe handles and keep them open
-    even after the parent exits, which causes ``communicate()`` to block
-    until *all* holders close (e.g. a Chrome process launched via
-    ``Start-Process``).  With temp-file redirection, ``proc.wait()``
-    only waits for the direct child (``cmd.exe``) to exit, so commands
-    that spawn background processes return immediately.
+    Uses ``Popen`` directly instead of ``subprocess.run`` because the
+    latter's internal cleanup after a timeout calls ``communicate()``
+    **without** a timeout, which hangs when descendant processes still
+    hold the pipe handles open (e.g. ``notepad.exe``, ``cmd /k pause``).
 
     Args:
         cmd (`str`):
@@ -130,84 +67,59 @@ def _execute_subprocess_sync(
             standard error of the executed command. If timeout occurs, the
             return code will be -1 and stderr will contain timeout information.
     """
-    stdout_path: str | None = None
-    stderr_path: str | None = None
-    stdout_file = None
-    stderr_file = None
-
     try:
-        cmd = _sanitize_win_cmd(cmd)
         wrapped = f'cmd /D /S /C "{cmd}"'
-
-        stdout_fd, stdout_path = tempfile.mkstemp(prefix="copaw_out_")
-        stderr_fd, stderr_path = tempfile.mkstemp(prefix="copaw_err_")
-        stdout_file = os.fdopen(stdout_fd, "wb")
-        stderr_file = os.fdopen(stderr_fd, "wb")
-
-        proc = subprocess.Popen(  # pylint: disable=consider-using-with
+        with subprocess.Popen(
             wrapped,
             shell=False,
-            stdout=stdout_file,
-            stderr=stderr_file,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=False,
             cwd=cwd,
             env=env,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-        )
-
-        # Parent copies are no longer needed — the child inherited its own
-        # handles via CreateProcess.  Closing here avoids holding the files
-        # open longer than necessary.
-        stdout_file.close()
-        stdout_file = None
-        stderr_file.close()
-        stderr_file = None
-
-        timed_out = False
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _kill_process_tree_win32(proc.pid)
+        ) as proc:
             try:
-                proc.wait(timeout=5)
+                stdout, stderr = proc.communicate(timeout=timeout)
+                return (
+                    proc.returncode,
+                    smart_decode(stdout),
+                    smart_decode(stderr),
+                )
             except subprocess.TimeoutExpired:
+                _kill_process_tree_win32(proc.pid)
+
+                # Try to drain remaining output after the tree has been killed.
+                # The second communicate() should return quickly now that all
+                # writers are dead.  Guard with a timeout just in case.
                 try:
-                    proc.kill()
-                except OSError:
-                    pass
+                    stdout, stderr = proc.communicate(timeout=5)
+                    stdout_str = smart_decode(stdout)
+                    stderr_str = smart_decode(stderr)
+                except (subprocess.TimeoutExpired, OSError, ValueError):
+                    stdout_str, stderr_str = "", ""
+                    # Force-close pipes to unblock any lingering reader threads
+                    # spawned by the first communicate() call.
+                    for pipe in (proc.stdout, proc.stderr, proc.stdin):
+                        if pipe:
+                            try:
+                                pipe.close()
+                            except OSError:
+                                pass
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        pass
 
-        stdout_str = _read_temp_file(stdout_path)
-        stderr_str = _read_temp_file(stderr_path)
-
-        if timed_out:
-            timeout_msg = (
-                f"Command execution exceeded the timeout of {timeout} seconds."
-            )
-            if stderr_str:
-                stderr_str = f"{stderr_str}\n{timeout_msg}"
-            else:
-                stderr_str = timeout_msg
-            return -1, stdout_str, stderr_str
-
-        returncode = proc.returncode if proc.returncode is not None else -1
-        return returncode, stdout_str, stderr_str
+                timeout_msg = f"Command execution exceeded the timeout of {timeout} seconds."
+                if stderr_str:
+                    stderr_str = f"{stderr_str}\n{timeout_msg}"
+                else:
+                    stderr_str = timeout_msg
+                return -1, stdout_str, stderr_str
 
     except Exception as e:
         return -1, "", str(e)
-    finally:
-        for f in (stdout_file, stderr_file):
-            if f is not None:
-                try:
-                    f.close()
-                except OSError:
-                    pass
-        for path in (stdout_path, stderr_path):
-            if path is not None:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -241,16 +153,7 @@ async def execute_shell_command(
 
     cmd = (command or "").strip()
 
-    # Check for sudo commands that may require password
-    sudo_warning = ""
-    if _check_sudo_requires_password(cmd):
-        sudo_warning = (
-            "\n\n⚠️ WARNING: This command uses 'sudo' which may require a password. "
-            "In non-interactive environments, this will cause the command to hang indefinitely. "
-            "Consider using 'sudo -n' for non-interactive mode (will fail if password required), "
-            "or find alternative approaches that don't require elevated privileges."
-        )
-
+    # Set working directory
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
         working_dir = cwd
@@ -284,7 +187,6 @@ async def execute_shell_command(
                 bufsize=0,
                 cwd=str(working_dir),
                 env=env,
-                start_new_session=True,
             )
 
             try:
@@ -299,6 +201,7 @@ async def execute_shell_command(
                 returncode = proc.returncode
 
             except asyncio.TimeoutError:
+                # Handle timeout
                 stderr_suffix = (
                     f"⚠️ TimeoutError: The command execution exceeded "
                     f"the timeout of {timeout} seconds. "
@@ -307,17 +210,16 @@ async def execute_shell_command(
                 )
                 returncode = -1
                 try:
-                    # Kill the entire process group so that child processes
-                    # spawned by the shell are also terminated.
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, signal.SIGTERM)
+                    proc.terminate()
+                    # Wait a bit for graceful termination
                     try:
-                        await asyncio.wait_for(proc.wait(), timeout=2)
+                        await asyncio.wait_for(proc.wait(), timeout=1)
                     except asyncio.TimeoutError:
-                        os.killpg(pgid, signal.SIGKILL)
-                        await asyncio.wait_for(proc.wait(), timeout=2)
+                        # Force kill if graceful termination fails
+                        proc.kill()
+                        await proc.wait()
 
-                    # Drain remaining output.
+                    # Avoid hanging forever while draining pipes after timeout.
                     try:
                         stdout, stderr = await asyncio.wait_for(
                             proc.communicate(),
@@ -331,47 +233,28 @@ async def execute_shell_command(
                         stderr_str += f"\n{stderr_suffix}"
                     else:
                         stderr_str = stderr_suffix
-                except (ProcessLookupError, OSError):
-                    # Process already gone or pgid lookup failed — fall back
-                    # to direct kill on the process itself.
-                    try:
-                        proc.kill()
-                        await proc.wait()
-                    except (ProcessLookupError, OSError):
-                        pass
+                except ProcessLookupError:
                     stdout_str = ""
                     stderr_str = stderr_suffix
 
+        # Apply output truncation
+        # stdout_str = truncate_shell_output(stdout_str)
+        # stderr_str = truncate_shell_output(stderr_str)
+
+        # Format the response in a human-friendly way
         if returncode == 0:
+            # Success case: just show the output
             if stdout_str:
                 response_text = stdout_str
             else:
                 response_text = "Command executed successfully (no output)."
-            if stderr_str:
-                response_text += f"\n[stderr]\n{stderr_str}"
-            # Add sudo warning for successful commands that used sudo
-            if sudo_warning:
-                response_text += sudo_warning
         else:
+            # Error case: show detailed information
             response_parts = [f"Command failed with exit code {returncode}."]
             if stdout_str:
                 response_parts.append(f"\n[stdout]\n{stdout_str}")
             if stderr_str:
                 response_parts.append(f"\n[stderr]\n{stderr_str}")
-
-            # Check for permission-related errors and add helpful hint
-            if _check_permission_error(stderr_str, returncode):
-                response_parts.append(
-                    "\n\n💡 HINT: This appears to be a permission-related error. "
-                    "If you need elevated privileges, consider:\n"
-                    "  - Using 'sudo -n' for non-interactive mode (fails if password required)\n"
-                    "  - Checking if passwordless sudo is configured for this command\n"
-                    "  - Finding alternative approaches that don't require root privileges"
-                )
-            elif sudo_warning:
-                # Add sudo warning for failed commands too
-                response_parts.append(sudo_warning)
-
             response_text = "".join(response_parts)
 
         return ToolResponse(
