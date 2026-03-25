@@ -28,68 +28,77 @@ export const useAgentsData = () => {
   const [viewMode, setViewMode] = useState<"core" | "all">("core");
   // Track previous agent to distinguish agent-switch vs viewMode-switch
   const prevAgentRef = useRef<string | undefined>(undefined);
+  // Flag to skip the re-sort effect during bulk initialization
+  const isInitializingRef = useRef(false);
 
   useEffect(() => {
     const initializeData = async () => {
-      const previouslySelectedFilename = selectedFile?.filename;
-      const isAgentSwitch = selectedAgent !== prevAgentRef.current;
-      prevAgentRef.current = selectedAgent;
+      isInitializingRef.current = true;
+      try {
+        const previouslySelectedFilename = selectedFile?.filename;
+        const isAgentSwitch = selectedAgent !== prevAgentRef.current;
+        prevAgentRef.current = selectedAgent;
 
-      // When switching agents, clear everything including content and memory expansion
-      if (isAgentSwitch) {
-        setFileContent("");
-        setOriginalContent("");
-        setExpandedMemory(false);
-      }
-
-      // Fetch enabled files and file list concurrently
-      const [enabled, fileList] = await Promise.all([
-        fetchEnabledFiles(),
-        agentsApi.listAgentFiles(selectedAgent, viewMode === "all"),
-      ]);
-
-      const sortedFiles = sortFilesByEnabled(
-        fileList as unknown as MarkdownFile[],
-        enabled,
-      );
-      setFiles(sortedFiles);
-
-      // Set workspace path (handle both Unix '/' and Windows '\' separators)
-      if (fileList.length > 0) {
-        setWorkspacePath(getParentDir(fileList[0].path));
-      } else {
-        setWorkspacePath("");
-      }
-
-      if (previouslySelectedFilename) {
-        const sameFile = sortedFiles.find(
-          (f) => f.filename === previouslySelectedFilename,
-        );
-        if (sameFile) {
-          if (isAgentSwitch) {
-            // Agent switched: re-load file content from the new agent's workspace
-            await handleFileClick(sameFile);
-          } else {
-            // viewMode switched: file list changed but content is unchanged,
-            // just update the file reference (metadata may differ)
-            setSelectedFile(sameFile);
-          }
-        } else {
-          // File no longer visible in this view (e.g. all→core hides non-core files)
-          setSelectedFile(null);
+        // When switching agents, clear everything including content and memory expansion
+        if (isAgentSwitch) {
           setFileContent("");
           setOriginalContent("");
+          setExpandedMemory(false);
         }
-      } else {
-        setSelectedFile(null);
+
+        // Fetch enabled files and file list concurrently
+        const [enabled, fileList] = await Promise.all([
+          fetchEnabledFiles(),
+          agentsApi.listAgentFiles(selectedAgent, viewMode === "all"),
+        ]);
+
+        const sortedFiles = sortFilesByEnabled(
+          fileList as unknown as MarkdownFile[],
+          enabled,
+        );
+        setFiles(sortedFiles);
+
+        // Set workspace path (handle both Unix '/' and Windows '\' separators)
+        if (fileList.length > 0) {
+          setWorkspacePath(getParentDir(fileList[0].path));
+        } else {
+          setWorkspacePath("");
+        }
+
+        if (previouslySelectedFilename) {
+          const sameFile = sortedFiles.find(
+            (f) => f.filename === previouslySelectedFilename,
+          );
+          if (sameFile) {
+            if (isAgentSwitch) {
+              // Agent switched: re-load file content from the new agent's workspace
+              await handleFileClick(sameFile);
+            } else {
+              // viewMode switched: file list changed but content is unchanged,
+              // just update the file reference (metadata may differ)
+              setSelectedFile(sameFile);
+            }
+          } else {
+            // File no longer visible in this view (e.g. all→core hides non-core files)
+            setSelectedFile(null);
+            setFileContent("");
+            setOriginalContent("");
+          }
+        } else {
+          setSelectedFile(null);
+        }
+      } finally {
+        isInitializingRef.current = false;
       }
     };
     initializeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAgent, viewMode]);
 
-  // Re-sort when enabledFiles changes (for toggle/reorder operations)
+  // Re-sort when enabledFiles changes (for toggle/reorder operations only,
+  // skipped during bulk initialization to avoid redundant re-renders)
   useEffect(() => {
+    if (isInitializingRef.current) return;
     if (files.length > 0 && enabledFiles.length >= 0) {
       const sortedFiles = sortFilesByEnabled(files, enabledFiles);
 
