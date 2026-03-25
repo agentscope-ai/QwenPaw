@@ -137,7 +137,6 @@ function decodeUriPathSegments(path: string): string {
 
 /** Convert file URL to stored path for backend: keep full path after `/files/preview/`. */
 export function toStoredName(v: string): string {
-  console.log("*********\ntoStoredName", v);
   const marker = "/files/preview/";
   const idx = v.indexOf(marker);
   if (idx !== -1) {

@@ -376,8 +376,6 @@ export default function ChatPage() {
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
-
-      console.log("*********\nlastMsg", lastMsg);
       const rewrittenInput =
         lastMsg?.content && Array.isArray(lastMsg.content)
           ? [
@@ -388,7 +386,6 @@ export default function ChatPage() {
             ]
           : lastInput;
 
-      console.log("*********\nrewrittenInput", rewrittenInput);
       const requestBody = {
         input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",

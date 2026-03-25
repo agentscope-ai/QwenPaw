@@ -113,10 +113,9 @@ def _is_local_file_url(url: str) -> bool:
 def _abspath_from_url(url: str) -> str:
     """Extract absolute path from file:// URL."""
     s = url.strip()
-    if s.lower().startswith("file://"):
-        s = s[7:]  # 去掉 file://
-    elif s.lower().startswith("file:"):
-        s = s[5:]  # 去掉 file:
+    if s.lower().startswith("file:"):
+        s = s[5:]
+    s = "/" + s.lstrip("/")
     return s
 
 
