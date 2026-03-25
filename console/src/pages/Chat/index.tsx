@@ -278,7 +278,7 @@ export default function ChatPage() {
       }
     };
 
-    sessionApi.onSessionSelected = (sessionId, realId) => {
+    sessionApi.onSessionSelected = (sessionId: string | null | undefined, realId: string | null) => {
       if (!isChatActiveRef.current) return;
       if (
         sessionId &&

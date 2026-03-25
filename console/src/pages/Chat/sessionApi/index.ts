@@ -369,6 +369,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   onSessionRemoved: ((removedId: string) => void) | null = null;
 
   /**
+   * Called when a session is selected from the session list.
+   * Consumers can register here to update the URL when switching sessions.
+   */
+  onSessionSelected: ((sessionId: string | null | undefined, realId: string | null) => void) | null = null;
+
+  /**
+   * Called when a new session is created.
+   * Consumers can register here to update the URL with the new session id.
+   */
+  onSessionCreated: ((sessionId: string) => void) | null = null;
+
+  /**
    * When reconnecting to a running conversation, the backend history may not
    * include the latest user message (it's only persisted after generation
    * completes). If generating, look up the cached text from sessionStorage
@@ -641,6 +653,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.updateWindowVariables(extended);
     // this.sessionList.unshift(extended);
+    
+    // Trigger onSessionCreated callback
+    this.onSessionCreated?.(session.id);
+    
     return this.sessionList;
   }
 
