@@ -1,6 +1,6 @@
 ---
 name: pipeline-orchestration-specification
-description: "Comprehensive guide for CoPaw pipeline JSON schema, step definitions, validation rules, and composition best practices. Use when creating, editing, or discussing workflow orchestration templates."
+description: "Comprehensive guide for CoPaw pipeline JSON schema, step definitions, validation rules, and composition best practices. Use when creating, editing, or discussing workflow orchestration templates. Fill in the Quick Start context card on first turn to generate a pipeline JSON draft without multi-round clarification."
 metadata:
   copaw:
     emoji: "⚙️"
@@ -10,6 +10,21 @@ metadata:
 # Pipeline Specification & Orchestration
 
 Authoritative reference for composing, validating, and debugging CoPaw pipeline templates and runtime configurations.
+
+## Quick Start：一轮上下文填写卡
+
+首次创建流程时，直接填写以下 4 项，Agent 将**不再追问**，直接输出 pipeline JSON 草稿：
+
+| # | 项目 | 说明 | 示例 |
+|---|------|------|------|
+| 1 | **流程用途** | 处理什么数据、达成什么目标（1-2 句）| "对四本技术书做术语一致性对照，输出关系矩阵" |
+| 2 | **输入来源** | 数据格式 + 数量范围 | "4 个 markdown 文件，每书约 300 章节" |
+| 3 | **期望产物** | 终态结果类型 | "ui-payload.json + relation-matrix.md" |
+| 4 | **步骤线索** | 有则填，没有可跳过 | "分类→提取→映射→评审→导出" |
+
+> **收到以上 4 项后，Agent 直接输出 pipeline JSON 草稿，无需等待更多确认。**
+
+---
 
 ## Purpose
 
