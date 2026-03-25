@@ -50,12 +50,12 @@ export function CopawFinalCTA() {
       >
         <div className="flex min-h-125 md:min-h-150 h-full w-full items-center justify-center px-4">
           <div className="flex mx-auto w-full max-w-190">
-            <div className="relative min-h-75 overflow-hidden rounded-xl border border-[#ece5dc] bg-white px-5 pb-5 pt-5 shadow-[0_8px_24px_rgba(56,33,12,0.08)] sm:px-7 sm:pb-6 sm:pt-6 md:min-h-107.5 md:px-8 md:pb-7 md:pt-7">
-              <div className="relative z-10 h-[48%]">
+            <div className="relative min-h-75 w-full overflow-hidden rounded-xl border border-[#ece5dc] bg-white px-5 pb-5 pt-5 shadow-[0_8px_24px_rgba(56,33,12,0.08)] sm:px-7 sm:pb-6 sm:pt-6 md:min-h-107.5 md:px-8 md:pb-7 md:pt-7">
+              <div className="relative z-10 h-[48%] w-full">
                 <h2 className="font-newsreader text-[2rem] leading-[1.08] text-(--color-text) sm:text-[2.3rem]  md:text-[3.05rem]">
-                  Get your <em className="font-normal italic">paws up now</em>,
+                  Get your <em className="font-newsreader font-normal italic">paws up now</em>,
                   <br />
-                  work & grow your digital life.
+                  power your dev life.
                 </h2>
               </div>
               <a
