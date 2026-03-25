@@ -207,12 +207,15 @@ copaw env delete TAVILY_API_KEY
 
 ### copaw channels
 
-管理频道配置（iMessage / Discord / DingTalk / Feishu / QQ / Console 等）。
+管理频道配置（iMessage / Discord / DingTalk / Feishu / QQ / Console 等）并向频道发送消息。
 **说明**：交互式配置用 `config`（无 `configure` 子命令）；卸载自定义频道用 `remove`（无 `uninstall`）。
+
+**别名：** 可以用 `copaw channel`（单数）作为 `copaw channels` 的简写。
 
 | 命令                           | 说明                                                                            |
 | ------------------------------ | ------------------------------------------------------------------------------- |
 | `copaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
+| `copaw channels send`          | 向用户/会话单向发送消息（需要全部 5 个参数）                                    |
 | `copaw channels install <key>` | 在 `custom_channels/` 安装频道：创建模板，或用 `--path` / `--url` 安装          |
 | `copaw channels add <key>`     | 安装并加入 config；内置频道只写 config；支持 `--path` / `--url`                 |
 | `copaw channels remove <key>`  | 从 `custom_channels/` 删除自定义频道（内置不可删）；`--keep-config` 保留 config |
@@ -244,6 +247,97 @@ copaw channels config --agent-id abc123 # 交互式配置特定智能体
 | **Console**  | Bot 前缀                                                                   |
 
 > 各平台凭据的获取步骤，请看 [频道配置](./channels)。
+
+#### 向频道发送消息
+
+使用 `copaw channels send` 主动向用户/会话推送消息，支持所有已配置的频道。这是**单向发送** —— 不会返回回复。
+
+```bash
+# 第一步：查询可用会话
+copaw chats list --agent-id my_bot --channel feishu
+
+# 第二步：使用查询到的参数发送消息
+copaw channels send \
+  --agent-id my_bot \
+  --channel feishu \
+  --target-user ou_xxxx \
+  --target-session session_id_xxxx \
+  --text "任务已完成！"
+```
+
+**必填参数（全部 5 个）：**
+
+- `--agent-id`：发送方智能体 ID
+- `--channel`：目标频道（console/dingtalk/feishu/discord/imessage/qq）
+- `--target-user`：用户 ID（从 `copaw chats list` 获取）
+- `--target-session`：会话 ID（从 `copaw chats list` 获取）
+- `--text`：消息内容
+
+**重要提示：**
+
+- 发送前必须先用 `copaw chats list` 查询 —— 不要猜测 `target-user` 或 `target-session`
+- 如果有多个会话，优先使用最近更新的
+- 这仅用于主动通知；智能体间通信请用 `copaw agents chat`
+
+---
+
+## 智能体
+
+管理智能体并支持智能体间通信。
+
+### copaw agents
+
+**别名：** 可以用 `copaw agent`（单数）作为 `copaw agents` 的简写。
+
+| 命令                | 说明                                             |
+| ------------------- | ------------------------------------------------ |
+| `copaw agents list` | 列出所有已配置的智能体（ID、名称、描述、工作区） |
+| `copaw agents chat` | 与另一个智能体通信（双向，支持多轮对话）         |
+
+```bash
+# 列出所有智能体
+copaw agents list
+copaw agent list  # 单数别名效果相同
+
+# 与另一个智能体对话（单次）
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --text "请帮我分析这些数据"
+
+# 多轮对话（session 复用）
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --session-id collab_session_001 \
+  --text "继续上一个问题"
+
+# 流式模式（逐步返回）
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --text "长篇分析任务" \
+  --mode stream
+```
+
+**必填参数：**
+
+- `--from-agent`（别名：`--agent-id`）：你的智能体 ID（发送方）
+- `--to-agent`：目标智能体 ID（接收方）
+- `--text`：消息内容
+
+**可选参数：**
+
+- `--session-id`：多轮对话的会话 ID（省略时自动生成）
+- `--mode`：响应模式 —— `final`（默认，完整响应）或 `stream`（逐步返回）
+- `--base-url`：覆盖 API 地址
+
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。
+
+**与 `copaw channels send` 的区别：**
+
+- `copaw agents chat`：智能体间，双向，返回回复
+- `copaw channels send`：智能体到用户/频道，单向，无回复
 
 ---
 
@@ -456,7 +550,8 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | `copaw app`      | —                                                                                                                                      | —（启动服务本身） |
 | `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        否         |
 | `copaw env`      | `list` · `set` · `delete`                                                                                                              |        否         |
-| `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                              |      **是**       |
+| `copaw agents`   | `list` · `chat`                                                                                                                        |      **是**       |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        否         |

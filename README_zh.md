@@ -54,12 +54,14 @@
 
 ## 新闻
 
-[2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.1.0] 新增：** 多工作区架构，支持 Agent 切换器；技能安全扫描和危险 Shell 命令检测；可选 Web 认证；企业微信和小艺通道；钉钉 AI 卡片回复；Gemini、DeepSeek、MiniMax、Kimi 模型供应商；控制台暗色模式和多模态聊天；基于 SSE 的流式对话（支持重连）；Whisper 语音转文字；`view_image` 多模态对话工具；LobeHub、魔搭和 Zip 压缩包技能导入；`glob_search` 和 `grep_search` 内置搜索工具；时区选择器；`copaw update` 自升级命令。
-- **[v0.1.0] 优化：** 优雅的生命周期管理（Agent 零停机重载）；动态 Agent 级 Token 计数；配置加载保护；控制台多语言改进（含聊天提示词本地化）；Windows 桌面端字节码预编译加速启动；QQ 频道回复逻辑优化和私聊支持。
-- **[v0.1.0] 修复：** Telegram 消息线程、媒体处理和自动重连；Discord 跨频道消息合并和防抖泛化；飞书通道重载；Ollama/LM Studio 上下文长度和错误提示；定时任务工作区修复；聊天会话导航持久化；Windows 跨磁盘文件移动、AutoRun stderr 和 GBK 编码。
-- **[v0.1.0] 贡献者：** 感谢新贡献者：[@dipeshbabu](https://github.com/dipeshbabu)、[@sljeff](https://github.com/sljeff)、[@octo-patch](https://github.com/octo-patch)、[@Alexxigang](https://github.com/Alexxigang)、[@howyoungchen](https://github.com/howyoungchen)、[@nphenix](https://github.com/nphenix)、[@skyfaker](https://github.com/skyfaker)、[@hh0592821](https://github.com/hh0592821)、[@futuremeng](https://github.com/futuremeng)、[@toby1123yjh](https://github.com/toby1123yjh)、[@hiyuchang](https://github.com/hiyuchang)、[@hanson-hex](https://github.com/hanson-hex)、[@JackyMao1999](https://github.com/JackyMao1999)、[@mvanhorn](https://github.com/mvanhorn)、[@yuanxs21](https://github.com/yuanxs21)、[@aissac](https://github.com/aissac)、[@lcq225](https://github.com/lcq225)、[@Justin-lu](https://github.com/Justin-lu)、[@rowanchen-com](https://github.com/rowanchen-com)、[@pzlav](https://github.com/pzlav)、[@mautops](https://github.com/mautops)、[@hikariming](https://github.com/hikariming)、[@Vanlee0129](https://github.com/Vanlee0129)、[@JiwaniZakir](https://github.com/JiwaniZakir)、[@EuanTop](https://github.com/EuanTop)。
+- **[v0.2.0] 新增：** Agent 间通信；内置 QA Agent；LLM 自动重试配置；文件访问守卫（敏感路径防护）；控制台音视频与语音输入；页面刷新后流式重连；模型供应商搜索；多模态能力探测与 UI 标签；增强的 grep 和 glob 搜索；配置文件自动修复；摘要优化。
+- **[v0.2.0] 变更：** 稳定的提示词提升 KV Cache 命中率；CLI 启动加速；QQ 通道重构；QQ 和企业微信智能分块；QQ WebSocket 重连配置；暗色模式全面优化。
+- **[v0.2.0] 修复：** Windows Shell 命令挂起；Windows 文件路径处理；macOS 桌面端构建；通道消息处理锁泄漏；Agent 列表崩溃和刷新；控制台重连溢出；定时任务取消。
+- **[v0.2.0] 贡献者：** 感谢新贡献者：[@ixiadao](https://github.com/ixiadao)、[@leoleils](https://github.com/leoleils)、[@ltzu929](https://github.com/ltzu929)、[@emoubarak](https://github.com/emoubarak)、[@f3125472](https://github.com/f3125472)、[@shiweijiezero](https://github.com/shiweijiezero)、[@Yaohua-Leo](https://github.com/Yaohua-Leo)、[@finenter-molei](https://github.com/finenter-molei)、[@lizeruicq](https://github.com/lizeruicq)、[@hbsjmsjwj](https://github.com/hbsjmsjwj)、[@aquamarine-bot](https://github.com/aquamarine-bot)、[@sanfran1068](https://github.com/sanfran1068)、[@x1n95c](https://github.com/x1n95c)、[@saschabuehrle](https://github.com/saschabuehrle)。
+
+[2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
