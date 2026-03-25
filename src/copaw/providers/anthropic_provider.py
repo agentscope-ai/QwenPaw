@@ -28,11 +28,35 @@ class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
 
     def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
-        return anthropic.AsyncAnthropic(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            timeout=timeout,
-        )
+        kwargs: dict = {
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "timeout": timeout,
+        }
+        if self.base_url and "api.anthropic.com" not in self.base_url:
+            try:
+                import httpx
+
+                class _StripSDKHeadersTransport(httpx.AsyncHTTPTransport):
+                    async def handle_async_request(self, request):
+                        filtered = [
+                            item for item in request.headers._list
+                            if not item[0].lower().startswith(b"x-stainless")
+                            and item[0].lower() != b"user-agent"
+                        ]
+                        filtered.append(
+                            (b"user-agent", b"user-agent", b"python-httpx/0.27.0")
+                        )
+                        object.__setattr__(request.headers, "_list", filtered)
+                        return await super().handle_async_request(request)
+
+                kwargs["http_client"] = httpx.AsyncClient(
+                    transport=_StripSDKHeadersTransport()
+                )
+                kwargs["default_headers"] = {"x-api-key": self.api_key}
+            except Exception:
+                pass
+        return anthropic.AsyncAnthropic(**kwargs)
 
     @staticmethod
     def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
