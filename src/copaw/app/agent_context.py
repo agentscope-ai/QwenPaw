@@ -54,10 +54,28 @@ async def get_agent_for_request(
     if not target_agent_id:
         target_agent_id = request.headers.get("X-Agent-Id")
 
+    # Load config once for fallback and validation
+    config = None
     if not target_agent_id:
         # Fallback to active agent from config
         config = load_config()
         target_agent_id = config.agents.active_agent or "default"
+
+    # Check if agent exists and is enabled
+    if config is None:
+        config = load_config()
+    if target_agent_id not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{target_agent_id}' not found",
+        )
+
+    agent_ref = config.agents.profiles[target_agent_id]
+    if not getattr(agent_ref, "enabled", True):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Agent '{target_agent_id}' is disabled",
+        )
 
     # Get MultiAgentManager
     if not hasattr(request.app.state, "multi_agent_manager"):
@@ -76,6 +94,11 @@ async def get_agent_for_request(
                 detail=f"Agent '{target_agent_id}' not found",
             )
         return workspace
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e),
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=500,

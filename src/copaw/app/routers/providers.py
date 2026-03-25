@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List, Literal, Optional
 from copy import deepcopy
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
+from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
@@ -447,30 +449,51 @@ async def set_active_model(
     manager: ProviderManager = Depends(get_provider_manager),
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
-    """Set active model for current agent."""
-    # Validate provider and model exist
-    try:
-        await manager.activate_model(body.provider_id, body.model)
-    except ValueError as exc:
-        message = str(exc)
-        lower_msg = message.lower()
-        if "provider" in lower_msg and "not found" in lower_msg:
-            raise HTTPException(status_code=404, detail=message) from exc
-        raise HTTPException(status_code=400, detail=message) from exc
-
-    # Save to agent config
-    try:
-        workspace = await get_agent_for_request(request)
-        agent_config = load_agent_config(workspace.agent_id)
-        agent_config.active_model = ModelSlotConfig(
-            provider_id=body.provider_id,
-            model=body.model,
+    """Set active model for current agent (agent-specific, no global save)."""
+    # Validate provider and model exist (but don't save to global config)
+    provider = manager.get_provider(body.provider_id)
+    if not provider:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{body.provider_id}' not found.",
         )
-        save_agent_config(workspace.agent_id, agent_config)
-    except Exception as e:
-        # Log warning but don't fail the request
-        logger.warning(
-            f"Failed to save active model to agent config: {e}",
+    if not provider.has_model(body.model):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Model '{body.model}' not found in provider "
+                f"'{body.provider_id}'."
+            ),
         )
 
-    return ActiveModelsInfo(active_llm=manager.get_active_model())
+    # Save to agent-specific config only
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    agent_config.active_model = ModelSlotConfig(
+        provider_id=body.provider_id,
+        model=body.model,
+    )
+    save_agent_config(workspace.agent_id, agent_config)
+    logger.info(
+        f"Set active model for agent {workspace.agent_id}: "
+        f"{body.provider_id}/{body.model}",
+    )
+
+    # Hot reload agent (async, non-blocking)
+    schedule_agent_reload(request, workspace.agent_id)
+
+    # Auto-probe multimodal if not yet probed (async, don't block)
+    if not provider.is_local:
+        for model in provider.models + provider.extra_models:
+            if model.id == body.model and model.supports_multimodal is None:
+                # pylint: disable=protected-access
+                asyncio.create_task(
+                    manager._auto_probe_multimodal(
+                        body.provider_id,
+                        body.model,
+                    ),
+                )
+                break
+
+    # Return agent-specific config, not global
+    return ActiveModelsInfo(active_llm=agent_config.active_model)

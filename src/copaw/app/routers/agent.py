@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
-import asyncio
-import logging
-
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..utils import schedule_agent_reload
 from ...config import (
     load_config,
     save_config,
@@ -556,6 +554,10 @@ async def put_agents_running_config(
     if previous_enabled != running_config.knowledge_enabled:
         sync_knowledge_module_skills(running_config.knowledge_enabled)
     save_agent_config(workspace.agent_id, agent_config)
+
+    # Hot reload config (async, non-blocking)
+    schedule_agent_reload(request, workspace.agent_id)
+
     return running_config
 
 
@@ -594,19 +596,6 @@ async def put_system_prompt_files(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager before creating background task to avoid
-    # accessing request object after its lifecycle ends
-    manager = request.app.state.multi_agent_manager
-    agent_id = workspace.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, workspace.agent_id)
 
     return files

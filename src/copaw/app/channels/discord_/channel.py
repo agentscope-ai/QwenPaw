@@ -7,6 +7,7 @@ import logging
 import asyncio
 import re
 import tempfile
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Optional
@@ -41,6 +42,7 @@ class DiscordChannel(BaseChannel):
     channel = "discord"
     uses_manager_queue = True
     _DISCORD_MAX_LEN: int = 2000
+    _MAX_CACHED_MESSAGE_IDS: int = 500
 
     def __init__(
         self,
@@ -79,6 +81,8 @@ class DiscordChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._task: Optional[asyncio.Task] = None
         self._client = None
+        self._processed_message_ids: set[str] = set()
+        self._processed_message_id_queue: deque[str] = deque()
 
         if self.enabled:
             import discord  # type: ignore
@@ -104,6 +108,21 @@ class DiscordChannel(BaseChannel):
             async def on_message(message):
                 if message.author.bot:
                     return
+                msg_id = str(message.id)
+                if msg_id in self._processed_message_ids:
+                    logger.debug(
+                        "discord: duplicate message %s skipped",
+                        msg_id,
+                    )
+                    return
+                if (
+                    len(self._processed_message_ids)
+                    >= self._MAX_CACHED_MESSAGE_IDS
+                ):
+                    oldest = self._processed_message_id_queue.popleft()
+                    self._processed_message_ids.discard(oldest)
+                self._processed_message_ids.add(msg_id)
+                self._processed_message_id_queue.append(msg_id)
                 text = (message.content or "").strip()
                 attachments = message.attachments
 

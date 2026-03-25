@@ -170,7 +170,7 @@ export const createColumns = (
       width: 140,
     },
     {
-      title: handlers.t("cronJobs.taskText"),
+      title: handlers.t("cronJobs.text"),
       dataIndex: "text",
       key: "text",
       width: 200,
@@ -187,7 +187,7 @@ export const createColumns = (
       },
     },
     {
-      title: "RequestInput",
+      title: handlers.t("cronJobs.requestInput"),
       dataIndex: ["request", "input"],
       key: "request_input",
       width: 350,

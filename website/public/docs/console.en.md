@@ -162,11 +162,11 @@ Click **Delete** → confirm.
 Edit files that define CoPaw's persona and behavior, such as `SOUL.md`,
 `AGENTS.md`, and `HEARTBEAT.md`, directly in the browser.
 
-> **Multi-Agent Workspace:** Starting from **v0.1.0**, CoPaw supports
-> **multi-agent workspace** functionality. You can run multiple independent
+> **Multi-Agent:** Starting from **v0.1.0**, CoPaw supports
+> **multi-agent** functionality. You can run multiple independent
 > agents in a single CoPaw instance, each with its own workspace, configuration,
-> memory, and conversation history. Use the agent switcher at the top of the
-> console to change the active agent. See [Multi-Agent Workspace](./multi-agent)
+> memory, and conversation history. Agents can also collaborate with each other. Use the agent switcher at the top of the
+> console to change the active agent. See [Multi-Agent](./multi-agent)
 > for details.
 
 ![Workspace](https://img.alicdn.com/imgextra/i3/O1CN01APrwdP1NqT9CKJMFt_!!6000000001621-2-tps-3822-2070.png)
@@ -464,4 +464,4 @@ Ask CoPaw directly, e.g. "How many tokens have I used recently?" or "Show me tok
 - [Skills](./skills) — Built-in skills and custom skills
 - [Heartbeat](./heartbeat) — Heartbeat configuration
 - [CLI](./cli) — Command-line reference
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration

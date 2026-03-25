@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Union
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -15,7 +15,12 @@ from ...config import get_heartbeat_config
 
 from ..console_push_store import append as push_store_append
 from .executor import CronExecutor
-from .heartbeat import parse_heartbeat_every, run_heartbeat_once
+from .heartbeat import (
+    is_cron_expression,
+    parse_heartbeat_cron,
+    parse_heartbeat_every,
+    run_heartbeat_once,
+)
 from .models import CronJobSpec, CronJobState
 from .repo.base import BaseJobRepository
 
@@ -114,19 +119,20 @@ class CronManager:
                     self._states[job.id] = st
                     self._rt.pop(job.id, None)
 
-            # Heartbeat: one interval job when enabled in config
+            # Heartbeat: scheduled job when enabled in config
             hb = get_heartbeat_config(self._agent_id)
             if getattr(hb, "enabled", False):
-                interval_seconds = parse_heartbeat_every(hb.every)
+                trigger = self._build_heartbeat_trigger(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
-                    trigger=IntervalTrigger(seconds=interval_seconds),
+                    trigger=trigger,
                     id=HEARTBEAT_JOB_ID,
                     replace_existing=True,
                 )
                 logger.info(
-                    f"Heartbeat job scheduled for agent {self._agent_id}: "
-                    f"every={hb.every} (interval={interval_seconds}s)",
+                    "Heartbeat job scheduled for agent %s: every=%s",
+                    self._agent_id,
+                    hb.every,
                 )
 
             self._started = True
@@ -197,17 +203,16 @@ class CronManager:
 
             # Add heartbeat job if enabled
             if getattr(hb, "enabled", False):
-                interval_seconds = parse_heartbeat_every(hb.every)
+                trigger = self._build_heartbeat_trigger(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
-                    trigger=IntervalTrigger(seconds=interval_seconds),
+                    trigger=trigger,
                     id=HEARTBEAT_JOB_ID,
                     replace_existing=True,
                 )
                 logger.info(
-                    "heartbeat rescheduled: every=%s (interval=%ss)",
+                    "heartbeat rescheduled: every=%s",
                     hb.every,
-                    interval_seconds,
                 )
             else:
                 logger.info("heartbeat disabled, job removed")
@@ -315,6 +320,27 @@ class CronManager:
             timezone=spec.schedule.timezone,
         )
 
+    def _build_heartbeat_trigger(
+        self,
+        every: str,
+    ) -> Union[CronTrigger, IntervalTrigger]:
+        """Build a trigger from the heartbeat *every* value.
+
+        Returns CronTrigger for cron expressions,
+        IntervalTrigger for interval strings.
+        """
+        if is_cron_expression(every):
+            minute, hour, day, month, day_of_week = parse_heartbeat_cron(every)
+            return CronTrigger(
+                minute=minute,
+                hour=hour,
+                day=day,
+                month=month,
+                day_of_week=day_of_week,
+            )
+        interval_seconds = parse_heartbeat_every(every)
+        return IntervalTrigger(seconds=interval_seconds)
+
     async def _scheduled_callback(self, job_id: str) -> None:
         job = await self._repo.get_job(job_id)
         if not job:
@@ -385,5 +411,5 @@ class CronManager:
                 )
                 raise
             finally:
-                st.last_run_at = datetime.now(UTC)
+                st.last_run_at = datetime.now(timezone.utc)
                 self._states[job.id] = st

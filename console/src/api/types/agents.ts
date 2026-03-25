@@ -191,6 +191,7 @@ export interface AgentSummary {
   name: string;
   description: string;
   workspace_dir: string;
+  enabled: boolean;
   project_count?: number;
   projects?: AgentProjectSummary[];
 }
