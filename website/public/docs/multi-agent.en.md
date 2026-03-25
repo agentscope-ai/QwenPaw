@@ -302,6 +302,7 @@ User: Please ask the code assistant to review this code
 ```
 
 The current agent will:
+
 1. Identify that the user wants to involve "code assistant"
 2. Query the available agent list
 3. Send a review request to "code assistant"
