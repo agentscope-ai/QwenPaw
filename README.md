@@ -134,6 +134,12 @@ To install with multiple extras (e.g., Ollama + llama.cpp):
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
 ```
 
+To install with Whisper support (local speech-to-text):
+
+```bash
+curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras whisper
+```
+
 **Windows (CMD):**
 
 ```CMD
@@ -193,6 +199,7 @@ curl -fsSL ... | bash -s -- --from-source
 # With local model support
 bash install.sh --extras llamacpp    # llama.cpp (cross-platform)
 bash install.sh --extras mlx         # MLX (Apple Silicon)
+bash install.sh --extras whisper     # Whisper (local speech-to-text)
 bash install.sh --extras llamacpp,mlx
 
 # Upgrade — just re-run the installer
@@ -346,6 +353,7 @@ CoPaw can run LLMs entirely on your machine — no API keys or cloud services re
 | **llama.cpp** | Cross-platform (macOS / Linux / Windows) | `pip install 'copaw[llamacpp]'` or `bash install.sh --extras llamacpp` |
 | **MLX**       | Apple Silicon Macs (M1/M2/M3/M4)         | `pip install 'copaw[mlx]'` or `bash install.sh --extras mlx`         |
 | **Ollama**    | Cross-platform (requires Ollama service) | `pip install 'copaw[ollama]'` or `bash install.sh --extras ollama`   |
+| **Whisper**   | Cross-platform (local speech-to-text)    | `pip install 'copaw[whisper]'` or `bash install.sh --extras whisper` |
 
 After installing, you can download and manage local models in the **Console** UI. You can also use the command line:
 
