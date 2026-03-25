@@ -103,7 +103,9 @@ export default function AgentSelector() {
                 </div>
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
-                    <span className={styles.agentOptionNameText}>{agent.name}</span>
+                    <span className={styles.agentOptionNameText}>
+                      {agent.name}
+                    </span>
                     {agent.id === selectedAgent && (
                       <CheckCircle
                         size={14}
