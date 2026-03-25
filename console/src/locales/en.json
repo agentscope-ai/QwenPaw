@@ -45,6 +45,7 @@
     "environments": "Environments",
     "security": "Security",
     "tokenUsage": "Token Usage",
+    "defaultSkills": "Built-in Skills",
     "voiceTranscription": "Voice Transcription"
   },
   "voiceTranscription": {
@@ -201,7 +202,9 @@
     "uploadFailed": "Skill upload failed",
     "uploadNoChange": "No new skills were imported. They may already exist.",
     "zipOnly": "Only .zip files are supported for upload",
-    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB"
+    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB",
+    "pleaseProvideUrl": "Please provide a skill URL",
+    "invalidUrlProtocol": "Please enter a valid URL starting with http:// or https://"
   },
   "mcp": {
     "title": "MCP Clients",
@@ -941,5 +944,38 @@
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
     "usernameEmpty": "Username cannot be blank"
+  },
+  "defaultSkills": {
+    "title": "Built-in Skills",
+    "description": "Manage CoPaw's built-in and inactive skills",
+    "searchPlaceholder": "Search skills...",
+    "upload": "Upload Skill",
+    "importFromHub": "Import Skill",
+    "create": "Create Skill",
+    "statusEnabled": "Enabled for current Agent",
+    "statusDisabled": "Disabled for current Agent",
+    "builtin": "Built-in",
+    "inactive": "Inactive",
+    "enableInAgent": "Enable for current Agent",
+    "moveToInactive": "Move to Inactive",
+    "moveToBuiltin": "Move to Built-in",
+    "loadFailed": "Failed to load built-in skills",
+    "enabledSuccess": "Skill enabled",
+    "disabledSuccess": "Skill disabled",
+    "toggleFailed": "Action failed",
+    "movedToInactive": "Moved to inactive",
+    "movedToBuiltin": "Moved to built-in",
+    "moveFailed": "Move failed",
+    "deleteConfirmTitle": "Confirm Delete",
+    "deleteConfirmContent": "Are you sure you want to delete this skill? This action cannot be undone.",
+    "deletedSuccess": "Skill deleted",
+    "deleteFailed": "Delete failed",
+    "uploadSuccess": "Successfully imported {{count}} skill(s)",
+    "uploadFailed": "Upload failed",
+    "noSkillsImported": "No skills were imported",
+    "createComingSoon": "Create feature coming soon",
+    "importComingSoon": "Import from Hub coming soon",
+    "noResults": "No matching skills found",
+    "noSkills": "No skills yet"
   }
 }

@@ -45,6 +45,7 @@
     "environments": "环境变量",
     "security": "安全",
     "tokenUsage": "Token 消耗",
+    "defaultSkills": "内置技能",
     "voiceTranscription": "语音转写"
   },
   "workspace": {
@@ -167,7 +168,9 @@
     "uploadFailed": "技能上传失败",
     "uploadNoChange": "没有导入新技能，可能已存在相同技能",
     "zipOnly": "仅支持上传 .zip 文件",
-    "fileSizeExceeded": "文件大小超过 100MB 限制。当前文件：{{size}}MB"
+    "fileSizeExceeded": "文件大小超过 100MB 限制。当前文件：{{size}}MB",
+    "pleaseProvideUrl": "请提供技能 URL",
+    "invalidUrlProtocol": "请输入以 http:// 或 https:// 开头的有效 URL"
   },
   "mcp": {
     "title": "MCP 客户端",
@@ -907,6 +910,39 @@
     "nothingToUpdate": "请输入新用户名或新密码",
     "passwordEmpty": "密码不能为空白",
     "usernameEmpty": "用户名不能为空白"
+  },
+  "defaultSkills": {
+    "title": "内置技能",
+    "description": "管理 CoPaw 的内置和非内置技能",
+    "searchPlaceholder": "搜索技能...",
+    "upload": "上传技能",
+    "importFromHub": "导入技能",
+    "create": "创建技能",
+    "statusEnabled": "当前 Agent 已启用",
+    "statusDisabled": "当前 Agent 未启用",
+    "builtin": "内置技能",
+    "inactive": "非内置",
+    "enableInAgent": "在当前 Agent 启用",
+    "moveToInactive": "移动到非内置",
+    "moveToBuiltin": "移动到内置",
+    "loadFailed": "加载内置技能失败",
+    "enabledSuccess": "已启用技能",
+    "disabledSuccess": "已禁用技能",
+    "toggleFailed": "操作失败",
+    "movedToInactive": "已移动到非内置",
+    "movedToBuiltin": "已移动到内置",
+    "moveFailed": "移动失败",
+    "deleteConfirmTitle": "确认删除",
+    "deleteConfirmContent": "确定要删除这个技能吗？此操作不可撤销。",
+    "deletedSuccess": "已删除技能",
+    "deleteFailed": "删除失败",
+    "uploadSuccess": "成功导入 {{count}} 个技能",
+    "uploadFailed": "上传失败",
+    "noSkillsImported": "没有导入任何技能",
+    "createComingSoon": "创建功能即将上线",
+    "importComingSoon": "从 Hub 导入功能即将上线",
+    "noResults": "没有找到匹配的技能",
+    "noSkills": "暂无技能"
   },
   "voiceTranscription": {
     "title": "语音转写",

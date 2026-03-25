@@ -34,6 +34,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   security: "/security",
   "token-usage": "/token-usage",
   "voice-transcription": "/voice-transcription",
+  "default-skills": "/default-skills",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {
