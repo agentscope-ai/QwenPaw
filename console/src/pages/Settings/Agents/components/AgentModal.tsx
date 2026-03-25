@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { Modal, Form, Input, Button, Space, Typography, Empty, Spin } from "antd";
+import {
+  Modal,
+  Form,
+  Input,
+  Button,
+  Space,
+  Typography,
+  Empty,
+  Spin,
+} from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
@@ -71,14 +80,18 @@ export function AgentModal({
 
   const handleSelectAll = () => {
     const allNames = poolSkills.map((s) => s.name);
-    onSelectedSkillsChange(Array.from(new Set([...installedSkills, ...allNames])));
+    onSelectedSkillsChange(
+      Array.from(new Set([...installedSkills, ...allNames])),
+    );
   };
 
   const handleSelectBuiltin = () => {
     const builtinNames = poolSkills
       .filter((s) => s.source === "builtin")
       .map((s) => s.name);
-    onSelectedSkillsChange(Array.from(new Set([...installedSkills, ...builtinNames])));
+    onSelectedSkillsChange(
+      Array.from(new Set([...installedSkills, ...builtinNames])),
+    );
   };
 
   const handleSelectNone = () => {
@@ -140,7 +153,9 @@ export function AgentModal({
           }}
         >
           <Text type="secondary" style={{ fontSize: 13 }}>
-            {editingAgent ? t("agent.addSkillsToAgent") : t("agent.initialSkills")}
+            {editingAgent
+              ? t("agent.addSkillsToAgent")
+              : t("agent.initialSkills")}
           </Text>
           <Space size={4}>
             <Button size="small" type="text" onClick={handleSelectAll}>
@@ -168,7 +183,8 @@ export function AgentModal({
           <div className={styles.pickerGrid}>
             {poolSkills.map((skill) => {
               const selected = selectedSkills.includes(skill.name);
-              const isInstalled = !!editingAgent && installedSkills.includes(skill.name);
+              const isInstalled =
+                !!editingAgent && installedSkills.includes(skill.name);
               return (
                 <div
                   key={skill.name}

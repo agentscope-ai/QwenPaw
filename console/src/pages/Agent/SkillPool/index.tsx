@@ -885,7 +885,11 @@ function SkillPoolPage() {
       <Drawer
         width={520}
         placement="right"
-        title={mode === "edit" ? t("skillPool.editTitle", { name: activeSkill?.name || "" }) : t("skillPool.createTitle")}
+        title={
+          mode === "edit"
+            ? t("skillPool.editTitle", { name: activeSkill?.name || "" })
+            : t("skillPool.createTitle")
+        }
         open={mode === "create" || mode === "edit"}
         onClose={closeDrawer}
         destroyOnClose
@@ -904,7 +908,10 @@ function SkillPoolPage() {
             label={t("skillPool.skillName")}
             rules={[{ required: true, message: t("skills.pleaseInputName") }]}
           >
-            <Input placeholder={t("skillPool.skillNamePlaceholder")} disabled={mode === "edit"} />
+            <Input
+              placeholder={t("skillPool.skillNamePlaceholder")}
+              disabled={mode === "edit"}
+            />
           </Form.Item>
 
           <Form.Item

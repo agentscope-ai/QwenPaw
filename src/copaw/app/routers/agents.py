@@ -581,7 +581,7 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     workspace_dir: Path,
     agent_config: AgentProfileConfig,  # pylint: disable=unused-argument
     *,
-    active_skill_names: list[str] | None = None,
+    skill_names: list[str] | None = None,
     builtin_qa_md_seed: bool = False,
 ) -> None:
     """Initialize agent workspace (similar to copaw init --defaults).
@@ -589,9 +589,9 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     Args:
         workspace_dir: Path to agent workspace
         agent_config: Agent configuration (reserved for future use)
-        active_skill_names: If set, only these skills are synced to
-            ``active_skills``; others are removed. If ``None``, copy all
-            builtin skills when missing (default for new agents).
+        skill_names: If set, only these skills are copied from the
+            pool into the workspace. If ``None``, skip skill seeding
+            (default for new agents).
         builtin_qa_md_seed: If True, seed the builtin QA persona from
             ``md_files/qa/<lang>/`` (AGENTS, PROFILE, SOUL), copy MEMORY and
             HEARTBEAT from the normal language pack, and **omit** BOOTSTRAP.md
@@ -631,6 +631,21 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
                     )
 
     _ensure_default_heartbeat_md(workspace_dir, language)
+
+    if skill_names is not None:
+        from ...agents.skills_manager import (
+            get_skill_pool_dir,
+            reconcile_workspace_manifest,
+        )
+
+        pool_dir = get_skill_pool_dir()
+        skills_dir = workspace_dir / "skills"
+        for name in skill_names:
+            source = pool_dir / name
+            target = skills_dir / name
+            if source.exists() and not target.exists():
+                shutil.copytree(source, target)
+        reconcile_workspace_manifest(workspace_dir)
 
     # Create empty jobs.json for cron jobs
     jobs_file = workspace_dir / "jobs.json"

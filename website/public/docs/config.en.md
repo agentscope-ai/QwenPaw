@@ -49,18 +49,18 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent**. When you run `copaw in
 
 **Agent Workspace (`~/.copaw/workspaces/{agent_id}/`)**
 
-| File / Directory     | Purpose                                                      |
-| -------------------- | ------------------------------------------------------------ |
-| `agent.json`         | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
-| `chats.json`         | Conversation history                                         |
-| `jobs.json`          | Cron job list                                                |
-| `token_usage.json`   | Token usage records                                          |
-| `AGENTS.md`          | _(required)_ Detailed workflows, rules, and guidelines       |
-| `SOUL.md`            | _(required)_ Core identity and behavioral principles         |
-| `skills/`            | Skills available in this workspace                           |
-| `skill.json`         | Per-workspace enabled state, channels, and skill metadata    |
-| `memory/`            | Memory files (auto-managed)                                  |
-| `browser/`           | Browser user data (cookies, cache, localStorage, etc.)       |
+| File / Directory   | Purpose                                                      |
+| ------------------ | ------------------------------------------------------------ |
+| `agent.json`       | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
+| `chats.json`       | Conversation history                                         |
+| `jobs.json`        | Cron job list                                                |
+| `token_usage.json` | Token usage records                                          |
+| `AGENTS.md`        | _(required)_ Detailed workflows, rules, and guidelines       |
+| `SOUL.md`          | _(required)_ Core identity and behavioral principles         |
+| `skills/`          | Skills available in this workspace                           |
+| `skill.json`       | Per-workspace enabled state, channels, and skill metadata    |
+| `memory/`          | Memory files (auto-managed)                                  |
+| `browser/`         | Browser user data (cookies, cache, localStorage, etc.)       |
 
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
