@@ -69,6 +69,8 @@ class AnthropicProvider(Provider):
             client = self._client(timeout=timeout)
             await client.models.list()
             return True, ""
+        except anthropic.NotFoundError:
+            return True, ""
         except anthropic.APIError:
             return False, "Anthropic API error"
         except Exception:
