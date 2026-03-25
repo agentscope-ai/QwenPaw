@@ -6,6 +6,7 @@ Provides RESTful API for managing multiple agent instances.
 import asyncio
 import json
 import logging
+import shutil
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
@@ -20,6 +21,11 @@ from ...config.config import (
 )
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
+from ...agents.skills_manager import (
+    prune_active_skills,
+    sync_skills_to_working_dir,
+)
+from ...agents.utils import copy_builtin_qa_md_files
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -78,6 +84,43 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
     return request.app.state.multi_agent_manager
 
 
+def _read_profile_description(workspace_dir: str) -> str:
+    """Read description from PROFILE.md if exists.
+
+    Extracts identity section from PROFILE.md as fallback description.
+
+    Args:
+        workspace_dir: Path to agent workspace
+
+    Returns:
+        Description text from PROFILE.md, or empty string if not found
+    """
+    try:
+        profile_path = Path(workspace_dir) / "PROFILE.md"
+        if not profile_path.exists():
+            return ""
+
+        content = profile_path.read_text(encoding="utf-8")
+        lines = []
+        in_identity = False
+
+        for line in content.split("\n"):
+            if line.strip().startswith("## 身份") or line.strip().startswith(
+                "## Identity",
+            ):
+                in_identity = True
+                continue
+            if in_identity:
+                if line.strip().startswith("##"):
+                    break
+                if line.strip() and not line.strip().startswith("#"):
+                    lines.append(line.strip())
+
+        return " ".join(lines)[:200] if lines else ""
+    except Exception:  # noqa: E722
+        return ""
+
+
 @router.get(
     "",
     response_model=AgentListResponse,
@@ -93,11 +136,23 @@ async def list_agents() -> AgentListResponse:
         # Load agent config to get name and description
         try:
             agent_config = load_agent_config(agent_id)
+            description = agent_config.description or ""
+
+            # Always read PROFILE.md and append/merge
+            profile_desc = _read_profile_description(agent_ref.workspace_dir)
+            if profile_desc:
+                if description.strip():
+                    # Both exist: merge with separator
+                    description = f"{description.strip()} | {profile_desc}"
+                else:
+                    # Only PROFILE.md exists
+                    description = profile_desc
+
             agents.append(
                 AgentSummary(
                     id=agent_id,
                     name=agent_config.name,
-                    description=agent_config.description,
+                    description=description,
                     workspace_dir=agent_ref.workspace_dir,
                 ),
             )
@@ -420,18 +475,59 @@ async def list_agent_memory(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _ensure_default_heartbeat_md(workspace_dir: Path, language: str) -> None:
+    """Write a default HEARTBEAT.md when the workspace has none."""
+    heartbeat_file = workspace_dir / "HEARTBEAT.md"
+    if heartbeat_file.exists():
+        return
+    default_by_lang = {
+        "zh": """# Heartbeat checklist
+- 扫描收件箱紧急邮件
+- 查看未来 2h 的日历
+- 检查待办是否卡住
+- 若安静超过 8h，轻量 check-in
+""",
+        "en": """# Heartbeat checklist
+- Scan inbox for urgent email
+- Check calendar for next 2h
+- Check tasks for blockers
+- Light check-in if quiet for 8h
+""",
+        "ru": """# Heartbeat checklist
+- Проверить входящие на срочные письма
+- Просмотреть календарь на ближайшие 2 часа
+- Проверить задачи на наличие блокировок
+- Лёгкая проверка при отсутствии активности более 8 часов
+""",
+    }
+    content = default_by_lang.get(language, default_by_lang["en"])
+    with open(heartbeat_file, "w", encoding="utf-8") as f:
+        f.write(content.strip())
+
+
 def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     workspace_dir: Path,
     agent_config: AgentProfileConfig,  # pylint: disable=unused-argument
+    *,
+    active_skill_names: list[str] | None = None,
+    builtin_qa_md_seed: bool = False,
 ) -> None:
     """Initialize agent workspace (similar to copaw init --defaults).
 
     Args:
         workspace_dir: Path to agent workspace
         agent_config: Agent configuration (reserved for future use)
+        active_skill_names: If set, only these skills are synced to
+            ``active_skills``; others are removed. If ``None``, copy all
+            builtin skills when missing (default for new agents).
+        builtin_qa_md_seed: If True, seed the builtin QA persona from
+            ``md_files/qa/<lang>/`` (AGENTS, PROFILE, SOUL), copy MEMORY and
+            HEARTBEAT from the normal language pack, and **omit** BOOTSTRAP.md
+            so bootstrap mode never triggers.
     """
-    import shutil
     from ...config import load_config as load_global_config
+
+    workspace_dir = Path(workspace_dir).expanduser()
 
     # Create essential subdirectories
     (workspace_dir / "sessions").mkdir(exist_ok=True)
@@ -443,11 +539,16 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     config = load_global_config()
     language = config.agents.language or "zh"
 
-    # Copy MD files from agents/md_files/{language}/ to workspace
-    md_files_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "md_files" / language
-    )
-    if md_files_dir.exists():
+    package_agents_root = Path(__file__).parent.parent.parent / "agents"
+    md_files_dir = package_agents_root / "md_files" / language
+
+    if builtin_qa_md_seed:
+        copy_builtin_qa_md_files(
+            language,
+            workspace_dir,
+            only_if_missing=True,
+        )
+    elif md_files_dir.exists():
         for md_file in md_files_dir.glob("*.md"):
             target_file = workspace_dir / md_file.name
             if not target_file.exists():
@@ -458,41 +559,24 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
                         f"Failed to copy {md_file.name}: {e}",
                     )
 
-    # Create HEARTBEAT.md if not exists
-    heartbeat_file = workspace_dir / "HEARTBEAT.md"
-    if not heartbeat_file.exists():
-        DEFAULT_HEARTBEAT_MDS = {
-            "zh": """# Heartbeat checklist
-- 扫描收件箱紧急邮件
-- 查看未来 2h 的日历
-- 检查待办是否卡住
-- 若安静超过 8h，轻量 check-in
-""",
-            "en": """# Heartbeat checklist
-- Scan inbox for urgent email
-- Check calendar for next 2h
-- Check tasks for blockers
-- Light check-in if quiet for 8h
-""",
-            "ru": """# Heartbeat checklist
-- Проверить входящие на срочные письма
-- Просмотреть календарь на ближайшие 2 часа
-- Проверить задачи на наличие блокировок
-- Лёгкая проверка при отсутствии активности более 8 часов
-""",
-        }
-        heartbeat_content = DEFAULT_HEARTBEAT_MDS.get(
-            language,
-            DEFAULT_HEARTBEAT_MDS["en"],
-        )
-        with open(heartbeat_file, "w", encoding="utf-8") as f:
-            f.write(heartbeat_content.strip())
+    _ensure_default_heartbeat_md(workspace_dir, language)
 
-    # Copy builtin skills to agent's active_skills directory
-    builtin_skills_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "skills"
-    )
-    if builtin_skills_dir.exists():
+    builtin_skills_dir = package_agents_root / "skills"
+    if active_skill_names is not None:
+        synced, skipped = sync_skills_to_working_dir(
+            workspace_dir,
+            skill_names=active_skill_names,
+            force=True,
+        )
+        logger.debug(
+            "Synced skills for %s: synced=%s skipped=%s names=%s",
+            workspace_dir,
+            synced,
+            skipped,
+            active_skill_names,
+        )
+        prune_active_skills(workspace_dir, set(active_skill_names))
+    elif builtin_skills_dir.exists():
         for skill_dir in builtin_skills_dir.iterdir():
             if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
                 target_skill_dir = (

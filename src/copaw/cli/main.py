@@ -99,8 +99,14 @@ class LazyGroup(click.Group):
             "channels_group",
             ".channels_cmd",
         ),
+        "channel": (
+            "copaw.cli.channels_cmd",
+            "channels_group",
+            ".channels_cmd",
+        ),
         "daemon": ("copaw.cli.daemon_cmd", "daemon_group", ".daemon_cmd"),
         "chats": ("copaw.cli.chats_cmd", "chats_group", ".chats_cmd"),
+        "chat": ("copaw.cli.chats_cmd", "chats_group", ".chats_cmd"),
         "clean": ("copaw.cli.clean_cmd", "clean_cmd", ".clean_cmd"),
         "cron": ("copaw.cli.cron_cmd", "cron_group", ".cron_cmd"),
         "env": ("copaw.cli.env_cmd", "env_group", ".env_cmd"),
@@ -125,7 +131,7 @@ class LazyGroup(click.Group):
         ),
         "auth": ("copaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
-        "message": ("copaw.cli.message_cmd", "message_group", ".message_cmd"),
+        "agent": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
     },
 )
 @click.version_option(version=__version__, prog_name="CoPaw")

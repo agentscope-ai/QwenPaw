@@ -24,7 +24,7 @@ export function useProviders() {
       ]);
       if (!Array.isArray(provData)) {
         throw new Error(
-          "Unexpected API response. Is BASE_URL configured correctly?",
+          "Unexpected API response. Is VITE_API_BASE_URL configured correctly?",
         );
       }
       setProviders(provData);

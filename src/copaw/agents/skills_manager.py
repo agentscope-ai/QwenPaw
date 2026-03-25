@@ -75,6 +75,33 @@ def get_active_skills_dir(workspace_dir: Path) -> Path:
     return workspace_dir / "active_skills"
 
 
+def prune_active_skills(workspace_dir: Path, keep_names: set[str]) -> None:
+    """Remove skill under active_skills that are not in keep_names."""
+    active = get_active_skills_dir(workspace_dir)
+    if not active.exists():
+        return
+    for entry in active.iterdir():
+        if not entry.is_dir():
+            continue
+        if not (entry / "SKILL.md").exists():
+            continue
+        if entry.name in keep_names:
+            continue
+        try:
+            shutil.rmtree(entry)
+            logger.debug(
+                "Pruned inactive skill directory '%s' from %s",
+                entry.name,
+                active,
+            )
+        except OSError as e:
+            logger.warning(
+                "Failed to prune skill '%s': %s",
+                entry.name,
+                e,
+            )
+
+
 def get_working_skills_dir(workspace_dir: Path) -> Path:
     """
     Get the path to skills directory in workspace_dir.

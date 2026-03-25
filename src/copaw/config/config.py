@@ -12,6 +12,9 @@ from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+    LLM_BACKOFF_BASE,
+    LLM_BACKOFF_CAP,
+    LLM_MAX_RETRIES,
     WORKING_DIR,
 )
 from ..providers.models import ModelSlotConfig
@@ -83,6 +86,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    max_reconnect_attempts: int = 100
 
 
 class TelegramConfig(BaseChannelConfig):
@@ -263,12 +267,48 @@ class AgentsRunningConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     max_iters: int = Field(
-        default=50,
+        default=100,
         ge=1,
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
         ),
     )
+
+    llm_retry_enabled: bool = Field(
+        default=LLM_MAX_RETRIES > 0,
+        description="Whether to auto-retry transient LLM API errors",
+    )
+
+    llm_max_retries: int = Field(
+        default=max(LLM_MAX_RETRIES, 1),
+        ge=1,
+        description="Maximum retry attempts for transient LLM API errors",
+    )
+
+    llm_backoff_base: float = Field(
+        default=LLM_BACKOFF_BASE,
+        ge=0.1,
+        description="Base delay in seconds for exponential LLM retry backoff",
+    )
+
+    llm_backoff_cap: float = Field(
+        default=LLM_BACKOFF_CAP,
+        ge=0.5,
+        description=(
+            "Maximum delay cap in seconds for LLM retry backoff; "
+            "must be greater than or equal to the base delay"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
+        """Validate LLM retry backoff relationships."""
+        if self.llm_backoff_cap < self.llm_backoff_base:
+            raise ValueError(
+                "llm_backoff_cap must be greater than or equal to "
+                "llm_backoff_base",
+            )
+        return self
 
     token_count_model: str = Field(
         default="default",
@@ -737,6 +777,28 @@ class ToolsConfig(BaseModel):
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
         return self
+
+
+def build_qa_agent_tools_config() -> ToolsConfig:
+    """Tools preset for builtin ``default_qa_agent`` (first workspace init).
+
+    Only these are enabled: execute_shell_command, read_file, edit_file,
+    write_file, view_image. All other built-ins are disabled.
+    """
+    allow = frozenset(
+        {
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "view_image",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
 
 
 class ToolGuardRuleConfig(BaseModel):

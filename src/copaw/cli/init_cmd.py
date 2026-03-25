@@ -142,7 +142,10 @@ def init_cmd(
 ) -> None:
     """Create working dir with config.json and HEARTBEAT.md (interactive)."""
     from pathlib import Path
-    from ..app.migration import ensure_default_agent_exists
+    from ..app.migration import (
+        ensure_default_agent_exists,
+        ensure_qa_agent_exists,
+    )
 
     config_path = get_config_path()
     working_dir = config_path.parent
@@ -195,6 +198,8 @@ def init_cmd(
     click.echo("\n=== Default Workspace Initialization ===")
     ensure_default_agent_exists()
     click.echo("✓ Default workspace initialized")
+    ensure_qa_agent_exists()
+    click.echo("✓ Builtin QA agent workspace ensured")
 
     # Get default workspace path for subsequent operations
     default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()

@@ -92,6 +92,15 @@ JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
 
+# Builtin multi-agent profile: CoPaw Q&A helper.
+BUILTIN_QA_AGENT_ID = "CoPaw_QA_Agent_0.1beta1"
+BUILTIN_QA_AGENT_NAME = "QA Agent"
+# Default active_skills when the builtin QA workspace is first created only.
+BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
+    "guidance",
+    "copaw_source_index",
+)
+
 TOKEN_USAGE_FILE = EnvVarLoader.get_str(
     "COPAW_TOKEN_USAGE_FILE",
     "token_usage.json",

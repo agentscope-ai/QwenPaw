@@ -21,7 +21,6 @@ import styles from "./index.module.less";
 dayjs.extend(customParseFormat);
 
 const TIME_FORMAT = "HH:mm";
-const HEARTBEAT_DEFAULT_TIMEOUT_SECONDS = 120;
 
 /** TimePicker that uses "HH:mm" string as value for Form. */
 function TimePickerHHmm({
@@ -85,8 +84,7 @@ function HeartbeatPage() {
         everyNumber: everyParts.number,
         everyUnit: everyParts.unit,
         target: data.target ?? "main",
-        timeoutSeconds:
-          data.timeoutSeconds ?? HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+        timeoutSeconds: data.timeoutSeconds,
         useActiveHours: !!data.activeHours,
         activeHoursStart: data.activeHours?.start ?? "08:00",
         activeHoursEnd: data.activeHours?.end ?? "22:00",
@@ -116,8 +114,7 @@ function HeartbeatPage() {
       enabled: values.enabled ?? false,
       every,
       target: values.target ?? "main",
-      timeoutSeconds:
-        values.timeoutSeconds ?? HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+      timeoutSeconds: values.timeoutSeconds,
       activeHours:
         values.useActiveHours &&
         values.activeHoursStart &&
@@ -165,7 +162,7 @@ function HeartbeatPage() {
             everyNumber: 6,
             everyUnit: "h",
             target: "main",
-            timeoutSeconds: HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+            timeoutSeconds: 120,
             useActiveHours: false,
             activeHoursStart: "08:00",
             activeHoursEnd: "22:00",
