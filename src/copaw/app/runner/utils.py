@@ -70,7 +70,7 @@ def build_env_context(
     if working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
     parts.append(
-        f"- Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"- Current date: {now.strftime('%Y-%m-%d')} "
         f"{user_tz} ({now.strftime('%A')})",
     )
 

@@ -369,6 +369,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   onSessionRemoved: ((removedId: string) => void) | null = null;
 
   /**
+   * Called when a session is selected from the session list.
+   * Consumers can register here to update the URL when switching sessions.
+   */
+  onSessionSelected:
+    | ((sessionId: string | null | undefined, realId: string | null) => void)
+    | null = null;
+
+  /**
+   * Called when a new session is created.
+   * Consumers can register here to update the URL with the new session id.
+   */
+  onSessionCreated: ((sessionId: string) => void) | null = null;
+
+  /**
    * When reconnecting to a running conversation, the backend history may not
    * include the latest user message (it's only persisted after generation
    * completes). If generating, look up the cached text from sessionStorage
@@ -482,6 +496,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.sessionListRequest;
   }
 
+  /** Track the last session ID that triggered onSessionSelected to avoid duplicate calls. */
+  private lastSelectedSessionId: string | null = null;
+
   async getSession(sessionId: string) {
     const existingRequest = this.sessionRequests.get(sessionId);
     if (existingRequest) return existingRequest;
@@ -490,7 +507,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.set(sessionId, requestPromise);
 
     try {
-      return await requestPromise;
+      const session = await requestPromise;
+      // Trigger onSessionSelected only when session actually changes
+      if (sessionId !== this.lastSelectedSessionId) {
+        this.lastSelectedSessionId = sessionId;
+        const extendedSession = session as ExtendedSession;
+        const realId = extendedSession.realId || null;
+        this.onSessionSelected?.(sessionId, realId);
+      }
+      return session;
     } finally {
       this.sessionRequests.delete(sessionId);
     }
@@ -640,8 +665,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     } as ExtendedSession;
 
     this.updateWindowVariables(extended);
-    this.sessionList.unshift(extended);
-    return [...this.sessionList];
+    // this.sessionList.unshift(extended);
+    this.onSessionCreated?.(session.id);
+    return this.sessionList;
   }
 
   async removeSession(session: Partial<IAgentScopeRuntimeWebUISession>) {

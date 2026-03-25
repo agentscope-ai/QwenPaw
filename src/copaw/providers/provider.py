@@ -1,16 +1,43 @@
 # -*- coding: utf-8 -*-
 """Definition of Provider."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any
+from typing import TYPE_CHECKING, Dict, List, Type, Any
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
+
+if TYPE_CHECKING:
+    from .multimodal_prober import ProbeResult
 
 
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+    supports_multimodal: bool | None = Field(
+        default=None,
+        description="Whether this model supports multimodal input "
+        "(image/audio/video). None means not yet probed.",
+    )
+    supports_image: bool | None = Field(
+        default=None,
+        description="Whether this model supports image input. "
+        "None means not yet probed.",
+    )
+    supports_video: bool | None = Field(
+        default=None,
+        description="Whether this model supports video input. "
+        "None means not yet probed.",
+    )
+    probe_source: str | None = Field(
+        default=None,
+        description=(
+            "Probe result source: 'documentation' (from docs)"
+            " or 'probed' (actual probe)"
+        ),
+    )
 
 
 class ProviderInfo(BaseModel):
@@ -172,6 +199,20 @@ class Provider(ProviderInfo, ABC):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         """Return an instance of the chat model associated with this
         provider and model_id."""
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,  # pylint: disable=unused-argument
+        timeout: float = 10,  # pylint: disable=unused-argument
+    ) -> ProbeResult:
+        """Probe if a model supports multimodal input.
+
+        Default implementation returns ProbeResult() (all False).
+        Subclasses with API access should override.
+        """
+        from .multimodal_prober import ProbeResult
+
+        return ProbeResult()
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""

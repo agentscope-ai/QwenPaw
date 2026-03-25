@@ -344,10 +344,10 @@ class ChannelManager:
                     (channel_id, key),
                     asyncio.Lock(),
                 )
-                async with key_lock:
-                    self._in_progress.add((channel_id, key))
-                    batch = _drain_same_key(q, ch, key, payload)
                 try:
+                    async with key_lock:
+                        self._in_progress.add((channel_id, key))
+                        batch = _drain_same_key(q, ch, key, payload)
                     await _process_batch(ch, batch)
                 finally:
                     self._in_progress.discard((channel_id, key))
