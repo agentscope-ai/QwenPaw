@@ -5,7 +5,7 @@ providers, adding/removing custom providers, and fetching provider details."""
 
 import asyncio
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional, TYPE_CHECKING
 import logging
 import json
 
@@ -19,13 +19,16 @@ from copaw.providers.provider import (
     Provider,
     ProviderInfo,
 )
-from copaw.providers.models import ModelSlotConfig
+from copaw.providers.models import ModelFallbackConfig, ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
 from copaw.local_models import create_local_chat_model
+
+if TYPE_CHECKING:
+    from copaw.providers.fallback_chat_model import CooldownState
 
 logger = logging.getLogger(__name__)
 
@@ -570,7 +573,7 @@ class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
 
 
-class ProviderManager:
+class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
     including built-in and custom ones."""
 
@@ -585,6 +588,8 @@ class ProviderManager:
         self.root_path = SECRET_DIR / "providers"
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
+        # Cooldown states persist across model instances
+        self._cooldown_states: Dict[str, "CooldownState"] = {}
         self._prepare_disk_storage()
         self._init_builtins()
         try:
@@ -625,6 +630,55 @@ class ProviderManager:
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
 
+    # ------------------------------------------------------------------
+    # Cooldown State Management (for FallbackChatModel)
+    # ------------------------------------------------------------------
+
+    def get_cooldown_state(self, provider_id: str) -> "CooldownState":
+        """Get or create cooldown state for a provider.
+
+        This method ensures cooldown states persist across model instances
+        since ProviderManager is a singleton.
+
+        Args:
+            provider_id: The provider identifier
+
+        Returns:
+            CooldownState instance for the provider
+        """
+        # Local import to avoid circular dependency
+        from copaw.providers.fallback_chat_model import CooldownState
+
+        if provider_id not in self._cooldown_states:
+            self._cooldown_states[provider_id] = CooldownState(provider_id)
+        return self._cooldown_states[provider_id]
+
+    def get_all_cooldown_states(self) -> Dict[str, "CooldownState"]:
+        """Get all cooldown states (for monitoring/debugging).
+
+        Returns:
+            Copy of the cooldown states dictionary
+        """
+        return self._cooldown_states.copy()
+
+    def clear_cooldown_state(self, provider_id: str) -> bool:
+        """Clear cooldown state for a specific provider.
+
+        Args:
+            provider_id: The provider identifier
+
+        Returns:
+            True if provider was found and cleared, False otherwise
+        """
+        if provider_id in self._cooldown_states:
+            del self._cooldown_states[provider_id]
+            return True
+        return False
+
+    def clear_all_cooldown_states(self) -> None:
+        """Clear all cooldown states."""
+        self._cooldown_states.clear()
+
     async def list_provider_info(self) -> List[ProviderInfo]:
         tasks = [
             provider.get_info() for provider in self.builtin_providers.values()
@@ -651,6 +705,80 @@ class ProviderManager:
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
         return self.active_model
+
+    def load_fallback_config(
+        self,
+        agent_id: Optional[str] = None,
+    ) -> Optional[ModelFallbackConfig]:
+        """Load fallback configuration for agent or global.
+
+        Tries to load agent-specific fallback config first, then falls back
+        to a global fallback configuration file.
+
+        Args:
+            agent_id: Optional agent ID to load agent-specific config
+
+        Returns:
+            ModelFallbackConfig if configured, None otherwise
+        """
+        # Try agent-specific config first
+        if agent_id:
+            try:
+                from ..config.config import load_agent_config
+
+                agent_config = load_agent_config(agent_id)
+                if agent_config.fallback_config:
+                    logger.debug(
+                        "Loaded fallback config for agent %s: %d fallbacks",
+                        agent_id,
+                        len(agent_config.fallback_config.fallbacks),
+                    )
+                    return agent_config.fallback_config
+            except Exception as e:
+                logger.debug(
+                    "Failed to load agent fallback config for %s: %s",
+                    agent_id,
+                    e,
+                )
+
+        # Try global fallback config file
+        try:
+            global_fallback_path = self.root_path / "fallback_config.json"
+            if global_fallback_path.exists():
+                with open(global_fallback_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                config = ModelFallbackConfig.model_validate(data)
+                logger.debug(
+                    "Loaded global fallback config: %d fallbacks",
+                    len(config.fallbacks),
+                )
+                return config
+        except Exception as e:
+            logger.debug("Failed to load global fallback config: %s", e)
+
+        return None
+
+    def save_fallback_config(self, config: ModelFallbackConfig) -> bool:
+        """Save global fallback configuration.
+
+        Args:
+            config: Fallback configuration to save
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            global_fallback_path = self.root_path / "fallback_config.json"
+            with open(global_fallback_path, "w", encoding="utf-8") as f:
+                json.dump(config.model_dump(), f, ensure_ascii=False, indent=2)
+            try:
+                os.chmod(global_fallback_path, 0o600)
+            except OSError:
+                pass
+            return True
+        except Exception as e:
+            logger.warning("Failed to save fallback config: %s", e)
+            return False
 
     def update_provider(self, provider_id: str, config: Dict) -> bool:
         # Update the configuration of a provider (e.g., base URL, API key).

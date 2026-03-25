@@ -280,18 +280,65 @@ Each agent's detailed configuration is stored in `~/.copaw/workspaces/{agent_id}
 
 **`agents.running`** — Agent runtime behavior
 
-| Field               | Type  | Default         | Description                                                                                                              |
-| ------------------- | ----- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `max_iters`         | int   | `50`            | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                              |
-| `llm_retry_enabled` | bool  | `true`          | Whether to auto-retry transient LLM API failures such as rate limits, timeouts, and connection errors                    |
-| `llm_max_retries`   | int   | `3`             | Maximum retry attempts for transient LLM API failures. Use together with `llm_retry_enabled`; must be ≥ 1                |
-| `llm_backoff_base`  | float | `1.0`           | Base delay in seconds for exponential retry backoff (must be ≥ 0.1)                                                      |
-| `llm_backoff_cap`   | float | `10.0`          | Maximum backoff delay cap in seconds (must be ≥ 0.5 and greater than or equal to `llm_backoff_base`)                     |
-| `max_input_length`  | int   | `131072` (128K) | Maximum input length (tokens) for model context window. Memory compaction triggers at 80% of this value (must be ≥ 1000) |
+| Field               | Type   | Default         | Description                                                                                                              |
+| ------------------- | ------ | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `max_iters`         | int    | `50`            | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                              |
+| `llm_retry_enabled` | bool   | `true`          | Whether to auto-retry transient LLM API failures such as rate limits, timeouts, and connection errors                    |
+| `llm_max_retries`   | int    | `3`             | Maximum retry attempts for transient LLM API failures. Use together with `llm_retry_enabled`; must be ≥ 1                |
+| `llm_backoff_base`  | float  | `1.0`           | Base delay in seconds for exponential retry backoff (must be ≥ 0.1)                                                      |
+| `llm_backoff_cap`   | float  | `10.0`          | Maximum backoff delay cap in seconds (must be ≥ 0.5 and greater than or equal to `llm_backoff_base`)                     |
+| `max_input_length`  | int    | `131072` (128K) | Maximum input length (tokens) for model context window. Memory compaction triggers at 80% of this value (must be ≥ 1000) |
+| `fallback_config`   | object | `null`          | Model fallback configuration for automatic failover when primary model fails (see below)                                 |
 
 These retry settings can also be changed in the Console under
 **Agent → Configuration**. Changes apply to new LLM requests after saving;
 restarting the service is not required.
+
+**`agents.running.fallback_config`** — Model Fallback Configuration (Optional)
+
+When the primary model fails due to rate limits, timeouts, or service errors,
+automatically switch to fallback models.
+
+| Field              | Type  | Default | Description                                                                             |
+| ------------------ | ----- | ------- | --------------------------------------------------------------------------------------- |
+| `fallbacks`        | array | `[]`    | List of fallback models to try in order. Each entry has `provider_id` and `model`       |
+| `cooldown_enabled` | bool  | `true`  | Enable cooldown: failed providers are temporarily disabled to prevent repeated requests |
+| `max_fallbacks`    | int   | `3`     | Maximum number of fallback attempts (1-10), including the primary model                 |
+
+**Configuration Example:**
+
+```json
+{
+  "running": {
+    "fallback_config": {
+      "fallbacks": [
+        { "provider_id": "anthropic", "model": "claude-sonnet-4-6" },
+        { "provider_id": "openai", "model": "gpt-4o-mini" }
+      ],
+      "cooldown_enabled": true,
+      "max_fallbacks": 3
+    }
+  }
+}
+```
+
+**Errors that trigger automatic fallback:**
+
+- `429` - Rate Limit
+- `408/504` - Timeout
+- `502` - Connection Error (Bad Gateway)
+- `503/529` - Service Overloaded (Service Unavailable)
+
+**Errors that do NOT trigger fallback:**
+
+- Context Length Exceeded
+- User Abort
+- Auth/Billing Errors
+
+> **Tip:** The cooldown mechanism automatically calculates cooldown time based on error type:
+>
+> - Transient errors (rate limit/timeout): Exponential backoff, 1min → 5min → 25min → 60min
+> - Auth/billing errors: Longer cooldown, 5h → 10h → 20h → 24h
 
 **`agents.defaults.heartbeat`** — Heartbeat scheduling
 

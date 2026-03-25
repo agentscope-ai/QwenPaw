@@ -653,7 +653,22 @@
     "timezoneSaveFailed": "时区更新失败",
     "saveSuccess": "配置保存成功",
     "saveFailed": "配置保存失败",
-    "loadFailed": "配置加载失败"
+    "loadFailed": "配置加载失败",
+    "modelFallbackTitle": "模型回退配置",
+    "modelFallbackDescription": "当主模型失败时自动切换到备用模型",
+    "fallbackProvider": "备用 Provider",
+    "fallbackModel": "备用模型",
+    "fallbackProviderRequired": "请选择 Provider",
+    "fallbackModelRequired": "请选择模型",
+    "addFallback": "添加备用模型",
+    "cooldownEnabled": "启用冷却机制",
+    "cooldownTooltip": "失败的 Provider 会被暂时禁用，防止重复请求",
+    "maxFallbacks": "最大回退次数",
+    "maxFallbacksRequired": "请输入最大回退次数",
+    "fallbackSaveFailed": "回退配置保存失败，但其他设置已保存",
+    "saveRunningConfigFailed": "保存运行配置失败",
+    "saveFallbackConfigFailed": "保存回退配置失败",
+    "partialSaveWarning": "部分配置已保存，请检查并重新保存"
   },
   "tools": {
     "title": "内置工具",

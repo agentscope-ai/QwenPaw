@@ -687,7 +687,21 @@
     "selectTimezone": "Select timezone",
     "timezoneSaveSuccess": "Timezone updated successfully",
     "timezoneSaveFailed": "Failed to update timezone",
-    "loadFailed": "Failed to load configuration"
+    "loadFailed": "Failed to load configuration",
+    "modelFallbackTitle": "Model Fallback Configuration",
+    "modelFallbackDescription": "Automatically switch to a backup model when the primary model fails",
+    "fallbackProvider": "Backup Provider",
+    "fallbackModel": "Backup Model",
+    "addFallback": "Add Backup Model",
+    "removeFallback": "Remove",
+    "cooldownEnabled": "Enable Cooldown Mechanism",
+    "cooldownEnabledTooltip": "When enabled, a provider that fails will temporarily not be used as a fallback",
+    "maxFallbacks": "Max Fallbacks",
+    "maxFallbacksPlaceholder": "Enter 1-10",
+    "fallbackProviderRequired": "Please select a provider",
+    "fallbackModelRequired": "Please select a model",
+    "maxFallbacksRequired": "Please enter max fallbacks",
+    "fallbackSaveFailed": "Fallback config save failed, but other settings saved"
   },
   "tools": {
     "title": "Built-in Tools",

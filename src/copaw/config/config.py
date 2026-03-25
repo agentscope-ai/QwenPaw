@@ -16,7 +16,7 @@ from ..constant import (
     LLM_MAX_RETRIES,
     WORKING_DIR,
 )
-from ..providers.models import ModelSlotConfig
+from ..providers.models import ModelFallbackConfig, ModelSlotConfig
 
 
 def generate_short_agent_id() -> str:
@@ -480,6 +480,10 @@ class AgentProfileConfig(BaseModel):
     active_model: Optional["ModelSlotConfig"] = Field(
         default=None,
         description="Active model for this agent (provider_id + model)",
+    )
+    fallback_config: Optional["ModelFallbackConfig"] = Field(
+        default=None,
+        description="Model fallback configuration for automatic failover",
     )
     language: str = Field(
         default="zh",

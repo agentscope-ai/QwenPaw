@@ -11,6 +11,7 @@ import type {
   TestModelRequest,
   DiscoverModelsResponse,
   ProbeMultimodalResponse,
+  ModelFallbackConfig,
 } from "../types";
 
 export const providerApi = {
@@ -96,4 +97,15 @@ export const providerApi = {
       )}/probe-multimodal`,
       { method: "POST" },
     ),
+
+  /* ---- Model Fallback Configuration ---- */
+
+  getFallbackConfig: () =>
+    request<ModelFallbackConfig | null>("/models/config/fallback"),
+
+  setFallbackConfig: (body: ModelFallbackConfig) =>
+    request<ModelFallbackConfig>("/models/config/fallback", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 };

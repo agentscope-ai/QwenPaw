@@ -3,6 +3,8 @@
 
 from .models import (
     CustomProviderData,
+    FallbackModelConfig,
+    ModelFallbackConfig,
     ProviderDefinition,
     ProviderSettings,
 )
@@ -12,6 +14,8 @@ from .provider_manager import ProviderManager, ActiveModelsInfo
 __all__ = [
     "ActiveModelsInfo",
     "CustomProviderData",
+    "FallbackModelConfig",
+    "ModelFallbackConfig",
     "ModelInfo",
     "ProviderDefinition",
     "ProviderInfo",

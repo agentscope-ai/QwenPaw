@@ -270,17 +270,63 @@ copaw app
 
 **`agents.running`** — Agent 运行时行为配置
 
-| 字段                | 类型  | 默认值          | 说明                                                                                       |
-| ------------------- | ----- | --------------- | ------------------------------------------------------------------------------------------ |
-| `max_iters`         | int   | `50`            | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                            |
-| `llm_retry_enabled` | bool  | `true`          | 是否对限流、超时、连接中断等瞬时 LLM API 错误自动重试                                      |
-| `llm_max_retries`   | int   | `3`             | 瞬时 LLM API 错误的最大重试次数。需与 `llm_retry_enabled` 配合使用，必须 ≥ 1               |
-| `llm_backoff_base`  | float | `1.0`           | 指数退避的基础等待时间（秒，必须 ≥ 0.1）                                                   |
-| `llm_backoff_cap`   | float | `10.0`          | 退避等待时间上限（秒，必须 ≥ 0.5，且必须大于等于 `llm_backoff_base`）                      |
-| `max_input_length`  | int   | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数）。记忆压缩将在达到此值的 80% 时触发（必须 ≥ 1000） |
+| 字段                | 类型   | 默认值          | 说明                                                                                       |
+| ------------------- | ------ | --------------- | ------------------------------------------------------------------------------------------ |
+| `max_iters`         | int    | `50`            | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                            |
+| `llm_retry_enabled` | bool   | `true`          | 是否对限流、超时、连接中断等瞬时 LLM API 错误自动重试                                      |
+| `llm_max_retries`   | int    | `3`             | 瞬时 LLM API 错误的最大重试次数。需与 `llm_retry_enabled` 配合使用，必须 ≥ 1               |
+| `llm_backoff_base`  | float  | `1.0`           | 指数退避的基础等待时间（秒，必须 ≥ 0.1）                                                   |
+| `llm_backoff_cap`   | float  | `10.0`          | 退避等待时间上限（秒，必须 ≥ 0.5，且必须大于等于 `llm_backoff_base`）                      |
+| `max_input_length`  | int    | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数）。记忆压缩将在达到此值的 80% 时触发（必须 ≥ 1000） |
+| `fallback_config`   | object | `null`          | 模型回退配置，主模型失败时自动切换到备用模型（详见下方）                                   |
 
 这些重试配置也可以在控制台的 **Agent → Configuration** 页面中修改。保存后会对新的
 LLM 请求生效，不需要重启服务。
+
+**`agents.running.fallback_config`** — 模型回退配置（可选）
+
+当主模型因限流、超时或服务错误失败时，自动切换到备用模型。
+
+| 字段               | 类型  | 默认值 | 说明                                                            |
+| ------------------ | ----- | ------ | --------------------------------------------------------------- |
+| `fallbacks`        | array | `[]`   | 备用模型列表，按顺序尝试。每个元素包含 `provider_id` 和 `model` |
+| `cooldown_enabled` | bool  | `true` | 启用冷却机制：失败的 Provider 会被暂时禁用，防止重复请求        |
+| `max_fallbacks`    | int   | `3`    | 最大回退次数（1-10），包括主模型在内的总尝试次数上限            |
+
+**配置示例：**
+
+```json
+{
+  "running": {
+    "fallback_config": {
+      "fallbacks": [
+        { "provider_id": "anthropic", "model": "claude-sonnet-4-6" },
+        { "provider_id": "openai", "model": "gpt-4o-mini" }
+      ],
+      "cooldown_enabled": true,
+      "max_fallbacks": 3
+    }
+  }
+}
+```
+
+**支持的自动回退错误类型：**
+
+- `429` - 限流（Rate Limit）
+- `408/504` - 超时（Timeout）
+- `502` - 连接错误（Bad Gateway）
+- `503/529` - 服务过载（Service Unavailable）
+
+**不会触发回退的错误：**
+
+- 上下文长度超出（Context Overflow）
+- 用户中断（User Abort）
+- 认证/计费错误（Auth/Billing）
+
+> **提示：** 冷却机制会根据错误类型自动计算冷却时间：
+>
+> - 瞬时错误（限流/超时）：指数退避，1分钟 → 5分钟 → 25分钟 → 60分钟
+> - 认证/计费错误：更长冷却，5小时 → 10小时 → 20小时 → 24小时
 
 **`agents.defaults.heartbeat`** — 心跳定时任务
 
