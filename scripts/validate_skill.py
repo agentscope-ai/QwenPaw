@@ -17,11 +17,11 @@ import sys
 from pathlib import Path
 
 # Required frontmatter fields and their basic types
+# Based on universal skill standard: name + description required
+# CoPaw extensions (triggers, metadata) are optional
 REQUIRED_FIELDS = {
     "name": str,
-    "version": str,
-    "trigger": str,
-    "tools": list,
+    "description": str,
 }
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -78,15 +78,12 @@ def validate(skill_dir: Path) -> list[str]:
                 f"got {type(fm[field]).__name__}"
             )
 
-    if "version" in fm and isinstance(fm["version"], str):
-        if not VERSION_RE.match(str(fm["version"])):
-            errors.append(
-                f"Field 'version' must match X.Y.Z format, got '{fm['version']}'"
-            )
-
-    if "trigger" in fm and isinstance(fm["trigger"], str):
-        if len(fm["trigger"]) < 10:
-            errors.append("Field 'trigger' is too short (min 10 chars)")
+    # Optional field format checks
+    if "metadata" in fm and isinstance(fm.get("metadata"), dict):
+        copaw = fm["metadata"].get("copaw", {})
+        version = fm["metadata"].get("builtin_skill_version", "")
+        if version and not re.match(r"^\d+\.\d+", str(version)):
+            errors.append(f"metadata.builtin_skill_version format invalid: '{version}'")
 
     return errors
 

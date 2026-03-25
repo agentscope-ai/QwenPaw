@@ -1,49 +1,48 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CoPaw Skill SKILL.md Frontmatter Schema",
-  "description": "Required frontmatter fields for a valid CoPaw skill SKILL.md",
+  "description": "Frontmatter schema for a valid CoPaw skill SKILL.md. Based on the universal skill standard (name + description required), with CoPaw platform extensions (triggers, metadata).",
   "type": "object",
-  "required": ["name", "version", "trigger", "tools"],
+  "required": ["name", "description"],
   "properties": {
     "name": {
       "type": "string",
-      "description": "Unique skill name, e.g. 'xlsx', 'cron', 'pdf'",
+      "description": "Unique skill identifier, e.g. 'xlsx', 'cron', 'agent-teams'",
       "minLength": 1
     },
-    "version": {
+    "description": {
       "type": "string",
-      "description": "Skill version, e.g. '1.0.0'",
-      "pattern": "^\\d+\\.\\d+\\.\\d+$"
-    },
-    "trigger": {
-      "type": "string",
-      "description": "Natural language description of when to use this skill",
+      "description": "Concise description of what the skill does and when to use it",
       "minLength": 10
     },
-    "tools": {
+    "triggers": {
       "type": "array",
-      "description": "List of tool names this skill provides or requires",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 0
-    },
-    "required_by": {
-      "type": "array",
-      "description": "Optional: task required_skills values that map to this skill",
+      "description": "[CoPaw extension] Keywords or phrases that should trigger this skill",
       "items": {
         "type": "string"
       }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "[CoPaw extension] Platform metadata including version and emoji",
+      "properties": {
+        "builtin_skill_version": {
+          "type": "string",
+          "description": "Skill version, e.g. '1.0'"
+        },
+        "copaw": {
+          "type": "object",
+          "properties": {
+            "emoji": { "type": "string" },
+            "requires": { "type": "object" }
+          }
+        }
+      }
+    },
+    "license": {
+      "type": "string",
+      "description": "License information"
     }
   },
-  "additionalProperties": true,
-  "examples": [
-    {
-      "name": "xlsx",
-      "version": "1.0.0",
-      "trigger": "Use when user wants to read, edit, or create spreadsheet files (.xlsx, .csv)",
-      "tools": ["read_xlsx", "write_xlsx", "convert_csv"],
-      "required_by": ["spreadsheet", "excel"]
-    }
-  ]
+  "additionalProperties": true
 }
