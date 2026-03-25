@@ -15,6 +15,7 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Modify runtime configuration
 - Configure LLM providers and select active models
 - Manage environment variables needed by tools
+- View LLM token usage statistics
 
 The sidebar on the left groups features into **Chat**, **Control**, **Agent**,
 and **Settings**. Click any item to switch pages. The sections below walk
@@ -68,14 +69,14 @@ iMessage, and Console.
 
 3. Fill in required credentials (fields differ by channel):
 
-   | Channel      | Required fields                                                |
-   | ------------ | -------------------------------------------------------------- |
-   | **DingTalk** | Client ID, Client Secret                                       |
-   | **Feishu**   | App ID, App Secret, Encrypt Key, Verification Token, Media Dir |
-   | **Discord**  | Bot Token, HTTP Proxy, Proxy Auth                              |
-   | **QQ**       | App ID, Client Secret                                          |
-   | **iMessage** | Database path, Poll interval                                   |
-   | **Console**  | _(toggle only)_                                                |
+   | Channel      | Required fields                                                          |
+   | ------------ | ------------------------------------------------------------------------ |
+   | **DingTalk** | Client ID, Client Secret, Message Type, Card Template ID/Key, Robot Code |
+   | **Feishu**   | App ID, App Secret, Encrypt Key, Verification Token, Media Dir           |
+   | **Discord**  | Bot Token, HTTP Proxy, Proxy Auth                                        |
+   | **QQ**       | App ID, Client Secret                                                    |
+   | **iMessage** | Database path, Poll interval                                             |
+   | **Console**  | _(toggle only)_                                                          |
 
 4. Click **Save**. Changes take effect in seconds, no restart required.
 
@@ -132,7 +133,7 @@ Alternatively, you can create tasks directly via the Console interface:
 2. Fill in each section:
    - **Basic Info** — Job ID (e.g. `job-001`) and job name (e.g. "Daily Summary").
    - **Schedule** — Cron expression (e.g. `0 9 * * *` = 9:00 AM daily) and
-     timezone
+     timezone (defaults to your configured user timezone)
    - **Task Type & Content** — **Text** (fixed message) or **Agent** (ask
      CoPaw and forward reply), then the content
    - **Delivery** — Target channel (Console, DingTalk, etc.), target user & session id, and
@@ -160,6 +161,13 @@ Click **Delete** → confirm.
 
 Edit files that define CoPaw's persona and behavior, such as `SOUL.md`,
 `AGENTS.md`, and `HEARTBEAT.md`, directly in the browser.
+
+> **Multi-Agent Workspace:** Starting from **v0.1.0**, CoPaw supports
+> **multi-agent workspace** functionality. You can run multiple independent
+> agents in a single CoPaw instance, each with its own workspace, configuration,
+> memory, and conversation history. Use the agent switcher at the top of the
+> console to change the active agent. See [Multi-Agent Workspace](./multi-agent)
+> for details.
 
 ![Workspace](https://img.alicdn.com/imgextra/i3/O1CN01APrwdP1NqT9CKJMFt_!!6000000001621-2-tps-3822-2070.png)
 
@@ -327,6 +335,44 @@ automatically when models are added/removed via Ollama CLI or Console.
 > `copaw models ollama-list`, `copaw models ollama-remove`. See
 > [CLI](./cli#ollama-models).
 
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> To run CoPaw properly, you must set the model context length to
+> **32K or higher**. Note that this can consume substantial compute resources,
+> so make sure your local machine can handle it.
+>
+> ![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
+### LM Studio provider
+
+The LM Studio provider connects to the LM Studio desktop application's
+OpenAI-compatible local server to discover and use loaded models.
+
+**Prerequisites:**
+
+- Install LM Studio from [lmstudio.ai](https://lmstudio.ai)
+- Load a model and start the local server in LM Studio (default: `http://localhost:1234`)
+
+**Configure:**
+
+1. Click **Settings** on the LM Studio provider card.
+2. The default Base URL is `http://localhost:1234/v1`. Adjust if needed, then
+   click **Save**.
+3. Click **Manage Models** to see models loaded in LM Studio. You can also
+   manually add model IDs.
+4. Select **LM Studio** in the **Provider** dropdown and pick a model.
+
+> LM Studio does not require an API key by default. Models must be loaded
+> in LM Studio before they appear in CoPaw.
+
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> To run CoPaw properly, you must set the model context length to
+> **32K or higher**. Note that this can consume substantial compute resources,
+> so make sure your local machine can handle it.
+>
+> ![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
+
 ### Choose the active model
 
 1. In the **LLM Config** section, select a **Provider** from the dropdown
@@ -373,20 +419,41 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ---
 
+## Token Usage
+
+> Sidebar: **Settings → Token Usage**
+
+View LLM token consumption over a time range, aggregated by date and model.
+
+**View usage:**
+
+1. Select a date range (default: last 30 days).
+2. Click **Refresh** to fetch data.
+3. The page shows total tokens, total calls, and breakdowns by model and date.
+
+**Query via chat:**
+
+Ask CoPaw directly, e.g. "How many tokens have I used recently?" or "Show me token usage." The agent will call the `get_token_usage` tool and return the summary.
+
+> Data is stored in `~/.copaw/token_usage.json`. You can override the filename with the `COPAW_TOKEN_USAGE_FILE` environment variable. See [Config — Environment Variables](./config#environment-variables).
+
+---
+
 ## Quick Reference
 
-| Page                  | Sidebar path                     | What you can do                                      |
-| --------------------- | -------------------------------- | ---------------------------------------------------- |
-| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                     |
-| Channels              | Control → Channels               | Enable/disable channels, configure credentials       |
-| Sessions              | Control → Sessions               | Filter, rename, delete sessions                      |
-| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately             |
-| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download     |
-| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                  |
-| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients             |
-| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                         |
-| Models                | Settings → Models                | Configure providers, manage local/Ollama, pick model |
-| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                |
+| Page                  | Sidebar path                     | What you can do                                                |
+| --------------------- | -------------------------------- | -------------------------------------------------------------- |
+| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                               |
+| Channels              | Control → Channels               | Enable/disable channels, configure credentials                 |
+| Sessions              | Control → Sessions               | Filter, rename, delete sessions                                |
+| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately                       |
+| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download               |
+| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                            |
+| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients                       |
+| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                                   |
+| Models                | Settings → Models                | Configure providers, manage local/Ollama/LM Studio, pick model |
+| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                          |
+| Token Usage           | Settings → Token Usage           | View LLM token usage by date and model                         |
 
 ---
 
@@ -397,3 +464,4 @@ Select rows → click **Delete** in the toolbar → confirm.
 - [Skills](./skills) — Built-in skills and custom skills
 - [Heartbeat](./heartbeat) — Heartbeat configuration
 - [CLI](./cli) — Command-line reference
+- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management

@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
-import { Button } from "@agentscope-ai/design";
-import { PlusOutlined } from "@ant-design/icons";
+import { Button, Input } from "@agentscope-ai/design";
+import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
   PageHeader,
   LoadingState,
   ProviderCard,
-  ModelsSection,
   CustomProviderModal,
 } from "./components";
 import { useTranslation } from "react-i18next";
@@ -22,6 +21,7 @@ function ModelsPage() {
   const { providers, activeModels, loading, error, fetchAll } = useProviders();
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const refreshProvidersSilently = () => fetchAll(false);
 
@@ -32,8 +32,20 @@ function ModelsPage() {
       if (p.is_local) embedded.push(p);
       else regular.push(p);
     }
-    return { regularProviders: regular, embeddedProviders: embedded };
-  }, [providers]);
+    // Fuzzy search filter: match provider name (case-insensitive)
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return { regularProviders: regular, embeddedProviders: embedded };
+    }
+    return {
+      regularProviders: regular.filter((p) =>
+        p.name.toLowerCase().includes(query),
+      ),
+      embeddedProviders: embedded.filter((p) =>
+        p.name.toLowerCase().includes(query),
+      ),
+    };
+  }, [providers, searchQuery]);
 
   const handleMouseEnter = (providerId: string) => {
     setHoveredCard(providerId);
@@ -57,25 +69,14 @@ function ModelsPage() {
     ));
 
   return (
-    <div className={styles.page}>
+    <div className={styles.settingsPage}>
       {loading ? (
         <LoadingState message={t("models.loading")} />
       ) : error ? (
         <LoadingState message={error} error onRetry={fetchAll} />
       ) : (
         <>
-          {/* ---- LLM Section (top) ---- */}
-          <PageHeader
-            title={t("models.llmTitle")}
-            description={t("models.llmDescription")}
-          />
-          <ModelsSection
-            providers={providers}
-            activeModels={activeModels}
-            onSaved={fetchAll}
-          />
-
-          {/* ---- Providers Section (below) ---- */}
+          {/* ---- Providers Section ---- */}
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader
@@ -89,6 +90,27 @@ function ModelsPage() {
                 className={styles.addProviderBtn}
               >
                 {t("models.addProvider")}
+              </Button>
+            </div>
+
+            {/* ---- Search Row ---- */}
+            <div className={styles.searchRow}>
+              <Input
+                placeholder={t("models.searchPlaceholder")}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onPressEnter={() => {}}
+                className={styles.searchInput}
+                prefix={<SearchOutlined />}
+                allowClear
+              />
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                onClick={() => fetchAll()}
+                className={styles.searchBtn}
+              >
+                {t("models.search")}
               </Button>
             </div>
 

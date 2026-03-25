@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file from project root before reading any env vars
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
 
 
 class EnvVarLoader:
@@ -79,9 +85,26 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Default media directory for channels (cross-platform)
+DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
+
 JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
+
+# Builtin multi-agent profile: CoPaw Q&A helper.
+BUILTIN_QA_AGENT_ID = "CoPaw_QA_Agent_0.1beta1"
+BUILTIN_QA_AGENT_NAME = "QA Agent"
+# Default active_skills when the builtin QA workspace is first created only.
+BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
+    "guidance",
+    "copaw_source_index",
+)
+
+TOKEN_USAGE_FILE = EnvVarLoader.get_str(
+    "COPAW_TOKEN_USAGE_FILE",
+    "token_usage.json",
+)
 
 CONFIG_FILE = EnvVarLoader.get_str("COPAW_CONFIG_FILE", "config.json")
 
@@ -89,6 +112,13 @@ HEARTBEAT_FILE = EnvVarLoader.get_str("COPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_TARGET_LAST = "last"
+
+# Debug history file for /dump_history and /load_history commands
+DEBUG_HISTORY_FILE = EnvVarLoader.get_str(
+    "COPAW_DEBUG_HISTORY_FILE",
+    "debug_history.jsonl",
+)
+MAX_LOAD_HISTORY_COUNT = 10000
 
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"
@@ -114,12 +144,6 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
 # (dev only; keep False in prod).
 DOCS_ENABLED = EnvVarLoader.get_bool("COPAW_OPENAPI_DOCS", False)
 
-# Skills directories
-# Active skills directory (activated skills that agents use)
-ACTIVE_SKILLS_DIR = WORKING_DIR / "active_skills"
-# Customized skills directory (user-created skills)
-CUSTOMIZED_SKILLS_DIR = WORKING_DIR / "customized_skills"
-
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
 
@@ -130,13 +154,13 @@ CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 # Local models directory
 MODELS_DIR = WORKING_DIR / "models"
 
-# Memory compaction configuration
 MEMORY_COMPACT_KEEP_RECENT = EnvVarLoader.get_int(
     "COPAW_MEMORY_COMPACT_KEEP_RECENT",
     3,
     min_value=0,
 )
 
+# Memory compaction configuration
 MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     "COPAW_MEMORY_COMPACT_RATIO",
     0.7,
@@ -153,3 +177,33 @@ DASHSCOPE_BASE_URL = EnvVarLoader.get_str(
 # Example: COPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.
 CORS_ORIGINS = EnvVarLoader.get_str("COPAW_CORS_ORIGINS", "").strip()
+
+# LLM API retry configuration
+LLM_MAX_RETRIES = EnvVarLoader.get_int(
+    "COPAW_LLM_MAX_RETRIES",
+    3,
+    min_value=0,
+)
+
+LLM_BACKOFF_BASE = EnvVarLoader.get_float(
+    "COPAW_LLM_BACKOFF_BASE",
+    1.0,
+    min_value=0.1,
+)
+
+LLM_BACKOFF_CAP = EnvVarLoader.get_float(
+    "COPAW_LLM_BACKOFF_CAP",
+    10.0,
+    min_value=0.5,
+)
+
+# Tool guard approval timeout (seconds).
+try:
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(
+        float(
+            os.environ.get("COPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS", "600"),
+        ),
+        1.0,
+    )
+except (TypeError, ValueError):
+    TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0

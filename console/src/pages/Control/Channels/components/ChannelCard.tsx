@@ -78,7 +78,9 @@ export function ChannelCard({
         )}
       </div>
 
-      <div className={styles.cardHint}>{t("channels.clickCardToEdit")}</div>
+      <div className={styles.cardFooter}>
+        <span className={styles.cardHint}>{t("channels.clickCardToEdit")}</span>
+      </div>
     </Card>
   );
 }

@@ -10,7 +10,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    # AudioContent,
+    AudioContent,
     FileContent,
     ImageContent,
     VideoContent,
@@ -37,13 +37,10 @@ def dingtalk_content_from_type(mapped: str, url: str) -> Any:
     if mapped == "video":
         return VideoContent(type=ContentType.VIDEO, video_url=url)
     if mapped == "audio":
-        # Use subtype only: runtime prefixes with "audio/" -> "audio/amr".
-        # TODO: change to audio block when as support amr
-        return FileContent(
-            type=ContentType.FILE,
-            file_url=url,
-            # data=url,
-            # format="amr",
+        return AudioContent(
+            type=ContentType.AUDIO,
+            data=url,
+            format="amr",
         )
     return FileContent(type=ContentType.FILE, file_url=url)
 
@@ -79,9 +76,13 @@ def sender_from_chatbot_message(incoming_message: Any) -> tuple[str, bool]:
         or ""
     )
     sender_id = str(sender_id).strip() if sender_id else ""
-    suffix = sender_id[-4:] if len(sender_id) >= 4 else (sender_id or "????")
-    sender = f"{(nickname or 'unknown')}#{suffix}"
-    skip = not suffix and not nickname
+    has_sender_id = bool(sender_id)
+    has_nickname = bool(nickname)
+
+    suffix = sender_id[-4:] if len(sender_id) >= 4 else sender_id
+    sender = f"{(nickname or 'unknown')}#{(suffix or '????')}"
+
+    skip = (not has_sender_id) and (not has_nickname)
     return sender, skip
 
 

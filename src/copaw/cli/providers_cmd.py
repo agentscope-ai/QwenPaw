@@ -60,7 +60,7 @@ def _get_ollama_host() -> str:
     manager = _manager()
     provider = manager.get_provider("ollama")
     if provider is None or not provider.base_url:
-        return "http://localhost:11434"
+        return "http://127.0.0.1:11434"
     return provider.base_url
 
 
@@ -214,12 +214,15 @@ def _add_models_interactive(provider_id: str) -> None:
             default=model_id,
         ).strip()
         try:
-            asyncio.run(
+            ok, msg = asyncio.run(
                 defn.add_model(ModelInfo(id=model_id, name=model_name)),
             )
-            _save_provider(manager, provider_id)
-            click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
-            all_models.append(ModelInfo(id=model_id, name=model_name))
+            if ok:
+                _save_provider(manager, provider_id)
+                click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
+                all_models.append(ModelInfo(id=model_id, name=model_name))
+            else:
+                click.echo(click.style(f"Error: {msg}", fg="red"))
         except ValueError as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
 
@@ -500,7 +503,7 @@ def add_provider_cmd(
     """Add a new custom provider."""
     manager = _manager()
     try:
-        asyncio.run(
+        provider_info = asyncio.run(
             manager.add_custom_provider(
                 ProviderInfo(
                     id=provider_id,
@@ -515,7 +518,12 @@ def add_provider_cmd(
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-    click.echo(f"✓ Custom provider '{name}' ({provider_id}) created.")
+    click.echo(
+        "✓ Custom provider "
+        f"'{provider_info.name}' ({provider_info.id}) created.",
+    )
+    if provider_info.id != provider_id:
+        click.echo(f"  requested id: {provider_id}")
     if base_url:
         click.echo(f"  base_url: {base_url}")
     click.echo(
@@ -609,12 +617,15 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found.")
-        asyncio.run(provider.delete_model(model_id=model_id))
-        _save_provider(manager, provider_id)
+        ok, msg = asyncio.run(provider.delete_model(model_id=model_id))
+        if ok:
+            _save_provider(manager, provider_id)
+            click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
+        else:
+            click.echo(click.style(f"Error: {msg}", fg="red"))
     except ValueError as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-    click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
 
 
 # ---------------------------------------------------------------------------

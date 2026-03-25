@@ -3,7 +3,27 @@ import {
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
-import api, { type ChatSpec, type Message } from "../../../api";
+import api, {
+  type ChatSpec,
+  type ChatHistory,
+  type ChatStatus,
+  type Message,
+} from "../../../api";
+import { chatApi } from "../../../api/modules/chat";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DEFAULT_USER_ID = "default";
+const DEFAULT_CHANNEL = "console";
+const DEFAULT_SESSION_NAME = "New Chat";
+const ROLE_TOOL = "tool";
+const ROLE_USER = "user";
+const ROLE_ASSISTANT = "assistant";
+const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
+// const CARD_REQUEST = "AgentScopeRuntimeRequestCard";
+const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -46,6 +66,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   meta: Record<string, unknown>;
   /** Real backend UUID, used when id is overridden with a local timestamp. */
   realId?: string;
+  /** Conversation status from backend. */
+  status?: ChatStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,8 +78,15 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+/** Turn a backend content URL (path or full URL) into a full URL for display. */
+function toDisplayUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return chatApi.fileUrl(url.startsWith("/") ? url : `/${url}`);
+}
+
 /** Extract plain text from a message's content array. */
-function extractTextFromContent(content: unknown): string {
+const extractTextFromContent = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return String(content || "");
   return (content as ContentItem[])
@@ -65,23 +94,71 @@ function extractTextFromContent(content: unknown): string {
     .map((c) => c.text || "")
     .filter(Boolean)
     .join("\n");
+};
+
+/** Map backend message content to request card content (text + image + file). */
+function contentToRequestParts(
+  content: unknown,
+): Array<Record<string, unknown>> {
+  if (typeof content === "string") {
+    return [{ type: "text", text: content, status: "created" }];
+  }
+  if (!Array.isArray(content)) {
+    return [{ type: "text", text: String(content || ""), status: "created" }];
+  }
+  const parts: Array<Record<string, unknown>> = [];
+  for (const c of content as ContentItem[]) {
+    if (c.type === "text") {
+      if (c.text) parts.push({ type: "text", text: c.text, status: "created" });
+    } else if (c.type === "image" && c.image_url) {
+      parts.push({
+        type: "image",
+        image_url: toDisplayUrl(c.image_url as string),
+        status: "created",
+      });
+    } else if (c.type === "audio" && c.data) {
+      parts.push({
+        type: "audio",
+        data: toDisplayUrl(c.data as string),
+        status: "created",
+      });
+    } else if (c.type === "video" && c.video_url) {
+      parts.push({
+        type: "video",
+        video_url: toDisplayUrl(c.video_url as string),
+        status: "created",
+      });
+    } else if (c.type === "file" && (c.file_url || c.file_id)) {
+      parts.push({
+        type: "file",
+        file_url: toDisplayUrl((c.file_url as string) || (c.file_id as string)),
+        file_name: (c.filename as string) || (c.file_name as string) || "file",
+        status: "created",
+      });
+    }
+  }
+  if (parts.length === 0) {
+    parts.push({ type: "text", text: "", status: "created" });
+  }
+  return parts;
 }
 
 /**
  * Convert a backend message to a response output message.
  * Maps system + plugin_call_output → role "tool" and strips metadata.
  */
-function toOutputMessage(msg: Message): OutputMessage {
-  const role =
-    msg.type === "plugin_call_output" && msg.role === "system"
-      ? "tool"
-      : msg.role;
-  return { ...msg, role, metadata: null };
-}
+const toOutputMessage = (msg: Message): OutputMessage => ({
+  ...msg,
+  role:
+    msg.type === TYPE_PLUGIN_CALL_OUTPUT && msg.role === "system"
+      ? ROLE_TOOL
+      : msg.role,
+  metadata: null,
+});
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
 function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
-  const text = extractTextFromContent(msg.content);
+  const contentParts = contentToRequestParts(msg.content);
   return {
     id: (msg.id as string) || generateId(),
     role: "user",
@@ -93,7 +170,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
             {
               role: "user",
               type: "message",
-              content: [{ type: "text", text, status: "created" }],
+              content: contentParts,
             },
           ],
         },
@@ -106,9 +183,9 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
  * Build an assistant response card (AgentScopeRuntimeResponseCard)
  * wrapping a group of consecutive non-user output messages.
  */
-function buildResponseCard(
+const buildResponseCard = (
   outputMessages: OutputMessage[],
-): IAgentScopeRuntimeWebUIMessage {
+): IAgentScopeRuntimeWebUIMessage => {
   const now = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
     (max, m) => Math.max(max, m.sequence_number || 0),
@@ -116,10 +193,10 @@ function buildResponseCard(
   );
   return {
     id: generateId(),
-    role: "assistant",
+    role: ROLE_ASSISTANT,
     cards: [
       {
-        code: "AgentScopeRuntimeResponseCard",
+        code: CARD_RESPONSE,
         data: {
           id: `response_${generateId()}`,
           output: outputMessages,
@@ -135,7 +212,7 @@ function buildResponseCard(
     ],
     msgStatus: "finished",
   };
-}
+};
 
 /**
  * Convert flat backend messages into the card-based format expected by
@@ -145,61 +222,104 @@ function buildResponseCard(
  * - Consecutive non-user messages (assistant / system / tool) → grouped
  *   into a single AgentScopeRuntimeResponseCard with all output messages.
  */
-function convertMessages(
+const convertMessages = (
   messages: Message[],
-): IAgentScopeRuntimeWebUIMessage[] {
+): IAgentScopeRuntimeWebUIMessage[] => {
   const result: IAgentScopeRuntimeWebUIMessage[] = [];
   let i = 0;
 
   while (i < messages.length) {
-    if (messages[i].role === "user") {
+    if (messages[i].role === ROLE_USER) {
       result.push(buildUserCard(messages[i++]));
     } else {
       const outputMsgs: OutputMessage[] = [];
-      while (i < messages.length && messages[i].role !== "user") {
+      while (i < messages.length && messages[i].role !== ROLE_USER) {
         outputMsgs.push(toOutputMessage(messages[i++]));
       }
-      if (outputMsgs.length > 0) result.push(buildResponseCard(outputMsgs));
+      if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
     }
   }
 
   return result;
-}
+};
 
-function chatSpecToSession(chat: ChatSpec): ExtendedSession {
-  return {
+const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
+  ({
     id: chat.id,
-    name: (chat as ChatSpec & { name?: string }).name || "New Chat",
+    name: (chat as ChatSpec & { name?: string }).name || DEFAULT_SESSION_NAME,
     sessionId: chat.session_id,
     userId: chat.user_id,
     channel: chat.channel,
     messages: [],
     meta: chat.meta || {},
-  } as ExtendedSession;
-}
+    status: chat.status ?? "idle",
+  }) as ExtendedSession;
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
-function isLocalTimestamp(id: string): boolean {
-  return /^\d+$/.test(id);
-}
+const isLocalTimestamp = (id: string): boolean => /^\d+$/.test(id);
+
+/** Detect if backend is still generating content for this chat. */
+const isGenerating = (chatHistory: ChatHistory): boolean => {
+  if (chatHistory.status === "running") return true;
+  if (chatHistory.status === "idle") return false;
+  const msgs = chatHistory.messages || [];
+  if (msgs.length === 0) return false;
+  const last = msgs[msgs.length - 1];
+  return last.role === ROLE_USER;
+};
 
 /**
  * Resolve and persist the real backend UUID for a local timestamp session.
- * Searches the refreshed session list for a backend record whose session_id
- * matches the timestamp, then stores realId and keeps the timestamp as id.
+ * Stores the real UUID as realId while keeping the timestamp as id, so the
+ * library's internal currentSessionId (timestamp) remains valid.
+ * Returns the resolved real UUID, or null if not found.
  */
-function resolveRealId(
+const resolveRealId = (
   sessionList: IAgentScopeRuntimeWebUISession[],
   tempSessionId: string,
-): IAgentScopeRuntimeWebUISession[] {
+): { list: IAgentScopeRuntimeWebUISession[]; realId: string | null } => {
   const realSession = sessionList.find(
     (s) => (s as ExtendedSession).sessionId === tempSessionId,
   );
-  if (!realSession) return sessionList;
+  if (!realSession) return { list: sessionList, realId: null };
 
-  (realSession as ExtendedSession).realId = realSession.id;
+  const realUUID = realSession.id;
+  (realSession as ExtendedSession).realId = realUUID;
   realSession.id = tempSessionId;
-  return [realSession, ...sessionList.filter((s) => s !== realSession)];
+  return {
+    list: [realSession, ...sessionList.filter((s) => s !== realSession)],
+    realId: realUUID,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Per-session user message persistence (survives page refresh)
+// ---------------------------------------------------------------------------
+
+const STORAGE_PREFIX = "copaw_pending_user_msg_";
+
+function savePendingUserMessage(sessionId: string, text: string): void {
+  try {
+    sessionStorage.setItem(`${STORAGE_PREFIX}${sessionId}`, text);
+  } catch {
+    /* quota exceeded – ignore */
+  }
+}
+
+function loadPendingUserMessage(sessionId: string): string {
+  try {
+    return sessionStorage.getItem(`${STORAGE_PREFIX}${sessionId}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+function clearPendingUserMessage(sessionId: string): void {
+  try {
+    sessionStorage.removeItem(`${STORAGE_PREFIX}${sessionId}`);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +330,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
 
   /**
+   * Cache the latest user message for a chat so it can be patched into
+   * history during reconnect (the backend only persists it after generation
+   * completes). Persisted to sessionStorage so it survives page refresh.
+   */
+  setLastUserMessage(sessionId: string, text: string): void {
+    if (!sessionId || !text) return;
+    savePendingUserMessage(sessionId, text);
+  }
+
+  /**
    * Deduplicates concurrent getSessionList calls so that two parallel
    * invocations share one network request and write sessionList only once,
    * preserving any realId mappings that were already resolved.
@@ -217,18 +347,79 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionListRequest: Promise<IAgentScopeRuntimeWebUISession[]> | null =
     null;
 
-  constructor() {}
+  /**
+   * Deduplicates concurrent getSession calls for the same sessionId.
+   * Key: sessionId, Value: in-flight promise for getSession.
+   */
+  private sessionRequests: Map<
+    string,
+    Promise<IAgentScopeRuntimeWebUISession>
+  > = new Map();
+
+  /**
+   * Called when a temporary timestamp session id is resolved to a real backend
+   * UUID. Consumers (e.g. Chat/index.tsx) can register here to update the URL.
+   */
+  onSessionIdResolved: ((tempId: string, realId: string) => void) | null = null;
+
+  /**
+   * Called after a session is removed. Consumers can register here to clear
+   * the session id from the URL.
+   */
+  onSessionRemoved: ((removedId: string) => void) | null = null;
+
+  /**
+   * When reconnecting to a running conversation, the backend history may not
+   * include the latest user message (it's only persisted after generation
+   * completes). If generating, look up the cached text from sessionStorage
+   * and patch it into the message list.
+   *
+   * When not generating the conversation is done — clear the cached entry.
+   */
+  private patchLastUserMessage(
+    messages: IAgentScopeRuntimeWebUIMessage[],
+    generating: boolean,
+    backendSessionId: string,
+  ): void {
+    if (!generating) {
+      clearPendingUserMessage(backendSessionId);
+      return;
+    }
+
+    const cachedText = loadPendingUserMessage(backendSessionId);
+    if (!cachedText) return;
+
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === ROLE_USER) {
+      const text = extractTextFromContent(
+        lastMsg?.cards?.[0]?.data?.input?.[0]?.content,
+      );
+      if (!text) {
+        lastMsg.cards = buildUserCard({
+          content: [{ type: "text", text: cachedText }],
+          role: ROLE_USER,
+        } as Message).cards;
+      }
+    } else {
+      messages.push(
+        buildUserCard({
+          content: [{ type: "text", text: cachedText }],
+          role: ROLE_USER,
+        } as Message),
+      );
+    }
+  }
 
   private createEmptySession(sessionId: string): ExtendedSession {
     window.currentSessionId = sessionId;
-    window.currentUserId = "default";
-    window.currentChannel = "console";
+    window.currentUserId = DEFAULT_USER_ID;
+    window.currentChannel = DEFAULT_CHANNEL;
     return {
       id: sessionId,
-      name: "New Chat",
+      name: DEFAULT_SESSION_NAME,
       sessionId,
-      userId: "default",
-      channel: "console",
+      userId: DEFAULT_USER_ID,
+      channel: DEFAULT_CHANNEL,
       messages: [],
       meta: {},
     } as ExtendedSession;
@@ -236,8 +427,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   private updateWindowVariables(session: ExtendedSession): void {
     window.currentSessionId = session.sessionId || "";
-    window.currentUserId = session.userId || "default";
-    window.currentChannel = session.channel || "console";
+    window.currentUserId = session.userId || DEFAULT_USER_ID;
+    window.currentChannel = session.channel || DEFAULT_CHANNEL;
   }
 
   private getLocalSession(sessionId: string): IAgentScopeRuntimeWebUISession {
@@ -249,9 +440,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.createEmptySession(sessionId);
   }
 
+  /**
+   * Returns the real backend UUID for a session identified by id (which may be
+   * a local timestamp). Returns null when not yet resolved or not found.
+   */
+  getRealIdForSession(sessionId: string): string | null {
+    const s = this.sessionList.find((x) => x.id === sessionId) as
+      | ExtendedSession
+      | undefined;
+    return s?.realId ?? null;
+  }
+
   async getSessionList() {
-    // Deduplicate: reuse the in-flight request if one is already running so
-    // concurrent calls don't overwrite sessionList and lose realId mappings.
     if (this.sessionListRequest) return this.sessionListRequest;
 
     this.sessionListRequest = (async () => {
@@ -262,7 +462,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           .map(chatSpecToSession)
           .reverse();
 
-        // Merge: preserve realId mappings (timestamp → UUID) stored in memory
         this.sessionList = newList.map((s) => {
           const existing = this.sessionList.find(
             (e) =>
@@ -284,34 +483,51 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   async getSession(sessionId: string) {
-    // --- Local timestamp ID (New Chat / post-delete) ---
+    const existingRequest = this.sessionRequests.get(sessionId);
+    if (existingRequest) return existingRequest;
+
+    const requestPromise = this._doGetSession(sessionId);
+    this.sessionRequests.set(sessionId, requestPromise);
+
+    try {
+      return await requestPromise;
+    } finally {
+      this.sessionRequests.delete(sessionId);
+    }
+  }
+
+  private async _doGetSession(
+    sessionId: string,
+  ): Promise<IAgentScopeRuntimeWebUISession> {
+    // --- Local timestamp ID (New Chat before first reply) ---
     if (isLocalTimestamp(sessionId)) {
       const fromList = this.sessionList.find((s) => s.id === sessionId) as
         | ExtendedSession
         | undefined;
-      const { realId } = fromList ?? {};
 
-      if (realId) {
-        // Already has a backend record — fetch full history
-        const chatHistory = await api.getChat(realId);
+      // If realId is already resolved, use it directly to fetch history.
+      if (fromList?.realId) {
+        const chatHistory = await api.getChat(fromList.realId);
+        const generating = isGenerating(chatHistory);
+        const messages = convertMessages(chatHistory.messages || []);
+        this.patchLastUserMessage(messages, generating, fromList.realId);
         const session: ExtendedSession = {
           id: sessionId,
-          name: fromList?.name || "New Chat",
-          sessionId: fromList?.sessionId || sessionId,
-          userId: fromList?.userId || "default",
-          channel: fromList?.channel || "console",
-          messages: convertMessages(chatHistory.messages || []),
-          meta: fromList?.meta || {},
-          realId,
+          name: fromList.name || DEFAULT_SESSION_NAME,
+          sessionId: fromList.sessionId || sessionId,
+          userId: fromList.userId || DEFAULT_USER_ID,
+          channel: fromList.channel || DEFAULT_CHANNEL,
+          messages,
+          meta: fromList.meta || {},
+          realId: fromList.realId,
+          generating,
         };
         this.updateWindowVariables(session);
         return session;
       }
 
-      // Pure local session: block until this session gets a realId, meaning
-      // updateSession has resolved the backend UUID. At that point the
-      // streaming response is done, realId is set, and we can safely fetch
-      // the full history without racing against setMessages([]).
+      // Pure local session (not yet sent to backend): wait until updateSession
+      // resolves the realId, then fetch history with the real UUID.
       await new Promise<void>((resolve) => {
         const check = () => {
           const s = this.sessionList.find((x) => x.id === sessionId) as
@@ -326,21 +542,24 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         setTimeout(check, 100);
       });
 
-      // Re-read after realId is available and fall through to the realId branch
       const refreshed = this.sessionList.find((s) => s.id === sessionId) as
         | ExtendedSession
         | undefined;
       if (refreshed?.realId) {
         const chatHistory = await api.getChat(refreshed.realId);
+        const generating = isGenerating(chatHistory);
+        const messages = convertMessages(chatHistory.messages || []);
+        this.patchLastUserMessage(messages, generating, refreshed.realId);
         const session: ExtendedSession = {
           id: sessionId,
-          name: refreshed.name || "New Chat",
+          name: refreshed.name || DEFAULT_SESSION_NAME,
           sessionId: refreshed.sessionId || sessionId,
-          userId: refreshed.userId || "default",
-          channel: refreshed.channel || "console",
-          messages: convertMessages(chatHistory.messages || []),
+          userId: refreshed.userId || DEFAULT_USER_ID,
+          channel: refreshed.channel || DEFAULT_CHANNEL,
+          messages,
           meta: refreshed.meta || {},
           realId: refreshed.realId,
+          generating,
         };
         this.updateWindowVariables(session);
         return session;
@@ -350,9 +569,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
 
     // --- No session selected (e.g. after delete) ---
-    // Return a transient empty session; it is NOT added to sessionList so it
-    // never appears as a list item. The component will call createSession on
-    // the next submit via ensureSession.
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
       return this.createEmptySession(Date.now().toString());
     }
@@ -363,14 +579,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | undefined;
 
     const chatHistory = await api.getChat(sessionId);
+    const generating = isGenerating(chatHistory);
+    const messages = convertMessages(chatHistory.messages || []);
+    this.patchLastUserMessage(messages, generating, sessionId);
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
       sessionId: fromList?.sessionId || sessionId,
-      userId: fromList?.userId || "default",
-      channel: fromList?.channel || "console",
-      messages: convertMessages(chatHistory.messages || []),
+      userId: fromList?.userId || DEFAULT_USER_ID,
+      channel: fromList?.channel || DEFAULT_CHANNEL,
+      messages,
       meta: fromList?.meta || {},
+      generating,
     };
 
     this.updateWindowVariables(session);
@@ -384,19 +604,25 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (index > -1) {
       this.sessionList[index] = { ...this.sessionList[index], ...session };
 
-      // Timestamp session without realId yet — resolve in the background
       const existing = this.sessionList[index] as ExtendedSession;
       if (isLocalTimestamp(existing.id) && !existing.realId) {
         const tempId = existing.id;
         this.getSessionList().then(() => {
-          this.sessionList = resolveRealId(this.sessionList, tempId);
+          const { list, realId } = resolveRealId(this.sessionList, tempId);
+          this.sessionList = list;
+          if (realId) {
+            this.onSessionIdResolved?.(tempId, realId);
+          }
         });
       }
     } else {
-      // Session not found locally — refresh and resolve via session_id
       const tempId = session.id!;
       await this.getSessionList().then(() => {
-        this.sessionList = resolveRealId(this.sessionList, tempId);
+        const { list, realId } = resolveRealId(this.sessionList, tempId);
+        this.sessionList = list;
+        if (realId) {
+          this.onSessionIdResolved?.(tempId, realId);
+        }
       });
     }
 
@@ -409,8 +635,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const extended: ExtendedSession = {
       ...session,
       sessionId: session.id,
-      userId: "default",
-      channel: "console",
+      userId: DEFAULT_USER_ID,
+      channel: DEFAULT_CHANNEL,
     } as ExtendedSession;
 
     this.updateWindowVariables(extended);
@@ -422,17 +648,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (!session.id) return [...this.sessionList];
 
     const { id: sessionId } = session;
+
     const existing = this.sessionList.find((s) => s.id === sessionId) as
       | ExtendedSession
       | undefined;
 
-    // Use realId (UUID) when available; skip backend call for pure local sessions
     const deleteId =
       existing?.realId ?? (isLocalTimestamp(sessionId) ? null : sessionId);
 
     if (deleteId) await api.deleteChat(deleteId);
 
     this.sessionList = this.sessionList.filter((s) => s.id !== sessionId);
+
+    const resolvedId = existing?.realId ?? sessionId;
+    this.onSessionRemoved?.(resolvedId);
 
     return [...this.sessionList];
   }

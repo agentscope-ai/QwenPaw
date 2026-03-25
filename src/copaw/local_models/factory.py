@@ -99,12 +99,12 @@ def create_local_chat_model(
         _active_backend = backend
         _active_model_id = model_id
 
-    return LocalChatModel(
-        model_name=model_id,
-        backend=backend,
-        stream=stream,
-        generate_kwargs=generate_kwargs,
-    )
+        return LocalChatModel(
+            model_name=model_id,
+            backend=_active_backend,
+            stream=stream,
+            generate_kwargs=generate_kwargs,
+        )
 
 
 def _create_backend(

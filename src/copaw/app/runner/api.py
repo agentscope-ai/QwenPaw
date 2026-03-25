@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
-import json
-
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope.session import JSONSession
 from agentscope.memory import InMemoryMemory
 
+from .session import SafeJSONSession
 from .manager import ChatManager
 from .models import (
     ChatSpec,
@@ -20,46 +18,47 @@ from .utils import agentscope_msg_to_message
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
-def get_chat_manager(request: Request) -> ChatManager:
-    """Get the chat manager from app state.
+async def get_workspace(request: Request):
+    """Get the workspace for the active agent."""
+    from ..agent_context import get_agent_for_request
+
+    return await get_agent_for_request(request)
+
+
+async def get_chat_manager(
+    request: Request,
+) -> ChatManager:
+    """Get the chat manager for the active agent.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        ChatManager instance
+        ChatManager instance for the specified agent
 
     Raises:
         HTTPException: If manager is not initialized
     """
-    mgr = getattr(request.app.state, "chat_manager", None)
-    if mgr is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Chat manager not initialized",
-        )
-    return mgr
+    workspace = await get_workspace(request)
+    return workspace.chat_manager
 
 
-def get_session(request: Request) -> JSONSession:
-    """Get the session from app state.
+async def get_session(
+    request: Request,
+) -> SafeJSONSession:
+    """Get the session for the active agent.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        JSONSession instance
+        SafeJSONSession instance for the specified agent
 
     Raises:
         HTTPException: If session is not initialized
     """
-    runner = getattr(request.app.state, "runner", None)
-    if runner is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Session not initialized",
-        )
-    return runner.session
+    workspace = await get_workspace(request)
+    return workspace.runner.session
 
 
 @router.get("", response_model=list[ChatSpec])
@@ -67,6 +66,7 @@ async def list_chats(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     channel: Optional[str] = Query(None, description="Filter by channel"),
     mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
 ):
     """List all chats with optional filters.
 
@@ -75,7 +75,13 @@ async def list_chats(
         channel: Optional channel name to filter chats
         mgr: Chat manager dependency
     """
-    return await mgr.list_chats(user_id=user_id, channel=channel)
+    chats = await mgr.list_chats(user_id=user_id, channel=channel)
+    tracker = workspace.task_tracker
+    result = []
+    for spec in chats:
+        status = await tracker.get_status(spec.id)
+        result.append(spec.model_copy(update={"status": status}))
+    return result
 
 
 @router.post("", response_model=ChatSpec)
@@ -128,17 +134,19 @@ async def batch_delete_chats(
 async def get_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
-    session: JSONSession = Depends(get_session),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
 ):
     """Get detailed information about a specific chat by UUID.
 
     Args:
+        request: FastAPI request (for agent context)
         chat_id: Chat UUID
         mgr: Chat manager dependency
-        session: JSONSession  dependency
+        session: SafeJSONSession dependency
 
     Returns:
-        ChatHistory with messages
+        ChatHistory with messages and status (idle/running)
 
     Raises:
         HTTPException: If chat not found (404)
@@ -150,24 +158,20 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
-    # pylint: disable=protected-access
-    session_path = session._get_save_path(
+    state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
     )
-
-    try:
-        with open(session_path, "r", encoding="utf-8") as file:
-            state = json.load(file)
-    except Exception:
-        return ChatHistory(messages=[])
+    status = await workspace.task_tracker.get_status(chat_id)
+    if not state:
+        return ChatHistory(messages=[], status=status)
     memories = state.get("agent", {}).get("memory", [])
     memory = InMemoryMemory()
     memory.load_state_dict(memories)
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages)
+    return ChatHistory(messages=messages, status=status)
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)

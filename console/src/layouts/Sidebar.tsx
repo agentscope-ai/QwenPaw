@@ -6,6 +6,9 @@ import {
   Modal,
   Spin,
   Tooltip,
+  Input,
+  Form,
+  message,
   type MenuProps,
 } from "antd";
 import { useState, useEffect, useCallback } from "react";
@@ -28,134 +31,45 @@ import {
   Box,
   Globe,
   Settings,
+  Shield,
   Plug,
   Wrench,
   PanelLeftClose,
   PanelLeftOpen,
   Copy,
   Check,
+  BarChart3,
+  Mic,
+  Bot,
+  LogOut,
+  UserCog,
 } from "lucide-react";
 import api from "../api";
+import { clearAuthToken } from "../api/config";
+import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
+import { useTheme } from "../contexts/ThemeContext";
+import {
+  PYPI_URL,
+  ONE_HOUR_MS,
+  DEFAULT_OPEN_KEYS,
+  KEY_TO_PATH,
+  UPDATE_MD,
+  isStableVersion,
+  compareVersions,
+} from "./constants";
+
+// ── Layout ────────────────────────────────────────────────────────────────
 
 const { Sider } = Layout;
 
-const PYPI_URL = "https://pypi.org/pypi/copaw/json";
-
-const DEFAULT_OPEN_KEYS = [
-  "chat-group",
-  "control-group",
-  "agent-group",
-  "settings-group",
-];
-
-const KEY_TO_PATH: Record<string, string> = {
-  chat: "/chat",
-  channels: "/channels",
-  sessions: "/sessions",
-  "cron-jobs": "/cron-jobs",
-  heartbeat: "/heartbeat",
-  skills: "/skills",
-  tools: "/tools",
-  mcp: "/mcp",
-  workspace: "/workspace",
-  models: "/models",
-  environments: "/environments",
-  "agent-config": "/agent-config",
-};
-
-const UPDATE_MD: Record<string, string> = {
-  zh: `### CoPaw如何更新
-
-要更新 CoPaw 到最新版本，可根据你的安装方式选择对应方法：
-
-1. 如果你使用的是一键安装脚本，直接重新运行安装命令即可自动升级。
-
-2. 如果你是通过 pip 安装，在终端中执行以下命令升级：
-
-\`\`\`
-pip install --upgrade copaw
-\`\`\`
-
-3. 如果你是从源码安装，进入项目目录并拉取最新代码后重新安装：
-
-\`\`\`
-cd CoPaw
-git pull origin main
-pip install -e .
-\`\`\`
-
-4. 如果你使用的是 Docker，拉取最新镜像并重启容器：
-
-\`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
-\`\`\`
-
-升级后重启服务 copaw app。`,
-
-  ru: `### Как обновить CoPaw
-
-Чтобы обновить CoPaw, выберите способ в зависимости от типа установки:
-
-1. Если вы устанавливали через однострочный скрипт, повторно запустите установщик для обновления.
-
-2. Если устанавливали через pip, выполните:
-
-\`\`\`
-pip install --upgrade copaw
-\`\`\`
-
-3. Если устанавливали из исходников, получите последние изменения и переустановите:
-
-\`\`\`
-cd CoPaw
-git pull origin main
-pip install -e .
-\`\`\`
-
-4. Если используете Docker, загрузите новый образ и перезапустите контейнер:
-
-\`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
-\`\`\`
-
-После обновления перезапустите сервис с помощью \`copaw app\`.`,
-
-  en: `### How to update CoPaw
-
-To update CoPaw, use the method matching your installation type:
-
-1. If installed via one-line script, re-run the installer to upgrade.
-
-2. If installed via pip, run:
-
-\`\`\`
-pip install --upgrade copaw
-\`\`\`
-
-3. If installed from source, pull the latest code and reinstall:
-
-\`\`\`
-cd CoPaw
-git pull origin main
-pip install -e .
-\`\`\`
-
-4. If using Docker, pull the latest image and restart the container:
-
-\`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
-\`\`\`
-
-After upgrading, restart the service with \`copaw app\`.`,
-};
+// ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
   selectedKey: string;
 }
+
+// ── CopyButton ────────────────────────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -185,21 +99,34 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── Sidebar ───────────────────────────────────────────────────────────────
+
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
+  const { isDark } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [openKeys, setOpenKeys] = useState<string[]>(DEFAULT_OPEN_KEYS);
   const [version, setVersion] = useState<string>("");
   const [latestVersion, setLatestVersion] = useState<string>("");
-  const [allVersions, setAllVersions] = useState<string[]>([]);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountForm] = Form.useForm();
+
+  // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!collapsed) {
-      setOpenKeys(DEFAULT_OPEN_KEYS);
-    }
+    authApi
+      .getStatus()
+      .then((res) => setAuthEnabled(res.enabled))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!collapsed) setOpenKeys(DEFAULT_OPEN_KEYS);
   }, [collapsed]);
 
   useEffect(() => {
@@ -214,36 +141,57 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .then((res) => res.json())
       .then((data) => {
         const releases = data?.releases ?? {};
-        // Sort versions by upload_time (newest first)
-        const versionsWithTime = Object.entries(releases).map(
-          ([version, files]) => {
+
+        // Build stable/post versions list with their latest upload time.
+        const versionsWithTime = Object.entries(releases)
+          .filter(([v]) => isStableVersion(v))
+          .map(([v, files]) => {
             const fileList = files as Array<{ upload_time_iso_8601?: string }>;
-            // Get the latest upload time among all files for this version
             const latestUpload = fileList
               .map((f) => f.upload_time_iso_8601)
               .filter(Boolean)
               .sort()
               .pop();
-            return { version, uploadTime: latestUpload || "" };
-          },
-        );
-        versionsWithTime.sort(
-          (a, b) =>
-            new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime(),
-        );
+            return { version: v, uploadTime: latestUpload || "" };
+          });
+
+        // Sort by upload time (newest first); break ties by semantic version.
+        versionsWithTime.sort((a, b) => {
+          const timeDiff =
+            new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime();
+          return timeDiff !== 0
+            ? timeDiff
+            : compareVersions(b.version, a.version);
+        });
+
         const versions = versionsWithTime.map((v) => v.version);
+        // latest = most recently uploaded stable/post release
         const latest = versions[0] ?? data?.info?.version ?? "";
-        setAllVersions(versions);
-        setLatestVersion(latest);
+
+        // Only notify once the latest version is older than 1 hour,
+        // giving Docker images time to build and become available.
+        const releaseTime = versionsWithTime.find((v) => v.version === latest)
+          ?.uploadTime;
+        const isOldEnough =
+          !!releaseTime &&
+          new Date(releaseTime) <= new Date(Date.now() - ONE_HOUR_MS);
+
+        if (isOldEnough) {
+          setLatestVersion(latest);
+        } else {
+          setLatestVersion("");
+        }
       })
       .catch(() => {});
   }, []);
 
+  // ── Derived state ─────────────────────────────────────────────────────────
+
+  // Show update notification only when latestVersion is strictly newer than current version.
   const hasUpdate =
-    version &&
-    allVersions.length > 0 &&
-    allVersions.includes(version) &&
-    version !== latestVersion;
+    !!version && !!latestVersion && compareVersions(latestVersion, version) > 0;
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleOpenUpdateModal = () => {
     setUpdateMarkdown("");
@@ -270,6 +218,64 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .catch(() => {
         setUpdateMarkdown(UPDATE_MD[lang] ?? UPDATE_MD.en);
       });
+  };
+
+  // ── Menu items ────────────────────────────────────────────────────────────
+
+  const handleUpdateProfile = async (values: {
+    currentPassword: string;
+    newUsername?: string;
+    newPassword?: string;
+  }) => {
+    const trimmedUsername = values.newUsername?.trim() || undefined;
+    const trimmedPassword = values.newPassword?.trim() || undefined;
+
+    // User typed spaces only in password field
+    if (values.newPassword && !trimmedPassword) {
+      message.error(t("account.passwordEmpty"));
+      return;
+    }
+
+    // User typed spaces only in username field
+    if (values.newUsername && !trimmedUsername) {
+      message.error(t("account.usernameEmpty"));
+      return;
+    }
+
+    if (!trimmedUsername && !trimmedPassword) {
+      message.warning(t("account.nothingToUpdate"));
+      return;
+    }
+
+    setAccountLoading(true);
+    try {
+      await authApi.updateProfile(
+        values.currentPassword,
+        trimmedUsername,
+        trimmedPassword,
+      );
+      message.success(t("account.updateSuccess"));
+      setAccountModalOpen(false);
+      accountForm.resetFields();
+      // Force re-login with new credentials
+      clearAuthToken();
+      window.location.href = "/login";
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : "";
+      let msg = t("account.updateFailed");
+      if (raw.includes("password is incorrect")) {
+        msg = t("account.wrongPassword");
+      } else if (raw.includes("Nothing to update")) {
+        msg = t("account.nothingToUpdate");
+      } else if (raw.includes("cannot be empty")) {
+        msg = t("account.nothingToUpdate");
+      } else if (raw) {
+        msg = raw;
+      }
+      message.error(msg);
+    } finally {
+      setAccountLoading(false);
+    }
   };
 
   const menuItems: MenuProps["items"] = [
@@ -333,27 +339,53 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.settings"),
       icon: <Cpu size={16} />,
       children: [
+        { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
         { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
         {
           key: "environments",
           label: t("nav.environments"),
           icon: <Globe size={16} />,
         },
+        {
+          key: "security",
+          label: t("nav.security"),
+          icon: <Shield size={16} />,
+        },
+        {
+          key: "token-usage",
+          label: t("nav.tokenUsage"),
+          icon: <BarChart3 size={16} />,
+        },
+        {
+          key: "voice-transcription",
+          label: t("nav.voiceTranscription"),
+          icon: <Mic size={16} />,
+        },
       ],
     },
   ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <Sider
       collapsed={collapsed}
       onCollapse={setCollapsed}
       width={275}
-      className={styles.sider}
+      className={`${styles.sider}${isDark ? ` ${styles.siderDark}` : ""}`}
     >
       <div className={styles.siderTop}>
         {!collapsed && (
           <div className={styles.logoWrapper}>
-            <img src="/logo.png" alt="CoPaw" className={styles.logoImg} />
+            <img
+              src={
+                isDark
+                  ? `${import.meta.env.BASE_URL}dark-logo.png`
+                  : `${import.meta.env.BASE_URL}logo.png`
+              }
+              alt="CoPaw"
+              className={styles.logoImg}
+            />
             {version && (
               <Badge dot={!!hasUpdate} color="red" offset={[4, 18]}>
                 <span
@@ -394,7 +426,106 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           if (path) navigate(path);
         }}
         items={menuItems}
+        theme={isDark ? "dark" : "light"}
       />
+
+      {authEnabled && (
+        <div className={styles.authActions}>
+          <Button
+            type="text"
+            icon={<UserCog size={16} />}
+            onClick={() => {
+              accountForm.resetFields();
+              setAccountModalOpen(true);
+            }}
+            block
+            className={`${styles.authBtn} ${
+              collapsed ? styles.authBtnCollapsed : ""
+            }`}
+          >
+            {!collapsed && t("account.title")}
+          </Button>
+          <Button
+            type="text"
+            icon={<LogOut size={16} />}
+            onClick={() => {
+              clearAuthToken();
+              window.location.href = "/login";
+            }}
+            block
+            className={`${styles.authBtn} ${
+              collapsed ? styles.authBtnCollapsed : ""
+            }`}
+          >
+            {!collapsed && t("login.logout")}
+          </Button>
+        </div>
+      )}
+
+      <Modal
+        open={accountModalOpen}
+        onCancel={() => setAccountModalOpen(false)}
+        title={t("account.title")}
+        footer={null}
+        destroyOnHidden
+        centered
+      >
+        <Form
+          form={accountForm}
+          layout="vertical"
+          onFinish={handleUpdateProfile}
+        >
+          <Form.Item
+            name="currentPassword"
+            label={t("account.currentPassword")}
+            rules={[
+              { required: true, message: t("account.currentPasswordRequired") },
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+          <Form.Item name="newUsername" label={t("account.newUsername")}>
+            <Input placeholder={t("account.newUsernamePlaceholder")} />
+          </Form.Item>
+          <Form.Item name="newPassword" label={t("account.newPassword")}>
+            <Input.Password placeholder={t("account.newPasswordPlaceholder")} />
+          </Form.Item>
+          <Form.Item
+            name="confirmPassword"
+            label={t("account.confirmPassword")}
+            dependencies={["newPassword"]}
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value && !getFieldValue("newPassword")) {
+                    return Promise.resolve();
+                  }
+                  if (value === getFieldValue("newPassword")) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(
+                    new Error(t("account.passwordMismatch")),
+                  );
+                },
+              }),
+            ]}
+          >
+            <Input.Password
+              placeholder={t("account.confirmPasswordPlaceholder")}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={accountLoading}
+              block
+            >
+              {t("account.save")}
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         open={updateModalOpen}
@@ -409,12 +540,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           <Button
             key="releases"
             type="primary"
-            onClick={() =>
+            onClick={() => {
+              const websiteLang = i18n.language?.startsWith("zh") ? "zh" : "en";
               window.open(
-                "https://github.com/agentscope-ai/CoPaw/releases",
+                `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`,
                 "_blank",
-              )
-            }
+              );
+            }}
             className={styles.updateModalPrimaryBtn}
           >
             {t("sidebar.updateModal.viewReleases")}

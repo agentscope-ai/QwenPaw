@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from .base import BaseJobRepository
@@ -16,7 +17,9 @@ class JsonJobRepository(BaseJobRepository):
     - Atomic write: write tmp then replace.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path | str):
+        if isinstance(path, str):
+            path = Path(path)
         self._path = path.expanduser()
 
     @property
@@ -40,4 +43,4 @@ class JsonJobRepository(BaseJobRepository):
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        tmp_path.replace(self._path)
+        shutil.move(str(tmp_path), str(self._path))

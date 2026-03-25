@@ -1,13 +1,8 @@
-# 记忆
+# 长期记忆
 
-**记忆** 让 CoPAW 拥有跨对话的持久记忆能力：自动管理上下文窗口，并将关键信息写入文件长期保存。
+**长期记忆** 让 CoPAW 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
 
-记忆系统提供两大核心能力：
-
-- **上下文管理** — 在上下文窗口溢出前，自动将对话压缩为精华摘要
-- **长期记忆管理** — 通过文件工具将关键信息写入 Markdown 文件，配合语义检索随时召回
-
-> 记忆设计受 [OpenClaw](https://github.com/openclaw/openclaw) 记忆架构启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
+> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
 
 ---
 
@@ -16,9 +11,7 @@
 ```mermaid
 graph TB
     User[用户 / Agent] --> MM[MemoryManager]
-    MM --> ContextMgmt[上下文管理]
     MM --> MemoryMgmt[长期记忆管理]
-    ContextMgmt --> Summary[上下文压缩]
     MemoryMgmt --> FileTools[记忆更新]
     MemoryMgmt --> Watcher[记忆索引更新]
     MemoryMgmt --> SearchLayer[记忆混合检索]
@@ -71,52 +64,60 @@ graph LR
 
 ### 何时写入记忆？
 
-| 信息类型             | 写入目标               | 操作方式                     | 示例                                                |
-| -------------------- | ---------------------- | ---------------------------- | --------------------------------------------------- |
-| 决策、偏好、持久事实 | `MEMORY.md`            | `write` / `edit` 工具        | "项目使用 Python 3.12"、"偏好 pytest 框架"          |
-| 日常笔记、运行上下文 | `memory/YYYY-MM-DD.md` | `write` / `edit` 工具        | "今天修复了登录 Bug"、"部署了 v2.1"                 |
-| 上下文溢出自动摘要   | `memory/YYYY-MM-DD.md` | 自动触发（`summary_memory`） | 上下文 token 超过阈值时，系统自动将对话摘要写入日志 |
-| 用户说"记住这个"     | 立即写入文件           | `write` 工具                 | 不要仅保存在内存中！                                |
+| 信息类型             | 写入目标               | 操作方式              | 示例                                       |
+| -------------------- | ---------------------- | --------------------- | ------------------------------------------ |
+| 决策、偏好、持久事实 | `MEMORY.md`            | `write` / `edit` 工具 | "项目使用 Python 3.12"、"偏好 pytest 框架" |
+| 日常笔记、运行上下文 | `memory/YYYY-MM-DD.md` | `write` / `edit` 工具 | "今天修复了登录 Bug"、"部署了 v2.1"        |
+| 用户说"记住这个"     | 立即写入文件           | `write` 工具          | 不要仅保存在内存中！                       |
 
 ---
 
 ## 记忆配置
 
-### LLM 配置
+### Embedding 配置（可选）
 
-记忆管理器的 LLM 参数与全局配置保持一致，自动从 `providers.json` 中读取当前激活的 LLM 配置（`api_key`、`base_url`、`model`）。记忆相关 Prompt 的语言也与全局 `config.json` 中 `agents.language` 字段保持一致（`zh` = 中文，其他 = 英文）。
+Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 > 环境变量 > 默认值**。
 
-### Embedding（向量嵌入）配置
+#### 通过配置文件配置（推荐）
 
-通过以下环境变量配置 Embedding 服务，用于语义向量搜索：
+在 `agent.json` 的 `running.embedding_config` 中配置：
 
-| 环境变量                     | 说明                           | 默认值                                              |
-| ---------------------------- | ------------------------------ | --------------------------------------------------- |
-| `EMBEDDING_API_KEY`          | Embedding 服务的 API Key       | （空，不配置则禁用向量搜索）                        |
-| `EMBEDDING_BASE_URL`         | Embedding 服务的 URL           | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `EMBEDDING_MODEL_NAME`       | Embedding 模型名称             | `text-embedding-v4`                                 |
-| `EMBEDDING_DIMENSIONS`       | 向量维度，用于初始化向量数据库 | `1024`                                              |
-| `EMBEDDING_CACHE_ENABLED`    | 是否启用 Embedding 缓存        | `true`                                              |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Embedding 缓存最大条目数       | `2000`                                              |
-| `EMBEDDING_MAX_INPUT_LENGTH` | 单次 Embedding 最大输入长度    | `8192`                                              |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Embedding 批处理最大数量       | `10`                                                |
+| 配置项             | 说明                                  | 默认值   |
+| ------------------ | ------------------------------------- | -------- |
+| `backend`          | Embedding 后端类型                    | `openai` |
+| `api_key`          | Embedding 服务的 API Key              | ``       |
+| `base_url`         | Embedding 服务的 URL                  | ``       |
+| `model_name`       | Embedding 模型名称                    | ``       |
+| `dimensions`       | 向量维度，用于初始化向量数据库        | `1024`   |
+| `enable_cache`     | 是否启用 Embedding 缓存               | `true`   |
+| `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数 | `false`  |
+| `max_cache_size`   | Embedding 缓存最大条目数              | `2000`   |
+| `max_input_length` | 单次 Embedding 最大输入长度           | `8192`   |
+| `max_batch_size`   | Embedding 批处理最大数量              | `10`     |
 
-### 检索模式配置
+> `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
 
-| 环境变量      | 说明                   | 默认值 |
-| ------------- | ---------------------- | ------ |
-| `FTS_ENABLED` | 是否启用 BM25 全文检索 | `true` |
+#### 通过环境变量配置（Fallback）
 
-**检索模式行为说明：**
+当配置文件中未设置时，以下环境变量作为 fallback：
 
-| 向量搜索（`EMBEDDING_API_KEY` 已配置） | 全文检索（`FTS_ENABLED=true`） |               实际检索模式               |
-| :------------------------------------: | :----------------------------: | :--------------------------------------: |
-|                   ✅                   |               ✅               |  向量 + BM25 混合检索（推荐，效果最佳）  |
-|                   ✅                   |               ❌               |              仅向量语义搜索              |
-|                   ❌                   |               ✅               |   仅 BM25 全文检索（部分场景效果较差）   |
-|                   ❌                   |               ❌               | ⚠️ **不允许** — 必须至少启用一种检索方式 |
+| 环境变量               | 说明                     | 默认值 |
+| ---------------------- | ------------------------ | ------ |
+| `EMBEDDING_API_KEY`    | Embedding 服务的 API Key | ``     |
+| `EMBEDDING_BASE_URL`   | Embedding 服务的 URL     | ``     |
+| `EMBEDDING_MODEL_NAME` | Embedding 模型名称       | ``     |
 
-> **推荐**：配置 `EMBEDDING_API_KEY` 并保持 `FTS_ENABLED=true`，使用向量 + BM25 混合检索以获得最佳召回效果。
+> `api_key`、`model_name` 和 `base_url` 都非空才能开启混合检索中的向量检索。
+
+### 全文检索配置
+
+通过环境变量 `FTS_ENABLED` 控制是否启用 BM25 全文检索：
+
+| 环境变量      | 说明             | 默认值 |
+| ------------- | ---------------- | ------ |
+| `FTS_ENABLED` | 是否启用全文检索 | `true` |
+
+> 即使不配置 Embedding，启用全文检索仍可通过 BM25 进行关键词搜索。
 
 ### 底层数据库
 
@@ -183,7 +184,8 @@ phrase_bonus = 0.2（仅当多词查询且完整短语匹配时）
 score = min(1.0, base_score + phrase_bonus)  # 上限 1.0
 ```
 
-示例：查询 `"数据库 连接 超时"` 命中一段只包含 "数据库" 和 "超时" 的文本 → `base_score = 2/3 ≈ 0.67`，无完整短语匹配 → `score = 0.67`
+示例：查询 `"数据库 连接 超时"` 命中一段只包含 "数据库" 和 "超时" 的文本 → `base_score = 2/3 ≈ 0.67`，无完整短语匹配 →
+`score = 0.67`
 
 > 为了处理 ChromaDB `$contains` 的大小写敏感问题，检索时会自动生成每个词的多种大小写变体（原文、小写、首字母大写、全大写），提高召回率。
 
@@ -210,11 +212,11 @@ score = min(1.0, base_score + phrase_bonus)  # 上限 1.0
 ```mermaid
 graph LR
     Query[搜索查询] --> Vector[向量语义搜索 × 0.7]
-    Query --> BM25[BM25 全文检索 × 0.3]
-    Vector --> Merge[按 chunk 去重 + 加权求和]
-    BM25 --> Merge
-    Merge --> Sort[按融合分数降序排列]
-    Sort --> Results[返回 top-N 结果]
+Query --> BM25[BM25 全文检索 × 0.3]
+Vector --> Merge[按 chunk 去重 + 加权求和]
+BM25 --> Merge
+Merge --> Sort[按融合分数降序排列]
+Sort --> Results[返回 top-N 结果]
 ```
 
 > **总结**：单独使用任何一种检索方式都存在盲区。混合检索让两种信号互补，无论是「自然语言提问」还是「精确查找」，都能获得可靠的召回结果。

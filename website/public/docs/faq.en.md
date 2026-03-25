@@ -39,7 +39,10 @@ If Docker is installed, run the following commands and then open
 
 ```
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 > **⚠️ Special Notice for Windows Enterprise LTSC Users**
@@ -93,8 +96,16 @@ pip install -e .
 
 ```
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
+
+5. If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:
+   - Uninstall CoPaw from your PC
+   - Download the latest version from: https://github.com/agentscope-ai/CoPaw/releases
+   - Reinstall
 
 After upgrading, restart the service with `copaw app`.
 
@@ -115,6 +126,71 @@ copaw app
 The default Console URL is `http://127.0.0.1:8088/`. After quick init, you can
 open Console and customize settings. See
 [Quick Start](https://copaw.agentscope.io/docs/quickstart).
+
+### Port 8088 conflict on Windows
+
+On Windows, Hyper-V and WSL2 may reserve certain port ranges, which can conflict
+with CoPaw's default port **8088**. This affects all installation methods
+(pip, script, Docker, desktop app).
+
+**Symptoms:**
+
+- Error: `Address already in use` or `OSError: [Errno 98] Address already in use`
+- Error: `An attempt was made to access a socket in a way forbidden by its access permissions`
+- CoPaw fails to start, or browser cannot connect to `http://127.0.0.1:8088/`
+
+**Check if port 8088 is reserved on Windows:**
+
+Open PowerShell or CMD and run:
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+If 8088 appears in the excluded ranges, it's reserved by the system.
+
+**Solution: Use a different port**
+
+**For pip / script installation:**
+
+```bash
+copaw app --port 8090
+```
+
+Then open `http://127.0.0.1:8090/` in your browser.
+
+**For Docker:**
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+Then open `http://127.0.0.1:8090/` in your browser.
+
+**For Windows Desktop App:**
+
+Currently, the desktop app uses port 8088 by default. If you encounter this
+issue, you can:
+
+1. Run `copaw app --port 8090` from a terminal instead
+2. Or exclude port 8088 from Windows reserved ranges (requires administrator
+   privileges and may affect other services)
+
+**Advanced: Prevent Windows from reserving port 8088**
+
+Run the following in an elevated PowerShell (run as Administrator):
+
+```powershell
+# Exclude port 8088 from the dynamic port range
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+# Restart Windows for changes to take effect
+```
+
+> ⚠️ **Warning**: This changes system-wide port configuration. Only do this if
+> you understand the implications.
 
 ### Open-source repository
 
@@ -139,6 +215,43 @@ In Console, go to **Settings -> Models** to configure. See the
 You can also use `copaw models` CLI commands for configuration, download, and
 switching. See
 [CLI -> Models and environment variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
+
+### When using models deployed with Ollama / LM Studio, why can't CoPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
+
+In most cases, this is not a CoPaw bug. The root cause is usually that the
+model's context length is configured too small.
+
+When you deploy a local model with Ollama or LM Studio, if the model's
+`context length` is too low, CoPaw may show problems such as:
+
+- failing to sustain multi-turn conversations reliably
+- losing context during complex tool calls
+- forgetting instructions given in earlier turns
+- drifting away from the task during long-running interactions
+
+**How to fix it:**
+
+- Before running CoPaw, set the model's `context length` to **at least 32K**
+- For more complex tasks, frequent tool calls, or longer conversations, you
+  may need a value **higher than 32K**
+
+> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
+>
+> For local models deployed with Ollama or LM Studio, CoPaw typically needs a
+> context length of **32K or higher** to handle multi-turn interactions,
+> complex tool calls, and long-context tasks reliably. In more demanding
+> scenarios, an even larger context window may be required.
+>
+> Note that larger context windows can significantly increase VRAM / memory
+> usage and compute cost, so make sure your local machine can handle it.
+
+**Ollama configuration example:**
+
+![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
+**LM Studio configuration example:**
+
+![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
 
 ### Troubleshooting scheduled (cron) tasks
 

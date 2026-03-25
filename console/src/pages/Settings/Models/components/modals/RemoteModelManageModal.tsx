@@ -12,10 +12,12 @@ import {
   PlusOutlined,
   ApiOutlined,
   SyncOutlined,
+  EyeOutlined,
 } from "@ant-design/icons";
 import type { ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { useTheme } from "../../../../../contexts/ThemeContext";
 import styles from "../../index.module.less";
 
 interface RemoteModelManageModalProps {
@@ -32,12 +34,14 @@ export function RemoteModelManageModal({
   onSaved,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
+  const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
-  const canDiscover = false;
+  const canDiscover = provider.support_model_discovery;
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -122,6 +126,35 @@ export function RemoteModelManageModal({
       message.error(errMsg);
     } finally {
       setTestingModelId(null);
+    }
+  };
+
+  const handleProbeMultimodal = async (modelId: string) => {
+    setProbingModelId(modelId);
+    try {
+      const result = await api.probeMultimodal(provider.id, modelId);
+      const parts: string[] = [];
+      if (result.supports_image) parts.push(t("models.probeImage", "图片"));
+      if (result.supports_video) parts.push(t("models.probeVideo", "视频"));
+      if (parts.length > 0) {
+        message.success(
+          t("models.probeSupported", {
+            types: parts.join(", "),
+            defaultValue: `支持: ${parts.join(", ")}`,
+          }),
+        );
+      } else {
+        message.info(t("models.probeNotSupported", "该模型不支持多模态输入"));
+      }
+      await onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.probeFailed", "探测失败");
+      message.error(errMsg);
+    } finally {
+      setProbingModelId(null);
     }
   };
 
@@ -228,7 +261,35 @@ export function RemoteModelManageModal({
             return (
               <div key={m.id} className={styles.modelListItem}>
                 <div className={styles.modelListItemInfo}>
-                  <span className={styles.modelListItemName}>{m.name}</span>
+                  <span className={styles.modelListItemName}>
+                    {m.name}
+                    {m.supports_image === true && (
+                      <Tag color="blue" style={{ fontSize: 11, marginLeft: 6 }}>
+                        {t("models.tagImage", "图片")}
+                      </Tag>
+                    )}
+                    {m.supports_video === true && (
+                      <Tag
+                        color="purple"
+                        style={{ fontSize: 11, marginLeft: 4 }}
+                      >
+                        {t("models.tagVideo", "视频")}
+                      </Tag>
+                    )}
+                    {m.supports_multimodal === false && (
+                      <Tag style={{ fontSize: 11, marginLeft: 6 }}>
+                        {t("models.tagTextOnly", "纯文本")}
+                      </Tag>
+                    )}
+                    {m.supports_multimodal === null && (
+                      <Tag
+                        color="default"
+                        style={{ fontSize: 11, marginLeft: 6 }}
+                      >
+                        {t("models.tagNotProbed", "未检测")}
+                      </Tag>
+                    )}
+                  </span>
                   <span className={styles.modelListItemId}>{m.id}</span>
                 </div>
                 <div className={styles.modelListItemActions}>
@@ -243,10 +304,26 @@ export function RemoteModelManageModal({
                       <Button
                         type="text"
                         size="small"
+                        icon={<EyeOutlined />}
+                        onClick={() => handleProbeMultimodal(m.id)}
+                        loading={probingModelId === m.id}
+                        style={{
+                          marginRight: 4,
+                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                        }}
+                      >
+                        {t("models.probeMultimodal", "测试多模态")}
+                      </Button>
+                      <Button
+                        type="text"
+                        size="small"
                         icon={<ApiOutlined />}
                         onClick={() => handleTestModel(m.id)}
                         loading={testingModelId === m.id}
-                        style={{ marginRight: 4 }}
+                        style={{
+                          marginRight: 4,
+                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                        }}
                       >
                         {t("models.testConnection")}
                       </Button>
@@ -269,9 +346,25 @@ export function RemoteModelManageModal({
                       <Button
                         type="text"
                         size="small"
+                        icon={<EyeOutlined />}
+                        onClick={() => handleProbeMultimodal(m.id)}
+                        loading={probingModelId === m.id}
+                        style={{
+                          marginRight: 4,
+                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                        }}
+                      >
+                        {t("models.probeMultimodal", "测试多模态")}
+                      </Button>
+                      <Button
+                        type="text"
+                        size="small"
                         icon={<ApiOutlined />}
                         onClick={() => handleTestModel(m.id)}
                         loading={testingModelId === m.id}
+                        style={{
+                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                        }}
                       >
                         {t("models.testConnection")}
                       </Button>

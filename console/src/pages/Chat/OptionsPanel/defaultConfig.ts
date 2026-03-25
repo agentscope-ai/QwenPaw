@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+
 const defaultConfig = {
   theme: {
     colorPrimary: "#615CED",
@@ -9,7 +11,7 @@ const defaultConfig = {
     },
   },
   sender: {
-    attachments: false,
+    attachments: true,
     maxLength: 10000,
     disclaimer: "Works for you, grows with you",
   },
@@ -20,10 +22,10 @@ const defaultConfig = {
     avatar: `${import.meta.env.BASE_URL}copaw-symbol.svg`,
     prompts: [
       {
-        value: "让我们开启一段新的旅程吧！",
+        value: "Let's start a new journey!",
       },
       {
-        value: "能告诉我你有哪些技能吗？",
+        value: "Can you tell me what skills you have?",
       },
     ],
   },
@@ -32,6 +34,22 @@ const defaultConfig = {
     token: "",
   },
 } as const;
+
+export function getDefaultConfig(t: TFunction) {
+  return {
+    ...defaultConfig,
+    sender: {
+      ...defaultConfig.sender,
+      disclaimer: t("chat.disclaimer"),
+    },
+    welcome: {
+      ...defaultConfig.welcome,
+      greeting: t("chat.greeting"),
+      description: t("chat.description"),
+      prompts: [{ value: t("chat.prompt1") }, { value: t("chat.prompt2") }],
+    },
+  };
+}
 
 export default defaultConfig;
 

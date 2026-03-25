@@ -1,13 +1,9 @@
-# Memory
+# Long-term Memory
 
-**Memory** gives CoPAW persistent memory across conversations: it automatically manages the context window and writes key information to files for long-term storage.
+**Long-term Memory** gives CoPAW persistent memory across conversations: writes key information to Markdown files for
+long-term storage, with semantic search for recall at any time.
 
-The memory system provides two core capabilities:
-
-- **Context Management** — Automatically compresses conversations into concise summaries before the context window overflows
-- **Long-term Memory Management** — Writes key information to Markdown files via file tools, with semantic search for recall at any time
-
-> The memory design is inspired by the [OpenClaw](https://github.com/openclaw/openclaw) memory architecture and implemented by [ReMe](https://github.com/agentscope-ai/ReMe).
+> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented by [ReMe](https://github.com/agentscope-ai/ReMe).
 
 ---
 
@@ -16,15 +12,13 @@ The memory system provides two core capabilities:
 ```mermaid
 graph TB
     User[User / Agent] --> MM[MemoryManager]
-    MM --> ContextMgmt[Context Management]
     MM --> MemoryMgmt[Long-term Memory Management]
-    ContextMgmt --> Summary[Context Compression]
     MemoryMgmt --> FileTools[Memory Update]
     MemoryMgmt --> Watcher[Memory Index Update]
     MemoryMgmt --> SearchLayer[Hybrid Memory Search]
     FileTools --> LTM[MEMORY.md]
     FileTools --> DailyLog[memory/YYYY-MM-DD.md]
-    Watcher --> Index[Async Database Update]
+    Watcher --> Index[Async DB Update]
     SearchLayer --> VectorSearch[Vector Semantic Search]
     SearchLayer --> BM25[BM25 Full-text Search]
 ```
@@ -42,7 +36,8 @@ Long-term memory management includes the following capabilities:
 
 ## Memory File Structure
 
-Memories are stored as plain Markdown files, operated directly by the Agent via file tools. The default workspace uses a two-level structure:
+Memories are stored as plain Markdown files, operated directly by the Agent via file tools. The default workspace uses a
+two-level structure:
 
 ```mermaid
 graph LR
@@ -67,56 +62,65 @@ One page per day, appended with the day's work and interactions.
 
 - **Location**: `{working_dir}/memory/YYYY-MM-DD.md`
 - **Purpose**: Records daily notes and runtime context
-- **Updates**: Appended by the Agent via `write` / `edit` file tools; automatically triggered when conversations become too long and need summarization
+- **Updates**: Appended by the Agent via `write` / `edit` file tools; automatically triggered when conversations become
+  too long and need summarization
 
 ### When to Write Memory?
 
-| Information Type                         | Write Target              | Method                            | Example                                                                                                     |
-| ---------------------------------------- | ------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Decisions, preferences, persistent facts | `MEMORY.md`               | `write` / `edit` tools            | "Project uses Python 3.12", "Prefers pytest framework"                                                      |
-| Daily notes, runtime context             | `memory/YYYY-MM-DD.md`    | `write` / `edit` tools            | "Fixed login bug today", "Deployed v2.1"                                                                    |
-| Auto-summary on context overflow         | `memory/YYYY-MM-DD.md`    | Auto-triggered (`summary_memory`) | When context tokens exceed the threshold, the system automatically writes a conversation summary to the log |
-| User says "remember this"                | Write to file immediately | `write` tool                      | Do not only save in memory!                                                                                 |
+| Information Type                         | Write Target              | Method                 | Example                                                |
+| ---------------------------------------- | ------------------------- | ---------------------- | ------------------------------------------------------ |
+| Decisions, preferences, persistent facts | `MEMORY.md`               | `write` / `edit` tools | "Project uses Python 3.12", "Prefers pytest framework" |
+| Daily notes, runtime context             | `memory/YYYY-MM-DD.md`    | `write` / `edit` tools | "Fixed login bug today", "Deployed v2.1"               |
+| User says "remember this"                | Write to file immediately | `write` tool           | Do not only save in memory!                            |
 
 ---
 
 ## Memory Configuration
 
-### LLM Configuration
+### Embedding Configuration (Optional)
 
-The Memory Manager's LLM parameters are consistent with the global configuration, automatically reading the active LLM config (`api_key`, `base_url`, `model`) from `providers.json`. The language of memory-related prompts also follows the `agents.language` field in `config.json` (`zh` = Chinese, otherwise English).
+Embedding configuration is used for vector semantic search. Configuration priority: **config file > env var > default**.
 
-### Embedding Configuration
+#### Via Config File (Recommended)
 
-Configure the Embedding service via the following environment variables for vector semantic search:
+Configure in `agent.json` under `running.embedding_config`:
 
-| Environment Variable         | Description                                            | Default                                              |
-| ---------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| `EMBEDDING_API_KEY`          | API Key for the Embedding service                      | (empty; vector search is disabled if not configured) |
-| `EMBEDDING_BASE_URL`         | URL of the Embedding service                           | `https://dashscope.aliyuncs.com/compatible-mode/v1`  |
-| `EMBEDDING_MODEL_NAME`       | Embedding model name                                   | `text-embedding-v4`                                  |
-| `EMBEDDING_DIMENSIONS`       | Vector dimensions for initializing the vector database | `1024`                                               |
-| `EMBEDDING_CACHE_ENABLED`    | Whether to enable Embedding cache                      | `true`                                               |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Maximum number of Embedding cache entries              | `2000`                                               |
-| `EMBEDDING_MAX_INPUT_LENGTH` | Maximum input length per Embedding request             | `8192`                                               |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Maximum batch size for Embedding requests              | `10`                                                 |
+| Config Field       | Description                                            | Default  |
+| ------------------ | ------------------------------------------------------ | -------- |
+| `backend`          | Embedding backend type                                 | `openai` |
+| `api_key`          | API Key for the Embedding service                      | ``       |
+| `base_url`         | URL of the Embedding service                           | ``       |
+| `model_name`       | Embedding model name                                   | ``       |
+| `dimensions`       | Vector dimensions for initializing the vector database | `1024`   |
+| `enable_cache`     | Whether to enable Embedding cache                      | `true`   |
+| `use_dimensions`   | Whether to pass dimensions parameter in API request    | `false`  |
+| `max_cache_size`   | Maximum number of Embedding cache entries              | `2000`   |
+| `max_input_length` | Maximum input length per Embedding request             | `8192`   |
+| `max_batch_size`   | Maximum batch size for Embedding requests              | `10`     |
 
-### Search Mode Configuration
+> `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
-| Environment Variable | Description                             | Default |
-| -------------------- | --------------------------------------- | ------- |
-| `FTS_ENABLED`        | Whether to enable BM25 full-text search | `true`  |
+#### Via Environment Variables (Fallback)
 
-**Search mode behavior:**
+When not set in config file, these environment variables serve as fallback:
 
-| Vector Search (`EMBEDDING_API_KEY` configured) | Full-text Search (`FTS_ENABLED=true`) |                      Actual Search Mode                       |
-| :--------------------------------------------: | :-----------------------------------: | :-----------------------------------------------------------: |
-|                       ✅                       |                  ✅                   |    Vector + BM25 hybrid search (recommended, best results)    |
-|                       ✅                       |                  ❌                   |                  Vector semantic search only                  |
-|                       ❌                       |                  ✅                   |  BM25 full-text search only (poor results in some scenarios)  |
-|                       ❌                       |                  ❌                   | ⚠️ **Not allowed** — at least one search mode must be enabled |
+| Environment Variable   | Description                       | Default |
+| ---------------------- | --------------------------------- | ------- |
+| `EMBEDDING_API_KEY`    | API Key for the Embedding service | ``      |
+| `EMBEDDING_BASE_URL`   | URL of the Embedding service      | ``      |
+| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
 
-> **Recommended**: Configure `EMBEDDING_API_KEY` and keep `FTS_ENABLED=true` to use Vector + BM25 hybrid search for optimal recall.
+> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval.
+
+### Full-text Search Configuration
+
+Control BM25 full-text search via the `FTS_ENABLED` environment variable:
+
+| Environment Variable | Description                        | Default |
+| -------------------- | ---------------------------------- | ------- |
+| `FTS_ENABLED`        | Whether to enable full-text search | `true`  |
+
+> Even without Embedding configured, enabling full-text search allows keyword search via BM25.
 
 ### Underlying Database
 
@@ -156,7 +160,8 @@ Memory search uses **Vector + BM25 hybrid search** by default. The two search me
 
 ### Vector Semantic Search
 
-Maps text into a high-dimensional vector space and measures semantic distance via cosine similarity, capturing content with similar meaning but different wording:
+Maps text into a high-dimensional vector space and measures semantic distance via cosine similarity, capturing content
+with similar meaning but different wording:
 
 | Query                                   | Recalled Memory                                           | Why It Matches                                                  |
 | --------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
@@ -164,18 +169,21 @@ Maps text into a high-dimensional vector space and measures semantic distance vi
 | "How to reduce unnecessary rebuilds"    | "Configured incremental compilation to avoid full builds" | Semantic equivalence: reduce rebuilds ≈ incremental compilation |
 | "Performance issue discussed last time" | "Optimized P99 latency from 800ms to 200ms"               | Semantic association: performance issue ≈ latency optimization  |
 
-However, vector search is weaker on **precise, high-signal tokens**, as embedding models tend to capture overall semantics rather than exact matches of individual tokens.
+However, vector search is weaker on **precise, high-signal tokens**, as embedding models tend to capture overall
+semantics rather than exact matches of individual tokens.
 
 ### BM25 Full-text Search
 
-Based on term frequency statistics for substring matching, excellent for precise token hits, but weaker on semantic understanding (synonyms, paraphrasing).
+Based on term frequency statistics for substring matching, excellent for precise token hits, but weaker on semantic
+understanding (synonyms, paraphrasing).
 
 | Query                      | BM25 Hits                                      | BM25 Misses                                           |
 | -------------------------- | ---------------------------------------------- | ----------------------------------------------------- |
 | `handleWebSocketReconnect` | Memory fragments containing that function name | "WebSocket disconnection reconnection handling logic" |
 | `ECONNREFUSED`             | Log entries containing that error code         | "Database connection refused"                         |
 
-**Scoring logic**: Splits the query into terms, counts the hit ratio of each term in the target text, and awards a bonus for complete phrase matches:
+**Scoring logic**: Splits the query into terms, counts the hit ratio of each term in the target text, and awards a bonus
+for complete phrase matches:
 
 ```
 base_score = hit_terms / total_query_terms           # range [0, 1]
@@ -183,15 +191,19 @@ phrase_bonus = 0.2 (only when multi-word query matches the complete phrase)
 score = min(1.0, base_score + phrase_bonus)           # capped at 1.0
 ```
 
-Example: Query `"database connection timeout"` hits a passage containing only "database" and "timeout" → `base_score = 2/3 ≈ 0.67`, no complete phrase match → `score = 0.67`
+Example: Query `"database connection timeout"` hits a passage containing only "database" and "timeout" →
+`base_score = 2/3 ≈ 0.67`, no complete phrase match → `score = 0.67`
 
-> To handle ChromaDB's case-sensitive `$contains` behavior, the search automatically generates multiple case variants for each term (original, lowercase, capitalized, uppercase) to improve recall.
+> To handle ChromaDB's case-sensitive `$contains` behavior, the search automatically generates multiple case variants
+> for each term (original, lowercase, capitalized, uppercase) to improve recall.
 
 ### Hybrid Search Fusion
 
-Uses both vector and BM25 recall signals simultaneously, performing **weighted fusion** on results (default vector weight `0.7`, BM25 weight `0.3`):
+Uses both vector and BM25 recall signals simultaneously, performing **weighted fusion** on results (default vector
+weight `0.7`, BM25 weight `0.3`):
 
-1. **Expand candidate pool**: Multiply the desired result count by `candidate_multiplier` (default 3×, capped at 200); each path retrieves more candidates independently
+1. **Expand candidate pool**: Multiply the desired result count by `candidate_multiplier` (default 3×, capped at 200);
+   each path retrieves more candidates independently
 2. **Independent scoring**: Vector and BM25 each return scored result lists
 3. **Weighted merging**: Deduplicate and fuse by chunk's unique identifier (`path + start_line + end_line`)
    - Recalled by vector only → `final_score = vector_score × 0.7`
@@ -210,14 +222,15 @@ Uses both vector and BM25 recall signals simultaneously, performing **weighted f
 ```mermaid
 graph LR
     Query[Search Query] --> Vector[Vector Semantic Search × 0.7]
-    Query --> BM25[BM25 Full-text Search × 0.3]
-    Vector --> Merge[Deduplicate by chunk + Weighted sum]
-    BM25 --> Merge
-    Merge --> Sort[Sort by fused score descending]
-    Sort --> Results[Return top-N results]
+Query --> BM25[BM25 Full-text Search × 0.3]
+Vector --> Merge[Deduplicate by chunk + Weighted sum]
+BM25 --> Merge
+Merge --> Sort[Sort by fused score descending]
+Sort --> Results[Return top-N results]
 ```
 
-> **Summary**: Using any single search method alone has blind spots. Hybrid search lets the two signals complement each other, delivering reliable recall whether you're asking in natural language or searching for exact terms.
+> **Summary**: Using any single search method alone has blind spots. Hybrid search lets the two signals complement each
+> other, delivering reliable recall whether you're asking in natural language or searching for exact terms.
 
 ---
 

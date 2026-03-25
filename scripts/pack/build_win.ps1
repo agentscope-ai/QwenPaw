@@ -125,15 +125,64 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
+Write-Host "== Pre-compiling Python bytecode for faster startup =="
+$pythonExe = Join-Path $EnvRoot "python.exe"
+if (Test-Path $pythonExe) {
+  Write-Host "[build_win] Compiling all .py files to .pyc..."
+  $compileStart = Get-Date
+  
+  # Compile all Python files to bytecode
+  # -q: quiet mode (only show errors)
+  # -j 0: use all CPU cores for parallel compilation
+  & $pythonExe -m compileall -q -j 0 $EnvRoot
+  
+  if ($LASTEXITCODE -eq 0) {
+    $compileEnd = Get-Date
+    $compileTime = ($compileEnd - $compileStart).TotalSeconds
+    Write-Host "[build_win] ✓ Bytecode compilation completed in $($compileTime.ToString('F1')) seconds"
+    
+    # Count compiled files for reporting
+    $pycCount = (Get-ChildItem -Path $EnvRoot -Recurse -Filter "*.pyc" -ErrorAction SilentlyContinue | Measure-Object).Count
+    Write-Host "[build_win] Generated $pycCount .pyc files (these will be included in installer)"
+  } else {
+    Write-Host "[build_win] WARN: Bytecode compilation had some errors (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+    Write-Host "[build_win] This is usually not critical - app will compile on first run" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "[build_win] WARN: python.exe not found at $pythonExe, skipping bytecode compilation" -ForegroundColor Yellow
+}
+
 # Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"
 @echo off
 cd /d "%~dp0"
-if not exist "%USERPROFILE%\.copaw\config.json" (
-  "%~dp0python.exe" -m copaw init --defaults --accept-security
+
+REM Preserve system PATH for accessing system commands
+REM Prepend packaged env to PATH so packaged Python takes precedence
+set "PATH=%~dp0;%~dp0Scripts;%PATH%"
+
+REM Log level: env var COPAW_LOG_LEVEL or default to "info"
+if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=info"
+
+REM Set SSL certificate paths for packaged environment
+REM Use temp file to avoid for /f blocking issue in bat scripts
+set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+"%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
+set /p CERT_FILE=<"%CERT_TMP%"
+del "%CERT_TMP%" 2>nul
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
 )
-"%~dp0python.exe" -m copaw desktop
+
+if not exist "%USERPROFILE%\.copaw\config.json" (
+  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
+)
+"%~dp0python.exe" -u -m copaw desktop --log-level %COPAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -141,20 +190,47 @@ $DebugBat = Join-Path $EnvRoot "CoPaw Desktop (Debug).bat"
 @"
 @echo off
 cd /d "%~dp0"
+
+REM Preserve system PATH for accessing system commands
+REM Prepend packaged env to PATH so packaged Python takes precedence
+set "PATH=%~dp0;%~dp0Scripts;%PATH%"
+
+REM Debug mode: use debug log level by default (can override with COPAW_LOG_LEVEL)
+if not defined COPAW_LOG_LEVEL set "COPAW_LOG_LEVEL=debug"
+
+REM Set SSL certificate paths for packaged environment
+REM Use temp file to avoid for /f blocking issue in bat scripts
+set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+"%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
+set /p CERT_FILE=<"%CERT_TMP%"
+del "%CERT_TMP%" 2>nul
+if defined CERT_FILE (
+  if exist "%CERT_FILE%" (
+    set "SSL_CERT_FILE=%CERT_FILE%"
+    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
+    set "CURL_CA_BUNDLE=%CERT_FILE%"
+  )
+)
+
 echo ====================================
 echo CoPaw Desktop - Debug Mode
 echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
+echo PATH: %PATH%
+echo Log Level: %COPAW_LOG_LEVEL%
+echo SSL_CERT_FILE: %SSL_CERT_FILE%
+echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
+echo CURL_CA_BUNDLE: %CURL_CA_BUNDLE%
 echo.
 if not exist "%USERPROFILE%\.copaw\config.json" (
   echo [Init] Creating config...
-  "%~dp0python.exe" -m copaw init --defaults --accept-security
+  "%~dp0python.exe" -u -m copaw init --defaults --accept-security
 )
-echo [Launch] Starting CoPaw Desktop...
+echo [Launch] Starting CoPaw Desktop with log-level=%COPAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -m copaw desktop
+"%~dp0python.exe" -u -m copaw desktop --log-level %COPAW_LOG_LEVEL%
 echo.
 echo [Exit] CoPaw Desktop closed
 pause

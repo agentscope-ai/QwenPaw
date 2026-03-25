@@ -4,9 +4,18 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { workspaceApi } from "../../../../api/modules/workspace";
+import { agentsApi } from "../../../../api/modules/agents";
+import { useAgentStore } from "../../../../stores/agentStore";
+
+// Returns the parent directory of a file path, supporting both '/' and '\' separators.
+const getParentDir = (filePath: string): string => {
+  const match = filePath.match(/^(.*)[/\\]/);
+  return match ? match[1] : filePath;
+};
 
 export const useAgentsData = () => {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<MarkdownFile | null>(null);
   const [dailyMemories, setDailyMemories] = useState<DailyMemoryFile[]>([]);
@@ -14,22 +23,58 @@ export const useAgentsData = () => {
   const [fileContent, setFileContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [loading, setLoading] = useState(false);
-  const [workspacePath, setWorkspacePath] = useState("");
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
 
   useEffect(() => {
     const initializeData = async () => {
-      await fetchEnabledFiles();
-      await fetchFiles();
+      // Remember currently selected file name
+      const previouslySelectedFilename = selectedFile?.filename;
+
+      // Clear content first
+      setFileContent("");
+      setOriginalContent("");
+      setExpandedMemory(false);
+
+      const enabled = await fetchEnabledFiles();
+      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const sortedFiles = sortFilesByEnabled(
+        fileList as unknown as MarkdownFile[],
+        enabled,
+      );
+      setFiles(sortedFiles);
+
+      // Set workspace path (handle both Unix '/' and Windows '\' separators)
+      if (fileList.length > 0) {
+        setWorkspacePath(getParentDir(fileList[0].path));
+      } else {
+        setWorkspacePath("");
+      }
+
+      // Try to re-select the same file in new workspace
+      if (previouslySelectedFilename) {
+        const sameFile = sortedFiles.find(
+          (f) => f.filename === previouslySelectedFilename,
+        );
+        if (sameFile) {
+          // Auto-load the same file from new workspace
+          await handleFileClick(sameFile);
+        } else {
+          // File doesn't exist in new workspace, clear selection
+          setSelectedFile(null);
+        }
+      } else {
+        setSelectedFile(null);
+      }
     };
     initializeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedAgent]);
 
   // Re-sort when enabledFiles changes (for toggle/reorder operations)
   useEffect(() => {
     if (files.length > 0 && enabledFiles.length >= 0) {
-      const sortedFiles = sortFilesByEnabled(files);
+      const sortedFiles = sortFilesByEnabled(files, enabledFiles);
 
       // Only update if order actually changed to avoid infinite loop
       const orderChanged = sortedFiles.some(
@@ -44,17 +89,26 @@ export const useAgentsData = () => {
 
   const fetchEnabledFiles = async () => {
     try {
-      const enabled = await workspaceApi.getSystemPromptFiles();
+      const result = await workspaceApi.getSystemPromptFiles();
+      const enabled = Array.isArray(result) ? result : [];
       setEnabledFiles(enabled);
+      return enabled;
     } catch (error) {
       console.error("Failed to fetch enabled files", error);
+      return [];
     }
   };
 
-  const sortFilesByEnabled = (fileList: MarkdownFile[]) => {
+  const sortFilesByEnabled = (
+    fileList: MarkdownFile[],
+    currentEnabledFiles: string[],
+  ) => {
+    const safeEnabled = Array.isArray(currentEnabledFiles)
+      ? currentEnabledFiles
+      : [];
     return [...fileList].sort((a, b) => {
-      const aIndex = enabledFiles.indexOf(a.filename);
-      const bIndex = enabledFiles.indexOf(b.filename);
+      const aIndex = safeEnabled.indexOf(a.filename);
+      const bIndex = safeEnabled.indexOf(b.filename);
       const aEnabled = aIndex !== -1;
       const bEnabled = bIndex !== -1;
 
@@ -67,18 +121,24 @@ export const useAgentsData = () => {
     });
   };
 
-  const fetchFiles = async () => {
+  const fetchFiles = async (latestEnabledFiles?: string[]) => {
     try {
-      const fileList = await api.listFiles();
-      const sortedFiles = sortFilesByEnabled(fileList as MarkdownFile[]);
+      // Validate with Array.isArray: onClick handlers may pass a MouseEvent as the first argument
+      const enabled = Array.isArray(latestEnabledFiles)
+        ? latestEnabledFiles
+        : await fetchEnabledFiles();
+      // Use agent-specific API
+      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const sortedFiles = sortFilesByEnabled(
+        fileList as unknown as MarkdownFile[],
+        enabled,
+      );
       setFiles(sortedFiles);
+      // Set workspace path (handle both Unix '/' and Windows '\' separators)
       if (fileList.length > 0) {
-        const path = fileList[0].path;
-        const workspace = path.substring(
-          0,
-          path.lastIndexOf("/") || path.lastIndexOf("\\"),
-        );
-        setWorkspacePath(workspace);
+        setWorkspacePath(getParentDir(fileList[0].path));
+      } else {
+        setWorkspacePath("");
       }
     } catch (error) {
       console.error("Failed to fetch files", error);
@@ -110,7 +170,8 @@ export const useAgentsData = () => {
     setSelectedFile(file);
     setLoading(true);
     try {
-      const data = await api.loadFile(file.filename);
+      // Use agent-specific API
+      const data = await agentsApi.readAgentFile(selectedAgent, file.filename);
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {
@@ -202,29 +263,10 @@ export const useAgentsData = () => {
     }
   };
 
-  const handleReorderFiles = async (
-    filename: string,
-    direction: "up" | "down",
-  ) => {
-    const currentIndex = enabledFiles.indexOf(filename);
-    if (currentIndex === -1) return;
-
-    const newEnabledFiles = [...enabledFiles];
-    const targetIndex =
-      direction === "up" ? currentIndex - 1 : currentIndex + 1;
-
-    if (targetIndex < 0 || targetIndex >= newEnabledFiles.length) return;
-
-    // Swap positions
-    [newEnabledFiles[currentIndex], newEnabledFiles[targetIndex]] = [
-      newEnabledFiles[targetIndex],
-      newEnabledFiles[currentIndex],
-    ];
-
+  const handleReorderFiles = async (newOrder: string[]) => {
     try {
-      await workspaceApi.setSystemPromptFiles(newEnabledFiles);
-      setEnabledFiles(newEnabledFiles);
-      message.success("File order updated");
+      await workspaceApi.setSystemPromptFiles(newOrder);
+      setEnabledFiles(newOrder);
     } catch (error) {
       console.error("Failed to reorder files", error);
       message.error("Failed to update file order");

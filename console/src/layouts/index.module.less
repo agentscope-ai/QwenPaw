@@ -21,6 +21,10 @@
 .headerTitle {
   font-size: 18px;
   font-weight: 500;
+  min-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -33,6 +37,37 @@
   :global {
     .copaw-menu {
       border-inline-end: 0 !important;
+    }
+  }
+}
+
+.siderDark {
+  background: #1a1a1a !important;
+  border-right-color: rgba(255, 255, 255, 0.08) !important;
+
+  :global {
+    .copaw-menu {
+      background: #1a1a1a !important;
+      border-inline-end: 0 !important;
+    }
+    /* Group title (sub-menu label) */
+    .copaw-menu-submenu-title {
+      color: rgba(255, 255, 255, 0.45) !important;
+    }
+    /* Regular menu item */
+    .copaw-menu-item {
+      color: rgba(255, 255, 255, 0.75) !important;
+    }
+    /* Hover state */
+    .copaw-menu-item:hover,
+    .copaw-menu-submenu-title:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(255, 255, 255, 0.95) !important;
+    }
+    /* Selected item */
+    .copaw-menu-item-selected {
+      background: rgba(97, 92, 237, 0.3) !important;
+      color: #a5a2f3 !important;
     }
   }
 }
@@ -75,6 +110,33 @@
 .collapseBtn {
   margin: auto;
   color: #615ced;
+}
+
+// ─── Auth actions (account + logout) ──────────────────────────────────────────
+.authActions {
+  padding: 12px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.authBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  color: rgba(0, 0, 0, 0.65);
+
+  &:hover {
+    color: rgba(0, 0, 0, 0.88) !important;
+    background: rgba(0, 0, 0, 0.04) !important;
+  }
+}
+
+.authBtnCollapsed {
+  justify-content: center;
+}
+
+.authBtn + .authBtn {
+  margin-top: 4px;
 }
 
 // ─── Update Modal ─────────────────────────────────────────────────────────────
@@ -139,4 +201,82 @@
 
 .copyBtnDefault {
   color: #999;
+}
+
+/* ─── Dark mode overrides ─────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .header {
+    background: #1f1f1f !important;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.85);
+
+    /* Text buttons (Docs / FAQ / GitHub / Changelog) */
+    :global(.copaw-btn-text),
+    :global(.ant-btn-text) {
+      color: rgba(255, 255, 255, 0.75) !important;
+
+      &:hover {
+        color: #fff !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+      }
+
+      .anticon,
+      svg {
+        color: inherit !important;
+      }
+    }
+
+    /* Fallback: any icon or text directly inside header */
+    :global(.anticon) {
+      color: rgba(255, 255, 255, 0.75);
+    }
+  }
+
+  .headerTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .sider {
+    background: #1a1a1a !important;
+    border-right-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .siderTop {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .versionBadge {
+    color: #8b87f0;
+  }
+
+  .collapseBtn {
+    color: #8b87f0;
+  }
+
+  .authActions {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .authBtn {
+    color: rgba(255, 255, 255, 0.75);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.9) !important;
+      background: rgba(255, 255, 255, 0.06) !important;
+    }
+  }
+
+  .codeBlock {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .codeInline {
+    background: #2a2a2a;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .copyBtnDefault {
+    color: rgba(255, 255, 255, 0.3);
+  }
 }

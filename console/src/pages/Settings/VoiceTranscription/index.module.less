@@ -1,0 +1,95 @@
+.page {
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: #000;
+}
+
+.description {
+  font-size: 14px;
+  color: #666;
+  margin: 0;
+}
+
+.card {
+  width: 100%;
+  margin-bottom: 16px;
+
+  &:hover {
+    border: 1px solid #615ced;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.cardTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+}
+
+.cardDescription {
+  font-size: 13px;
+  color: #888;
+  margin: 0 0 16px 0;
+}
+
+.optionLabel {
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.optionDescription {
+  font-size: 13px;
+  color: #888;
+}
+
+.centerState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+}
+
+.footerActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 16px 24px;
+}
+
+:global(.dark-mode) {
+  .title {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .cardDescription {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .optionLabel {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .optionDescription {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}

@@ -1,21 +1,39 @@
 # -*- coding: utf-8 -*-
 """CLI command: run CoPaw app on a free port in a native webview window."""
+# pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import subprocess
 import sys
+import threading
 import time
+import traceback
+import webbrowser
 
 import click
 
 from ..constant import LOG_LEVEL_ENV
+from ..utils.logging import setup_logger
 
 try:
     import webview
 except ImportError:
     webview = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
+
+
+class WebViewAPI:
+    """API exposed to the webview for handling external links."""
+
+    def open_external_link(self, url: str) -> None:
+        """Open URL in system's default browser."""
+        if not url.startswith(("http://", "https://")):
+            return
+        webbrowser.open(url)
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -40,10 +58,25 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
     return False
 
 
-def _log_desktop(msg: str) -> None:
-    """Print to stderr and flush (for desktop.log when launched from .app)."""
-    print(msg, file=sys.stderr)
-    sys.stderr.flush()
+def _stream_reader(in_stream, out_stream) -> None:
+    """Read from in_stream line by line and write to out_stream.
+
+    Used on Windows to prevent subprocess buffer blocking. Runs in a
+    background thread to continuously drain the subprocess output.
+    """
+    try:
+        for line in iter(in_stream.readline, ""):
+            if not line:
+                break
+            out_stream.write(line)
+            out_stream.flush()
+    except Exception:
+        pass
+    finally:
+        try:
+            in_stream.close()
+        except Exception:
+            pass
 
 
 @click.command("desktop")
@@ -73,21 +106,40 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing CoPaw app instance.
     """
+    # Setup logger for desktop command (separate from backend subprocess)
+    setup_logger(log_level)
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting CoPaw app on {url} (port {port})")
-    _log_desktop("[desktop] Server subprocess starting...")
+    logger.info("Server subprocess starting...")
 
     env = os.environ.copy()
     env[LOG_LEVEL_ENV] = log_level
+
+    if "SSL_CERT_FILE" in env:
+        cert_file = env["SSL_CERT_FILE"]
+        if os.path.exists(cert_file):
+            logger.info(f"SSL certificate: {cert_file}")
+        else:
+            logger.warning(
+                f"SSL_CERT_FILE set but not found: {cert_file}",
+            )
+    else:
+        logger.warning("SSL_CERT_FILE not set on environment")
+
+    is_windows = sys.platform == "win32"
+    proc = None
+    manually_terminated = (
+        False  # Track if we intentionally terminated the process
+    )
     try:
-        with subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
-                "uvicorn",
-                "copaw.app._app:app",
+                "copaw",
+                "app",
                 "--host",
                 host,
                 "--port",
@@ -96,49 +148,122 @@ def desktop_cmd(
                 log_level,
             ],
             stdin=subprocess.DEVNULL,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
+            stdout=subprocess.PIPE if is_windows else sys.stdout,
+            stderr=subprocess.PIPE if is_windows else sys.stderr,
             env=env,
-        ) as proc:
-            _log_desktop("[desktop] Waiting for HTTP ready...")
-            if _wait_for_http(host, port):
-                _log_desktop(
-                    "[desktop] HTTP ready, creating webview window...",
+            bufsize=1,
+            universal_newlines=True,
+        )
+        try:
+            if is_windows:
+                stdout_thread = threading.Thread(
+                    target=_stream_reader,
+                    args=(proc.stdout, sys.stdout),
+                    daemon=True,
                 )
+                stderr_thread = threading.Thread(
+                    target=_stream_reader,
+                    args=(proc.stderr, sys.stderr),
+                    daemon=True,
+                )
+                stdout_thread.start()
+                stderr_thread.start()
+            logger.info("Waiting for HTTP ready...")
+            if _wait_for_http(host, port):
+                logger.info("HTTP ready, creating webview window...")
+                api = WebViewAPI()
                 webview.create_window(
                     "CoPaw Desktop",
                     url,
                     width=1280,
                     height=800,
+                    text_select=True,
+                    js_api=api,
                 )
-                _log_desktop(
-                    "[desktop] Calling webview.start() "
-                    "(blocks until closed)...",
+                logger.info(
+                    "Calling webview.start() (blocks until closed)...",
                 )
-                webview.start()  # blocks until user closes the window
-                _log_desktop(
-                    "[desktop] webview.start() returned (window closed).",
+                webview.start(
+                    private_mode=False,
+                )  # blocks until user closes the window
+                logger.info("webview.start() returned (window closed).")
+            else:
+                logger.error("Server did not become ready in time.")
+                click.echo(
+                    "Server did not become ready in time; open manually: "
+                    + url,
+                    err=True,
                 )
-                proc.terminate()
-                proc.wait()
-                return  # normal exit after user closed window
-            _log_desktop("[desktop] Server did not become ready in time.")
-            click.echo(
-                "Server did not become ready in time; open manually: " + url,
-                err=True,
+                try:
+                    proc.wait()
+                except KeyboardInterrupt:
+                    pass  # will be handled in finally
+        finally:
+            # Ensure backend process is always cleaned up
+            # Wrap all cleanup operations to handle race conditions:
+            # - Process may exit between poll() and terminate()
+            # - terminate()/kill() may raise ProcessLookupError/OSError
+            # - We must not let cleanup exceptions mask the original error
+            if proc and proc.poll() is None:  # process still running
+                logger.info("Terminating backend server...")
+                manually_terminated = (
+                    True  # Mark that we're intentionally terminating
+                )
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5.0)
+                        logger.info("Backend server terminated cleanly.")
+                    except subprocess.TimeoutExpired:
+                        logger.warning(
+                            "Backend did not exit in 5s, force killing...",
+                        )
+                        try:
+                            proc.kill()
+                            proc.wait()
+                            logger.info("Backend server force killed.")
+                        except (ProcessLookupError, OSError) as e:
+                            # Process already exited, which is fine
+                            logger.debug(
+                                f"kill() raised {e.__class__.__name__} "
+                                f"(process already exited)",
+                            )
+                except (ProcessLookupError, OSError) as e:
+                    # Process already exited between poll() and terminate()
+                    logger.debug(
+                        f"terminate() raised {e.__class__.__name__} "
+                        f"(process already exited)",
+                    )
+            elif proc:
+                logger.info(
+                    f"Backend already exited with code {proc.returncode}",
+                )
+
+        # Only report errors if process exited unexpectedly
+        # (not manually terminated)
+        # On Windows, terminate() doesn't use signals so exit codes vary
+        # (1, 259, etc.)
+        # On Unix/Linux/macOS, terminate() sends SIGTERM (exit code -15)
+        # Using a flag is more reliable than checking specific exit codes
+        if proc and proc.returncode != 0 and not manually_terminated:
+            logger.error(
+                f"Backend process exited unexpectedly with code "
+                f"{proc.returncode}",
             )
-            try:
-                proc.wait()
-            except KeyboardInterrupt:
-                proc.terminate()
-                proc.wait()
-
-        if proc.returncode != 0:
-            sys.exit(proc.returncode or 1)
+            # Follow POSIX convention for exit codes:
+            # - Negative (signal): 128 + signal_number
+            # - Positive (normal): use as-is
+            # Example: -15 (SIGTERM) -> 143 (128+15), -11 (SIGSEGV) ->
+            # 139 (128+11)
+            if proc.returncode < 0:
+                sys.exit(128 + abs(proc.returncode))
+            else:
+                sys.exit(proc.returncode or 1)
+    except KeyboardInterrupt:
+        logger.warning("KeyboardInterrupt in main, cleaning up...")
+        raise
     except Exception as e:
-        _log_desktop(f"[desktop] Exception: {e!r}")
-        import traceback
-
+        logger.error(f"Exception: {e!r}")
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         raise

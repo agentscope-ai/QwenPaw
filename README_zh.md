@@ -54,13 +54,18 @@
 
 ## 新闻
 
-[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.0.6]** **新增：** 原生桌面安装包，一键安装（Windows/macOS）；俄语和日语支持覆盖界面和智能体配置；Telegram 访问控制和白名单；QQ Markdown 和富媒体支持；Discord/飞书/钉钉媒体增强；MQTT 频道支持物联网集成；Gemini 思考模型和 MLX 后端支持；内置工具管理页面；从工作区文件自定义系统提示词；ReMeLight 记忆系统带智能截断。
-- **[v0.0.6]** **优化：** 动态记忆压缩配置；使用 PyPI 时间戳的版本检测；基于 LESS 的样式重构；UTC 时区标准化；模块化 Provider 架构及生命周期管理。
-- **[v0.0.6]** **修复：** Windows 文件路径和 Shell 编码；钉钉 Office 文件检测；技能导入 UTF-8 处理；适配 Docker 的 URL 验证；版本徽章定位；语言感知的文件通知。
-- **[v0.0.6]** **文档：** 新 logo 和社交媒体集成；桌面应用安装指南；记忆压缩和命令文档；更新路线图；增强网站呈现。
-- **[v0.0.6]** **贡献者：** 感谢新贡献者：[@Osier-Yi](https://github.com/Osier-Yi)、[@muchenhen](https://github.com/muchenhen)、[@hongxicheng](https://github.com/hongxicheng)、[@YingchaoX](https://github.com/YingchaoX)、[@seoeaa](https://github.com/seoeaa)、[@Chiytako](https://github.com/Chiytako)、[@eviaaaaa](https://github.com/eviaaaaa)、[@vvv214](https://github.com/vvv214)、[@baijunty](https://github.com/baijunty)、[@p8rtop](https://github.com/p8rtop)、[@yifanli-intel](https://github.com/yifanli-intel)、[@Eduiskss](https://github.com/Eduiskss)、[@snai1557](https://github.com/snai1557)。
+- **[v0.2.0] 新增：** Agent 间通信；内置 QA Agent；LLM 自动重试配置；文件访问守卫（敏感路径防护）；控制台音视频与语音输入；页面刷新后流式重连；模型供应商搜索；多模态能力探测与 UI 标签；增强的 grep 和 glob 搜索；配置文件自动修复；摘要优化。
+- **[v0.2.0] 变更：** 稳定的提示词提升 KV Cache 命中率；CLI 启动加速；QQ 通道重构；QQ 和企业微信智能分块；QQ WebSocket 重连配置；暗色模式全面优化。
+- **[v0.2.0] 修复：** Windows Shell 命令挂起；Windows 文件路径处理；macOS 桌面端构建；通道消息处理锁泄漏；Agent 列表崩溃和刷新；控制台重连溢出；定时任务取消。
+- **[v0.2.0] 贡献者：** 感谢新贡献者：[@ixiadao](https://github.com/ixiadao)、[@leoleils](https://github.com/leoleils)、[@ltzu929](https://github.com/ltzu929)、[@emoubarak](https://github.com/emoubarak)、[@f3125472](https://github.com/f3125472)、[@shiweijiezero](https://github.com/shiweijiezero)、[@Yaohua-Leo](https://github.com/Yaohua-Leo)、[@finenter-molei](https://github.com/finenter-molei)、[@lizeruicq](https://github.com/lizeruicq)、[@hbsjmsjwj](https://github.com/hbsjmsjwj)、[@aquamarine-bot](https://github.com/aquamarine-bot)、[@sanfran1068](https://github.com/sanfran1068)、[@x1n95c](https://github.com/x1n95c)、[@saschabuehrle](https://github.com/saschabuehrle)。
+
+[2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+
+[2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+
+[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
@@ -105,7 +110,7 @@ copaw app
 
 在浏览器打开 **http://127.0.0.1:8088/** 即可使用控制台（与 CoPaw 对话、配置 Agent）。若要在钉钉、飞书、QQ 等 app 内对话，请参考 [文档](https://copaw.agentscope.io/docs/channels) 接入频道。
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01kUEGsC1XolpzIWdsu_!!6000000002971-2-tps-3822-2064.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
 
 ### 脚本安装
 
@@ -273,12 +278,15 @@ copaw uninstall --purge  # 删除所有内容
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
-然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -288,15 +296,22 @@ docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:la
 > ```bash
 > docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
->   -v copaw-data:/app/working agentscope/copaw:latest
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
-> 然后在 CoPaw **设置 → 模型 → Ollama** 中，将 Base URL 改为 `http://host.docker.internal:11434/v1` 或对应端口。
+> 然后在 CoPaw **设置 → 模型** 中，将 Base URL 改为 `http://host.docker.internal:<端口>` — 例如 Ollama 填 `http://host.docker.internal:11434`，LM Studio 填 `http://host.docker.internal:1234/v1`。
 >
 > **方式 B** — 使用宿主机网络（仅限 Linux）：
 > ```bash
-> docker run --network=host -v copaw-data:/app/working agentscope/copaw:latest
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
 > ```
 > 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
+>
+> **提示：** 如果你只挂载了 `/app/working` 而没有单独挂载 `/app/working.secret`，入口脚本会自动将 secrets 重定向到 `/app/working/.secret`，使其也保存在同一个 volume 中。
 
 镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
@@ -359,7 +374,8 @@ copaw app # 启动服务
 | [频道配置](https://copaw.agentscope.io/docs/channels)     | 钉钉、飞书、QQ、Discord、iMessage 等 |
 | [Skills](https://copaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
 | [MCP](https://copaw.agentscope.io/docs/mcp)               | 管理 MCP 客户端                     |
-| [记忆](https://copaw.agentscope.io/docs/memory)           | 上下文管理与长期记忆                 |
+| [记忆](https://copaw.agentscope.io/docs/memory)           | 长期记忆                 |
+| [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
 | [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
@@ -434,7 +450,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **开发**（测试、格式化）：`pip install -e ".[dev]"`
+- **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
 - **然后**：运行 `copaw init --defaults`，再运行 `copaw app`。
 
 ---
@@ -456,6 +472,25 @@ CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Ag
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [X (Twitter)](https://x.com/agentscope_ai)                   | [钉钉](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white" width="80" height="80" alt="X">](https://x.com/agentscope_ai) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+
+---
+
+## 遥测数据
+
+CoPaw 在执行 `copaw init` 时会收集**匿名**使用数据，帮助我们了解用户环境并优化产品。数据**每个版本收集一次** — 当你升级 CoPaw 后，会重新收集以便我们了解版本分布。
+
+**收集的信息：**
+
+- CoPaw 版本（如 0.0.7）
+- 安装方式（pip、Docker 或桌面应用）
+- 操作系统及版本（如 macOS 14.0、Ubuntu 22.04）
+- Python 版本（如 3.13）
+- CPU 架构（如 x86_64、arm64）
+- GPU 是否可用（是/否）
+
+**不收集：** 不涉及任何个人数据、文件、密钥、IP 地址或可识别信息。
+
+交互式运行 `copaw init` 时，会询问你是否同意。使用 `--defaults` 模式则自动同意。提示每个版本仅出现一次，且不影响 CoPaw 的任何功能。
 
 ---
 

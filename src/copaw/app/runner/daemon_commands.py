@@ -11,14 +11,17 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
 
-RestartCallback = Callable[[], Awaitable[None]]
+if TYPE_CHECKING:
+    from ...config.config import AgentProfileConfig
+    from ..multi_agent_manager import MultiAgentManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +31,7 @@ class RestartInProgressError(Exception):
 
 DAEMON_PREFIX = "/daemon"
 DAEMON_SUBCOMMANDS = frozenset(
-    {"status", "restart", "reload-config", "version", "logs"},
+    {"status", "restart", "reload-config", "version", "logs", "approve"},
 )
 # Short names: /restart -> /daemon restart, etc.
 DAEMON_SHORT_ALIASES = {
@@ -38,6 +41,7 @@ DAEMON_SHORT_ALIASES = {
     "reload_config": "reload-config",
     "version": "version",
     "logs": "logs",
+    "approve": "approve",
 }
 
 
@@ -48,8 +52,11 @@ class DaemonContext:
     working_dir: Path = WORKING_DIR
     load_config_fn: Callable[[], Any] = load_config
     memory_manager: Optional[Any] = None
-    # Optional: async restart (channels, cron, MCP) in-process.
-    restart_callback: Optional[RestartCallback] = None
+    # For /daemon restart: manager and agent_id for zero-downtime reload
+    manager: Optional["MultiAgentManager"] = None
+    agent_id: Optional[str] = None
+    # Session ID for approval commands.
+    session_id: str = ""
 
 
 def _get_last_lines(
@@ -93,7 +100,12 @@ def run_daemon_status(context: DaemonContext) -> str:
     try:
         cfg = context.load_config_fn()
         parts.append("- Config loaded: yes")
-        if getattr(cfg, "agents", None) and getattr(
+        # Support both AgentProfileConfig (has 'running' directly)
+        # and Config (has 'agents.running')
+        if hasattr(cfg, "running"):
+            max_in = getattr(cfg.running, "max_input_length", "N/A")
+            parts.append(f"- Max input length: {max_in}")
+        elif getattr(cfg, "agents", None) and getattr(
             cfg.agents,
             "running",
             None,
@@ -112,25 +124,27 @@ def run_daemon_status(context: DaemonContext) -> str:
 
 
 async def run_daemon_restart(context: DaemonContext) -> str:
-    """Trigger in-process restart (channels, cron, MCP) or instruct user."""
-    if context.restart_callback is not None:
+    """Trigger zero-downtime agent reload or instruct user."""
+    if context.manager is not None and context.agent_id is not None:
         try:
-            await context.restart_callback()
-            return (
-                "**Restart completed**\n\n"
-                "- Channels, cron and MCP reloaded in-process (no exit)."
-            )
-        except RestartInProgressError:
-            return (
-                "**Restart skipped**\n\n"
-                "- A restart is already in progress. Please wait for it to "
-                "finish."
-            )
+            success = await context.manager.reload_agent(context.agent_id)
+            if success:
+                return (
+                    "**Restart completed**\n\n"
+                    "- Agent reloaded with zero-downtime "
+                    "(channels, cron, MCP)."
+                )
+            else:
+                return (
+                    "**Restart skipped**\n\n"
+                    "- Agent not currently loaded. "
+                    "Will reload on next request."
+                )
         except Exception as e:
             return f"**Restart failed**\n\n- {e}"
     return (
         "**Restart**\n\n"
-        "- No restart callback (e.g. not running inside app). "
+        "- Not running inside app. "
         "Run the app (e.g. `copaw app`) and use /daemon restart in chat, "
         "or restart the process with systemd/supervisor/docker."
     )
@@ -166,6 +180,46 @@ def run_daemon_logs(context: DaemonContext, lines: int = 100) -> str:
     log_path = context.working_dir / "copaw.log"
     content = _get_last_lines(log_path, lines=lines)
     return f"**Console log (last {lines} lines)**\n\n```\n{content}\n```"
+
+
+async def run_daemon_approve(
+    _context: DaemonContext,
+    session_id: str = "",
+) -> str:
+    """Resolve the next pending tool-guard approval for *session_id*.
+
+    Called when the user sends ``/daemon approve`` in the chat while a
+    tool-guard approval is pending.  The runner intercepts the message
+    before it reaches this function in most cases, but this serves as
+    a fallback and returns a helpful message when no approval is
+    pending.
+    """
+    try:
+        from ..approvals import get_approval_service
+        from ...security.tool_guard.approval import ApprovalDecision
+
+        svc = get_approval_service()
+        pending = await svc.get_pending_by_session(session_id)
+        if pending is None:
+            return (
+                "**No pending approval**\n\n"
+                "- There is no tool-guard approval waiting for this "
+                "session.\n"
+                "- This command is only valid when a sensitive tool "
+                "call is awaiting your review."
+            )
+        await svc.resolve_request(
+            pending.request_id,
+            ApprovalDecision.APPROVED,
+        )
+        return (
+            f"**Tool execution approved** ✅\n\n"
+            f"- Tool: `{pending.tool_name}`\n"
+            f"- Request: `{pending.request_id[:8]}…`"
+        )
+    except Exception as exc:
+        logger.warning("run_daemon_approve error: %s", exc, exc_info=True)
+        return f"**Approve failed**\n\n- {exc}"
 
 
 def parse_daemon_query(query: str) -> Optional[tuple[str, list[str]]]:
@@ -235,6 +289,9 @@ class DaemonCommandHandlerMixin:
                     n = max(1, min(int(a), 2000))
                     break
             text = run_daemon_logs(context, lines=n)
+        elif sub == "approve":
+            session_id = getattr(context, "session_id", "") or ""
+            text = await run_daemon_approve(context, session_id=session_id)
         else:
             text = "Unknown daemon subcommand."
         logger.info("handle_daemon_command %s completed", query)

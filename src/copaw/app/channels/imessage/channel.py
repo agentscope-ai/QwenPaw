@@ -21,6 +21,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import IMessageChannelConfig
+from ....constant import DEFAULT_MEDIA_DIR
 from ..utils import file_url_to_local_path
 from ....agents.utils.file_handling import download_file_from_url
 
@@ -44,7 +45,7 @@ class IMessageChannel(BaseChannel):
         db_path: str,
         poll_sec: float,
         bot_prefix: str,
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
         max_decoded_size: int = 10 * 1024 * 1024,  # 10MB default
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -64,7 +65,9 @@ class IMessageChannel(BaseChannel):
         self.bot_prefix = bot_prefix
 
         # Create media directory for downloaded files
-        self._media_dir = Path(media_dir).expanduser()
+        self._media_dir = (
+            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        )
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
         # Base64 data size limit
@@ -88,8 +91,8 @@ class IMessageChannel(BaseChannel):
                 "~/Library/Messages/chat.db",
             ),
             poll_sec=float(os.getenv("IMESSAGE_POLL_SEC", "1.0")),
-            bot_prefix=os.getenv("IMESSAGE_BOT_PREFIX", "[BOT] "),
-            media_dir=os.getenv("IMESSAGE_MEDIA_DIR", "~/.copaw/media"),
+            bot_prefix=os.getenv("IMESSAGE_BOT_PREFIX", ""),
+            media_dir=os.getenv("IMESSAGE_MEDIA_DIR", ""),
             max_decoded_size=int(
                 os.getenv("IMESSAGE_MAX_DECODED_SIZE", "10485760"),
             ),  # 10MB
@@ -111,8 +114,8 @@ class IMessageChannel(BaseChannel):
             enabled=config.enabled,
             db_path=config.db_path or "~/Library/Messages/chat.db",
             poll_sec=config.poll_sec,
-            bot_prefix=config.bot_prefix or "[BOT] ",
-            media_dir=config.media_dir or "~/.copaw/media",
+            bot_prefix=config.bot_prefix or "",
+            media_dir=config.media_dir if config.media_dir else "",
             max_decoded_size=config.max_decoded_size,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
@@ -494,17 +497,6 @@ ORDER BY m.ROWID ASC
                 filename=safe_filename,
                 download_dir=str(self._media_dir),
             )
-            # Verify the resolved path is within _media_dir
-            # to prevent path traversal
-            resolved_path = Path(local_path).resolve()
-            media_dir_resolved = self._media_dir.resolve()
-            if not str(resolved_path).startswith(str(media_dir_resolved)):
-                logger.error(
-                    "imessage send_media: attempted path traversal detected, "
-                    f"blocked file creation at {resolved_path}",
-                )
-                return None
-
             logger.info(
                 f"imessage send_media: downloaded {url} to {local_path}",
             )
@@ -574,18 +566,6 @@ ORDER BY m.ROWID ASC
                 safe_basename = self._sanitize_filename(filename_hint)
                 safe_filename = f"{safe_basename}_{url_hash}{ext}"
                 local_path = str(self._media_dir / safe_filename)
-
-                # Verify the resolved path is within _media_dir
-                # to prevent path traversal
-                resolved_path = Path(local_path).resolve()
-                media_dir_resolved = self._media_dir.resolve()
-                if not str(resolved_path).startswith(str(media_dir_resolved)):
-                    logger.error(
-                        "imessage send_media: attempted path traversal "
-                        "detected, "
-                        f"blocked file creation at {resolved_path}",
-                    )
-                    return None
 
                 Path(local_path).write_bytes(file_data)
                 logger.info(

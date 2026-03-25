@@ -1,16 +1,43 @@
 # -*- coding: utf-8 -*-
 """Definition of Provider."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type
+from typing import TYPE_CHECKING, Dict, List, Type, Any
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
+
+if TYPE_CHECKING:
+    from .multimodal_prober import ProbeResult
 
 
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+    supports_multimodal: bool | None = Field(
+        default=None,
+        description="Whether this model supports multimodal input "
+        "(image/audio/video). None means not yet probed.",
+    )
+    supports_image: bool | None = Field(
+        default=None,
+        description="Whether this model supports image input. "
+        "None means not yet probed.",
+    )
+    supports_video: bool | None = Field(
+        default=None,
+        description="Whether this model supports video input. "
+        "None means not yet probed.",
+    )
+    probe_source: str | None = Field(
+        default=None,
+        description=(
+            "Probe result source: 'documentation' (from docs)"
+            " or 'probed' (actual probe)"
+        ),
+    )
 
 
 class ProviderInfo(BaseModel):
@@ -50,13 +77,31 @@ class ProviderInfo(BaseModel):
         default=False,
         description=("Whether this provider is user-created (not built-in)."),
     )
+    support_model_discovery: bool = Field(
+        default=False,
+        description=(
+            "Whether this provider supports fetching available models"
+            " from the provider's API"
+        ),
+    )
+    support_connection_check: bool = Field(
+        default=True,
+        description=(
+            "Whether this provider supports checking connection to the API "
+            "without model configuration"
+        ),
+    )
+    generate_kwargs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Generation parameters for agentscope chat models.",
+    )
 
 
 class Provider(ProviderInfo, ABC):
     """Represents a provider instance with its configuration."""
 
     @abstractmethod
-    async def check_connection(self, timeout: float = 5) -> bool:
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if the provider is reachable with the current config."""
 
     @abstractmethod
@@ -68,41 +113,38 @@ class Provider(ProviderInfo, ABC):
         self,
         model_id: str,
         timeout: float = 5,  # pylint: disable=unused-argument
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable."""
 
     async def add_model(
         self,
         model_info: ModelInfo,
         target: str = "extra_models",
-        ignore_duplicates: bool = False,
         timeout: float = 10,  # pylint: disable=unused-argument
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Add a model to the provider's model list."""
         if model_info.id in {
             model.id for model in self.models + self.extra_models
         }:
-            if not ignore_duplicates:
-                raise ValueError(f"Model '{model_info.id}' already exists")
-            return False  # the model was not added due to duplication
+            return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
             self.extra_models.append(model_info)
         elif target == "models":
             self.models.append(model_info)
         else:
-            raise ValueError(f"Invalid target '{target}' for adding model")
-        return True
+            return False, f"Invalid target '{target}' for adding model"
+        return True, ""
 
     async def delete_model(
         self,
         model_id: str,
         timeout: float = 10,  # pylint: disable=unused-argument
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Delete a model from the provider's model list."""
         self.extra_models = [
             model for model in self.extra_models if model.id != model_id
         ]
-        return True
+        return True, ""
 
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
@@ -124,6 +166,12 @@ class Provider(ProviderInfo, ABC):
             self.chat_model = str(config["chat_model"])
         if "api_key_prefix" in config and config["api_key_prefix"] is not None:
             self.api_key_prefix = str(config["api_key_prefix"])
+        if (
+            "generate_kwargs" in config
+            and config["generate_kwargs"] is not None
+            and isinstance(config["generate_kwargs"], dict)
+        ):
+            self.generate_kwargs = config["generate_kwargs"]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -152,6 +200,20 @@ class Provider(ProviderInfo, ABC):
         """Return an instance of the chat model associated with this
         provider and model_id."""
 
+    async def probe_model_multimodal(
+        self,
+        model_id: str,  # pylint: disable=unused-argument
+        timeout: float = 10,  # pylint: disable=unused-argument
+    ) -> ProbeResult:
+        """Probe if a model supports multimodal input.
+
+        Default implementation returns ProbeResult() (all False).
+        Subclasses with API access should override.
+        """
+        from .multimodal_prober import ProbeResult
+
+        return ProbeResult()
+
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""
         api_key = (
@@ -170,16 +232,23 @@ class Provider(ProviderInfo, ABC):
             api_key_prefix=self.api_key_prefix,
             is_local=self.is_local,
             is_custom=self.is_custom,
+            support_model_discovery=self.support_model_discovery,
+            # custom providers are assumed to not support connection check
+            support_connection_check=self.support_connection_check
+            and not self.is_custom,
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
+            generate_kwargs=self.generate_kwargs,
         )
 
 
 class DefaultProvider(Provider):
     """Default provider implementation with no-op methods."""
 
-    async def check_connection(self, timeout: float = 5) -> bool:
-        return len(self.models) > 0
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        if len(self.models) > 0:
+            return True, ""
+        return False, "No models available in the default provider"
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         return self.models
@@ -188,8 +257,10 @@ class DefaultProvider(Provider):
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> bool:
-        return model_id in {model.id for model in self.models}
+    ) -> tuple[bool, str]:
+        if model_id in {model.id for model in self.models}:
+            return True, ""
+        return False, f"Model '{model_id}' not found"
 
     def update_config(self, config: Dict) -> None:
         pass

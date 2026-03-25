@@ -4,7 +4,11 @@ from .config import (
     ChannelConfig,
     ChannelConfigUnion,
     AgentsRunningConfig,
+    FileGuardConfig,
     HeartbeatConfig,
+    SecurityConfig,
+    ToolGuardConfig,
+    ToolGuardRuleConfig,
 )
 from .utils import (
     get_available_channels,
@@ -19,15 +23,16 @@ from .utils import (
     update_last_dispatch,
 )
 
-# ConfigWatcher is provided by __getattr__ (lazy-loaded).
-# pylint: disable=undefined-all-variable
 __all__ = [
     "AgentsRunningConfig",
     "Config",
     "ChannelConfig",
     "ChannelConfigUnion",
+    "FileGuardConfig",
     "HeartbeatConfig",
-    "ConfigWatcher",
+    "SecurityConfig",
+    "ToolGuardConfig",
+    "ToolGuardRuleConfig",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
@@ -39,12 +44,3 @@ __all__ = [
     "save_config",
     "update_last_dispatch",
 ]
-
-
-def __getattr__(name: str):
-    """Lazy-load ConfigWatcher to avoid pulling app.channels/lark_oapi."""
-    if name == "ConfigWatcher":
-        from .watcher import ConfigWatcher
-
-        return ConfigWatcher
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -14,6 +14,11 @@ All channels have common fields below:
 - **bot_prefix** — Prefix for bot replies (e.g. `[BOT]`) so they're easy to spot.
 - **filter_tool_messages** — (optional, default `false`) Filter tool call and output messages from being sent to users. Set to `true` to hide tool execution details.
 - **filter_thinking** — (optional, default `false`) Filter model thinking/reasoning content from being sent to users. Set to `true` to hide thinking blocks.
+- **dm_policy** — (optional, default `"open"`) Access policy for direct messages. `"open"` allows all users; `"allowlist"` restricts to users listed in `allow_from`.
+- **group_policy** — (optional, default `"open"`) Access policy for group chats. `"open"` allows all users; `"allowlist"` restricts to users listed in `allow_from`.
+- **allow_from** — (optional, default `[]`) List of user IDs allowed to interact with the bot. Only effective when `dm_policy` or `group_policy` is set to `"allowlist"`.
+- **deny_message** — (optional, default `""`) Message sent to users denied by the allowlist. If empty, denied users receive no reply.
+- **require_mention** — (optional, default `false`) When `true`, the bot only responds in group chats when explicitly @mentioned. The allowlist check (`allow_from`) runs first; if the user passes, the mention check is then applied.
 
 Below is how to get credentials and fill config for each channel.
 
@@ -79,12 +84,18 @@ In `config.json`, find `channels.dingtalk` and fill in the corresponding informa
   "enabled": true,
   "bot_prefix": "[BOT]",
   "client_id": "your Client ID",
-  "client_secret": "your Client Secret"
+  "client_secret": "your Client Secret",
+  "message_type": "markdown",
+  "card_template_id": "",
+  "card_template_key": "content",
+  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
 
 - Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
+- AI Card mode: set `message_type` to `card`, then configure `card_template_id`; keep `card_template_key` consistent with your DingTalk template variable (default `content`).
+- `robot_code` is recommended in group scenarios; if empty, CoPaw falls back to `client_id`.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run
 `copaw app`.
@@ -431,6 +442,66 @@ You can also fill them in the Console UI.
 
 ---
 
+## WeCom (WeChat Work)
+
+### Create a new enterprise
+
+Individual users can visit the [WeCom official website](https://work.weixin.qq.com) to register an account, create a new enterprise, and become an enterprise administrator.
+
+![Create enterprise](https://img.alicdn.com/imgextra/i2/O1CN01Xg8B3i1EQWAKt5xj0_!!6000000000346-2-tps-2938-1588.png)
+
+Fill in the enterprise information and administrator information, and bind your WeChat account.
+
+![New account](https://img.alicdn.com/imgextra/i4/O1CN01uRF1Mv1TX87bOQ045_!!6000000002391-2-tps-1538-905.png)
+
+Once registered, you can log in to WeCom and start using it.
+
+If you already have a WeCom account or are a regular employee of an enterprise, you can directly create an API-mode robot in your current enterprise.
+
+### Create a bot
+
+In the Workplace, click Smart Robot → Create Robot, select API Mode → Configure via Long Connection.
+
+![Create robot 1](https://img.alicdn.com/imgextra/i3/O1CN01lcA2rX1fm2P19SLcB_!!6000000004048-2-tps-1440-814.png)
+
+![Create robot 2](https://img.alicdn.com/imgextra/i1/O1CN014R3a0f1mnb3qbycMV_!!6000000004999-2-tps-1440-814.png)
+
+![Create robot 3](https://img.alicdn.com/imgextra/i4/O1CN01kZDNVk1ugHf73ybs2_!!6000000006066-2-tps-2938-1594.png)
+
+Obtain the `Bot ID` and `Secret`.
+
+![Create robot 4](https://img.alicdn.com/imgextra/i1/O1CN01Znm7aQ1Tfpe5Ha9WL_!!6000000002410-2-tps-1482-992.png)
+
+### Bind the bot
+
+You can bind the bot by filling in the Bot ID and Secret in the Console or `config.json`.
+
+**Method 1:** Fill in the Console
+
+![Bind robot](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
+
+**Method 2:** Fill in `config.json` (default file path is `~/.copaw/config.json`)
+
+Find `wecom` and fill in the corresponding information, for example:
+
+```json
+"wecom": {
+  "enabled": true,
+  "dm_policy": "open",
+  "group_policy": "open",
+  "bot_id": "your bot_id",
+  "secret": "your secret",
+  "media_dir": "~/.copaw/media",
+  "max_reconnect_attempts": -1
+}
+```
+
+### Start chatting with the bot in WeCom
+
+![Start using](https://img.alicdn.com/imgextra/i3/O1CN01ZsmpYr1tq4ViIbO80_!!6000000005952-2-tps-1308-1130.png)
+
+---
+
 ## Telegram
 
 ### Get Telegram bot credentials
@@ -475,7 +546,7 @@ If you need a proxy to access the Telegram API (e.g. for network restrictions):
 
 ### Notes
 
-The Telegram whitelist mechanism is still under construction. It is recommended to deploy for personal use only and avoid exposing your bot username publicly.
+To control who can interact with the bot, use the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) described at the top of this page. It is still recommended to avoid exposing your bot username publicly.
 
 It is recommended to configure the following in `@BotFather`:
 
@@ -483,6 +554,33 @@ It is recommended to configure the following in `@BotFather`:
 /setprivacy -> ENABLED    # Restrict bot reply permissions
 /setjoingroups -> DISABLED # Block group invitations
 ```
+
+---
+
+## Mattermost
+
+The Mattermost channel uses WebSockets for real-time monitoring and REST APIs for replies. It supports both direct messages and group chats, using **Threads** to isolate conversation contexts in channels.
+
+### Get credentials
+
+1. Create a **Bot Account** in Mattermost (System Console → Integrations → Bot Accounts).
+2. Grant necessary permissions (e.g., `Post all`) and obtain the **Access Token**.
+3. Configure the **URL** and **Token** in the Console or `config.json`.
+
+### Core Config
+
+| Field                             | Description                                                               | Default  |
+| --------------------------------- | ------------------------------------------------------------------------- | -------- |
+| **url**                           | Full URL of your Mattermost instance                                      | -        |
+| **bot_token**                     | Bot Access Token                                                          | -        |
+| **show_typing**                   | Whether to show the "typing..." indicator                                 | `true`   |
+| **thread_follow_without_mention** | Whether to respond without @mention in threads the bot has already joined | `false`  |
+| **dm_policy**                     | DM policy: `open` (allow all) or `allowlist` (whitelist only)             | `"open"` |
+| **group_policy**                  | Group policy: `open` (allow all) or `allowlist` (whitelist only)          | `"open"` |
+| **allow_from**                    | List of allowed User IDs (effective if policy is `allowlist`)             | `[]`     |
+| **deny_message**                  | Automatic reply when access is denied by the whitelist                    | `""`     |
+
+> **Note**: The `session_id` for Mattermost is fixed as `mattermost_dm:{mm_channel_id}` for DMs and isolated by Thread ID for group chats. Recent history is automatically fetched as context supplement only upon the first trigger of a session.
 
 ---
 
@@ -550,18 +648,116 @@ JSON message format
 
 ---
 
+## Matrix
+
+The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio](https://github.com/poljar/matrix-nio) library. It supports text messaging in both direct messages and group rooms.
+
+### Create a Matrix bot account and get an access token
+
+1. Create a bot account on any Matrix homeserver (e.g. [matrix.org](https://matrix.org) — register at [app.element.io](https://app.element.io/#/register)).
+
+2. Get the bot's **access token**. The easiest way is via Element:
+
+   - Log in as the bot account at [app.element.io](https://app.element.io)
+   - Go to **Settings → Help & About → Advanced → Access Token**
+   - Copy the token (it starts with `syt_...`)
+
+   Alternatively, use the Matrix Client-Server API directly:
+
+   ```bash
+   curl -X POST "https://matrix.org/_matrix/client/v3/login" \
+     -H "Content-Type: application/json" \
+     -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
+   ```
+
+   The response includes `access_token`.
+
+3. Note your bot's **User ID** (format: `@username:homeserver`, e.g. `@mybot:matrix.org`) and the **Homeserver URL** (e.g. `https://matrix.org`).
+
+### Configure the channel
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Matrix**, enable it, and fill in:
+
+- **Homeserver URL** — e.g. `https://matrix.org`
+- **User ID** — e.g. `@mybot:matrix.org`
+- **Access Token** — the token you copied above (shown as a password field)
+
+**Method 2:** Edit `~/.copaw/config.json`
+
+Find `channels.matrix` in `config.json`:
+
+```json
+"matrix": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "homeserver": "https://matrix.org",
+  "user_id": "@mybot:matrix.org",
+  "access_token": "syt_..."
+}
+```
+
+Save the file; the channel will reload automatically if CoPaw is already running.
+
+### Chat with the bot
+
+Invite the bot to a room or send it a direct message from any Matrix client (e.g. Element). The bot listens for messages in all rooms it has joined.
+
+### Notes
+
+- The Matrix channel is **text-only** (no image/file attachments in the current version).
+- Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
+- For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+
+---
+
+## XiaoYi
+
+The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over WebSocket to Huawei's AI assistant platform.
+
+### Get credentials
+
+1. Create an agent in the XiaoYi Open Platform.
+2. Obtain **AK** (Access Key), **SK** (Secret Key), and **Agent ID**.
+
+### Core Config
+
+| Field        | Description             | Default                                          |
+| ------------ | ----------------------- | ------------------------------------------------ |
+| **ak**       | Access Key              | -                                                |
+| **sk**       | Secret Key              | -                                                |
+| **agent_id** | Agent unique identifier | -                                                |
+| **ws_url**   | WebSocket URL           | `wss://hag.cloud.huawei.com/openclaw/v1/ws/link` |
+
+### Supported File Types
+
+**Images**: JPEG, JPG, PNG, BMP, WEBP
+
+**Files**: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT
+
+> Note: Video and audio files are not supported by the XiaoYi platform.
+
+---
+
 ## Appendix
 
 ### Config overview
 
-| Channel  | Config key | Main fields                                                             |
-| -------- | ---------- | ----------------------------------------------------------------------- |
-| DingTalk | dingtalk   | client_id, client_secret                                                |
-| Feishu   | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
-| iMessage | imessage   | db_path, poll_sec (macOS only)                                          |
-| Discord  | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
-| QQ       | qq         | app_id, client_secret                                                   |
-| Telegram | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
+| Channel    | Config key | Main fields                                                             |
+| ---------- | ---------- | ----------------------------------------------------------------------- |
+| DingTalk   | dingtalk   | client_id, client_secret                                                |
+| Feishu     | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
+| iMessage   | imessage   | db_path, poll_sec (macOS only)                                          |
+| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
+| QQ         | qq         | app_id, client_secret                                                   |
+| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
+| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
+| Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
+| Matrix     | matrix     | homeserver, user_id, access_token                                       |
+| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                       |
+
+All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section at the top of this page.
 
 Field details and structure are in the tables above and [Config & working dir](./config).
 
@@ -572,14 +768,18 @@ video, audio, and file varies by channel.
 **✓** = supported. **🚧** = under construction (implementable but not yet
 done). **✗** = not supported (not possible on this channel).
 
-| Channel  | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
-| -------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
-| DingTalk | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Feishu   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Discord  | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| iMessage | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
-| QQ       | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| Telegram | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Channel    | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
+| ---------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
+| DingTalk   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
+| QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
+| Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| XiaoYi     | ✓         | ✓          | ✗          | ✗          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 
 Notes:
 
@@ -595,6 +795,9 @@ Notes:
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
+- **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
+- **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
+- **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 
 ### Changing config via HTTP
 

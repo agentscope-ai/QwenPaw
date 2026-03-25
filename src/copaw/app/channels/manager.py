@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from typing import (
     Callable,
@@ -154,13 +155,22 @@ class ChannelManager:
         return cls(channels)
 
     @classmethod
+    # pylint: disable=too-many-branches
     def from_config(
         cls,
         process: ProcessHandler,
         config: "Config",
         on_last_dispatch: OnLastDispatch = None,
+        workspace_dir: Path | None = None,
     ) -> "ChannelManager":
-        """Create channels from config (config.json)."""
+        """Create channels from config (config.json or agent.json).
+
+        Args:
+            process: Process handler for agent communication
+            config: Configuration object with channels
+            on_last_dispatch: Callback for dispatch events
+            workspace_dir: Agent workspace directory for channel state files
+        """
         available = get_available_channels()
         ch = config.channels
         show_tool_details = getattr(config, "show_tool_details", True)
@@ -172,34 +182,83 @@ class ChannelManager:
                 continue
             ch_cfg = getattr(ch, key, None)
             if ch_cfg is None and key in extra:
-                from types import SimpleNamespace
-
-                raw = extra[key]
-                ch_cfg = (
-                    SimpleNamespace(**raw) if isinstance(raw, dict) else raw
-                )
+                ch_cfg = extra[key]
             if ch_cfg is None:
                 continue
-            filter_tool_messages = getattr(
-                ch_cfg,
-                "filter_tool_messages",
-                False,
-            )
-            filter_thinking = getattr(
-                ch_cfg,
-                "filter_thinking",
-                False,
-            )
-            channels.append(
-                ch_cls.from_config(
-                    process,
+            if isinstance(ch_cfg, dict):
+                from types import SimpleNamespace
+                from ...config.config import BaseChannelConfig
+
+                defaults = BaseChannelConfig().model_dump()
+                defaults.update(ch_cfg)
+                ch_cfg = SimpleNamespace(**defaults)
+
+            # Check if channel is enabled
+            # Handle both Pydantic objects (built-in)
+            # and dicts (customchannels)
+            if isinstance(ch_cfg, dict):
+                enabled = ch_cfg.get("enabled", False)
+            else:
+                enabled = getattr(ch_cfg, "enabled", False)
+            if not enabled:
+                continue
+
+            # Handle both Pydantic objects (built-in)
+            # and dicts (custom channels)
+            if isinstance(ch_cfg, dict):
+                filter_tool_messages = ch_cfg.get(
+                    "filter_tool_messages",
+                    False,
+                )
+                filter_thinking = ch_cfg.get("filter_thinking", False)
+            else:
+                filter_tool_messages = getattr(
                     ch_cfg,
-                    on_reply_sent=on_last_dispatch,
-                    show_tool_details=show_tool_details,
-                    filter_tool_messages=filter_tool_messages,
-                    filter_thinking=filter_thinking,
-                ),
-            )
+                    "filter_tool_messages",
+                    False,
+                )
+                filter_thinking = getattr(
+                    ch_cfg,
+                    "filter_thinking",
+                    False,
+                )
+
+            from_config_kwargs = {
+                "process": process,
+                "config": ch_cfg,
+                "on_reply_sent": on_last_dispatch,
+                "show_tool_details": show_tool_details,
+                "filter_tool_messages": filter_tool_messages,
+                "filter_thinking": filter_thinking,
+                "workspace_dir": workspace_dir,
+            }
+
+            # Only pass kwargs that the channel's from_config accepts
+            import inspect
+
+            sig = inspect.signature(ch_cls.from_config)
+            if any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in sig.parameters.values()
+            ):
+                filtered_kwargs = from_config_kwargs
+            else:
+                filtered_kwargs = {
+                    k: v
+                    for k, v in from_config_kwargs.items()
+                    if k in sig.parameters
+                }
+
+            try:
+                channels.append(ch_cls.from_config(**filtered_kwargs))
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize channel '%s', skipping: %s",
+                    key,
+                    e,
+                )
+                continue
+
         return cls(channels)
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
@@ -285,10 +344,10 @@ class ChannelManager:
                     (channel_id, key),
                     asyncio.Lock(),
                 )
-                async with key_lock:
-                    self._in_progress.add((channel_id, key))
-                    batch = _drain_same_key(q, ch, key, payload)
                 try:
+                    async with key_lock:
+                        self._in_progress.add((channel_id, key))
+                        batch = _drain_same_key(q, ch, key, payload)
                     await _process_batch(ch, batch)
                 finally:
                     self._in_progress.discard((channel_id, key))

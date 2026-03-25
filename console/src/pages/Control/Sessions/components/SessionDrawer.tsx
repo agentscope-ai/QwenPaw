@@ -2,11 +2,13 @@ import { Drawer, Form, Input, Button } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { Session } from "./constants";
+import styles from "../index.module.less";
 
 interface SessionDrawerProps {
   open: boolean;
   editingSession: Session | null;
   form: FormInstance<Session>;
+  saving: boolean;
   onClose: () => void;
   onSubmit: (values: Session) => void;
 }
@@ -15,10 +17,20 @@ export function SessionDrawer({
   open,
   editingSession,
   form,
+  saving,
   onClose,
   onSubmit,
 }: SessionDrawerProps) {
   const { t } = useTranslation();
+
+  const drawerFooter = (
+    <div className={styles.formActions}>
+      <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button type="primary" loading={saving} onClick={() => form.submit()}>
+        {t("common.save")}
+      </Button>
+    </div>
+  );
 
   return (
     <Drawer
@@ -28,6 +40,7 @@ export function SessionDrawer({
       open={open}
       onClose={onClose}
       destroyOnClose
+      footer={drawerFooter}
     >
       <Form form={form} layout="vertical" onFinish={onSubmit}>
         <Form.Item
@@ -57,22 +70,6 @@ export function SessionDrawer({
             </Form.Item>
           </>
         )}
-
-        <Form.Item>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 8,
-              marginTop: 16,
-            }}
-          >
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button type="primary" htmlType="submit">
-              {t("common.save")}
-            </Button>
-          </div>
-        </Form.Item>
       </Form>
     </Drawer>
   );

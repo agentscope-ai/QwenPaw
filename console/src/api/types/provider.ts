@@ -1,6 +1,9 @@
 export interface ModelInfo {
   id: string;
   name: string;
+  supports_multimodal: boolean | null;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
 }
 
 export interface ProviderInfo {
@@ -14,16 +17,24 @@ export interface ProviderInfo {
   extra_models: ModelInfo[];
   is_custom: boolean;
   is_local: boolean;
+  /** Whether this provider supports fetching available models from the provider's API. */
+  support_model_discovery: boolean;
+  /** Whether this provider supports checking connection to the API without model configuration. */
+  support_connection_check: boolean;
   /** True when the base_url should be frozen (not editable). */
   freeze_url: boolean;
+  /** True when an API key is required for this provider. */
+  require_api_key: boolean;
   api_key: string;
   base_url: string;
+  generate_kwargs: Record<string, unknown>;
 }
 
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
   chat_model?: string;
+  generate_kwargs?: Record<string, unknown>;
 }
 
 export interface ModelSlotConfig {
@@ -119,6 +130,7 @@ export interface TestProviderRequest {
   api_key?: string;
   base_url?: string;
   chat_model?: string;
+  generate_kwargs?: Record<string, unknown>;
 }
 
 export interface TestModelRequest {
@@ -130,4 +142,12 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   added_count: number;
+}
+
+export interface ProbeMultimodalResponse {
+  supports_image: boolean;
+  supports_video: boolean;
+  supports_multimodal: boolean;
+  image_message: string;
+  video_message: string;
 }

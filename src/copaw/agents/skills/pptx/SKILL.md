@@ -2,14 +2,22 @@
 name: pptx
 description: "Use this skill any time a .pptx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx file (even if the extracted content will be used elsewhere, like in an email or summary); editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates, layouts, speaker notes, or comments. Trigger whenever the user mentions \"deck,\" \"slides,\" \"presentation,\" or references a .pptx filename, regardless of what they plan to do with the content afterward. If a .pptx file needs to be opened, created, or touched, use this skill."
 license: Proprietary. LICENSE.txt has complete terms
+metadata: { "builtin_skill_version": "1.0" }
 ---
+
+> **Important:** All `scripts/` paths are relative to this skill directory.
+> Run with: `cd {this_skill_dir} && python scripts/...`
+> Or use the `cwd` parameter of `execute_shell_command`.
 
 # PPTX Skill
 
-## Runtime Dependencies
+## Prerequisites
 
-- Requires LibreOffice (`soffice`) for presentation-to-PDF conversion.
-- Requires Poppler (`pdftoppm`) for PDF-to-image conversion used by thumbnail/visual workflows.
+- **markitdown[pptx]**: text extraction from presentations
+- **Pillow**: thumbnail grid generation
+- **pptxgenjs** (`npm install -g pptxgenjs`): creating presentations from scratch
+- **LibreOffice** (`soffice`): presentation-to-PDF conversion
+- **pdftoppm** (poppler-utils): PDF-to-image conversion for thumbnail/visual workflows
 - If `pdftoppm` is unavailable, a Python fallback path may use `pdf2image`.
 - On Windows, dependencies must be installed and available in `PATH`; if missing, report the dependency issue and stop (do not keep retrying).
 
@@ -228,12 +236,3 @@ To re-render specific slides after fixes:
 pdftoppm -jpeg -r 150 -f N -l N output.pdf slide-fixed
 ```
 
----
-
-## Dependencies
-
-- `pip install "markitdown[pptx]"` - text extraction
-- `pip install Pillow` - thumbnail grids
-- `npm install -g pptxgenjs` - creating from scratch
-- LibreOffice (`soffice`) - PDF conversion (auto-configured for sandboxed environments via `scripts/office/soffice.py`)
-- Poppler (`pdftoppm`) - PDF to images

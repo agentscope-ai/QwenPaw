@@ -36,7 +36,10 @@ pip install copaw
 
 ```
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
 > **⚠️ Windows 企业版 LTSC 用户特别提示**
@@ -90,8 +93,16 @@ pip install -e .
 
 ```
 docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
+
+5. 如果你使用的是 Windows 桌面版（exe），目前需要卸载后重新安装：
+   - 在电脑中卸载 CoPaw
+   - 下载最新版本：https://github.com/agentscope-ai/CoPaw/releases
+   - 重新安装
 
 升级后重启服务 copaw app。
 
@@ -111,6 +122,66 @@ copaw app
 
 控制台默认地址为 `http://127.0.0.1:8088/`，使用默认配置快速初始化后，可以进入控制台快捷自定义相关内容。详情请见[快速开始](https://copaw.agentscope.io/docs/quickstart)。
 
+### Windows 端口 8088 冲突问题
+
+在 Windows 上，Hyper-V 和 WSL2 可能会保留某些端口范围，这可能与 CoPaw 的默认端口 **8088** 冲突。此问题影响所有安装方式（pip 安装、脚本安装、Docker、桌面应用）。
+
+**症状：**
+
+- 报错：`Address already in use` 或 `OSError: [Errno 98] Address already in use`
+- 报错：`An attempt was made to access a socket in a way forbidden by its access permissions`
+- CoPaw 无法启动，或浏览器无法访问 `http://127.0.0.1:8088/`
+
+**检查端口 8088 是否被 Windows 保留：**
+
+在 PowerShell 或 CMD 中运行：
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+如果 8088 出现在排除范围内，说明已被系统保留。
+
+**解决方案：使用其他端口**
+
+**pip 安装 / 脚本安装：**
+
+```bash
+copaw app --port 8090
+```
+
+然后在浏览器中打开 `http://127.0.0.1:8090/`。
+
+**Docker 安装：**
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+然后在浏览器中打开 `http://127.0.0.1:8090/`。
+
+**Windows 桌面应用：**
+
+目前桌面应用默认使用 8088 端口。如果遇到此问题，可以：
+
+1. 改用终端运行 `copaw app --port 8090`
+2. 或从 Windows 保留端口范围中排除 8088（需要管理员权限，可能影响其他服务）
+
+**进阶：防止 Windows 保留 8088 端口**
+
+在管理员权限的 PowerShell 中运行：
+
+```powershell
+# 从动态端口范围中排除 8088
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+# 重启 Windows 使更改生效
+```
+
+> ⚠️ **警告**：这会更改系统级端口配置，请确保了解相关影响后再操作。
+
 ### 开源地址
 
 CoPaw 已开源，官方仓库地址：
@@ -128,6 +199,36 @@ CoPaw 已开源，官方仓库地址：
 - 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。下载后可在同页选择活跃模型。
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
+
+### 使用 Ollama / LM Studio 部署的模型时，为什么 CoPaw 无法完成多轮交互、复杂工具调用，或记不住之前的指令？
+
+这类问题通常不是 CoPaw 本身异常，而是**模型上下文长度配置过小**导致的。
+
+当你使用 Ollama 或 LM Studio 部署本地模型时，如果模型的 `context length` 设置太低，CoPaw 在以下场景中就可能表现异常：
+
+- 无法稳定完成多轮对话
+- 执行复杂工具调用时中途丢失上下文
+- 记不住前面几轮中已经给出的要求或指令
+- 长任务执行到一半开始偏离目标
+
+**解决方法：**
+
+- 运行 CoPaw 前，请将模型的 `context length` 设置为**至少 32K**
+- 如果任务较复杂、工具调用较多或对话轮次较长，实际可能需要设置到**高于 32K**
+
+> ⚠️ **运行 CoPaw 前必须将上下文长度设为 32K 以上**
+>
+> 对于 Ollama 和 LM Studio 部署的本地模型，如果要让 CoPaw 正常完成多轮交互、复杂工具调用和长上下文任务，通常必须提供 **32K 或更高** 的上下文长度；在更复杂的场景下，可能还需要进一步提高。
+>
+> 注意，更大的上下文窗口会显著增加显存 / 内存占用和计算开销，请确认你的本地机器能够支持。
+
+**Ollama 配置示意图：**
+
+![Ollama context length 配置示意图](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
+
+**LM Studio 配置示意图：**
+
+![LM Studio context length 配置示意图](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
 
 ### 定时任务错误排查
 

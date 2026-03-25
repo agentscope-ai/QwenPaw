@@ -7,18 +7,28 @@ import logging
 import os
 import re
 import time
+import contextvars
 import base64
+import io
+import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse, unquote
+from urllib.parse import quote, urlencode, urlparse, unquote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from contextlib import contextmanager
 
 import frontmatter
+import yaml
 
 from .skills_manager import SkillService
 
 logger = logging.getLogger(__name__)
+
+_cancel_checker_ctx: contextvars.ContextVar[
+    Any | None
+] = contextvars.ContextVar("skills_hub_cancel_checker", default=None)
 
 
 @dataclass
@@ -37,6 +47,10 @@ class HubInstallResult:
     source_url: str
 
 
+class SkillImportCancelled(RuntimeError):
+    """Raised when a skill import task is cancelled by user."""
+
+
 RETRYABLE_HTTP_STATUS = {
     408,
     409,
@@ -47,6 +61,10 @@ RETRYABLE_HTTP_STATUS = {
     503,
     504,
 }
+
+LOBEHUB_MAX_ZIP_ENTRIES = 256
+LOBEHUB_MAX_ZIP_BYTES = 5 * 1024 * 1024
+HTTP_READ_CHUNK_BYTES = 64 * 1024
 
 
 def _hub_http_timeout() -> float:
@@ -87,6 +105,29 @@ def _compute_backoff_seconds(attempt: int) -> float:
     return min(cap, base * (2 ** max(0, attempt - 1)))
 
 
+def _ensure_not_cancelled() -> None:
+    checker = _cancel_checker_ctx.get()
+    if checker is None:
+        return
+    try:
+        if bool(checker()):
+            raise SkillImportCancelled("Skill import cancelled by user")
+    except SkillImportCancelled:
+        raise
+    except Exception:
+        # Ignore checker failures and continue.
+        return
+
+
+@contextmanager
+def _with_cancel_checker(checker: Any | None):
+    token = _cancel_checker_ctx.set(checker)
+    try:
+        yield
+    finally:
+        _cancel_checker_ctx.reset(token)
+
+
 def _hub_base_url() -> str:
     return os.environ.get("COPAW_SKILLS_HUB_BASE_URL", "https://clawhub.ai")
 
@@ -123,15 +164,7 @@ def _join_url(base: str, path: str) -> str:
     return f"{base.rstrip('/')}/{path.lstrip('/')}"
 
 
-# pylint: disable-next=too-many-branches,too-many-statements
-def _http_get(
-    url: str,
-    params: dict[str, Any] | None = None,
-    accept: str = "application/json",
-) -> str:
-    full_url = url
-    if params:
-        full_url = f"{url}?{urlencode(params)}"
+def _build_request(full_url: str, accept: str) -> Request:
     req = Request(
         full_url,
         headers={
@@ -144,14 +177,77 @@ def _http_get(
     github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if github_token and "api.github.com" in host:
         req.add_header("Authorization", f"Bearer {github_token}")
+    return req
+
+
+def _read_response_bytes(
+    resp: Any,
+    *,
+    full_url: str,
+    max_bytes: int | None = None,
+) -> bytes:
+    _ensure_not_cancelled()
+    if max_bytes is not None and max_bytes <= 0:
+        raise ValueError("max_bytes must be greater than 0")
+
+    content_length = None
+    headers = getattr(resp, "headers", None)
+    if headers is not None:
+        raw_content_length = headers.get("Content-Length")
+        try:
+            content_length = int(raw_content_length)
+        except (TypeError, ValueError):
+            content_length = None
+    if (
+        max_bytes is not None
+        and content_length is not None
+        and content_length > max_bytes
+    ):
+        raise ValueError(
+            f"Response body too large from {full_url}: "
+            f"{content_length} bytes exceeds limit {max_bytes}",
+        )
+
+    body = bytearray()
+    while True:
+        _ensure_not_cancelled()
+        chunk = resp.read(HTTP_READ_CHUNK_BYTES)
+        if not chunk:
+            return bytes(body)
+        body.extend(chunk)
+        if max_bytes is not None and len(body) > max_bytes:
+            raise ValueError(
+                f"Response body too large from {full_url}: "
+                f"download exceeded limit {max_bytes}",
+            )
+
+
+# pylint: disable-next=too-many-branches,too-many-statements
+def _http_fetch(
+    url: str,
+    params: dict[str, Any] | None = None,
+    accept: str = "application/json",
+    max_bytes: int | None = None,
+) -> bytes:
+    _ensure_not_cancelled()
+    full_url = url
+    if params:
+        full_url = f"{url}?{urlencode(params)}"
+    req = _build_request(full_url, accept)
+    host = (urlparse(full_url).netloc or "").lower()
     retries = _hub_http_retries()
     timeout = _hub_http_timeout()
     attempts = retries + 1
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        _ensure_not_cancelled()
         try:
             with urlopen(req, timeout=timeout) as resp:
-                return resp.read().decode("utf-8", errors="replace")
+                return _read_response_bytes(
+                    resp,
+                    full_url=full_url,
+                    max_bytes=max_bytes,
+                )
         except HTTPError as e:
             last_error = e
             status = getattr(e, "code", 0) or 0
@@ -166,9 +262,9 @@ def _http_get(
                     or "rate limit" in str(e).lower()
                 ):
                     raise RuntimeError(
-                        "GitHub API rate limit exceeded while fetching "
-                        "skills.sh skill files. Set GITHUB_TOKEN "
-                        "(or GH_TOKEN) to increase the limit, then retry.",
+                        "GitHub API rate limit exceeded"
+                        ". Set GITHUB_TOKEN "
+                        "to increase the limit, then retry.",
                     ) from e
             # Retry only temporary/rate-limit server failures.
             if attempt < attempts and status in RETRYABLE_HTTP_STATUS:
@@ -181,8 +277,27 @@ def _http_get(
                     attempts,
                     delay,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
+            # User-facing message when retries exhausted (429, 5xx).
+            retries = attempts - 1
+            if status == 429:
+                hint = ""
+                if "api.github.com" in host or "github" in full_url.lower():
+                    hint = (
+                        " For GitHub sources, set GITHUB_TOKEN to avoid "
+                        "rate limits."
+                    )
+                raise RuntimeError(
+                    f"Hub returned 429 (Too Many Requests) after {retries} "
+                    f"retries. Try again later.{hint}",
+                ) from e
+            if status >= 500:
+                raise RuntimeError(
+                    f"Hub returned {status} after {retries} retries. "
+                    "Try again later.",
+                ) from e
             raise
         except URLError as e:
             last_error = e
@@ -197,6 +312,7 @@ def _http_get(
                     delay,
                     e,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -217,6 +333,32 @@ def _http_get(
     if last_error is not None:
         raise last_error
     raise RuntimeError(f"Failed to request hub URL: {full_url}")
+
+
+def _http_get(
+    url: str,
+    params: dict[str, Any] | None = None,
+    accept: str = "application/json",
+) -> str:
+    return _http_fetch(
+        url,
+        params=params,
+        accept=accept,
+    ).decode("utf-8", errors="replace")
+
+
+def _http_bytes_get(
+    url: str,
+    params: dict[str, Any] | None = None,
+    accept: str = "application/octet-stream, */*",
+    max_bytes: int | None = None,
+) -> bytes:
+    return _http_fetch(
+        url,
+        params=params,
+        accept=accept,
+        max_bytes=max_bytes,
+    )
 
 
 def _http_json_get(url: str, params: dict[str, Any] | None = None) -> Any:
@@ -399,6 +541,7 @@ def _hydrate_clawhub_payload(
     base = _hub_base_url()
     file_url = _join_url(base, _hub_file_path().format(slug=skill_slug))
     files: dict[str, str] = {}
+    last_fetch_error: Exception | None = None
     for item in files_meta:
         if not isinstance(item, dict):
             continue
@@ -411,9 +554,14 @@ def _hydrate_clawhub_payload(
         try:
             files[path] = _http_text_get(file_url, params=params)
         except Exception as e:
+            last_fetch_error = e
             logger.warning("Failed to fetch hub file %s: %s", path, e)
 
     if not files.get("SKILL.md"):
+        if last_fetch_error is not None:
+            raise RuntimeError(
+                "Failed to fetch SKILL.md from hub: " + str(last_fetch_error),
+            ) from last_fetch_error
         return data
 
     return {
@@ -477,7 +625,7 @@ def _normalize_bundle(
         try:
             post = frontmatter.loads(content)
             name = post.get("name", "")
-        except Exception:
+        except yaml.YAMLError:
             name = ""
     if not name:
         raise ValueError("Hub bundle missing skill name")
@@ -488,6 +636,71 @@ def _normalize_bundle(
 def _safe_fallback_name(raw: str) -> str:
     out = re.sub(r"[^a-zA-Z0-9_-]", "-", raw).strip("-_")
     return out or "imported-skill"
+
+
+def _extract_error_message_from_payload(payload: bytes) -> str:
+    text = payload.decode("utf-8", errors="ignore").strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(data, dict):
+        for key in ("error", "message"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return text
+
+
+def _lobehub_http_error_message(error: HTTPError) -> str:
+    body_bytes: bytes | None = None
+    try:
+        body_bytes = error.read()
+    except Exception:
+        body_bytes = None
+    if isinstance(body_bytes, (bytes, bytearray)):
+        message = _extract_error_message_from_payload(bytes(body_bytes))
+        if message:
+            return message
+    return str(error)
+
+
+def _is_probably_text_blob(payload: bytes) -> bool:
+    if not payload:
+        return True
+    if b"\x00" in payload:
+        return False
+    sample = payload[:1024]
+    text_chars = bytearray({7, 8, 9, 10, 12, 13, 27})
+    text_chars.extend(range(0x20, 0x100))
+    non_text = sample.translate(None, bytes(text_chars))
+    return len(non_text) <= max(1, len(sample) // 10)
+
+
+def _should_keep_lobehub_file(parts: list[str]) -> bool:
+    if not parts:
+        return False
+    if parts == ["SKILL.md"]:
+        return True
+    if parts[0] in {"references", "scripts"} and len(parts) > 1:
+        return True
+    return len(parts) == 1
+
+
+def _sanitize_skill_dir_name(name: str) -> str:
+    """
+    Sanitize skill name for use as directory name.
+    Display names like "Excel / XLSX" must not be used as-is because "/"
+    can be misinterpreted as a path separator.
+    """
+    if not name or not isinstance(name, str):
+        return "imported-skill"
+    if "/" in name or "\\" in name:
+        sanitized = _normalize_skill_key(name)
+        return sanitized or _safe_fallback_name(name)
+    return name
 
 
 def _is_http_url(text: str) -> bool:
@@ -534,6 +747,58 @@ def _extract_skillsmp_slug(url: str) -> str:
         if idx + 1 < len(parts):
             return parts[idx + 1].strip()
     return ""
+
+
+def _extract_lobehub_identifier(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if not parts:
+        return ""
+    if host in {"lobehub.com", "www.lobehub.com"}:
+        if "skills" not in parts:
+            return ""
+        idx = parts.index("skills")
+        if idx + 1 < len(parts):
+            return parts[idx + 1].strip()
+        return ""
+    if host == "market.lobehub.com":
+        marker = ["api", "v1", "skills"]
+        if len(parts) >= 5 and parts[:3] == marker and parts[4] == "download":
+            return parts[3].strip()
+    return ""
+
+
+def _extract_modelscope_skill_spec(
+    url: str,
+) -> tuple[str, str, str] | None:
+    """
+    Parse ModelScope skills URL into (owner, skill_name, version_hint).
+    """
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    if host not in {"modelscope.cn", "www.modelscope.cn"}:
+        return None
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if len(parts) < 3 or parts[0] != "skills":
+        return None
+
+    owner_part = parts[1].strip()
+    skill_name = parts[2].strip()
+    if not owner_part or not skill_name:
+        return None
+    owner = owner_part[1:] if owner_part.startswith("@") else owner_part
+    owner = owner.strip()
+    if not owner:
+        return None
+
+    version_hint = ""
+    if len(parts) >= 6 and parts[3] == "archive" and parts[4] == "zip":
+        archive_name = parts[5].strip()
+        if archive_name.endswith(".zip"):
+            archive_name = archive_name[: -len(".zip")]
+        version_hint = archive_name
+    return owner, skill_name, version_hint
 
 
 def _extract_github_spec(
@@ -627,6 +892,13 @@ def _github_api_url(owner: str, repo: str, suffix: str) -> str:
     return f"{base}/{cleaned}" if cleaned else base
 
 
+def _github_encode_path(path: str) -> str:
+    cleaned = path.strip("/")
+    if not cleaned:
+        return ""
+    return quote(cleaned, safe="/")
+
+
 def _github_get_default_branch(owner: str, repo: str) -> str:
     repo_meta = _http_json_get(_github_api_url(owner, repo, ""))
     if isinstance(repo_meta, dict):
@@ -686,7 +958,8 @@ def _github_get_content_entry(
     path: str,
     ref: str,
 ) -> dict[str, Any]:
-    content_url = _github_api_url(owner, repo, f"contents/{path}")
+    encoded_path = _github_encode_path(path)
+    content_url = _github_api_url(owner, repo, f"contents/{encoded_path}")
     data = _http_json_get(content_url, {"ref": ref})
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected GitHub response for path: {path}")
@@ -699,7 +972,9 @@ def _github_get_dir_entries(
     path: str,
     ref: str,
 ) -> list[dict[str, Any]]:
-    content_url = _github_api_url(owner, repo, f"contents/{path}")
+    encoded_path = _github_encode_path(path)
+    suffix = "contents" if not encoded_path else f"contents/{encoded_path}"
+    content_url = _github_api_url(owner, repo, suffix)
     data = _http_json_get(content_url, {"ref": ref})
     if isinstance(data, list):
         return [x for x in data if isinstance(x, dict)]
@@ -745,16 +1020,18 @@ def _github_collect_tree_files(
     repo: str,
     ref: str,
     root: str,
-    subdir: str,
     max_files: int = 200,
 ) -> dict[str, str]:
     files: dict[str, str] = {}
-    pending = [_join_repo_path(root, subdir)]
+    pending = [root] if root else [""]
     visited = 0
     while pending:
+        _ensure_not_cancelled()
         current_dir = pending.pop()
-        entries = _github_get_dir_entries(owner, repo, current_dir, ref)
+        target_dir = current_dir or ""
+        entries = _github_get_dir_entries(owner, repo, target_dir, ref)
         for entry in entries:
+            _ensure_not_cancelled()
             entry_type = str(entry.get("type") or "")
             entry_path = str(entry.get("path") or "")
             if not entry_path:
@@ -765,10 +1042,6 @@ def _github_collect_tree_files(
             if entry_type != "file":
                 continue
             rel = _relative_from_root(entry_path, root)
-            if not (
-                rel.startswith("references/") or rel.startswith("scripts/")
-            ):
-                continue
             files[rel] = _github_read_file(entry)
             visited += 1
             if visited >= max_files:
@@ -869,20 +1142,14 @@ def _fetch_bundle_from_skills_sh_url(
         )
 
     files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    for subdir in ("references", "scripts"):
-        try:
-            files.update(
-                _github_collect_tree_files(
-                    owner=owner,
-                    repo=repo,
-                    ref=branch,
-                    root=selected_root,
-                    subdir=subdir,
-                ),
-            )
-        except HTTPError as e:
-            if getattr(e, "code", 0) != 404:
-                raise
+    files.update(
+        _github_collect_tree_files(
+            owner=owner,
+            repo=repo,
+            ref=branch,
+            root=selected_root,
+        ),
+    )
 
     source_url = f"https://github.com/{owner}/{repo}"
     return {"name": skill, "files": files}, source_url
@@ -979,20 +1246,14 @@ def _fetch_bundle_from_repo_and_skill_hint(
         )
 
     files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    for subdir in ("references", "scripts"):
-        try:
-            files.update(
-                _github_collect_tree_files(
-                    owner=owner,
-                    repo=repo,
-                    ref=branch,
-                    root=selected_root,
-                    subdir=subdir,
-                ),
-            )
-        except HTTPError as e:
-            if getattr(e, "code", 0) != 404:
-                raise
+    files.update(
+        _github_collect_tree_files(
+            owner=owner,
+            repo=repo,
+            ref=branch,
+            root=selected_root,
+        ),
+    )
     source_url = f"https://github.com/{owner}/{repo}"
     skill_name = skill.split("/")[-1].strip() if skill else repo
     return {"name": skill_name or repo, "files": files}, source_url
@@ -1047,6 +1308,174 @@ def _fetch_bundle_from_skillsmp_url(
     )
 
 
+def _lobehub_download_url(identifier: str) -> str:
+    return "https://market.lobehub.com/api/v1/skills/" f"{identifier}/download"
+
+
+def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            files: dict[str, str] = {}
+            entry_count = 0
+            total_bytes = 0
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                entry_count += 1
+                if entry_count > LOBEHUB_MAX_ZIP_ENTRIES:
+                    raise ValueError(
+                        "LobeHub skill package has too many files",
+                    )
+                total_bytes += max(0, info.file_size)
+                if total_bytes > LOBEHUB_MAX_ZIP_BYTES:
+                    raise ValueError(
+                        "LobeHub skill package is too large to import",
+                    )
+                parts = _safe_path_parts(info.filename.replace("\\", "/"))
+                if not parts:
+                    continue
+                if not _should_keep_lobehub_file(parts):
+                    continue
+                rel_path = "/".join(parts)
+                raw = zf.read(info)
+                if not _is_probably_text_blob(raw):
+                    logger.warning(
+                        "Skipping non-text file from LobeHub package: %s",
+                        rel_path,
+                    )
+                    continue
+                files[rel_path] = raw.decode("utf-8", errors="replace")
+    except zipfile.BadZipFile as e:
+        message = _extract_error_message_from_payload(payload)
+        if message:
+            raise ValueError(
+                f"LobeHub skill download failed: {message}",
+            ) from e
+        raise ValueError(
+            "LobeHub skill download did not return a valid zip",
+        ) from e
+
+    if "SKILL.md" not in files:
+        raise ValueError("LobeHub skill package is missing SKILL.md")
+    try:
+        post = frontmatter.loads(files["SKILL.md"])
+    except yaml.YAMLError:
+        post = None
+    skill_name = post.get("name") if post is not None else None
+    if not isinstance(skill_name, str) or not skill_name.strip():
+        skill_name = identifier
+    return {"name": skill_name.strip(), "files": files}
+
+
+def _fetch_bundle_from_modelscope_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    spec = _extract_modelscope_skill_spec(bundle_url)
+    if spec is None:
+        raise ValueError(
+            "Invalid ModelScope URL format. Use URL like "
+            "https://modelscope.cn/skills/@owner/skill-name",
+        )
+    owner, skill_name, version_hint = spec
+    detail_url = f"https://modelscope.cn/api/v1/skills/@{owner}/{skill_name}"
+    try:
+        detail = _http_json_get(detail_url)
+    except HTTPError as e:
+        raise ValueError(
+            "ModelScope skill lookup failed: "
+            f"{_lobehub_http_error_message(e)}",
+        ) from e
+
+    payload = detail.get("Data") if isinstance(detail, dict) else None
+    if not isinstance(payload, dict):
+        payload = {}
+    source_url = payload.get("SourceURL")
+    source_url = source_url.strip() if isinstance(source_url, str) else ""
+    source_lower = source_url.lower()
+    preferred_version = requested_version.strip() or version_hint
+
+    if source_url and _is_http_url(source_url):
+        if "github.com" in source_lower:
+            bundle, _ = _fetch_bundle_from_github_url(
+                source_url,
+                preferred_version,
+            )
+            return bundle, bundle_url
+        if "clawhub.ai" in source_lower:
+            clawhub_slug = _resolve_clawhub_slug(source_url)
+            if clawhub_slug:
+                try:
+                    bundle, _ = _fetch_bundle_from_clawhub_slug(
+                        clawhub_slug,
+                        preferred_version,
+                    )
+                    return bundle, bundle_url
+                except Exception as e:
+                    inner = str(e).strip()
+                    # Drop ClawHub prefix from inner to avoid showing two URLs.
+                    if inner.startswith("When importing from ClawHub: "):
+                        inner = (
+                            re.sub(
+                                r"^When importing from ClawHub:\s*https?://\S+"
+                                r"(?:\s*:\s*)?",
+                                "",
+                                inner,
+                                count=1,
+                            ).strip()
+                            or inner
+                        )
+                    msg = (
+                        f"When importing from ModelScope ({bundle_url}): "
+                        f"{inner}"
+                    )
+                    raise RuntimeError(msg) from e
+
+    readme_content = payload.get("ReadMeContent")
+    if isinstance(readme_content, str) and readme_content.strip():
+        fallback_name = (
+            str(payload.get("Name") or skill_name).strip() or skill_name
+        )
+        return {
+            "name": fallback_name,
+            "files": {"SKILL.md": readme_content},
+        }, bundle_url
+
+    raise ValueError(
+        "ModelScope skill source is unsupported and ReadMeContent is empty. "
+        "Please import from the original source URL directly.",
+    )
+
+
+def _fetch_bundle_from_lobehub_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    identifier = _extract_lobehub_identifier(bundle_url)
+    if not identifier:
+        raise ValueError("Invalid LobeHub skill URL format")
+    params = (
+        {"version": requested_version.strip()}
+        if requested_version.strip()
+        else None
+    )
+    try:
+        payload = _http_bytes_get(
+            _lobehub_download_url(identifier),
+            params=params,
+            accept="application/zip, application/octet-stream, */*",
+            max_bytes=LOBEHUB_MAX_ZIP_BYTES,
+        )
+    except HTTPError as e:
+        raise ValueError(
+            "LobeHub skill download failed: "
+            f"{_lobehub_http_error_message(e)}",
+        ) from e
+    except ValueError as e:
+        raise ValueError(f"LobeHub skill download failed: {e}") from e
+    return _lobehub_zip_to_bundle(identifier, payload), bundle_url
+
+
 def _fetch_bundle_from_clawhub_slug(
     slug: str,
     version: str,
@@ -1069,7 +1498,7 @@ def _fetch_bundle_from_clawhub_slug(
             errors.append(f"{candidate}: {e}")
     if data is None:
         raise RuntimeError(
-            "Unable to fetch skill from hub endpoints: " + "; ".join(errors),
+            "When importing from ClawHub: " + "; ".join(errors),
         )
     return (
         _hydrate_clawhub_payload(
@@ -1107,78 +1536,83 @@ def search_hub_skills(query: str, limit: int = 20) -> list[HubSkillResult]:
     return results
 
 
+def _resolve_bundle_from_url(
+    bundle_url: str,
+    version: str,
+) -> tuple[Any, str]:
+    fetcher: Any | None = None
+    clawhub_slug = ""
+    if _extract_skills_sh_spec(bundle_url) is not None:
+        fetcher = _fetch_bundle_from_skills_sh_url
+    elif _extract_github_spec(bundle_url) is not None:
+        fetcher = _fetch_bundle_from_github_url
+    elif _extract_lobehub_identifier(bundle_url):
+        fetcher = _fetch_bundle_from_lobehub_url
+    elif _extract_modelscope_skill_spec(bundle_url) is not None:
+        fetcher = _fetch_bundle_from_modelscope_url
+    elif _extract_skillsmp_slug(bundle_url):
+        fetcher = _fetch_bundle_from_skillsmp_url
+    else:
+        clawhub_slug = _resolve_clawhub_slug(bundle_url)
+
+    if fetcher is not None:
+        return fetcher(bundle_url, requested_version=version)
+    if clawhub_slug:
+        return _fetch_bundle_from_clawhub_slug(clawhub_slug, version)
+    # Backward-compatible fallback for direct bundle JSON URLs.
+    return _http_json_get(bundle_url), bundle_url
+
+
 # pylint: disable-next=too-many-branches
 def install_skill_from_hub(
     *,
+    workspace_dir: Path,
     bundle_url: str,
     version: str = "",
     enable: bool = True,
     overwrite: bool = False,
+    cancel_checker: Any | None = None,
 ) -> HubInstallResult:
-    source_url = bundle_url
-    data: Any
-
     if not bundle_url or not _is_http_url(bundle_url):
         raise ValueError("bundle_url must be a valid http(s) URL")
+    with _with_cancel_checker(cancel_checker):
+        _ensure_not_cancelled()
+        data, source_url = _resolve_bundle_from_url(bundle_url, version)
 
-    skills_spec = _extract_skills_sh_spec(bundle_url)
-    if skills_spec is not None:
-        data, source_url = _fetch_bundle_from_skills_sh_url(
-            bundle_url,
-            requested_version=version,
+        name, content, references, scripts, extra_files = _normalize_bundle(
+            data,
         )
-    else:
-        github_spec = _extract_github_spec(bundle_url)
-        if github_spec is not None:
-            data, source_url = _fetch_bundle_from_github_url(
-                bundle_url,
-                requested_version=version,
+        if not name:
+            fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
+            name = _safe_fallback_name(fallback)
+        # Sanitize: "Excel / XLSX" etc. must not be used as dir name
+        name = _sanitize_skill_dir_name(name)
+
+        _ensure_not_cancelled()
+        skill_service = SkillService(workspace_dir)
+        created = skill_service.create_skill(
+            name=name,
+            content=content,
+            overwrite=overwrite,
+            references=references,
+            scripts=scripts,
+            extra_files=extra_files,
+        )
+        if not created:
+            raise RuntimeError(
+                f"Failed to create skill '{name}'. "
+                "This skill already exists.",
             )
-        else:
-            skillsmp_slug = _extract_skillsmp_slug(bundle_url)
-            if skillsmp_slug:
-                data, source_url = _fetch_bundle_from_skillsmp_url(
-                    bundle_url,
-                    requested_version=version,
-                )
-            else:
-                clawhub_slug = _resolve_clawhub_slug(bundle_url)
-                if clawhub_slug:
-                    data, source_url = _fetch_bundle_from_clawhub_slug(
-                        clawhub_slug,
-                        version,
-                    )
-                else:
-                    # Backward-compatible fallback for direct bundle JSON URLs
-                    data = _http_json_get(bundle_url)
 
-    name, content, references, scripts, extra_files = _normalize_bundle(data)
-    if not name:
-        fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
-        name = _safe_fallback_name(fallback)
+        _ensure_not_cancelled()
+        enabled = False
+        if enable:
+            enabled = skill_service.enable_skill(name, force=True)
+            if not enabled:
+                logger.warning("Skill '%s' imported but enable failed", name)
 
-    created = SkillService.create_skill(
-        name=name,
-        content=content,
-        overwrite=overwrite,
-        references=references,
-        scripts=scripts,
-        extra_files=extra_files,
-    )
-    if not created:
-        raise RuntimeError(
-            f"Failed to create skill '{name}'. "
-            "Try overwrite=true if it already exists.",
+        return HubInstallResult(
+            name=name,
+            enabled=enabled,
+            source_url=source_url,
         )
-
-    enabled = False
-    if enable:
-        enabled = SkillService.enable_skill(name, force=True)
-        if not enabled:
-            logger.warning("Skill '%s' imported but enable failed", name)
-
-    return HubInstallResult(
-        name=name,
-        enabled=enabled,
-        source_url=source_url,
-    )

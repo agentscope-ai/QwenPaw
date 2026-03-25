@@ -25,7 +25,7 @@ copaw init --force      # 覆盖已有配置文件
 
 1. **心跳** —— 间隔（如 `30m`）、目标（`main` / `last`）、可选活跃时间段。
 2. **工具详情** —— 是否在频道消息中显示工具调用细节。
-3. **语言** —— Agent 人设文件（SOUL.md 等）使用 `zh` 或 `en`。
+3. **语言** —— Agent 人设文件（SOUL.md 等）使用 `zh` / `en` / `ru`。
 4. **频道** —— 可选配置 iMessage / Discord / DingTalk / Feishu / QQ / Console。
 5. **LLM 提供商** —— 选择提供商、输入 API Key、选择模型（**必选**）。
 6. **技能** —— 全部启用 / 不启用 / 自定义选择。
@@ -76,8 +76,11 @@ Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 | `copaw daemon version`       | 版本与路径                                                                     |
 | `copaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `copaw.log`）                            |
 
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+
 ```bash
-copaw daemon status
+copaw daemon status                     # 默认智能体状态
+copaw daemon status --agent-id abc123   # 特定智能体状态
 copaw daemon version
 copaw daemon logs -n 50
 ```
@@ -204,39 +207,137 @@ copaw env delete TAVILY_API_KEY
 
 ### copaw channels
 
-管理频道配置（iMessage / Discord / DingTalk / Feishu / QQ / Console 等）。
+管理频道配置（iMessage / Discord / DingTalk / Feishu / QQ / Console 等）并向频道发送消息。
 **说明**：交互式配置用 `config`（无 `configure` 子命令）；卸载自定义频道用 `remove`（无 `uninstall`）。
+
+**别名：** 可以用 `copaw channel`（单数）作为 `copaw channels` 的简写。
 
 | 命令                           | 说明                                                                            |
 | ------------------------------ | ------------------------------------------------------------------------------- |
 | `copaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
+| `copaw channels send`          | 向用户/会话单向发送消息（需要全部 5 个参数）                                    |
 | `copaw channels install <key>` | 在 `custom_channels/` 安装频道：创建模板，或用 `--path` / `--url` 安装          |
 | `copaw channels add <key>`     | 安装并加入 config；内置频道只写 config；支持 `--path` / `--url`                 |
 | `copaw channels remove <key>`  | 从 `custom_channels/` 删除自定义频道（内置不可删）；`--keep-config` 保留 config |
 | `copaw channels config`        | 交互式启用/禁用频道并填写凭据                                                   |
 
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+
 ```bash
-copaw channels list                    # 看当前状态
+copaw channels list                    # 看默认智能体的频道状态
+copaw channels list --agent-id abc123  # 看特定智能体的频道状态
 copaw channels install my_channel      # 创建自定义频道模板
 copaw channels install my_channel --path ./my_channel.py
 copaw channels add dingtalk            # 把钉钉加入 config
 copaw channels remove my_channel       # 删除自定义频道（并默认从 config 移除）
 copaw channels remove my_channel --keep-config   # 只删模块，保留 config 条目
-copaw channels config                  # 交互式配置
+copaw channels config                  # 交互式配置默认智能体
+copaw channels config --agent-id abc123 # 交互式配置特定智能体
 ```
 
 交互式 `config` 流程：依次选择频道、启用/禁用、填写凭据，循环直到选择「保存退出」。
 
-| 频道         | 需要填写的字段                           |
-| ------------ | ---------------------------------------- |
-| **iMessage** | Bot 前缀、数据库路径、轮询间隔           |
-| **Discord**  | Bot 前缀、Bot Token、HTTP 代理、代理认证 |
-| **DingTalk** | Bot 前缀、Client ID、Client Secret       |
-| **Feishu**   | Bot 前缀、App ID、App Secret             |
-| **QQ**       | Bot 前缀、App ID、Client Secret          |
-| **Console**  | Bot 前缀                                 |
+| 频道         | 需要填写的字段                                                             |
+| ------------ | -------------------------------------------------------------------------- |
+| **iMessage** | Bot 前缀、数据库路径、轮询间隔                                             |
+| **Discord**  | Bot 前缀、Bot Token、HTTP 代理、代理认证                                   |
+| **DingTalk** | Bot 前缀、Client ID、Client Secret、消息类型、Card 模板 ID/Key、Robot Code |
+| **Feishu**   | Bot 前缀、App ID、App Secret                                               |
+| **QQ**       | Bot 前缀、App ID、Client Secret                                            |
+| **Console**  | Bot 前缀                                                                   |
 
 > 各平台凭据的获取步骤，请看 [频道配置](./channels)。
+
+#### 向频道发送消息
+
+使用 `copaw channels send` 主动向用户/会话推送消息，支持所有已配置的频道。这是**单向发送** —— 不会返回回复。
+
+```bash
+# 第一步：查询可用会话
+copaw chats list --agent-id my_bot --channel feishu
+
+# 第二步：使用查询到的参数发送消息
+copaw channels send \
+  --agent-id my_bot \
+  --channel feishu \
+  --target-user ou_xxxx \
+  --target-session session_id_xxxx \
+  --text "任务已完成！"
+```
+
+**必填参数（全部 5 个）：**
+
+- `--agent-id`：发送方智能体 ID
+- `--channel`：目标频道（console/dingtalk/feishu/discord/imessage/qq）
+- `--target-user`：用户 ID（从 `copaw chats list` 获取）
+- `--target-session`：会话 ID（从 `copaw chats list` 获取）
+- `--text`：消息内容
+
+**重要提示：**
+
+- 发送前必须先用 `copaw chats list` 查询 —— 不要猜测 `target-user` 或 `target-session`
+- 如果有多个会话，优先使用最近更新的
+- 这仅用于主动通知；智能体间通信请用 `copaw agents chat`
+
+---
+
+## 智能体
+
+管理智能体并支持智能体间通信。
+
+### copaw agents
+
+**别名：** 可以用 `copaw agent`（单数）作为 `copaw agents` 的简写。
+
+| 命令                | 说明                                             |
+| ------------------- | ------------------------------------------------ |
+| `copaw agents list` | 列出所有已配置的智能体（ID、名称、描述、工作区） |
+| `copaw agents chat` | 与另一个智能体通信（双向，支持多轮对话）         |
+
+```bash
+# 列出所有智能体
+copaw agents list
+copaw agent list  # 单数别名效果相同
+
+# 与另一个智能体对话（单次）
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --text "请帮我分析这些数据"
+
+# 多轮对话（session 复用）
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --session-id collab_session_001 \
+  --text "继续上一个问题"
+
+# 流式模式（逐步返回）
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --text "长篇分析任务" \
+  --mode stream
+```
+
+**必填参数：**
+
+- `--from-agent`（别名：`--agent-id`）：你的智能体 ID（发送方）
+- `--to-agent`：目标智能体 ID（接收方）
+- `--text`：消息内容
+
+**可选参数：**
+
+- `--session-id`：多轮对话的会话 ID（省略时自动生成）
+- `--mode`：响应模式 —— `final`（默认，完整响应）或 `stream`（逐步返回）
+- `--base-url`：覆盖 API 地址
+
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。
+
+**与 `copaw channels send` 的区别：**
+
+- `copaw agents chat`：智能体间，双向，返回回复
+- `copaw channels send`：智能体到用户/频道，单向，无回复
 
 ---
 
@@ -258,6 +359,8 @@ copaw channels config                  # 交互式配置
 | `copaw cron resume <job_id>` | 恢复暂停的任务                 |
 | `copaw cron run <job_id>`    | 立刻执行一次                   |
 
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+
 ### 创建任务
 
 **方式一——命令行参数（适合简单任务）**
@@ -268,7 +371,7 @@ copaw channels config                  # 交互式配置
 - **agent** —— 到点向 CoPaw 提问，把回复发到频道。
 
 ```bash
-# text：每天 9 点发「早上好！」到钉钉
+# text：每天 9 点发「早上好！」到钉钉（默认智能体）
 copaw cron create \
   --type text \
   --name "每日早安" \
@@ -278,8 +381,9 @@ copaw cron create \
   --target-session "会话ID" \
   --text "早上好！"
 
-# agent：每 2 小时让 CoPaw 回答并转发
+# agent：为特定智能体创建任务
 copaw cron create \
+  --agent-id abc123 \
   --type agent \
   --name "检查待办" \
   --cron "0 */2 * * *" \
@@ -302,12 +406,12 @@ JSON 结构见 `copaw cron get <job_id>` 的返回。
 
 ### 额外选项
 
-| 选项                         | 默认值  | 说明                                               |
-| ---------------------------- | ------- | -------------------------------------------------- |
-| `--timezone`                 | `UTC`   | Cron 调度时区                                      |
-| `--enabled` / `--no-enabled` | 启用    | 创建时启用或禁用                                   |
-| `--mode`                     | `final` | `stream`（逐步发送）或 `final`（完成后一次性发送） |
-| `--base-url`                 | 自动    | 覆盖 API 地址                                      |
+| 选项                         | 默认值   | 说明                                                  |
+| ---------------------------- | -------- | ----------------------------------------------------- |
+| `--timezone`                 | 用户时区 | Cron 调度时区（默认使用 config 中的 `user_timezone`） |
+| `--enabled` / `--no-enabled` | 启用     | 创建时启用或禁用                                      |
+| `--mode`                     | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）    |
+| `--base-url`                 | 自动     | 覆盖 API 地址                                         |
 
 ### Cron 表达式速查
 
@@ -337,12 +441,15 @@ JSON 结构见 `copaw cron get <job_id>` 的返回。
 | `copaw chats update <id> --name "..."` | 重命名会话                                         |
 | `copaw chats delete <id>`              | 删除会话                                           |
 
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+
 ```bash
-copaw chats list
+copaw chats list                        # 默认智能体的会话
+copaw chats list --agent-id abc123      # 特定智能体的会话
 copaw chats list --user-id alice --channel dingtalk
 copaw chats get 823845fe-dd13-43c2-ab8b-d05870602fd8
 copaw chats create --session-id "discord:alice" --user-id alice --name "My Chat"
-copaw chats create -f chat.json
+copaw chats create --agent-id abc123 -f chat.json
 copaw chats update <chat_id> --name "新名称"
 copaw chats delete <chat_id>
 ```
@@ -360,9 +467,13 @@ copaw chats delete <chat_id>
 | `copaw skills list`   | 列出所有技能及启用/禁用状态       |
 | `copaw skills config` | 交互式启用/禁用技能（复选框界面） |
 
+**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+
 ```bash
-copaw skills list     # 看有哪些技能
-copaw skills config   # 交互式开关
+copaw skills list                   # 看默认智能体的技能
+copaw skills list --agent-id abc123 # 看特定智能体的技能
+copaw skills config                 # 交互式配置默认智能体
+copaw skills config --agent-id abc123 # 交互式配置特定智能体
 ```
 
 交互界面中：↑/↓ 选择、空格 切换、回车 确认。确认前会预览变更。
@@ -403,15 +514,31 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## 工作目录
 
-配置和数据都在 `~/.copaw`（默认）：`config.json`、`HEARTBEAT.md`、`jobs.json`、
-`chats.json`、技能文件、记忆文件和 Agent 人设 Markdown 文件。
+配置和数据都在 `~/.copaw`（默认）：
+
+- **全局配置**: `config.json`（提供商、环境变量、智能体列表）
+- **智能体工作区**: `workspaces/{agent_id}/`（每个智能体独立的配置和数据）
+
+```
+~/.copaw/
+├── config.json              # 全局配置
+└── workspaces/
+    ├── default/             # 默认智能体工作区
+    │   ├── agent.json       # 智能体配置
+    │   ├── chats.json       # 对话历史
+    │   ├── jobs.json        # 定时任务
+    │   ├── AGENTS.md        # 人设文件
+    │   └── memory/          # 记忆文件
+    └── abc123/              # 其他智能体工作区
+        └── ...
+```
 
 | 变量                | 说明             |
 | ------------------- | ---------------- |
 | `COPAW_WORKING_DIR` | 覆盖工作目录路径 |
 | `COPAW_CONFIG_FILE` | 覆盖配置文件路径 |
 
-详见 [配置与工作目录](./config)。
+详见 [配置与工作目录](./config) 和 [多智能体工作区](./multi-agent)。
 
 ---
 
@@ -423,7 +550,8 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | `copaw app`      | —                                                                                                                                      | —（启动服务本身） |
 | `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        否         |
 | `copaw env`      | `list` · `set` · `delete`                                                                                                              |        否         |
-| `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        否         |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                              |      **是**       |
+| `copaw agents`   | `list` · `chat`                                                                                                                        |      **是**       |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        否         |
@@ -439,3 +567,4 @@ copaw --host 0.0.0.0 --port 9090 cron list
 - [心跳](./heartbeat) —— 定时自检/摘要
 - [技能](./skills) —— 内置技能与自定义技能
 - [配置与工作目录](./config) —— 工作目录与 config.json
+- [多智能体工作区](./multi-agent) —— 多智能体配置与管理

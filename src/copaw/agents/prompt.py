@@ -6,6 +6,7 @@ This module provides utilities for building system prompts from
 markdown configuration files in the working directory.
 """
 import logging
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -34,19 +35,28 @@ class PromptConfig:
 class PromptBuilder:
     """Builder for constructing system prompts from markdown files."""
 
+    # Regex pattern to match heartbeat section markers
+    HEARTBEAT_PATTERN = re.compile(
+        r"<!-- heartbeat:start -->.*?<!-- heartbeat:end -->",
+        re.DOTALL,
+    )
+
     def __init__(
         self,
         working_dir: Path,
         enabled_files: list[str] | None = None,
+        heartbeat_enabled: bool = False,
     ):
         """Initialize prompt builder.
 
         Args:
             working_dir: Directory containing markdown configuration files
             enabled_files: List of filenames to load (if None, uses default order)
+            heartbeat_enabled: Whether heartbeat is enabled, affects AGENTS.md content
         """
         self.working_dir = working_dir
         self.enabled_files = enabled_files
+        self.heartbeat_enabled = heartbeat_enabled
         self.prompt_parts = []
         self.loaded_count = 0
 
@@ -74,6 +84,15 @@ class PromptBuilder:
                 if len(parts) >= 3:
                     content = parts[2].strip()
 
+            # Filter heartbeat section from AGENTS.md if heartbeat is disabled
+            if filename == "AGENTS.md":
+                try:
+                    content = self._process_heartbeat_section(content)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to process heartbeat with {e}",
+                    )
+
             if content:
                 if self.prompt_parts:  # Add separator if not first section
                     self.prompt_parts.append("")
@@ -92,6 +111,33 @@ class PromptBuilder:
                 filename,
                 e,
             )
+
+    def _process_heartbeat_section(self, content: str) -> str:
+        """Process heartbeat section in AGENTS.md content.
+
+        - If heartbeat markers not found: keep content unchanged (backward compatibility)
+        - If heartbeat is enabled: keep the content but remove the markers
+        - If heartbeat is disabled: remove the entire section
+
+        Args:
+            content: Original AGENTS.md content
+
+        Returns:
+            Processed content
+        """
+        # Check if markers exist
+        if "<!-- heartbeat:start -->" not in content:
+            return content
+
+        if self.heartbeat_enabled:
+            # Keep content, just remove the markers
+            content = content.replace("<!-- heartbeat:start -->", "")
+            content = content.replace("<!-- heartbeat:end -->", "")
+            return content.strip()
+        else:
+            # Remove the entire heartbeat section
+            filtered = self.HEARTBEAT_PATTERN.sub("", content)
+            return filtered.strip()
 
     def build(self) -> str:
         """Build the system prompt from markdown files.
@@ -128,22 +174,36 @@ class PromptBuilder:
         return final_prompt
 
 
-def build_system_prompt_from_working_dir() -> str:
+def build_system_prompt_from_working_dir(
+    working_dir: Path | None = None,
+    enabled_files: list[str] | None = None,
+    agent_id: str | None = None,
+    heartbeat_enabled: bool = False,
+) -> str:
     """
     Build system prompt by reading markdown files from working directory.
 
     This function constructs the system prompt by loading markdown files from
-    WORKING_DIR (~/.copaw by default). These files define the agent's behavior,
-    personality, and operational guidelines.
+    the specified working directory (workspace_dir for multi-agent setup).
+    These files define the agent's behavior, personality, and operational guidelines.
 
-    The files to load are determined by the agents.system_prompt_files configuration.
-    If not configured, falls back to default files:
+    The files to load are determined by the enabled_files parameter or
+    agents.system_prompt_files configuration. If not configured, falls back to
+    default files:
     - AGENTS.md - Detailed workflows, rules, and guidelines
     - SOUL.md - Core identity and behavioral principles
     - PROFILE.md - Agent identity and user profile
 
     All files are optional. If a file doesn't exist or can't be read, it will be
     skipped. If no files can be loaded, returns the default prompt.
+
+    Args:
+        working_dir: Directory to read markdown files from (if None, uses
+            global WORKING_DIR for backward compatibility)
+        enabled_files: List of filenames to load (if None, uses config or defaults)
+        agent_id: Agent identifier to include in system prompt (optional)
+        heartbeat_enabled: Whether heartbeat is enabled. When False, filters
+            heartbeat section from AGENTS.md to avoid confusing instructions.
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -156,19 +216,45 @@ def build_system_prompt_from_working_dir() -> str:
     from ..constant import WORKING_DIR
     from ..config import load_config
 
-    # Load enabled files from config
-    config = load_config()
-    enabled_files = (
-        config.agents.system_prompt_files
-        if config.agents.system_prompt_files is not None
-        else None
-    )
+    # Use provided working_dir or fallback to global WORKING_DIR
+    if working_dir is None:
+        working_dir = Path(WORKING_DIR)
+
+    # Load enabled files from parameter or config
+    if enabled_files is None:
+        # Use agent-specific config if agent_id provided
+        if agent_id:
+            from ..config.config import load_agent_config
+
+            try:
+                agent_config = load_agent_config(agent_id)
+                enabled_files = agent_config.system_prompt_files
+            except (ValueError, FileNotFoundError):
+                # Agent not found in config, fallback to global config
+                config = load_config()
+                enabled_files = config.agents.system_prompt_files
+        else:
+            # Fallback to global config for backward compatibility
+            config = load_config()
+            enabled_files = config.agents.system_prompt_files
 
     builder = PromptBuilder(
-        working_dir=Path(WORKING_DIR),
+        working_dir=working_dir,
         enabled_files=enabled_files,
+        heartbeat_enabled=heartbeat_enabled,
     )
-    return builder.build()
+    prompt = builder.build()
+
+    # Add agent identity information at the beginning of the prompt
+    if agent_id:
+        identity_header = (
+            f"# Agent Identity\n\n"
+            f"Your agent id is `{agent_id}`. "
+            f"This is your unique identifier in the multi-agent system.\n\n"
+        )
+        prompt = identity_header + prompt
+
+    return prompt
 
 
 def build_bootstrap_guidance(
@@ -177,52 +263,114 @@ def build_bootstrap_guidance(
     """Build bootstrap guidance message for first-time setup.
 
     Args:
-        language: Language code (en/zh)
+        language: Language code (zh/en/ru)
 
     Returns:
         Formatted bootstrap guidance message
     """
-    if language == "en":
-        return """# 🌟 BOOTSTRAP MODE ACTIVATED
+    if language == "zh":
+        return (
+            "# 引导模式\n"
+            "\n"
+            "工作目录中存在 `BOOTSTRAP.md` — 首次设置。\n"
+            "\n"
+            "1. 阅读 BOOTSTRAP.md，友好地表示初次见面，"
+            "引导用户完成设置。\n"
+            "2. 按照 BOOTSTRAP.md 的指示，"
+            "帮助用户定义你的身份和偏好。\n"
+            "3. 按指南创建/更新必要文件"
+            "（PROFILE.md、MEMORY.md 等）。\n"
+            "4. 完成后删除 BOOTSTRAP.md。\n"
+            "\n"
+            "如果用户希望跳过，直接回答下面的问题即可。\n"
+            "\n"
+            "---\n"
+            "\n"
+        )
+    # en / ru / other — default to English
+    return (
+        "# BOOTSTRAP MODE\n"
+        "\n"
+        "`BOOTSTRAP.md` exists — first-time setup.\n"
+        "\n"
+        "1. Read BOOTSTRAP.md, greet the user, "
+        "and guide them through setup.\n"
+        "2. Follow BOOTSTRAP.md instructions "
+        "to define identity and preferences.\n"
+        "3. Create/update files "
+        "(PROFILE.md, MEMORY.md, etc.) as described.\n"
+        "4. Delete BOOTSTRAP.md when done.\n"
+        "\n"
+        "If the user wants to skip, answer their "
+        "question directly instead.\n"
+        "\n"
+        "---\n"
+        "\n"
+    )
 
-**IMPORTANT: You are in first-time setup mode.**
 
-A `BOOTSTRAP.md` file exists in your working directory. This means you should guide the user through the bootstrap process to establish your identity and preferences.
+def _get_active_model_info():
+    """Resolve the active model's ModelInfo and model name.
 
-**Your task:**
-1. Read the BOOTSTRAP.md file, greet the user warmly as a first meeting, and guide them through the bootstrap process.
-2. Follow the instructions in BOOTSTRAP.md. For example, help the user define your identity, their preferences, and establish the working relationship.
-3. Create and update the necessary files (PROFILE.md, MEMORY.md, etc.) as described in the guide.
-4. After completing the bootstrap process, delete BOOTSTRAP.md as instructed.
+    Returns:
+        A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
+        when the active model cannot be resolved.
+    """
+    try:
+        from ..providers.provider_manager import ProviderManager
 
-**If the user wants to skip:**
-If the user explicitly says they want to skip the bootstrap or just want their question answered directly, then proceed to answer their original question below. You can always help them bootstrap later.
+        manager = ProviderManager.get_instance()
+        active = manager.get_active_model()
+        if not active:
+            return None, None
+        provider = manager.get_provider(active.provider_id)
+        if not provider:
+            return None, None
+        for m in provider.models + provider.extra_models:
+            if m.id == active.model:
+                return m, active.model
+        return None, None
+    except Exception:
+        return None, None
 
-**Original user message:**
-"""
-    else:  # zh
-        return """# 🌟 引导模式已激活
 
-**重要：你正处于首次设置模式。**
+def get_active_model_supports_multimodal() -> bool:
+    """Check if the current active model supports multimodal input."""
+    model_info, _ = _get_active_model_info()
+    if model_info is None:
+        return False
+    return bool(model_info.supports_multimodal)
 
-你的工作目录中存在 `BOOTSTRAP.md` 文件。这意味着你应该引导用户完成引导流程，以建立你的身份和偏好。
 
-**你的任务：**
-1. 阅读 BOOTSTRAP.md 文件，友好地表示初次见面，引导用户完成引导流程。
-2. 按照BOOTSTRAP.md 里面的指示执行。例如，帮助用户定义你的身份、他们的偏好，并建立工作关系
-3. 按照指南中的描述创建和更新必要的文件（PROFILE.md、MEMORY.md 等）
-4. 完成引导流程后，按照指示删除 BOOTSTRAP.md
+def build_multimodal_hint() -> str:
+    """Build a short system-prompt snippet describing multimodal capability."""
+    model_info, model_name = _get_active_model_info()
+    if model_info is None:
+        return ""
+    return format_multimodal_hint(model_info, model_name)
 
-**如果用户希望跳过：**
-如果用户明确表示想跳过引导，那就继续回答下面的原始问题。你随时可以帮助他们完成引导。
 
-**用户的原始消息：**
-"""
+def format_multimodal_hint(model_info, _model_name: str) -> str:
+    """Format the multimodal hint string for the system prompt."""
+    if (
+        model_info.supports_image
+        or model_info.supports_video
+        or model_info.supports_multimodal is None
+    ):
+        return ""
+    return (
+        "It appears that you can only understand text content. "
+        " Please honestly inform the user about this when "
+        " their input includes multimodal information."
+    )
 
 
 __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
+    "build_multimodal_hint",
+    "format_multimodal_hint",
+    "get_active_model_supports_multimodal",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

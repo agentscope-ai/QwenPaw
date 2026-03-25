@@ -1,9 +1,10 @@
-import { Card, Button, Modal, Tooltip } from "@agentscope-ai/design";
+import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
 import { DeleteOutlined } from "@ant-design/icons";
 import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 interface MCPClientCardProps {
@@ -26,6 +27,7 @@ export function MCPClientCard({
   onMouseLeave,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editedJson, setEditedJson] = useState("");
@@ -183,13 +185,28 @@ export function MCPClientCard({
         width={700}
       >
         {isEditing ? (
-          <textarea
+          <Input.TextArea
             value={editedJson}
             onChange={(e) => setEditedJson(e.target.value)}
-            className={styles.editJsonTextArea}
+            autoSize={{ minRows: 15, maxRows: 25 }}
+            style={{
+              fontFamily: "Monaco, Courier New, monospace",
+              fontSize: 13,
+            }}
           />
         ) : (
-          <pre className={styles.preformattedText}>{clientJson}</pre>
+          <pre
+            style={{
+              backgroundColor: isDark ? "#1f1f1f" : "#f5f5f5",
+              color: isDark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.88)",
+              padding: 16,
+              borderRadius: 8,
+              maxHeight: 500,
+              overflow: "auto",
+            }}
+          >
+            {clientJson}
+          </pre>
         )}
       </Modal>
     </>
