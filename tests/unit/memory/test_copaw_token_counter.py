@@ -352,6 +352,113 @@ def test_tokenizer_different_models() -> None:
     print("  PASSED: different models work")
 
 
+def test_count_messages_with_list_content() -> None:
+    """Test token counting when message content is a list of blocks.
+
+    This is the case for multi-block messages from LLM providers like
+    Anthropic, where content can be [{"type": "text", "text": "..."},
+    {"type": "tool_use", ...}].
+    """
+    print("Testing: count messages with list content")
+    counter = CopawTokenCounter(
+        token_count_model="default",
+        token_count_use_mirror=True,
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Hello world"},
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "read_file",
+                    "input": {"path": "test.py"},
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "content": "How are you?",
+        },
+    ]
+    token_count = asyncio.run(counter.count(messages=messages))
+    assert token_count > 0
+    print(f"  PASSED: list content messages counted ({token_count} tokens)")
+
+
+def test_count_messages_with_str_content() -> None:
+    """Test token counting with normal string content still works."""
+    print("Testing: count messages with str content")
+    counter = CopawTokenCounter(
+        token_count_model="default",
+        token_count_use_mirror=True,
+    )
+    messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+    ]
+    token_count = asyncio.run(counter.count(messages=messages))
+    assert token_count > 0
+    print(f"  PASSED: str content messages counted ({token_count} tokens)")
+
+
+def test_count_empty_text_returns_zero() -> None:
+    """Empty text should return zero explicitly."""
+    print("Testing: empty text returns zero")
+    counter = CopawTokenCounter(
+        token_count_model="default",
+        token_count_use_mirror=True,
+    )
+    token_count = asyncio.run(
+        counter.count(
+            messages=[{"role": "user", "content": "hello"}],
+            text="",
+        ),
+    )
+    assert token_count == 0
+    print("  PASSED: empty text returns zero")
+
+
+def test_count_none_text_fallback_to_messages() -> None:
+    """None text should fallback to normal message counting path."""
+    print("Testing: none text falls back to messages")
+    counter = CopawTokenCounter(
+        token_count_model="default",
+        token_count_use_mirror=True,
+    )
+    token_count = asyncio.run(
+        counter.count(
+            messages=[{"role": "user", "content": "hello"}],
+            text=None,
+        ),
+    )
+    assert token_count > 0
+    print("  PASSED: none text falls back to messages")
+
+
+def test_normalize_messages_mixed() -> None:
+    """Test _normalize_messages with mixed content types."""
+    print("Testing: normalize messages mixed content")
+    normalized = CopawTokenCounter._normalize_messages(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "part1"},
+                    {"type": "text", "text": "part2"},
+                ],
+            },
+            {"role": "user", "content": "plain string"},
+        ],
+    )
+    assert isinstance(normalized[0]["content"], str)
+    assert "part1" in normalized[0]["content"]
+    assert "part2" in normalized[0]["content"]
+    assert normalized[1]["content"] == "plain string"
+    print("  PASSED: mixed content normalized correctly")
+
+
 def run_all_tests() -> None:
     """Run all test functions."""
     print("=" * 60)
@@ -373,6 +480,11 @@ def run_all_tests() -> None:
     test_tokenizer_handles_special_characters()
     test_tokenizer_consistency()
     test_tokenizer_different_models()
+    test_count_messages_with_list_content()
+    test_count_messages_with_str_content()
+    test_count_empty_text_returns_zero()
+    test_count_none_text_fallback_to_messages()
+    test_normalize_messages_mixed()
 
     # Different model tests
     test_qwen_tokenizer()
