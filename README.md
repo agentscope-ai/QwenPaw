@@ -393,28 +393,23 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
 | **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Self-healing**                      | Magic commands and daemon capabilities (CLI, status, restart, logs)                                                                              | In Progress          |
-|                                       | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | Planned              |
+| **Self-healing**                      | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | In Progress          |
 | **Multi-agent**                       | Background task support                                                                                                                          | In Progress          |
-|                                       | Multi-agent isolation                                                                                                                            | Planned              |
+|                                       | Async tasks                                                                                                                                      | Planned              |
 |                                       | Inter-agent contention resolution                                                                                                                | Planned              |
-|                                       | Multi-agent communication                                                                                                                        | Planned              |
 | **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows and sensitive-data use cases                                                                | In Progress          |
-|                                       | Multi-model routing. Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability          | Planned              |
+| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows                                                                                               | In Progress          |
+|                                       | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
 | **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
+|                                       | Memory mechanism switching                                                                                                                       | Planned              |
 |                                       | Multimodal memory fusion                                                                                                                         | Planned              |
 |                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
-| **Security**                          | Shell execution confirmation                                                                                                                     | Planned              |
-|                                       | Tool/skills security                                                                                                                             | Planned              |
-|                                       | Configurable security levels (user-configurable)                                                                                                 | Planned              |
-| **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term Planned    |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term Planned    |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planned    |
+| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | In Progress          |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Planned              |
+| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Planned              |
 
 
-*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planned* — longer-horizon roadmap.
+*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**.
 
 ### Get involved
 
