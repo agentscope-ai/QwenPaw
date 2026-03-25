@@ -335,6 +335,23 @@ function normalizeDraftSteps(raw: unknown): DraftParseResult {
   const issues: string[] = [];
   const idSet = new Set<string>();
 
+  const toText = (value: unknown): string => {
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return "";
+  };
+
+  const normalizeStepId = (item: Record<string, unknown>): string => {
+    const direct = toText(item.id);
+    if (direct) return direct;
+
+    const alias = toText(item.step_id) || toText(item.stepId);
+    if (!alias) return "";
+
+    // Convert numeric-like ids into canonical step-* form.
+    return /^\d+$/.test(alias) ? `step-${alias}` : alias;
+  };
+
   arrayLike.forEach((node, index) => {
     if (!node || typeof node !== "object" || Array.isArray(node)) {
       issues.push(`steps[${index}] must be an object.`);
@@ -342,31 +359,31 @@ function normalizeDraftSteps(raw: unknown): DraftParseResult {
     }
     const item = node as Record<string, unknown>;
 
-    const rawId = typeof item.id === "string" ? item.id.trim() : "";
-    const rawName = typeof item.name === "string" ? item.name.trim() : "";
-    const rawKind = typeof item.kind === "string" ? item.kind.trim() : "";
-    const rawDescription =
-      typeof item.description === "string" ? item.description.trim() : "";
+    const rawId = normalizeStepId(item);
+    const rawName = toText(item.name) || toText(item.title);
+    const rawKind = toText(item.kind) || toText(item.action) || toText(item.type);
+    const rawDescription = toText(item.description) || toText(item.desc);
 
     const missing: string[] = [];
-    if (!rawId) missing.push("id");
     if (!rawName) missing.push("name");
-    if (!rawKind) missing.push("kind");
     if (missing.length > 0) {
       issues.push(`steps[${index}] missing required fields: ${missing.join(", ")}.`);
       return;
     }
 
-    if (idSet.has(rawId)) {
-      issues.push(`steps[${index}] duplicate id: ${rawId}.`);
+    const safeId = rawId || `step-${index + 1}`;
+    const safeKind = rawKind || "transform";
+
+    if (idSet.has(safeId)) {
+      issues.push(`steps[${index}] duplicate id: ${safeId}.`);
       return;
     }
-    idSet.add(rawId);
+    idSet.add(safeId);
 
     steps.push({
-      id: rawId,
+      id: safeId,
       name: rawName,
-      kind: rawKind,
+      kind: safeKind,
       description: rawDescription,
     });
   });

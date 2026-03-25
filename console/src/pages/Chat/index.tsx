@@ -317,6 +317,7 @@ function isPipelineDesignBootstrapText(text: string): boolean {
   return (
     text.includes("pipeline-create-guide") ||
     text.includes("我想创建一个新的 Pipeline") ||
+    text.includes("模板设计模式") ||
     text.includes("I want to create a new Pipeline")
   );
 }
@@ -325,8 +326,10 @@ function buildPipelineOpportunityInlineHint(): string {
   return [
     "",
     "[PipelineDesignHint]",
-    "请把当前需求当作可复用多步骤流程，先用简短问题补齐关键槽位（目标、输入、步骤、质量指标、失败重试、产出物），",
-    "然后给出一个可执行的 Pipeline Draft，并继续在当前会话中迭代，不要要求用户切换到新会话。",
+    "当前场景是模板设计模式，不是任务执行。不要搜索真实文件、不要扫描目录。",
+    "请按 4 项槽位补齐：流程用途、输入来源、期望产物、步骤线索；若用户已提供则不要重复追问。",
+    "补齐后直接给出完整 Pipeline JSON 草稿，必须 schema_version=1 且包含 steps 数组。",
+    "继续在当前会话中迭代，不要要求用户切换到新会话。",
   ].join("\n");
 }
 
