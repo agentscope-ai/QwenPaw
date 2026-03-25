@@ -340,7 +340,13 @@
     "feishuRegion": "Регион",
     "feishuRegionTooltip": "Выберите Feishu для Китая или Lark для международного использования",
     "feishuChina": "Feishu (Китай)",
-    "feishuInternational": "Lark (Международный)"
+    "feishuInternational": "Lark (Международный)",
+    "weixinSetupGuide": "Бот для личного аккаунта WeChat (протокол iLink). При первом запуске без Bot Token будет выведена ссылка на QR-код для авторизации. Токен сохраняется локально для дальнейшего использования.",
+    "weixinBotToken": "Bot Token",
+    "weixinBotTokenTooltip": "Bearer-токен, полученный после входа по QR-коду. Оставьте пустым для запуска процедуры входа при старте.",
+    "weixinBotTokenPlaceholder": "Заполняется автоматически после QR-входа или введите вручную",
+    "weixinBotTokenFile": "Путь к файлу токена",
+    "weixinBotTokenFileTooltip": "Путь для сохранения Bot Token. По умолчанию: ~/.copaw/weixin_bot_token"
   },
   "sessions": {
     "title": "Сессии",

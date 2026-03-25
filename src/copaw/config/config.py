@@ -171,6 +171,21 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
+class WeixinConfig(BaseChannelConfig):
+    """WeChat (iLink Bot) personal account channel config.
+
+    bot_token:      Bearer token obtained after QR code login.
+    bot_token_file: Path to persist/load the bot_token (default ~/.copaw/weixin_bot_token).
+    base_url:       iLink API base URL (leave empty to use default).
+    media_dir:      Local directory for downloaded media files.
+    """
+
+    bot_token: str = ""
+    bot_token_file: str = ""
+    base_url: str = ""
+    media_dir: Optional[str] = None
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -189,6 +204,7 @@ class ChannelConfig(BaseModel):
     voice: VoiceChannelConfig = VoiceChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
+    weixin: WeixinConfig = WeixinConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -913,6 +929,7 @@ ChannelConfigUnion = Union[
     VoiceChannelConfig,
     WecomConfig,
     XiaoYiConfig,
+    WeixinConfig,
 ]
 
 

@@ -349,7 +349,13 @@
     "feishuRegion": "地区",
     "feishuRegionTooltip": "国内用户选择飞书，海外用户选择 Lark",
     "feishuChina": "飞书（国内）",
-    "feishuInternational": "Lark（海外）"
+    "feishuInternational": "Lark（海外）",
+    "weixinSetupGuide": "微信个人账号 Bot（iLink 协议）。首次启动时若未配置 Bot Token，系统将打印二维码链接，请扫码登录；Token 将自动保存到本地文件供后续使用。",
+    "weixinBotToken": "Bot Token",
+    "weixinBotTokenTooltip": "扫码登录后获取的 Bearer Token。留空时将在启动时引导扫码登录。",
+    "weixinBotTokenPlaceholder": "扫码登录后自动填入，也可手动粘贴",
+    "weixinBotTokenFile": "Token 文件路径",
+    "weixinBotTokenFileTooltip": "Token 持久化存储路径，默认为 ~/.copaw/weixin_bot_token"
   },
   "sessions": {
     "title": "会话",

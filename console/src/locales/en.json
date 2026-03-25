@@ -383,7 +383,13 @@
     "feishuRegion": "Region",
     "feishuRegionTooltip": "Choose Feishu for China or Lark for International",
     "feishuChina": "Feishu (China)",
-    "feishuInternational": "Lark (International)"
+    "feishuInternational": "Lark (International)",
+    "weixinSetupGuide": "WeChat personal account Bot (iLink protocol). On first start without a Bot Token, a QR code login URL will be printed; scan to authorize. The token is saved locally for future use.",
+    "weixinBotToken": "Bot Token",
+    "weixinBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
+    "weixinBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",
+    "weixinBotTokenFile": "Token File Path",
+    "weixinBotTokenFileTooltip": "Path to persist the bot token. Defaults to ~/.copaw/weixin_bot_token"
   },
   "sessions": {
     "title": "Sessions",

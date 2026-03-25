@@ -53,6 +53,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wecom",
   "mattermost",
   "matrix",
+  "weixin",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -749,6 +750,37 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="ws_url" label="WebSocket URL">
               <Input placeholder="wss://hag.cloud.huawei.com/openclaw/v1/ws/link" />
+            </Form.Item>
+          </>
+        );
+
+      case "weixin":
+        return (
+          <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.weixinSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item
+              name="bot_token"
+              label={t("channels.weixinBotToken")}
+              tooltip={t("channels.weixinBotTokenTooltip")}
+            >
+              <Input.Password placeholder={t("channels.weixinBotTokenPlaceholder")} />
+            </Form.Item>
+            <Form.Item
+              name="bot_token_file"
+              label={t("channels.weixinBotTokenFile")}
+              tooltip={t("channels.weixinBotTokenFileTooltip")}
+            >
+              <Input placeholder="~/.copaw/weixin_bot_token" />
+            </Form.Item>
+            <Form.Item name="media_dir" label="Media Dir">
+              <Input placeholder="~/.copaw/media" />
             </Form.Item>
           </>
         );
