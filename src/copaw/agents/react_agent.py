@@ -136,8 +136,17 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         sys_prompt = self._build_sys_prompt()
 
         # Create model and formatter using factory method
-        model, formatter = create_model_and_formatter()
-
+        model, formatter = create_model_and_formatter(agent_id=agent_config.id)
+        model_info = (
+            f"{agent_config.active_model.provider_id}/"
+            f"{agent_config.active_model.model}"
+            if agent_config.active_model
+            else "global-fallback"
+        )
+        logger.info(
+            f"Agent '{agent_config.id}' initialized with model: "
+            f"{model_info} (class: {model.__class__.__name__})",
+        )
         # Initialize parent ReActAgent
         super().__init__(
             name="Friday",
