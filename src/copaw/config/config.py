@@ -65,6 +65,7 @@ class DingTalkConfig(BaseChannelConfig):
     card_template_key: str = "content"
     robot_code: str = ""
     media_dir: Optional[str] = None
+    card_auto_layout: bool = False
 
 
 class FeishuConfig(BaseChannelConfig):
