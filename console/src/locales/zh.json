@@ -108,7 +108,21 @@
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
     "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
     "defaultNotEditable": "默认智能体不允许编辑",
-    "defaultNotDeletable": "默认智能体不允许删除"
+    "defaultNotDeletable": "默认智能体不允许删除",
+    "disable": "禁用",
+    "enable": "启用",
+    "disabled": "已禁用",
+    "disableConfirm": "确认禁用智能体",
+    "disableConfirmDesc": "禁用后该智能体不会启动运行实例，但仍可在列表中查看",
+    "enableConfirm": "确认启用智能体",
+    "enableConfirmDesc": "启用后该智能体将可以正常切换使用",
+    "disableSuccess": "智能体已禁用",
+    "enableSuccess": "智能体已启用",
+    "toggleFailed": "切换智能体状态失败",
+    "defaultNotDisablable": "默认智能体不允许禁用",
+    "currentAgentDisabled": "当前智能体已被禁用，已自动切换到默认智能体",
+    "switchedToDefault": "已自动切换到默认智能体",
+    "cannotSwitchToDisabled": "该智能体已被禁用，请先在管理页面启用"
   },
   "skills": {
     "title": "技能",

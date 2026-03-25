@@ -79,7 +79,21 @@
     "descriptionPlaceholder": "このエージェントの目的を簡単に説明してください...",
     "workspaceHelp": "空欄のままにすると、~/.copaw/workspaces/<id> に自動生成されます",
     "defaultNotEditable": "デフォルトのエージェントは編集できません",
-    "defaultNotDeletable": "デフォルトのエージェントは削除できません"
+    "defaultNotDeletable": "デフォルトのエージェントは削除できません",
+    "disable": "無効化",
+    "enable": "有効化",
+    "disabled": "無効",
+    "disableConfirm": "エージェントの無効化を確認",
+    "disableConfirmDesc": "無効化後、エージェントインスタンスは起動しませんが、リストには表示されます",
+    "enableConfirm": "エージェントの有効化を確認",
+    "enableConfirmDesc": "有効化後、エージェントは切り替えて使用できるようになります",
+    "disableSuccess": "エージェントが無効化されました",
+    "enableSuccess": "エージェントが有効化されました",
+    "toggleFailed": "エージェント状態の切り替えに失敗しました",
+    "defaultNotDisablable": "デフォルトのエージェントは無効化できません",
+    "currentAgentDisabled": "現在のエージェントが無効化されました。デフォルトエージェントに自動切り替えしました",
+    "switchedToDefault": "デフォルトエージェントに自動切り替えしました",
+    "cannotSwitchToDisabled": "このエージェントは無効化されています。管理ページで有効化してください"
   },
   "workspace": {
     "title": "ワークスペース",
