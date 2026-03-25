@@ -153,6 +153,39 @@ class AnthropicProvider(Provider):
                     ensure_ascii=False,
                 ),
             }
+        elif self.base_url and "api.anthropic.com" not in self.base_url:
+            # 自定义中转服务：过滤 x-stainless-* 遥测头和 SDK User-Agent
+            # 部分中转（如 fluxmod.art）会拦截 Anthropic SDK 特征请求头
+            try:
+                import httpx
+
+                class _StripSDKHeadersTransport(httpx.AsyncHTTPTransport):
+                    _api_key: str
+
+                    def __init__(self, api_key: str, **kwargs):
+                        super().__init__(**kwargs)
+                        self._api_key = api_key
+
+                    async def handle_async_request(self, request):
+                        filtered = [
+                            item for item in request.headers._list
+                            if not item[0].lower().startswith(b"x-stainless")
+                            and item[0].lower() != b"user-agent"
+                        ]
+                        filtered.append(
+                            (b"user-agent", b"user-agent", b"python-httpx/0.27.0")
+                        )
+                        object.__setattr__(request.headers, "_list", filtered)
+                        return await super().handle_async_request(request)
+
+                client_kwargs["http_client"] = httpx.AsyncClient(
+                    transport=_StripSDKHeadersTransport(api_key=self.api_key)
+                )
+                client_kwargs["default_headers"] = {
+                    "x-api-key": self.api_key,
+                }
+            except Exception:
+                pass
 
         return AnthropicChatModel(
             model_name=model_id,
