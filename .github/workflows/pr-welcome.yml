@@ -223,7 +223,7 @@ jobs:
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
-                comment += `> **保持领先 / Staying ahead**\n`;
+                comment += `> **掌握最新动态 / Staying ahead**\n`;
                 comment += `> \n`;
                 comment += `> 在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。\n`;
                 comment += `> \n`;
