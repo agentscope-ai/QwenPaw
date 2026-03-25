@@ -382,6 +382,18 @@ copaw app    # サーバーを起動
 
 ---
 
+<div align="center">
+
+<img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+
+**最新情報をいち早く**
+
+GitHubでCoPawにスターを付けて、新しいリリースの通知を即座に受け取りましょう。
+
+</div>
+
+---
+
 ## ロードマップ
 
 | 方向 | 項目 | 状態 |
