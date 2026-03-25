@@ -262,7 +262,11 @@ The interactive `config` flow lets you pick a channel, enable/disable it, and en
 
 #### Sending messages to channels (Proactive Notifications)
 
+> Corresponding skill: **Channel Message**
+
 Use `copaw channels send` to proactively push messages to users/sessions via any configured channel. This is a **one-way send** — no response expected.
+
+When agents have the **channel_message** skill enabled, they can automatically use this command to send proactive notifications when needed.
 
 **Typical use cases:**
 
@@ -310,6 +314,10 @@ copaw channels send \
 Manage agents and enable inter-agent communication.
 
 ### copaw agents
+
+> Corresponding skill: **Multi-Agent Collaboration**
+
+When agents have the **multi_agent_collaboration** skill enabled, they can automatically use `copaw agents chat` to collaborate with other agents as needed.
 
 **Alias:** You can use `copaw agent` (singular) as a shorthand for `copaw agents`.
 

@@ -250,7 +250,11 @@ copaw channels config --agent-id abc123 # 交互式配置特定智能体
 
 #### 向频道发送消息（主动通知）
 
+> 对应技能：**Channel Message（频道消息推送）**
+
 使用 `copaw channels send` 主动向用户/会话推送消息，支持所有已配置的频道。这是**单向发送** —— 不会返回回复。
+
+智能体通过启用 **channel_message** 技能，可以在需要时自动使用此命令向用户发送主动通知。
 
 **典型使用场景：**
 
@@ -298,6 +302,10 @@ copaw channels send \
 管理智能体并支持智能体间通信。
 
 ### copaw agents
+
+> 对应技能：**Multi-Agent Collaboration（多智能体协作）**
+
+智能体通过启用 **multi_agent_collaboration** 技能，可以在需要时自动使用 `copaw agents chat` 与其他智能体协作。
 
 **别名：** 可以用 `copaw agent`（单数）作为 `copaw agents` 的简写。
 

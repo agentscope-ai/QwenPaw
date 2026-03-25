@@ -1,8 +1,13 @@
 # Multi-Agent
 
-CoPaw supports **multi-agent**, allowing you to run multiple independent AI agents in a single CoPaw instance, each with its own configuration, memory, skills, and conversation history. Additionally, agents can collaborate with each other to accomplish more complex tasks.
+CoPaw supports **multi-agent**, allowing you to run multiple independent AI agents in a single CoPaw instance.
 
 > This feature was introduced in **v0.1.0**.
+
+**This document covers two parts:**
+
+1. **Multi-Agent Workspace** - How to create and manage multiple agents, each with its own configuration, memory, skills, and conversation history
+2. **Inter-Agent Collaboration** - How to enable the collaboration skill so agents can communicate with each other to accomplish complex tasks together
 
 ---
 
@@ -83,11 +88,13 @@ Go to **Settings → Agent Management** page:
 1. Click "Create Agent" button
 2. Fill in the information:
    - **Name**: Give the agent a name (e.g., "Code Assistant")
-   - **Description**: Explain the agent's purpose (optional)
+   - **Description**: Explain the agent's expertise and purpose (**Important**)
    - **ID**: Leave empty for auto-generation, or customize (e.g., "coder")
 3. Click "OK"
 
 After creation, the new agent appears in the list and you can immediately switch to it.
+
+> **Important**: The **Description** field is critical! If you plan to use multi-agent collaboration, clearly describe the agent's areas of expertise and task types it excels at. For example: "Specializes in Python/JavaScript code review and refactoring optimization." Agents read this description when deciding which agent to collaborate with.
 
 #### 3. Configure Agent-Specific Settings
 
@@ -104,7 +111,7 @@ These settings **only affect the current agent** and won't impact other agents.
 
 In **Settings → Agent Management** page:
 
-- Click "Edit" button to modify agent's name and description
+- Click "Edit" button to modify agent's name and description (after modifying description, the system will automatically update PROFILE.md)
 - Click "Delete" button to remove agent (default agent cannot be deleted)
 
 ---
@@ -248,131 +255,207 @@ Agents can communicate and collaborate with each other to handle complex tasks t
 
 ### What is Agent Collaboration?
 
-An agent can request help from other agents when:
+**Multi-Agent Collaboration** is a built-in skill that, when enabled, allows your agents to:
 
-- It needs another agent's **specialized expertise** (e.g., code agent asks writing agent to polish documentation)
-- It needs to access another agent's **workspace data** (e.g., read another agent's config files)
-- It needs a **second opinion** or professional review
-- The user **explicitly requests** a specific agent to participate
+- Request other agents' **specialized expertise** (e.g., ask code agent to review code, ask writing agent to polish documentation)
+- Access other agents' **workspace data** (e.g., read another agent's config files)
+- Seek **second opinions** or professional reviews
+- Invoke specific agents when the user **explicitly requests** them
 
-### How to Trigger Collaboration?
+### How to Enable Collaboration?
 
-#### Method 1: User Explicitly Requests
+#### Method 1: Enable in Console (Recommended)
+
+1. Switch to the agent you want to enable collaboration for
+2. Go to **Agent → Skills** page
+3. Find the **Multi-Agent Collaboration** skill
+4. Check to enable it
+5. Click "Save"
+
+#### Method 2: Enable via CLI
+
+```bash
+# Enable for default agent
+copaw skills config
+
+# Enable for specific agent
+copaw skills config --agent-id abc123
+
+# In the interactive interface:
+# - Use ↑/↓ keys to find "multi_agent_collaboration"
+# - Press Space to toggle
+# - Press Enter to save
+```
+
+### How is Collaboration Triggered?
+
+Once the collaboration skill is enabled, agents will automatically initiate collaboration in the following situations:
+
+#### Trigger Method 1: User Explicitly Requests
 
 User directly asks for another agent in the conversation:
+
+**Example:**
 
 ```
 User: Please ask the code assistant to review this code
 ```
 
-The current agent will automatically identify and call the `code assistant` agent.
+The current agent will:
+1. Identify that the user wants to involve "code assistant"
+2. Query the available agent list
+3. Send a review request to "code assistant"
+4. Wait for "code assistant" to return results
+5. Integrate the results and respond to the user
 
-#### Method 2: Agent Initiates Proactively
+#### Trigger Method 2: Agent Proactively Decides
 
-When processing a task, if an agent finds it needs another agent's capabilities, it will initiate collaboration:
+When processing a task, if the agent determines it needs another agent's expertise, it will initiate collaboration:
+
+**Example:**
 
 ```
 User: Generate a technical document and polish it with professional language
-Agent A: [Generate draft] → [Call writing assistant to polish] → [Return final result]
+
+Current agent's workflow:
+1. [Generate technical document draft]
+2. [Determine: polishing needs writing expertise, call writing assistant]
+3. [Send draft to writing assistant]
+4. [Receive polished version from writing assistant]
+5. [Return final document to user]
 ```
 
-### Collaboration Workflow
+### Usage Scenarios
 
-1. **Initiating agent** calls `copaw agents list` to view available agents
-2. **Initiating agent** uses `copaw agents chat` to send request to target agent
-3. **Target agent** processes the request and returns results
-4. **Initiating agent** receives results and continues the task
-5. For multi-turn exchanges, use `--session-id` to maintain conversation context
+#### Scenario 1: Cross-Domain Collaboration
 
-### Collaboration Examples
+```
+User: Analyze my project structure and generate an architecture document
 
-#### Example 1: Cross-Domain Task
+Workflow:
+1. Code agent analyzes project structure
+2. Code agent calls writing agent
+3. Writing agent generates professional documentation
+4. Code agent returns final result
+```
+
+#### Scenario 2: Professional Review
+
+```
+User: What's wrong with this code? Let the senior assistant review it too
+
+Workflow:
+1. Current agent analyzes the code first
+2. Identifies user requested "senior assistant" to participate
+3. Calls "senior assistant" for review
+4. Combines both opinions and responds to user
+```
+
+#### Scenario 3: Data Sharing
+
+```
+User: Send me the monthly report from the finance agent
+
+Workflow:
+1. Current agent identifies need for "finance agent" data
+2. Requests monthly report from finance agent
+3. Receives report data
+4. Formats and sends to user
+```
+
+### Benefits of Collaboration
+
+- **Specialized Division**: Each agent focuses on its domain, leveraging respective strengths in collaboration
+- **Context Isolation**: Different agents' conversation histories don't interfere, avoiding confusion
+- **Flexible Composition**: Dynamically combine different agents' capabilities based on task needs
+- **Scalability**: Adding new agents extends the entire system's capabilities
+
+### Importance of Agent Description
+
+To make inter-agent collaboration more effective, you need to provide clear description information for each agent.
+
+#### How Do Agents Identify Each Other?
+
+When Agent A needs to collaborate with Agent B, it first queries the available agent list. The system reads and displays each agent's:
+
+- **Name** - The agent's display name
+- **ID** (agent_id) - Unique identifier
+- **Description** - The expertise and purpose description filled in by the user when creating the agent (**Important**)
+- **PROFILE.md** (auto-generated) - Detailed capability description automatically generated by the system based on the agent's configuration
+
+#### How to Write Descriptions?
+
+**When creating an agent**, the description field should clearly state:
+
+✅ **Good description examples**:
+
+```
+Specializes in Python/JavaScript code review, refactoring, and performance optimization
+```
+
+```
+Handles document writing, content polishing, and technical writing; proficient in Chinese and English
+```
+
+```
+Manages financial data analysis, report generation, and budget management
+```
+
+❌ **Bad description examples**:
+
+```
+My assistant
+```
+
+```
+For testing
+```
+
+```
+(empty)
+```
+
+**Key elements of a good description**:
+
+1. Clear **areas of expertise** (e.g., "code review", "document writing")
+2. Specific **skill scope** (e.g., "Python/JavaScript", "bilingual")
+3. **Task types** it excels at (e.g., "refactoring", "data analysis")
+
+#### PROFILE.md Auto-Generation
+
+The system **automatically generates** a `PROFILE.md` file based on the agent's configuration (including name, description, skills, persona files, etc.), stored in the workspace directory:
+
+```
+~/.copaw/workspaces/{agent_id}/PROFILE.md
+```
+
+You can view the auto-generated PROFILE.md in the **Agent → Workspace** page.
+
+#### View Agent Information
+
+Use CLI to view all agents' information:
 
 ```bash
-# Scheduler agent needs financial data
-copaw agents chat \
-  --from-agent scheduler_bot \
-  --to-agent finance_bot \
-  --text "[Agent scheduler_bot requesting] What are the pending financial tasks for today?"
+copaw agents list
+
+# Example output:
+# Agent ID: code_reviewer
+# Name: Code Review Assistant
+# Description: Specializes in Python/JavaScript code review, refactoring, and performance optimization
+# Workspace: ~/.copaw/workspaces/code_reviewer
+# Profile: [Auto-generated detailed capability description]
 ```
 
-#### Example 2: Multi-Turn Dialogue
-
-```bash
-# Round 1: Initial request
-copaw agents chat \
-  --from-agent code_bot \
-  --to-agent writer_bot \
-  --text "[Agent code_bot requesting] Please help polish this documentation: ..."
-
-# System returns: [SESSION: code_bot:to:writer_bot:1710912345:a1b2c3d4]
-
-# Round 2: Follow-up (preserving context)
-copaw agents chat \
-  --from-agent code_bot \
-  --to-agent writer_bot \
-  --session-id "code_bot:to:writer_bot:1710912345:a1b2c3d4" \
-  --text "[Agent code_bot requesting] Please make it more concise"
-```
-
-#### Example 3: User-Specified Agent
-
-```bash
-# User tells Agent A: "Let the code assistant help me review"
-# Agent A executes:
-copaw agents list  # First query available agents
-
-copaw agents chat \
-  --from-agent assistant_a \
-  --to-agent code_reviewer \
-  --text "[Agent assistant_a requesting] User explicitly requested your help. Please review the following code: ..."
-```
-
-### Collaboration Best Practices
-
-#### When to Use Collaboration
-
-✅ **Recommended**:
-
-- Task clearly needs another agent's specialty
-- Need to access another agent's workspace data
-- User explicitly requests a specific agent to participate
-- Need professional review or second opinion
-
-❌ **Not Recommended**:
-
-- Current agent can complete the task directly
-- Just a simple Q&A that doesn't need specialized skills
-- Insufficient information; should confirm with user first
-- Avoid circular calls (don't call back the agent that just messaged you)
-
-#### Message Format Recommendation
-
-When communicating between agents, use this format:
-
-```
-[Agent <initiator_id> requesting] <specific request>
-```
-
-Examples:
-
-```
-[Agent scheduler_bot requesting] Please provide today's financial task list
-[Agent code_bot requesting] User explicitly asked for your review. Please review the following code...
-```
-
-#### Session Management
-
-- **New conversation**: When first contacting an agent, don't pass `--session-id`
-- **Continuation**: When context is needed, must pass the `--session-id` from previous response
-- **View history**: Use `copaw chats list --agent-id <your_agent>` to view all sessions
+Agents reference both **Description** and **PROFILE.md** when making collaboration decisions.
 
 ### Important Notes
 
-- **Avoid circular calls**: If you just received a message from Agent B, don't immediately call Agent B again
-- **Query before calling**: Use `copaw agents list` to confirm the target agent exists; don't guess IDs
-- **Maintain session continuity**: Always pass `--session-id` for multi-turn conversations
-- **Identify yourself**: Include the initiator's identity in messages to help the target agent understand the request source
+- **Skill must be enabled**: Collaboration requires explicitly enabling the "Multi-Agent Collaboration" skill
+- **Write clear descriptions**: When creating agents, clearly describe their expertise and task types in the description field
+- **Profile is auto-generated**: PROFILE.md is automatically generated by the system; no manual writing needed
+- **Automated handling**: Once enabled, agents will automatically initiate collaboration as needed; users don't need manual operations
+- **Performance consideration**: Collaboration involves multiple agents, which may require more time and API calls
+- **Reasonable planning**: Recommend creating 3-5 agents based on actual needs; avoid over-complexity
 
 ---
 
@@ -380,7 +463,62 @@ Examples:
 
 > If you're not familiar with command-line or APIs, you can skip this section. All features are available in the console.
 
-### CLI Commands
+### Agent Collaboration CLI
+
+When agents have the collaboration skill enabled, they automatically use these CLI commands in the background:
+
+#### Query Available Agents
+
+```bash
+copaw agents list
+```
+
+This command lists all configured agents, including:
+
+- **Agent ID**: The agent's unique identifier
+- **Name**: Agent name
+- **Description**: The expertise and purpose description filled in by the user when creating the agent
+- **Workspace**: Workspace path
+- **Profile**: Auto-generated `PROFILE.md` file content (if exists)
+
+**Example output**:
+
+```
+Agent ID: code_reviewer
+Name: Code Review Assistant
+Description: Specializes in Python/JavaScript code review, refactoring, and performance optimization
+Workspace: ~/.copaw/workspaces/code_reviewer
+Profile: [Auto-generated detailed capability description based on config and persona files]
+
+Agent ID: writer_bot
+Name: Writing Assistant
+Description: Handles document writing, content polishing, and technical writing; proficient in Chinese and English
+Workspace: ~/.copaw/workspaces/writer_bot
+Profile: [Auto-generated detailed capability description]
+```
+
+Agents reference both **Description** and **Profile** when deciding which agent to collaborate with.
+
+#### Communicate with Other Agents
+
+```bash
+# Initiate new conversation
+copaw agents chat \
+  --from-agent <current_agent> \
+  --to-agent <target_agent> \
+  --text "Request content"
+
+# Multi-turn conversation (maintain context)
+copaw agents chat \
+  --from-agent <current_agent> \
+  --to-agent <target_agent> \
+  --session-id "<session_id>" \
+  --text "Follow-up request"
+```
+
+> **Note**: These commands are executed automatically by agents; users typically don't need to call them manually. See [CLI - Agents](./cli#agents) for details.
+
+### Agent Management CLI
 
 All multi-agent-aware CLI commands accept the `--agent-id` parameter (defaults to `default`):
 
@@ -484,6 +622,42 @@ If you need to directly edit configuration files:
     │   └── ...
     └── abc123/          # Other agent
         └── ...
+```
+
+---
+
+## Best Practices
+
+### Plan Your Agent Count Wisely
+
+✅ **Recommended**: 3-5 agents, organized by primary function or platform
+❌ **Not Recommended**: Creating an agent for every small feature
+
+Too many agents increase management complexity without proportional benefits.
+
+### Use Clear Names
+
+✅ **Good naming**:
+
+- `default` - Default agent
+- `work-assistant` - Work assistant
+- `code-reviewer` - Code review assistant
+
+❌ **Bad naming**:
+
+- `abc123` - Meaningless random characters
+- `test1`, `test2` - Unclear purpose
+
+### Regular Backups
+
+Back up important agent workspaces regularly:
+
+```bash
+# Backup specific agent
+cp -r ~/.copaw/workspaces/abc123 ~/backups/agent-abc123-$(date +%Y%m%d)
+
+# Backup all agents
+cp -r ~/.copaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 ```
 
 ---
