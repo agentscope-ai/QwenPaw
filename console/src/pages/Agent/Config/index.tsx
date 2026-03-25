@@ -6,6 +6,7 @@ import {
   PageHeader,
   ReactAgentCard,
   LlmRetryCard,
+  LlmRateLimiterCard,
   ContextManagementCard,
 } from "./components";
 import styles from "./index.module.less";
@@ -100,6 +101,8 @@ function AgentConfigPage() {
         />
 
         <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+
+        <LlmRateLimiterCard />
       </Form>
 
       <div className={styles.footerActions}>

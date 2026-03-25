@@ -32,7 +32,11 @@ except ImportError:  # pragma: no cover - compatibility fallback
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
-from ..providers.retry_chat_model import RetryChatModel, RetryConfig
+from ..providers.retry_chat_model import (
+    RetryChatModel,
+    RetryConfig,
+    RateLimitConfig,
+)
 from ..token_usage import TokenRecordingModelWrapper
 from ..local_models import create_local_chat_model
 
@@ -308,6 +312,7 @@ def create_model_and_formatter(
     # Try to get agent-specific model first
     model_slot = None
     retry_config = None
+    rate_limit_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
@@ -317,6 +322,12 @@ def create_model_and_formatter(
                 max_retries=agent_config.running.llm_max_retries,
                 backoff_base=agent_config.running.llm_backoff_base,
                 backoff_cap=agent_config.running.llm_backoff_cap,
+            )
+            rate_limit_config = RateLimitConfig(
+                max_concurrent=agent_config.running.llm_max_concurrent,
+                pause_seconds=agent_config.running.llm_rate_limit_pause,
+                jitter_range=agent_config.running.llm_rate_limit_jitter,
+                acquire_timeout=agent_config.running.llm_acquire_timeout,
             )
         except Exception:
             pass
@@ -354,6 +365,7 @@ def create_model_and_formatter(
     wrapped_model = RetryChatModel(
         wrapped_model,
         retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
     )
 
     return wrapped_model, formatter

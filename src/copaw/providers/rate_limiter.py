@@ -140,9 +140,23 @@ def _get_init_lock() -> asyncio.Lock:
     return _init_lock
 
 
-async def get_rate_limiter() -> LLMRateLimiter:
+async def get_rate_limiter(
+    max_concurrent: int | None = None,
+    default_pause_seconds: float | None = None,
+    jitter_range: float | None = None,
+) -> LLMRateLimiter:
     """Return the global LLMRateLimiter singleton, lazily initialised (
-    coroutine-safe)."""
+    coroutine-safe).
+
+    On the *first* call the provided values (or env-var constants as fallback)
+    are used to construct the singleton.  All subsequent calls return the same
+    instance regardless of the arguments passed.
+
+    Args:
+        max_concurrent: Cap on concurrent in-flight LLM calls.
+        default_pause_seconds: Pause duration (s) applied on a 429 response.
+        jitter_range: Random jitter (s) added on top of the pause.
+    """
     global _global_limiter
     if _global_limiter is not None:
         return _global_limiter
@@ -155,16 +169,30 @@ async def get_rate_limiter() -> LLMRateLimiter:
             LLM_RATE_LIMIT_PAUSE,
         )
 
+        resolved_max = (
+            max_concurrent
+            if max_concurrent is not None
+            else LLM_MAX_CONCURRENT
+        )
+        resolved_pause = (
+            default_pause_seconds
+            if default_pause_seconds is not None
+            else LLM_RATE_LIMIT_PAUSE
+        )
+        resolved_jitter = (
+            jitter_range if jitter_range is not None else LLM_RATE_LIMIT_JITTER
+        )
+
         _global_limiter = LLMRateLimiter(
-            max_concurrent=LLM_MAX_CONCURRENT,
-            default_pause_seconds=LLM_RATE_LIMIT_PAUSE,
-            jitter_range=LLM_RATE_LIMIT_JITTER,
+            max_concurrent=resolved_max,
+            default_pause_seconds=resolved_pause,
+            jitter_range=resolved_jitter,
         )
         logger.info(
             "LLM rate limiter initialized: max_concurrent=%d, "
             "default_pause=%.1fs, jitter=%.1fs",
-            LLM_MAX_CONCURRENT,
-            LLM_RATE_LIMIT_PAUSE,
-            LLM_RATE_LIMIT_JITTER,
+            resolved_max,
+            resolved_pause,
+            resolved_jitter,
         )
     return _global_limiter

@@ -37,7 +37,10 @@ from ..constant import (
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
+    LLM_MAX_CONCURRENT,
     LLM_MAX_RETRIES,
+    LLM_RATE_LIMIT_JITTER,
+    LLM_RATE_LIMIT_PAUSE,
 )
 from .rate_limiter import LLMRateLimiter, get_rate_limiter
 
@@ -57,6 +60,21 @@ class RetryConfig:
     max_retries: int = max(LLM_MAX_RETRIES, 1)
     backoff_base: float = LLM_BACKOFF_BASE
     backoff_cap: float = LLM_BACKOFF_CAP
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitConfig:
+    """Rate-limiting policy for LLM calls.
+
+    Controls the global LLMRateLimiter singleton that caps concurrency and
+    coordinates pauses when a 429 is received.  The singleton is initialised
+    on the *first* call; subsequent callers share the same instance.
+    """
+
+    max_concurrent: int = LLM_MAX_CONCURRENT
+    pause_seconds: float = LLM_RATE_LIMIT_PAUSE
+    jitter_range: float = LLM_RATE_LIMIT_JITTER
+    acquire_timeout: float = LLM_ACQUIRE_TIMEOUT
 
 
 def _get_openai_retryable() -> tuple[type[Exception], ...]:
@@ -148,6 +166,20 @@ def _normalize_retry_config(retry_config: RetryConfig | None) -> RetryConfig:
     )
 
 
+def _normalize_rate_limit_config(
+    cfg: RateLimitConfig | None,
+) -> RateLimitConfig:
+    """Normalize externally supplied rate-limit config into safe bounds."""
+    if cfg is None:
+        return RateLimitConfig()
+    return RateLimitConfig(
+        max_concurrent=max(1, min(50, cfg.max_concurrent)),
+        pause_seconds=max(1.0, cfg.pause_seconds),
+        jitter_range=max(0.0, cfg.jitter_range),
+        acquire_timeout=max(10.0, cfg.acquire_timeout),
+    )
+
+
 def _compute_backoff(attempt: int, retry_config: RetryConfig) -> float:
     """Exponential back-off: base * 2^(attempt-1), capped."""
     return min(
@@ -172,10 +204,14 @@ class RetryChatModel(ChatModelBase):
         self,
         inner: ChatModelBase,
         retry_config: RetryConfig | None = None,
+        rate_limit_config: RateLimitConfig | None = None,
     ) -> None:
         super().__init__(model_name=inner.model_name, stream=inner.stream)
         self._inner = inner
         self._retry_config = _normalize_retry_config(retry_config)
+        self._rate_limit_config = _normalize_rate_limit_config(
+            rate_limit_config,
+        )
 
     # Expose the real model's class so that formatter mapping keeps working
     # when code inspects ``model.__class__`` after wrapping.
@@ -222,7 +258,11 @@ class RetryChatModel(ChatModelBase):
         *args: Any,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        limiter = await get_rate_limiter()
+        limiter = await get_rate_limiter(
+            max_concurrent=self._rate_limit_config.max_concurrent,
+            default_pause_seconds=self._rate_limit_config.pause_seconds,
+            jitter_range=self._rate_limit_config.jitter_range,
+        )
 
         retries = (
             self._retry_config.max_retries if self._retry_config.enabled else 0
@@ -241,13 +281,13 @@ class RetryChatModel(ChatModelBase):
                 try:
                     await asyncio.wait_for(
                         limiter.acquire(),
-                        timeout=LLM_ACQUIRE_TIMEOUT,
+                        timeout=self._rate_limit_config.acquire_timeout,
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
                     raise RuntimeError(
                         f"LLM rate limiter: timed out waiting"
-                        f" {LLM_ACQUIRE_TIMEOUT:.0f}s "
+                        f" {self._rate_limit_config.acquire_timeout:.0f}s "
                         "for an execution slot",
                     ) from exc
 
@@ -341,14 +381,14 @@ class RetryChatModel(ChatModelBase):
                 try:
                     await asyncio.wait_for(
                         limiter.acquire(),
-                        timeout=LLM_ACQUIRE_TIMEOUT,
+                        timeout=self._rate_limit_config.acquire_timeout,
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
                     raise RuntimeError(
                         f"LLM rate limiter: timed out waiting"
-                        f" {LLM_ACQUIRE_TIMEOUT:.0f}s for an execution"
-                        f" slot (stream retry)",
+                        f" {self._rate_limit_config.acquire_timeout:.0f}s"
+                        f" for an execution slot (stream retry)",
                     ) from exc
 
                 result = await self._inner(*call_args, **call_kwargs)
