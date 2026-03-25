@@ -5,6 +5,7 @@ export interface AgentSummary {
   name: string;
   description: string;
   workspace_dir: string;
+  enabled: boolean;
 }
 
 export interface AgentListResponse {

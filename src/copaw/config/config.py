@@ -65,6 +65,7 @@ class DingTalkConfig(BaseChannelConfig):
     card_template_key: str = "content"
     robot_code: str = ""
     media_dir: Optional[str] = None
+    card_auto_layout: bool = False
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -431,10 +432,16 @@ class AgentProfileRef(BaseModel):
     Full agent configuration is stored in workspace/agent.json.
     """
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str = Field(..., description="Unique agent ID")
     workspace_dir: str = Field(
         ...,
         description="Path to agent's workspace directory",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Whether agent is enabled (controls instance loading)",
     )
 
 

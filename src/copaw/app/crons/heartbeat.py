@@ -20,6 +20,7 @@ from ...config import (
     load_config,
 )
 from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
+from ..crons.models import _crontab_dow_to_name
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,37 @@ _EVERY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# 5-field cron: minute hour day month day_of_week
+_CRON_FIELD_PATTERN = re.compile(
+    r"^[\d\*\-/,]+$",
+)
+
+
+def is_cron_expression(every: str) -> bool:
+    """Return True if *every* looks like a 5-field cron expression."""
+    parts = (every or "").strip().split()
+    if len(parts) != 5:
+        return False
+    return all(_CRON_FIELD_PATTERN.match(p) for p in parts)
+
+
+def parse_heartbeat_cron(every: str) -> tuple:
+    """Parse and normalize a 5-field cron string.
+
+    Returns (minute, hour, day, month, dow).
+    """
+    parts = every.strip().split()
+    if len(parts) == 5:
+        parts[4] = _crontab_dow_to_name(parts[4])
+    return tuple(parts)
+
 
 def parse_heartbeat_every(every: str) -> int:
-    """Parse interval string (e.g. '30m', '1h') to total seconds."""
+    """Parse interval string (e.g. '30m', '1h') to total seconds.
+
+    Note: cron expressions should be detected via ``is_cron_expression``
+    *before* calling this function.
+    """
     every = (every or "").strip()
     if not every:
         return 30 * 60  # default 30 min

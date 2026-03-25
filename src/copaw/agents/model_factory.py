@@ -342,9 +342,14 @@ def create_model_and_formatter(
     else:
         # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
-        provider_id = (
-            ProviderManager.get_instance().get_active_model().provider_id
-        )
+        global_model = ProviderManager.get_instance().get_active_model()
+        if not global_model:
+            raise ValueError(
+                "No active model configured. "
+                "Please configure a model using 'copaw models config' "
+                "or set an agent-specific model.",
+            )
+        provider_id = global_model.provider_id
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)

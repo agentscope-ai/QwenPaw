@@ -13,6 +13,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
+from ..utils import schedule_agent_reload
 from ...config import load_config
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -105,24 +106,7 @@ async def toggle_tool(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = workspace.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, workspace.agent_id)
 
     # Return immediately (optimistic update)
     return ToolInfo(

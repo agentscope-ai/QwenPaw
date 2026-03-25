@@ -248,9 +248,20 @@ copaw channels config --agent-id abc123 # 交互式配置特定智能体
 
 > 各平台凭据的获取步骤，请看 [频道配置](./channels)。
 
-#### 向频道发送消息
+#### 向频道发送消息（主动通知）
+
+> 对应技能：**Channel Message（频道消息推送）**
 
 使用 `copaw channels send` 主动向用户/会话推送消息，支持所有已配置的频道。这是**单向发送** —— 不会返回回复。
+
+智能体通过启用 **channel_message** 技能，可以在需要时自动使用此命令向用户发送主动通知。
+
+**典型使用场景：**
+
+- 任务完成后主动通知用户
+- 定时提醒、告警、状态更新
+- 将异步处理结果推送回原会话
+- 用户明确要求"处理完后通知我"
 
 ```bash
 # 第一步：查询可用会话
@@ -277,7 +288,12 @@ copaw channels send \
 
 - 发送前必须先用 `copaw chats list` 查询 —— 不要猜测 `target-user` 或 `target-session`
 - 如果有多个会话，优先使用最近更新的
-- 这仅用于主动通知；智能体间通信请用 `copaw agents chat`
+- 这仅用于主动通知；智能体间通信请用 `copaw agents chat`（见下方"智能体"章节）
+
+**与 `copaw agents chat` 的区别：**
+
+- `copaw channels send`：智能体向用户/频道推送，单向，无回复
+- `copaw agents chat`：智能体间通信，双向，有回复
 
 ---
 
@@ -286,6 +302,10 @@ copaw channels send \
 管理智能体并支持智能体间通信。
 
 ### copaw agents
+
+> 对应技能：**Multi-Agent Collaboration（多智能体协作）**
+
+智能体通过启用 **multi_agent_collaboration** 技能，可以在需要时自动使用 `copaw agents chat` 与其他智能体协作。
 
 **别名：** 可以用 `copaw agent`（单数）作为 `copaw agents` 的简写。
 
@@ -538,7 +558,7 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | `COPAW_WORKING_DIR` | 覆盖工作目录路径 |
 | `COPAW_CONFIG_FILE` | 覆盖配置文件路径 |
 
-详见 [配置与工作目录](./config) 和 [多智能体工作区](./multi-agent)。
+详见 [配置与工作目录](./config) 和 [多智能体](./multi-agent)。
 
 ---
 
@@ -567,4 +587,4 @@ copaw --host 0.0.0.0 --port 9090 cron list
 - [心跳](./heartbeat) —— 定时自检/摘要
 - [技能](./skills) —— 内置技能与自定义技能
 - [配置与工作目录](./config) —— 工作目录与 config.json
-- [多智能体工作区](./multi-agent) —— 多智能体配置与管理
+- [多智能体](./multi-agent) —— 多智能体配置、管理与协作

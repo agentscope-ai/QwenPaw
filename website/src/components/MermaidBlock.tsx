@@ -34,7 +34,6 @@ const mermaidRenderCache = new BoundedMap<
 >(MERMAID_RENDER_CACHE_MAX_ENTRIES);
 
 const MERMAID_MIN_HEIGHT = 176;
-const MERMAID_MAX_HEIGHT = 360;
 
 function ensureMermaidInit() {
   if (mermaidInitialized) return;
