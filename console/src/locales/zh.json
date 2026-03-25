@@ -268,7 +268,7 @@
     "timezoneTooltip": "Cron 计划使用的时区。默认：UTC",
     "taskTypeTooltip": "选择 'text' 用于简单消息任务，选择 'agent' 用于复杂的智能体工作流。",
     "textTooltip": "简单消息任务：此处为实际的消息正文，任务类型为'text'时必填。",
-    "requestInputTooltip": "JSON 格式的消息内容。这是智能体将接收和处理的内容，任务类型为'agent'时必填",
+    "requestInputTooltip": "JSON 格式的消息内容。这是智能体将接收和处理的内容，任务类型为'agent'时必填。",
     "requestInputExample": "格式：[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"您的消息内容\"}]}]",
     "requestSessionIdTooltip": "请求上下文的会话ID。不确定时使用 'default'。",
     "requestUserIdTooltip": "发起请求的用户ID。自动化任务使用 'system'。",
