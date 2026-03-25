@@ -5,6 +5,7 @@ This module handles system commands like /compact, /new, /clear, etc.
 """
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +40,7 @@ class ConversationCommandHandlerMixin:
             "message",
             "dump_history",
             "load_history",
+            "poll",
         },
     )
 
@@ -89,6 +91,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
+        if query in {"查看轮询", "看轮询", "轮询详情"}:
+            return True
         return self.is_conversation_command(query)
 
     async def _make_system_msg(self, text: str) -> Msg:
@@ -467,6 +471,159 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"**Load Failed**\n\n" f"- Error: {e}",
             )
 
+    async def _process_poll(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /poll command to expand and display all pending mailbox & task updates.
+
+        Reads inbox files and task board directly (bypasses AutoPoll collapse rules),
+        then returns a structured digest covering:
+        - Urgent / blocker items
+        - Pending followups (submit/review/rework)
+        - Silent / collapsed items (count)
+        - Per-thread summary
+        """
+        try:
+            # Get workspace dir from agent config
+            agent_config = self._get_agent_config()
+            workspace_dir = Path(agent_config.workspace_dir)
+        except Exception:
+            return await self._make_system_msg(
+                "**无法获取 workspace 目录**\n\n"
+                "- Agent 配置可能未加载",
+            )
+
+        parts: list[str] = ["**📡 轮询详情**\n"]
+        total_count = 0
+
+        # 1) Inbox messages grouped by thread
+        inbox_dir = workspace_dir / "mailbox" / "inbox"
+        if inbox_dir.exists():
+            files = sorted(inbox_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+            if files:
+                parsed: list[dict] = []
+                for f in files:
+                    try:
+                        parsed.append(json.loads(f.read_text(encoding="utf-8")))
+                    except Exception:
+                        continue
+
+                # Group by thread
+                by_thread: dict[str, list[dict]] = {}
+                for msg in parsed:
+                    tid = str(msg.get("thread_id") or msg.get("task_id") or msg.get("id", ""))
+                    by_thread.setdefault(tid, []).append(msg)
+
+                urgent_items: list[str] = []
+                followup_items: list[str] = []
+                silent_count = 0
+
+                for tid, msgs in by_thread.items():
+                    # Latest message in thread drives display
+                    latest = sorted(msgs, key=lambda m: float(m.get("created_at", 0) or 0))[-1]
+                    kind = str(latest.get("msg_kind", latest.get("msg_type", "general"))).lower()
+                    priority = str(latest.get("priority", "normal")).lower()
+                    queue_mode = str(latest.get("queue_mode", ""))
+                    effective_mode = queue_mode or (
+                        "steer" if priority == "urgent" or kind in {"blocker", "blocked", "urgent"}
+                        else "followup" if kind in {"submit", "review", "rework"}
+                        else "collect"
+                    )
+
+                    if effective_mode == "steer" or kind in {"blocker", "blocked"}:
+                        lines = []
+                        for m in msgs[:5]:
+                            content = str(m.get("content", "")).strip().splitlines()[0][:120]
+                            agent = m.get("from_agent", "?")
+                            ts = datetime.fromtimestamp(
+                                float(m.get("created_at", 0) or 0)
+                            ).strftime("%H:%M")
+                            lines.append(f"  [{ts}] {agent}: {content}")
+                        urgent_items.append(
+                            f"**[{tid}]** *(blocker/urgent)*\n" + "\n".join(lines)
+                        )
+                    elif effective_mode == "followup":
+                        content = str(latest.get("content", "")).strip().splitlines()[0][:100]
+                        agent = latest.get("from_agent", "?")
+                        ts = datetime.fromtimestamp(
+                            float(latest.get("created_at", 0) or 0)
+                        ).strftime("%H:%M")
+                        kind_label = {"submit": "📤 submit", "review": "🔍 review", "rework": "🔧 rework"}.get(
+                            kind, f"📋 {kind}"
+                        )
+                        followup_items.append(
+                            f"**[{tid}]** {kind_label} · {agent} @ {ts}\n"
+                            f"  {content}"
+                        )
+                    else:
+                        silent_count += 1
+
+                total_count = len(parsed)
+
+                if urgent_items:
+                    parts.append(f"\n🚨 **阻断/紧急** ({len(urgent_items)} 个线程)")
+                    for item in urgent_items[:10]:
+                        parts.append(item)
+                if followup_items:
+                    parts.append(f"\n📋 **待跟进** ({len(followup_items)} 条)")
+                    for item in followup_items[:15]:
+                        parts.append(item)
+                if silent_count > 0:
+                    parts.append(f"\n📦 **已折叠常规消息** ({silent_count} 条)")
+
+                if not urgent_items and not followup_items and not silent_count:
+                    parts.append("\n✅ 暂无待处理消息")
+            else:
+                parts.append("\n📭 收件箱为空")
+        else:
+            parts.append("\n📭 无收件箱目录")
+
+        # 2) Task board quick snapshot
+        try:
+            teams_dir = workspace_dir.parent / "shared" / "teams"
+            if teams_dir.exists():
+                team_lines: list[str] = []
+                for team_d in sorted(teams_dir.iterdir()):
+                    if not team_d.is_dir():
+                        continue
+                    tasks_file = team_d / "tasks.json"
+                    if not tasks_file.exists():
+                        continue
+                    try:
+                        tasks = json.loads(tasks_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        continue
+                    blocker_tasks = [
+                        t for t in tasks
+                        if str(t.get("status", "")).lower() == "blocked"
+                    ]
+                    urgent_tasks = [
+                        t for t in tasks
+                        if str(t.get("priority", "normal")).lower() == "urgent"
+                    ]
+                    if blocker_tasks or urgent_tasks:
+                        team_lines.append(f"\n**团队: {team_d.name}**")
+                        for t in blocker_tasks:
+                            team_lines.append(
+                                f"  🔴 BLOCKED [{t.get('id', '-')}]: {str(t.get('title', ''))[:80]}"
+                            )
+                        for t in urgent_tasks:
+                            team_lines.append(
+                                f"  🟠 URGENT [{t.get('id', '-')}]: {str(t.get('title', ''))[:80]}"
+                            )
+                if team_lines:
+                    parts.append("\n---\n**🚦 任务板急事**")
+                    parts.extend(team_lines)
+        except Exception as e:
+            parts.append(f"\n⚠️ 任务板读取失败: {e}")
+
+        parts.append(f"\n---\n总计 {total_count} 条消息 · `输入 /poll 刷新`")
+
+        return await self._make_system_msg("\n".join(parts))
+
+
     async def handle_conversation_command(self, query: str) -> Msg:
         """Process conversation system commands.
 
@@ -479,6 +636,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Raises:
             RuntimeError: If command is not recognized
         """
+        # Natural language aliases for /poll
+        if query in {"查看轮询", "看轮询", "轮询详情"}:
+            query = "/poll"
+
         messages = await self.memory.get_memory(
             prepend_summary=False,
         )

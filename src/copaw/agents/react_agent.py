@@ -6,6 +6,7 @@ with integrated tools, skills, and memory management.
 """
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from pydantic import BaseModel
 
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
+from .middleware import LoopDetectionMiddleware, TodoReminderMiddleware, StopInterruptMiddleware, AutoPollMiddleware
 from .model_factory import create_model_and_formatter
 from .prompt import (
     build_multimodal_hint,
@@ -49,6 +51,7 @@ from .tools import (
     write_file,
     create_memory_search_tool,
 )
+from .tools.teams import create_teams_tools
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     WORKING_DIR,
@@ -181,7 +184,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Configured toolkit instance
         """
-        toolkit = Toolkit()
+        toolkit = Toolkit(
+            agent_skill_instruction=(
+                "# Agent Skills\n"
+                "The following skills are MANDATORY references for specific "
+                "tasks. Before executing any task, you MUST check if a "
+                "relevant skill exists below. If it does, you MUST read its "
+                "`SKILL.md` file FIRST and follow its instructions exactly. "
+                "Do NOT skip this step."
+            ),
+        )
 
         # Check which tools are enabled from agent config
         enabled_tools = {}
@@ -340,6 +352,21 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             )
             logger.debug("Registered memory_search tool")
 
+        # Register teams tools
+        try:
+            teams_tools = create_teams_tools(
+                self._workspace_dir if self._workspace_dir else WORKING_DIR,
+                wake_agent=self._create_wake_agent_callback(),
+            )
+            for tool_func in teams_tools:
+                self.toolkit.register_tool_function(
+                    tool_func,
+                    namesake_strategy=namesake_strategy,
+                )
+            logger.debug("Registered %d teams tools", len(teams_tools))
+        except Exception as e:
+            logger.warning("Failed to register teams tools: %s", e)
+
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
         # Bootstrap hook - checks BOOTSTRAP.md on first interaction
@@ -369,6 +396,100 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 hook=memory_compact_hook.__call__,
             )
             logger.debug("Registered memory compaction hook")
+
+        # Loop detection middleware - detect and break repetitive tool calls
+        loop_detection = LoopDetectionMiddleware()
+        self.register_instance_hook(
+            hook_type="pre_reasoning",
+            hook_name="loop_detection",
+            hook=loop_detection.__call__,
+        )
+        logger.debug("Registered loop detection middleware")
+
+        # Todo reminder middleware - re-inject todos after compaction
+        todo_reminder = TodoReminderMiddleware()
+        self.register_instance_hook(
+            hook_type="pre_reasoning",
+            hook_name="todo_reminder",
+            hook=todo_reminder.__call__,
+        )
+        logger.debug("Registered todo reminder middleware")
+
+        # Stop interrupt middleware - check /stop signal each reasoning cycle
+        agent_id = (
+            self._request_context.get("agent_id")
+            if self._request_context
+            else None
+        ) or self.name
+        self._stop_interrupt = StopInterruptMiddleware(agent_name=agent_id)
+        self.register_instance_hook(
+            hook_type="pre_reasoning",
+            hook_name="stop_interrupt",
+            hook=self._stop_interrupt.__call__,
+        )
+        logger.debug("Registered stop interrupt middleware")
+
+        # Auto-poll middleware - check mailbox and task board each cycle
+        auto_poll = AutoPollMiddleware(
+            agent_id=agent_id,
+            workspace_dir=self._workspace_dir,
+        )
+        self._auto_poll_middleware = auto_poll
+        self.register_instance_hook(
+            hook_type="pre_reasoning",
+            hook_name="auto_poll",
+            hook=auto_poll.__call__,
+        )
+        logger.debug("Registered auto-poll middleware")
+
+    # Global wake debounce: shared across all agent instances
+    _global_wake_timestamps: dict[str, float] = {}
+    _WAKE_COOLDOWN = 10  # seconds
+
+    def _create_wake_agent_callback(self):
+        """Create a callback to wake another agent when a message is sent."""
+        async def wake_agent(agent_id: str, message: str) -> None:
+            try:
+                import time
+                now = time.time()
+                last = CoPawAgent._global_wake_timestamps.get(agent_id, 0)
+                if now - last < CoPawAgent._WAKE_COOLDOWN:
+                    logger.debug(
+                        "Skipping wake for %s (cooldown, last=%ds ago)",
+                        agent_id, int(now - last),
+                    )
+                    return
+                CoPawAgent._global_wake_timestamps[agent_id] = now
+
+                import copaw.app._app as _app_module
+                app = getattr(_app_module, 'app', None)
+                if app is None:
+                    logger.debug("App not initialized, cannot wake agent %s", agent_id)
+                    return
+
+                async def _run_silent_loop():
+                    try:
+                        runner = app.agent_runners.get(agent_id)
+                        if runner is None:
+                            logger.debug("Agent %s not found in runners", agent_id)
+                            return
+                        req = type('Req', (), {
+                            'message': message,
+                            'files': [],
+                            'user_id': 'system',
+                        })()
+                        async for _ in runner.stream_query(req):
+                            pass
+                        await asyncio.sleep(0.2)
+                    except Exception as e:
+                        logger.debug("Silent loop error for %s: %s", agent_id, e)
+
+                asyncio.ensure_future(_run_silent_loop())
+                logger.info("Woke agent %s via mailbox message", agent_id)
+            except Exception as e:
+                logger.debug("Failed to wake agent %s: %s", agent_id, e)
+
+        return wake_agent
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.
@@ -901,7 +1022,35 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Normal message processing
         logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
-        return await super().reply(msg=msg, structured_model=structured_model)
+        result = await super().reply(msg=msg, structured_model=structured_model)
+
+        # After round ends: inject followup notice if AutoPoll has pending followups
+        try:
+            auto_poll = getattr(self, "_auto_poll_middleware", None)
+            if auto_poll is not None:
+                followup_msg = await auto_poll.get_followup_msg()
+                if followup_msg:
+                    await self.print(followup_msg, True)
+        except Exception as _fe:
+            logger.debug("AutoPoll followup inject failed: %s", _fe)
+
+        return result
+
+    async def handle_interrupt(
+        self,
+        msg: Msg | None = None,
+        structured_model: type[BaseModel] | None = None,
+    ) -> Msg:
+        """Override to provide a friendlier interrupt message."""
+        response_msg = Msg(
+            self.name,
+            "已收到打断指令，当前任务已暂停。请告诉我接下来要怎么做 —— "
+            "继续刚才的任务、调整方向、还是换个事情？",
+            "assistant",
+            metadata={"_is_interrupted": True},
+        )
+        await self.print(response_msg, True)
+        return response_msg
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
