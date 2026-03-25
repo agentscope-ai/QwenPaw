@@ -5,7 +5,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -289,7 +289,10 @@ class CronManager:
             timezone=spec.schedule.timezone,
         )
 
-    def _build_heartbeat_trigger(self, every: str):
+    def _build_heartbeat_trigger(
+        self,
+        every: str,
+    ) -> Union[CronTrigger, IntervalTrigger]:
         """Build a trigger from the heartbeat *every* value.
 
         Returns CronTrigger for cron expressions,

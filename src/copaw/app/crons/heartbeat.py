@@ -20,6 +20,7 @@ from ...config import (
     load_config,
 )
 from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
+from ..crons.models import _crontab_dow_to_name
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,13 @@ def is_cron_expression(every: str) -> bool:
 
 
 def parse_heartbeat_cron(every: str) -> tuple:
-    """Parse a 5-field cron string.
+    """Parse and normalize a 5-field cron string.
 
     Returns (minute, hour, day, month, dow).
     """
     parts = every.strip().split()
+    if len(parts) == 5:
+        parts[4] = _crontab_dow_to_name(parts[4])
     return tuple(parts)
 
 
