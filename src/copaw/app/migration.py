@@ -959,7 +959,7 @@ def ensure_qa_agent_exists() -> None:
     _initialize_agent_workspace(
         qa_workspace,
         agent_config,
-        active_skill_names=qa_skill_list,
+        skill_names=qa_skill_list,
         builtin_qa_md_seed=True,
     )
 
