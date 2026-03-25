@@ -356,6 +356,24 @@ def create_teams_tools(workspace_dir: Path, wake_agent=None):
                 if not task:
                     return ToolResponse(content=[_text(f"Cannot complete task {task_id}")])
 
+                # E3: distill task knowledge into agent memory
+                try:
+                    from copaw.agents.memory.distiller import distill_task
+                    distill_task(task=task, agent_id=created_by, workspace_dir=workspace_dir)
+                except Exception as e:
+                    logger.debug("E3 distill failed: %s", e)
+
+                # C1: auto-resume blocked tasks that depended on this task
+                try:
+                    resumed = board.check_blocked_tasks()
+                    if resumed:
+                        logger.info(
+                            "C1: auto-resumed %d blocked task(s) after completing %s",
+                            len(resumed), task_id,
+                        )
+                except Exception as e:
+                    logger.debug("C1 check_blocked failed: %s", e)
+
                 # Wake team lead on completion for fast aggregation/next-step planning
                 try:
                     cfg = tm.get_team(team_name)
@@ -373,7 +391,13 @@ def create_teams_tools(workspace_dir: Path, wake_agent=None):
 
             elif action == "summary":
                 summary = board.get_summary()
-                return ToolResponse(content=[_text(json.dumps(summary, ensure_ascii=False, indent=2))])
+                workflow_summary = board.get_workflow_summary()
+                result = {
+                    "total": summary["total"],
+                    "by_status": summary["by_status"],
+                    "workflows": workflow_summary,
+                }
+                return ToolResponse(content=[_text(json.dumps(result, ensure_ascii=False, indent=2))])
 
             else:
                 return ToolResponse(
