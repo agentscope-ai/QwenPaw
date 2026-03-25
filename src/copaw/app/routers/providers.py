@@ -519,8 +519,6 @@ async def set_active_model(
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
     """Set active model by scope."""
-    _validate_model_slot(manager, body.provider_id, body.model)
-
     if body.scope == "global":
         try:
             await manager.activate_model(body.provider_id, body.model)
@@ -538,6 +536,8 @@ async def set_active_model(
             status_code=400,
             detail="agent_id is required when scope is 'agent'",
         )
+
+    _validate_model_slot(manager, body.provider_id, body.model)
 
     try:
         workspace = await get_agent_for_request(
