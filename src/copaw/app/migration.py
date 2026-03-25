@@ -468,11 +468,16 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
             legacy_root,
         ):
             continue
-        # Skip legacy migration if target workspace already has skills
-        if str(default_workspace) in workspaces_with_existing_skills:
+        if (
+            _has_legacy_skill_root(
+                default_workspace,
+            )
+            or str(default_workspace) in workspaces_with_existing_skills
+        ):
             logger.debug(
                 "Skipping legacy skill migration from %s to %s: "
-                "target workspace already has skills",
+                "target workspace already has legacy dirs or "
+                "migrated skills",
                 legacy_root,
                 default_workspace,
             )
@@ -643,49 +648,46 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                     imported_pool_skills += 1
 
     workspace_pool_links: dict[Path, dict[str, str]] = {}
-    if pool_was_empty:
-        for workspace_dir, candidates in workspace_pool_candidates.items():
-            links = workspace_pool_links.setdefault(workspace_dir, {})
-            workspace_skill_root = get_workspace_skills_dir(workspace_dir)
-            for skill_name, candidate in sorted(candidates.items()):
-                source_dir = workspace_skill_root / skill_name
-                if not source_dir.exists():
-                    continue
+    for workspace_dir, candidates in workspace_pool_candidates.items():
+        links = workspace_pool_links.setdefault(workspace_dir, {})
+        workspace_skill_root = get_workspace_skills_dir(workspace_dir)
+        for skill_name, candidate in sorted(candidates.items()):
+            source_dir = workspace_skill_root / skill_name
+            if not source_dir.exists():
+                continue
 
-                workspace_id = workspace_dir.name
-                origin_type = candidate["origin_type"]
+            workspace_id = workspace_dir.name
+            origin_type = candidate["origin_type"]
 
-                # Build pool skill name:
-                # - Default agent: skill_name as-is
-                # - Non-default agent: insert workspace_id
-                # (e.g., docx-agent1, docx-agent1-customize)
-                if workspace_id == "default":
-                    preferred_name = skill_name
+            # Build pool skill name:
+            # - Default agent: skill_name as-is
+            # - Non-default agent: insert workspace_id
+            # (e.g., docx-agent1, docx-agent1-customize)
+            if workspace_id == "default":
+                preferred_name = skill_name
+            else:
+                # Parse and rebuild with workspace_id
+                if skill_name.endswith("-customize"):
+                    base_name = skill_name[: -len("-customize")]
+                    preferred_name = f"{base_name}-{workspace_id}-customize"
+                elif skill_name.endswith("-active"):
+                    base_name = skill_name[: -len("-active")]
+                    preferred_name = f"{base_name}-{workspace_id}-active"
                 else:
-                    # Parse and rebuild with workspace_id
-                    if skill_name.endswith("-customize"):
-                        base_name = skill_name[: -len("-customize")]
-                        preferred_name = (
-                            f"{base_name}-{workspace_id}-customize"
-                        )
-                    elif skill_name.endswith("-active"):
-                        base_name = skill_name[: -len("-active")]
-                        preferred_name = f"{base_name}-{workspace_id}-active"
-                    else:
-                        preferred_name = f"{skill_name}-{workspace_id}"
+                    preferred_name = f"{skill_name}-{workspace_id}"
 
-                final_name, created = _import_skill_to_pool(
-                    source_dir,
-                    preferred_name,
-                    origin={
-                        "type": origin_type,
-                        "workspace_id": workspace_id,
-                        "legacy_source_root": candidate["legacy_root"],
-                    },
-                )
-                links[skill_name] = final_name
-                if created:
-                    imported_pool_skills += 1
+            final_name, created = _import_skill_to_pool(
+                source_dir,
+                preferred_name,
+                origin={
+                    "type": origin_type,
+                    "workspace_id": workspace_id,
+                    "legacy_source_root": candidate["legacy_root"],
+                },
+            )
+            links[skill_name] = final_name
+            if created:
+                imported_pool_skills += 1
 
     reconcile_pool_manifest()
 
