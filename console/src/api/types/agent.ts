@@ -30,5 +30,5 @@ export interface AgentsRunningConfig {
   knowledge_auto_collect_long_text: boolean;
   knowledge_long_text_min_chars: number;
   knowledge_chunk_size: number;
-  embedding_config?: Record<string, unknown>;
+  embedding_config?: Record<string, object | undefined>;
 }
