@@ -653,10 +653,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.updateWindowVariables(extended);
     // this.sessionList.unshift(extended);
-    
-    // Trigger onSessionCreated callback
-    this.onSessionCreated?.(session.id);
-    
     return this.sessionList;
   }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -26,6 +27,7 @@ from ..config.config import (
     save_agent_config,
 )
 from .utils import prompt_confirm, prompt_path, prompt_select
+from .http import client, print_json, resolve_base_url
 from ..config import get_available_channels
 from ..constant import CUSTOM_CHANNELS_DIR
 from ..app.channels.registry import (
@@ -1114,3 +1116,108 @@ def configure_cmd(agent_id: str) -> None:
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
+
+
+@channels_group.command("send")
+@click.option(
+    "--agent-id",
+    required=True,
+    help="Agent ID sending the message",
+)
+@click.option(
+    "--channel",
+    required=True,
+    help=(
+        "Target channel (e.g., console, dingtalk, feishu, discord, "
+        "imessage, qq)"
+    ),
+)
+@click.option(
+    "--target-user",
+    required=True,
+    help=("Target user ID (REQUIRED, get from 'copaw chats list' query)"),
+)
+@click.option(
+    "--target-session",
+    required=True,
+    help=("Target session ID (REQUIRED, get from 'copaw chats list' query)"),
+)
+@click.option(
+    "--text",
+    required=True,
+    help="Text message to send",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help="Override the API base URL. Defaults to global --host/--port.",
+)
+@click.pass_context
+def send_cmd(
+    ctx: click.Context,
+    agent_id: str,
+    channel: str,
+    target_user: str,
+    target_session: str,
+    text: str,
+    base_url: Optional[str],
+) -> None:
+    """Send a text message to a channel.
+
+    This command allows an agent to proactively send messages to users
+    via configured channels (console, dingtalk, feishu, etc.).
+
+    IMPORTANT: All 5 parameters are REQUIRED. You MUST query first to get
+    valid target-user and target-session values.
+
+    \b
+    Complete Usage Flow:
+      Step 1 - Query available sessions (REQUIRED):
+        copaw chats list --agent-id my_bot --channel console
+
+      Step 2 - Extract parameters from query output:
+        user_id: "alice"
+        session_id: "alice_session_001"
+
+      Step 3 - Send message using queried parameters:
+        copaw channels send --agent-id my_bot --channel console \\
+          --target-user alice --target-session alice_session_001 \\
+          --text "Hello!"
+
+    \b
+    Examples with jq automation:
+      # Query and auto-extract parameters
+      SESSIONS=$(copaw chats list --agent-id bot --channel console)
+      USER=$(echo "$SESSIONS" | jq -r '.[0].user_id')
+      SESSION=$(echo "$SESSIONS" | jq -r '.[0].session_id')
+
+      # Send message
+      copaw channels send --agent-id bot --channel console \\
+        --target-user "$USER" --target-session "$SESSION" \\
+        --text "Automated notification"
+
+    \b
+    Prerequisites:
+      1. MUST use 'copaw chats list' to get valid target-user and
+         target-session
+      2. Ensure the channel is properly configured
+      3. All 5 parameters are required (no defaults)
+
+    \b
+    Returns:
+      JSON response with success status and message details.
+    """
+    base_url = resolve_base_url(ctx, base_url)
+
+    payload = {
+        "channel": channel,
+        "target_user": target_user,
+        "target_session": target_session,
+        "text": text,
+    }
+
+    with client(base_url) as c:
+        headers = {"X-Agent-Id": agent_id}
+        r = c.post("/messages/send", json=payload, headers=headers)
+        r.raise_for_status()
+        print_json(r.json())
