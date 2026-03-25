@@ -44,7 +44,7 @@ from ..base import (
     ProcessHandler,
 )
 from ..utils import split_text
-from .client import ILinkClient
+from .client import ILinkClient, _DEFAULT_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class WeixinChannel(BaseChannel):
         self.enabled = enabled
         self.bot_token = bot_token
         self.bot_prefix = bot_prefix
-        self._base_url = base_url or ""
+        self._base_url = base_url or _DEFAULT_BASE_URL
         self._bot_token_file = (
             Path(bot_token_file).expanduser()
             if bot_token_file
@@ -328,6 +328,7 @@ class WeixinChannel(BaseChannel):
             self._client.bot_token = token
             if base_url and base_url != self._client.base_url:
                 self._client.base_url = base_url.rstrip("/")
+                self._base_url = base_url.rstrip("/")
             self._save_token_to_file(token)
             logger.info("weixin: QR code login succeeded")
             return True
