@@ -26,6 +26,7 @@ from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
+from ...agents.hooks import MemoryCompactionHook
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config.config import load_agent_config
 from ...constant import (
@@ -44,6 +45,15 @@ _TRANSIENT_UPSTREAM_STATUS_CODES = {429, 500, 502, 503, 504}
 _RETRYABLE_STATUS_PATTERN = re.compile(
     r"(?:error\s*code|status)\s*[:=]?\s*(\d{3})",
     re.IGNORECASE,
+)
+_CONTEXT_OVERFLOW_PATTERNS = (
+    "context size has been exceeded",
+    "maximum context length",
+    "max context length",
+    "context_length_exceeded",
+    "context window",
+    "too many tokens",
+    "input is too long",
 )
 _APPROVE_EXACT = frozenset(
     {
@@ -130,6 +140,15 @@ def _is_mcp_connection_error(exc: Exception) -> bool:
             return True
     return False
 
+
+def _is_context_overflow_error(exc: Exception) -> bool:
+    """Best-effort check for context overflow style model errors."""
+    for item in _iter_exception_chain(exc):
+        text = f"{item.__class__.__name__}: {item}".lower()
+        if any(pattern in text for pattern in _CONTEXT_OVERFLOW_PATTERNS):
+            return True
+    return False
+
 def _build_retryable_error_msg(exc: Exception) -> Msg | None:
     """Build a user-facing retryable error message for transient failures."""
     if not _is_transient_upstream_error(exc):
@@ -204,6 +223,38 @@ class AgentRunner(Runner):
         self._mcp_manager = mcp_manager
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+
+    async def _force_context_compaction(self, agent: CoPawAgent) -> bool:
+        """Trigger one-shot memory compaction; return True if it likely ran."""
+        memory_manager = getattr(agent, "memory_manager", None)
+        if memory_manager is None:
+            return False
+
+        try:
+            memory = agent.memory
+            before = ""
+            if hasattr(memory, "get_compressed_summary"):
+                before = memory.get_compressed_summary() or ""
+
+            hook = MemoryCompactionHook(memory_manager=memory_manager)
+            await hook(agent, {})
+
+            after = ""
+            if hasattr(memory, "get_compressed_summary"):
+                after = memory.get_compressed_summary() or ""
+
+            if after != before:
+                return True
+
+            # Fallback signal: summary task queued means compaction path ran.
+            tasks = getattr(memory_manager, "summary_tasks", None)
+            return bool(tasks)
+        except Exception as compact_err:
+            logger.warning(
+                "Failed to force context compaction retry path: %s",
+                compact_err,
+            )
+            return False
 
     async def _resolve_pending_approval(
         self,
@@ -480,11 +531,34 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            async for stream_item in stream_printing_messages(
-                agents=[agent],
-                coroutine_task=agent(msgs),
-            ):
-                yield stream_item[0], stream_item[1]
+            stream_retry_budget = 1
+            while True:
+                try:
+                    async for stream_item in stream_printing_messages(
+                        agents=[agent],
+                        coroutine_task=agent(msgs),
+                    ):
+                        yield stream_item[0], stream_item[1]
+                    break
+                except Exception as stream_err:
+                    if (
+                        stream_retry_budget <= 0
+                        or not _is_context_overflow_error(stream_err)
+                    ):
+                        raise
+
+                    compacted = await self._force_context_compaction(agent)
+                    if not compacted:
+                        raise
+
+                    stream_retry_budget -= 1
+                    logger.warning(
+                        "Context overflow detected; compacted memory and "
+                        "retrying once. session_id=%s user_id=%s channel=%s",
+                        session_id,
+                        user_id,
+                        channel,
+                    )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
