@@ -1,8 +1,40 @@
 import { expect, test } from "@playwright/test";
 import type { Page, Route } from "@playwright/test";
 
-async function setupApiMocks(page: Page) {
+type ApiMockOptions = {
+  conflictScenario?: boolean;
+};
+
+async function setupApiMocks(page: Page, options: ApiMockOptions = {}) {
+  const { conflictScenario = false } = options;
   let createdChatCount = 0;
+  let boundPipelineId = "books-alignment-v1";
+  let draftMtime = 1_800_000_000;
+
+  const remoteDraftSteps = [
+    {
+      id: "step-1-purpose",
+      name: "远端用途步骤",
+      kind: "analysis",
+      description: "远端版本：用途定义",
+    },
+    {
+      id: "step-remote-extra",
+      name: "远端新增步骤",
+      kind: "validation",
+      description: "远端版本新增校验",
+    },
+  ];
+
+  const remoteTemplateSteps = [
+    {
+      id: "step-1-purpose",
+      name: "旧用途步骤",
+      kind: "analysis",
+      description: "旧版本用途定义",
+    },
+  ];
+
   const chats: Array<Record<string, unknown>> = [
     {
       id: "old-session-1",
@@ -89,11 +121,81 @@ async function setupApiMocks(page: Page) {
     }
 
     if (pathname === "/api/agents/default/pipelines/templates") {
+      const templates = conflictScenario
+        ? [
+            {
+              id: boundPipelineId,
+              name: "新流程",
+              version: "0.1.0",
+              description: "待补充流程说明",
+              steps: remoteTemplateSteps,
+              revision: 2,
+              content_hash: "sha256:remote-hash",
+            },
+          ]
+        : [];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([]),
+        body: JSON.stringify(templates),
       });
+      return;
+    }
+
+    const draftMatch = pathname.match(
+      /^\/api\/agents\/default\/pipelines\/templates\/([^/]+)\/draft$/,
+    );
+    if (draftMatch) {
+      const templateId = decodeURIComponent(draftMatch[1]);
+      draftMtime += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: templateId,
+          revision: 2,
+          content_hash: "sha256:remote-hash",
+          status: "ready",
+          md_mtime: draftMtime,
+          md_relative_path: `pipelines/${templateId}/pipeline.md`,
+          flow_memory_relative_path: `pipelines/${templateId}/flow-memory.md`,
+          validation_errors: [],
+          steps: conflictScenario ? remoteDraftSteps : [],
+        }),
+      });
+      return;
+    }
+
+    const saveStreamMatch = pathname.match(
+      /^\/api\/agents\/default\/pipelines\/templates\/([^/]+)\/save\/stream$/,
+    );
+    if (saveStreamMatch && route.request().method() === "POST") {
+      if (conflictScenario) {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+            Connection: "keep-alive",
+            "Cache-Control": "no-cache",
+          },
+          body:
+            'data: {"event":"validation_started","payload":{}}\n\n' +
+            'data: {"event":"save_failed","payload":{"status_code":409,"detail":{"code":"pipeline_revision_conflict","expected_revision":1,"current_revision":2,"current_content_hash":"sha256:remote-hash"}}}\n\n' +
+            'data: {"event":"done","payload":{"status":"failed"}}\n\n',
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+            Connection: "keep-alive",
+            "Cache-Control": "no-cache",
+          },
+          body:
+            'data: {"event":"saved","payload":{}}\n\n' +
+            'data: {"event":"done","payload":{"status":"ok"}}\n\n',
+        });
+      }
       return;
     }
 
@@ -119,6 +221,17 @@ async function setupApiMocks(page: Page) {
       createdChatCount += 1;
       const bodyText = route.request().postData() || "{}";
       const body = JSON.parse(bodyText);
+      const bodyMeta =
+        body.meta && typeof body.meta === "object"
+          ? (body.meta as Record<string, unknown>)
+          : null;
+      const pipelineId =
+        bodyMeta && typeof bodyMeta.pipeline_id === "string"
+          ? bodyMeta.pipeline_id
+          : "";
+      if (pipelineId) {
+        boundPipelineId = pipelineId;
+      }
       const createdId = `created-chat-${createdChatCount}`;
       const createdChat = {
         id: createdId,
@@ -363,4 +476,43 @@ test("behavior: edit pipeline restores bound chat after reload", async ({ page }
   await page.waitForTimeout(500);
 
   expect(createCount).toBe(0);
+});
+
+test("behavior: conflict panel supports merge remote and local recovery", async ({ page }) => {
+  test.setTimeout(90_000);
+
+  await setupApiMocks(page, { conflictScenario: true });
+
+  await page.goto("/pipelines");
+
+  const openDesignBtn = page.getByTestId("pipeline-open-design-chat");
+  await expect(openDesignBtn).toBeVisible({ timeout: 30_000 });
+  await openDesignBtn.click();
+
+  const saveBtn = page.getByRole("button", { name: /^(保存|Save)$/i });
+  await expect(saveBtn).toBeVisible({ timeout: 30_000 });
+  await saveBtn.click();
+
+  await expect(page.getByText("检测到并发冲突")).toBeVisible({ timeout: 30_000 });
+
+  const refreshBtn = page.getByRole("button", { name: /刷新后重试/i });
+  await refreshBtn.click();
+
+  const mergeBtn = page.getByRole("button", { name: /按 step_id 合并/i });
+  const useRemoteBtn = page.getByRole("button", { name: /采用远端草稿/i });
+  const restoreLocalBtn = page.getByRole("button", { name: /恢复本地草稿/i });
+
+  await expect(mergeBtn).toBeVisible({ timeout: 20_000 });
+  await expect(useRemoteBtn).toBeVisible({ timeout: 20_000 });
+  await expect(restoreLocalBtn).toBeVisible({ timeout: 20_000 });
+
+  await mergeBtn.click();
+  await expect(page.getByText("远端新增步骤")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("明确流程用途")).toBeVisible({ timeout: 20_000 });
+
+  await useRemoteBtn.click();
+  await expect(page.getByText("远端用途步骤")).toBeVisible({ timeout: 20_000 });
+
+  await restoreLocalBtn.click();
+  await expect(page.getByText("明确流程用途")).toBeVisible({ timeout: 20_000 });
 });

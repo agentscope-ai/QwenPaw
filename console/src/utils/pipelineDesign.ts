@@ -21,6 +21,8 @@ interface BuildEditContextPromptParams {
   pipelineName: string;
   version: string;
   description?: string;
+  mdRelativePath?: string;
+  flowMemoryRelativePath?: string;
   steps: Array<{
     id: string;
     name: string;
@@ -68,6 +70,8 @@ export function buildPipelineDesignEditContextPrompt({
   pipelineName,
   version,
   description,
+  mdRelativePath,
+  flowMemoryRelativePath,
   steps,
 }: BuildEditContextPromptParams): string {
   const safeDescription = (description || "").trim() || "-";
@@ -82,12 +86,29 @@ export function buildPipelineDesignEditContextPrompt({
     steps,
   };
 
-  return [
+  const guidance = [
     "继续在当前会话编辑流程。请基于以下当前流程信息继续工作：",
     JSON.stringify(payload, null, 2),
     "要求：当前是模板编辑模式，不要搜索真实文件或执行任务。",
     "后续如果你给出流程改造结果，请只返回一个 JSON 对象，且严格 schema_version=1 并包含完整 steps 数组。",
-  ].join("\n\n");
+  ];
+
+  if (mdRelativePath && mdRelativePath.trim()) {
+    guidance.push(
+      `流程 Markdown 工作文件: ${mdRelativePath.trim()}。`,
+      "请优先直接使用 write_file 或 edit_file 修改该 Markdown 文件，不必在对话中输出 JSON。",
+      "文件格式约定：每个步骤使用 `## <步骤名称> [<步骤ID>] (<类型>)` 标题，标题下写该步骤描述。",
+    );
+  }
+
+  if (flowMemoryRelativePath && flowMemoryRelativePath.trim()) {
+    guidance.push(
+      `流程临时记忆文件: ${flowMemoryRelativePath.trim()}。`,
+      "请将当前流程的临时约束、未完成事项、决策备注写入该文件；此记忆仅对当前流程编辑有效。",
+    );
+  }
+
+  return guidance.join("\n\n");
 }
 
 export function buildPipelineDesignChatPath(

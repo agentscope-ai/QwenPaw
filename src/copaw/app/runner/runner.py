@@ -64,6 +64,40 @@ _APPROVE_EXACT = frozenset(
 )
 
 
+def _resolve_flow_memory_path_from_chat_meta(
+    chat_meta: dict[str, Any] | None,
+    workspace_dir: Path | None,
+) -> str | None:
+    """Resolve flow-scoped memory file path for pipeline edit chats."""
+    if not chat_meta or workspace_dir is None:
+        return None
+
+    meta_type = str(chat_meta.get("binding_type") or "").strip()
+    if meta_type != "pipeline_edit":
+        return None
+
+    raw_path = str(chat_meta.get("flow_memory_path") or "").strip()
+    if raw_path:
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = (workspace_dir / candidate).resolve()
+        if str(candidate).startswith(str(workspace_dir.resolve())):
+            return str(candidate)
+
+    pipeline_id = str(chat_meta.get("pipeline_id") or "").strip()
+    if not pipeline_id:
+        return None
+
+    fallback = (
+        workspace_dir
+        / "pipelines"
+        / "workspaces"
+        / pipeline_id
+        / "flow-memory.md"
+    )
+    return str(fallback)
+
+
 def _extract_status_code(exc: Exception) -> int | None:
     """Best-effort extraction of HTTP status code from provider exceptions."""
     status = getattr(exc, "status_code", None)
@@ -506,6 +540,21 @@ class AgentRunner(Runner):
                     name=name,
                 )
                 logger.debug(f"Runner: Got chat: {chat.id}")
+
+                try:
+                    chat_meta = (
+                        chat.meta
+                        if hasattr(chat, "meta") and isinstance(chat.meta, dict)
+                        else None
+                    )
+                    flow_memory_path = _resolve_flow_memory_path_from_chat_meta(
+                        chat_meta,
+                        self.workspace_dir,
+                    )
+                    if flow_memory_path:
+                        agent.set_flow_memory_path(flow_memory_path)
+                except Exception as flow_exc:
+                    logger.warning("Failed to resolve flow memory path from chat meta: %s", flow_exc)
             else:
                 logger.warning(
                     f"ChatManager is None! Cannot auto-register chat for "

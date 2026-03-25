@@ -1,4 +1,6 @@
 import { request } from "../request";
+import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type {
   AgentListResponse,
   AgentProfileConfig,
@@ -12,6 +14,8 @@ import type {
   ImportAgentSquareResponse,
   AgentProjectFileInfo,
   AgentProjectFileContent,
+  AgentPipelineDraftInfo,
+  PipelineSaveStreamEvent,
   ProjectPipelineTemplateInfo,
   ProjectPipelineRunSummary,
   ProjectPipelineRunDetail,
@@ -93,13 +97,81 @@ export const agentsApi = {
     agentId: string,
     templateId: string,
     body: ProjectPipelineTemplateInfo,
+    options?: { expectedRevision?: number },
   ) =>
     request<ProjectPipelineTemplateInfo>(
-      `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}`,
+      `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}${
+        options?.expectedRevision !== undefined
+          ? `?expectedRevision=${encodeURIComponent(String(options.expectedRevision))}`
+          : ""
+      }`,
       {
         method: "PUT",
         body: JSON.stringify(body),
       },
+    ),
+
+  saveAgentPipelineTemplateStream: async (
+    agentId: string,
+    templateId: string,
+    body: ProjectPipelineTemplateInfo,
+    onEvent: (event: PipelineSaveStreamEvent) => void,
+    options?: { expectedRevision?: number; signal?: AbortSignal },
+  ) => {
+    const query =
+      options?.expectedRevision !== undefined
+        ? `?expectedRevision=${encodeURIComponent(String(options.expectedRevision))}`
+        : "";
+    const response = await fetch(
+      getApiUrl(`/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}/save/stream${query}`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildAuthHeaders(),
+        },
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      },
+    );
+
+    if (!response.ok || !response.body) {
+      const text = await response.text();
+      throw new Error(text || `SSE save failed: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let eventBreak = buffer.indexOf("\n\n");
+      while (eventBreak >= 0) {
+        const rawEvent = buffer.slice(0, eventBreak);
+        buffer = buffer.slice(eventBreak + 2);
+
+        const line = rawEvent
+          .split("\n")
+          .find((item) => item.startsWith("data:"));
+        if (line) {
+          const payload = line.slice(5).trim();
+          if (payload) {
+            onEvent(JSON.parse(payload) as PipelineSaveStreamEvent);
+          }
+        }
+
+        eventBreak = buffer.indexOf("\n\n");
+      }
+    }
+  },
+
+  getPipelineDraft: (agentId: string, templateId: string) =>
+    request<AgentPipelineDraftInfo>(
+      `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}/draft`,
     ),
 
   listProjectPipelineTemplates: (agentId: string, projectId: string) =>

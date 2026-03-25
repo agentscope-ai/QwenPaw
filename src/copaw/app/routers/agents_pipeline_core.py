@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -22,6 +23,10 @@ _PROJECT_PIPELINE_TEMPLATES_DIRNAME = "templates"
 _PROJECT_PIPELINE_RUNS_DIRNAME = "runs"
 _AGENT_PIPELINES_DIRNAME = "pipelines"
 _AGENT_PIPELINE_TEMPLATES_DIRNAME = "templates"
+_AGENT_PIPELINE_WORKSPACES_DIRNAME = "workspaces"
+_PIPELINE_MD_FILENAME = "pipeline.md"
+_PIPELINE_MEMORY_FILENAME = "pipeline-workspaces.md"
+_PIPELINE_FLOW_MEMORY_FILENAME = "flow-memory.md"
 
 
 class PipelineTemplateStep(BaseModel):
@@ -41,6 +46,23 @@ class PipelineTemplateInfo(BaseModel):
     version: str = ""
     description: str = ""
     steps: list[PipelineTemplateStep] = Field(default_factory=list)
+    revision: int = 0
+    content_hash: str = ""
+    md_mtime: float = 0.0
+    validation_errors: list["PipelineValidationError"] = Field(default_factory=list)
+    compilation_status: str = "ready"
+
+
+class PipelineValidationError(BaseModel):
+    """Structured validation error for pipeline markdown parsing/validation."""
+
+    error_code: str
+    message: str
+    field_path: str
+    step_id: str = ""
+    expected: str = ""
+    actual: str = ""
+    suggestion: str = ""
 
 
 class PipelineRunSummary(BaseModel):
@@ -80,6 +102,21 @@ class CreatePipelineRunRequest(BaseModel):
 
     template_id: str
     parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class PipelineDraftInfo(BaseModel):
+    """Pipeline draft info read from the workspace markdown file."""
+
+    md_path: str
+    md_relative_path: str
+    flow_memory_path: str = ""
+    flow_memory_relative_path: str = ""
+    md_mtime: float
+    steps: list[PipelineTemplateStep] = Field(default_factory=list)
+    revision: int = 0
+    content_hash: str = ""
+    validation_errors: list[PipelineValidationError] = Field(default_factory=list)
+    compilation_status: str = "ready"
 
 
 def _pipeline_now_iso() -> str:
@@ -212,6 +249,15 @@ def _parse_pipeline_template_doc(raw: dict[str, Any], fallback_id: str) -> Pipel
         version=str(raw.get("version") or "").strip(),
         description=str(raw.get("description") or "").strip(),
         steps=steps,
+        revision=max(0, int(raw.get("revision") or 0)),
+        content_hash=str(raw.get("content_hash") or "").strip(),
+        md_mtime=float(raw.get("md_mtime") or 0.0),
+        validation_errors=[
+            PipelineValidationError.model_validate(item)
+            for item in (raw.get("validation_errors") or [])
+            if isinstance(item, dict)
+        ],
+        compilation_status=str(raw.get("compilation_status") or "ready").strip() or "ready",
     )
 
 
@@ -239,6 +285,429 @@ def _agent_pipeline_templates_dir(workspace_dir: Path) -> Path:
     )
     templates_dir.mkdir(parents=True, exist_ok=True)
     return templates_dir
+
+
+def _pipeline_workspace_dir(workspace_dir: Path, pipeline_id: str) -> Path:
+    ws_dir = (
+        workspace_dir
+        / _AGENT_PIPELINES_DIRNAME
+        / _AGENT_PIPELINE_WORKSPACES_DIRNAME
+        / pipeline_id
+    )
+    ws_dir.mkdir(parents=True, exist_ok=True)
+    return ws_dir
+
+
+def _pipeline_md_path(workspace_dir: Path, pipeline_id: str) -> Path:
+    return _pipeline_workspace_dir(workspace_dir, pipeline_id) / _PIPELINE_MD_FILENAME
+
+
+def _pipeline_md_relative_path(pipeline_id: str) -> str:
+    """Return the relative path (from workspace root) for the pipeline markdown."""
+    return f"{_AGENT_PIPELINES_DIRNAME}/{_AGENT_PIPELINE_WORKSPACES_DIRNAME}/{pipeline_id}/{_PIPELINE_MD_FILENAME}"
+
+
+def _pipeline_flow_memory_path(workspace_dir: Path, pipeline_id: str) -> Path:
+    return _pipeline_workspace_dir(workspace_dir, pipeline_id) / _PIPELINE_FLOW_MEMORY_FILENAME
+
+
+def _pipeline_flow_memory_relative_path(pipeline_id: str) -> str:
+    return f"{_AGENT_PIPELINES_DIRNAME}/{_AGENT_PIPELINE_WORKSPACES_DIRNAME}/{pipeline_id}/{_PIPELINE_FLOW_MEMORY_FILENAME}"
+
+
+def _ensure_pipeline_flow_memory(
+    workspace_dir: Path,
+    pipeline_id: str,
+    pipeline_name: str,
+) -> Path:
+    """Ensure flow-scoped memory exists for this pipeline editing scope."""
+    memory_path = _pipeline_flow_memory_path(workspace_dir, pipeline_id)
+    if memory_path.exists():
+        return memory_path
+
+    memory_path.write_text(
+        "\n".join(
+            [
+                "# Flow Scoped Memory",
+                "",
+                f"pipeline_id: {pipeline_id}",
+                f"pipeline_name: {pipeline_name}",
+                "",
+                "仅在当前流程编辑会话中生效。",
+                "可记录：目标、约束、临时决策、未完成事项。",
+                "",
+                "## Current Focus",
+                "- ",
+                "",
+                "## Constraints",
+                "- ",
+                "",
+                "## Pending",
+                "- ",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return memory_path
+
+
+def _pipeline_steps_to_md(template: PipelineTemplateInfo) -> str:
+    """Generate a markdown representation of a pipeline template for agent editing.
+
+    Format per step heading:
+      ## <step-name> [<step-id>] (<kind>)
+      <description>
+    """
+    lines: list[str] = [
+        "---",
+        f"pipeline_id: {template.id}",
+        f"name: {template.name}",
+        f"version: {template.version or '0.1.0'}",
+        "---",
+        "",
+        f"# {template.name}",
+        "",
+        (template.description or "").strip(),
+        "",
+    ]
+    for step in template.steps:
+        lines.append(f"## {step.name} [{step.id}] ({step.kind})")
+        lines.append("")
+        if step.description:
+            lines.append(step.description.strip())
+            lines.append("")
+    return "\n".join(lines)
+
+
+_STEP_HEADING_RE = re.compile(
+    r"^##\s+(.+?)\s+\[([^\]]+)\]\s+\(([^)]+)\)\s*$"
+)
+
+
+def _parse_pipeline_md(content: str) -> list[PipelineTemplateStep]:
+    """Parse markdown produced by _pipeline_steps_to_md back to step list.
+
+    Each step heading:  ## <name> [<id>] (<kind>)
+    followed by a description paragraph.
+    Returns an empty list if no valid steps are found.
+    """
+    steps: list[PipelineTemplateStep] = []
+    current: dict[str, str] | None = None
+    desc_lines: list[str] = []
+
+    def _flush() -> None:
+        if current is not None:
+            desc = " ".join(desc_lines).strip()
+            steps.append(
+                PipelineTemplateStep(
+                    id=current["id"],
+                    name=current["name"],
+                    kind=current["kind"],
+                    description=desc,
+                )
+            )
+
+    for raw_line in content.splitlines():
+        line = raw_line.rstrip()
+        m = _STEP_HEADING_RE.match(line)
+        if m:
+            _flush()
+            current = {"name": m.group(1).strip(), "id": m.group(2).strip(), "kind": m.group(3).strip()}
+            desc_lines = []
+        elif current is not None:
+            # Ignore top-level #/--- headers inside step sections
+            if line.startswith("# ") or line.startswith("---"):
+                continue
+            desc_lines.append(line)
+
+    _flush()
+    return steps
+
+
+def _parse_md_frontmatter(content: str) -> tuple[dict[str, str], str]:
+    lines = content.splitlines()
+    if len(lines) < 3 or lines[0].strip() != "---":
+        return {}, content
+
+    frontmatter: dict[str, str] = {}
+    end_idx = -1
+    for idx in range(1, len(lines)):
+        line = lines[idx].rstrip()
+        if line.strip() == "---":
+            end_idx = idx
+            break
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        frontmatter[key.strip().lower()] = value.strip()
+
+    if end_idx < 0:
+        return {}, content
+    body = "\n".join(lines[end_idx + 1 :])
+    return frontmatter, body
+
+
+_MD_KIND_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
+
+
+def _parse_pipeline_md_strict(
+    template_id: str,
+    content: str,
+    fallback_name: str,
+    fallback_version: str,
+    fallback_description: str,
+) -> tuple[PipelineTemplateInfo, list[PipelineValidationError]]:
+    """Parse markdown into template info and return structured validation errors."""
+    frontmatter, body = _parse_md_frontmatter(content)
+    errors: list[PipelineValidationError] = []
+
+    parsed_id = (frontmatter.get("pipeline_id") or template_id).strip()
+    if parsed_id and parsed_id != template_id:
+        errors.append(
+            PipelineValidationError(
+                error_code="pipeline_id_mismatch",
+                message="Frontmatter pipeline_id does not match template id.",
+                field_path="frontmatter.pipeline_id",
+                expected=template_id,
+                actual=parsed_id,
+                suggestion="Keep frontmatter pipeline_id equal to the template id.",
+            )
+        )
+
+    name = (frontmatter.get("name") or fallback_name or template_id).strip() or template_id
+    version = (frontmatter.get("version") or fallback_version or "0.1.0").strip() or "0.1.0"
+
+    # Description is parsed from body content after first level-1 title and before first step heading.
+    description_lines: list[str] = []
+    found_title = False
+    for raw_line in body.splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("## "):
+            break
+        if line.startswith("# "):
+            found_title = True
+            continue
+        if found_title:
+            description_lines.append(line)
+    description = " ".join(part.strip() for part in description_lines if part.strip())
+    if not description:
+        description = (fallback_description or "").strip()
+
+    steps = _parse_pipeline_md(content)
+
+    if not steps:
+        errors.append(
+            PipelineValidationError(
+                error_code="steps_empty",
+                message="No valid pipeline steps found in markdown.",
+                field_path="steps",
+                expected="At least one step heading in format: ## <name> [<id>] (<kind>)",
+                actual="0 step",
+                suggestion="Add at least one step heading and a description paragraph.",
+            )
+        )
+
+    seen_step_ids: set[str] = set()
+    for idx, step in enumerate(steps):
+        step_path = f"steps[{idx}]"
+        if not step.id.strip():
+            errors.append(
+                PipelineValidationError(
+                    error_code="step_id_missing",
+                    message="Step id is required.",
+                    field_path=f"{step_path}.id",
+                    suggestion="Use a stable id in heading brackets: [step-id].",
+                )
+            )
+        if not step.name.strip():
+            errors.append(
+                PipelineValidationError(
+                    error_code="step_name_missing",
+                    message="Step name is required.",
+                    field_path=f"{step_path}.name",
+                    step_id=step.id,
+                    suggestion="Use a non-empty step title before [id].",
+                )
+            )
+        if not _MD_KIND_RE.match(step.kind.strip()):
+            errors.append(
+                PipelineValidationError(
+                    error_code="step_kind_invalid",
+                    message="Step kind format is invalid.",
+                    field_path=f"{step_path}.kind",
+                    step_id=step.id,
+                    expected="lowercase kebab/snake style token, e.g. ingest/transform/validation",
+                    actual=step.kind,
+                    suggestion="Change kind to lowercase letters, digits, '_' or '-'.",
+                )
+            )
+        if step.id in seen_step_ids:
+            errors.append(
+                PipelineValidationError(
+                    error_code="step_id_duplicate",
+                    message="Duplicate step id found.",
+                    field_path=f"{step_path}.id",
+                    step_id=step.id,
+                    actual=step.id,
+                    suggestion="Use unique step ids across the whole pipeline.",
+                )
+            )
+        seen_step_ids.add(step.id)
+
+    template = PipelineTemplateInfo(
+        id=template_id,
+        name=name,
+        version=version,
+        description=description,
+        steps=steps,
+        compilation_status="invalid" if errors else "ready",
+        validation_errors=errors,
+    )
+    return template, errors
+
+
+def _template_content_hash(template: PipelineTemplateInfo) -> str:
+    canonical_doc = {
+        "id": template.id,
+        "name": template.name,
+        "version": template.version,
+        "description": template.description,
+        "steps": [
+            {
+                "id": step.id,
+                "name": step.name,
+                "kind": step.kind,
+                "description": step.description,
+            }
+            for step in template.steps
+        ],
+    }
+    raw = json.dumps(canonical_doc, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _build_pipeline_validation_exception(
+    errors: list[PipelineValidationError],
+    md_relative_path: str,
+) -> HTTPException:
+    detail = {
+        "code": "pipeline_md_validation_failed",
+        "message": "Pipeline markdown validation failed.",
+        "md_relative_path": md_relative_path,
+        "errors": [item.model_dump() for item in errors],
+    }
+    return HTTPException(status_code=422, detail=detail)
+
+
+def _build_pipeline_revision_conflict_exception(
+    expected_revision: int,
+    current: PipelineTemplateInfo,
+) -> HTTPException:
+    detail = {
+        "code": "pipeline_revision_conflict",
+        "message": "Pipeline revision conflict.",
+        "expected_revision": expected_revision,
+        "current_revision": current.revision,
+        "current_content_hash": current.content_hash,
+    }
+    return HTTPException(status_code=409, detail=detail)
+
+
+def _load_agent_pipeline_template(workspace_dir: Path, template_id: str) -> PipelineTemplateInfo | None:
+    target = _agent_pipeline_templates_dir(workspace_dir) / f"{template_id}.json"
+    if not target.exists():
+        return None
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Failed to read pipeline template %s: %s", template_id, exc)
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return _parse_pipeline_template_doc(raw, fallback_id=template_id)
+
+
+def _sync_pipeline_md(workspace_dir: Path, template: PipelineTemplateInfo) -> Path:
+    """Write (create or overwrite) the pipeline markdown file and return its path."""
+    md_path = _pipeline_md_path(workspace_dir, template.id)
+    md_content = _pipeline_steps_to_md(template)
+    md_path.write_text(md_content, encoding="utf-8")
+    return md_path
+
+
+def _upsert_pipeline_workspace_memory(
+    workspace_dir: Path,
+    pipeline_id: str,
+    pipeline_name: str,
+    md_relative_path: str,
+    flow_memory_relative_path: str,
+) -> None:
+    """Update the pipeline-workspaces memory file so the agent knows where to find the MD."""
+    memory_dir = workspace_dir / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    memory_path = memory_dir / _PIPELINE_MEMORY_FILENAME
+
+    entry_marker = f"<!-- pipeline:{pipeline_id} -->"
+    entry_text = (
+        f"{entry_marker}\n"
+        f"- **{pipeline_name}** (`{pipeline_id}`): `{md_relative_path}`\n"
+        f"  - flow_memory: `{flow_memory_relative_path}`\n"
+    )
+
+    if memory_path.exists():
+        existing = memory_path.read_text(encoding="utf-8")
+        # Replace existing entry if present
+        pattern = re.compile(
+            rf"{re.escape(entry_marker)}\n.*?(?=\n<!-- pipeline:|\Z)",
+            re.DOTALL,
+        )
+        if entry_marker in existing:
+            updated = pattern.sub(entry_text, existing, count=1)
+        else:
+            updated = existing.rstrip() + "\n\n" + entry_text
+        memory_path.write_text(updated, encoding="utf-8")
+    else:
+        header = (
+            "# Pipeline Workspaces\n\n"
+            "此文件由 CoPaw 自动维护，记录各流程的 Markdown 工作文件路径。\n"
+            "编辑流程时请直接修改对应的 Markdown 文件。\n\n"
+        )
+        memory_path.write_text(header + entry_text, encoding="utf-8")
+
+
+def _get_pipeline_draft(workspace_dir: Path, pipeline_id: str) -> PipelineDraftInfo | None:
+    """Read the pipeline markdown and return parsed steps + metadata, or None if not exists."""
+    md_path = _pipeline_md_path(workspace_dir, pipeline_id)
+    if not md_path.exists():
+        return None
+    content = md_path.read_text(encoding="utf-8")
+    current = _load_agent_pipeline_template(workspace_dir, pipeline_id)
+    fallback_name = current.name if current else pipeline_id
+    fallback_version = current.version if current else "0.1.0"
+    fallback_description = current.description if current else ""
+    parsed_template, errors = _parse_pipeline_md_strict(
+        template_id=pipeline_id,
+        content=content,
+        fallback_name=fallback_name,
+        fallback_version=fallback_version,
+        fallback_description=fallback_description,
+    )
+    stat = md_path.stat()
+    rel_path = _pipeline_md_relative_path(pipeline_id)
+    content_hash = _template_content_hash(parsed_template) if not errors else ""
+    return PipelineDraftInfo(
+        md_path=str(md_path),
+        md_relative_path=rel_path,
+        flow_memory_path=str(_pipeline_flow_memory_path(workspace_dir, pipeline_id)),
+        flow_memory_relative_path=_pipeline_flow_memory_relative_path(pipeline_id),
+        md_mtime=stat.st_mtime,
+        steps=parsed_template.steps,
+        revision=current.revision if current else 0,
+        content_hash=content_hash,
+        validation_errors=errors,
+        compilation_status="invalid" if errors else "ready",
+    )
 
 
 def _list_agent_pipeline_templates(workspace_dir: Path) -> list[PipelineTemplateInfo]:
@@ -299,6 +768,103 @@ def _save_agent_pipeline_template(
     )
 
     return normalized
+
+
+def _save_agent_pipeline_template_with_md(
+    workspace_dir: Path,
+    template: PipelineTemplateInfo,
+    expected_revision: int | None = None,
+) -> PipelineTemplateInfo:
+    """Markdown is the source of truth; derive JSON with strict validation and idempotent revision/hash."""
+    template_id = (template.id or "").strip().lower()
+    template_id = re.sub(r"[^a-z0-9_-]+", "-", template_id).strip("-")
+    if not template_id:
+        raise HTTPException(status_code=400, detail="Invalid pipeline template id")
+
+    current = _load_agent_pipeline_template(workspace_dir, template_id)
+    if (
+        expected_revision is not None
+        and expected_revision >= 0
+        and current is not None
+        and current.revision != expected_revision
+    ):
+        raise _build_pipeline_revision_conflict_exception(expected_revision, current)
+
+    base_template = PipelineTemplateInfo(
+        id=template_id,
+        name=(template.name or template_id).strip() or template_id,
+        version=(template.version or "0.1.0").strip() or "0.1.0",
+        description=(template.description or "").strip(),
+        steps=template.steps,
+        revision=current.revision if current else 0,
+        content_hash=current.content_hash if current else "",
+        md_mtime=current.md_mtime if current else 0.0,
+    )
+
+    md_path = _pipeline_md_path(workspace_dir, template_id)
+    if not md_path.exists():
+        # Bootstrap markdown workspace from payload only once when markdown does not exist.
+        md_path.write_text(_pipeline_steps_to_md(base_template), encoding="utf-8")
+
+    md_content = md_path.read_text(encoding="utf-8")
+    parsed_template, errors = _parse_pipeline_md_strict(
+        template_id=template_id,
+        content=md_content,
+        fallback_name=base_template.name,
+        fallback_version=base_template.version,
+        fallback_description=base_template.description,
+    )
+    if errors:
+        raise _build_pipeline_validation_exception(errors, _pipeline_md_relative_path(template_id))
+
+    parsed_template.md_mtime = md_path.stat().st_mtime
+    parsed_template.content_hash = _template_content_hash(parsed_template)
+    if current and current.content_hash == parsed_template.content_hash:
+        parsed_template.revision = current.revision
+    else:
+        parsed_template.revision = (current.revision if current else 0) + 1
+    parsed_template.compilation_status = "ready"
+    parsed_template.validation_errors = []
+
+    template_doc = {
+        "id": parsed_template.id,
+        "name": parsed_template.name,
+        "version": parsed_template.version,
+        "description": parsed_template.description,
+        "steps": [
+            {
+                "id": step.id,
+                "name": step.name,
+                "kind": step.kind,
+                "description": step.description,
+            }
+            for step in parsed_template.steps
+        ],
+        "revision": parsed_template.revision,
+        "content_hash": parsed_template.content_hash,
+        "md_mtime": parsed_template.md_mtime,
+        "validation_errors": [],
+        "compilation_status": parsed_template.compilation_status,
+    }
+
+    target = _agent_pipeline_templates_dir(workspace_dir) / f"{parsed_template.id}.json"
+    target.write_text(
+        json.dumps(template_doc, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _upsert_pipeline_workspace_memory(
+        workspace_dir,
+        parsed_template.id,
+        parsed_template.name,
+        _pipeline_md_relative_path(parsed_template.id),
+        _pipeline_flow_memory_relative_path(parsed_template.id),
+    )
+    _ensure_pipeline_flow_memory(
+        workspace_dir,
+        parsed_template.id,
+        parsed_template.name,
+    )
+    return parsed_template
 
 
 def _resolve_pipeline_template(project_dir: Path, template_id: str) -> PipelineTemplateInfo:

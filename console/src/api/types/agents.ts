@@ -29,12 +29,47 @@ export interface ProjectPipelineTemplateStep {
   description: string;
 }
 
+export interface PipelineValidationError {
+  error_code: string;
+  message: string;
+  field_path: string;
+  step_id: string;
+  expected: string;
+  actual: string;
+  suggestion: string;
+}
+
+export interface AgentPipelineDraftInfo {
+  md_path: string;
+  md_relative_path: string;
+  flow_memory_path: string;
+  flow_memory_relative_path: string;
+  md_mtime: number;
+  revision: number;
+  content_hash: string;
+  validation_errors: PipelineValidationError[];
+  compilation_status: string;
+  steps: ProjectPipelineTemplateStep[];
+}
+
 export interface ProjectPipelineTemplateInfo {
   id: string;
   name: string;
   version: string;
   description: string;
   steps: ProjectPipelineTemplateStep[];
+  revision?: number;
+  content_hash?: string;
+  md_mtime?: number;
+  validation_errors?: PipelineValidationError[];
+  compilation_status?: string;
+}
+
+export interface PipelineSaveStreamEvent {
+  event: string;
+  agent_id: string;
+  pipeline_id: string;
+  payload: Record<string, unknown>;
 }
 
 export interface ProjectPipelineRunSummary {

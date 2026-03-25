@@ -114,6 +114,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
+        flow_memory_path: str | None = None,
     ):
         """Initialize CoPawAgent.
 
@@ -141,6 +142,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
+        self._flow_memory_path = flow_memory_path
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -378,7 +380,33 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
 
+        flow_memory = self._load_flow_memory_content()
+        if flow_memory:
+            sys_prompt = (
+                sys_prompt
+                + "\n\n# Flow Scoped Memory\n\n"
+                + flow_memory
+            )
+
         return sys_prompt
+
+    def set_flow_memory_path(self, flow_memory_path: str | None) -> None:
+        """Set flow-scoped memory path used in system prompt rebuilding."""
+        self._flow_memory_path = flow_memory_path
+
+    def _load_flow_memory_content(self) -> str:
+        """Load temporary flow-scoped memory content for current pipeline editing session."""
+        if not self._flow_memory_path:
+            return ""
+
+        try:
+            path = Path(self._flow_memory_path)
+            if not path.exists() or not path.is_file():
+                return ""
+            return path.read_text(encoding="utf-8").strip()
+        except Exception as exc:
+            logger.warning("Failed to load flow memory file %s: %s", self._flow_memory_path, exc)
+            return ""
 
     def _setup_memory_manager(
         self,

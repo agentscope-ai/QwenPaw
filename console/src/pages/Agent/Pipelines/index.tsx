@@ -16,6 +16,7 @@ import { trackNavigation } from "../../../utils/navigationTelemetry";
 import type {
   AgentProjectSummary,
   AgentSummary,
+  PipelineValidationError,
   ProjectPipelineTemplateStep,
   ProjectPipelineRunSummary,
   ProjectPipelineTemplateInfo,
@@ -87,6 +88,12 @@ type DraftParseResult = {
   error?: string;
 };
 
+type PipelineSaveConflictInfo = {
+  expectedRevision: number;
+  currentRevision: number;
+  currentContentHash: string;
+};
+
 type PipelineChatBindingMeta = {
   binding_type: "pipeline_edit";
   pipeline_binding_key: string;
@@ -95,6 +102,7 @@ type PipelineChatBindingMeta = {
   pipeline_version: string;
   pipeline_scope: "independent" | "project";
   agent_id: string;
+  flow_memory_path?: string;
 };
 
 const INDEPENDENT_PIPELINE_SCOPE_ID = "__independent__";
@@ -318,6 +326,7 @@ function buildPipelineChatBindingMeta(params: {
   version: string;
   scope: "independent" | "project";
   agentId?: string;
+  flowMemoryPath?: string;
 }): PipelineChatBindingMeta {
   const normalizedVersion = normalizeVersion(params.version);
   return {
@@ -331,7 +340,12 @@ function buildPipelineChatBindingMeta(params: {
     pipeline_version: normalizedVersion,
     pipeline_scope: params.scope,
     agent_id: params.agentId || "unknown",
+    flow_memory_path: params.flowMemoryPath,
   };
+}
+
+function buildPipelineFlowMemoryRelativePath(pipelineId: string): string {
+  return `pipelines/workspaces/${pipelineId}/flow-memory.md`;
 }
 
 function normalizeDraftSteps(raw: unknown): DraftParseResult {
@@ -431,6 +445,83 @@ function normalizeDraftSteps(raw: unknown): DraftParseResult {
   }
 
   return { steps };
+}
+
+function extractPipelineConflictInfo(detail: unknown): PipelineSaveConflictInfo | null {
+  if (!detail || typeof detail !== "object") return null;
+  const obj = detail as Record<string, unknown>;
+  if (obj.code !== "pipeline_revision_conflict") return null;
+  const expectedRevision = Number(obj.expected_revision || 0);
+  const currentRevision = Number(obj.current_revision || 0);
+  const currentContentHash = typeof obj.current_content_hash === "string"
+    ? obj.current_content_hash
+    : "";
+  return {
+    expectedRevision,
+    currentRevision,
+    currentContentHash,
+  };
+}
+
+function extractPipelineDetailFromError(error: unknown): Record<string, unknown> | null {
+  const text = error instanceof Error ? error.message : String(error);
+  const marker = " - ";
+  const idx = text.indexOf(marker);
+  if (idx < 0) return null;
+  const maybeJson = text.slice(idx + marker.length).trim();
+  try {
+    const parsed = JSON.parse(maybeJson) as Record<string, unknown>;
+    const detail = parsed.detail;
+    if (detail && typeof detail === "object") {
+      return detail as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function stepsFingerprint(steps: ProjectPipelineTemplateStep[]): string {
+  return JSON.stringify(
+    steps.map((step) => ({
+      id: step.id,
+      name: step.name,
+      kind: step.kind,
+      description: step.description || "",
+    })),
+  );
+}
+
+function mergeDraftStepsByStepId(
+  remoteSteps: ProjectPipelineTemplateStep[],
+  localSteps: ProjectPipelineTemplateStep[],
+): ProjectPipelineTemplateStep[] {
+  const localMap = new Map(localSteps.map((step) => [step.id, step] as const));
+
+  const merged: ProjectPipelineTemplateStep[] = [];
+
+  // Keep remote order as baseline, then overlay local edits for matching ids.
+  remoteSteps.forEach((remoteStep) => {
+    const localStep = localMap.get(remoteStep.id);
+    if (localStep) {
+      merged.push({
+        ...remoteStep,
+        name: localStep.name || remoteStep.name,
+        kind: localStep.kind || remoteStep.kind,
+        description: localStep.description || remoteStep.description,
+      });
+      localMap.delete(remoteStep.id);
+      return;
+    }
+    merged.push(remoteStep);
+  });
+
+  // Append local-only steps that do not exist remotely.
+  localMap.forEach((localOnly) => {
+    merged.push(localOnly);
+  });
+
+  return merged;
 }
 
 function compareSemverDesc(a: string, b: string): number {
@@ -654,6 +745,15 @@ export default function PipelinesPage() {
   const [draftParseError, setDraftParseError] = useState("");
   const [expandedDraftDiffKeys, setExpandedDraftDiffKeys] = useState<string[]>([]);
   const [draftDiffViewMode, setDraftDiffViewMode] = useState<"changedOnly" | "full">("changedOnly");
+  const [lastDraftMdMtime, setLastDraftMdMtime] = useState(0);
+  const [saveStreamEvents, setSaveStreamEvents] = useState<Array<{ event: string; ts: number; detail: string }>>([]);
+  const [saveStreamError, setSaveStreamError] = useState("");
+  const [saveValidationErrors, setSaveValidationErrors] = useState<PipelineValidationError[]>([]);
+  const [saveConflictInfo, setSaveConflictInfo] = useState<PipelineSaveConflictInfo | null>(null);
+  const [conflictLocalDraftBackup, setConflictLocalDraftBackup] = useState<ProjectPipelineTemplateStep[]>([]);
+  const [conflictRemoteDraftBackup, setConflictRemoteDraftBackup] = useState<ProjectPipelineTemplateStep[]>([]);
+  const [conflictRestoreAvailable, setConflictRestoreAvailable] = useState(false);
+  const [conflictMergeAvailable, setConflictMergeAvailable] = useState(false);
 
   const currentAgent = useMemo(
     () => getCurrentAgent(agents, selectedAgent),
@@ -889,7 +989,107 @@ export default function PipelinesPage() {
     setDraftParseStatus("idle");
     setDraftParseError("");
     setExpandedDraftDiffKeys([]);
+    setLastDraftMdMtime(0);
+    setSaveStreamEvents([]);
+    setSaveStreamError("");
+    setSaveValidationErrors([]);
+    setSaveConflictInfo(null);
+    setConflictLocalDraftBackup([]);
+    setConflictRemoteDraftBackup([]);
+    setConflictRestoreAvailable(false);
+    setConflictMergeAvailable(false);
   };
+
+  const handleRefreshAfterConflict = useCallback(async () => {
+    if (!selectedAgent || !selectedTemplateItem) {
+      return;
+    }
+    try {
+      const data = await loadPipelineManagementData(
+        selectedAgent,
+        projects,
+        independentScopeLabel,
+      );
+      setTemplates(data.templates);
+      setRuns(data.runs);
+      const remoteDraft = await agentsApi.getPipelineDraft(selectedAgent, selectedTemplateItem.id);
+      if (remoteDraft.steps && remoteDraft.steps.length > 0) {
+        setDraftNewVersionSteps(remoteDraft.steps);
+        setDraftParseStatus("ready");
+        setDraftParseError("");
+        setExpandedDraftDiffKeys([]);
+        setLastDraftMdMtime(remoteDraft.md_mtime || 0);
+        setConflictRemoteDraftBackup(remoteDraft.steps);
+      }
+
+      const hasLocalBackup = conflictLocalDraftBackup.length > 0;
+      const hasRemoteBackup = (remoteDraft.steps || []).length > 0;
+      const localFingerprint = hasLocalBackup
+        ? stepsFingerprint(conflictLocalDraftBackup)
+        : "";
+      const remoteFingerprint = stepsFingerprint(remoteDraft.steps || []);
+      setConflictRestoreAvailable(
+        hasLocalBackup && localFingerprint !== remoteFingerprint,
+      );
+      setConflictMergeAvailable(
+        hasLocalBackup && hasRemoteBackup && localFingerprint !== remoteFingerprint,
+      );
+
+      message.success(t("pipelines.conflictRefreshed", "已刷新到最新流程版本，请检查后重试保存。"));
+    } catch (error) {
+      console.error("failed to refresh pipelines after conflict", error);
+      message.error(t("pipelines.conflictRefreshFailed", "刷新流程失败，请稍后重试。"));
+    }
+  }, [
+    conflictLocalDraftBackup,
+    independentScopeLabel,
+    projects,
+    selectedAgent,
+    selectedTemplateItem,
+    t,
+  ]);
+
+  const handleRestoreLocalDraftAfterConflict = useCallback(() => {
+    if (conflictLocalDraftBackup.length === 0) {
+      return;
+    }
+    setDraftNewVersionSteps(conflictLocalDraftBackup);
+    setDraftParseStatus("ready");
+    setDraftParseError("");
+    setExpandedDraftDiffKeys([]);
+    setConflictRestoreAvailable(false);
+    message.success(t("pipelines.conflictLocalRestored", "已恢复本地草稿，请确认后重新保存。"));
+  }, [conflictLocalDraftBackup, t]);
+
+  const handleUseRemoteDraftAfterConflict = useCallback(() => {
+    if (conflictRemoteDraftBackup.length === 0) {
+      return;
+    }
+    setDraftNewVersionSteps(conflictRemoteDraftBackup);
+    setDraftParseStatus("ready");
+    setDraftParseError("");
+    setExpandedDraftDiffKeys([]);
+    setConflictRestoreAvailable(true);
+    setConflictMergeAvailable(false);
+    message.success(t("pipelines.conflictRemoteApplied", "已采用远端草稿。"));
+  }, [conflictRemoteDraftBackup, t]);
+
+  const handleMergeDraftAfterConflict = useCallback(() => {
+    if (conflictRemoteDraftBackup.length === 0 || conflictLocalDraftBackup.length === 0) {
+      return;
+    }
+    const merged = mergeDraftStepsByStepId(
+      conflictRemoteDraftBackup,
+      conflictLocalDraftBackup,
+    );
+    setDraftNewVersionSteps(merged);
+    setDraftParseStatus("ready");
+    setDraftParseError("");
+    setExpandedDraftDiffKeys([]);
+    setConflictRestoreAvailable(true);
+    setConflictMergeAvailable(false);
+    message.success(t("pipelines.conflictMerged", "已按 step_id 合并本地与远端草稿。"));
+  }, [conflictLocalDraftBackup, conflictRemoteDraftBackup, t]);
 
   const requestCloseEditMode = () => {
     if (!selectedIsDraft) {
@@ -1099,7 +1299,12 @@ export default function PipelinesPage() {
   );
 
   const injectPipelineContext = useCallback(
-    async (chat: Pick<ChatSpec, "id" | "session_id" | "user_id" | "channel">, target: EditChatTarget) => {
+    async (
+      chat: Pick<ChatSpec, "id" | "session_id" | "user_id" | "channel">,
+      target: EditChatTarget,
+      mdRelativePath?: string,
+      flowMemoryRelativePath?: string,
+    ) => {
       const prompt = buildPipelineDesignEditContextPrompt({
         agentId: selectedAgent,
         source: "pipelines_page",
@@ -1109,6 +1314,8 @@ export default function PipelinesPage() {
         version: normalizeVersion(target.version),
         description: target.description || "",
         steps: target.steps || [],
+        mdRelativePath,
+        flowMemoryRelativePath,
       });
 
       sessionApi.setLastUserMessage(chat.id, prompt);
@@ -1150,6 +1357,18 @@ export default function PipelinesPage() {
         steps: targetSteps,
         source: targetScope,
       };
+      let mdRelativePath = "";
+      let flowMemoryRelativePath = "";
+      if (withEditMode && selectedAgent && normalizedTarget.pipelineId !== "unknown") {
+        try {
+          const draftInfo = await agentsApi.getPipelineDraft(selectedAgent, normalizedTarget.pipelineId);
+          mdRelativePath = draftInfo.md_relative_path || "";
+          flowMemoryRelativePath = draftInfo.flow_memory_relative_path || "";
+          setLastDraftMdMtime(draftInfo.md_mtime || 0);
+        } catch {
+          setLastDraftMdMtime(0);
+        }
+      }
       const targetKey = buildPipelineDesignBindingKey({
         pipelineId: normalizedTarget.pipelineId,
         version: normalizedTarget.version,
@@ -1196,7 +1415,12 @@ export default function PipelinesPage() {
           setEditGuidePlaceholder(editGuide);
 
           try {
-            await injectPipelineContext(restored, normalizedTarget);
+            await injectPipelineContext(
+              restored,
+              normalizedTarget,
+              mdRelativePath,
+              flowMemoryRelativePath,
+            );
             message.success(
               t("pipelines.boundSessionRestored", "已恢复流程绑定会话，并同步当前流程上下文。"),
             );
@@ -1216,6 +1440,11 @@ export default function PipelinesPage() {
         version: normalizedTarget.version,
         scope: normalizedTarget.source || "independent",
         agentId: selectedAgent,
+        flowMemoryPath:
+          flowMemoryRelativePath ||
+          (normalizedTarget.pipelineId && normalizedTarget.pipelineId !== "unknown"
+            ? buildPipelineFlowMemoryRelativePath(normalizedTarget.pipelineId)
+            : undefined),
       });
 
       const created = await chatApi.createChat({
@@ -1239,7 +1468,12 @@ export default function PipelinesPage() {
         setEditGuidePlaceholder(editGuide);
 
         try {
-          await injectPipelineContext(created, normalizedTarget);
+          await injectPipelineContext(
+            created,
+            normalizedTarget,
+            mdRelativePath,
+            flowMemoryRelativePath,
+          );
           message.success(
             t("pipelines.boundSessionCreated", "已创建流程绑定会话，并同步当前流程上下文。"),
           );
@@ -1355,6 +1589,7 @@ export default function PipelinesPage() {
     };
 
     setDraftSaving(true);
+    const saveToastKey = "pipelines-save-stream";
     try {
       const savedDraftId = selectedTemplateItem.id;
       const savedDraftKey = buildPipelineGroupKey(savedDraftId, "independent");
@@ -1366,13 +1601,122 @@ export default function PipelinesPage() {
       );
       const preservedDraftKeys = draftPipelineKeys.filter((key) => key !== savedDraftKey);
 
-      await agentsApi.saveAgentPipelineTemplate(selectedAgent, safeTemplateId, {
-        id: safeTemplateId,
-        name: templateDoc.name,
-        version: templateDoc.version,
-        description: templateDoc.description,
-        steps: templateDoc.steps,
+      let hasStreamFailure = false;
+      let streamFailureStatusCode = 0;
+      let streamFailureDetail = "";
+      let streamFailureDetailRaw: unknown = null;
+      let streamReachedDone = false;
+      setSaveStreamEvents([]);
+      setSaveStreamError("");
+      setSaveValidationErrors([]);
+      setSaveConflictInfo(null);
+      setConflictLocalDraftBackup([]);
+      setConflictRemoteDraftBackup([]);
+      setConflictRestoreAvailable(false);
+      setConflictMergeAvailable(false);
+
+      message.loading({
+        key: saveToastKey,
+        content: t("pipelines.saveDraftPending", "正在校验并保存流程..."),
+        duration: 0,
       });
+
+      try {
+        await agentsApi.saveAgentPipelineTemplateStream(
+          selectedAgent,
+          safeTemplateId,
+          {
+            id: safeTemplateId,
+            name: templateDoc.name,
+            version: templateDoc.version,
+            description: templateDoc.description,
+            steps: templateDoc.steps,
+          },
+          (event) => {
+            const detailText =
+              typeof event.payload?.detail === "string"
+                ? event.payload.detail
+                : event.payload?.detail
+                  ? JSON.stringify(event.payload.detail)
+                  : "";
+            setSaveStreamEvents((prev) => [
+              ...prev.slice(-7),
+              { event: event.event, ts: Date.now(), detail: detailText },
+            ]);
+
+            if (event.event === "saved") {
+              message.loading({
+                key: saveToastKey,
+                content: t("pipelines.saveDraftSaved", "保存成功，正在刷新数据..."),
+                duration: 0,
+              });
+            } else if (event.event === "validation_failed" || event.event === "save_failed") {
+              const payload = event.payload || {};
+              hasStreamFailure = true;
+              streamFailureStatusCode = Number(payload.status_code || 0) || 500;
+              streamFailureDetail =
+                typeof payload.detail === "string"
+                  ? payload.detail
+                  : payload.detail
+                    ? JSON.stringify(payload.detail)
+                    : "";
+              streamFailureDetailRaw = payload.detail;
+              setSaveStreamError(streamFailureDetail || `${streamFailureStatusCode}`);
+
+              const detailObj = payload.detail;
+              if (detailObj && typeof detailObj === "object") {
+                const maybeErrors = (detailObj as { errors?: unknown }).errors;
+                if (Array.isArray(maybeErrors)) {
+                  const normalized = maybeErrors.filter(
+                    (item): item is PipelineValidationError =>
+                      Boolean(item) && typeof item === "object" &&
+                      typeof (item as { error_code?: unknown }).error_code === "string",
+                  );
+                  setSaveValidationErrors(normalized);
+                }
+              }
+            } else if (event.event === "done") {
+              streamReachedDone = true;
+            }
+          },
+          {
+            expectedRevision: selectedTemplateItem.revision,
+          },
+        );
+      } catch (streamError) {
+        // Fallback to non-stream save path if SSE is interrupted.
+        console.warn("pipeline save stream failed, fallback to direct save", streamError);
+        await agentsApi.saveAgentPipelineTemplate(
+          selectedAgent,
+          safeTemplateId,
+          {
+            id: safeTemplateId,
+            name: templateDoc.name,
+            version: templateDoc.version,
+            description: templateDoc.description,
+            steps: templateDoc.steps,
+          },
+          {
+            expectedRevision: selectedTemplateItem.revision,
+          },
+        );
+        streamReachedDone = true;
+      }
+
+      if (hasStreamFailure) {
+        const conflictInfo = extractPipelineConflictInfo(streamFailureDetailRaw);
+        if (conflictInfo) {
+          setSaveConflictInfo(conflictInfo);
+          setConflictLocalDraftBackup(draftNewVersionSteps);
+          setConflictRemoteDraftBackup([]);
+          setConflictMergeAvailable(false);
+        }
+        throw new Error(`${streamFailureStatusCode || 500} ${streamFailureDetail}`.trim());
+      }
+
+      if (!streamReachedDone) {
+        throw new Error("Save stream ended unexpectedly");
+      }
 
       const data = await loadPipelineManagementData(
         selectedAgent,
@@ -1391,10 +1735,31 @@ export default function PipelinesPage() {
       setDraftParseStatus("idle");
       setDraftParseError("");
       setExpandedDraftDiffKeys([]);
+      setLastDraftMdMtime(0);
+      setSaveStreamError("");
+      setSaveValidationErrors([]);
+      setSaveConflictInfo(null);
+      setConflictLocalDraftBackup([]);
+      setConflictRemoteDraftBackup([]);
+      setConflictRestoreAvailable(false);
+      setConflictMergeAvailable(false);
 
+      message.destroy(saveToastKey);
       message.success(t("pipelines.saveDraftSuccess", "流程已保存"));
     } catch (error) {
       console.error("failed to save draft pipeline", error);
+      message.destroy(saveToastKey);
+      const detailObj = extractPipelineDetailFromError(error);
+      const parsedConflictInfo = extractPipelineConflictInfo(detailObj);
+      if (parsedConflictInfo) {
+        setSaveConflictInfo(parsedConflictInfo);
+        setConflictLocalDraftBackup(draftNewVersionSteps);
+        setConflictRemoteDraftBackup([]);
+        setConflictMergeAvailable(false);
+      }
+      if (!saveStreamError) {
+        setSaveStreamError(String(error));
+      }
       message.error(t("pipelines.saveDraftFailed", "保存流程失败，请重试。"));
     } finally {
       setDraftSaving(false);
@@ -1457,38 +1822,74 @@ export default function PipelinesPage() {
         null;
 
       if (!parsedTextJson && !parsedFromResponse) {
-        setDraftParseStatus("error");
-        setDraftParseError(
+        // No JSON found in this turn — keep existing draft nodes unchanged.
+        message.warning(
           t(
             "pipelines.draftParseNoJson",
             "未识别到可用 JSON，请让助手严格输出 schema_version=1 与 steps 数组。",
           ),
         );
-        return;
-      }
-
-      if (parsed.error || parsed.steps.length === 0) {
-        setDraftParseStatus("error");
-        setDraftParseError(
+      } else if (!parsed || parsed.error || parsed.steps.length === 0) {
+        // JSON found but structurally invalid — keep existing draft nodes unchanged.
+        message.warning(
           t(
             "pipelines.draftParseInvalid",
             "JSON 解析失败：{{detail}}",
             {
               detail:
-                parsed.error ||
+                (parsed && parsed.error) ||
                 "invalid step schema: each step requires id/name/kind.",
             },
           ),
         );
+      } else {
+        setDraftNewVersionSteps(parsed.steps);
+        setDraftParseStatus("ready");
+        setDraftParseError("");
+        setExpandedDraftDiffKeys([]);
+      }
+
+      const activePipelineId = selectedPipeline?.id || selectedTemplateItem?.id || "";
+      if (!selectedAgent || !activePipelineId) {
         return;
       }
 
-      setDraftNewVersionSteps(parsed.steps);
-      setDraftParseStatus("ready");
-      setDraftParseError("");
-      setExpandedDraftDiffKeys([]);
+      void agentsApi
+        .getPipelineDraft(selectedAgent, activePipelineId)
+        .then((draftInfo) => {
+          if (draftInfo.validation_errors && draftInfo.validation_errors.length > 0) {
+            const firstError = draftInfo.validation_errors[0];
+            setSaveValidationErrors(draftInfo.validation_errors);
+            message.warning(
+              t(
+                "pipelines.draftValidationFailed",
+                "流程 Markdown 校验失败：{{detail}}",
+                { detail: firstError.message || firstError.error_code || "unknown error" },
+              ),
+            );
+            return;
+          }
+
+          const mdMtime = draftInfo.md_mtime || 0;
+          if (mdMtime <= lastDraftMdMtime) {
+            return;
+          }
+
+          setLastDraftMdMtime(mdMtime);
+          if (!draftInfo.steps || draftInfo.steps.length === 0) {
+            return;
+          }
+
+          setDraftNewVersionSteps(draftInfo.steps);
+          setDraftParseStatus("ready");
+          setDraftParseError("");
+          setExpandedDraftDiffKeys([]);
+        })
+        .catch(() => {
+          // Ignore when draft markdown does not exist yet.
+        });
     },
-    [editMode, t],
+    [editMode, lastDraftMdMtime, selectedAgent, selectedPipeline?.id, selectedTemplateItem?.id, t],
   );
 
   const toggleDraftDiffDetails = useCallback((key: string) => {
@@ -1852,6 +2253,91 @@ export default function PipelinesPage() {
                 </div>
               }
             >
+              {editMode && (saveStreamEvents.length > 0 || saveStreamError) ? (
+                <div className={styles.saveStreamPanel}>
+                  <Text type="secondary" className={styles.saveStreamTitle}>
+                    {t("pipelines.saveStreamTimeline", "保存事件")}
+                  </Text>
+                  {saveStreamEvents.map((item, index) => (
+                    <Text key={`${item.event}-${item.ts}-${index}`} type="secondary" className={styles.saveStreamItem}>
+                      {new Date(item.ts).toLocaleTimeString()} · {item.event}
+                      {item.detail ? ` · ${item.detail}` : ""}
+                    </Text>
+                  ))}
+                  {saveStreamError ? (
+                    <Text type="danger" className={styles.saveStreamError}>
+                      {t("pipelines.saveStreamError", "保存失败：{{detail}}", {
+                        detail: saveStreamError,
+                      })}
+                    </Text>
+                  ) : null}
+                  {saveValidationErrors.length > 0 ? (
+                    <div className={styles.validationErrorList}>
+                      {saveValidationErrors.map((item, index) => (
+                        <div key={`${item.error_code}-${item.field_path}-${index}`} className={styles.validationErrorItem}>
+                          <Text type="danger" className={styles.validationErrorTitle}>
+                            {item.error_code} · {item.field_path || "unknown_field"}
+                          </Text>
+                          <Text type="secondary" className={styles.validationErrorText}>
+                            {item.message}
+                          </Text>
+                          {item.step_id ? (
+                            <Text type="secondary" className={styles.validationErrorText}>
+                              step_id: {item.step_id}
+                            </Text>
+                          ) : null}
+                          {item.suggestion ? (
+                            <Text type="secondary" className={styles.validationErrorText}>
+                              suggestion: {item.suggestion}
+                            </Text>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {saveConflictInfo ? (
+                    <div className={styles.conflictPanel}>
+                      <Text type="warning" className={styles.conflictTitle}>
+                        {t("pipelines.conflictTitle", "检测到并发冲突")}
+                      </Text>
+                      <Text type="secondary" className={styles.validationErrorText}>
+                        {t(
+                          "pipelines.conflictDetail",
+                          "本地预期 revision={{expected}}，远端当前 revision={{current}}。",
+                          {
+                            expected: saveConflictInfo.expectedRevision,
+                            current: saveConflictInfo.currentRevision,
+                          },
+                        )}
+                      </Text>
+                      {saveConflictInfo.currentContentHash ? (
+                        <Text type="secondary" className={styles.validationErrorText}>
+                          hash: {saveConflictInfo.currentContentHash}
+                        </Text>
+                      ) : null}
+                      <Button size="small" onClick={() => void handleRefreshAfterConflict()}>
+                        {t("pipelines.conflictRefresh", "刷新后重试")}
+                      </Button>
+                      {conflictRemoteDraftBackup.length > 0 ? (
+                        <Button size="small" onClick={() => void handleUseRemoteDraftAfterConflict()}>
+                          {t("pipelines.conflictUseRemote", "采用远端草稿")}
+                        </Button>
+                      ) : null}
+                      {conflictMergeAvailable ? (
+                        <Button size="small" onClick={() => void handleMergeDraftAfterConflict()}>
+                          {t("pipelines.conflictMerge", "按 step_id 合并")}
+                        </Button>
+                      ) : null}
+                      {conflictRestoreAvailable ? (
+                        <Button size="small" onClick={() => void handleRestoreLocalDraftAfterConflict()}>
+                          {t("pipelines.conflictRestoreLocal", "恢复本地草稿")}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {editMode && draftParseStatus === "ready" && draftNewVersionSteps.length > 0 ? (
                 <>
                   <Text type="secondary" className={styles.draftStatusText}>
