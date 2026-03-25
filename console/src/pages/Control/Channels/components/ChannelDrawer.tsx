@@ -804,7 +804,11 @@ export function ChannelDrawer({
               {weixinQrcodeImg && !weixinQrcodeLoading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <img
-                    src={`data:image/png;base64,${weixinQrcodeImg}`}
+                    src={
+                      weixinQrcodeImg.startsWith("http")
+                        ? weixinQrcodeImg
+                        : `data:image/png;base64,${weixinQrcodeImg}`
+                    }
                     alt="WeChat QR Code"
                     style={{ width: 200, height: 200 }}
                   />
