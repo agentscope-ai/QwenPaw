@@ -197,6 +197,44 @@ LLM_BACKOFF_CAP = EnvVarLoader.get_float(
     min_value=0.5,
 )
 
+# LLM concurrency control
+# Maximum number of concurrent in-flight LLM calls; excess requests wait on
+# the semaphore.  Tune to your API quota: start conservatively at 3-5 and
+# increase (e.g. OpenAI Tier 1 ~500 RPM allows ~25 at 3 s/call average).
+LLM_MAX_CONCURRENT = EnvVarLoader.get_int(
+    "COPAW_LLM_MAX_CONCURRENT",
+    3,
+    min_value=1,
+    max_value=50,
+)
+
+# Default global pause duration (seconds) applied to all waiters when a 429
+# is received.  Overridden by the API's Retry-After header when present.
+LLM_RATE_LIMIT_PAUSE = EnvVarLoader.get_float(
+    "COPAW_LLM_RATE_LIMIT_PAUSE",
+    5.0,
+    min_value=1.0,
+    max_value=60.0,
+)
+
+# Random jitter range (seconds) added on top of the pause remaining time so
+# concurrent waiters stagger their wake-up and avoid a new burst.
+LLM_RATE_LIMIT_JITTER = EnvVarLoader.get_float(
+    "COPAW_LLM_RATE_LIMIT_JITTER",
+    1.0,
+    min_value=0.0,
+    max_value=5.0,
+)
+
+# Maximum time (seconds) a caller will wait for a semaphore slot before
+# giving up with a RuntimeError rather than blocking indefinitely.
+LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
+    "COPAW_LLM_ACQUIRE_TIMEOUT",
+    120.0,
+    min_value=10.0,
+    max_value=600.0,
+)
+
 # Tool guard approval timeout (seconds).
 try:
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(
