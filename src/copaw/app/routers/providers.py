@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List, Literal, Optional
 from copy import deepcopy
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
+from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
@@ -477,12 +479,13 @@ async def set_active_model(
         f"{body.provider_id}/{body.model}",
     )
 
+    # Hot reload agent (async, non-blocking)
+    schedule_agent_reload(request, workspace.agent_id)
+
     # Auto-probe multimodal if not yet probed (async, don't block)
     if not provider.is_local:
         for model in provider.models + provider.extra_models:
             if model.id == body.model and model.supports_multimodal is None:
-                import asyncio
-
                 # pylint: disable=protected-access
                 asyncio.create_task(
                     manager._auto_probe_multimodal(
