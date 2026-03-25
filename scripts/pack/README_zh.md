@@ -40,6 +40,25 @@ CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # 同时生成 .zip
 #   - CoPaw Desktop (Debug).bat (显示终端，便于调试)
 ```
 
+## 本地分发
+
+本地构建成功后，对外分发只建议使用最终产物：
+
+- **macOS**: `dist/CoPaw-<version>-macOS.zip`
+- **Windows**: `dist/CoPaw-Setup-<version>.exe`
+
+不要发布 `dist/copaw-env.tar.gz`、解压后的 `dist/CoPaw.app`、或 Python
+构建中间产物，除非你明确是在做排障或内部调试。
+
+建议在分享前做一次最小冒烟验证：
+
+1. 使用 `CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh`（macOS）或 `./scripts/pack/build_win.ps1`（Windows）完成构建。
+2. 在构建机上先打开一次打包后的应用。
+3. 确认浏览器控制台能正常拉起，基础启动流程完成。
+4. 如果 macOS 启动失败，检查 `~/.copaw/desktop.log`，或按下文方式从终端启动查看错误。
+
+对于 macOS，优先分享生成出来的 `.zip`，不要直接拷贝 `.app` 目录。这样能更稳妥地保留应用包结构，也与 Release 工作流上传的产物形态一致。
+
 ## 从终端启动并查看日志（macOS）
 
 如果双击 .app 会闪退，可以在终端里运行以查看完整报错和日志：

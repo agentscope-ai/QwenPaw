@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,9 +26,11 @@ from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
+from ...agents.hooks import MemoryCompactionHook
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...config.config import load_agent_config
 from ...constant import (
+    LLM_MAX_RETRIES,
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
 )
@@ -38,6 +41,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_TRANSIENT_UPSTREAM_STATUS_CODES = {429, 500, 502, 503, 504}
+_RETRYABLE_STATUS_PATTERN = re.compile(
+    r"(?:error\s*code|status)\s*[:=]?\s*(\d{3})",
+    re.IGNORECASE,
+)
+_CONTEXT_OVERFLOW_PATTERNS = (
+    "context size has been exceeded",
+    "maximum context length",
+    "max context length",
+    "context_length_exceeded",
+    "context window",
+    "too many tokens",
+    "input is too long",
+)
 _APPROVE_EXACT = frozenset(
     {
         "approve",
@@ -45,6 +62,121 @@ _APPROVE_EXACT = frozenset(
         "/daemon approve",
     },
 )
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    """Best-effort extraction of HTTP status code from provider exceptions."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status
+
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+
+    return None
+
+
+def _extract_status_code_from_message(exc: Exception) -> int | None:
+    text = str(exc)
+    match = _RETRYABLE_STATUS_PATTERN.search(text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_transient_upstream_error(exc: Exception) -> bool:
+    """Whether an exception likely represents a transient model backend failure."""
+    status = _extract_status_code(exc)
+    if status is None:
+        status = _extract_status_code_from_message(exc)
+    if status in _TRANSIENT_UPSTREAM_STATUS_CODES:
+        return True
+
+    return exc.__class__.__name__ in {
+        "InternalServerError",
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "ServiceUnavailableError",
+        "OverloadedError",
+    }
+
+
+def _iter_exception_chain(exc: BaseException):
+    """Yield exception with chained causes/contexts exactly once."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = (
+            current.__cause__
+            if current.__cause__ is not None
+            else current.__context__
+        )
+
+
+def _is_mcp_connection_error(exc: Exception) -> bool:
+    """Best-effort check for MCP connectivity/session failures."""
+    mcp_error_markers = (
+        "not connected",
+        "connect() method first",
+        "session terminated",
+        "closed resource",
+        "closedresourceerror",
+    )
+    for item in _iter_exception_chain(exc):
+        text = f"{item.__class__.__name__}: {item}".lower()
+        if "mcp client is not connected to the server" in text:
+            return True
+        if "mcp" in text and any(
+            marker in text for marker in mcp_error_markers
+        ):
+            return True
+    return False
+
+
+def _is_context_overflow_error(exc: Exception) -> bool:
+    """Best-effort check for context overflow style model errors."""
+    for item in _iter_exception_chain(exc):
+        text = f"{item.__class__.__name__}: {item}".lower()
+        if any(pattern in text for pattern in _CONTEXT_OVERFLOW_PATTERNS):
+            return True
+    return False
+
+def _build_retryable_error_msg(exc: Exception) -> Msg | None:
+    """Build a user-facing retryable error message for transient failures."""
+    if not _is_transient_upstream_error(exc):
+        return None
+
+    status = _extract_status_code(exc)
+    if status is None:
+        status = _extract_status_code_from_message(exc)
+    status_text = str(status) if status is not None else "unknown"
+    return Msg(
+        name="Friday",
+        role="assistant",
+        content=[
+            TextBlock(
+                type="text",
+                text=(
+                    "⚠️ Model service is temporarily unavailable "
+                    f"(HTTP {status_text}). "
+                    f"Retried {LLM_MAX_RETRIES} times but still failed. "
+                    "Please try again shortly.\n"
+                    "⚠️ 模型服务暂时不可用"
+                    f"（HTTP {status_text}）。"
+                    f"已重试 {LLM_MAX_RETRIES} 次仍失败，"
+                    "请稍后再试。"
+                ),
+            ),
+        ],
+    )
 
 
 def _is_approval(text: str) -> bool:
@@ -91,6 +223,38 @@ class AgentRunner(Runner):
         self._mcp_manager = mcp_manager
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+
+    async def _force_context_compaction(self, agent: CoPawAgent) -> bool:
+        """Trigger one-shot memory compaction; return True if it likely ran."""
+        memory_manager = getattr(agent, "memory_manager", None)
+        if memory_manager is None:
+            return False
+
+        try:
+            memory = agent.memory
+            before = ""
+            if hasattr(memory, "get_compressed_summary"):
+                before = memory.get_compressed_summary() or ""
+
+            hook = MemoryCompactionHook(memory_manager=memory_manager)
+            await hook(agent, {})
+
+            after = ""
+            if hasattr(memory, "get_compressed_summary"):
+                after = memory.get_compressed_summary() or ""
+
+            if after != before:
+                return True
+
+            # Fallback signal: summary task queued means compaction path ran.
+            tasks = getattr(memory_manager, "summary_tasks", None)
+            return bool(tasks)
+        except Exception as compact_err:
+            logger.warning(
+                "Failed to force context compaction retry path: %s",
+                compact_err,
+            )
+            return False
 
     async def _resolve_pending_approval(
         self,
@@ -185,10 +349,10 @@ class AgentRunner(Runner):
             None,
         )
 
-    async def query_handler(
+    async def query_handler(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         msgs,
-        request: AgentRequest = None,
+        request: AgentRequest | None = None,
         **kwargs,
     ):
         """
@@ -235,10 +399,20 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        user_id = getattr(request, "user_id", "") or ""
+        channel = str(
+            getattr(request, "channel", DEFAULT_CHANNEL) or DEFAULT_CHANNEL,
+        )
         try:
-            session_id = request.session_id
-            user_id = request.user_id
-            channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            if request is None:
+                raise ValueError("request is required")
+
+            session_id = request.session_id or ""
+            user_id = request.user_id or ""
+            channel = str(
+                getattr(request, "channel", DEFAULT_CHANNEL)
+                or DEFAULT_CHANNEL,
+            )
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -357,17 +531,40 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            async for msg, last in stream_printing_messages(
-                agents=[agent],
-                coroutine_task=agent(msgs),
-            ):
-                yield msg, last
+            stream_retry_budget = 1
+            while True:
+                try:
+                    async for stream_item in stream_printing_messages(
+                        agents=[agent],
+                        coroutine_task=agent(msgs),
+                    ):
+                        yield stream_item[0], stream_item[1]
+                    break
+                except Exception as stream_err:
+                    if (
+                        stream_retry_budget <= 0
+                        or not _is_context_overflow_error(stream_err)
+                    ):
+                        raise
+
+                    compacted = await self._force_context_compaction(agent)
+                    if not compacted:
+                        raise
+
+                    stream_retry_budget -= 1
+                    logger.warning(
+                        "Context overflow detected; compacted memory and "
+                        "retrying once. session_id=%s user_id=%s channel=%s",
+                        session_id,
+                        user_id,
+                        channel,
+                    )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
             if agent is not None:
                 await agent.interrupt()
-            raise RuntimeError("Task has been cancelled!") from exc
+            return
         except Exception as e:
             debug_dump_path = write_query_error_dump(
                 request=request,
@@ -378,6 +575,20 @@ class AgentRunner(Runner):
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
             logger.exception(f"Error in query handler: {e}{path_hint}")
+
+            # Last-resort guard: MCP connectivity failures should not surface
+            # as chat-visible "Unknown agent error" payloads.
+            if _is_mcp_connection_error(e):
+                logger.warning(
+                    "Suppressing MCP connectivity error in query output; "
+                    "session_id=%s, user_id=%s, channel=%s, reason=%s",
+                    session_id,
+                    user_id,
+                    channel,
+                    e,
+                )
+                return
+
             if debug_dump_path:
                 setattr(e, "debug_dump_path", debug_dump_path)
                 if hasattr(e, "add_note"):
@@ -388,6 +599,38 @@ class AgentRunner(Runner):
                 e.args = (
                     (f"{e.args[0]}{suffix}" if e.args else suffix.strip()),
                 ) + e.args[1:]
+
+            if _is_transient_upstream_error(e):
+                status = _extract_status_code(e)
+                status_text = str(status) if status is not None else "unknown"
+                detail_text = (
+                    f"\n(Details:  {debug_dump_path})"
+                    if debug_dump_path
+                    else ""
+                )
+                yield (
+                    Msg(
+                        name="Friday",
+                        role="assistant",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=(
+                                    "⚠️ Model service is temporarily unavailable "
+                                    f"(HTTP {status_text}). "
+                                    f"Retried {LLM_MAX_RETRIES} times but still failed. "
+                                    "Please try again shortly.\n"
+                                    "⚠️ 模型服务暂时不可用"
+                                    f"（HTTP {status_text}）。"
+                                    f"已重试 {LLM_MAX_RETRIES} 次仍失败，"
+                                    f"请稍后再试。{detail_text}"
+                                ),
+                            ),
+                        ],
+                    ),
+                    True,
+                )
+                return
             raise
         finally:
             if agent is not None and session_state_loaded:

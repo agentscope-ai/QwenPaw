@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://copaw.dev/schemas/run-manifest.schema.json",
+  "title": "CoPaw RunManifest",
+  "type": "object",
+  "required": [
+    "run_id",
+    "project_id",
+    "pipeline_id",
+    "pipeline_version",
+    "status",
+    "started_at",
+    "steps"
+  ],
+  "properties": {
+    "run_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "dataset_id": { "type": "string" },
+    "pipeline_id": { "type": "string" },
+    "pipeline_version": { "type": "string" },
+    "spec_version": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "blocked", "failed", "succeeded", "cancelled"]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" },
+    "params": {
+      "type": "object",
+      "default": {}
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "status", "attempts"],
+        "properties": {
+          "step_id": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "blocked", "failed", "succeeded", "skipped"]
+          },
+          "attempts": { "type": "integer", "minimum": 0 },
+          "started_at": { "type": "string", "format": "date-time" },
+          "ended_at": { "type": "string", "format": "date-time" },
+          "artifact_manifest": { "type": "string" },
+          "metric_pack": { "type": "string" },
+          "logs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "hint": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

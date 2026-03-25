@@ -2,6 +2,7 @@
 """Tests for Workspace class."""
 import tempfile
 from pathlib import Path
+from typing import cast
 import pytest
 
 
@@ -94,3 +95,31 @@ def test_workspace_repr():
         assert "test123" in repr_str
         assert "stopped" in repr_str
         assert "Workspace" in repr_str
+
+
+def test_workspace_memory_manager_init_args_include_config():
+    """Test memory manager descriptor passes config and agent id."""
+    from copaw.app.workspace import Workspace
+    from copaw.config.config import AgentProfileConfig
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace_dir = Path(tmpdir) / "test_agent"
+        workspace = Workspace(
+            agent_id="test123",
+            workspace_dir=str(workspace_dir),
+        )
+
+        config_sentinel = cast(AgentProfileConfig, object())
+        workspace._config = config_sentinel  # pylint: disable=protected-access
+
+        descriptor = workspace._service_manager.descriptors[  # pylint: disable=protected-access
+            "memory_manager"
+        ]
+        assert descriptor.init_args is not None
+        init_kwargs = descriptor.init_args(workspace)
+
+        assert init_kwargs == {
+            "working_dir": str(workspace_dir),
+            "agent_config": config_sentinel,
+            "agent_id": "test123",
+        }

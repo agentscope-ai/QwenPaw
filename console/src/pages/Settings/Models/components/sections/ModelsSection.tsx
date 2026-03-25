@@ -47,16 +47,17 @@ export function ModelsSection({
   const eligible = useMemo(
     () =>
       providers.filter((p) => {
+        const isCurrentActiveProvider = p.id === currentSlot?.provider_id;
         const hasModels =
           (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
-        if (!hasModels) return false;
+        if (!hasModels && !isCurrentActiveProvider) return false;
         if (p.is_local) return true;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
         if (p.require_api_key ?? true) return !!p.api_key;
         return true;
       }),
-    [providers],
+    [providers, currentSlot?.provider_id],
   );
 
   useEffect(() => {
@@ -65,13 +66,27 @@ export function ModelsSection({
       setSelectedModel(currentSlot.model || undefined);
     }
     setDirty(false);
-  }, [currentSlot?.provider_id, currentSlot?.model]);
+  }, [currentSlot]);
 
   const chosenProvider = providers.find((p) => p.id === selectedProviderId);
   const modelOptions = [
     ...(chosenProvider?.models ?? []),
     ...(chosenProvider?.extra_models ?? []),
   ];
+  const hasCurrentActiveModelOption =
+    !!currentSlot?.model &&
+    modelOptions.some((model) => model.id === currentSlot.model);
+  if (
+    selectedProviderId &&
+    currentSlot?.provider_id === selectedProviderId &&
+    currentSlot.model &&
+    !hasCurrentActiveModelOption
+  ) {
+    modelOptions.unshift({
+      id: currentSlot.model,
+      name: currentSlot.model,
+    });
+  }
   const hasModels = modelOptions.length > 0;
 
   const handleProviderChange = (pid: string) => {

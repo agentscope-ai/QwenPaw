@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING, Dict
 
@@ -17,10 +18,21 @@ from .manager import MCPClientManager
 if TYPE_CHECKING:
     from ...config.config import MCPConfig
 
+from ...constant import MCP_RECONNECT_BASE, MCP_RECONNECT_CAP
+
 logger = logging.getLogger(__name__)
 
 # How often to poll (seconds)
 DEFAULT_POLL_INTERVAL = 2.0
+
+
+def _compute_mcp_backoff(attempt: int, base: float, cap: float) -> float:
+    """Exponential back-off: base * 2^(attempt-1), capped.
+
+    Mirrors the LLM back-off pattern (retry_chat_model._compute_backoff).
+    attempt=1 → base, attempt=2 → 2*base, attempt=3 → 4*base …
+    """
+    return min(cap, base * (2 ** max(0, attempt - 1)))
 
 
 class MCPConfigWatcher:
@@ -65,6 +77,13 @@ class MCPConfigWatcher:
         # Format: {client_key: (retry_count, last_config_hash)}
         self._client_failures: Dict[str, tuple[int, int]] = {}
         self._max_retries: int = 3
+
+        # Reconnection back-off for disconnected/failed clients.
+        # Format: {key: (attempt_count, next_allowed_retry_ts)}
+        # Delays: 30s → 60s → 120s → … capped at 300s.
+        self._reconnect_backoff: Dict[str, tuple[int, float]] = {}
+        self._reconnect_base_delay: float = MCP_RECONNECT_BASE
+        self._reconnect_max_delay: float = MCP_RECONNECT_CAP
 
     async def start(self) -> None:
         """Take initial snapshot and start the polling task."""
@@ -145,6 +164,7 @@ class MCPConfigWatcher:
             try:
                 await asyncio.sleep(self._poll_interval)
                 await self._check()
+                await self._retry_failed_clients()
             except Exception:
                 logger.exception("MCPConfigWatcher: poll iteration failed")
 
@@ -326,8 +346,66 @@ class MCPConfigWatcher:
         try:
             await self._mcp_manager.remove_client(key)
             self._client_failures.pop(key, None)
+            self._reconnect_backoff.pop(key, None)
         except Exception:
             logger.debug(
                 "MCPConfigWatcher: failed to remove client '%s'",
                 key,
             )
+
+    async def _retry_failed_clients(self) -> None:
+        """Reconnect clients that failed at startup or disconnected at runtime.
+
+        Uses exponential back-off per client:
+          attempt 1: 30 s, attempt 2: 60 s, attempt 3: 120 s … cap 300 s.
+        Back-off resets to zero on a successful reconnect.
+        """
+        failed = self._mcp_manager.failed_keys()
+        if not failed:
+            return
+
+        now = time.monotonic()
+        try:
+            mcp_config = self._load_mcp_config()
+        except Exception:
+            return
+
+        for key in failed:
+            client_cfg = mcp_config.clients.get(key)
+            if client_cfg is None or not client_cfg.enabled:
+                # Removed or disabled from config — clear any back-off state.
+                self._reconnect_backoff.pop(key, None)
+                continue
+
+            attempt, next_retry = self._reconnect_backoff.get(key, (0, 0.0))
+            if now < next_retry:
+                continue  # Still in back-off window
+
+            logger.debug(
+                "MCPConfigWatcher: attempting reconnect for '%s'"
+                " (attempt %d)",
+                key,
+                attempt + 1,
+            )
+            try:
+                await self._mcp_manager.replace_client(key, client_cfg)
+                logger.info(
+                    "MCPConfigWatcher: client '%s' reconnected successfully",
+                    key,
+                )
+                self._reconnect_backoff.pop(key, None)
+            except Exception as exc:
+                delay = _compute_mcp_backoff(
+                    attempt + 1,
+                    self._reconnect_base_delay,
+                    self._reconnect_max_delay,
+                )
+                self._reconnect_backoff[key] = (attempt + 1, now + delay)
+                logger.warning(
+                    "MCPConfigWatcher: reconnect failed for '%s'"
+                    " (%s: %s); next retry in %.0fs",
+                    key,
+                    type(exc).__name__,
+                    exc,
+                    delay,
+                )

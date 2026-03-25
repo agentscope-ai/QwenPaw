@@ -23,6 +23,7 @@ import mimetypes
 import os
 import threading
 import time
+import types
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import uuid4
@@ -76,6 +77,73 @@ if TYPE_CHECKING:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
+
+_HANDSHAKE_TIMEOUT_ESCALATION_THRESHOLD = 5
+_HANDSHAKE_TIMEOUT_RESET_SECONDS = 120.0
+
+
+def _make_safe_dingtalk_stream_logger(base: logging.Logger) -> logging.Logger:
+    """Patch logger.exception to tolerate malformed msg/args usage."""
+    if getattr(base, "_copaw_safe_exception_patched", False):
+        return base
+
+    def _safe_exception(self: logging.Logger, msg, *args, **kwargs):
+        if args and "%" not in str(msg):
+            msg = f"{msg}: " + " ".join(str(item) for item in args)
+            args = ()
+        text = str(msg)
+        if "timed out during opening handshake" in text:
+            now = time.monotonic()
+            last_ts = float(
+                getattr(
+                    self,
+                    "_copaw_dingtalk_handshake_timeout_last_ts",
+                    0.0,
+                ),
+            )
+            count = int(
+                getattr(
+                    self,
+                    "_copaw_dingtalk_handshake_timeout_count",
+                    0,
+                ),
+            )
+
+            if last_ts <= 0.0 or now - last_ts > _HANDSHAKE_TIMEOUT_RESET_SECONDS:
+                count = 0
+
+            count += 1
+            setattr(self, "_copaw_dingtalk_handshake_timeout_last_ts", now)
+            setattr(self, "_copaw_dingtalk_handshake_timeout_count", count)
+
+            if count < _HANDSHAKE_TIMEOUT_ESCALATION_THRESHOLD:
+                self.warning(
+                    "dingtalk websocket opening handshake timed out; "
+                    "retrying (count=%s)",
+                    count,
+                )
+            elif (
+                count == _HANDSHAKE_TIMEOUT_ESCALATION_THRESHOLD
+                or count % _HANDSHAKE_TIMEOUT_ESCALATION_THRESHOLD == 0
+            ):
+                self.error(
+                    "dingtalk websocket opening handshake keeps timing out "
+                    "(count=%s). Check network/proxy/firewall settings.",
+                    count,
+                )
+            else:
+                self.warning(
+                    "dingtalk websocket opening handshake timed out; "
+                    "retrying (count=%s)",
+                    count,
+                )
+            return
+        kwargs.setdefault("exc_info", True)
+        self.error(msg, *args, **kwargs)
+
+    base.exception = types.MethodType(_safe_exception, base)  # type: ignore[assignment]
+    setattr(base, "_copaw_safe_exception_patched", True)
+    return base
 
 
 class DingTalkChannel(BaseChannel):
@@ -1783,7 +1851,12 @@ class DingTalkChannel(BaseChannel):
             self.client_id,
             self.client_secret,
         )
-        self._client = dingtalk_stream.DingTalkStreamClient(credential)
+        self._client = dingtalk_stream.DingTalkStreamClient(
+            credential,
+            logger=_make_safe_dingtalk_stream_logger(
+                logging.getLogger("copaw.dingtalk.stream")
+            ),
+        )
         enqueue_cb = getattr(self, "_enqueue", None)
         internal_handler = DingTalkChannelHandler(
             main_loop=self._loop,

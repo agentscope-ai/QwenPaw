@@ -1,10 +1,12 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUIMessage,
   type IAgentScopeRuntimeWebUIRef,
+  Stream,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Modal, Result, message } from "antd";
+import { Button, Modal, Result, Tooltip, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
@@ -12,18 +14,20 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
-import { getApiUrl } from "../../api/config";
-import { buildAuthHeaders } from "../../api/authHeaders";
+import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
+import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
-import styles from "./index.module.less";
-import { Tooltip } from "antd";
+import "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkAttachmentLine } from "@agentscope-ai/icons";
+import { trackNavigation } from "../../utils/navigationTelemetry";
+import { shouldAutoSyncChatUrl } from "./navigationGuards";
 
 type CopyableContent = {
   type?: string;
@@ -40,9 +44,78 @@ type CopyableResponse = {
   output?: CopyableMessage[];
 };
 
+type RuntimeUiMessage = IAgentScopeRuntimeWebUIMessage & {
+  msgStatus?: string;
+  role?: string;
+  cards?: Array<{
+    code: string;
+    data: unknown;
+  }>;
+  history?: boolean;
+};
+
+type StreamResponseData = {
+  status?: string;
+  output?: Array<{
+    content?: unknown[];
+  }>;
+};
+
 type RuntimeLoadingBridgeApi = {
   getLoading?: () => boolean | string;
   setLoading?: (loading: boolean | string) => void;
+};
+
+type SessionContext = {
+  session_id?: string;
+  user_id?: string;
+  channel?: string;
+};
+
+type ChatInputContentPart = {
+  type?: string;
+  text?: string;
+  image_url?: string;
+  file_url?: string;
+  audio_url?: string;
+  video_url?: string;
+  data?: string;
+  [key: string]: unknown;
+};
+
+type ChatInputItem = {
+  session?: SessionContext;
+  content?: ChatInputContentPart[];
+  [key: string]: unknown;
+};
+
+type BizParams = Record<string, unknown> & {
+  reconnect?: boolean;
+};
+
+type CustomFetchData = {
+  input?: ChatInputItem[];
+  biz_params?: BizParams;
+  signal?: AbortSignal;
+  reconnect?: boolean;
+  session_id?: string;
+  user_id?: string;
+  channel?: string;
+};
+
+type AttachmentTriggerProps = {
+  disabled?: boolean;
+};
+
+type AttachmentUploadOptions = {
+  file: File;
+  onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+  onError?: (error: Error) => void;
+  onProgress?: (event: { percent?: number }) => void;
+};
+
+type SenderConfigShape = {
+  sender?: Record<string, unknown>;
 };
 
 interface CustomWindow extends Window {
@@ -122,6 +195,67 @@ function buildModelError(): Response {
   );
 }
 
+function cloneRuntimeMessages(
+  messages: RuntimeUiMessage[],
+): RuntimeUiMessage[] {
+  return JSON.parse(JSON.stringify(messages)) as RuntimeUiMessage[];
+}
+
+function cloneValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isFinalResponseStatus(status?: string): boolean {
+  return (
+    status === AgentScopeRuntimeRunStatus.Completed ||
+    status === AgentScopeRuntimeRunStatus.Failed ||
+    status === AgentScopeRuntimeRunStatus.Canceled
+  );
+}
+
+function hasRenderableOutput(response: StreamResponseData): boolean {
+  if (response.status === AgentScopeRuntimeRunStatus.Failed) {
+    return true;
+  }
+
+  return (
+    response.output?.some((message) => (message.content?.length ?? 0) > 0) ??
+    false
+  );
+}
+
+function getResponseCardData(
+  message?: RuntimeUiMessage,
+): StreamResponseData | null {
+  const responseCard = message?.cards?.find(
+    (card) => card.code === "AgentScopeRuntimeResponseCard",
+  );
+
+  if (!responseCard?.data) {
+    return null;
+  }
+
+  return cloneValue(responseCard.data as StreamResponseData);
+}
+
+function getStreamingAssistantMessageId(
+  messages: RuntimeUiMessage[],
+): string | null {
+  return (
+    [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          (message.msgStatus === "generating" ||
+            (message.cards?.length ?? 0) === 0),
+      )?.id ||
+    [...messages].reverse().find((message) => message.role === "assistant")
+      ?.id ||
+    null
+  );
+}
+
 function RuntimeLoadingBridge({
   bridgeRef,
 }: {
@@ -156,6 +290,46 @@ function RuntimeLoadingBridge({
   return null;
 }
 
+function extractLatestUserText(input: ChatInputItem[] = []): string {
+  const latest = input[input.length - 1];
+  const content = latest?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item) => item?.type === "text" && typeof item?.text === "string")
+    .map((item) => item.text as string)
+    .join("\n")
+    .trim();
+}
+
+function shouldSuggestPipelineOpportunity(text: string): boolean {
+  if (!text) return false;
+  if (text.length < 16) return false;
+  const patterns = [
+    /多步|流程|pipeline|管线/i,
+    /批量|自动化|反复|复用/i,
+    /抽取|对齐|校验|分析|报告/i,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function isPipelineDesignBootstrapText(text: string): boolean {
+  if (!text) return false;
+  return (
+    text.includes("pipeline-create-guide") ||
+    text.includes("我想创建一个新的 Pipeline") ||
+    text.includes("I want to create a new Pipeline")
+  );
+}
+
+function buildPipelineOpportunityInlineHint(): string {
+  return [
+    "",
+    "[PipelineDesignHint]",
+    "请把当前需求当作可复用多步骤流程，先用简短问题补齐关键槽位（目标、输入、步骤、质量指标、失败重试、产出物），",
+    "然后给出一个可执行的 Pipeline Draft，并继续在当前会话中迭代，不要要求用户切换到新会话。",
+  ].join("\n");
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -168,6 +342,8 @@ export default function ChatPage() {
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [, setChatStatus] = useState<"idle" | "running">("idle");
+  const [, setReconnectStreaming] = useState(false);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
   const isComposingRef = useRef(false);
@@ -190,6 +366,11 @@ export default function ChatPage() {
   navigateRef.current = navigate;
 
   useEffect(() => {
+    sessionApi.setChatRef(chatRef);
+    return () => sessionApi.setChatRef(null);
+  }, []);
+
+  useEffect(() => {
     const handleCompositionStart = () => {
       if (!isChatActiveRef.current) return;
       isComposingRef.current = true;
@@ -197,23 +378,18 @@ export default function ChatPage() {
 
     const handleCompositionEnd = () => {
       if (!isChatActiveRef.current) return;
-      // Use a slightly longer delay for Safari on macOS, which fires keydown
-      // after compositionend within the same event loop tick.
       setTimeout(() => {
         isComposingRef.current = false;
-      }, 200);
+      }, 150);
     };
 
-    const suppressImeEnter = (e: KeyboardEvent) => {
+    const handleKeyPress = (e: KeyboardEvent) => {
       if (!isChatActiveRef.current) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
-        // e.isComposing is the standard flag; isComposingRef covers the
-        // post-compositionend grace period needed by Safari.
-        if (isComposingRef.current || (e as any).isComposing) {
+        if (isComposingRef.current || e.isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
-          e.preventDefault();
           return false;
         }
       }
@@ -221,9 +397,7 @@ export default function ChatPage() {
 
     document.addEventListener("compositionstart", handleCompositionStart, true);
     document.addEventListener("compositionend", handleCompositionEnd, true);
-    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
-    document.addEventListener("keydown", suppressImeEnter, true);
-    document.addEventListener("keypress", suppressImeEnter, true);
+    document.addEventListener("keypress", handleKeyPress, true);
 
     return () => {
       document.removeEventListener(
@@ -236,8 +410,7 @@ export default function ChatPage() {
         handleCompositionEnd,
         true,
       );
-      document.removeEventListener("keydown", suppressImeEnter, true);
-      document.removeEventListener("keypress", suppressImeEnter, true);
+      document.removeEventListener("keypress", handleKeyPress, true);
     };
   }, []);
 
@@ -246,6 +419,12 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === tempId) {
         lastSessionIdRef.current = realId;
+        trackNavigation({
+          source: "chat.onSessionIdResolved",
+          from: `/chat/${tempId}`,
+          to: `/chat/${realId}`,
+          reason: "resolve-temp-session-id",
+        });
         navigateRef.current(`/chat/${realId}`, { replace: true });
       }
     };
@@ -254,6 +433,12 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       if (chatIdRef.current === removedId) {
         lastSessionIdRef.current = null;
+        trackNavigation({
+          source: "chat.onSessionRemoved",
+          from: `/chat/${removedId}`,
+          to: "/chat",
+          reason: "removed-current-session",
+        });
         navigateRef.current("/chat", { replace: true });
       }
     };
@@ -277,6 +462,54 @@ export default function ChatPage() {
     }
     prevSelectedAgentRef.current = selectedAgent;
   }, [selectedAgent]);
+
+  useEffect(() => {
+    if (!chatId) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 24;
+    const intervalMs = 1500;
+
+    const pollSessionHydration = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      attempts += 1;
+
+      try {
+        const session = await sessionApi.getSession(chatId);
+        const messages = (session.messages as RuntimeUiMessage[] | undefined) || [];
+        const hasAssistantMessage = messages.some(
+          (message) => message.role === "assistant",
+        );
+        const isIdle =
+          (session as { status?: "idle" | "running" }).status === "idle";
+
+        if (hasAssistantMessage || isIdle) {
+          setRefreshKey((prev) => prev + 1);
+          return;
+        }
+      } catch {
+        // Ignore transient polling failures and continue retrying.
+      }
+
+      if (!cancelled && attempts < maxAttempts) {
+        setTimeout(() => {
+          void pollSessionHydration();
+        }, intervalMs);
+      }
+    };
+
+    void pollSessionHydration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId]);
 
   // Fetch multimodal capabilities for the active model
   const fetchMultimodalCaps = useCallback(async () => {
@@ -366,30 +599,50 @@ export default function ChatPage() {
 
   const getSessionWrapped = useCallback(async (sessionId: string) => {
     const currentChatId = chatIdRef.current;
+    const canAutoSyncUrl = shouldAutoSyncChatUrl(currentChatId);
 
     if (
       isChatActiveRef.current &&
+      canAutoSyncUrl &&
       sessionId &&
       sessionId !== lastSessionIdRef.current &&
       sessionId !== currentChatId
     ) {
       const urlId = sessionApi.getRealIdForSession(sessionId) ?? sessionId;
       lastSessionIdRef.current = urlId;
+      trackNavigation({
+        source: "chat.getSessionWrapped",
+        from: currentChatId ? `/chat/${currentChatId}` : "/chat",
+        to: `/chat/${urlId}`,
+        reason: "sync-session-selection",
+        meta: {
+          requestedSessionId: sessionId,
+        },
+      });
       navigateRef.current(`/chat/${urlId}`, { replace: true });
     }
 
     return sessionApi.getSession(sessionId);
   }, []);
 
-  const createSessionWrapped = useCallback(async (session: any) => {
+  const createSessionWrapped = useCallback(
+    async (session: Partial<{ id: string }>) => {
     const result = await sessionApi.createSession(session);
     const newSessionId = session?.id || result[0]?.id;
     if (isChatActiveRef.current && newSessionId) {
       lastSessionIdRef.current = newSessionId;
+      trackNavigation({
+        source: "chat.createSessionWrapped",
+        from: chatIdRef.current ? `/chat/${chatIdRef.current}` : "/chat",
+        to: `/chat/${newSessionId}`,
+        reason: "create-new-session",
+      });
       navigateRef.current(`/chat/${newSessionId}`, { replace: true });
     }
     return result;
-  }, []);
+    },
+    [],
+  );
 
   const wrappedSessionApi = useMemo(
     () => ({
@@ -399,7 +652,7 @@ export default function ChatPage() {
       updateSession: sessionApi.updateSession.bind(sessionApi),
       removeSession: sessionApi.removeSession.bind(sessionApi),
     }),
-    [],
+    [createSessionWrapped, getSessionListWrapped, getSessionWrapped],
   );
 
   const copyResponse = useCallback(
@@ -414,16 +667,229 @@ export default function ChatPage() {
     [t],
   );
 
+  const persistSessionMessages = useCallback(
+    async (sessionId: string, messages: RuntimeUiMessage[]) => {
+      if (!sessionId) return;
+      await sessionApi.updateSession({
+        id: sessionId,
+        messages: cloneRuntimeMessages(messages),
+      });
+    },
+    [],
+  );
+
+  const releaseStaleLoadingState = useCallback((sessionId: string) => {
+    const activeChatId = chatIdRef.current;
+    const realSessionId = sessionApi.getRealIdForSession(sessionId);
+    const isBackgroundSession =
+      activeChatId !== sessionId && activeChatId !== realSessionId;
+
+    if (!isBackgroundSession) {
+      return;
+    }
+
+    if (sessionApi.hasLiveMessagesForSession(activeChatId)) {
+      return;
+    }
+
+    runtimeLoadingBridgeRef.current?.setLoading?.(false);
+  }, []);
+
+  const persistStreamSession = useCallback(
+    (sessionId: string, readableStream: ReadableStream<Uint8Array>) => {
+      const initialMessages = cloneRuntimeMessages(
+        (chatRef.current?.messages.getMessages() as RuntimeUiMessage[]) || [],
+      );
+      const assistantMessageId =
+        getStreamingAssistantMessageId(initialMessages) ||
+        `stream-${sessionId}`;
+      const responseBuilder = new AgentScopeRuntimeResponseBuilder({
+        id: "",
+        status: AgentScopeRuntimeRunStatus.Created,
+        created_at: 0,
+      });
+
+      void (async () => {
+        let cachedMessages = initialMessages;
+        let hasStreamActivity = false;
+        let didReleaseLoading = false;
+
+        try {
+          for await (const chunk of Stream({ readableStream })) {
+            let chunkData: unknown;
+            try {
+              chunkData = JSON.parse(chunk.data);
+            } catch {
+              continue;
+            }
+
+            hasStreamActivity = true;
+            const responseData = responseBuilder.handle(
+              chunkData as never,
+            ) as StreamResponseData;
+            const isFinalChunk = isFinalResponseStatus(responseData.status);
+            const existingAssistantMessage = cachedMessages.find(
+              (message) => message.id === assistantMessageId,
+            );
+            const previousResponseData = getResponseCardData(
+              existingAssistantMessage,
+            );
+
+            let nextResponseData: StreamResponseData | null = null;
+            if (hasRenderableOutput(responseData)) {
+              nextResponseData = cloneValue(responseData);
+            } else if (isFinalChunk && previousResponseData) {
+              nextResponseData = {
+                ...previousResponseData,
+                status: responseData.status ?? previousResponseData.status,
+              };
+            }
+
+            if (nextResponseData) {
+              const assistantMessage: RuntimeUiMessage = {
+                ...(existingAssistantMessage || {
+                  id: assistantMessageId,
+                  role: "assistant",
+                }),
+                id: assistantMessageId,
+                role: "assistant",
+                cards: [
+                  {
+                    code: "AgentScopeRuntimeResponseCard",
+                    data: nextResponseData,
+                  },
+                ],
+                msgStatus: isFinalChunk ? "finished" : "generating",
+              };
+
+              const assistantIndex = cachedMessages.findIndex(
+                (message) => message.id === assistantMessageId,
+              );
+              cachedMessages =
+                assistantIndex >= 0
+                  ? [
+                      ...cachedMessages.slice(0, assistantIndex),
+                      assistantMessage,
+                      ...cachedMessages.slice(assistantIndex + 1),
+                    ]
+                  : [...cachedMessages, assistantMessage];
+
+              await persistSessionMessages(sessionId, cachedMessages);
+            }
+
+            if (!isFinalChunk) {
+              continue;
+            }
+
+            releaseStaleLoadingState(sessionId);
+            didReleaseLoading = true;
+          }
+        } catch (error) {
+          console.error("Failed to persist background chat stream:", error);
+        } finally {
+          if (hasStreamActivity && !didReleaseLoading) {
+            releaseStaleLoadingState(sessionId);
+          }
+        }
+      })();
+    },
+    [persistSessionMessages, releaseStaleLoadingState],
+  );
+
   const customFetch = useCallback(
-    async (data: {
-      input?: any[];
-      biz_params?: any;
-      signal?: AbortSignal;
-    }): Promise<Response> => {
+    async (data: CustomFetchData): Promise<Response> => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        ...buildAuthHeaders(),
       };
+      const token = getApiToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const agentStorage = localStorage.getItem("copaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          const selectedAgent = parsed?.state?.selectedAgent;
+          if (selectedAgent) {
+            headers["X-Agent-Id"] = selectedAgent;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to get selected agent from storage:", error);
+      }
+
+      const shouldReconnect =
+        data.reconnect || data.biz_params?.reconnect === true;
+      const reconnectSessionId =
+        data.session_id ?? window.currentSessionId ?? "";
+      if (shouldReconnect && reconnectSessionId) {
+        setReconnectStreaming(true);
+        const res = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            reconnect: true,
+            session_id: reconnectSessionId,
+            user_id: data.user_id ?? window.currentUserId ?? "default",
+            channel: data.channel ?? window.currentChannel ?? "console",
+          }),
+        });
+
+        // Reconnect has a small race window: status endpoint can still read
+        // "running" while the stream task has just finished.
+        // Backend then returns 404 "No running chat for this session".
+        // Treat it as a benign idle transition instead of surfacing an error.
+        if (!res.ok || !res.body) {
+          setChatStatus("idle");
+          setReconnectStreaming(false);
+
+          if (res.status === 404) {
+            try {
+              const payload = await res.clone().json();
+              if (payload?.detail === "No running chat for this session") {
+                return new Response(
+                  JSON.stringify({
+                    status: AgentScopeRuntimeRunStatus.Completed,
+                    output: [],
+                  }),
+                  {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+            } catch {
+              // Ignore parse errors and keep original response below.
+            }
+          }
+
+          return res;
+        }
+        const onStreamEnd = () => {
+          setChatStatus("idle");
+          setReconnectStreaming(false);
+        };
+        const stream = res.body;
+        const transformed = new ReadableStream({
+          start(controller) {
+            const reader = stream.getReader();
+            function pump() {
+              reader.read().then(({ done, value }) => {
+                if (done) {
+                  controller.close();
+                  onStreamEnd();
+                  return;
+                }
+                controller.enqueue(value);
+                return pump();
+              });
+            }
+            pump();
+          },
+        });
+        return new Response(transformed, {
+          headers: res.headers,
+          status: res.status,
+        });
+      }
 
       try {
         const activeModels = await providerApi.getActiveModels();
@@ -440,6 +906,20 @@ export default function ChatPage() {
       }
 
       const { input = [], biz_params } = data;
+      const latestUserText = extractLatestUserText(input);
+      const bootstrapText = isPipelineDesignBootstrapText(latestUserText);
+      const shouldInlinePipelineGuide =
+        !bootstrapText && shouldSuggestPipelineOpportunity(latestUserText);
+
+      if (shouldInlinePipelineGuide) {
+        const now = Date.now();
+        const cooldownKey = "copaw.pipeline.opportunity.lastAt";
+        const lastAt = Number(localStorage.getItem(cooldownKey) || "0");
+        if (now - lastAt > 30 * 60 * 1000) {
+          localStorage.setItem(cooldownKey, String(now));
+        }
+      }
+
       const session = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
@@ -448,26 +928,36 @@ export default function ChatPage() {
           ? [
               {
                 ...lastMsg,
-                content: lastMsg.content.map((part: any) => {
-                  const p = { ...part };
-                  const toStoredName = (v: string) => {
-                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-                    if (m1) return m1[1];
-                    const m2 = v.match(/^[^/]+\/(.+)$/);
-                    if (m2) return m2[1];
-                    return v;
-                  };
-                  if (p.type === "image" && typeof p.image_url === "string")
-                    p.image_url = toStoredName(p.image_url);
-                  if (p.type === "file" && typeof p.file_url === "string")
-                    p.file_url = toStoredName(p.file_url);
-                  if (p.type === "audio" && typeof p.data === "string")
-                    p.data = toStoredName(p.data);
-                  if (p.type === "video" && typeof p.video_url === "string")
-                    p.video_url = toStoredName(p.video_url);
+                content: [
+                  ...lastMsg.content.map((part: ChatInputContentPart) => {
+                    const p = { ...part };
+                    const toStoredName = (v: string) => {
+                      const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
+                      if (m1) return m1[1];
+                      const m2 = v.match(/^[^/]+\/(.+)$/);
+                      if (m2) return m2[1];
+                      return v;
+                    };
+                    if (p.type === "image" && typeof p.image_url === "string")
+                      p.image_url = toStoredName(p.image_url);
+                    if (p.type === "file" && typeof p.file_url === "string")
+                      p.file_url = toStoredName(p.file_url);
+                    if (p.type === "audio" && typeof p.audio_url === "string")
+                      p["data"] = toStoredName(p.audio_url);
+                    if (p.type === "video" && typeof p.video_url === "string")
+                      p.video_url = toStoredName(p.video_url);
 
-                  return p;
-                }),
+                    return p;
+                  }),
+                  ...(shouldInlinePipelineGuide
+                    ? [
+                        {
+                          type: "text",
+                          text: buildPipelineOpportunityInlineHint(),
+                        },
+                      ]
+                    : []),
+                ],
               },
             ]
           : lastInput;
@@ -487,18 +977,21 @@ export default function ChatPage() {
         requestBody.session_id;
       if (backendChatId) {
         const userText = rewrittenInput
-          .filter((m: any) => m.role === "user")
-          .map((m: any) => {
-            if (typeof m.content === "string") return m.content;
-            if (!Array.isArray(m.content)) return "";
-            return m.content
-              .filter((p: any) => p.type === "text")
-              .map((p: any) => p.text || "")
+          .filter((message) => message.role === "user")
+          .map((message) => {
+            if (typeof message.content === "string") return message.content;
+            if (!Array.isArray(message.content)) return "";
+            return message.content
+              .filter((part) => part.type === "text")
+              .map((part) => (typeof part.text === "string" ? part.text : ""))
               .join("\n");
           })
           .join("\n")
           .trim();
         if (userText) {
+          if (requestBody.session_id) {
+            sessionApi.setLastUserMessage(requestBody.session_id, userText);
+          }
           sessionApi.setLastUserMessage(backendChatId, userText);
         }
       }
@@ -510,13 +1003,25 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      return response;
+      if (!response.ok || !response.body || !requestBody.session_id) {
+        return response;
+      }
+
+      const [uiStream, cacheStream] = response.body.tee();
+      persistStreamSession(requestBody.session_id, cacheStream);
+
+      return new Response(uiStream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     },
-    [],
+    [persistStreamSession, setChatStatus, setReconnectStreaming],
   );
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
+    const senderConfig = (i18nConfig as SenderConfigShape).sender || {};
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -545,11 +1050,11 @@ export default function ChatPage() {
           : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
       },
       sender: {
-        ...(i18nConfig as any)?.sender,
+        ...senderConfig,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: true,
         attachments: {
-          trigger: function (props: any) {
+          trigger: function (props: AttachmentTriggerProps) {
             const tooltipKey = multimodalCaps.supportsMultimodal
               ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
                 ? "chat.attachments.tooltipImageOnly"
@@ -566,12 +1071,7 @@ export default function ChatPage() {
             );
           },
           accept: "*/*",
-          customRequest: async (options: {
-            file: File;
-            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
-            onError?: (e: Error) => void;
-            onProgress?: (e: { percent?: number }) => void;
-          }) => {
+          customRequest: async (options: AttachmentUploadOptions) => {
             try {
               // Warn when model has no multimodal support
               if (!multimodalCaps.supportsMultimodal) {
@@ -608,38 +1108,25 @@ export default function ChatPage() {
         ...defaultConfig.api,
         fetch: customFetch,
         cancel(data: { session_id: string }) {
-          const chatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          if (chatId) {
-            chatApi.stopChat(chatId).catch((err) => {
-              console.error("Failed to stop chat:", err);
-            });
+          const chatIdForStop = data?.session_id
+            ? sessionApi.getRealIdForSession(data.session_id) ?? data.session_id
+            : "";
+          if (chatIdForStop) {
+            chatApi.stopConsoleChat(chatIdForStop).then(
+              () => setChatStatus("idle"),
+              (err) => {
+                console.error("stopConsoleChat failed:", err);
+              },
+            );
           }
-        },
-        async reconnect(data: { session_id: string; signal?: AbortSignal }) {
-          const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-            ...buildAuthHeaders(),
-          };
-
-          return fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: window.currentSessionId || data.session_id,
-              user_id: window.currentUserId || "default",
-              channel: window.currentChannel || "console",
-            }),
-            signal: data.signal,
-          });
         },
       },
       actions: {
         list: [
           {
+            key: "copy",
             icon: (
-              <span title={t("common.copy")}>
+              <span key="copy-action-icon" title={t("common.copy")}>
                 <SparkCopyLine />
               </span>
             ),
@@ -651,7 +1138,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark, multimodalCaps]);
+  }, [
+    wrappedSessionApi,
+    customFetch,
+    copyResponse,
+    t,
+    isDark,
+    multimodalCaps,
+    setChatStatus,
+  ]);
 
   return (
     <div
@@ -662,7 +1157,7 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div style={{ flex: 1, minHeight: 0 }}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
@@ -707,6 +1202,12 @@ export default function ChatPage() {
               icon={<SettingOutlined />}
               onClick={() => {
                 setShowModelPrompt(false);
+                trackNavigation({
+                  source: "chat.modelPrompt",
+                  from: location.pathname,
+                  to: "/models",
+                  reason: "configure-model-from-chat",
+                });
                 navigate("/models");
               }}
             >

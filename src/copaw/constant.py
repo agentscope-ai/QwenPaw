@@ -197,6 +197,21 @@ LLM_BACKOFF_CAP = EnvVarLoader.get_float(
     min_value=0.5,
 )
 
+# MCP client reconnection back-off configuration
+# Delays: base * 2^(attempt-1), capped at cap.
+# attempt 1: 30s, attempt 2: 60s, attempt 3: 120s, attempt 4: 240s, 5+: 300s
+MCP_RECONNECT_BASE = EnvVarLoader.get_float(
+    "COPAW_MCP_RECONNECT_BASE",
+    30.0,
+    min_value=5.0,
+)
+
+MCP_RECONNECT_CAP = EnvVarLoader.get_float(
+    "COPAW_MCP_RECONNECT_CAP",
+    300.0,
+    min_value=30.0,
+)
+
 # Tool guard approval timeout (seconds).
 try:
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(

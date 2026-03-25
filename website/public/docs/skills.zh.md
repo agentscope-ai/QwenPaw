@@ -44,6 +44,21 @@
 
 修改后会自动同步到工作目录并影响 Agent 行为。适合不习惯直接改文件的用户。
 
+### 技能市场（Git 仓库）
+
+在 **Agent → Skills → 技能市场** 中，可以聚合多个 Git 仓库里的技能。
+
+1. 点击 **管理市场**，新增市场条目。
+2. 填写仓库地址（支持 `owner/repo`、`.git`、GitHub tree URL）并执行校验。
+3. 保存市场列表后，点击 **刷新市场**。
+4. 在市场卡片上一键安装技能。
+
+说明：
+
+- 市场配置会写入 `~/.copaw/config.json` 的 `skills_market` 字段。
+- `path` 可配置为 `index.json` 或 skills 目录；若为目录，CoPaw 会扫描 `SKILL.md` 自动生成索引。
+- 刷新采用缓存与失败隔离：单个市场失败不会影响其他市场展示。
+
 ---
 
 ## 内置 Skill：Cron（定时任务）
@@ -68,7 +83,6 @@
 - `https://lobehub.com/...`
 - `https://market.lobehub.com/...`（LobeHub 直链下载地址）
 - `https://github.com/...`
-- `https://modelscope.cn/skills/...`
 
 ### 步骤
 
@@ -90,7 +104,7 @@
 
 ### URL 获取示例
 
-1. 以 `skills.sh` 为例（`clawhub.ai`、`skillsmp.com`、`lobehub.com` 和 `modelscope.cn` 获取 Skill URL 的方式类似），进入对应技能市场页面。
+1. 以 `skills.sh` 为例（`clawhub.ai`、`skillsmp.com` 和 `lobehub.com` 获取 Skill URL 的方式相同），进入对应技能市场页面。
 2. 选择你需要的 Skill（以 `find-skills` 为例）。
 
    ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)

@@ -1,0 +1,18 @@
+{
+  "description": "提交前自动检查分支类型，确保符合双主线 SOP，弹出 Checklist。",
+  "trigger": "pre-commit",
+  "actions": [
+    {
+      "type": "checkBranchType",
+      "allowedTypes": ["feat/upstream/*", "feat/fork/*", "fork/main", "mirror/upstream-main"]
+    },
+    {
+      "type": "showChecklist",
+      "items": [
+        "分支类型符合 SOP",
+        "commit 信息规范",
+        "无混合提交"
+      ]
+    }
+  ]
+}

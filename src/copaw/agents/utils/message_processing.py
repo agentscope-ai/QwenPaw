@@ -22,6 +22,48 @@ from .file_handling import download_file_from_base64, download_file_from_url
 logger = logging.getLogger(__name__)
 
 
+def _primary_language() -> str:
+    """Return current agent language primary tag, e.g. zh/en/ja."""
+    lang = (load_config().agents.language or "").strip().lower()
+    return lang.split("-")[0] if lang else "en"
+
+
+def _voice_message_prefix() -> str:
+    """Return localized voice-message prefix shown to the model."""
+    lang = _primary_language()
+    if lang == "zh":
+        return "[语音消息]"
+    if lang == "ja":
+        return "[音声メッセージ]"
+    if lang == "ru":
+        return "[Голосовое сообщение]"
+    return "[Voice message]"
+
+
+def _voice_message_placeholder(kind: str) -> str:
+    """Return localized placeholder text for voice-message states."""
+    lang = _primary_language()
+    if kind == "conversion_failed":
+        if lang == "zh":
+            return "（音频转换失败，请安装 ffmpeg 以启用原生音频）"
+        if lang == "ja":
+            return "（音声変換に失敗しました。ネイティブ音声を有効にするには ffmpeg をインストールしてください）"
+        if lang == "ru":
+            return "(сбой конвертации аудио; установите ffmpeg для нативного аудио)"
+        return "(audio conversion failed, install ffmpeg to enable native audio)"
+
+    if kind == "file_received":
+        if lang == "zh":
+            return "（已收到音频文件）"
+        if lang == "ja":
+            return "（音声ファイルを受信しました）"
+        if lang == "ru":
+            return "(аудиофайл получен)"
+        return "(audio file received)"
+
+    return ""
+
+
 async def _process_single_file_block(
     source: dict,
     filename: Optional[str],
@@ -260,8 +302,8 @@ async def _process_audio_block(
             message_content[index] = {
                 "type": "text",
                 "text": (
-                    "[Voice message]: (audio conversion failed, "
-                    "install ffmpeg to enable native audio)"
+                    f"{_voice_message_prefix()}: "
+                    f"{_voice_message_placeholder('conversion_failed')}"
                 ),
             }
             return True
@@ -277,14 +319,17 @@ async def _process_audio_block(
     if text:
         message_content[index] = {
             "type": "text",
-            "text": f"[Voice message]: {text}",
+            "text": f"{_voice_message_prefix()}: {text}",
         }
         return True
 
     # Transcription failed — show file-uploaded placeholder.
     message_content[index] = {
         "type": "text",
-        "text": "[Voice message]: (audio file received)",
+        "text": (
+            f"{_voice_message_prefix()}: "
+            f"{_voice_message_placeholder('file_received')}"
+        ),
     }
     return False
 

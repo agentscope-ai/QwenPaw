@@ -89,6 +89,7 @@ CLAUDE.md
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+.smoke-cognee-working/
 
 # Hypothesis test cache
 .hypothesis/

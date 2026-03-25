@@ -1,5 +1,82 @@
 .skillsPage {
+  --skills-text-primary: #1f2937;
+  --skills-text-secondary: #667085;
+  --skills-text-muted: #999;
+  --skills-text-soft: #525866;
+  --skills-panel-bg: #fafbff;
+  --skills-panel-border: #eceff6;
+  --skills-card-bg: #fff;
+  --skills-card-border: #e8eaf3;
+  --skills-card-divider: #f1f2f6;
+  --skills-input-bg: #fff;
+  --skills-input-border: #d0d5dd;
+  --skills-input-border-focus: #615ced;
+  --skills-badge-enabled-bg: #ecfdf3;
+  --skills-badge-enabled-color: #027a48;
+  --skills-badge-enabled-border: #a9efc5;
+  --skills-badge-disabled-bg: #f2f4f7;
+  --skills-badge-disabled-color: #667085;
+  --skills-badge-disabled-border: #d0d5dd;
+  --skills-danger-bg: #fff7e6;
+  --skills-danger-border: #ffd8bf;
+  --skills-danger-color: #ad6800;
+  --skills-search-highlight-bg: #fff3bf;
+  --skills-brand-color: #615ced;
+  --skills-brand-soft-bg: rgba(97, 92, 237, 0.1);
+  --skills-brand-border: #1677ff;
+  --skills-brand-ring: rgba(22, 119, 255, 0.15);
+  --skills-link-color: #615ced;
+  --skills-warning-color: #ff4d4f;
+  --skills-on-warning: #fff;
+  --skills-status-active: #52c41a;
+  --skills-status-disabled: #d9d9d9;
+  --skills-custom-tag-color: #fa8c16;
+  --skills-custom-tag-bg: rgba(250, 140, 22, 0.1);
+  --skills-view-active-shadow: 0 1px 3px rgba(16, 24, 40, 0.12);
+  --skills-accent-gradient: linear-gradient(90deg, #615ced, #34c3ff);
+  --skills-shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --skills-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.08);
   padding: 24px;
+}
+
+:global(.dark-mode) .skillsPage {
+  --skills-text-primary: rgba(255, 255, 255, 0.9);
+  --skills-text-secondary: rgba(255, 255, 255, 0.64);
+  --skills-text-muted: rgba(255, 255, 255, 0.38);
+  --skills-text-soft: rgba(255, 255, 255, 0.74);
+  --skills-panel-bg: rgba(255, 255, 255, 0.03);
+  --skills-panel-border: rgba(255, 255, 255, 0.12);
+  --skills-card-bg: rgba(255, 255, 255, 0.03);
+  --skills-card-border: rgba(255, 255, 255, 0.1);
+  --skills-card-divider: rgba(255, 255, 255, 0.1);
+  --skills-input-bg: rgba(255, 255, 255, 0.04);
+  --skills-input-border: rgba(255, 255, 255, 0.2);
+  --skills-input-border-focus: #7f7cff;
+  --skills-badge-enabled-bg: rgba(82, 196, 26, 0.2);
+  --skills-badge-enabled-color: #c3f6aa;
+  --skills-badge-enabled-border: rgba(82, 196, 26, 0.36);
+  --skills-badge-disabled-bg: rgba(148, 163, 184, 0.2);
+  --skills-badge-disabled-color: rgba(255, 255, 255, 0.7);
+  --skills-badge-disabled-border: rgba(148, 163, 184, 0.35);
+  --skills-danger-bg: rgba(255, 148, 122, 0.15);
+  --skills-danger-border: rgba(255, 148, 122, 0.42);
+  --skills-danger-color: #ffd2b4;
+  --skills-search-highlight-bg: rgba(255, 227, 122, 0.32);
+  --skills-brand-color: #8f8cff;
+  --skills-brand-soft-bg: rgba(143, 140, 255, 0.24);
+  --skills-brand-border: #6aa7ff;
+  --skills-brand-ring: rgba(106, 167, 255, 0.28);
+  --skills-link-color: #bfc8ff;
+  --skills-warning-color: #ff9f95;
+  --skills-on-warning: #1f1110;
+  --skills-status-active: #95de64;
+  --skills-status-disabled: rgba(255, 255, 255, 0.28);
+  --skills-custom-tag-color: #ffc37a;
+  --skills-custom-tag-bg: rgba(255, 195, 122, 0.2);
+  --skills-view-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.42);
+  --skills-accent-gradient: linear-gradient(90deg, #8f8cff, #58d1ff);
+  --skills-shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --skills-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
 .header {
@@ -7,6 +84,11 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
 }
 
 .headerInfo {
@@ -22,8 +104,33 @@
 
 .description {
   margin: 0;
-  color: #999;
+  color: var(--skills-text-muted);
   font-size: 14px;
+}
+
+.viewSwitch {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--skills-panel-border);
+  background: var(--skills-panel-bg);
+  margin-bottom: 16px;
+}
+
+.viewButton {
+  border: none;
+  background: transparent;
+  color: var(--skills-text-secondary);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.viewButtonActive {
+  color: var(--skills-text-primary);
+  background: var(--skills-card-bg);
+  box-shadow: var(--skills-view-active-shadow);
 }
 
 .loading {
@@ -32,7 +139,7 @@
 }
 
 .loadingText {
-  color: #999;
+  color: var(--skills-text-muted);
 }
 
 .importHintBlock {
@@ -42,46 +149,1232 @@
 .importHintTitle {
   margin: 0;
   font-size: 13px;
-  color: #666;
+  color: var(--skills-text-secondary);
 }
 
 .importHintList {
   margin: 8px 0;
   padding: 0 0 0 20px;
   font-size: 12px;
-  color: #999;
+  color: var(--skills-text-muted);
 }
 
 .importUrlInput {
   width: 100%;
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--skills-input-border);
   border-radius: 8px;
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
   outline: none;
   font-size: 14px;
 
   &:focus {
-    border-color: #615ced;
+    border-color: var(--skills-input-border-focus);
   }
 }
 
 .importUrlError {
   margin-top: 8px;
-  color: #ff4d4f;
+  color: var(--skills-warning-color);
   font-size: 13px;
 }
 
 .importLoadingText {
   margin-top: 8px;
   font-size: 13px;
+  color: var(--skills-text-secondary);
+}
+
+.marketplacePanel {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--skills-panel-border);
+  border-radius: 12px;
+  background: var(--skills-panel-bg);
+}
+
+.marketplaceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.marketplaceTitle {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.marketplaceDesc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+}
+
+.marketEditor {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--skills-panel-border);
+  border-radius: 10px;
+  background: var(--skills-card-bg);
+}
+
+.marketEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.marketEditorTitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--skills-text-primary);
+}
+
+.marketEditorActions {
+  display: flex;
+  gap: 8px;
+}
+
+.marketRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.marketConfigRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.marketConfigLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+}
+
+.marketRow {
+  border: 1px solid var(--skills-card-border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--skills-card-bg);
+}
+
+.marketRowFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.marketInput {
+  height: 32px;
+  border: 1px solid var(--skills-input-border);
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 110px;
+}
+
+.marketInputWide {
+  height: 32px;
+  border: 1px solid var(--skills-input-border);
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 300px;
+  flex: 1;
+}
+
+.marketUrlHint {
+  width: 100%;
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+}
+
+.marketInputOrder {
+  width: 72px;
+  height: 32px;
+  border: 1px solid var(--skills-input-border);
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
+.marketEnabledLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+}
+
+.marketRowActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.marketMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+  margin-bottom: 8px;
+}
+
+.marketErrorBox {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--skills-danger-border);
+  background: var(--skills-danger-bg);
+  color: var(--skills-danger-color);
+  font-size: 12px;
+}
+
+.marketFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.marketSearchInput {
+  height: 32px;
+  border: 1px solid var(--skills-input-border);
+  border-radius: 6px;
+  padding: 0 10px;
+  min-width: 280px;
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+
+  &:focus {
+    outline: none;
+    border-color: var(--skills-input-border-focus);
+  }
+}
+
+.marketFilterLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+}
+
+.marketFilterSelect {
+  height: 32px;
+  border: 1px solid var(--skills-input-border);
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 180px;
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+}
+
+.marketItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.marketItemCard {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--skills-card-border);
+  background: var(--skills-card-bg);
+}
+
+.marketItemCardActive {
+  border: 2px solid var(--skills-brand-border);
+  box-shadow: 0 0 0 2px var(--skills-brand-ring);
+}
+
+.marketItemMain {
+  min-width: 0;
+}
+
+.marketItemName {
+  font-weight: 600;
+  color: var(--skills-text-primary);
+  margin-bottom: 2px;
+}
+
+.marketItemMeta {
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+  margin-bottom: 3px;
+}
+
+.marketItemDesc {
+  font-size: 12px;
+  color: var(--skills-text-soft);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.marketSearchHighlight {
+  background: var(--skills-search-highlight-bg);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.marketEmpty {
+  color: var(--skills-text-muted);
+  font-size: 13px;
+}
+
+.marketRowReadonly {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--skills-card-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--skills-card-bg);
+}
+
+.marketRowReadonlyInfo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.marketRowReadonlyId {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--skills-text-primary);
+  min-width: 80px;
+}
+
+.marketRowReadonlyName {
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+  min-width: 80px;
+}
+
+.marketRowReadonlyUrl {
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketRowBadgeEnabled {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--skills-badge-enabled-bg);
+  color: var(--skills-badge-enabled-color);
+  border: 1px solid var(--skills-badge-enabled-border);
+  white-space: nowrap;
+}
+
+.marketRowBadgeDisabled {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--skills-badge-disabled-bg);
+  color: var(--skills-badge-disabled-color);
+  border: 1px solid var(--skills-badge-disabled-border);
+  white-space: nowrap;
+}
+
+.marketRowBulkActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.marketRowDivider {
+  color: var(--skills-input-border);
+  font-size: 12px;
+  user-select: none;
+}
+
+.marketRowCount {
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+  white-space: nowrap;
+  width: 96px;
+  text-align: right;
+  display: inline-block;
+}
+
+.marketplaceItemsSection {
+  margin-top: 20px;
+}
+
+.marketplaceItemsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.marketplacePanel {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid #eceff6;
+  border-radius: 12px;
+  background: #fafbff;
+}
+
+.marketplaceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.marketplaceTitle {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.marketplaceDesc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #667085;
+}
+
+.marketMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
   color: #666;
+  margin-bottom: 8px;
+}
+
+.marketErrorBox {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ffd8bf;
+  background: #fff7e6;
+  color: #ad6800;
+  font-size: 12px;
+}
+
+.marketItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.marketItemCard {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #e8eaf3;
+  background: #fff;
+}
+
+.marketItemMain {
+  min-width: 0;
+}
+
+.marketItemName {
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 2px;
+}
+
+.marketItemMeta {
+  font-size: 12px;
+  color: #667085;
+  margin-bottom: 3px;
+}
+
+.marketItemDesc {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.marketEmpty {
+  color: #98a2b3;
+  font-size: 13px;
+}
+
+.marketplacePanel {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid #eceff6;
+  border-radius: 12px;
+  background: #fafbff;
+}
+
+.marketplaceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.marketplaceTitle {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.marketplaceDesc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #667085;
+}
+
+.marketEditor {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #e7e9f2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.marketEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.marketEditorTitle {
+  margin: 0;
+  font-size: 14px;
+  color: #344054;
+}
+
+.marketEditorActions {
+  display: flex;
+  gap: 8px;
+}
+
+.marketRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.marketConfigRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.marketConfigLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475467;
+}
+
+.marketRow {
+  border: 1px solid #eaecf3;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fcfcfd;
+}
+
+.marketRowFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.marketInput {
+  height: 32px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 110px;
+}
+
+.marketInputWide {
+  height: 32px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 300px;
+  flex: 1;
+}
+
+.marketUrlHint {
+  width: 100%;
+  font-size: 12px;
+  color: #667085;
+}
+
+.marketInputOrder {
+  width: 72px;
+  height: 32px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
+.marketEnabledLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #475467;
+}
+
+.marketRowActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.marketMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.marketErrorBox {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ffd8bf;
+  background: #fff7e6;
+  color: #ad6800;
+  font-size: 12px;
+}
+
+.marketFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.marketSearchInput {
+  height: 32px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 0 10px;
+  min-width: 280px;
+  background: #fff;
+
+  &:focus {
+    outline: none;
+    border-color: #615ced;
+  }
+}
+
+.marketFilterLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475467;
+}
+
+.marketFilterSelect {
+  height: 32px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 180px;
+  background: #fff;
+}
+
+.marketItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.marketItemCard {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #e8eaf3;
+  background: #fff;
+}
+
+.marketItemCardActive {
+  border: 2px solid #1677ff;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15);
+}
+
+.marketItemMain {
+  min-width: 0;
+}
+
+.marketItemName {
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 2px;
+}
+
+.marketItemMeta {
+  font-size: 12px;
+  color: #667085;
+  margin-bottom: 3px;
+}
+
+.marketItemDesc {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.marketSearchHighlight {
+  background: #fff3bf;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.marketEmpty {
+  color: #98a2b3;
+  font-size: 13px;
+}
+
+.marketRowReadonly {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #eaecf3;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #fcfcfd;
+}
+
+.marketRowReadonlyInfo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.marketRowReadonlyId {
+  font-size: 12px;
+  font-weight: 600;
+  color: #344054;
+  min-width: 80px;
+}
+
+.marketRowReadonlyName {
+  font-size: 12px;
+  color: #475467;
+  min-width: 80px;
+}
+
+.marketRowReadonlyUrl {
+  font-size: 12px;
+  color: #667085;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketRowBadgeEnabled {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #a9efc5;
+  white-space: nowrap;
+}
+
+.marketRowBadgeDisabled {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f2f4f7;
+  color: #667085;
+  border: 1px solid #d0d5dd;
+  white-space: nowrap;
+}
+
+.marketRowBulkActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.marketRowDivider {
+  color: #d0d5dd;
+  font-size: 12px;
+  user-select: none;
+}
+
+.marketRowCount {
+  font-size: 12px;
+  color: #667085;
+  white-space: nowrap;
+  width: 96px;
+  text-align: right;
+  display: inline-block;
+}
+
+.marketplaceItemsSection {
+  margin-top: 20px;
+}
+
+.marketplaceItemsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 .skillsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 24px;
+}
+
+.marketplaceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.refreshProgressWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.refreshProgressTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--skills-input-border-focus) 22%, transparent);
+  overflow: hidden;
+}
+
+.refreshProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--skills-accent-gradient);
+  transition: width 0.2s ease;
+}
+
+.refreshProgressText {
+  font-size: 12px;
+  color: var(--skills-text-secondary);
+}
+
+.marketplaceToolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.marketStats {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.marketSearchInput {
+  width: 320px;
+  max-width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--skills-input-border);
+  border-radius: 8px;
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+  outline: none;
+
+  &:focus {
+    border-color: var(--skills-input-border-focus);
+  }
+}
+
+.marketErrors {
+  border: 1px solid var(--skills-danger-border);
+  background: var(--skills-danger-bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.marketErrorItem {
+  font-size: 12px;
+  color: var(--skills-danger-color);
+}
+
+.marketplaceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.marketplaceContentWrap {
+  position: relative;
+}
+
+.marketplaceGridLoading {
+  opacity: 0.48;
+  filter: grayscale(0.2);
+  pointer-events: none;
+}
+
+.marketplaceLoadingMask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--skills-card-bg) 85%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
+  font-size: 13px;
+  color: var(--skills-text-secondary);
+}
+
+.marketCard {
+  border-radius: 16px;
+  border: 1px solid var(--skills-card-border);
+  box-shadow: var(--skills-shadow-soft);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease-in-out;
+
+  &:hover {
+    border: 1px solid var(--skills-brand-color);
+    box-shadow: var(--skills-shadow-hover);
+  }
+
+  :global(.ant-card-body) {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 16px 16px 12px;
+  }
+}
+
+.marketCardBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  height: 100%;
+  gap: 10px;
+}
+
+.marketCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.marketSkillName {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--skills-text-primary);
+}
+
+.marketSkillDescription {
+  margin: 0;
+  font-size: 13px;
+  color: var(--skills-text-soft);
+  line-height: 1.45;
+  min-height: 64px;
+  max-height: 64px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  word-break: break-word;
+}
+
+.marketSkillMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.marketTagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 4px;
+  flex: 1 1 auto;
+}
+
+.marketCardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--skills-card-divider);
+}
+
+.marketSourceLink {
+  font-size: 12px;
+  color: var(--skills-link-color);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.marketManageFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.marketAutoParseToggle {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  color: var(--skills-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+
+  input {
+    margin: 0;
+    flex: 0 0 auto;
+  }
+
+  span {
+    white-space: nowrap;
+    line-height: 1;
+  }
+}
+
+.marketManageList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.marketManageNotice {
+  border: 1px solid color-mix(in srgb, var(--skills-input-border-focus) 45%, transparent);
+  background: color-mix(in srgb, var(--skills-input-border-focus) 14%, transparent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--skills-text-primary);
+  font-size: 12px;
+}
+
+.marketManageCard {
+  border: 1px solid var(--skills-panel-border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--skills-card-bg);
+}
+
+.marketManageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+
+.marketManageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marketManageGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  > label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--skills-text-secondary);
+  }
+}
+
+.marketManageFieldFull {
+  grid-column: 1 / -1;
+}
+
+.marketManageInput {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--skills-input-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--skills-input-bg);
+  color: var(--skills-text-primary);
+  outline: none;
+
+  &:focus {
+    border-color: var(--skills-input-border-focus);
+  }
+}
+
+.marketUrlInputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.marketUrlExample {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--skills-text-muted);
+  line-height: 1.4;
+}
+
+.marketManageActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.marketValidationBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.marketValidationOk {
+  color: var(--skills-badge-enabled-color);
+  background: var(--skills-badge-enabled-bg);
+}
+
+.marketValidationPending {
+  color: var(--skills-danger-color);
+  background: color-mix(in srgb, var(--skills-danger-bg) 82%, transparent);
+}
+
+.marketValidationWarnings {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--skills-danger-color);
+  background: var(--skills-danger-bg);
+  border: 1px solid var(--skills-danger-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.marketEnabledToggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--skills-text-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .marketManageGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .marketUrlInputRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .skillCard {
@@ -95,26 +1388,27 @@
   }
 
   &.enabledCard {
-    border: 2px solid #615ced !important;
-    box-shadow: rgba(97, 92, 237, 0.2) 0px 8px 24px !important;
+    border: 2px solid var(--skills-brand-color) !important;
+    box-shadow: color-mix(in srgb, var(--skills-brand-color) 30%, transparent)
+      0px 8px 24px !important;
 
     .statusDot.enabled {
-      background-color: #52c41a;
+      background-color: var(--skills-status-active);
     }
 
     .statusText.enabled {
-      color: #52c41a;
+      color: var(--skills-status-active);
     }
   }
 
   &.hover {
-    border: 1px solid #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--skills-brand-color);
+    box-shadow: var(--skills-shadow-hover);
   }
 
   &.normal {
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    border: 1px solid var(--skills-card-border);
+    box-shadow: var(--skills-shadow-soft);
   }
 }
 
@@ -135,7 +1429,7 @@
   margin: 0;
   font-size: 17px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--skills-text-primary);
   line-height: 1.3;
 }
 
@@ -157,11 +1451,11 @@
   border-radius: 50%;
 
   &.enabled {
-    background-color: #52c41a;
+    background-color: var(--skills-status-active);
   }
 
   &.disabled {
-    background-color: #d9d9d9;
+    background-color: var(--skills-status-disabled);
   }
 }
 
@@ -169,11 +1463,11 @@
   font-size: 12px;
 
   &.enabled {
-    color: #52c41a;
+    color: var(--skills-status-active);
   }
 
   &.disabled {
-    color: #999;
+    color: var(--skills-text-muted);
   }
 }
 
@@ -192,9 +1486,9 @@
 
 .infoBlock {
   font-size: 12px;
-  color: #525866;
-  background-color: #f5f6fa;
-  border: 1px solid #eceff6;
+  color: var(--skills-text-soft);
+  background-color: var(--skills-panel-bg);
+  border: 1px solid var(--skills-panel-border);
   border-radius: 8px;
   padding: 8px 10px;
 }
@@ -205,6 +1499,7 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
   min-height: 64px;
   max-height: 64px;
@@ -218,7 +1513,7 @@
 
 .infoLabel {
   font-size: 12px;
-  color: #999;
+  color: var(--skills-text-muted);
   margin-bottom: 4px;
 }
 
@@ -230,8 +1525,8 @@
 
 .builtinTag {
   font-size: 12px;
-  color: #615ced;
-  background: rgba(97, 92, 237, 0.1);
+  color: var(--skills-brand-color);
+  background: var(--skills-brand-soft-bg);
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
@@ -239,8 +1534,8 @@
 
 .customizedTag {
   font-size: 12px;
-  color: #fa8c16;
-  background: rgba(250, 140, 22, 0.1);
+  color: var(--skills-custom-tag-color);
+  background: var(--skills-custom-tag-bg);
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
@@ -257,7 +1552,7 @@
   gap: 8px;
   padding-top: 10px;
   margin-top: 2px;
-  border-top: 1px solid #f1f2f6;
+  border-top: 1px solid var(--skills-card-divider);
 }
 
 .actionButton {
@@ -271,9 +1566,9 @@
   justify-content: center;
 
   &:hover {
-    background-color: #ff4d4f;
-    color: #fff;
-    border-color: #ff4d4f;
+    background-color: var(--skills-warning-color);
+    color: var(--skills-on-warning);
+    border-color: var(--skills-warning-color);
   }
 }
 
@@ -304,7 +1599,7 @@
 
 .toggleLabel {
   font-size: 12px;
-  color: #666;
+  color: var(--skills-text-secondary);
   white-space: nowrap;
 }
 
@@ -312,9 +1607,10 @@
   min-height: 200px;
   max-height: 300px;
   overflow: auto;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--skills-input-border);
   border-radius: 6px;
-  background-color: #fff;
+  background-color: var(--skills-input-bg);
+  color: var(--skills-text-primary);
 }
 
 .copyButton {
@@ -324,97 +1620,5 @@
 @media (max-width: 768px) {
   .descriptionContent {
     min-height: 50px;
-  }
-}
-
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .description {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Import modal hints */
-  .importHintTitle {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .importHintList {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .importUrlInput {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.85);
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.25);
-    }
-
-    &:focus {
-      border-color: #615ced;
-    }
-  }
-
-  .importLoadingText {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  /* Skill card */
-  .skillCard {
-    &.normal {
-      border-color: rgba(255, 255, 255, 0.08) !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-    }
-
-    &.hover {
-      border-color: #615ced !important;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
-    }
-  }
-
-  .skillTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .statusDot.disabled {
-    background-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .statusText.disabled {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  /* Description info block */
-  .infoBlock {
-    color: rgba(255, 255, 255, 0.65);
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  /* Source / Path labels */
-  .infoLabel {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  /* Card footer divider */
-  .cardFooter {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  /* Toggle label */
-  .toggleLabel {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  /* Markdown viewer */
-  .markdownViewer {
-    border-color: rgba(255, 255, 255, 0.1);
-    background-color: #1f1f1f;
-    color: rgba(255, 255, 255, 0.85);
   }
 }

@@ -1,14 +1,27 @@
 import { createRoot } from "react-dom/client";
-import App from "./App.tsx";
-import "./i18n";
 
 if (typeof window !== "undefined") {
   const originalError = console.error;
   const originalWarn = console.warn;
 
+  const shouldIgnoreConsoleNoise = (msg: string) => {
+    return (
+      msg.includes(":first-child") ||
+      msg.includes("pseudo class") ||
+      msg.includes("Warning: [antd: Tooltip] `overlayClassName` is deprecated") ||
+      msg.includes("Warning: findDOMNode is deprecated and will be removed in the next major release") ||
+      msg.includes(
+        "Warning: forwardRef render functions accept exactly two parameters",
+      ) ||
+      msg.includes(
+        'Warning: Each child in a list should have a unique "key" prop.',
+      )
+    );
+  };
+
   console.error = function (...args: any[]) {
     const msg = args[0]?.toString() || "";
-    if (msg.includes(":first-child") || msg.includes("pseudo class")) {
+    if (shouldIgnoreConsoleNoise(msg)) {
       return;
     }
     originalError.apply(console, args);
@@ -17,8 +30,7 @@ if (typeof window !== "undefined") {
   console.warn = function (...args: any[]) {
     const msg = args[0]?.toString() || "";
     if (
-      msg.includes(":first-child") ||
-      msg.includes("pseudo class") ||
+      shouldIgnoreConsoleNoise(msg) ||
       msg.includes("potentially unsafe")
     ) {
       return;
@@ -27,4 +39,8 @@ if (typeof window !== "undefined") {
   };
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+void (async () => {
+  await import("./i18n");
+  const { default: App } = await import("./App.tsx");
+  createRoot(document.getElementById("root")!).render(<App />);
+})();

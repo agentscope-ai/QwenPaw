@@ -170,6 +170,28 @@ automatically use defaults.
     "language": "zh",
     "installed_md_files_language": "zh"
   },
+  "skills_market": {
+    "version": 1,
+    "cache": {
+      "ttl_sec": 600
+    },
+    "install": {
+      "overwrite_default": false
+    },
+    "markets": [
+      {
+        "id": "community",
+        "name": "Community Skills",
+        "type": "git",
+        "url": "https://github.com/futuremeng/editor-skills.git",
+        "branch": "main",
+        "path": "index.json",
+        "enabled": true,
+        "order": 1,
+        "trust": "community"
+      }
+    ]
+  },
   "last_api": {
     "host": "127.0.0.1",
     "port": 8088
@@ -312,6 +334,38 @@ restarting the service is not required.
 
 ---
 
+#### `skills_market` — Skills marketplace configuration
+
+Use this section to configure Git-backed skill markets shown in **Agent → Skills → Marketplace**.
+
+| Field                                   | Type           | Default      | Description |
+| --------------------------------------- | -------------- | ------------ | ----------- |
+| `skills_market.version`                 | int            | `1`          | Marketplace config schema version |
+| `skills_market.cache.ttl_sec`           | int            | `600`        | Marketplace aggregation cache TTL in seconds |
+| `skills_market.install.overwrite_default` | bool         | `false`      | Default overwrite behavior for marketplace install |
+| `skills_market.markets`                 | list           | `[]`         | List of market definitions |
+
+Each `markets[]` item:
+
+| Field     | Type   | Default      | Description |
+| --------- | ------ | ------------ | ----------- |
+| `id`      | string | _(required)_ | Stable unique market ID |
+| `name`    | string | _(required)_ | Display name in Console |
+| `type`    | string | `"git"`     | Market type (currently only `git`) |
+| `url`     | string | _(required)_ | Git repo URL; supports `owner/repo`, `.git`, GitHub tree URLs |
+| `branch`  | string | `""`        | Optional branch; empty means remote default branch |
+| `path`    | string | `"index.json"` | Index path in repo; can be `index.json` or a skills directory |
+| `enabled` | bool   | `true`       | Whether this market participates in aggregation |
+| `order`   | int    | `999`        | Sort order (smaller first) |
+| `trust`   | string | `null`       | Optional trust label: `official`, `community`, `custom` |
+
+Notes:
+
+- This config is stored in your working directory config file (default `~/.copaw/config.json`).
+- If `path` points to a directory (or `index.json` is missing but the parent directory exists), CoPaw scans `SKILL.md` files and generates an index automatically.
+
+---
+
 #### `user_timezone` — User timezone
 
 | Field           | Type   | Default             | Description                                                                                                            |
@@ -325,7 +379,7 @@ This timezone is used for:
 - Default timezone for new cron jobs (CLI and console)
 - Heartbeat active hours evaluation
 
-You can also change it via the Console (Agent → Configuration).
+You can also change it via the Console (Agent -> Configuration).
 
 ---
 

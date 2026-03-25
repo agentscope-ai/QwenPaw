@@ -1,29 +1,24 @@
 # -*- coding: utf-8 -*-
 """CLI command: run CoPaw app on a free port in a native webview window."""
-# pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
-import logging
 import os
+import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
-import traceback
 import webbrowser
 
 import click
 
 from ..constant import LOG_LEVEL_ENV
-from ..utils.logging import setup_logger
 
 try:
     import webview
 except ImportError:
     webview = None  # type: ignore[assignment]
-
-logger = logging.getLogger(__name__)
 
 
 class WebViewAPI:
@@ -58,6 +53,12 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
     return False
 
 
+def _log_desktop(msg: str) -> None:
+    """Print to stderr and flush (for desktop.log when launched from .app)."""
+    print(msg, file=sys.stderr)
+    sys.stderr.flush()
+
+
 def _stream_reader(in_stream, out_stream) -> None:
     """Read from in_stream line by line and write to out_stream.
 
@@ -77,6 +78,194 @@ def _stream_reader(in_stream, out_stream) -> None:
             in_stream.close()
         except Exception:
             pass
+
+
+def _pid_exists(pid: int) -> bool:
+    """Return True if *pid* exists and is accessible."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _is_packaged_desktop_backend(cmd: str) -> bool:
+    """Return True when a process command matches packaged desktop backend."""
+    return (
+        ".app/Contents/Resources/env/bin/python" in cmd
+        and "-m uvicorn" in cmd
+        and "copaw.app._app:app" in cmd
+    )
+
+
+def _list_stale_desktop_backend_pids() -> list[int]:
+    """Collect stale packaged desktop backend process IDs."""
+    try:
+        ps_out = subprocess.check_output(
+            ["ps", "-axo", "pid=,command="],
+            text=True,
+        )
+    except Exception:
+        return []
+
+    current_pid = os.getpid()
+    stale_pids: list[int] = []
+    for raw in ps_out.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        pid_str, cmd = parts
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        if pid == current_pid:
+            continue
+        if _is_packaged_desktop_backend(cmd):
+            stale_pids.append(pid)
+
+    return stale_pids
+
+
+def _terminate_processes(pids: list[int]) -> list[int]:
+    """Send SIGTERM to processes and return the ones signaled successfully."""
+    cleaned: list[int] = []
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            cleaned.append(pid)
+        except ProcessLookupError:
+            continue
+        except Exception:
+            continue
+    return cleaned
+
+
+def _kill_surviving_processes(pids: list[int]) -> None:
+    """Force kill any process that remains alive after the grace period."""
+    for pid in pids:
+        if _pid_exists(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+
+
+def _cleanup_stale_desktop_backends() -> list[int]:
+    """Terminate stale packaged desktop backend processes.
+
+    We only target packaged app backends (inside ``*.app`` bundle)
+    to avoid affecting source/development processes like
+    ``python -m copaw app --reload``.
+    """
+    if sys.platform == "win32":
+        # Packaged desktop backend process pattern below is
+        # macOS/Linux-specific.
+        return []
+
+    stale_pids = _list_stale_desktop_backend_pids()
+    cleaned = _terminate_processes(stale_pids)
+
+    if cleaned:
+        # Give processes a short grace period for graceful shutdown.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if all(not _pid_exists(pid) for pid in cleaned):
+                break
+            time.sleep(0.1)
+
+        _kill_surviving_processes(cleaned)
+
+    return cleaned
+
+
+def _log_ssl_certificate_status(env: dict[str, str]) -> None:
+    """Log SSL certificate configuration for desktop launches."""
+    if "SSL_CERT_FILE" in env:
+        cert_file = env["SSL_CERT_FILE"]
+        if os.path.exists(cert_file):
+            _log_desktop(f"[desktop] SSL certificate: {cert_file}")
+        else:
+            _log_desktop(
+                f"[desktop] WARNING: SSL_CERT_FILE set but not found: "
+                f"{cert_file}",
+            )
+        return
+
+    _log_desktop("[desktop] WARNING: SSL_CERT_FILE not set")
+
+
+def _start_windows_stream_threads(proc: subprocess.Popen) -> None:
+    """Start background threads draining subprocess output on Windows."""
+    stdout_thread = threading.Thread(
+        target=_stream_reader,
+        args=(proc.stdout, sys.stdout),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_stream_reader,
+        args=(proc.stderr, sys.stderr),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+
+def _serve_desktop_window(
+    proc: subprocess.Popen,
+    host: str,
+    port: int,
+    url: str,
+) -> None:
+    """Wait for backend readiness and run the blocking desktop webview."""
+    webview_module = webview
+    if webview_module is None:
+        raise click.ClickException(
+            "pywebview is required to run CoPaw desktop mode",
+        )
+
+    _log_desktop("[desktop] Waiting for HTTP ready...")
+    if _wait_for_http(host, port):
+        _log_desktop(
+            "[desktop] HTTP ready, creating webview window...",
+        )
+        api = WebViewAPI()
+        webview_module.create_window(
+            "CoPaw Desktop",
+            url,
+            width=1280,
+            height=800,
+            text_select=True,
+            js_api=api,
+        )
+        _log_desktop(
+            "[desktop] Calling webview.start() (blocks until closed)...",
+        )
+        webview_module.start(
+            private_mode=False,
+        )
+        _log_desktop(
+            "[desktop] webview.start() returned (window closed).",
+        )
+        proc.terminate()
+        proc.wait()
+        return
+
+    _log_desktop("[desktop] Server did not become ready in time.")
+    click.echo(
+        "Server did not become ready in time; open manually: " + url,
+        err=True,
+    )
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        proc.wait()
 
 
 @click.command("desktop")
@@ -106,35 +295,25 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing CoPaw app instance.
     """
-    # Setup logger for desktop command (separate from backend subprocess)
-    setup_logger(log_level)
+
+    cleaned = _cleanup_stale_desktop_backends()
+    if cleaned:
+        _log_desktop(
+            f"[desktop] Cleaned stale desktop backend process(es): {cleaned}",
+        )
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting CoPaw app on {url} (port {port})")
-    logger.info("Server subprocess starting...")
+    _log_desktop("[desktop] Server subprocess starting...")
 
     env = os.environ.copy()
     env[LOG_LEVEL_ENV] = log_level
-
-    if "SSL_CERT_FILE" in env:
-        cert_file = env["SSL_CERT_FILE"]
-        if os.path.exists(cert_file):
-            logger.info(f"SSL certificate: {cert_file}")
-        else:
-            logger.warning(
-                f"SSL_CERT_FILE set but not found: {cert_file}",
-            )
-    else:
-        logger.warning("SSL_CERT_FILE not set on environment")
+    _log_ssl_certificate_status(env)
 
     is_windows = sys.platform == "win32"
-    proc = None
-    manually_terminated = (
-        False  # Track if we intentionally terminated the process
-    )
     try:
-        proc = subprocess.Popen(
+        with subprocess.Popen(
             [
                 sys.executable,
                 "-m",
@@ -153,117 +332,17 @@ def desktop_cmd(
             env=env,
             bufsize=1,
             universal_newlines=True,
-        )
-        try:
+        ) as proc:
             if is_windows:
-                stdout_thread = threading.Thread(
-                    target=_stream_reader,
-                    args=(proc.stdout, sys.stdout),
-                    daemon=True,
-                )
-                stderr_thread = threading.Thread(
-                    target=_stream_reader,
-                    args=(proc.stderr, sys.stderr),
-                    daemon=True,
-                )
-                stdout_thread.start()
-                stderr_thread.start()
-            logger.info("Waiting for HTTP ready...")
-            if _wait_for_http(host, port):
-                logger.info("HTTP ready, creating webview window...")
-                api = WebViewAPI()
-                webview.create_window(
-                    "CoPaw Desktop",
-                    url,
-                    width=1280,
-                    height=800,
-                    text_select=True,
-                    js_api=api,
-                )
-                logger.info(
-                    "Calling webview.start() (blocks until closed)...",
-                )
-                webview.start(
-                    private_mode=False,
-                )  # blocks until user closes the window
-                logger.info("webview.start() returned (window closed).")
-            else:
-                logger.error("Server did not become ready in time.")
-                click.echo(
-                    "Server did not become ready in time; open manually: "
-                    + url,
-                    err=True,
-                )
-                try:
-                    proc.wait()
-                except KeyboardInterrupt:
-                    pass  # will be handled in finally
-        finally:
-            # Ensure backend process is always cleaned up
-            # Wrap all cleanup operations to handle race conditions:
-            # - Process may exit between poll() and terminate()
-            # - terminate()/kill() may raise ProcessLookupError/OSError
-            # - We must not let cleanup exceptions mask the original error
-            if proc and proc.poll() is None:  # process still running
-                logger.info("Terminating backend server...")
-                manually_terminated = (
-                    True  # Mark that we're intentionally terminating
-                )
-                try:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5.0)
-                        logger.info("Backend server terminated cleanly.")
-                    except subprocess.TimeoutExpired:
-                        logger.warning(
-                            "Backend did not exit in 5s, force killing...",
-                        )
-                        try:
-                            proc.kill()
-                            proc.wait()
-                            logger.info("Backend server force killed.")
-                        except (ProcessLookupError, OSError) as e:
-                            # Process already exited, which is fine
-                            logger.debug(
-                                f"kill() raised {e.__class__.__name__} "
-                                f"(process already exited)",
-                            )
-                except (ProcessLookupError, OSError) as e:
-                    # Process already exited between poll() and terminate()
-                    logger.debug(
-                        f"terminate() raised {e.__class__.__name__} "
-                        f"(process already exited)",
-                    )
-            elif proc:
-                logger.info(
-                    f"Backend already exited with code {proc.returncode}",
-                )
+                _start_windows_stream_threads(proc)
+            _serve_desktop_window(proc, host, port, url)
 
-        # Only report errors if process exited unexpectedly
-        # (not manually terminated)
-        # On Windows, terminate() doesn't use signals so exit codes vary
-        # (1, 259, etc.)
-        # On Unix/Linux/macOS, terminate() sends SIGTERM (exit code -15)
-        # Using a flag is more reliable than checking specific exit codes
-        if proc and proc.returncode != 0 and not manually_terminated:
-            logger.error(
-                f"Backend process exited unexpectedly with code "
-                f"{proc.returncode}",
-            )
-            # Follow POSIX convention for exit codes:
-            # - Negative (signal): 128 + signal_number
-            # - Positive (normal): use as-is
-            # Example: -15 (SIGTERM) -> 143 (128+15), -11 (SIGSEGV) ->
-            # 139 (128+11)
-            if proc.returncode < 0:
-                sys.exit(128 + abs(proc.returncode))
-            else:
-                sys.exit(proc.returncode or 1)
-    except KeyboardInterrupt:
-        logger.warning("KeyboardInterrupt in main, cleaning up...")
-        raise
+        if proc.returncode != 0:
+            sys.exit(proc.returncode or 1)
     except Exception as e:
-        logger.error(f"Exception: {e!r}")
+        _log_desktop(f"[desktop] Exception: {e!r}")
+        import traceback
+
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         raise

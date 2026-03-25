@@ -1,0 +1,15 @@
+{
+  "description": "开发前自动弹出双主线协作 Checklist，确保 fetch/prune、镜像线、fork 主线同步、按目标切分支。",
+  "trigger": "post-checkout",
+  "actions": [
+    {
+      "type": "showChecklist",
+      "items": [
+        "fetch/prune origin/upstream",
+        "更新 mirror/upstream-main（reset --hard）",
+        "rebase fork/main",
+        "按目标切分支（feat/upstream/* 或 feat/fork/*）"
+      ]
+    }
+  ]
+}

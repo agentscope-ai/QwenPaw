@@ -1,0 +1,328 @@
+.page {
+  padding: 24px;
+  height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+}
+
+.subtitle {
+  color: rgba(0, 0, 0, 0.56);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.metricCard {
+  border-radius: 10px;
+}
+
+.metricLabel {
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+}
+
+.metricValue {
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.loadingWrap {
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+}
+
+.columnCard {
+  min-height: 320px;
+
+  :global(.ant-card) {
+    height: 100%;
+  }
+
+  :global(.ant-card-body) {
+    height: calc(100% - 57px);
+    overflow: auto;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listItem {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: #d9d9d9;
+    background-color: #fafafa;
+  }
+}
+
+.listItemStatic {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.selected {
+  border: 2px solid #1677ff;
+  background: #f0f7ff;
+}
+
+.listItemHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.helperText {
+  font-size: 12px;
+}
+
+.versionSelect {
+  width: 180px;
+}
+
+.newVersionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nodesActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.draftStatusText {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.diffDetailToggle {
+  padding-left: 0;
+  width: fit-content;
+}
+
+.diffDetailPanel {
+  border: 1px dashed rgba(22, 119, 255, 0.35);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(22, 119, 255, 0.04);
+}
+
+.diffDetailRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diffPairGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.diffPairColumn {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.diffPairOld {
+  background: rgba(255, 77, 79, 0.04);
+  border-color: rgba(255, 77, 79, 0.2);
+}
+
+.diffPairNew {
+  background: rgba(82, 196, 26, 0.06);
+  border-color: rgba(82, 196, 26, 0.2);
+}
+
+.diffPairLabel {
+  font-size: 12px;
+}
+
+.diffOldText {
+  color: #8c8c8c;
+}
+
+.diffNewText {
+  color: #1677ff;
+}
+
+.diffTokenNeutral {
+  color: inherit;
+}
+
+.diffTokenRemoved {
+  color: #8c8c8c;
+  text-decoration: line-through;
+  background: rgba(255, 77, 79, 0.1);
+  border-radius: 3px;
+}
+
+.diffTokenAdded {
+  color: #1677ff;
+  background: rgba(82, 196, 26, 0.16);
+  border-radius: 3px;
+}
+
+.chatLoadingWrap {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chatColumn {
+  min-height: 0;
+
+  :global(.ant-card) {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+
+  :global(.ant-card-body) {
+    height: calc(100% - 57px) !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(.pipeline-anywhere-chat-host),
+  :global(.pipeline-anywhere-chat-host .copaw-chat-anywhere-chat),
+  :global(.pipeline-anywhere-chat-host [class*="chat-anywhere-layout"]),
+  :global(.pipeline-anywhere-chat-host [class*="chat-anywhere-chat"]),
+  :global(.pipeline-anywhere-chat-host [class*="chat-anywhere-message-list"]) {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+  }
+
+  :global(.pipeline-anywhere-chat-host .copaw-chat-anywhere-header) {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    background: rgba(250, 250, 250, 0.92);
+  }
+
+  :global(.pipeline-anywhere-chat-host .copaw-chat-anywhere-chat) {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+}
+
+.runActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.runLink {
+  padding-left: 0;
+  align-self: flex-start;
+}
+
+@media (max-width: 1439px) {
+  .columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 992px) {
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .columns {
+    grid-template-columns: 1fr;
+  }
+
+  .versionSelect {
+    width: 140px;
+  }
+
+  .diffPairGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .nodesActions {
+    gap: 6px;
+  }
+}

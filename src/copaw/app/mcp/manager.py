@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import warnings
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
@@ -35,6 +36,8 @@ class MCPClientManager:
         """Initialize an empty MCP client manager."""
         self._clients: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        # Keys that failed to connect at startup or disconnected at runtime
+        self._failed_keys: set = set()
 
     async def init_from_config(self, config: "MCPConfig") -> None:
         """Initialize clients from configuration.
@@ -51,13 +54,89 @@ class MCPClientManager:
             try:
                 await self._add_client(key, client_config)
                 logger.debug(f"MCP client '{key}' initialized successfully")
+                self._failed_keys.discard(key)
             except BaseException as e:
                 if isinstance(e, (KeyboardInterrupt, SystemExit)):
                     raise
+                self._failed_keys.add(key)
                 logger.warning(
-                    f"Failed to initialize MCP client '{key}': {e}",
-                    exc_info=True,
+                    f"MCP client '{key}' unavailable at startup"
+                    f" ({type(e).__name__}: {e})."
+                    " Will be retried automatically.",
                 )
+
+    def active_keys(self) -> set:
+        """Return the set of currently connected client keys.
+
+        Uses ``is_connected`` from the underlying client object so that
+        runtime disconnections are reflected without a heartbeat round-trip.
+        """
+        return {
+            key
+            for key, client in self._clients.items()
+            if getattr(client, "is_connected", True)
+        }
+
+    def failed_keys(self) -> set:
+        """Return keys that need reconnection.
+
+        Combines startup failures (``_failed_keys``) with clients that
+        connected initially but have since dropped (``is_connected=False``).
+        """
+        disconnected = {
+            key
+            for key, client in self._clients.items()
+            if not getattr(client, "is_connected", True)
+        }
+        return self._failed_keys | disconnected
+
+    def is_active(self, key: str) -> bool:
+        """Return whether a given client is currently connected."""
+        client = self._clients.get(key)
+        if client is None:
+            return False
+        return bool(getattr(client, "is_connected", True))
+
+    async def refresh_client_status(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+        timeout: float = 15.0,
+    ) -> bool:
+        """Actively probe and reconnect a client if needed.
+
+        Returns:
+            True if the client is connected after refresh, False otherwise.
+        """
+        if not client_config.enabled:
+            self._failed_keys.discard(key)
+            return False
+
+        existing = self._clients.get(key)
+
+        if existing is not None and getattr(existing, "is_connected", False):
+            try:
+                await asyncio.wait_for(existing.list_tools(), timeout=timeout)
+                self._failed_keys.discard(key)
+                return True
+            except Exception as exc:
+                logger.debug(
+                    "MCP client '%s' health probe failed: %s",
+                    key,
+                    exc,
+                )
+                try:
+                    await existing.close()
+                except Exception:
+                    pass
+
+        try:
+            await self.replace_client(key, client_config, timeout=timeout)
+            self._failed_keys.discard(key)
+            return True
+        except Exception:
+            self._failed_keys.add(key)
+            return False
 
     async def get_clients(self) -> List[Any]:
         """Get list of all active MCP clients.
@@ -174,6 +253,7 @@ class MCPClientManager:
 
         async with self._lock:
             self._clients[key] = client
+            self._failed_keys.discard(key)
 
     @staticmethod
     async def _force_cleanup_client(client: Any) -> None:
@@ -244,11 +324,28 @@ class MCPClientManager:
         if headers:
             headers = {k: os.path.expandvars(v) for k, v in headers.items()}
 
-        client = HttpStatefulClient(
-            name=client_config.name,
-            transport=client_config.transport,
-            url=client_config.url,
-            headers=headers or None,
-        )
+        transport = client_config.transport
+        if transport == "sse":
+            logger.info(
+                "MCP client '%s' uses legacy transport 'sse'; "
+                "using 'streamable_http' instead.",
+                client_config.name,
+            )
+            transport = "streamable_http"
+
+        # agentscope currently emits this deprecation from inside dependency
+        # internals even when using streamable_http; suppress it locally only.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Use `streamable_http_client` instead\.",
+                category=DeprecationWarning,
+            )
+            client = HttpStatefulClient(
+                name=client_config.name,
+                transport=transport,
+                url=client_config.url,
+                headers=headers or None,
+            )
         setattr(client, "_copaw_rebuild_info", rebuild_info)
         return client

@@ -32,6 +32,68 @@ function getSelectedAgentId(): string {
 }
 
 export const chatApi = {
+  /** Start a console chat stream with an initial user prompt. */
+  startConsoleChat: async (params: {
+    sessionId: string;
+    prompt: string;
+    userId?: string;
+    channel?: string;
+  }): Promise<void> => {
+    const response = await fetch(getApiUrl("/console/chat"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...buildAuthHeaders(),
+      },
+      body: JSON.stringify({
+        input: [
+          {
+            role: "user",
+            type: "message",
+            content: [{ type: "text", text: params.prompt }],
+          },
+        ],
+        session_id: params.sessionId,
+        user_id: params.userId || "default",
+        channel: params.channel || "console",
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Failed to start console chat: ${response.status} ${response.statusText}${
+          text ? ` - ${text}` : ""
+        }`,
+      );
+    }
+
+    // Drain stream response to completion. In pipeline bootstrap flow, if the
+    // stream is left unread, backend persistence may stay in `running` with
+    // empty history for a long time in some runtimes.
+    if (!response.body) {
+      return;
+    }
+
+    // Keep draining in background so pipeline page can navigate immediately.
+    void (async () => {
+      const reader = response.body!.getReader();
+      try {
+        while (true) {
+          const { done } = await reader.read();
+          if (done) {
+            break;
+          }
+        }
+      } catch {
+        // Swallow background drain errors; caller has already started the run.
+      } finally {
+        reader.releaseLock();
+      }
+    })();
+  },
+
   /** Upload a file for chat attachment. Returns URL path for content. */
   uploadFile: async (file: File): Promise<ChatUploadResponse> => {
     const formData = new FormData();
@@ -78,8 +140,19 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (chatId: string) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`),
+  getChat: (chatId: string, params?: { offset?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (typeof params?.offset === "number") {
+      searchParams.append("offset", String(params.offset));
+    }
+    if (typeof params?.limit === "number") {
+      searchParams.append("limit", String(params.limit));
+    }
+    const query = searchParams.toString();
+    return request<ChatHistory>(
+      `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
+    );
+  },
 
   updateChat: (chatId: string, chat: Partial<ChatSpec>) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
@@ -105,6 +178,12 @@ export const chatApi = {
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
       method: "POST",
     }),
+
+  // Backward-compatible alias used by existing chat page code.
+  stopConsoleChat: (chatId: string) =>
+    request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
+      method: "POST",
+    }),
 };
 
 export const sessionApi = {
@@ -116,8 +195,19 @@ export const sessionApi = {
     return request<Session[]>(`/chats${query ? `?${query}` : ""}`);
   },
 
-  getSession: (sessionId: string) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(sessionId)}`),
+  getSession: (sessionId: string, params?: { offset?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (typeof params?.offset === "number") {
+      searchParams.append("offset", String(params.offset));
+    }
+    if (typeof params?.limit === "number") {
+      searchParams.append("limit", String(params.limit));
+    }
+    const query = searchParams.toString();
+    return request<ChatHistory>(
+      `/chats/${encodeURIComponent(sessionId)}${query ? `?${query}` : ""}`,
+    );
+  },
 
   deleteSession: (sessionId: string) =>
     request<ChatDeleteResponse>(`/chats/${encodeURIComponent(sessionId)}`, {

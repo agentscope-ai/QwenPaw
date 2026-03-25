@@ -17,16 +17,36 @@ interface LocalWhisperStatus {
   whisper_installed: boolean;
 }
 
+interface LocalWhisperInstallResult {
+  success: boolean;
+  already_available: boolean;
+  status_before: LocalWhisperStatus;
+  status_after: LocalWhisperStatus;
+  operations: {
+    name: string;
+    attempted: boolean;
+    installer: string | null;
+    command: string;
+    ok: boolean;
+    output: string;
+    returncode: number | null;
+  }[];
+  manual_steps: string[];
+}
+
 function VoiceTranscriptionPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const [audioMode, setAudioMode] = useState("auto");
   const [providerType, setProviderType] = useState("disabled");
   const [providers, setProviders] = useState<TranscriptionProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [localWhisperStatus, setLocalWhisperStatus] =
     useState<LocalWhisperStatus | null>(null);
+  const [installResult, setInstallResult] =
+    useState<LocalWhisperInstallResult | null>(null);
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -71,6 +91,34 @@ function VoiceTranscriptionPage() {
       message.error(t("voiceTranscription.saveFailed"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAutoInstall = async () => {
+    setInstalling(true);
+    try {
+      const result = await api.installLocalWhisper();
+      setInstallResult(result);
+      setLocalWhisperStatus(result.status_after);
+
+      if (result.success) {
+        message.success(t("voiceTranscription.autoInstallSuccess"));
+      } else if (result.manual_steps.length > 0) {
+        message.warning(
+          `${t("voiceTranscription.autoInstallPartial")} ${result.manual_steps.join(" ")}`,
+        );
+      } else {
+        message.warning(t("voiceTranscription.autoInstallPartial"));
+      }
+    } catch (err) {
+      console.error("Failed to auto-install local Whisper dependencies:", err);
+      message.error(
+        err instanceof Error
+          ? err.message
+          : t("voiceTranscription.autoInstallFailed"),
+      );
+    } finally {
+      setInstalling(false);
     }
   };
 
@@ -218,6 +266,33 @@ function VoiceTranscriptionPage() {
                     )}
                   />
                 )}
+
+                {!localWhisperStatus.available && (
+                  <div style={{ marginTop: 12 }}>
+                    <Button onClick={handleAutoInstall} loading={installing}>
+                      {t("voiceTranscription.autoInstallAction")}
+                    </Button>
+                  </div>
+                )}
+
+                {installResult && (
+                  <Alert
+                    style={{ marginTop: 12 }}
+                    type={installResult.success ? "success" : "info"}
+                    showIcon
+                    message={
+                      installResult.success
+                        ? t("voiceTranscription.autoInstallSuccess")
+                        : t("voiceTranscription.autoInstallPartial")
+                    }
+                    description={
+                      installResult.success
+                        ? t("voiceTranscription.autoInstallSuccessDesc")
+                        : installResult.manual_steps.join(" ") ||
+                          t("voiceTranscription.autoInstallFailed")
+                    }
+                  />
+                )}
               </div>
             )}
           </Card>
@@ -271,12 +346,17 @@ function VoiceTranscriptionPage() {
       <div className={styles.footerActions}>
         <Button
           onClick={fetchSettings}
-          disabled={saving}
+          disabled={saving || installing}
           style={{ marginRight: 8 }}
         >
           {t("common.reset")}
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
+        <Button
+          type="primary"
+          onClick={handleSave}
+          loading={saving}
+          disabled={installing}
+        >
           {t("common.save")}
         </Button>
       </div>

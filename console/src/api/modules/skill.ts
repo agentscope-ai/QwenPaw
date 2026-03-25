@@ -1,7 +1,15 @@
 import { request } from "../request";
-import { getApiUrl } from "../config";
-import { buildAuthHeaders } from "../authHeaders";
-import type { HubSkillSpec, SkillSpec } from "../types";
+import { getApiUrl, getApiToken } from "../config";
+import type {
+  HubSkillSpec,
+  InstallMarketplacePayload,
+  InstallSkillResult,
+  MarketplaceResponse,
+  SkillSpec,
+  SkillsMarketSpec,
+  SkillsMarketsPayload,
+  ValidateMarketResponse,
+} from "../types";
 
 // Declare VITE_API_BASE_URL as global (injected by Vite)
 declare const VITE_API_BASE_URL: string;
@@ -10,6 +18,30 @@ declare const VITE_API_BASE_URL: string;
 function getStreamApiUrl(): string {
   const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
   return `${base}/api`;
+}
+
+function buildHeaders(): HeadersInit {
+  const headers: Record<string, string> = {};
+
+  const token = getApiToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const selectedAgent = parsed?.state?.selectedAgent;
+      if (selectedAgent) {
+        headers["X-Agent-Id"] = selectedAgent;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to get selected agent from storage:", error);
+  }
+
+  return headers;
 }
 
 export const skillApi = {
@@ -50,6 +82,31 @@ export const skillApi = {
       `/skills/hub/search?q=${encodeURIComponent(query)}&limit=${limit}`,
     ),
 
+  getSkillsMarkets: () => request<SkillsMarketsPayload>("/skills/markets"),
+
+  updateSkillsMarkets: (payload: SkillsMarketsPayload) =>
+    request<SkillsMarketsPayload>("/skills/markets", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  validateSkillsMarket: (payload: SkillsMarketSpec) =>
+    request<ValidateMarketResponse>("/skills/markets/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getMarketplace: (refresh = false) =>
+    request<MarketplaceResponse>(
+      `/skills/marketplace?refresh=${refresh ? "true" : "false"}`,
+    ),
+
+  installMarketplaceSkill: (payload: InstallMarketplacePayload) =>
+    request<InstallSkillResult>("/skills/marketplace/install", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   installHubSkill: (
     payload: {
       bundle_url: string;
@@ -59,12 +116,7 @@ export const skillApi = {
     },
     options?: { signal?: AbortSignal },
   ) =>
-    request<{
-      installed: boolean;
-      name: string;
-      enabled: boolean;
-      source_url: string;
-    }>("/skills/hub/install", {
+    request<InstallSkillResult>("/skills/hub/install", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,
@@ -205,7 +257,7 @@ export const skillApi = {
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
 
-    const headers = buildAuthHeaders();
+    const headers = buildHeaders();
 
     const response = await fetch(url, {
       method: "POST",

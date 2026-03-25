@@ -4,6 +4,18 @@ import type {
   AgentProfileConfig,
   CreateAgentRequest,
   AgentProfileRef,
+  AgentsSquareSourcesPayload,
+  AgentsSquareSourceSpec,
+  ValidateSquareSourceResponse,
+  AgentSquareItemsResponse,
+  ImportAgentSquareRequest,
+  ImportAgentSquareResponse,
+  AgentProjectFileInfo,
+  AgentProjectFileContent,
+  ProjectPipelineTemplateInfo,
+  ProjectPipelineRunSummary,
+  ProjectPipelineRunDetail,
+  CreateProjectPipelineRunRequest,
 } from "../types/agents";
 import type { MdFileInfo, MdFileContent } from "../types/workspace";
 
@@ -57,4 +69,99 @@ export const agentsApi = {
   // Agent memory files
   listAgentMemory: (agentId: string) =>
     request<MdFileInfo[]>(`/agents/${agentId}/memory`),
+
+  // Agent project files
+  listProjectFiles: (agentId: string, projectId: string) =>
+    request<AgentProjectFileInfo[]>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/files`,
+    ),
+
+  readProjectFile: (agentId: string, projectId: string, filePath: string) =>
+    request<AgentProjectFileContent>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/files/${filePath
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/")}`,
+    ),
+
+  listAgentPipelineTemplates: (agentId: string) =>
+    request<ProjectPipelineTemplateInfo[]>(
+      `/agents/${agentId}/pipelines/templates`,
+    ),
+
+  saveAgentPipelineTemplate: (
+    agentId: string,
+    templateId: string,
+    body: ProjectPipelineTemplateInfo,
+  ) =>
+    request<ProjectPipelineTemplateInfo>(
+      `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  listProjectPipelineTemplates: (agentId: string, projectId: string) =>
+    request<ProjectPipelineTemplateInfo[]>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/templates`,
+    ),
+
+  listProjectPipelineRuns: (agentId: string, projectId: string) =>
+    request<ProjectPipelineRunSummary[]>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/runs`,
+    ),
+
+  getProjectPipelineRun: (agentId: string, projectId: string, runId: string) =>
+    request<ProjectPipelineRunDetail>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/runs/${encodeURIComponent(runId)}`,
+    ),
+
+  createProjectPipelineRun: (
+    agentId: string,
+    projectId: string,
+    body: CreateProjectPipelineRunRequest,
+  ) =>
+    request<ProjectPipelineRunDetail>(
+      `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/runs`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  // Agents Square
+  getSquareSources: () =>
+    request<AgentsSquareSourcesPayload>("/agents/square/sources"),
+
+  getSquareDefaultSources: () =>
+    request<AgentsSquareSourcesPayload>("/agents/square/sources/defaults"),
+
+  resetSquareSources: () =>
+    request<AgentsSquareSourcesPayload>("/agents/square/sources/reset", {
+      method: "POST",
+    }),
+
+  updateSquareSources: (payload: AgentsSquareSourcesPayload) =>
+    request<AgentsSquareSourcesPayload>("/agents/square/sources", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  validateSquareSource: (payload: AgentsSquareSourceSpec) =>
+    request<ValidateSquareSourceResponse>("/agents/square/sources/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSquareItems: (refresh = false) =>
+    request<AgentSquareItemsResponse>(
+      `/agents/square/items?refresh=${refresh ? "true" : "false"}`,
+    ),
+
+  importSquareAgent: (payload: ImportAgentSquareRequest) =>
+    request<ImportAgentSquareResponse>("/agents/square/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

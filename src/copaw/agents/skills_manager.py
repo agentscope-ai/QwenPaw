@@ -13,8 +13,13 @@ from pydantic import BaseModel
 import frontmatter
 from packaging.version import Version
 
+from ..constant import WORKING_DIR
+
 
 logger = logging.getLogger(__name__)
+
+# Backward-compatible global active skills dir used by legacy callers/tests.
+ACTIVE_SKILLS_DIR = WORKING_DIR / "active_skills"
 
 
 def _dedupe_skills_by_name(skills: list["SkillInfo"]) -> list["SkillInfo"]:
@@ -164,6 +169,41 @@ def _collect_skills_from_dir(directory: Path) -> dict[str, Path]:
             if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
                 skills[skill_dir.name] = skill_dir
     return skills
+
+
+def sync_skill_dir_to_active(
+    skill_dir: Path,
+    force: bool = False,
+) -> bool:
+    """Backward-compatible helper to sync one skill into ACTIVE_SKILLS_DIR."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_dir.is_dir() or not skill_md.exists():
+        logger.warning("Skill directory is invalid or missing SKILL.md: %s", skill_dir)
+        return False
+
+    ACTIVE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    target_dir = ACTIVE_SKILLS_DIR / skill_dir.name
+
+    if target_dir.exists():
+        if not force:
+            logger.debug(
+                "Skill '%s' already exists in active_skills and force=False.",
+                skill_dir.name,
+            )
+            return False
+        shutil.rmtree(target_dir)
+
+    try:
+        shutil.copytree(skill_dir, target_dir)
+        logger.debug("Synced skill '%s' to active_skills.", skill_dir.name)
+        return True
+    except Exception as exc:
+        logger.error(
+            "Failed to sync skill directory '%s' to active_skills: %s",
+            skill_dir,
+            exc,
+        )
+        return False
 
 
 def _get_builtin_skill_version(skill_dir: Path) -> Version | None:

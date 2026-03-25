@@ -7,6 +7,8 @@ import type { AgentsRunningConfig } from "../../../api/types";
 export function useAgentConfig() {
   const { t } = useTranslation();
   const [form] = Form.useForm();
+  const [runningConfigSnapshot, setRunningConfigSnapshot] =
+    useState<AgentsRunningConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +26,7 @@ export function useAgentConfig() {
         api.getAgentLanguage(),
         api.getUserTimezone(),
       ]);
+      setRunningConfigSnapshot(config);
       form.setFieldsValue(config);
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
@@ -44,7 +47,13 @@ export function useAgentConfig() {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      await api.updateAgentRunningConfig(values as AgentsRunningConfig);
+      const payload = {
+        ...(runningConfigSnapshot ?? {}),
+        ...values,
+      } as AgentsRunningConfig;
+      const savedConfig = await api.updateAgentRunningConfig(payload);
+      setRunningConfigSnapshot(savedConfig);
+      form.setFieldsValue(savedConfig);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
@@ -54,7 +63,7 @@ export function useAgentConfig() {
     } finally {
       setSaving(false);
     }
-  }, [form, t]);
+  }, [form, runningConfigSnapshot, t]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {

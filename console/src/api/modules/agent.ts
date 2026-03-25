@@ -82,4 +82,32 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/agent/local-whisper-status"),
+
+  installLocalWhisper: () =>
+    request<{
+      success: boolean;
+      already_available: boolean;
+      status_before: {
+        available: boolean;
+        ffmpeg_installed: boolean;
+        whisper_installed: boolean;
+      };
+      status_after: {
+        available: boolean;
+        ffmpeg_installed: boolean;
+        whisper_installed: boolean;
+      };
+      operations: {
+        name: string;
+        attempted: boolean;
+        installer: string | null;
+        command: string;
+        ok: boolean;
+        output: string;
+        returncode: number | null;
+      }[];
+      manual_steps: string[];
+    }>("/agent/local-whisper-install", {
+      method: "POST",
+    }),
 };

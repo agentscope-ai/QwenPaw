@@ -4,6 +4,9 @@
 blank_issues_enabled: true
 
 contact_links:
+  - name: Start a Release Checklist
+    url: https://github.com/agentscope-ai/CoPaw/issues/new?template=6-release_checklist.md
+    about: Maintainers can use this checklist before publishing a release.
   - name: GitHub Discussions
     url: https://github.com/agentscope-ai/CoPaw/discussions
     about: Ask questions, share ideas, or discuss CoPaw here.

@@ -6,6 +6,7 @@ with integrated tools, skills, and memory management.
 """
 
 import asyncio
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -38,18 +39,25 @@ from .tools import (
     desktop_screenshot,
     edit_file,
     execute_shell_command,
+    glob_search,
+    graph_query,
+    grep_search,
     get_current_time,
     get_token_usage,
-    glob_search,
-    grep_search,
+    knowledge_search,
+    memify_run,
+    memify_status,
     read_file,
     send_file_to_user,
     set_user_timezone,
+    triplet_focus_search,
     view_image,
     write_file,
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
+from ..agents.memory import MemoryManager
+from ..config import load_config
 from ..constant import (
     WORKING_DIR,
 )
@@ -62,6 +70,18 @@ logger = logging.getLogger(__name__)
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
+
+
+def _interrupt_reply_text(language: str) -> str:
+    """Return localized reply text used when current response is interrupted."""
+    lang = (language or "").strip().lower().split("-")[0]
+    if lang == "zh":
+        return "收到，我已停止上一条回复。请继续说你的问题。"
+    if lang == "ja":
+        return "了解しました。先ほどの応答を停止しました。続けてご質問ください。"
+    if lang == "ru":
+        return "Принял, я остановил предыдущий ответ. Продолжайте, пожалуйста."
+    return "Got it. I have stopped the previous response. Please continue with your question."
 
 
 class CoPawAgent(ToolGuardMixin, ReActAgent):
@@ -182,6 +202,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             Configured toolkit instance
         """
         toolkit = Toolkit()
+        config = load_config()
 
         # Check which tools are enabled from agent config
         enabled_tools = {}
@@ -215,14 +236,55 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "knowledge_search": knowledge_search,
+            "graph_query": graph_query,
+            "memify_run": memify_run,
+            "memify_status": memify_status,
+            "triplet_focus_search": triplet_focus_search,
         }
 
         multimodal = get_active_model_supports_multimodal()
 
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
+            tool_enabled = enabled_tools.get(tool_name, True)
+            if tool_name == "knowledge_search":
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
+                    and bool(
+                        getattr(
+                            config.agents.running,
+                            "knowledge_retrieval_enabled",
+                            True,
+                        )
+                    )
+                )
+            elif tool_name == "graph_query":
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
+                    and bool(getattr(config.knowledge, "graph_query_enabled", False))
+                )
+            elif tool_name in {"memify_run", "memify_status"}:
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
+                    and bool(getattr(config.knowledge, "memify_enabled", False))
+                )
+            elif tool_name == "triplet_focus_search":
+                tool_enabled = (
+                    tool_enabled
+                    and bool(getattr(config.knowledge, "enabled", False))
+                    and bool(getattr(config.agents.running, "knowledge_enabled", True))
+                    and bool(getattr(config.knowledge, "triplet_search_enabled", False))
+                )
+
             # If tool not in config, enable by default (backward compatibility)
-            if not enabled_tools.get(tool_name, True):
+            if not tool_enabled:
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
@@ -246,13 +308,26 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Args:
             toolkit: Toolkit to register skills to
         """
-        workspace_dir = self._workspace_dir or WORKING_DIR
+        workspace_dir = getattr(self, "_workspace_dir", None) or WORKING_DIR
 
-        # Check skills initialization
-        ensure_skills_initialized(workspace_dir)
+        def _call_skill_func(func, *args):
+            try:
+                parameters = inspect.signature(func).parameters
+            except (TypeError, ValueError):
+                parameters = {}
+            return func(*args) if len(parameters) > 0 else func()
 
-        working_skills_dir = get_working_skills_dir(workspace_dir)
-        available_skills = list_available_skills(workspace_dir)
+        # Ensure active skills are initialized in the current workspace.
+        _call_skill_func(ensure_skills_initialized, workspace_dir)
+
+        working_skills_dir = _call_skill_func(
+            get_working_skills_dir,
+            workspace_dir,
+        )
+        available_skills = _call_skill_func(
+            list_available_skills,
+            workspace_dir,
+        )
 
         for skill_name in available_skills:
             skill_dir = working_skills_dir / skill_name
@@ -918,3 +993,21 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     "Exception occurred during interrupt cleanup",
                     exc_info=True,
                 )
+
+    async def handle_interrupt(
+        self,
+        msg: Msg | list[Msg] | None = None,
+        structured_model: Type[BaseModel] | None = None,
+    ) -> Msg:
+        """Override default interruption response with localized wording."""
+        del msg, structured_model
+
+        response_msg = Msg(
+            self.name,
+            _interrupt_reply_text(self.agent_config.language),
+            "assistant",
+            metadata={"_is_interrupted": True},
+        )
+        await self.print(response_msg, True)
+        await self.memory.add(response_msg)
+        return response_msg

@@ -10,23 +10,40 @@ export function useMCP() {
   const { selectedAgent } = useAgentStore();
   const [clients, setClients] = useState<MCPClientInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [queuedRefreshKeys, setQueuedRefreshKeys] = useState<string[]>([]);
+  const [refreshingKeys, setRefreshingKeys] = useState<string[]>([]);
 
-  const loadClients = useCallback(async () => {
-    setLoading(true);
+  const loadClients = useCallback(async (options?: { silent?: boolean; showLoading?: boolean }) => {
+    const { silent = false, showLoading = true } = options ?? {};
+    if (showLoading) {
+      setLoading(true);
+    }
     try {
       const data = await api.listMCPClients();
       setClients(data);
     } catch (error) {
       console.error("Failed to load MCP clients:", error);
-      message.error(t("mcp.loadError"));
+      if (!silent) {
+        message.error(t("mcp.loadError"));
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [t]);
 
   useEffect(() => {
     loadClients();
   }, [loadClients, selectedAgent]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      loadClients({ silent: true, showLoading: false });
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadClients]);
 
   const createClient = useCallback(
     async (
@@ -119,9 +136,54 @@ export function useMCP() {
     [t, loadClients],
   );
 
+  const refreshClients = useCallback(async () => {
+    await loadClients({ silent: true, showLoading: false });
+  }, [loadClients]);
+
+  const refreshStatuses = useCallback(async () => {
+    const targetKeys = clients
+      .filter((client) => client.enabled)
+      .map((client) => client.key);
+
+    if (targetKeys.length === 0) {
+      await refreshClients();
+      return;
+    }
+
+    setQueuedRefreshKeys(targetKeys);
+    setRefreshingKeys([]);
+
+    for (const key of targetKeys) {
+      setQueuedRefreshKeys((current) => current.filter((item) => item !== key));
+      setRefreshingKeys((current) => [...current, key]);
+
+      try {
+        const updatedClient = await api.refreshMCPClientStatus(key);
+        setClients((current) =>
+          current.map((client) =>
+            client.key === key ? updatedClient : client,
+          ),
+        );
+      } catch (error) {
+        console.error(`Failed to refresh MCP client status for ${key}:`, error);
+      } finally {
+        setRefreshingKeys((current) =>
+          current.filter((item) => item !== key),
+        );
+      }
+    }
+
+    setQueuedRefreshKeys([]);
+    await refreshClients();
+  }, [clients, refreshClients]);
+
   return {
     clients,
     loading,
+    refreshClients,
+    refreshStatuses,
+    queuedRefreshKeys,
+    refreshingKeys,
     createClient,
     updateClient,
     toggleEnabled,

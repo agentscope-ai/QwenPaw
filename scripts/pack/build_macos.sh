@@ -11,6 +11,15 @@ ARCHIVE="${DIST}/copaw-env.tar.gz"
 APP_NAME="CoPaw"
 APP_DIR="${DIST}/${APP_NAME}.app"
 
+# Prefer workspace virtualenv interpreter, then active python, then python3.
+if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+  PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+else
+  PYTHON_BIN="python3"
+fi
+
 echo "== Building wheel (includes console frontend) =="
 # Skip wheel_build if dist already has a wheel for current version
 VERSION_FILE="${REPO_ROOT}/src/copaw/__version__.py"
@@ -40,7 +49,7 @@ else
 fi
 
 echo "== Building conda-packed env =="
-python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
+"$PYTHON_BIN" "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
 
 echo "== Building .app bundle =="
 rm -rf "$APP_DIR"
@@ -52,8 +61,12 @@ mkdir -p "${APP_DIR}/Contents/Resources/env"
 tar -xzf "$ARCHIVE" -C "${APP_DIR}/Contents/Resources/env" --strip-components=0
 
 # Fix paths for portability (required or app will crash on launch)
+# conda-unpack shebang may be #!/usr/bin/env python which doesn't exist on macOS.
+# Use the packed env's own python to invoke it instead.
 if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
-  (cd "${APP_DIR}/Contents/Resources/env" && ./bin/conda-unpack)
+  (cd "${APP_DIR}/Contents/Resources/env" && \
+    ./bin/python ./bin/conda-unpack 2>/dev/null || \
+    ./bin/conda-unpack)
 fi
 
 # Launcher: force packed env; when no TTY log to ~/.copaw/desktop.log (no exec so we see errors)

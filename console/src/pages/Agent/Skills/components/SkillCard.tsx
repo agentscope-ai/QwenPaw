@@ -12,6 +12,7 @@ import {
 } from "@ant-design/icons";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 interface SkillCardProps {
@@ -24,38 +25,48 @@ interface SkillCardProps {
   onDelete?: (e?: React.MouseEvent) => void;
 }
 
-const getFileIcon = (filePath: string) => {
+const getFileIcon = (filePath: string, isDark: boolean) => {
   const extension = filePath.split(".").pop()?.toLowerCase() || "";
+  const palette = {
+    doc: isDark ? "#87ceff" : "#1890ff",
+    archive: isDark ? "#ffba6b" : "#fa8c16",
+    pdf: isDark ? "#ff9c96" : "#f5222d",
+    word: isDark ? "#9ec8ff" : "#2b579a",
+    excel: isDark ? "#7cd6a0" : "#217346",
+    ppt: isDark ? "#ffb089" : "#d24726",
+    image: isDark ? "#ff8ecb" : "#eb2f96",
+    code: isDark ? "#95de64" : "#52c41a",
+  };
 
   switch (extension) {
     case "txt":
     case "md":
     case "markdown":
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
+      return <FileTextFilled style={{ color: palette.doc }} />;
     case "zip":
     case "rar":
     case "7z":
     case "tar":
     case "gz":
-      return <FileZipFilled style={{ color: "#fa8c16" }} />;
+      return <FileZipFilled style={{ color: palette.archive }} />;
     case "pdf":
-      return <FilePdfFilled style={{ color: "#f5222d" }} />;
+      return <FilePdfFilled style={{ color: palette.pdf }} />;
     case "doc":
     case "docx":
-      return <FileWordFilled style={{ color: "#2b579a" }} />;
+      return <FileWordFilled style={{ color: palette.word }} />;
     case "xls":
     case "xlsx":
-      return <FileExcelFilled style={{ color: "#217346" }} />;
+      return <FileExcelFilled style={{ color: palette.excel }} />;
     case "ppt":
     case "pptx":
-      return <FilePptFilled style={{ color: "#d24726" }} />;
+      return <FilePptFilled style={{ color: palette.ppt }} />;
     case "jpg":
     case "jpeg":
     case "png":
     case "gif":
     case "svg":
     case "webp":
-      return <FileImageFilled style={{ color: "#eb2f96" }} />;
+      return <FileImageFilled style={{ color: palette.image }} />;
     case "py":
     case "js":
     case "ts":
@@ -68,9 +79,9 @@ const getFileIcon = (filePath: string) => {
     case "rs":
     case "rb":
     case "php":
-      return <CodeFilled style={{ color: "#52c41a" }} />;
+      return <CodeFilled style={{ color: palette.code }} />;
     default:
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
+      return <FileTextFilled style={{ color: palette.doc }} />;
   }
 };
 
@@ -84,6 +95,7 @@ export function SkillCard({
   onDelete,
 }: SkillCardProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
   const isCustomized = skill.source === "customized";
 
   const handleDeleteClick = (e: React.MouseEvent) => {
@@ -106,7 +118,7 @@ export function SkillCard({
       <div className={styles.cardBody}>
         <div className={styles.cardHeader}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.fileIcon}>{getFileIcon(skill.name)}</span>
+            <span className={styles.fileIcon}>{getFileIcon(skill.name, isDark)}</span>
             <h3 className={styles.skillTitle}>{skill.name}</h3>
           </div>
           <div className={styles.statusContainer}>
@@ -130,7 +142,7 @@ export function SkillCard({
           <Tooltip
             title={skill.description || "-"}
             placement="top"
-            overlayStyle={{ maxWidth: 360 }}
+            styles={{ root: { maxWidth: 360 } }}
           >
             <div className={`${styles.infoBlock} ${styles.descriptionContent}`}>
               {skill.description || "-"}

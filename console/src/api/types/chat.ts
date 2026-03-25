@@ -2,6 +2,7 @@ export type ChatStatus = "idle" | "running";
 
 export interface ChatSpec {
   id: string; // Chat UUID identifier
+  name?: string; // Chat display name
   session_id: string; // Session identifier (channel:user_id format)
   user_id: string; // User identifier
   channel: string; // Channel name, default: "default"
@@ -20,6 +21,8 @@ export interface Message {
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+  has_more?: boolean;
+  total?: number;
 }
 
 export interface ChatDeleteResponse {

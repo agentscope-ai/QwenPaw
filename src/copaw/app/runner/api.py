@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+
+from copy import deepcopy
 from typing import Optional
 from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agentscope.memory import InMemoryMemory
+from agentscope_runtime.engine.schemas.agent_schemas import Message
 
 from .session import SafeJSONSession
 from .manager import ChatManager
@@ -16,6 +20,94 @@ from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+_MAX_PLUGIN_OUTPUT_CHARS = 8000
+
+
+def _is_tool_trace_message(msg: Message) -> bool:
+    return msg.type in {"plugin_call", "plugin_call_output"}
+
+
+def _compact_chat_history_messages(
+    messages: list[Message],
+) -> list[Message]:
+    """Hide low-value tool trace messages for chat history rendering."""
+    return [m for m in messages if not _is_tool_trace_message(m)]
+
+
+def _paginate_chat_history_messages(
+    messages: list[Message],
+    offset: int,
+    limit: int,
+) -> tuple[list[Message], int, bool]:
+    """Slice chat history into a stable page and provide pagination metadata."""
+    total = len(messages)
+    if offset >= total:
+        return [], total, False
+
+    page = messages[offset : offset + limit]
+    has_more = (offset + len(page)) < total
+    return page, total, has_more
+
+
+def _truncate_chat_history_messages(
+    messages: list[Message],
+    max_plugin_output_chars: int = _MAX_PLUGIN_OUTPUT_CHARS,
+) -> list[Message]:
+    """Truncate oversized plugin call outputs for chat-history rendering.
+
+    Large tool outputs can freeze web UI rendering for old sessions. Keep
+    normal messages untouched while clipping only ``plugin_call_output`` data.
+    """
+    truncated: list[Message] = []
+
+    for msg in messages:
+        raw = msg.model_dump()
+        content = raw.get("content")
+
+        if (
+            raw.get("type") != "plugin_call_output"
+            or not isinstance(content, list)
+        ):
+            truncated.append(msg)
+            continue
+
+        msg_changed = False
+        next_content = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "data":
+                next_content.append(item)
+                continue
+
+            data = item.get("data")
+            if not isinstance(data, dict):
+                next_content.append(item)
+                continue
+
+            output = data.get("output")
+            if not isinstance(output, str) or len(output) <= max_plugin_output_chars:
+                next_content.append(item)
+                continue
+
+            clip_suffix = (
+                "\n\n[truncated by CoPaw chat API: "
+                f"showing first {max_plugin_output_chars} chars, "
+                f"{len(output) - max_plugin_output_chars} chars omitted]"
+            )
+            next_item = deepcopy(item)
+            next_item["data"]["output"] = (
+                output[:max_plugin_output_chars] + clip_suffix
+            )
+            next_content.append(next_item)
+            msg_changed = True
+
+        if msg_changed:
+            raw["content"] = next_content
+            truncated.append(Message.model_validate(raw))
+        else:
+            truncated.append(msg)
+
+    return truncated
 
 
 async def get_workspace(request: Request):
@@ -133,6 +225,17 @@ async def batch_delete_chats(
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
+    offset: int = Query(
+        0,
+        ge=0,
+        description="History page offset (0-based)",
+    ),
+    limit: int = Query(
+        80,
+        ge=1,
+        le=500,
+        description="History page size",
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     session: SafeJSONSession = Depends(get_session),
     workspace=Depends(get_workspace),
@@ -171,7 +274,17 @@ async def get_chat(
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    messages = _truncate_chat_history_messages(messages)
+    messages = _compact_chat_history_messages(messages)
+    page, total, has_more = _paginate_chat_history_messages(messages, offset, limit)
+    return ChatHistory(
+        messages=page,
+        status=status,
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+    )
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)

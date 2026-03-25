@@ -2,6 +2,7 @@ export * from "./agent";
 export * from "./agents";
 export * from "./channel";
 export * from "./heartbeat";
+export * from "./knowledge";
 export * from "./chat";
 export * from "./cronjob";
 export * from "./env";

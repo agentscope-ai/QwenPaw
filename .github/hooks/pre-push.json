@@ -1,0 +1,23 @@
+{
+  "description": "PR 提交前自动检查分支来源、混合提交、fork 私有改动，弹出 Checklist 并建议拆分。",
+  "trigger": "pre-push",
+  "actions": [
+    {
+      "type": "checkBranch",
+      "requireBase": "mirror/upstream-main"
+    },
+    {
+      "type": "checkMixedCommit",
+      "suggestCherryPick": true
+    },
+    {
+      "type": "showChecklist",
+      "items": [
+        "确认分支基于 mirror/upstream-main",
+        "无 fork 私有改动",
+        "测试通过",
+        "推送并创建 PR"
+      ]
+    }
+  ]
+}

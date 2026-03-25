@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -22,6 +22,30 @@ from .repo.base import BaseJobRepository
 HEARTBEAT_JOB_ID = "_heartbeat"
 
 logger = logging.getLogger(__name__)
+
+
+def validate_cron_trigger(cron: str, timezone: str = "UTC") -> None:
+    """Validate that *cron* + *timezone* can build a valid APScheduler CronTrigger.
+
+    Raises:
+        ValueError: if the expression is structurally or semantically invalid.
+    """
+    parts = [p for p in cron.split() if p]
+    if len(parts) != 5:
+        raise ValueError(
+            f"cron must have 5 fields (minute hour day month weekday),"
+            f" got {len(parts)}: {cron!r}",
+        )
+    minute, hour, day, month, day_of_week = parts
+    # Let APScheduler be the authoritative validator; discard the object.
+    CronTrigger(
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=day_of_week,
+        timezone=timezone,
+    )
 
 
 @dataclass
@@ -84,6 +108,11 @@ class CronManager:
                             job.id,
                             job.name,
                         )
+                    st = self._states.get(job.id, CronJobState())
+                    st.last_status = "error"
+                    st.last_error = f"invalid schedule: {e}"
+                    self._states[job.id] = st
+                    self._rt.pop(job.id, None)
 
             # Heartbeat: one interval job when enabled in config
             hb = get_heartbeat_config(self._agent_id)
@@ -123,6 +152,8 @@ class CronManager:
     # ----- write/control -----
 
     async def create_or_replace_job(self, spec: CronJobSpec) -> None:
+        # Validate before touching storage so invalid cron is never persisted.
+        validate_cron_trigger(spec.schedule.cron, spec.schedule.timezone)
         async with self._lock:
             await self._repo.upsert_job(spec)
             if self._started:
@@ -354,5 +385,5 @@ class CronManager:
                 )
                 raise
             finally:
-                st.last_run_at = datetime.now(timezone.utc)
+                st.last_run_at = datetime.now(UTC)
                 self._states[job.id] = st

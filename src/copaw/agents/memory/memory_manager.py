@@ -8,14 +8,17 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+import asyncio
+import inspect
 import json
 import logging
 import os
 import platform
 import uuid
+from typing import TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Msg
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
 
@@ -24,6 +27,9 @@ from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
 from copaw.config import load_config
 from copaw.config.config import load_agent_config
+
+if TYPE_CHECKING:
+    from copaw.config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,31 +63,47 @@ class MemoryManager(ReMeLight):
     def __init__(
         self,
         working_dir: str,
-        agent_id: str,
+        agent_config: "AgentProfileConfig",
+        agent_id: str | None = None,
     ):
         """Initialize MemoryManager with ReMeLight configuration.
 
         Args:
             working_dir: Working directory path for memory storage
-            agent_id: Agent ID for loading configuration
-
-        Embedding Config:
-            api_key, base_url, model_name: config > env var > default
-            Other params: from embedding_config only
+            agent_config: Agent profile configuration containing all settings
+                including running config (max_input_length,
+                memory_compact_ratio, memory_reserve_ratio, etc.)
+                and language setting.
+            agent_id: Optional agent identifier for hot-reload callers that
+                resolve config from memory_manager.agent_id.
 
         Environment Variables:
-            EMBEDDING_API_KEY: API key (fallback if not in config)
-            EMBEDDING_BASE_URL: Base URL (fallback if not in config)
-            EMBEDDING_MODEL_NAME: Model name (fallback if not in config)
+            EMBEDDING_API_KEY: API key for embedding service
+            EMBEDDING_BASE_URL: Base URL for embedding API
+                (default: dashscope)
+            EMBEDDING_MODEL_NAME: Name of the embedding model
+            EMBEDDING_DIMENSIONS: Embedding vector dimensions
+                (default: 1024)
+            EMBEDDING_CACHE_ENABLED: Enable embedding cache (default: true)
+            EMBEDDING_MAX_CACHE_SIZE: Max cache size (default: 2000)
+            EMBEDDING_MAX_INPUT_LENGTH: Max input length (default: 8192)
+            EMBEDDING_MAX_BATCH_SIZE: Max batch size (default: 10)
             FTS_ENABLED: Enable full-text search (default: true)
-            MEMORY_STORE_BACKEND: Memory backend
-            - auto/local/chroma (default: auto)
+            MEMORY_STORE_BACKEND: Memory backend - auto/local/chroma
+                (default: auto)
 
         Note:
-            Vector search requires api_key, base_url, and model_name.
+            Vector search is enabled only when both EMBEDDING_API_KEY and
+            EMBEDDING_MODEL_NAME are configured.
         """
+        self.agent_id = agent_id or agent_config.id
+
         # Extract configuration from agent_config
-        self.agent_id: str = agent_id
+        running_config = agent_config.running
+        self._max_input_length = running_config.max_input_length
+        self._memory_compact_ratio = running_config.memory_compact_ratio
+        self._memory_reserve_ratio = running_config.memory_reserve_ratio
+        self._language = agent_config.language
 
         if not _REME_AVAILABLE:
             logger.warning(
@@ -89,23 +111,49 @@ class MemoryManager(ReMeLight):
             )
             return
 
-        # Get embedding config (supports hot-reload)
-        emb_config = self.get_embedding_config()
+        embedding_api_key = self._safe_str("EMBEDDING_API_KEY", "")
+        embedding_base_url = self._safe_str("EMBEDDING_BASE_URL", "")
+        embedding_model_name = self._safe_str("EMBEDDING_MODEL_NAME", "")
+        embedding_dimensions = self._safe_int("EMBEDDING_DIMENSIONS", 1024)
+        embedding_cache_enabled = (
+            self._safe_str("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
+        )
+        embedding_max_cache_size = self._safe_int(
+            "EMBEDDING_MAX_CACHE_SIZE",
+            2000,
+        )
+        embedding_max_input_length = self._safe_int(
+            "EMBEDDING_MAX_INPUT_LENGTH",
+            8192,
+        )
+        embedding_max_batch_size = self._safe_int(
+            "EMBEDDING_MAX_BATCH_SIZE",
+            10,
+        )
 
         # Determine if vector search should be enabled based on configuration
-        # Vector search requires base_url and model_name
-        vector_enabled = bool(emb_config["base_url"]) and bool(
-            emb_config["model_name"],
+        # Vector search requires either an API key or a local model name
+        vector_enabled = (
+            bool(embedding_api_key)
+            and bool(embedding_model_name)
+            and bool(embedding_base_url)
         )
-
-        # Log embedding config (mask api_key for security)
-        log_cfg = {
-            **emb_config,
-            "api_key": self.mask_key(emb_config["api_key"]),
-        }
-        logger.info(
-            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
-        )
+        if vector_enabled:
+            logger.info(
+                f"Vector search enabled. "
+                f"embedding_api_key={embedding_api_key[:5]}... "
+                f"embedding_model_name={embedding_model_name} "
+                f"embedding_base_url={embedding_base_url} ",
+            )
+        else:
+            logger.warning(
+                "Vector search disabled. Memory search functionality "
+                "will be restricted. "
+                "To enable, configure: "
+                f"EMBEDDING_API_KEY={embedding_api_key[:5]}... "
+                f"EMBEDDING_BASE_URL={embedding_base_url} "
+                f"EMBEDDING_MODEL_NAME={embedding_model_name} ",
+            )
 
         # Check if full-text search (FTS) is enabled via environment variable
         fts_enabled = os.environ.get("FTS_ENABLED", "true").lower() == "true"
@@ -123,8 +171,18 @@ class MemoryManager(ReMeLight):
 
         # Initialize parent ReMeCopaw class
         super().__init__(
+            embedding_api_key=embedding_api_key,
+            embedding_base_url=embedding_base_url,
             working_dir=working_dir,
-            default_embedding_model_config=emb_config,
+            default_embedding_model_config={
+                "model_name": embedding_model_name,
+                "dimensions": embedding_dimensions,
+                "enable_cache": embedding_cache_enabled,
+                "use_dimensions": False,
+                "max_cache_size": embedding_max_cache_size,
+                "max_input_length": embedding_max_input_length,
+                "max_batch_size": embedding_max_batch_size,
+            },
             default_file_store_config={
                 "backend": memory_backend,
                 "store_name": "copaw",
@@ -140,47 +198,61 @@ class MemoryManager(ReMeLight):
 
         self.chat_model: ChatModelBase | None = None
         self.formatter: FormatterBase | None = None
+        self.token_counter = get_copaw_token_counter(agent_config)
+        self._start_lock = asyncio.Lock()
 
     @staticmethod
-    def mask_key(key: str) -> str:
-        """Mask API key, showing first 5 chars and masking rest with *."""
-        if not key:
-            return ""
-        if len(key) <= 5:
-            return key
-        return key[:5] + "*" * (len(key) - 5)
+    def _safe_str(key: str, default: str) -> str:
+        """
+        Safely retrieve a string value from an environment variable.
 
-    def get_embedding_config(self) -> dict:
-        """Get embedding config. Priority: config > env var > default."""
-        cfg = load_agent_config(self.agent_id).running.embedding_config
+        Args:
+            key (str): The name of the environment variable to retrieve
+            default (str): The default value to return if the variable
+            is not set
 
-        # "use_dimensions is used because some models in vLLM
-        # do not support the dimensions parameter."
-        return {
-            "backend": cfg.backend,
-            "api_key": cfg.api_key or os.getenv("EMBEDDING_API_KEY", ""),
-            "base_url": cfg.base_url or os.getenv("EMBEDDING_BASE_URL", ""),
-            "model_name": cfg.model_name
-            or os.getenv("EMBEDDING_MODEL_NAME", ""),
-            "dimensions": cfg.dimensions,
-            "enable_cache": cfg.enable_cache,
-            "use_dimensions": cfg.use_dimensions,
-            "max_cache_size": cfg.max_cache_size,
-            "max_input_length": cfg.max_input_length,
-            "max_batch_size": cfg.max_batch_size,
-        }
+        Returns:
+            str: The value of the environment variable, or the default
+            if not set
+        """
+        return os.environ.get(key, default)
 
-    def prepare_model_formatter(self) -> None:
-        """Prepare and initialize the chat model and formatter.
+    @staticmethod
+    def _safe_int(key: str, default: int) -> int:
+        """
+        Safely retrieve an integer value from an environment variable.
 
-        Lazily initializes the chat_model and formatter attributes if they
-        haven't been set yet. This method is called before compaction or
-        summarization operations that require model access.
+        This method handles cases where the environment variable is not set
+        or contains a non-integer value by returning the specified default.
+
+        Args:
+            key (str): The name of the environment variable to retrieve
+            default (int): The default value to return on failure or if not set
+
+        Returns:
+            int: The integer value of the environment variable,
+                or the default
 
         Note:
-            Logs a warning if the model and formatter are not already
-            initialized, as this indicates a potential configuration issue.
+            Logs a warning if the value exists but cannot be parsed
+            as an integer
         """
+        value = os.environ.get(key)
+        if value is None:
+            return default
+
+        try:
+            return int(value)
+        except ValueError:
+            logger.warning(
+                "Invalid int value '%s' for key '%s', using default %s",
+                value,
+                key,
+                default,
+            )
+            return default
+
+    def prepare_model_formatter(self):
         if self.chat_model is None or self.formatter is None:
             logger.warning("Model and formatter not initialized.")
             chat_model, formatter = create_model_and_formatter(self.agent_id)
@@ -189,15 +261,39 @@ class MemoryManager(ReMeLight):
             if self.formatter is None:
                 self.formatter = formatter
 
-    async def restart_embedding_model(self):
-        """Restart the embedding model with current config."""
-        emb_config = self.get_embedding_config()
-        restart_config = {
-            "embedding_models": {
-                "default": emb_config,
-            },
-        }
-        await self.restart(restart_config=restart_config)
+    @staticmethod
+    def _token_counter_kwarg(method_name: str) -> str:
+        """Return the token counter kwarg name supported by the installed ReMe."""
+        try:
+            method = getattr(ReMeLight, method_name)
+            parameters = inspect.signature(method).parameters
+        except (AttributeError, TypeError, ValueError):
+            return "token_counter"
+        return (
+            "token_counter"
+            if "token_counter" in parameters
+            else "as_token_counter"
+        )
+
+    async def check_context(
+        self,
+        messages: list[Msg],
+        memory_compact_threshold: int,
+        memory_compact_reserve: int = 10000,
+        token_counter=None,
+        as_token_counter=None,
+    ):
+        """Compatibility wrapper for ReMe check_context across versions."""
+        effective_token_counter = (
+            token_counter if token_counter is not None else as_token_counter
+        )
+        token_counter_kwarg = self._token_counter_kwarg("check_context")
+        return await super().check_context(
+            messages=messages,
+            memory_compact_threshold=memory_compact_threshold,
+            memory_compact_reserve=memory_compact_reserve,
+            **{token_counter_kwarg: effective_token_counter},
+        )
 
     async def compact_memory(
         self,
@@ -218,6 +314,7 @@ class MemoryManager(ReMeLight):
 
         self.prepare_model_formatter()
 
+        token_counter_kwarg = self._token_counter_kwarg("compact_memory")
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
         add_thinking_block = agent_config.running.compact_with_thinking_block
@@ -227,7 +324,7 @@ class MemoryManager(ReMeLight):
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            as_token_counter=token_counter,
+            **{token_counter_kwarg: token_counter},
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
             compact_ratio=agent_config.running.memory_compact_ratio,
@@ -288,6 +385,7 @@ class MemoryManager(ReMeLight):
         """
         self.prepare_model_formatter()
 
+        token_counter_kwarg = self._token_counter_kwarg("summary_memory")
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
         add_thinking_block = agent_config.running.compact_with_thinking_block
@@ -297,7 +395,7 @@ class MemoryManager(ReMeLight):
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            as_token_counter=token_counter,
+            **{token_counter_kwarg: token_counter},
             toolkit=self.summary_toolkit,
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
@@ -312,29 +410,13 @@ class MemoryManager(ReMeLight):
         max_results: int = 5,
         min_score: float = 0.1,
     ) -> ToolResponse:
-        """Search through stored memories for relevant content.
-
-        Performs a search across the memory store using vector similarity
-        and/or full-text search depending on configuration.
-
-        Args:
-            query: The search query string
-            max_results: Maximum number of results to return (default: 5)
-            min_score: Minimum relevance score threshold (default: 0.1)
-
-        Returns:
-            ToolResponse containing the search results as TextBlock content,
-            or an error message if ReMe has not been started.
-        """
         if not self._started:
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="ReMe is not started, report github issue!",
-                    ),
-                ],
-            )
+            async with self._start_lock:
+                if not self._started:
+                    logger.warning(
+                        "ReMe is not started, report github issue!",
+                    )
+                    await self.start()
 
         return await super().memory_search(
             query=query,
@@ -346,14 +428,14 @@ class MemoryManager(ReMeLight):
         """Retrieve in-memory memory content.
 
         Args:
-            **_kwargs: Additional keyword arguments (passed to parent)
+            **kwargs: Additional keyword arguments (passed to parent)
 
         Returns:
             The in-memory memory content with token counting support
         """
-        agent_config = load_agent_config(self.agent_id)
-        token_counter = get_copaw_token_counter(agent_config)
-
+        token_counter_kwarg = self._token_counter_kwarg(
+            "get_in_memory_memory",
+        )
         return super().get_in_memory_memory(
-            as_token_counter=token_counter,
+            **{token_counter_kwarg: self.token_counter},
         )

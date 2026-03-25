@@ -16,7 +16,7 @@ import logging
 import uuid as _uuid
 from typing import Any, Literal
 
-from agentscope.message import Msg
+from agentscope.message import Msg, ToolResultBlock
 
 from ..security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 
@@ -67,6 +67,67 @@ class ToolGuardMixin:
     def _ensure_tool_guard(self) -> None:
         if not hasattr(self, "_tool_guard_engine"):
             self._init_tool_guard()
+
+    @staticmethod
+    def _iter_exception_chain(exc: BaseException):
+        """Yield exception and chained causes/contexts exactly once."""
+        seen: set[int] = set()
+        current: BaseException | None = exc
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            yield current
+            current = (
+                current.__cause__
+                if current.__cause__ is not None
+                else current.__context__
+            )
+
+    def _is_mcp_connection_error(self, exc: BaseException) -> bool:
+        """Return True when exception chain matches MCP connection failures."""
+        mcp_error_markers = (
+            "not connected",
+            "connect() method first",
+            "session terminated",
+            "closed resource",
+            "closedresourceerror",
+        )
+        for item in self._iter_exception_chain(exc):
+            text = f"{item.__class__.__name__}: {item}".lower()
+            if "mcp" in text and any(
+                marker in text for marker in mcp_error_markers
+            ):
+                return True
+            if "mcp client is not connected to the server" in text:
+                return True
+        return False
+
+    async def _emit_tool_failure_result(
+        self,
+        tool_call: dict[str, Any],
+        tool_name: str,
+    ) -> None:
+        """Write a generic tool failure result so ReAct can continue."""
+        fail_text = (
+            "⚠️ Tool execution failed for this step. "
+            "Please continue with another approach.\n"
+            "⚠️ 本次工具调用失败，请尝试其他方式继续。"
+        )
+        tool_res_msg = Msg(
+            "system",
+            [
+                ToolResultBlock(
+                    type="tool_result",
+                    id=tool_call["id"],
+                    name=tool_name,
+                    output=[
+                        {"type": "text", "text": fail_text},
+                    ],
+                ),
+            ],
+            "system",
+        )
+        await self.print(tool_res_msg, True)
+        await self.memory.add(tool_res_msg)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -281,10 +342,13 @@ class ToolGuardMixin:
         if action is not None:
             return await self._execute_guard_action(action, tool_call)
 
-        result = await super()._acting(tool_call)  # type: ignore[misc]
+        tool_name = str(tool_call.get("name", ""))
+        result = await self._run_tool_call_with_mcp_fallback(
+            tool_call,
+            tool_name,
+        )
 
         if getattr(self, "_tool_guard_forced_replay_active", False):
-            tool_name = str(tool_call.get("name", ""))
             tool_input = tool_call.get("input", {})
             self._tool_guard_forced_replay_active = False
             self._tool_guard_replay_done = {
@@ -412,7 +476,10 @@ class ToolGuardMixin:
         tool_input: dict[str, Any],
     ) -> dict | None:
         """Execute approved call and persist replay state."""
-        result = await super()._acting(tool_call)  # type: ignore[misc]
+        result = await self._run_tool_call_with_mcp_fallback(
+            tool_call,
+            tool_name,
+        )
         if getattr(self, "_tool_guard_forced_replay_active", False):
             self._tool_guard_forced_replay_active = False
             self._tool_guard_replay_done = {
@@ -426,6 +493,31 @@ class ToolGuardMixin:
             }
         return result
 
+    async def _run_tool_call_with_mcp_fallback(
+        self,
+        tool_call: dict[str, Any],
+        tool_name: str,
+    ) -> dict | None:
+        """Run tool call and downgrade MCP connection failures to tool_result."""
+        try:
+            return await super()._acting(tool_call)  # type: ignore[misc]
+        except Exception as exc:  # pylint: disable=broad-except
+            if not self._is_mcp_connection_error(exc):
+                raise
+
+            tool_id = str(tool_call.get("id") or "")
+            logger.warning(
+                "Tool execution degraded to non-fatal failure: tool=%s, "
+                "tool_call_id=%s, session_id=%s, reason=%s",
+                tool_name,
+                tool_id,
+                str(self._request_context.get("session_id") or ""),
+                exc,
+                exc_info=True,
+            )
+            await self._emit_tool_failure_result(tool_call, tool_name)
+            return None
+
     # ------------------------------------------------------------------
     # Denied / Approval responses
     # ------------------------------------------------------------------
@@ -437,7 +529,6 @@ class ToolGuardMixin:
         guard_result=None,
     ) -> dict | None:
         """Auto-deny a tool call without offering approval."""
-        from agentscope.message import ToolResultBlock
         from copaw.security.tool_guard.approval import (
             format_findings_summary,
         )
@@ -487,7 +578,6 @@ class ToolGuardMixin:
         guard_result,
     ) -> dict | None:
         """Deny the tool call and record a pending approval."""
-        from agentscope.message import ToolResultBlock
         from copaw.security.tool_guard.approval import (
             format_findings_summary,
         )

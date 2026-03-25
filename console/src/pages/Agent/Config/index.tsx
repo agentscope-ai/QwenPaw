@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
@@ -7,6 +7,7 @@ import {
   ReactAgentCard,
   LlmRetryCard,
   ContextManagementCard,
+  KnowledgeMaintenanceCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -27,40 +28,36 @@ function AgentConfigPage() {
     handleTimezoneChange,
   } = useAgentConfig();
 
-  // Force re-render when form values change to refresh derived threshold values
-  const [, forceUpdate] = useState({});
-  const handleValuesChange = () => forceUpdate({});
+  const [contextCompactThreshold, setContextCompactThreshold] = useState(0);
+  const [contextCompactReserveThreshold, setContextCompactReserveThreshold] =
+    useState(0);
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
 
-  const getCalculatedValues = () => {
+  const updateCalculatedValues = (values: Record<string, unknown>) => {
+    const maxInputLength = Number(values.max_input_length ?? 0);
+    const memoryCompactRatio = Number(values.memory_compact_ratio ?? 0);
+    const memoryReserveRatio = Number(values.memory_reserve_ratio ?? 0);
+    setContextCompactThreshold(
+      Math.floor(maxInputLength * memoryCompactRatio),
+    );
+    setContextCompactReserveThreshold(
+      Math.floor(maxInputLength * memoryReserveRatio),
+    );
+  };
+
+  const handleValuesChange = (_: unknown, allValues: Record<string, unknown>) => {
+    updateCalculatedValues(allValues);
+  };
+
+  useEffect(() => {
+    if (loading) return;
     const values = form.getFieldsValue([
       "max_input_length",
       "memory_compact_ratio",
       "memory_reserve_ratio",
     ]);
-    const maxInputLength = values.max_input_length ?? 0;
-    const memoryCompactRatio = values.memory_compact_ratio ?? 0;
-    const memoryReserveRatio = values.memory_reserve_ratio ?? 0;
-    return {
-      contextCompactThreshold: Math.floor(maxInputLength * memoryCompactRatio),
-      contextCompactReserveThreshold: Math.floor(
-        maxInputLength * memoryReserveRatio,
-      ),
-    };
-  };
-
-  const { contextCompactThreshold, contextCompactReserveThreshold } =
-    getCalculatedValues();
-
-  if (loading) {
-    return (
-      <div className={styles.configPage}>
-        <div className={styles.centerState}>
-          <span className={styles.stateText}>{t("common.loading")}</span>
-        </div>
-      </div>
-    );
-  }
+    updateCalculatedValues(values);
+  }, [form, loading]);
 
   if (error) {
     return (
@@ -79,11 +76,18 @@ function AgentConfigPage() {
     <div className={styles.configPage}>
       <PageHeader />
 
+      {loading && (
+        <div className={styles.centerState}>
+          <span className={styles.stateText}>{t("common.loading")}</span>
+        </div>
+      )}
+
       <Form
         form={form}
         layout="vertical"
         className={styles.form}
         onValuesChange={handleValuesChange}
+        style={{ display: loading ? "none" : undefined }}
       >
         <ReactAgentCard
           language={language}
@@ -100,6 +104,7 @@ function AgentConfigPage() {
         />
 
         <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+        <KnowledgeMaintenanceCard />
       </Form>
 
       <div className={styles.footerActions}>

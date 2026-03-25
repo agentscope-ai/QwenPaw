@@ -10,8 +10,9 @@ import styles from "../index.module.less";
 interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onUpdate: (key: string, updates: any) => Promise<boolean>;
+  onDelete: (client: MCPClientInfo, e?: React.MouseEvent) => void;
+  onUpdate: (key: string, updates: Record<string, unknown>) => Promise<boolean>;
+  runtimeStateOverride?: "queued" | "checking";
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -22,6 +23,7 @@ export function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
+  runtimeStateOverride,
   isHovered,
   onMouseEnter,
   onMouseLeave,
@@ -37,6 +39,30 @@ export function MCPClientCard({
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
+  const runtimeStatusKey =
+    runtimeStateOverride === "checking"
+      ? "mcp.runtimeChecking"
+      : runtimeStateOverride === "queued"
+      ? "mcp.runtimeQueued"
+      : !client.enabled
+      ? "mcp.runtimeDisabled"
+      : client.active === undefined
+      ? "mcp.runtimeUnknown"
+      : client.active
+      ? "mcp.runtimeActive"
+      : "mcp.runtimeUnavailable";
+  const runtimeStatusClass =
+    runtimeStateOverride === "checking"
+      ? styles.runtimeChecking
+      : runtimeStateOverride === "queued"
+      ? styles.runtimeQueued
+      : !client.enabled
+      ? styles.runtimeDisabled
+      : client.active === undefined
+      ? styles.runtimeUnknown
+      : client.active
+      ? styles.runtimeActive
+      : styles.runtimeUnavailable;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -50,7 +76,7 @@ export function MCPClientCard({
 
   const confirmDelete = () => {
     setDeleteModalOpen(false);
-    onDelete(client, null as any);
+    onDelete(client);
   };
 
   const handleCardClick = () => {
@@ -62,8 +88,10 @@ export function MCPClientCard({
 
   const handleSaveJson = async () => {
     try {
-      const parsed = JSON.parse(editedJson);
-      const { key, ...updates } = parsed;
+      const parsed = JSON.parse(editedJson) as Record<string, unknown>;
+      const updates = { ...parsed };
+      delete updates.key;
+      delete updates.active;
 
       // Send all updates directly to backend, let backend handle env masking check
       const success = await onUpdate(client.key, updates);
@@ -71,7 +99,7 @@ export function MCPClientCard({
         setJsonModalOpen(false);
         setIsEditing(false);
       }
-    } catch (error) {
+    } catch {
       alert("Invalid JSON format");
     }
   };
@@ -90,13 +118,15 @@ export function MCPClientCard({
         } ${isHovered ? styles.hover : styles.normal}`}
       >
         <div className={styles.cardHeader}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.fileIcon}>
-              <Server style={{ color: "#1890ff", fontSize: 20 }} />
-            </span>
-            <Tooltip title={client.name}>
-              <h3 className={styles.mcpTitle}>{client.name}</h3>
-            </Tooltip>
+          <div className={styles.titleRow}>
+            <div className={styles.titleMain}>
+              <span className={styles.fileIcon}>
+                <Server style={{ color: "#1890ff", fontSize: 20 }} />
+              </span>
+              <Tooltip title={client.name}>
+                <h3 className={styles.mcpTitle}>{client.name}</h3>
+              </Tooltip>
+            </div>
             <span
               className={`${styles.typeBadge} ${
                 isRemote ? styles.remote : styles.local
@@ -106,18 +136,32 @@ export function MCPClientCard({
             </span>
           </div>
           <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
-              {client.enabled ? t("common.enabled") : t("common.disabled")}
-            </span>
+            <div className={styles.statusRight}>
+              <span
+                className={`${styles.statusBadge} ${
+                  client.enabled ? styles.enabled : styles.disabled
+                }`}
+              >
+                <span
+                  className={`${styles.statusDot} ${
+                    client.enabled ? styles.enabled : styles.disabled
+                  }`}
+                />
+                <span
+                  className={`${styles.statusText} ${
+                    client.enabled ? styles.enabled : styles.disabled
+                  }`}
+                >
+                  {client.enabled ? t("common.enabled") : t("common.disabled")}
+                </span>
+              </span>
+              <span className={`${styles.statusBadge} ${runtimeStatusClass}`}>
+                <span className={`${styles.statusDot} ${runtimeStatusClass}`} />
+                <span className={`${styles.statusText} ${runtimeStatusClass}`}>
+                  {t(runtimeStatusKey)}
+                </span>
+              </span>
+            </div>
           </div>
         </div>
 

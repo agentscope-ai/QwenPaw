@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "cache": {
+    "ttl_sec": 600
+  },
+  "install": {
+    "overwrite_default": false
+  },
+  "markets": [
+    {
+      "id": "futuremeng/editor-skills",
+      "name": "Editor Skills",
+      "type": "git",
+      "url": "https://github.com/futuremeng/editor-skills.git",
+      "branch": "main",
+      "path": "skills",
+      "enabled": true,
+      "order": 1,
+      "trust": "community"
+    }
+  ]
+}

@@ -18,6 +18,17 @@ export const mcpApi = {
     request<MCPClientInfo>(`/mcp/${encodeURIComponent(clientKey)}`),
 
   /**
+   * Actively refresh runtime status for a specific MCP client
+   */
+  refreshMCPClientStatus: (clientKey: string) =>
+    request<MCPClientInfo>(
+      `/mcp/${encodeURIComponent(clientKey)}/refresh-status`,
+      {
+        method: "POST",
+      },
+    ),
+
+  /**
    * Create a new MCP client
    */
   createMCPClient: (body: MCPClientCreateRequest) =>

@@ -5,6 +5,7 @@ import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import { api } from "../../../../api";
 
 /**
@@ -51,10 +52,29 @@ export function SkillDrawer({
   onContentChange,
 }: SkillDrawerProps) {
   const { t, i18n } = useTranslation();
+  const { isDark } = useTheme();
   const [showMarkdown, setShowMarkdown] = useState(true);
   const [contentValue, setContentValue] = useState("");
   const [optimizing, setOptimizing] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const readonlyHintStyle = isDark
+    ? {
+        padding: 12,
+        backgroundColor: "rgba(255, 214, 102, 0.14)",
+        border: "1px solid rgba(255, 214, 102, 0.38)",
+        borderRadius: 4,
+        marginTop: 16,
+      }
+    : {
+        padding: 12,
+        backgroundColor: "#fffbe6",
+        border: "1px solid #ffe58f",
+        borderRadius: 4,
+        marginTop: 16,
+      };
+  const readonlyHintTextStyle = isDark
+    ? { margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.72)" }
+    : { margin: 0, fontSize: 12, color: "#8c8c8c" };
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -80,17 +100,23 @@ export function SkillDrawer({
   );
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     if (editingSkill) {
       setContentValue(editingSkill.content);
       form.setFieldsValue({
         name: editingSkill.name,
         content: editingSkill.content,
+        source: editingSkill.source,
+        path: editingSkill.path,
       });
     } else {
       setContentValue("");
       form.resetFields();
     }
-  }, [editingSkill, form]);
+  }, [editingSkill, form, open]);
 
   const handleSubmit = (values: { name: string; content: string }) => {
     if (editingSkill) {
@@ -207,7 +233,6 @@ export function SkillDrawer({
       title={editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
       open={open}
       onClose={onClose}
-      destroyOnClose
       footer={drawerFooter}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit}>
@@ -268,15 +293,9 @@ export function SkillDrawer({
             </Form.Item>
 
             <div
-              style={{
-                padding: 12,
-                backgroundColor: "#fffbe6",
-                border: "1px solid #ffe58f",
-                borderRadius: 4,
-                marginTop: 16,
-              }}
+              style={readonlyHintStyle}
             >
-              <p style={{ margin: 0, fontSize: 12, color: "#8c8c8c" }}>
+              <p style={readonlyHintTextStyle}>
                 {t("skills.editNote")}
               </p>
             </div>

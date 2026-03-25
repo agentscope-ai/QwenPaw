@@ -65,6 +65,13 @@ fix(channels): handle empty content_parts in Discord
 docs(skills): document Skills Hub import
 ```
 
+### 3.1 PR 内容模板与自查（必做）
+
+- CoPaw 的标准 PR 内容模板固定为：`.github/PULL_REQUEST_TEMPLATE.md`。
+- 在生成 PR 内容前，必须先按该模板逐项自查（Type of Change、Component(s) Affected、Checklist、Testing、Local Verification Evidence）。
+- 自查完成后，再按同一模板生成并提交 PR 描述内容；禁止省略模板关键区块。
+- 若实际未执行某项检查（如 pre-commit 或 pytest），必须在模板对应位置明确标注“未执行”，不得留空或默认勾选通过。
+
 ### 4. 代码和质量
 
 - **本地必跑门禁（push/提 PR 前必须通过）：**

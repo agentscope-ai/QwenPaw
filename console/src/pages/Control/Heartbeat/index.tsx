@@ -135,25 +135,19 @@ function HeartbeatPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className={styles.heartbeatPage}>
-        <h1 className={styles.title}>{t("heartbeat.title")}</h1>
-        <p className={styles.description}>{t("heartbeat.description")}</p>
-        <span className={styles.description}>{t("common.loading")}</span>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.heartbeatPage}>
       <h1 className={styles.title}>{t("heartbeat.title")}</h1>
       <p className={styles.description}>{t("heartbeat.description")}</p>
+      {loading ? (
+        <span className={styles.description}>{t("common.loading")}</span>
+      ) : null}
 
       <Card className={styles.card}>
         <Form
           form={form}
           layout="vertical"
+          disabled={loading}
           onFinish={onFinish}
           initialValues={{
             enabled: false,
@@ -253,7 +247,7 @@ function HeartbeatPage() {
           </Form.Item>
 
           <Form.Item className={styles.formActions}>
-            <Button type="primary" htmlType="submit" loading={saving}>
+            <Button type="primary" htmlType="submit" loading={saving || loading}>
               {t("common.save")}
             </Button>
           </Form.Item>

@@ -28,8 +28,6 @@ _EVERY_PATTERN = re.compile(
     r"^(?:(?P<hours>\d+)h)?(?:(?P<minutes>\d+)m)?(?:(?P<seconds>\d+)s)?$",
     re.IGNORECASE,
 )
-
-
 def parse_heartbeat_every(every: str) -> int:
     """Parse interval string (e.g. '30m', '1h') to total seconds."""
     every = (every or "").strip()
@@ -151,8 +149,9 @@ async def run_heartbeat_once(
         last_dispatch = config.last_dispatch
 
     target = (hb.target or "").strip().lower()
-    if target == HEARTBEAT_TARGET_LAST and last_dispatch:
-        ld = last_dispatch
+    heartbeat_ran = False
+    if target == HEARTBEAT_TARGET_LAST and config.last_dispatch:
+        ld = config.last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:
@@ -167,16 +166,18 @@ async def run_heartbeat_once(
 
             try:
                 await asyncio.wait_for(_run_and_dispatch(), timeout=120)
+                heartbeat_ran = True
             except asyncio.TimeoutError:
                 logger.warning("heartbeat run timed out")
-            return
+                heartbeat_ran = True
 
     # target main or no last_dispatch: run agent only, no dispatch
-    async def _run_only() -> None:
-        async for _ in runner.stream_query(req):
-            pass
+    if not heartbeat_ran:
+        async def _run_only() -> None:
+            async for _ in runner.stream_query(req):
+                pass
 
-    try:
-        await asyncio.wait_for(_run_only(), timeout=120)
-    except asyncio.TimeoutError:
-        logger.warning("heartbeat run timed out")
+        try:
+            await asyncio.wait_for(_run_only(), timeout=120)
+        except asyncio.TimeoutError:
+            logger.warning("heartbeat run timed out")

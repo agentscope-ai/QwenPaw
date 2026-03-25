@@ -2,6 +2,17 @@
 
 Run from **repo root**.
 
+## Bootstrap local dev environment
+
+```bash
+bash scripts/bootstrap_dev.sh
+```
+
+- Creates or repairs `.venv` in the repo root using a supported Python version.
+- Installs the project in editable mode with `.[dev]` by default.
+- Pass `--extras dev,full` to include the full optional dependency set.
+- Pass `--recreate` to force rebuilding `.venv` from scratch.
+
 ## Build wheel (with latest console)
 
 ```bash
@@ -26,6 +37,21 @@ bash scripts/docker_build.sh [IMAGE_TAG] [EXTRA_ARGS...]
 
 - Default tag: `copaw:latest`. Uses `deploy/Dockerfile` (multi-stage: builds console then Python app).
 - Example: `bash scripts/docker_build.sh myreg/copaw:v1 --no-cache`.
+
+## Local merge gate
+
+```bash
+bash scripts/local-gate.sh
+```
+
+- Runs a minimal local quality gate for merge-risk regressions.
+- Includes: sync status check, console build, backend smoke checks, knowledge route check, and i18n missing-key audit.
+- Exits with non-zero status on first failure.
+- Run full backend unit tests in strict mode:
+
+```bash
+LOCAL_GATE_STRICT=1 bash scripts/local-gate.sh
+```
 
 ## Run Test
 

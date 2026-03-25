@@ -23,6 +23,11 @@ from .view_image import view_image
 from .memory_search import create_memory_search_tool
 from .get_current_time import get_current_time, set_user_timezone
 from .get_token_usage import get_token_usage
+from .knowledge_search import knowledge_search
+from .graph_query import graph_query
+from .memify_run import memify_run
+from .memify_status import memify_status
+from .triplet_focus_search import triplet_focus_search
 
 __all__ = [
     "execute_python_code",
@@ -43,4 +48,9 @@ __all__ = [
     "get_current_time",
     "set_user_timezone",
     "get_token_usage",
+    "knowledge_search",
+    "graph_query",
+    "memify_run",
+    "memify_status",
+    "triplet_focus_search",
 ]

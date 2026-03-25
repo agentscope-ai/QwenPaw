@@ -2,7 +2,17 @@
 """Retry wrapper for ChatModelBase instances.
 
 Transparently retries LLM API calls on transient errors (rate-limit,
-timeout, connection) with configurable exponential back-off.
+timeout, connection, server errors) with configurable exponential back-off.
+
+Supports retry on:
+  - OpenAI: RateLimitError, APITimeoutError, APIConnectionError, InternalServerError
+  - Anthropic: RateLimitError, APITimeoutError, APIConnectionError, InternalServerError
+  - Any exception with status_code in {429, 500, 502, 503, 504}
+
+Configuration via environment variables (or use defaults from constant.py):
+    COPAW_LLM_MAX_RETRIES   – max retry attempts (default 3)
+    COPAW_LLM_BACKOFF_BASE  – base delay in seconds (default 1.0)
+    COPAW_LLM_BACKOFF_CAP   – max delay cap in seconds (default 10.0)
 """
 
 from __future__ import annotations
@@ -23,6 +33,7 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
 
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
+_http_retryable: tuple[type[Exception], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +56,7 @@ def _get_openai_retryable() -> tuple[type[Exception], ...]:
                 openai.RateLimitError,
                 openai.APITimeoutError,
                 openai.APIConnectionError,
+                openai.InternalServerError,  # 500, 502, 503, 504 errors
             )
         except ImportError:
             _openai_retryable = ()
@@ -61,21 +73,73 @@ def _get_anthropic_retryable() -> tuple[type[Exception], ...]:
                 anthropic.RateLimitError,
                 anthropic.APITimeoutError,
                 anthropic.APIConnectionError,
+                anthropic.InternalServerError,  # 500, 502, 503, 504 errors
             )
         except ImportError:
             _anthropic_retryable = ()
     return _anthropic_retryable
 
 
+def _get_http_retryable() -> tuple[type[Exception], ...]:
+    global _http_retryable  # noqa: PLW0603
+    if _http_retryable is None:
+        collected: list[type[Exception]] = []
+
+        try:
+            import httpx  # noqa: PLC0415
+
+            collected.extend(
+                [
+                    httpx.TransportError,
+                    httpx.ReadError,
+                    httpx.RemoteProtocolError,
+                ],
+            )
+        except ImportError:
+            pass
+
+        try:
+            import httpcore  # noqa: PLC0415
+
+            collected.extend(
+                [
+                    httpcore.ReadError,
+                    httpcore.RemoteProtocolError,
+                ],
+            )
+        except ImportError:
+            pass
+
+        # Keep stable order and remove duplicates.
+        _http_retryable = tuple(dict.fromkeys(collected))
+
+    return _http_retryable
+
+
+def _iter_exception_chain(exc: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Return *True* if *exc* should trigger a retry."""
-    retryable = _get_openai_retryable() + _get_anthropic_retryable()
-    if retryable and isinstance(exc, retryable):
-        return True
+    retryable = (
+        _get_openai_retryable()
+        + _get_anthropic_retryable()
+        + _get_http_retryable()
+    )
 
-    status = getattr(exc, "status_code", None)
-    if status is not None and status in RETRYABLE_STATUS_CODES:
-        return True
+    for current_exc in _iter_exception_chain(exc):
+        if retryable and isinstance(current_exc, retryable):
+            return True
+
+        status = getattr(current_exc, "status_code", None)
+        if status is not None and status in RETRYABLE_STATUS_CODES:
+            return True
 
     return False
 
@@ -158,6 +222,12 @@ class RetryChatModel(ChatModelBase):
             except Exception as exc:
                 last_exc = exc
                 if not _is_retryable(exc) or attempt >= attempts:
+                    if _is_retryable(exc) and attempt >= attempts:
+                        logger.error(
+                            "LLM call failed after %d attempts: %s",
+                            attempts,
+                            exc,
+                        )
                     raise
                 delay = _compute_backoff(attempt, self._retry_config)
                 logger.warning(
@@ -196,6 +266,12 @@ class RetryChatModel(ChatModelBase):
             return
 
         if not _is_retryable(failed_exc) or current_attempt >= max_attempts:
+            if _is_retryable(failed_exc) and current_attempt >= max_attempts:
+                logger.error(
+                    "LLM stream failed after %d attempts: %s",
+                    max_attempts,
+                    failed_exc,
+                )
             raise failed_exc
         delay = _compute_backoff(current_attempt, self._retry_config)
         logger.warning(
@@ -224,6 +300,12 @@ class RetryChatModel(ChatModelBase):
                     await new_stream.aclose()
                     new_stream = None
                 if not _is_retryable(retry_exc) or attempt >= max_attempts:
+                    if _is_retryable(retry_exc) and attempt >= max_attempts:
+                        logger.error(
+                            "LLM stream retry failed after %d attempts: %s",
+                            max_attempts,
+                            retry_exc,
+                        )
                     raise
                 retry_delay = _compute_backoff(
                     attempt,
