@@ -42,9 +42,9 @@ export function buildPipelineDesignBootstrapPrompt({
     `当前智能体: ${agentId || "unknown"}`,
     "重要：这是模板设计，不是任务执行。不要搜索真实文件、不要扫描目录、不要要求立即运行。",
     "请先收集并回填 4 项上下文：流程用途、输入来源、期望产物、步骤线索。若用户已提供则不要重复追问。",
-    "收到 4 项后直接返回一个完整 Pipeline JSON 草稿（不要 markdown 代码块）。",
-    "JSON 必须包含字段：schema_version=1、id、name、version、description、steps。",
-    "steps 中每个节点至少包含：id、name、kind；可选 description。",
+    "如果当前会话已经绑定流程 Markdown 工作文件，请直接修改该 Markdown 文件，不要输出 JSON 草稿。",
+    "如果当前会话尚未绑定 Markdown 工作文件，请先产出最小可用流程结构，并在进入编辑态后继续以 Markdown 为唯一事实来源。",
+    "步骤信息至少要明确：id、name、kind；description 可按需补充。",
     "如果信息仍有缺口，使用合理占位值并在 description 标注 assumptions，不要进入多轮发问。",
   ];
 
@@ -101,7 +101,7 @@ export function buildPipelineDesignEditContextPrompt({
     "steps_digest:",
     stepDigest.length > 0 ? stepDigest.join("\n") : "- (empty)",
     "要求：当前是模板编辑模式，不要搜索真实文件或执行任务。",
-    "后续如果你给出流程改造结果，请只返回一个 JSON 对象，且严格 schema_version=1 并包含完整 steps 数组。",
+    "后续如果你要落实流程改动，请优先直接修改流程 Markdown 工作文件，并以该文件作为唯一事实来源。",
   ];
 
   if (mdRelativePath && mdRelativePath.trim()) {

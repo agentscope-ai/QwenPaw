@@ -639,6 +639,51 @@ def _sync_pipeline_md(workspace_dir: Path, template: PipelineTemplateInfo) -> Pa
     return md_path
 
 
+def _ensure_pipeline_draft_workspace(
+    workspace_dir: Path,
+    template: PipelineTemplateInfo,
+) -> PipelineDraftInfo:
+    """Ensure pipeline markdown workspace + flow memory exist, then return draft info."""
+    template_id = (template.id or "").strip().lower()
+    template_id = re.sub(r"[^a-z0-9_-]+", "-", template_id).strip("-")
+    if not template_id:
+        raise HTTPException(status_code=400, detail="Invalid pipeline template id")
+
+    current = _load_agent_pipeline_template(workspace_dir, template_id)
+    effective_template = PipelineTemplateInfo(
+        id=template_id,
+        name=((current.name if current else "") or template.name or template_id).strip() or template_id,
+        version=((current.version if current else "") or template.version or "0.1.0").strip() or "0.1.0",
+        description=((current.description if current else "") or template.description or "").strip(),
+        steps=current.steps if current and current.steps else template.steps,
+        revision=current.revision if current else 0,
+        content_hash=current.content_hash if current else "",
+        md_mtime=current.md_mtime if current else 0.0,
+    )
+
+    md_path = _pipeline_md_path(workspace_dir, template_id)
+    if not md_path.exists():
+        _sync_pipeline_md(workspace_dir, effective_template)
+
+    _upsert_pipeline_workspace_memory(
+        workspace_dir,
+        effective_template.id,
+        effective_template.name,
+        _pipeline_md_relative_path(effective_template.id),
+        _pipeline_flow_memory_relative_path(effective_template.id),
+    )
+    _ensure_pipeline_flow_memory(
+        workspace_dir,
+        effective_template.id,
+        effective_template.name,
+    )
+
+    draft = _get_pipeline_draft(workspace_dir, effective_template.id)
+    if draft is None:
+        raise HTTPException(status_code=500, detail="Failed to initialize pipeline draft workspace")
+    return draft
+
+
 def _upsert_pipeline_workspace_memory(
     workspace_dir: Path,
     pipeline_id: str,

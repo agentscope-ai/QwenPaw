@@ -160,6 +160,35 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
+  clearChatMeta: async (
+    chatId: string,
+    fallback?: { user_id?: string; channel?: string },
+  ) => {
+    const chats = await request<ChatSpec[]>(
+      `/chats?${new URLSearchParams({
+        ...(fallback?.user_id ? { user_id: fallback.user_id } : {}),
+        ...(fallback?.channel ? { channel: fallback.channel } : {}),
+      }).toString()}`,
+    );
+
+    const target = chats.find((chat) => chat.id === chatId);
+    if (!target) {
+      throw new Error(`Chat not found when clearing meta: ${chatId}`);
+    }
+
+    return request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        id: target.id,
+        session_id: target.session_id,
+        user_id: target.user_id,
+        channel: target.channel,
+        name: target.name,
+        meta: {},
+      }),
+    });
+  },
+
   deleteChat: (chatId: string) =>
     request<ChatDeleteResponse>(`/chats/${encodeURIComponent(chatId)}`, {
       method: "DELETE",

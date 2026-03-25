@@ -286,7 +286,12 @@ export default function ProjectsPage() {
       // Clear previous focus chat meta and create a new one for this run
       const prevFocusChatId = runFocusChatIdRef.current;
       if (prevFocusChatId) {
-        void chatApi.updateChat(prevFocusChatId, { meta: {} }).catch(() => {});
+        void chatApi
+          .clearChatMeta(prevFocusChatId, {
+            user_id: "default",
+            channel: "console",
+          })
+          .catch(() => {});
       }
       void chatApi.createChat({
         name: `[focus] ${selectedProject.name}`,
@@ -325,7 +330,12 @@ export default function ProjectsPage() {
     return () => {
       const chatId = runFocusChatIdRef.current;
       if (chatId) {
-        void chatApi.updateChat(chatId, { meta: {} }).catch(() => {});
+        void chatApi
+          .clearChatMeta(chatId, {
+            user_id: "default",
+            channel: "console",
+          })
+          .catch(() => {});
       }
     };
   }, []);

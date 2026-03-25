@@ -17,6 +17,7 @@ from .agents_pipeline_core import (
     PipelineTemplateInfo,
     _list_agent_pipeline_templates,
     _create_project_pipeline_run,
+    _ensure_pipeline_draft_workspace,
     _get_pipeline_draft,
     _save_agent_pipeline_template_with_md,
     _list_project_pipeline_runs,
@@ -187,8 +188,46 @@ async def get_agent_pipeline_draft(
     try:
         draft = _get_pipeline_draft(Path(workspace.workspace_dir), templateId)
         if draft is None:
-            raise HTTPException(status_code=404, detail="Pipeline draft markdown not found")
+            draft = _ensure_pipeline_draft_workspace(
+                Path(workspace.workspace_dir),
+                PipelineTemplateInfo(
+                    id=templateId,
+                    name=templateId,
+                    version="0.1.0",
+                    description="",
+                    steps=[],
+                ),
+            )
         return draft
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post(
+    "/{agentId}/pipelines/templates/{templateId}/draft/ensure",
+    response_model=PipelineDraftInfo,
+    summary="Ensure pipeline markdown draft workspace",
+    description="Create the markdown workspace and flow memory for pipeline editing when missing",
+)
+async def ensure_agent_pipeline_draft(
+    request: Request,
+    body: PipelineTemplateInfo,
+    agentId: str = PathParam(...),
+    templateId: str = PathParam(...),
+) -> PipelineDraftInfo:
+    """Ensure pipeline markdown workspace exists before opening edit chat."""
+    manager = agents_router_impl._get_multi_agent_manager(request)
+
+    try:
+        workspace = await manager.get_agent(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    try:
+        normalized = body.model_copy(update={"id": templateId})
+        return _ensure_pipeline_draft_workspace(Path(workspace.workspace_dir), normalized)
     except HTTPException:
         raise
     except Exception as e:

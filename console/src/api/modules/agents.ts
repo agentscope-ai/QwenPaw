@@ -174,6 +174,19 @@ export const agentsApi = {
       `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}/draft`,
     ),
 
+  ensurePipelineDraft: (
+    agentId: string,
+    templateId: string,
+    body: ProjectPipelineTemplateInfo,
+  ) =>
+    request<AgentPipelineDraftInfo>(
+      `/agents/${agentId}/pipelines/templates/${encodeURIComponent(templateId)}/draft/ensure`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
   listProjectPipelineTemplates: (agentId: string, projectId: string) =>
     request<ProjectPipelineTemplateInfo[]>(
       `/agents/${agentId}/projects/${encodeURIComponent(projectId)}/pipelines/templates`,

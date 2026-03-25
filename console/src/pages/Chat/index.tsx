@@ -327,7 +327,7 @@ function buildPipelineOpportunityInlineHint(): string {
     "[PipelineDesignHint]",
     "当前场景是模板设计模式，不是任务执行。不要搜索真实文件、不要扫描目录。",
     "请按 4 项槽位补齐：流程用途、输入来源、期望产物、步骤线索；若用户已提供则不要重复追问。",
-    "补齐后直接给出完整 Pipeline JSON 草稿，必须 schema_version=1 且包含 steps 数组。",
+    "如果当前会话已绑定流程 Markdown 工作文件，请优先直接修改该 Markdown 文件，不要输出 JSON 草稿。",
     "继续在当前会话中迭代，不要要求用户切换到新会话。",
   ].join("\n");
 }

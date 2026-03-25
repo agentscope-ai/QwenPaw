@@ -10,6 +10,7 @@ import {
   buildPipelineDesignBindingKey,
   buildPipelineDesignBootstrapPrompt,
   buildPipelineDesignChatPath,
+  buildPipelineDesignEditContextPrompt,
 } from "../../../utils/pipelineDesign";
 import { trackNavigation } from "../../../utils/navigationTelemetry";
 import type {
@@ -80,11 +81,6 @@ type EditChatTarget = {
   description?: string;
   steps?: ProjectPipelineTemplateStep[];
   source?: "independent" | "project";
-};
-
-type DraftParseResult = {
-  steps: ProjectPipelineTemplateStep[];
-  error?: string;
 };
 
 type PipelineSaveConflictInfo = {
@@ -290,37 +286,6 @@ function normalizeVersion(version: string): string {
   return version.trim() || "0";
 }
 
-function parseJsonFromText(text: string): unknown | null {
-  const raw = text.trim();
-  if (!raw) return null;
-
-  const candidates: string[] = [raw];
-  const fencedBlocks = raw.match(/```json\s*([\s\S]*?)```/gi) || [];
-  fencedBlocks.forEach((block) => {
-    const unwrapped = block
-      .replace(/^```json\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
-    if (unwrapped) candidates.push(unwrapped);
-  });
-
-  const braceStart = raw.indexOf("{");
-  const braceEnd = raw.lastIndexOf("}");
-  if (braceStart >= 0 && braceEnd > braceStart) {
-    candidates.push(raw.slice(braceStart, braceEnd + 1));
-  }
-
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate);
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
-
 function getMetaString(meta: Record<string, unknown> | undefined, key: string): string {
   const value = meta?.[key];
   return typeof value === "string" ? value : "";
@@ -365,105 +330,6 @@ function buildPipelineChatBindingMeta(params: {
 
 function buildPipelineFlowMemoryRelativePath(pipelineId: string): string {
   return `${buildPipelineWorkspaceRelativePath(pipelineId)}/flow-memory.md`;
-}
-
-function normalizeDraftSteps(raw: unknown): DraftParseResult {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return {
-      steps: [],
-      error: "JSON root must be an object.",
-    };
-  }
-
-  const doc = raw as Record<string, unknown>;
-  if (doc.schema_version !== 1) {
-    return {
-      steps: [],
-      error: "schema_version must be 1.",
-    };
-  }
-
-  if (!Array.isArray(doc.steps)) {
-    return {
-      steps: [],
-      error: "steps must be an array.",
-    };
-  }
-
-  if (doc.steps.length === 0) {
-    return {
-      steps: [],
-      error: "steps cannot be empty.",
-    };
-  }
-
-  const arrayLike = doc.steps as unknown[];
-
-  const steps: ProjectPipelineTemplateStep[] = [];
-  const issues: string[] = [];
-  const idSet = new Set<string>();
-
-  const toText = (value: unknown): string => {
-    if (typeof value === "string") return value.trim();
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
-    return "";
-  };
-
-  const normalizeStepId = (item: Record<string, unknown>): string => {
-    const direct = toText(item.id);
-    if (direct) return direct;
-
-    const alias = toText(item.step_id) || toText(item.stepId);
-    if (!alias) return "";
-
-    // Convert numeric-like ids into canonical step-* form.
-    return /^\d+$/.test(alias) ? `step-${alias}` : alias;
-  };
-
-  arrayLike.forEach((node, index) => {
-    if (!node || typeof node !== "object" || Array.isArray(node)) {
-      issues.push(`steps[${index}] must be an object.`);
-      return;
-    }
-    const item = node as Record<string, unknown>;
-
-    const rawId = normalizeStepId(item);
-    const rawName = toText(item.name) || toText(item.title);
-    const rawKind = toText(item.kind) || toText(item.action) || toText(item.type);
-    const rawDescription = toText(item.description) || toText(item.desc);
-
-    const missing: string[] = [];
-    if (!rawName) missing.push("name");
-    if (missing.length > 0) {
-      issues.push(`steps[${index}] missing required fields: ${missing.join(", ")}.`);
-      return;
-    }
-
-    const safeId = rawId || `step-${index + 1}`;
-    const safeKind = rawKind || "transform";
-
-    if (idSet.has(safeId)) {
-      issues.push(`steps[${index}] duplicate id: ${safeId}.`);
-      return;
-    }
-    idSet.add(safeId);
-
-    steps.push({
-      id: safeId,
-      name: rawName,
-      kind: safeKind,
-      description: rawDescription,
-    });
-  });
-
-  if (issues.length > 0) {
-    return {
-      steps: [],
-      error: issues.join(" "),
-    };
-  }
-
-  return { steps };
 }
 
 function extractPipelineConflictInfo(detail: unknown): PipelineSaveConflictInfo | null {
@@ -1008,7 +874,10 @@ export default function PipelinesPage() {
   const clearFocusMeta = useCallback(async (chatId: string) => {
     if (!chatId) return;
     try {
-      await chatApi.updateChat(chatId, { meta: {} });
+      await chatApi.clearChatMeta(chatId, {
+        user_id: "default",
+        channel: "console",
+      });
     } catch {
       // Ignore cleanup failures on page leave.
     }
@@ -1375,10 +1244,23 @@ export default function PipelinesPage() {
         steps: targetSteps,
         source: targetScope,
       };
+      const defaultMdRelativePath = `${buildPipelineWorkspaceRelativePath(normalizedTarget.pipelineId)}/pipeline.md`;
+      let mdRelativePath = defaultMdRelativePath;
       let flowMemoryRelativePath = "";
       if (withEditMode && selectedAgent && normalizedTarget.pipelineId !== "unknown") {
         try {
-          const draftInfo = await agentsApi.getPipelineDraft(selectedAgent, normalizedTarget.pipelineId);
+          const draftInfo = await agentsApi.ensurePipelineDraft(
+            selectedAgent,
+            normalizedTarget.pipelineId,
+            {
+              id: normalizedTarget.pipelineId,
+              name: targetPipelineName,
+              version: targetVersion,
+              description: targetDescription,
+              steps: targetSteps,
+            },
+          );
+          mdRelativePath = draftInfo.md_relative_path || defaultMdRelativePath;
           flowMemoryRelativePath = draftInfo.flow_memory_relative_path || "";
           setLastDraftMdMtime(draftInfo.md_mtime || 0);
         } catch {
@@ -1405,6 +1287,19 @@ export default function PipelinesPage() {
           version: targetVersion,
         },
       );
+      const editPlaceholder = buildPipelineDesignEditContextPrompt({
+        agentId: selectedAgent,
+        source,
+        scope: targetScope,
+        pipelineId: normalizedTarget.pipelineId,
+        pipelineName: targetPipelineName,
+        version: targetVersion,
+        description: targetDescription,
+        mdRelativePath,
+        flowMemoryRelativePath,
+        steps: targetSteps,
+      });
+      const editGuideWithContext = `${editGuide}\n\n${editPlaceholder}`;
 
       if (withEditMode && !options?.forceNewSession) {
         const reusedInMemory =
@@ -1428,7 +1323,7 @@ export default function PipelinesPage() {
           setEditMode(true);
           setEditTargetKey(targetKey);
           setEditWelcomeMode(isEmptyNodes ? "init" : "default");
-          setEditGuidePlaceholder(editGuide);
+          setEditGuidePlaceholder(editGuideWithContext);
           message.success(
             t("pipelines.boundSessionRestored", "已恢复流程绑定会话。"),
           );
@@ -1476,7 +1371,7 @@ export default function PipelinesPage() {
         setEditMode(true);
         setEditTargetKey(targetKey);
         setEditWelcomeMode(isEmptyNodes ? "init" : "default");
-        setEditGuidePlaceholder(editGuide);
+        setEditGuidePlaceholder(editGuideWithContext);
         message.success(
           t("pipelines.boundSessionCreated", "已创建流程绑定会话。"),
         );
@@ -1798,53 +1693,8 @@ export default function PipelinesPage() {
   };
 
   const handleAssistantTurnCompleted = useCallback(
-    (payload: { text: string; response: Record<string, unknown> | null }) => {
+    () => {
       if (!editMode) return;
-
-      const parsedFromResponse = payload.response
-        ? normalizeDraftSteps(payload.response)
-        : null;
-      const parsedTextJson = parseJsonFromText(payload.text);
-      const parsedFromText = parsedTextJson
-        ? normalizeDraftSteps(parsedTextJson)
-        : null;
-
-      const candidates = [parsedFromText, parsedFromResponse].filter(
-        (item): item is DraftParseResult => Boolean(item),
-      );
-
-      const parsed =
-        candidates.find((item) => item.steps.length > 0 && !item.error) ||
-        candidates[0] ||
-        null;
-
-      if (!parsedTextJson && !parsedFromResponse) {
-        // No JSON found in this turn — keep existing draft nodes unchanged.
-        message.warning(
-          t(
-            "pipelines.draftParseNoJson",
-            "未识别到可用 JSON，请让助手严格输出 schema_version=1 与 steps 数组。",
-          ),
-        );
-      } else if (!parsed || parsed.error || parsed.steps.length === 0) {
-        // JSON found but structurally invalid — keep existing draft nodes unchanged.
-        message.warning(
-          t(
-            "pipelines.draftParseInvalid",
-            "JSON 解析失败：{{detail}}",
-            {
-              detail:
-                (parsed && parsed.error) ||
-                "invalid step schema: each step requires id/name/kind.",
-            },
-          ),
-        );
-      } else {
-        setDraftNewVersionSteps(parsed.steps);
-        setDraftParseStatus("ready");
-        setDraftParseError("");
-        setExpandedDraftDiffKeys([]);
-      }
 
       const activePipelineId = selectedPipeline?.id || selectedTemplateItem?.id || "";
       if (!selectedAgent || !activePipelineId) {
@@ -2438,7 +2288,7 @@ export default function PipelinesPage() {
                 <Empty
                   description={t(
                     "pipelines.draftRealtimeHint",
-                    "在右侧编辑对话中输出节点 JSON 草案后，这里会实时更新。",
+                    "当右侧编辑对话修改流程 Markdown 工作文件后，这里会根据后端 draft 自动更新。",
                   )}
                 />
               ) : !compareTemplate ? (
@@ -2547,8 +2397,8 @@ export default function PipelinesPage() {
                           ? "pipelines.editWelcomePromptInit1"
                           : "pipelines.editWelcomePrompt1",
                         editWelcomeMode === "init"
-                          ? "基于用途/输入/产物/步骤线索，修改右侧预填模板并返回完整 pipeline JSON。"
-                          : "分析当前流程瓶颈，并给出 3 条可执行优化建议（含节点改动）。",
+                          ? "基于用途/输入/产物/步骤线索，直接修改右侧预填的流程 Markdown 模板。"
+                          : "分析当前流程瓶颈，并直接修改流程 Markdown 工作文件落实优化建议。",
                       ),
                       t(
                         editWelcomeMode === "init"
@@ -2556,7 +2406,7 @@ export default function PipelinesPage() {
                           : "pipelines.editWelcomePrompt2",
                         editWelcomeMode === "init"
                           ? "若信息不足，先保留占位描述并最小修改，不要从零重建。"
-                          : "我要改这个流程：新增校验节点、调整重试策略，并输出变更后的步骤清单。",
+                          : "我要改这个流程：新增校验节点、调整重试策略，并把变更写回流程 Markdown。",
                       ),
                     ]}
                   />
