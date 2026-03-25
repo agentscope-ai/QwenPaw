@@ -19,7 +19,11 @@ from ...config import (
     get_heartbeat_query_path,
     load_config,
 )
-from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
+from ...constant import (
+    HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+    HEARTBEAT_FILE,
+    HEARTBEAT_TARGET_LAST,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +110,10 @@ async def run_heartbeat_once(
     from ...config.config import load_agent_config
 
     hb = get_heartbeat_config(agent_id)
+    timeout_seconds = max(
+        1,
+        getattr(hb, "timeout_seconds", HEARTBEAT_DEFAULT_TIMEOUT_SECONDS),
+    )
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
@@ -166,9 +174,15 @@ async def run_heartbeat_once(
                     )
 
             try:
-                await asyncio.wait_for(_run_and_dispatch(), timeout=120)
+                await asyncio.wait_for(
+                    _run_and_dispatch(),
+                    timeout=timeout_seconds,
+                )
             except asyncio.TimeoutError:
-                logger.warning("heartbeat run timed out")
+                logger.warning(
+                    "heartbeat run timed out after %ss",
+                    timeout_seconds,
+                )
             return
 
     # target main or no last_dispatch: run agent only, no dispatch
@@ -177,6 +191,9 @@ async def run_heartbeat_once(
             pass
 
     try:
-        await asyncio.wait_for(_run_only(), timeout=120)
+        await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
     except asyncio.TimeoutError:
-        logger.warning("heartbeat run timed out")
+        logger.warning(
+            "heartbeat run timed out after %ss",
+            timeout_seconds,
+        )

@@ -84,6 +84,7 @@ function HeartbeatPage() {
         everyNumber: everyParts.number,
         everyUnit: everyParts.unit,
         target: data.target ?? "main",
+        timeoutSeconds: data.timeoutSeconds,
         useActiveHours: !!data.activeHours,
         activeHoursStart: data.activeHours?.start ?? "08:00",
         activeHoursEnd: data.activeHours?.end ?? "22:00",
@@ -113,6 +114,7 @@ function HeartbeatPage() {
       enabled: values.enabled ?? false,
       every,
       target: values.target ?? "main",
+      timeoutSeconds: values.timeoutSeconds,
       activeHours:
         values.useActiveHours &&
         values.activeHoursStart &&
@@ -160,6 +162,7 @@ function HeartbeatPage() {
             everyNumber: 6,
             everyUnit: "h",
             target: "main",
+            timeoutSeconds: 120,
             useActiveHours: false,
             activeHoursStart: "08:00",
             activeHoursEnd: "22:00",
@@ -191,7 +194,12 @@ function HeartbeatPage() {
                 ]}
                 noStyle
               >
-                <InputNumber min={1} className={styles.everyNumber} />
+                <InputNumber
+                  min={1}
+                  step={1}
+                  precision={0}
+                  className={styles.everyNumber}
+                />
               </Form.Item>
               <Form.Item name="everyUnit" noStyle>
                 <Select
@@ -215,6 +223,29 @@ function HeartbeatPage() {
                 value: opt.value,
                 label: t(opt.labelKey),
               }))}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="timeoutSeconds"
+            label={t("heartbeat.timeoutSeconds")}
+            rules={[
+              {
+                required: true,
+                message: t("heartbeat.timeoutSecondsRequired"),
+              },
+              {
+                type: "number",
+                min: 1,
+                message: t("heartbeat.timeoutSecondsMin"),
+              },
+            ]}
+          >
+            <InputNumber
+              min={1}
+              step={1}
+              precision={0}
+              style={{ width: "100%" }}
             />
           </Form.Item>
 

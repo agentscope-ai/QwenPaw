@@ -174,9 +174,11 @@ class CronManager:
                     replace_existing=True,
                 )
                 logger.info(
-                    "heartbeat rescheduled: every=%s (interval=%ss)",
+                    "heartbeat rescheduled: every=%s "
+                    "(interval=%ss, timeout=%ss)",
                     hb.every,
                     interval_seconds,
+                    hb.timeout_seconds,
                 )
             else:
                 logger.info("heartbeat disabled, job removed")

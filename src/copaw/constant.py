@@ -111,6 +111,7 @@ CONFIG_FILE = EnvVarLoader.get_str("COPAW_CONFIG_FILE", "config.json")
 HEARTBEAT_FILE = EnvVarLoader.get_str("COPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
+HEARTBEAT_DEFAULT_TIMEOUT_SECONDS = 120
 HEARTBEAT_TARGET_LAST = "last"
 
 # Debug history file for /dump_history and /load_history commands
