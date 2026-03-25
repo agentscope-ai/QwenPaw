@@ -621,6 +621,78 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         parts.append(f"\n---\n总计 {total_count} 条消息 · `输入 /poll 刷新`")
 
+        # F3: structured summary — 4 modules
+        try:
+            import json as _json
+            # Module 1: mailbox backlog by queue_mode
+            inbox_dir = workspace_dir / "mailbox" / "inbox"
+            if inbox_dir.exists():
+                mode_counts: dict[str, int] = {"steer": 0, "collect": 0, "followup": 0, "other": 0}
+                for f in inbox_dir.glob("*.json"):
+                    try:
+                        d = _json.loads(f.read_text(encoding="utf-8"))
+                        mode = d.get("queue_mode", "other") or "other"
+                        if mode not in mode_counts:
+                            mode = "other"
+                        mode_counts[mode] += 1
+                    except Exception:
+                        pass
+                parts.append(
+                    f"\n📬 **收件箱积压**：steer={mode_counts['steer']} "
+                    f"followup={mode_counts['followup']} collect={mode_counts['collect']} other={mode_counts['other']}"
+                )
+
+            # Module 2: task board status distribution
+            try:
+                teams_root = workspace_dir.parent
+                status_total: dict[str, int] = {}
+                for tf in teams_root.glob("*/teams/*/tasks.json"):
+                    try:
+                        tasks_data = _json.loads(tf.read_text(encoding="utf-8"))
+                        for t in tasks_data:
+                            s = t.get("status", "unknown")
+                            status_total[s] = status_total.get(s, 0) + 1
+                    except Exception:
+                        pass
+                if status_total:
+                    status_str = " ".join(f"{k}={v}" for k, v in sorted(status_total.items()))
+                    parts.append(f"\n📋 **任务状态分布**：{status_str}")
+            except Exception:
+                pass
+
+            # Module 3: active rooms
+            try:
+                rooms_dir = workspace_dir / "mailbox" / "rooms"
+                if rooms_dir.exists():
+                    active_rooms = []
+                    for meta_f in rooms_dir.glob("*/meta.json"):
+                        try:
+                            meta = _json.loads(meta_f.read_text(encoding="utf-8"))
+                            if meta.get("status") == "active":
+                                active_rooms.append(f"{meta.get('name','?')}(round={meta.get('current_round',0)}")
+                        except Exception:
+                            pass
+                    if active_rooms:
+                        parts.append(f"\n💬 **活跃讨论室** ({len(active_rooms)}个)：" + "、".join(active_rooms[:5]))
+                    else:
+                        parts.append("\n💬 **活跃讨论室**：无")
+            except Exception:
+                pass
+
+            # Module 4: AutoPoll metrics
+            try:
+                metrics_file = workspace_dir / "autopoll_metrics.json"
+                if metrics_file.exists():
+                    m = _json.loads(metrics_file.read_text(encoding="utf-8"))
+                    last_updated = m.get("last_updated", "未知")
+                    sent = m.get("notice_sent", 0)
+                    skipped = m.get("cooldown_skipped", 0)
+                    parts.append(f"\n📡 **AutoPoll**：已推送 {sent} 次，冷却跳过 {skipped} 次，最后更新 {last_updated}")
+            except Exception:
+                pass
+        except Exception as _fe:
+            logger.debug("F3 structured summary failed: %s", _fe)
+
         return await self._make_system_msg("\n".join(parts))
 
 

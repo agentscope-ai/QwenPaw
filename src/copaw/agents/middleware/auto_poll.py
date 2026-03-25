@@ -60,6 +60,42 @@ class AutoPollMiddleware:
 
         # Followup buffer: items pending delivery at round-end
         self._followup_buffer: list[dict] = []
+        # A1: collect-round counter for summary triggering
+        self._collect_round_count: int = 0
+        self._collect_summary_interval: int = 5  # summarize every N rounds
+        self._collect_backlog: list[str] = []  # raw collect items accumulated
+        # F2: runtime metrics counters
+        self._metrics: dict[str, int] = {
+            "notice_sent": 0,
+            "cooldown_skipped": 0,
+            "collect_summary_triggered": 0,
+            "steer_sent": 0,
+        }
+
+    def _flush_metrics(self, ws_dir: Path) -> None:
+        """F2: Write runtime metrics to workspace autopoll_metrics.json."""
+        if not ws_dir:
+            return
+        try:
+            metrics_file = ws_dir / "autopoll_metrics.json"
+            existing: dict = {}
+            if metrics_file.exists():
+                try:
+                    import json as _json
+                    existing = _json.loads(metrics_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            # Accumulate
+            for k, v in self._metrics.items():
+                existing[k] = existing.get(k, 0) + v
+            self._metrics = {k: 0 for k in self._metrics}  # reset session counters
+            existing["last_updated"] = __import__('time').strftime("%Y-%m-%dT%H:%M:%SZ", __import__('time').gmtime())
+            metrics_file.write_text(
+                __import__('json').dumps(existing, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.debug("F2: flush metrics failed: %s", e)
 
     def get_followup_summary(self) -> str:
         """Return a compact summary of pending followup items, then clear the buffer.
@@ -128,7 +164,40 @@ class AutoPollMiddleware:
                 return
 
         try:
+            # C1: auto-resume blocked tasks whose blocker is completed
+            # C2: collect timed-out in_progress tasks for urgent alert
+            _timed_out_lines: list[str] = []
+            try:
+                from copaw.teams.task_board import TaskBoard
+                teams_root = ws_dir.parent  # workspaces/<agent>/.. → workspaces
+                for team_dir in teams_root.glob("*/teams/*/tasks.json"):
+                    team_name = team_dir.parent.name
+                    tb = TaskBoard(team_dir=team_dir.parent)
+                    # C1: auto-resume blocked tasks
+                    resumed = tb.check_blocked_tasks()
+                    for r in resumed:
+                        _timed_out_lines.append(
+                            f"✅ 任务「{r.title}」阻塞已解除，已恢复 pending（团队：{team_name}）"
+                        )
+                    # C2: timeout alert
+                    for t in tb.get_timed_out_tasks():
+                        elapsed_min = int((time.time() - (t.started_at or 0)) / 60)
+                        _timed_out_lines.append(
+                            f"⏰ 任务「{t.title}」进行中已超时 {elapsed_min} 分钟（执行人：{t.claimed_by}，团队：{team_name}）"
+                        )
+                    # B4: workflow progress summary
+                    for wf in tb.get_workflow_summary():
+                        if wf["total"] > 0 and wf["completed"] < wf["total"]:
+                            _timed_out_lines.append(
+                                f"📊 工作流进度（{team_name}）：{wf['summary']}"
+                            )
+            except Exception as _e:
+                logger.debug("AutoPoll C1/C2 check failed: %s", _e)
+
             urgent_lines, silent_count, followup_count, collapsed_count = self._collect_updates(agent_id, ws_dir)
+            # Prepend C1/C2 alerts as urgent steer items
+            if _timed_out_lines:
+                urgent_lines = _timed_out_lines + urgent_lines
 
             recovery_line = ""
             if self._poll_failed and (
@@ -162,6 +231,7 @@ class AutoPollMiddleware:
                     "AutoPoll: skipped, send cooldown (%.1fs since last)",
                     now - self._last_notice_at,
                 )
+                self._metrics["cooldown_skipped"] += 1  # F2
                 return
 
             self._last_notice_text = notice_text
@@ -190,6 +260,11 @@ class AutoPollMiddleware:
                 collapsed_count,
                 agent_id,
             )
+            # F2: update and flush metrics
+            self._metrics["notice_sent"] += 1
+            if urgent_lines:
+                self._metrics["steer_sent"] += 1
+            self._flush_metrics(ws_dir)
 
         except Exception as e:
             self._poll_failed = True
@@ -357,6 +432,30 @@ class AutoPollMiddleware:
             return (5, line)
 
         urgent_lines.sort(key=urgent_sort_key)
+
+        # A1: collect backlog accumulation and periodic summary
+        self._collect_round_count += 1
+        if silent_count > 0:
+            self._collect_backlog.append(
+                f"第{self._collect_round_count}轮：{silent_count}条常规更新（已折叠{collapsed_count}条）"
+            )
+        if self._collect_round_count >= self._collect_summary_interval and self._collect_backlog:
+            total_silent = sum(
+                int(s.split("：")[1].split("条")[0]) for s in self._collect_backlog if "：" in s
+            )
+            summary_line = (
+                f"📦 过去 {self._collect_round_count} 轮共 {total_silent} 条常规更新（已合并摘要）"
+            )
+            logger.info("AutoPoll A1 summary triggered: %s", summary_line)
+            self._metrics["collect_summary_triggered"] += 1  # F2
+            # Inject summary as a low-priority urgent line only if no real urgent lines
+            if not urgent_lines:
+                urgent_lines.append(summary_line)
+            # Reset counters
+            self._collect_round_count = 0
+            self._collect_backlog.clear()
+            silent_count = 0
+            collapsed_count = 0
 
         return urgent_lines, silent_count, followup_count, collapsed_count
 

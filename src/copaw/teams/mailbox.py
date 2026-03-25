@@ -102,6 +102,9 @@ class AgentMessage(BaseModel):
 class Mailbox:
     """File-based mailbox for agent-to-agent communication."""
 
+    # A2: max messages per thread before summary+archive is triggered
+    THREAD_SUMMARY_THRESHOLD = 20
+
     def __init__(self, workspace_dir: Path):
         self._workspace_dir = workspace_dir
         self._mailbox_dir = workspace_dir / "mailbox"
@@ -197,6 +200,65 @@ class Mailbox:
             "Broadcast from %s to %d agents", from_agent, len(sent_messages),
         )
         return sent_messages
+
+    def get_thread_messages(self, thread_id: str) -> List["AgentMessage"]:
+        """A2: Return all inbox messages belonging to a thread_id, sorted by created_at."""
+        msgs = []
+        for f in self._inbox_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("thread_id") == thread_id:
+                    msgs.append(AgentMessage(**data))
+            except Exception:
+                continue
+        msgs.sort(key=lambda m: m.created_at)
+        return msgs
+
+    def maybe_summarize_thread(self, thread_id: str) -> Optional["AgentMessage"]:
+        """A2: If thread exceeds THREAD_SUMMARY_THRESHOLD, archive originals and inject summary.
+
+        Returns the summary AgentMessage if triggered, None otherwise.
+        """
+        msgs = self.get_thread_messages(thread_id)
+        if len(msgs) < self.THREAD_SUMMARY_THRESHOLD:
+            return None
+
+        lines = []
+        for m in msgs:
+            ts = datetime.fromtimestamp(m.created_at).strftime("%H:%M")
+            lines.append(f"[{ts}] {m.from_agent} → {m.to_agent} ({m.msg_kind}): {str(m.content)[:120]}")
+        summary_text = (
+            f"[thread摘要] thread_id={thread_id}，共 {len(msgs)} 条消息已归档。\n"
+            + "\n".join(lines)
+        )
+
+        thread_archive = self._archive_dir / f"thread_{thread_id}"
+        thread_archive.mkdir(parents=True, exist_ok=True)
+        for f in self._inbox_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("thread_id") == thread_id:
+                    f.rename(thread_archive / f.name)
+            except Exception:
+                continue
+
+        first = msgs[0]
+        summary_msg = AgentMessage(
+            from_agent=first.from_agent,
+            to_agent=first.to_agent,
+            content=summary_text,
+            msg_type=first.msg_type,
+            msg_kind="general",
+            thread_id=thread_id,
+            queue_mode="collect",
+        )
+        summary_file = self._inbox_dir / f"{summary_msg.id}.json"
+        summary_file.write_text(summary_msg.model_dump_json(), encoding="utf-8")
+        logger.info(
+            "A2: thread %s summarized (%d msgs archived), summary injected",
+            thread_id, len(msgs),
+        )
+        return summary_msg
 
     def receive(self, limit: Optional[int] = None) -> List[AgentMessage]:
         messages = []
@@ -530,21 +592,46 @@ class RoomManager:
         room = self.get_room(room_id)
         if not room or host != room.host:
             return None
+        # A3: auto-generate summary from room history
+        auto_summary = self._auto_summarize_room(room_id)
+        final_conclusion = conclusion
+        if auto_summary:
+            final_conclusion = conclusion + ("\n\n[自动摘要] " + auto_summary if conclusion else "[自动摘要] " + auto_summary)
         msg = RoomMessage(
             room_id=room_id,
             from_agent=host,
-            content=conclusion,
+            content=final_conclusion,
             msg_type="conclude",
             round=room.current_round,
         )
         with (self._rooms_dir / room_id / "messages.jsonl").open("a", encoding="utf-8") as f:
             f.write(msg.model_dump_json() + "\n")
         room.status = "closed"
-        room.conclusion = conclusion
+        room.conclusion = final_conclusion
         room.closed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         room.needs_conclusion = False
         self._save_meta(room)
         return room
+
+    def _auto_summarize_room(self, room_id: str) -> str:
+        """A3: Generate a plain-text summary of room history for conclude.
+
+        Returns summary string, or empty string if history is empty/too short.
+        """
+        try:
+            history = self.get_history(room_id)
+            if not history or len(history) < 3:
+                return ""
+            lines = []
+            for m in history[-30:]:  # cap at last 30 messages
+                ts = m.created_at[:16] if isinstance(m.created_at, str) else ""
+                content_preview = str(m.content)[:100].replace("\n", " ")
+                lines.append(f"[{ts}] {m.from_agent}: {content_preview}")
+            summary = f"共 {len(history)} 条消息。最近记录：\n" + "\n".join(lines)
+            return summary
+        except Exception as e:
+            logger.debug("A3 room summary failed: %s", e)
+            return ""
 
     def _advance_round_if_ready(self, room: Room) -> None:
         round_messages = self.get_history(room.room_id, since_round=room.current_round)

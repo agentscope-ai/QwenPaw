@@ -109,7 +109,20 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as f:
                 content = await f.read()
-                states = json.loads(content)
+
+            # Handle empty file case
+            if not content or not content.strip():
+                logger.warning(
+                    "Session file %s is empty. Skip loading session state.",
+                    session_save_path,
+                )
+                if not allow_not_exist:
+                    raise ValueError(
+                        f"Session file {session_save_path} is empty.",
+                    )
+                return
+
+            states = json.loads(content)
 
             for name, state_module in state_modules_mapping.items():
                 if name in states:
@@ -215,7 +228,20 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as file:
                 content = await file.read()
-                states = json.loads(content)
+
+            # Handle empty file case
+            if not content or not content.strip():
+                logger.warning(
+                    "Session file %s is empty. Return empty state dict.",
+                    session_save_path,
+                )
+                if not allow_not_exist:
+                    raise ValueError(
+                        f"Session file {session_save_path} is empty.",
+                    )
+                return {}
+
+            states = json.loads(content)
 
             logger.info(
                 "Get session state dict from %s successfully.",

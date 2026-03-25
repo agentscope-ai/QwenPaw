@@ -1153,80 +1153,60 @@ class SkillService:
             )
             return None
 
-        # Normalize separators to forward slash for consistent checking
-        normalized = file_path.replace("\\", "/")
 
-        # Validate file_path starts with references/ or scripts/
-        is_references = normalized.startswith("references/")
-        is_scripts = normalized.startswith("scripts/")
-        if not (is_references or is_scripts):
-            logger.error(
-                "Invalid file_path '%s'. Must start with refs or scripts.",
-                file_path,
-            )
-            return None
+# D3: Skill capability declaration and task matching
 
-        # Prevent path traversal attacks
-        if ".." in normalized or normalized.startswith("/"):
-            logger.error(
-                "Invalid file_path '%s': path traversal not allowed",
-                file_path,
-            )
-            return None
+def get_agent_skill_tools(workspace_dir: Path) -> dict[str, list[str]]:
+    """D3: Scan active_skills and return {skill_name: [tool, ...]} mapping.
 
-        # Get source directory
-        if source == "customized":
-            base_dir = get_customized_skills_dir(self.workspace_dir)
-        else:  # builtin
-            base_dir = get_builtin_skills_dir()
-
-        skill_dir = base_dir / skill_name
-        full_path = skill_dir / normalized
-
-        # Check if skill exists
-        if not skill_dir.exists():
-            logger.debug(
-                "Skill '%s' not found in %s",
-                skill_name,
-                source,
-            )
-            return None
-
-        # Check if file exists
-        if not full_path.exists():
-            logger.debug(
-                "File '%s' not found in skill '%s' (%s)",
-                file_path,
-                skill_name,
-                source,
-            )
-            return None
-
-        # Check if it's actually a file (not a directory)
-        if not full_path.is_file():
-            logger.debug(
-                "Path '%s' is not a file in skill '%s' (%s)",
-                file_path,
-                skill_name,
-                source,
-            )
-            return None
-
-        # Read file content
+    Reads the 'tools' list from each SKILL.md frontmatter.
+    Skills without a 'tools' field are included with an empty list.
+    """
+    active = get_active_skills_dir(workspace_dir)
+    result: dict[str, list[str]] = {}
+    if not active.exists():
+        return result
+    for skill_dir in active.iterdir():
+        if not skill_dir.is_dir():
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
         try:
-            content = full_path.read_text(encoding="utf-8")
-            logger.debug(
-                "Loaded file '%s' from skill '%s' (%s)",
-                file_path,
-                skill_name,
-                source,
-            )
-            return content
+            content = skill_md.read_text(encoding="utf-8")
+            post = frontmatter.loads(content)
+            tools = post.get("tools", [])
+            if isinstance(tools, list):
+                result[skill_dir.name] = [str(t) for t in tools]
+            else:
+                result[skill_dir.name] = []
         except Exception as e:
-            logger.error(
-                "Failed to read file '%s' from skill '%s': %s",
-                file_path,
-                skill_name,
-                e,
-            )
-            return None
+            logger.debug("D3: failed to read tools from %s: %s", skill_dir.name, e)
+            result[skill_dir.name] = []
+    return result
+
+
+def check_agent_has_skills(
+    workspace_dir: Path,
+    required_skills: list[str],
+) -> tuple[bool, list[str]]:
+    """D3: Check if agent has all required skills activated.
+
+    Args:
+        workspace_dir:    Agent's workspace directory.
+        required_skills:  List of skill names required (from task.required_skills).
+
+    Returns:
+        (ok, missing) where ok=True means all skills present,
+        missing is list of skill names not found in active_skills.
+    """
+    if not required_skills:
+        return True, []
+    active = get_active_skills_dir(workspace_dir)
+    active_names = {
+        d.name for d in active.iterdir()
+        if d.is_dir() and (d / "SKILL.md").exists()
+    } if active.exists() else set()
+    missing = [s for s in required_skills if s not in active_names]
+    return len(missing) == 0, missing
+
