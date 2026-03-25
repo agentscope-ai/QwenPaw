@@ -443,7 +443,7 @@ class AgentsRunningConfig(BaseModel):
         description="Maximum length for /history command output",
     )
 
-    context_compact: "ContextCompactConfig" = Field(
+    context_compact: ContextCompactConfig = Field(
         default_factory=ContextCompactConfig,
         description="Context compaction configuration",
     )

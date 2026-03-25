@@ -938,13 +938,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         "force_memory_search failed or timed out,"
                         f" skipping e={e}",
                     )
-                    self.memory._long_term_memory = (
-                        ""  # pylint: disable=protected-access
-                    )
+                    self.memory._long_term_memory = ""
             else:
-                self.memory._long_term_memory = (
-                    ""  # pylint: disable=protected-access
-                )
+                self.memory._long_term_memory = ""
 
         return await super().reply(msg=msg, structured_model=structured_model)
 
