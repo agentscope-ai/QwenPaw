@@ -1,5 +1,14 @@
 import { request } from "../request";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentRequest,
+  AgentsRunningConfig,
+  EmbeddingConfigShape,
+  LocalEmbeddingConfig,
+  EmbeddingPresetModels,
+  EmbeddingTestResult,
+  ModelDownloadStatus,
+  EmbeddingResourceHint,
+} from "../types";
 
 // Agent API
 export const agentApi = {
@@ -42,6 +51,7 @@ export const agentApi = {
       body: JSON.stringify({ language }),
     }),
 
+  // Audio / Transcription APIs
   getAudioMode: () => request<{ audio_mode: string }>("/agent/audio-mode"),
 
   updateAudioMode: (audio_mode: string) =>
@@ -82,4 +92,44 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/agent/local-whisper-status"),
+
+  // Canonical Embedding APIs
+  getEmbeddingConfig: () =>
+    request<EmbeddingConfigShape>("/config/agents/embedding"),
+
+  updateEmbeddingConfig: (config: EmbeddingConfigShape) =>
+    request<EmbeddingConfigShape>("/config/agents/embedding", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
+
+  // Local Embedding APIs
+  getLocalEmbeddingConfig: () =>
+    request<LocalEmbeddingConfig>("/config/agents/local-embedding"),
+
+  updateLocalEmbeddingConfig: (config: LocalEmbeddingConfig) =>
+    request<LocalEmbeddingConfig>("/config/agents/local-embedding", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
+
+  testLocalEmbeddingConfig: (config: LocalEmbeddingConfig) =>
+    request<EmbeddingTestResult>("/config/agents/local-embedding/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+    }),
+
+  downloadLocalEmbeddingModel: (config: LocalEmbeddingConfig) =>
+    request<ModelDownloadStatus>("/config/agents/local-embedding/download", {
+      method: "POST",
+      body: JSON.stringify(config),
+    }),
+
+  getPresetEmbeddingModels: () =>
+    request<EmbeddingPresetModels>(
+      "/config/agents/local-embedding/preset-models",
+    ),
+
+  getEmbeddingResourceHint: () =>
+    request<EmbeddingResourceHint>("/config/agents/embedding/resource-hint"),
 };

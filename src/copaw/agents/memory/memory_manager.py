@@ -20,6 +20,9 @@ from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
 
 from copaw.agents.model_factory import create_model_and_formatter
+from copaw.agents.memory.embedding_adapter import (
+    get_reme_embedding_and_vector_enabled,
+)
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
 from copaw.config import load_config
@@ -78,7 +81,8 @@ class MemoryManager(ReMeLight):
             - auto/local/chroma (default: auto)
 
         Note:
-            Vector search requires api_key, base_url, and model_name.
+            See :func:`get_reme_embedding_and_vector_enabled` for
+            ``backend_type`` (transformers, openai, ollama, or disabled).
         """
         # Extract configuration from agent_config
         self.agent_id: str = agent_id
@@ -89,19 +93,15 @@ class MemoryManager(ReMeLight):
             )
             return
 
-        # Get embedding config (supports hot-reload)
-        emb_config = self.get_embedding_config()
-
-        # Determine if vector search should be enabled based on configuration
-        # Vector search requires base_url and model_name
-        vector_enabled = bool(emb_config["base_url"]) and bool(
-            emb_config["model_name"],
+        running = load_agent_config(self.agent_id).running
+        emb_config, vector_enabled = get_reme_embedding_and_vector_enabled(
+            running.embedding_config,
         )
 
         # Log embedding config (mask api_key for security)
         log_cfg = {
             **emb_config,
-            "api_key": self.mask_key(emb_config["api_key"]),
+            "api_key": self.mask_key(str(emb_config.get("api_key", ""))),
         }
         logger.info(
             f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
@@ -151,24 +151,16 @@ class MemoryManager(ReMeLight):
         return key[:5] + "*" * (len(key) - 5)
 
     def get_embedding_config(self) -> dict:
-        """Get embedding config. Priority: config > env var > default."""
-        cfg = load_agent_config(self.agent_id).running.embedding_config
+        """Return ReMe ``default_embedding_model_config`` dict for this agent.
 
-        # "use_dimensions is used because some models in vLLM
-        # do not support the dimensions parameter."
-        return {
-            "backend": cfg.backend,
-            "api_key": cfg.api_key or os.getenv("EMBEDDING_API_KEY", ""),
-            "base_url": cfg.base_url or os.getenv("EMBEDDING_BASE_URL", ""),
-            "model_name": cfg.model_name
-            or os.getenv("EMBEDDING_MODEL_NAME", ""),
-            "dimensions": cfg.dimensions,
-            "enable_cache": cfg.enable_cache,
-            "use_dimensions": cfg.use_dimensions,
-            "max_cache_size": cfg.max_cache_size,
-            "max_input_length": cfg.max_input_length,
-            "max_batch_size": cfg.max_batch_size,
-        }
+        Delegates to :func:`get_reme_embedding_and_vector_enabled` for the
+        canonical ``running.embedding_config`` block.
+        """
+        running = load_agent_config(self.agent_id).running
+        emb_dict, _ = get_reme_embedding_and_vector_enabled(
+            running.embedding_config,
+        )
+        return emb_dict
 
     def prepare_model_formatter(self) -> None:
         """Prepare and initialize the chat model and formatter.

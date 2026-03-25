@@ -21,9 +21,11 @@ from ...config.config import (
     ConsoleConfig,
     DingTalkConfig,
     DiscordConfig,
+    EmbeddingConfig,
     FeishuConfig,
     HeartbeatConfig,
     IMessageChannelConfig,
+    LocalEmbeddingConfig,
     MatrixConfig,
     MattermostConfig,
     MQTTConfig,
@@ -35,9 +37,33 @@ from ...config.config import (
     WecomConfig,
 )
 
-from .schemas_config import HeartbeatBody
+from .schemas_config import (
+    HeartbeatBody,
+    LocalEmbeddingBody,
+    LocalEmbeddingTestResult,
+    ModelDownloadStatus,
+)
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+def _apply_local_embedding_slice(
+    ec: EmbeddingConfig,
+    body: LocalEmbeddingBody,
+) -> EmbeddingConfig:
+    """Persist local-embedding card into canonical ``embedding_config``."""
+    d = body.model_dump()
+    return ec.model_copy(
+        update={
+            "backend_type": "transformers",
+            "enabled": d["enabled"],
+            "model_id": d["model_id"],
+            "model_path": d["model_path"],
+            "device": d["device"],
+            "dtype": d["dtype"],
+            "download_source": d["download_source"],
+        },
+    )
 
 
 _CHANNEL_CONFIG_CLASS_MAP = {
@@ -440,6 +466,77 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
     ]
 
 
+# ── Local Embedding ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/agents/embedding",
+    response_model=EmbeddingConfig,
+    summary="Get canonical embedding config",
+    description="Return current canonical embedding configuration",
+)
+async def get_embedding_config() -> EmbeddingConfig:
+    """Return canonical embedding config used by backend_type routing."""
+    config = load_config()
+    return config.agents.running.embedding_config
+
+
+@router.put(
+    "/agents/embedding",
+    response_model=EmbeddingConfig,
+    summary="Update canonical embedding config",
+    description=(
+        "Update canonical embedding configuration "
+        "(backend_type: openai/transformers/ollama)"
+    ),
+)
+async def put_embedding_config(
+    body: EmbeddingConfig = Body(...),
+) -> EmbeddingConfig:
+    """Update canonical embedding config block."""
+    config = load_config()
+    config.agents.running.embedding_config = body
+    save_config(config)
+    return config.agents.running.embedding_config
+
+
+@router.get(
+    "/agents/local-embedding",
+    response_model=LocalEmbeddingConfig,
+    summary="Get local embedding config",
+    description="Return current local embedding configuration",
+)
+async def get_local_embedding() -> LocalEmbeddingConfig:
+    """Return current local embedding config."""
+    config = load_config()
+    return config.agents.running.embedding_config.to_local_embedding_config()
+
+
+@router.put(
+    "/agents/local-embedding",
+    response_model=LocalEmbeddingConfig,
+    summary="Update local embedding config",
+    description=(
+        "Update local embedding configuration "
+        "(requires restart to take effect)"
+    ),
+)
+async def put_local_embedding(
+    body: LocalEmbeddingBody = Body(...),
+) -> LocalEmbeddingConfig:
+    """Update local embedding config.
+
+    Note: Changes take effect after application restart.
+    """
+    config = load_config()
+    config.agents.running.embedding_config = _apply_local_embedding_slice(
+        config.agents.running.embedding_config,
+        body,
+    )
+    save_config(config)
+    return config.agents.running.embedding_config.to_local_embedding_config()
+
+
 # ── Security / File Guard ────────────────────────────────────────────
 
 
@@ -525,6 +622,137 @@ async def put_skill_scanner(
     config.security.skill_scanner = body
     save_config(config)
     return body
+
+
+@router.post(
+    "/agents/local-embedding/test",
+    response_model=LocalEmbeddingTestResult,
+    summary="Test local embedding configuration",
+    description=(
+        "Test if the configured local embedding model can be loaded and used"
+    ),
+)
+async def test_local_embedding(
+    body: LocalEmbeddingBody = Body(...),
+) -> LocalEmbeddingTestResult:
+    """Test local embedding configuration by loading model and encoding
+    sample text."""
+    import time
+    from ...agents.memory.local_embedder import LocalEmbedder
+
+    # Temporarily enable for testing
+    test_config = LocalEmbeddingConfig(**body.model_dump())
+    test_config.enabled = True
+
+    try:
+        start_time = time.time()
+        embedder = LocalEmbedder(test_config)
+
+        # Try to encode a sample text
+        sample_texts = ["This is a test sentence for embedding validation."]
+        embeddings = embedder.encode_text(sample_texts)
+
+        latency_ms = (time.time() - start_time) * 1000
+
+        # Get model info and unload to free resources
+        model_info = embedder.get_model_info()
+        embedder.unload()
+
+        return LocalEmbeddingTestResult(
+            success=True,
+            message=(
+                f"Model loaded and encoded successfully. "
+                f"Dimensions: {len(embeddings[0])}"
+            ),
+            latency_ms=round(latency_ms, 2),
+            model_info=model_info,
+        )
+    except Exception as e:
+        import traceback
+
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        error_detail = traceback.format_exc()
+
+        # Log full traceback for debugging
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error(f"Embedding test failed: {error_msg}\n{error_detail}")
+
+        return LocalEmbeddingTestResult(
+            success=False,
+            message=f"{error_msg}. Check server logs for details.",
+        )
+
+
+@router.post(
+    "/agents/local-embedding/download",
+    response_model=ModelDownloadStatus,
+    summary="Download local embedding model",
+    description="Download the configured embedding model to local cache",
+)
+async def download_local_embedding_model(
+    body: LocalEmbeddingBody = Body(...),
+) -> ModelDownloadStatus:
+    """Download the configured embedding model."""
+    from ...agents.memory.local_embedder import download_model_for_config
+
+    try:
+        # Temporarily enable for downloading
+        test_config = LocalEmbeddingConfig(**body.model_dump())
+        test_config.enabled = True
+
+        local_path = download_model_for_config(test_config)
+
+        return ModelDownloadStatus(
+            status="completed",
+            progress=100.0,
+            message="Model downloaded successfully",
+            local_path=local_path,
+        )
+    except Exception as e:
+        return ModelDownloadStatus(
+            status="error",
+            message=str(e),
+        )
+
+
+@router.get(
+    "/agents/local-embedding/preset-models",
+    summary="List preset embedding models",
+    description="Return list of preset embedding models with metadata",
+)
+async def get_preset_embedding_models() -> dict:
+    """Return preset embedding models information."""
+    from ...agents.memory.local_embedder import PRESET_MODELS
+
+    return {
+        "multimodal": [
+            {"id": k, **v}
+            for k, v in PRESET_MODELS.items()
+            if v.get("type") == "multimodal"
+        ],
+        "text": [
+            {"id": k, **v}
+            for k, v in PRESET_MODELS.items()
+            if v.get("type") == "text"
+        ],
+    }
+
+
+@router.get(
+    "/agents/embedding/resource-hint",
+    summary="Embedding resource hint (Track C)",
+    description="Lightweight capacity hint; does not load models",
+)
+async def get_embedding_resource_hint() -> dict:
+    """Return CPU/GPU hint for embedding (ADR-003 Track C)."""
+    from ...embedding.resource_eval import embedding_resource_hint
+
+    return embedding_resource_hint()
+
+
+# ── Security / Skill Scanner ────────────────────────────────────────
 
 
 @router.get(

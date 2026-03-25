@@ -7,6 +7,7 @@ import {
   ReactAgentCard,
   LlmRetryCard,
   ContextManagementCard,
+  EmbeddingConfigCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -100,6 +101,8 @@ function AgentConfigPage() {
         />
 
         <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+
+        <EmbeddingConfigCard form={form} />
       </Form>
 
       <div className={styles.footerActions}>
