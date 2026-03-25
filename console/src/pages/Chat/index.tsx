@@ -423,12 +423,13 @@ export default function ChatPage() {
   );
 
   const handleFileUpload = useCallback(
-    async (
-      file: File,
-      onSuccess: (body: { url?: string; thumbUrl?: string }) => void,
-      onError?: (e: Error) => void,
-      onProgress?: (e: { percent?: number }) => void,
-    ) => {
+    async (options: {
+      file: File;
+      onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+      onError?: (e: Error) => void;
+      onProgress?: (e: { percent?: number }) => void;
+    }) => {
+      const { file, onSuccess, onError, onProgress } = options;
       try {
         // Warn when model has no multimodal support
         if (!multimodalCaps.supportsMultimodal) {
@@ -441,16 +442,15 @@ export default function ChatPage() {
           // Warn (not block) when only image is supported
           message.warning(t("chat.attachments.imageOnlyWarning"));
         }
-
         // Check file size limit (10MB)
         const isLt10M = file.size / 1024 / 1024 < 10;
+
         if (!isLt10M) {
           message.error(t("chat.attachments.fileSizeLimit"));
           onError?.(new Error("File size exceeds 10MB"));
           return;
         }
 
-        onProgress?.({ percent: 0 });
         const res = await chatApi.uploadFile(file);
         onProgress?.({ percent: 100 });
         onSuccess({ url: chatApi.fileUrl(res.url) });
