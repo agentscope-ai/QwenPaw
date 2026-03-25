@@ -640,8 +640,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     } as ExtendedSession;
 
     this.updateWindowVariables(extended);
-    this.sessionList.unshift(extended);
-    return [...this.sessionList];
+    // this.sessionList.unshift(extended);
+    return this.sessionList;
   }
 
   async removeSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
