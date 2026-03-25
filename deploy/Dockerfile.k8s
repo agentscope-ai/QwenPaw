@@ -1,0 +1,77 @@
+# -----------------------------------------------------------------------------
+# CoPaw K8s deployment image with E2B sandbox support.
+#
+# Build (amd64 for production k8s cluster):
+#   docker buildx build --platform linux/amd64 \
+#     -f deploy/Dockerfile.k8s \
+#     -t <your-registry>/copaw:latest \
+#     --push .
+# -----------------------------------------------------------------------------
+
+# Stage 1: build console frontend
+FROM node:22-slim AS console-builder
+WORKDIR /app
+COPY console /app/console
+# TOKEN is the Bearer token the browser sends with every API request.
+# Must match one of the keys in COPAW_API_KEYS (the part after the colon).
+ARG CONSOLE_TOKEN="<your-copaw-api-key>"
+RUN cd /app/console && npm ci --include=dev && TOKEN=${CONSOLE_TOKEN} npm run build
+
+# -----------------------------------------------------------------------------
+# Stage 2: runtime image
+# -----------------------------------------------------------------------------
+FROM node:22-slim
+
+ENV NODE_ENV=production
+ENV WORKSPACE_DIR=/app
+ENV COPAW_WORKING_DIR=/app/working
+ENV COPAW_SECRET_DIR=/app/working.secret
+ENV COPAW_RUNNING_IN_CONTAINER=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV COPAW_PORT=8088
+
+ARG COPAW_ENABLED_CHANNELS="console"
+ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --fix-missing \
+    curl \
+    python3 \
+    python3-pip \
+    python3-venv \
+    build-essential \
+    libssl-dev \
+    git \
+    supervisor \
+    vim \
+    gettext-base \
+    xvfb \
+    chromium \
+  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean
+
+WORKDIR ${WORKSPACE_DIR}
+
+RUN python3 -m venv venv
+ENV PATH="/app/venv/bin:$PATH"
+
+COPY pyproject.toml setup.py README.md ./
+COPY src ./src
+COPY --from=console-builder /app/console/dist/ ./src/copaw/console/dist/
+
+# Install CoPaw + e2b SDK
+RUN pip install --no-cache-dir . \
+  && pip install --no-cache-dir "e2b>=1.0.0"
+
+# Init working dir with default config.json and AGENTS.md (build time).
+# The actual config.json will be mounted via ConfigMap at runtime.
+RUN copaw init --defaults --accept-security
+
+COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
+COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
+
+EXPOSE 8088
+
+CMD ["/entrypoint.sh"]

@@ -1,0 +1,135 @@
+# CoPaw Agent deployment on agent-runtime (agentruntime.alibabacloud.com)
+#
+# Prerequisites:
+#   1. Build and push the CoPaw image:
+#        docker buildx build --platform linux/amd64 \
+#          -f deploy/Dockerfile.k8s \
+#          -t <your-registry>/copaw:latest \
+#          --push .
+#
+#   2. sandbox-manager must be running and reachable in the cluster.
+#      Set E2B_API_URL / E2B_API_KEY / E2B_DOMAIN accordingly.
+#
+#   3. Apply this file:
+#        kubectl apply -f deploy/copaw-agent.yaml
+#
+# Replace all <PLACEHOLDER> values before applying.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: agentruntime.alibabacloud.com/v1alpha1
+kind: Agent
+metadata:
+  name: copaw
+  namespace: default
+spec:
+  # Bind to your cluster ID (visible in the agent-runtime console).
+  cluster:
+    id: <YOUR_CLUSTER_ID>
+
+  type: managed
+  showName: CoPaw
+
+  template:
+    spec:
+      isolation: isolated   # one dedicated runtime per session
+
+      artifact:
+        type: Image
+        repository:
+          image: <YOUR_REGISTRY>/copaw:latest
+          type: Custom
+          imagePullPolicy: Always
+
+      env:
+        # ── CoPaw 运行时配置 ────────────────────────────────────────────────────
+        - name: COPAW_WORKING_DIR
+          value: /app/working
+        - name: COPAW_SECRET_DIR
+          value: /app/working.secret
+        - name: COPAW_RUNNING_IN_CONTAINER
+          value: "1"
+        - name: COPAW_PORT
+          value: "8088"
+        # Console static dir: pip-installed package path (venv layout)
+        - name: COPAW_CONSOLE_STATIC_DIR
+          value: /app/venv/lib/python3.11/site-packages/copaw/console/dist
+
+        # ── LLM provider (OpenAI-compatible) ─────────────────────────────────
+        # Replace base_url / api_key / model with your actual provider config.
+        - name: COPAW_PROVIDERS_JSON
+          value: >-
+            {"providers":{"my-provider":{"base_url":"https://api.openai.com/v1","api_key":"<YOUR_LLM_API_KEY>","extra_models":[],"chat_model":""}},"active_llm":{"provider_id":"my-provider","model":"gpt-4o"}}
+
+        # ── Sandbox config (enable E2B sandbox integration) ───────────────────
+        # template_id must match the ToolServer name registered in sandbox-manager.
+        - name: COPAW_CONFIG_JSON
+          value: |
+            {"sandbox":{"enabled":true,"template_id":"e2b-sandbox-copaw"}}
+
+        # ── E2B / sandbox-manager connection ─────────────────────────────────
+        # E2B_API_URL  : internal cluster URL of sandbox-manager E2B-compatible API
+        # E2B_API_KEY  : bearer token accepted by sandbox-manager
+        # E2B_DOMAIN   : externally reachable domain for sandbox sub-domain routing
+        # E2B_SANDBOX_URL : base URL for sandbox data-plane (usually same host as E2B_DOMAIN)
+        - name: E2B_API_URL
+          value: http://sandbox-manager-service.agent-runtime-system.svc:8000/e2b
+        - name: E2B_API_KEY
+          value: <YOUR_E2B_API_KEY>
+        - name: E2B_DOMAIN
+          value: <SANDBOX_MANAGER_DOMAIN>
+        - name: E2B_SANDBOX_URL
+          value: http://<SANDBOX_MANAGER_DOMAIN>
+
+        # ── CoPaw API authentication ──────────────────────────────────────────
+        # Comma-separated list of valid bearer tokens for all protocol endpoints.
+        # Covers /api/agent/process, /compatible-mode/v1/responses, /a2a, /ag-ui.
+        - name: COPAW_API_KEYS
+          value: <YOUR_COPAW_API_KEY>
+
+        # ── Force new Revision (change this value to trigger rolling update) ─
+        - name: COPAW_BUILD_TIME
+          value: "0"
+
+      concurrency: 100
+      idleTimeoutSeconds: 1800   # idle session TTL in seconds (30 min)
+
+      livenessProbe:
+        httpGet:
+          path: /api/version
+          port: 8088
+        initialDelaySeconds: 60
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+        successThreshold: 1
+
+      readinessProbe:
+        httpGet:
+          path: /api/version
+          port: 8088
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 10
+        successThreshold: 1
+
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: 500m
+          memory: 2Gi
+
+      storage:
+        ephemeral:
+          capacity: 10Gi
+
+      accesses:
+        - type: http
+          port: 8088
+
+      scaling:
+        minReplicas: 1
+        maxReplicas: 10
+        scaleDownSeconds: 300
