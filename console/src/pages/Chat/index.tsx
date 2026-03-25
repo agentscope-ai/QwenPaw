@@ -237,12 +237,16 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
+  const { selectedAgent, agents } = useAgentStore();
+  const currentAgent = useMemo(
+    () => agents.find((agent) => agent.id === selectedAgent),
+    [agents, selectedAgent],
+  );
   const chatId = useMemo(() => {
     const match = location.pathname.match(/^\/chat\/(.+)$/);
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
-  const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
@@ -577,7 +581,9 @@ export default function ChatPage() {
       <div className={styles.chatMessagesArea}>
         <AgentScopeRuntimeWebUI
           ref={chatRef}
-          key={refreshKey}
+          key={`${refreshKey}:${selectedAgent}:${
+            currentAgent?.avatar_url || "default"
+          }`}
           options={options}
         />
       </div>

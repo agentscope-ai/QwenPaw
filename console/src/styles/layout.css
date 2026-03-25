@@ -732,16 +732,36 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
 /* Welcome avatar: full tall SVG. Class is CoPaw-avatar (no "ant"). */
 [class*="chat-anywhere-welcome-default"] [class*="-avatar"],
 [class*="message-list-welcome"] [class*="welcome-default"] [class*="-avatar"] {
-  width: 36px !important;
-  height: 48px !important;
-  min-width: 36px !important;
-  min-height: 48px !important;
-  overflow: visible !important;
+  width: 52px !important;
+  height: 52px !important;
+  min-width: 52px !important;
+  min-height: 52px !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
 }
 [class*="chat-anywhere-welcome-default"] [class*="-avatar"] > img,
 [class*="message-list-welcome"] [class*="-avatar"] > img {
-  object-fit: contain !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
   object-position: center;
+  border-radius: inherit !important;
+}
+
+[class*="chat-anywhere-welcome-default"]
+  [class*="-avatar"]
+  > img[src*="copaw-symbol.svg"],
+[class*="chat-anywhere-welcome-default"]
+  [class*="-avatar"]
+  > img[src*="copaw-dark.png"],
+[class*="message-list-welcome"]
+  [class*="-avatar"]
+  > img[src*="copaw-symbol.svg"],
+[class*="message-list-welcome"]
+  [class*="-avatar"]
+  > img[src*="copaw-dark.png"] {
+  object-fit: contain !important;
+  padding: 6px !important;
 }
 
 /* Move rightHeader to the leftmost position of the right header area (CoPaw chat) */

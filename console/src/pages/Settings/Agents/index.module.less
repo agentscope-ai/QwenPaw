@@ -36,6 +36,80 @@
   }
 }
 
+.agentAvatarPlaceholder {
+  background: linear-gradient(135deg, #f5f5ff 0%, #efefff 100%);
+  border: 1px solid rgba(97, 92, 237, 0.15);
+  color: #615ced;
+
+  :global(.ant-avatar-icon) {
+    color: inherit;
+  }
+}
+
+.agentAvatarHelp {
+  display: block;
+  margin-top: 6px;
+  color: inherit;
+}
+
+.agentAvatarMeta {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.agentNameCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agentAvatarCropStage {
+  display: flex;
+  justify-content: center;
+}
+
+.agentAvatarCropViewport {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  overflow: hidden;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(97, 92, 237, 0.1), rgba(97, 92, 237, 0.04)),
+    repeating-conic-gradient(
+        from 45deg,
+        rgba(97, 92, 237, 0.06) 0% 25%,
+        transparent 0% 50%
+      )
+      50% / 18px 18px;
+  border: 1px solid rgba(97, 92, 237, 0.18);
+  cursor: grab;
+  user-select: none;
+}
+
+.agentAvatarCropViewport:active {
+  cursor: grabbing;
+}
+
+.agentAvatarCropImage {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+}
+
+.agentAvatarCropMask {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    inset 0 0 0 999px rgba(10, 10, 18, 0.12);
+  pointer-events: none;
+}
+
+.agentAvatarCropControls {
+  width: 100%;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sectionTitle {
@@ -44,6 +118,36 @@
 
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .agentAvatarHelp {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .agentAvatarMeta {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .agentAvatarCropViewport {
+    background:
+      linear-gradient(
+        135deg,
+        rgba(139, 135, 240, 0.12),
+        rgba(139, 135, 240, 0.05)
+      ),
+      repeating-conic-gradient(
+          from 45deg,
+          rgba(255, 255, 255, 0.05) 0% 25%,
+          transparent 0% 50%
+        )
+        50% / 18px 18px;
+    border-color: rgba(139, 135, 240, 0.24);
+  }
+
+  .agentAvatarCropMask {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      inset 0 0 0 999px rgba(0, 0, 0, 0.18);
   }
 }
 

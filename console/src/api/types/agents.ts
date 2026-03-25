@@ -5,6 +5,7 @@ export interface AgentSummary {
   name: string;
   description: string;
   workspace_dir: string;
+  avatar_url?: string | null;
 }
 
 export interface AgentListResponse {
@@ -15,6 +16,7 @@ export interface AgentProfileConfig {
   id: string;
   name: string;
   description?: string;
+  avatar?: string;
   workspace_dir?: string;
   channels?: unknown;
   mcp?: unknown;

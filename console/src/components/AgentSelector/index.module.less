@@ -85,15 +85,19 @@
   gap: 6px;
   color: rgba(0, 0, 0, 0.85);
 
-  svg {
-    flex-shrink: 0;
-    color: #615ced;
-    opacity: 0.85;
-  }
-
   span {
     font-weight: 600;
     font-size: 13px;
+  }
+}
+
+.selectedAgentAvatar {
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #f5f5ff 0%, #efefff 100%);
+  color: #615ced;
+
+  :global(.ant-avatar-icon) {
+    color: inherit;
   }
 }
 
@@ -143,7 +147,7 @@
       &.copaw-select-item-option-selected {
         background: rgba(97, 92, 237, 0.12) !important;
 
-        .agentOptionIcon {
+        .agentOptionAvatar {
           background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
           border-color: transparent;
           color: #ffffff;
@@ -165,7 +169,7 @@
       &.ant-select-item-option-selected {
         background: rgba(97, 92, 237, 0.12) !important;
 
-        .agentOptionIcon {
+        .agentOptionAvatar {
           background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
           border-color: transparent;
           color: #ffffff;
@@ -194,18 +198,17 @@
   gap: 10px;
 }
 
-.agentOptionIcon {
+.agentOptionAvatar {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: linear-gradient(135deg, #f5f5ff 0%, #efefff 100%);
   border: 1px solid rgba(97, 92, 237, 0.15);
   border-radius: 8px;
   color: #615ced;
   transition: all 0.2s ease;
+
+  :global(.ant-avatar-icon) {
+    color: inherit;
+  }
 
   .agentOption:hover & {
     background: linear-gradient(135deg, #ebe9ff 0%, #f0efff 100%);

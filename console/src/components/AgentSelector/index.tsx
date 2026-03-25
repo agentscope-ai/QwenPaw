@@ -1,8 +1,8 @@
-import { Select, message, Badge } from "antd";
+import { Select, message, Badge, Avatar } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, Layers, CheckCircle } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
-import { agentsApi } from "../../api/modules/agents";
+import { agentsApi, buildAgentAvatarUrl } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
@@ -10,6 +10,7 @@ export default function AgentSelector() {
   const { t } = useTranslation();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =
     useAgentStore();
+  const selectedAgentData = agents.find((agent) => agent.id === selectedAgent);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function AgentSelector() {
         <span>{t("agent.currentWorkspace")}</span>
       </div>
       <Select
+        key={`${selectedAgent}:${selectedAgentData?.avatar_url || "default"}`}
         value={selectedAgent}
         onChange={handleChange}
         loading={loading}
@@ -62,16 +64,26 @@ export default function AgentSelector() {
             value={agent.id}
             label={
               <div className={styles.selectedAgentLabel}>
-                <Bot size={14} strokeWidth={2} />
+                <Avatar
+                  size={20}
+                  shape="square"
+                  src={buildAgentAvatarUrl(agent.id, agent.avatar_url)}
+                  icon={<Bot size={12} strokeWidth={2} />}
+                  className={styles.selectedAgentAvatar}
+                />
                 <span>{agent.name}</span>
               </div>
             }
           >
             <div className={styles.agentOption}>
               <div className={styles.agentOptionHeader}>
-                <div className={styles.agentOptionIcon}>
-                  <Bot size={16} strokeWidth={2} />
-                </div>
+                <Avatar
+                  size={30}
+                  shape="square"
+                  src={buildAgentAvatarUrl(agent.id, agent.avatar_url)}
+                  icon={<Bot size={16} strokeWidth={2} />}
+                  className={styles.agentOptionAvatar}
+                />
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
                     <span>{agent.name}</span>

@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Card, Button, Form, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { agentsApi } from "../../../api/modules/agents";
-import type { AgentSummary } from "../../../api/types/agents";
+import { agentsApi, buildAgentAvatarUrl } from "../../../api/modules/agents";
+import type {
+  AgentProfileConfig,
+  AgentSummary,
+} from "../../../api/types/agents";
 import { useAgents } from "./useAgents";
 import { PageHeader, AgentTable, AgentModal } from "./components";
 import styles from "./index.module.less";
@@ -12,11 +15,32 @@ export default function AgentsPage() {
   const { t } = useTranslation();
   const { agents, loading, deleteAgent, loadAgents } = useAgents();
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
+  const [editingAgent, setEditingAgent] = useState<AgentProfileConfig | null>(
+    null,
+  );
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string>();
+  const [avatarMarkedForRemoval, setAvatarMarkedForRemoval] = useState(false);
   const [form] = Form.useForm();
+  const avatarObjectUrlRef = useRef<string | null>(null);
+
+  const clearAvatarObjectUrl = () => {
+    if (avatarObjectUrlRef.current) {
+      URL.revokeObjectURL(avatarObjectUrlRef.current);
+      avatarObjectUrlRef.current = null;
+    }
+  };
+
+  const resetAvatarState = () => {
+    clearAvatarObjectUrl();
+    setAvatarFile(null);
+    setAvatarPreviewUrl(undefined);
+    setAvatarMarkedForRemoval(false);
+  };
 
   const handleCreate = () => {
     setEditingAgent(null);
+    resetAvatarState();
     form.resetFields();
     form.setFieldsValue({
       workspace_dir: "",
@@ -27,7 +51,11 @@ export default function AgentsPage() {
   const handleEdit = async (agent: AgentSummary) => {
     try {
       const config = await agentsApi.getAgent(agent.id);
-      setEditingAgent(agent);
+      resetAvatarState();
+      setEditingAgent(config);
+      setAvatarPreviewUrl(
+        buildAgentAvatarUrl(config.id, config.avatar, Date.now()),
+      );
       form.setFieldsValue(config);
       setModalVisible(true);
     } catch (error) {
@@ -45,23 +73,69 @@ export default function AgentsPage() {
     }
   };
 
+  const handleAvatarChange = (file: File) => {
+    clearAvatarObjectUrl();
+    const objectUrl = URL.createObjectURL(file);
+    avatarObjectUrlRef.current = objectUrl;
+    setAvatarFile(file);
+    setAvatarPreviewUrl(objectUrl);
+    setAvatarMarkedForRemoval(false);
+  };
+
+  const handleAvatarRemove = () => {
+    clearAvatarObjectUrl();
+    setAvatarFile(null);
+    setAvatarPreviewUrl(undefined);
+    setAvatarMarkedForRemoval(true);
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+    setEditingAgent(null);
+    resetAvatarState();
+    form.resetFields();
+  };
+
+  const saveAvatarChanges = async (agentId: string): Promise<void> => {
+    if (avatarMarkedForRemoval) {
+      await agentsApi.deleteAvatar(agentId);
+      return;
+    }
+
+    if (avatarFile) {
+      await agentsApi.uploadAvatar(agentId, avatarFile);
+    }
+  };
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : t("agent.saveFailed");
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      let successMessage = "";
 
       if (editingAgent) {
-        await agentsApi.updateAgent(editingAgent.id, values);
-        message.success(t("agent.updateSuccess"));
+        const mergedConfig: AgentProfileConfig = {
+          ...editingAgent,
+          ...values,
+        };
+
+        await agentsApi.updateAgent(editingAgent.id, mergedConfig);
+        await saveAvatarChanges(editingAgent.id);
+        successMessage = t("agent.updateSuccess");
       } else {
         const result = await agentsApi.createAgent(values);
-        message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
+        await saveAvatarChanges(result.id);
+        successMessage = `${t("agent.createSuccess")} (ID: ${result.id})`;
       }
 
-      setModalVisible(false);
       await loadAgents();
+      closeModal();
+      message.success(successMessage);
     } catch (error: any) {
       console.error("Failed to save agent:", error);
-      message.error(error.message || t("agent.saveFailed"));
+      message.error(getErrorMessage(error));
     }
   };
 
@@ -90,8 +164,11 @@ export default function AgentsPage() {
         open={modalVisible}
         editingAgent={editingAgent}
         form={form}
+        avatarPreviewUrl={avatarPreviewUrl}
+        onAvatarChange={handleAvatarChange}
+        onAvatarRemove={handleAvatarRemove}
         onSave={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={closeModal}
       />
     </div>
   );

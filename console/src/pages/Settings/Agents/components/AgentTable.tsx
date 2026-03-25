@@ -1,8 +1,10 @@
-import { Table, Button, Space, Popconfirm } from "antd";
+import { Table, Button, Space, Popconfirm, Avatar } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
-import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
+import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Bot } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
+import { buildAgentAvatarUrl } from "../../../../api/modules/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
@@ -32,11 +34,17 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      render: (text: string) => (
-        <Space>
-          <RobotOutlined style={{ fontSize: 16 }} />
+      render: (text: string, record: AgentSummary) => (
+        <div className={styles.agentNameCell}>
+          <Avatar
+            size={28}
+            shape="square"
+            src={buildAgentAvatarUrl(record.id, record.avatar_url)}
+            icon={<Bot size={16} strokeWidth={2} />}
+            className={styles.agentAvatarPlaceholder}
+          />
           <span>{text}</span>
-        </Space>
+        </div>
       ),
     },
     {
@@ -67,13 +75,6 @@ export function AgentTable({
             size="small"
             icon={<EditOutlined />}
             onClick={() => onEdit(record)}
-            disabled={record.id === "default"}
-            style={record.id === "default" ? disabledStyle : undefined}
-            title={
-              record.id === "default"
-                ? t("agent.defaultNotEditable")
-                : undefined
-            }
           >
             {t("common.edit")}
           </Button>
