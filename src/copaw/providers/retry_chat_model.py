@@ -337,7 +337,7 @@ class RetryChatModel(ChatModelBase):
             )
             await asyncio.sleep(delay)
 
-        # ── Retry loop for stream failures ────────────────────────────
+        # Retry loop for stream failures
         for attempt in range(current_attempt + 1, max_attempts + 1):
             acquired = False
             owns_semaphore = True
