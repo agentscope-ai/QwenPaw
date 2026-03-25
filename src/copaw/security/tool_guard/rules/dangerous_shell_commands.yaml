@@ -118,3 +118,14 @@
     - "\\bbase64\\s+(-d|--decode)\\s*\\|\\s*\\b(bash|sh|zsh)\\b"
   description: "Detects execution of base64 encoded strings passed directly to a shell interpreter"
   remediation: "Block execution. Agents should use plain text commands."
+
+# ── Sudo Permission Issues ─────────────────────────────────────────────
+- id: TOOL_CMD_SUDO_REQUIRES_PASSWORD
+  tools: [execute_shell_command]
+  params: [command]
+  category: privilege_escalation
+  severity: MEDIUM
+  patterns:
+    - "\\bsudo\\b(?!\\s+-n)"
+  description: "Detects sudo commands that may require password input, which will cause the command to hang indefinitely in non-interactive environments"
+  remediation: "Use 'sudo -n' (non-interactive mode) to fail gracefully if password is required, or ensure passwordless sudo is configured. Consider alternative approaches that don't require elevated privileges."

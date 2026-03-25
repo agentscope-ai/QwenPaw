@@ -6,6 +6,7 @@
 import asyncio
 import locale
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -18,6 +19,40 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
+
+# Pattern to detect sudo commands that require password input
+# Matches 'sudo' but not 'sudo -n' (non-interactive mode)
+_SUDO_PASSWORD_PATTERN = re.compile(r'\bsudo\b(?!\s+-n)')
+
+# Common permission-related error patterns
+_PERMISSION_ERROR_PATTERNS = [
+    r'\[sudo\].*password',
+    r'Permission denied',
+    r'Operation not permitted',
+    r'Access denied',
+    r'Authentication failure',
+    r'sudo:.*a password is required',
+    r'is not in the sudoers file',
+]
+
+
+def _check_sudo_requires_password(cmd: str) -> bool:
+    """Check if command contains sudo that may require password.
+
+    Returns True if the command uses sudo without -n flag.
+    """
+    return bool(_SUDO_PASSWORD_PATTERN.search(cmd))
+
+
+def _check_permission_error(stderr: str, returncode: int) -> bool:
+    """Check if the error is related to permission issues."""
+    if returncode == 0:
+        return False
+    stderr_lower = stderr.lower()
+    return any(
+        re.search(pattern, stderr_lower, re.IGNORECASE)
+        for pattern in _PERMISSION_ERROR_PATTERNS
+    )
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -206,6 +241,16 @@ async def execute_shell_command(
 
     cmd = (command or "").strip()
 
+    # Check for sudo commands that may require password
+    sudo_warning = ""
+    if _check_sudo_requires_password(cmd):
+        sudo_warning = (
+            "\n\n⚠️ WARNING: This command uses 'sudo' which may require a password. "
+            "In non-interactive environments, this will cause the command to hang indefinitely. "
+            "Consider using 'sudo -n' for non-interactive mode (will fail if password required), "
+            "or find alternative approaches that don't require elevated privileges."
+        )
+
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
         working_dir = cwd
@@ -304,12 +349,29 @@ async def execute_shell_command(
                 response_text = "Command executed successfully (no output)."
             if stderr_str:
                 response_text += f"\n[stderr]\n{stderr_str}"
+            # Add sudo warning for successful commands that used sudo
+            if sudo_warning:
+                response_text += sudo_warning
         else:
             response_parts = [f"Command failed with exit code {returncode}."]
             if stdout_str:
                 response_parts.append(f"\n[stdout]\n{stdout_str}")
             if stderr_str:
                 response_parts.append(f"\n[stderr]\n{stderr_str}")
+
+            # Check for permission-related errors and add helpful hint
+            if _check_permission_error(stderr_str, returncode):
+                response_parts.append(
+                    "\n\n💡 HINT: This appears to be a permission-related error. "
+                    "If you need elevated privileges, consider:\n"
+                    "  - Using 'sudo -n' for non-interactive mode (fails if password required)\n"
+                    "  - Checking if passwordless sudo is configured for this command\n"
+                    "  - Finding alternative approaches that don't require root privileges"
+                )
+            elif sudo_warning:
+                # Add sudo warning for failed commands too
+                response_parts.append(sudo_warning)
+
             response_text = "".join(response_parts)
 
         return ToolResponse(
