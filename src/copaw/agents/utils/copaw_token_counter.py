@@ -17,6 +17,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _extract_text_from_blocks(blocks: list) -> str:
+    """Extract text from a list of content blocks.
+
+    Args:
+        blocks: List of content blocks (dicts with "text" key, TextBlock
+            objects with .text attribute, or plain strings).
+
+    Returns:
+        Concatenated text from all blocks.
+    """
+    parts = []
+    for block in blocks:
+        if isinstance(block, dict):
+            t = block.get("text", "")
+            if t:
+                parts.append(str(t))
+        elif hasattr(block, "text"):
+            t = block.text
+            if t:
+                parts.append(str(t))
+        elif isinstance(block, str):
+            parts.append(block)
+    return "\n".join(parts)
+
+
 class CopawTokenCounter(HuggingFaceTokenCounter):
     """Token counter for CoPaw with configurable tokenizer support.
 
@@ -119,7 +144,9 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             The number of tokens, guaranteed to be at least the
             estimated minimum.
         """
-        if text:
+        if text is not None:
+            if text == "":
+                return 0
             if self._tokenizer_available:
                 try:
                     token_ids = self.tokenizer.encode(text)
@@ -133,7 +160,67 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             else:
                 return self.estimate_tokens(text)
         else:
-            return await super().count(messages, tools, **kwargs)
+            normalized = self._normalize_messages(messages)
+            try:
+                return await super().count(normalized, tools, **kwargs)
+            except (TypeError, Exception) as e:
+                # Fallback: estimate from concatenated text
+                total_text = " ".join(
+                    m.get("content", "")
+                    if isinstance(m, dict)
+                    else str(getattr(m, "content", m))
+                    for m in normalized
+                )
+                logger.debug(
+                    "Token count fallback to estimation: %s",
+                    e,
+                )
+                return self.estimate_tokens(total_text)
+
+    @staticmethod
+    def _normalize_messages(messages: list) -> list[dict]:
+        """Normalize messages so that content is always a string.
+
+        Some LLM providers return Msg.content as a list of content blocks
+        (e.g. [{"type": "text", "text": "..."}, {"type": "tool_use", ...}]).
+        HuggingFace tokenizer's apply_chat_template expects content to be
+        a plain string, causing TypeError otherwise.
+
+        Args:
+            messages: List of message dicts or Msg objects.
+
+        Returns:
+            List of message dicts with string content.
+        """
+        normalized = []
+        for msg in messages:
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                if isinstance(content, list):
+                    m = dict(msg)
+                    m["content"] = _extract_text_from_blocks(content)
+                    normalized.append(m)
+                else:
+                    normalized.append(msg)
+            elif hasattr(msg, "content"):
+                content = msg.content
+                if isinstance(content, list):
+                    normalized.append(
+                        {
+                            "role": getattr(msg, "role", "user"),
+                            "content": _extract_text_from_blocks(content),
+                            **(
+                                {"name": msg.name}
+                                if hasattr(msg, "name")
+                                else {}
+                            ),
+                        },
+                    )
+                else:
+                    normalized.append(msg)
+            else:
+                normalized.append(msg)
+        return normalized
 
     def estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens in a text string.
