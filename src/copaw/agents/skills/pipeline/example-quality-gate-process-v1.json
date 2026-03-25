@@ -1,0 +1,32 @@
+{
+  "id": "quality-gate-process-v1",
+  "name": "Quality-Gated Workflow",
+  "version": "1.0.0",
+  "description": "Standard pattern for production workflows: ingest input → transform content → validate quality → publish results.",
+  "steps": [
+    {
+      "id": "collect-input",
+      "name": "Collect Input",
+      "kind": "ingest",
+      "description": "Discover and load source files and supporting reference data."
+    },
+    {
+      "id": "normalize-structure",
+      "name": "Normalize Structure",
+      "kind": "transform",
+      "description": "Apply heading, formatting, and structural normalization."
+    },
+    {
+      "id": "check-quality",
+      "name": "Quality Gate",
+      "kind": "validation",
+      "description": "Evaluate coverage, consistency, and compliance metrics against thresholds."
+    },
+    {
+      "id": "package-artifacts",
+      "name": "Package Artifacts",
+      "kind": "publish",
+      "description": "Emit manifests, reports, and final deliverables for downstream review."
+    }
+  ]
+}

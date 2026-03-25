@@ -1,0 +1,26 @@
+{
+  "id": "simple-process-v1",
+  "name": "Simple Linear Process",
+  "version": "0.1.0",
+  "description": "Minimal pipeline demonstrating basic linear workflow: ingest → transform → publish.",
+  "steps": [
+    {
+      "id": "ingest",
+      "name": "Load Data",
+      "kind": "ingest",
+      "description": "Load input data from specified source."
+    },
+    {
+      "id": "transform",
+      "name": "Process Data",
+      "kind": "transform",
+      "description": "Apply transformations to the input data."
+    },
+    {
+      "id": "output",
+      "name": "Save Results",
+      "kind": "publish",
+      "description": "Serialize and output results to destination."
+    }
+  ]
+}

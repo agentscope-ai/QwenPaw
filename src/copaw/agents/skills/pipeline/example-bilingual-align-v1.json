@@ -1,0 +1,56 @@
+{
+  "id": "bilingual-align-v1",
+  "name": "Bilingual Alignment Pipeline",
+  "version": "1.0.0",
+  "description": "Specialized pipeline for source-translation alignment with consistency checks. Handles bilingual content pairing, structure normalization, and quality validation.",
+  "steps": [
+    {
+      "id": "ingest-source",
+      "name": "Ingest Source",
+      "kind": "ingest",
+      "description": "Load and stage source language (e.g., English) content."
+    },
+    {
+      "id": "ingest-translation",
+      "name": "Ingest Translation",
+      "kind": "ingest",
+      "description": "Load and stage target language (e.g., Chinese) content."
+    },
+    {
+      "id": "normalize-structure",
+      "name": "Normalize Structure",
+      "kind": "transform",
+      "description": "Standardize formatting, heading levels, and structure across both languages."
+    },
+    {
+      "id": "segment-content",
+      "name": "Segment Content",
+      "kind": "transform",
+      "description": "Break content into alignable units (sentences, paragraphs, chapters)."
+    },
+    {
+      "id": "run-alignment",
+      "name": "Align Sentences",
+      "kind": "alignment",
+      "description": "Pair source and translation at sentence/unit level using deterministic algorithms."
+    },
+    {
+      "id": "check-consistency",
+      "name": "Check Consistency",
+      "kind": "validation",
+      "description": "Verify terminology consistency, meaning alignment, and named entity correspondence."
+    },
+    {
+      "id": "check-coverage",
+      "name": "Verify Coverage",
+      "kind": "validation",
+      "description": "Ensure all source units have corresponding translations; flag gaps or excess."
+    },
+    {
+      "id": "export-pairs",
+      "name": "Export Aligned Pairs",
+      "kind": "publish",
+      "description": "Produce bilingual alignment manifest and supplemental metrics."
+    }
+  ]
+}

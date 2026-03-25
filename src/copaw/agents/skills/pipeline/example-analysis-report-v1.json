@@ -1,0 +1,44 @@
+{
+  "id": "analysis-report-v1",
+  "name": "Analysis & Reporting Pipeline",
+  "version": "0.1.0",
+  "description": "Multi-stage pipeline for comprehensive data analysis, metric extraction, quality assessment, and report generation.",
+  "steps": [
+    {
+      "id": "collect-data",
+      "name": "Collect Data",
+      "kind": "ingest",
+      "description": "Gather source materials and supporting datasets."
+    },
+    {
+      "id": "analyze-metrics",
+      "name": "Analyze Metrics",
+      "kind": "analysis",
+      "description": "Extract and compute quantitative metrics (counts, ratios, distributions)."
+    },
+    {
+      "id": "analyze-coverage",
+      "name": "Analyze Coverage",
+      "kind": "analysis",
+      "description": "Assess completeness and scope of content coverage."
+    },
+    {
+      "id": "analyze-consistency",
+      "name": "Analyze Consistency",
+      "kind": "analysis",
+      "description": "Identify inconsistencies in terminology, format, and structure."
+    },
+    {
+      "id": "validate-thresholds",
+      "name": "Validate Against Thresholds",
+      "kind": "validation",
+      "description": "Apply quality thresholds and gate criteria; flag violations."
+    },
+    {
+      "id": "generate-report",
+      "name": "Generate Report",
+      "kind": "publish",
+      "description": "Compile analysis results, metrics, and recommendations into final report."
+    }
+  ]
+}
