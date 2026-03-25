@@ -394,7 +394,9 @@ copaw app # 启动服务
 
 ## 保持领先
 
-[![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)
+<a href="https://github.com/agentscope-ai/CoPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+</a>
 
 在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。
 
