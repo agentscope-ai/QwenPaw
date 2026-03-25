@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_TOOL_RESULT_CONTEXT_CAP_RATIO = 0.5
+_TOOL_RESULT_CONTEXT_SAFETY_FACTOR = 0.8
+_TOOL_RESULT_MIN_THRESHOLD = 1000
+
 
 class MemoryCompactionHook:
     """Hook for automatic memory compaction when context is full.
@@ -40,6 +44,31 @@ class MemoryCompactionHook:
             memory_manager: Memory manager instance for compaction
         """
         self.memory_manager = memory_manager
+
+    @staticmethod
+    def _get_dynamic_tool_result_threshold(
+        max_input_length: int,
+        token_count_estimate_divisor: float,
+        configured_threshold: int,
+    ) -> int:
+        """Cap tool-result threshold by a context-relative budget.
+
+        Tool result compaction in ReMe is currently character-threshold based.
+        To avoid single tool outputs consuming a large fraction of context,
+        we project a conservative character budget from max_input_length and
+        clamp recent threshold to that budget.
+        """
+        context_projected_chars = int(
+            max_input_length
+            * _TOOL_RESULT_CONTEXT_CAP_RATIO
+            * token_count_estimate_divisor
+            * _TOOL_RESULT_CONTEXT_SAFETY_FACTOR,
+        )
+        context_projected_chars = max(
+            _TOOL_RESULT_MIN_THRESHOLD,
+            context_projected_chars,
+        )
+        return min(configured_threshold, context_projected_chars)
 
     @staticmethod
     async def _print_status_message(
@@ -115,14 +144,24 @@ class MemoryCompactionHook:
             messages = await memory.get_memory(prepend_summary=False)
 
             # Compact tool results with configured thresholds
-            recent_threshold = (
-                running_config.tool_result_compact_recent_threshold
+            recent_threshold = self._get_dynamic_tool_result_threshold(
+                max_input_length=running_config.max_input_length,
+                token_count_estimate_divisor=(
+                    running_config.token_count_estimate_divisor
+                ),
+                configured_threshold=(
+                    running_config.tool_result_compact_recent_threshold
+                ),
             )
             retention_days = running_config.tool_result_compact_retention_days
+            old_threshold = min(
+                running_config.tool_result_compact_old_threshold,
+                max(_TOOL_RESULT_MIN_THRESHOLD, recent_threshold // 2),
+            )
             await self.memory_manager.compact_tool_result(
                 messages=messages,
                 recent_n=running_config.tool_result_compact_recent_n,
-                old_threshold=running_config.tool_result_compact_old_threshold,
+                old_threshold=old_threshold,
                 recent_threshold=recent_threshold,
                 retention_days=retention_days,
             )
