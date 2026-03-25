@@ -1,5 +1,6 @@
 import {
   AgentScopeRuntimeWebUI,
+  Stream,
   type IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
@@ -12,6 +13,8 @@ import { chatApi } from "../../api/modules/chat";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
+import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
 
 type SessionContext = {
   session_id?: string;
@@ -47,6 +50,58 @@ interface AnywhereChatProps {
   welcomeGreeting?: string;
   welcomeDescription?: string;
   welcomePrompts?: string[];
+  onAssistantTurnCompleted?: (payload: {
+    text: string;
+    response: Record<string, unknown> | null;
+  }) => void;
+}
+
+type StreamResponseData = {
+  status?: string;
+  output?: Array<{
+    role?: string;
+    content?: Array<{ type?: string; text?: string; refusal?: string }>;
+  }>;
+};
+
+function isFinalResponseStatus(status?: string): boolean {
+  return (
+    status === AgentScopeRuntimeRunStatus.Completed ||
+    status === AgentScopeRuntimeRunStatus.Failed ||
+    status === AgentScopeRuntimeRunStatus.Canceled
+  );
+}
+
+function hasRenderableOutput(response: StreamResponseData): boolean {
+  if (response.status === AgentScopeRuntimeRunStatus.Failed) {
+    return true;
+  }
+
+  return (
+    response.output?.some((message) => (message.content?.length ?? 0) > 0) ??
+    false
+  );
+}
+
+function extractAssistantText(response: StreamResponseData | null): string {
+  if (!response || !Array.isArray(response.output)) return "";
+
+  return response.output
+    .flatMap((message) => {
+      if (!Array.isArray(message.content)) return [];
+      return message.content.flatMap((part) => {
+        if (part.type === "text" && typeof part.text === "string") {
+          return [part.text];
+        }
+        if (part.type === "refusal" && typeof part.refusal === "string") {
+          return [part.refusal];
+        }
+        return [];
+      });
+    })
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 }
 
 export default function AnywhereChat({
@@ -56,6 +111,7 @@ export default function AnywhereChat({
   welcomeGreeting,
   welcomeDescription,
   welcomePrompts,
+  onAssistantTurnCompleted,
 }: AnywhereChatProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -129,7 +185,7 @@ export default function AnywhereChat({
       const lastInput = input.slice(-1);
       const session = lastInput[0]?.session || {};
 
-      return fetch(getApiUrl("/console/chat"), {
+      const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         signal: data.signal,
@@ -141,8 +197,62 @@ export default function AnywhereChat({
           stream: true,
         }),
       });
+
+      if (!response.ok || !response.body || !onAssistantTurnCompleted) {
+        return response;
+      }
+
+      const [uiStream, cacheStream] = response.body.tee();
+      void (async () => {
+        const responseBuilder = new AgentScopeRuntimeResponseBuilder({
+          id: "",
+          status: AgentScopeRuntimeRunStatus.Created,
+          created_at: 0,
+        });
+        let latestRenderable: StreamResponseData | null = null;
+
+        try {
+          for await (const chunk of Stream({ readableStream: cacheStream })) {
+            let chunkData: unknown;
+            try {
+              chunkData = JSON.parse(chunk.data);
+            } catch {
+              continue;
+            }
+
+            const responseData = responseBuilder.handle(
+              chunkData as never,
+            ) as StreamResponseData;
+
+            if (hasRenderableOutput(responseData)) {
+              latestRenderable = JSON.parse(
+                JSON.stringify(responseData),
+              ) as StreamResponseData;
+            }
+
+            if (!isFinalResponseStatus(responseData.status)) {
+              continue;
+            }
+
+            const finalPayload = latestRenderable || responseData;
+            onAssistantTurnCompleted({
+              text: extractAssistantText(finalPayload),
+              response: finalPayload as Record<string, unknown>,
+            });
+            break;
+          }
+        } catch (error) {
+          console.warn("AnywhereChat stream side-channel parse failed", error);
+        }
+      })();
+
+      return new Response(uiStream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     },
-    [selectedAgent, sessionId],
+    [onAssistantTurnCompleted, selectedAgent, sessionId],
   );
 
   const options = useMemo(() => {

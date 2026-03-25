@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, Empty, Modal, Select, Spin, Tag, Typography, message } from "antd";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +14,7 @@ import { trackNavigation } from "../../../utils/navigationTelemetry";
 import type {
   AgentProjectSummary,
   AgentSummary,
+  ProjectPipelineTemplateStep,
   ProjectPipelineRunSummary,
   ProjectPipelineTemplateInfo,
 } from "../../../api/types/agents";
@@ -61,6 +62,14 @@ type EditChatTarget = {
   version: string;
   isEmptyNodes: boolean;
 };
+
+type DraftParseResult = {
+  steps: ProjectPipelineTemplateStep[];
+  error?: string;
+};
+
+const PIPELINE_DRAFT_SCHEMA_HINT =
+  '{"schema_version":1,"steps":[{"id":"collect-input","name":"Collect Inputs","kind":"ingest","description":"..."}]}';
 
 const INDEPENDENT_PIPELINE_SCOPE_ID = "__independent__";
 
@@ -165,6 +174,126 @@ function normalizeVersion(version: string): string {
   return version.trim() || "0";
 }
 
+function parseJsonFromText(text: string): unknown | null {
+  const raw = text.trim();
+  if (!raw) return null;
+
+  const candidates: string[] = [raw];
+  const fencedBlocks = raw.match(/```json\s*([\s\S]*?)```/gi) || [];
+  fencedBlocks.forEach((block) => {
+    const unwrapped = block
+      .replace(/^```json\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+    if (unwrapped) candidates.push(unwrapped);
+  });
+
+  const braceStart = raw.indexOf("{");
+  const braceEnd = raw.lastIndexOf("}");
+  if (braceStart >= 0 && braceEnd > braceStart) {
+    candidates.push(raw.slice(braceStart, braceEnd + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function buildPipelineDraftHint(t: (key: string, fallback: string) => string): string {
+  return t(
+    "pipelines.realtimeDraftSchemaHint",
+    `请按 JSON 输出，格式示例：${PIPELINE_DRAFT_SCHEMA_HINT}`,
+  );
+}
+
+function normalizeDraftSteps(raw: unknown): DraftParseResult {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      steps: [],
+      error: "JSON root must be an object.",
+    };
+  }
+
+  const doc = raw as Record<string, unknown>;
+  if (doc.schema_version !== 1) {
+    return {
+      steps: [],
+      error: "schema_version must be 1.",
+    };
+  }
+
+  if (!Array.isArray(doc.steps)) {
+    return {
+      steps: [],
+      error: "steps must be an array.",
+    };
+  }
+
+  if (doc.steps.length === 0) {
+    return {
+      steps: [],
+      error: "steps cannot be empty.",
+    };
+  }
+
+  const arrayLike = doc.steps as unknown[];
+
+  const steps: ProjectPipelineTemplateStep[] = [];
+  const issues: string[] = [];
+  const idSet = new Set<string>();
+
+  arrayLike.forEach((node, index) => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) {
+      issues.push(`steps[${index}] must be an object.`);
+      return;
+    }
+    const item = node as Record<string, unknown>;
+
+    const rawId = typeof item.id === "string" ? item.id.trim() : "";
+    const rawName = typeof item.name === "string" ? item.name.trim() : "";
+    const rawKind = typeof item.kind === "string" ? item.kind.trim() : "";
+    const rawDescription =
+      typeof item.description === "string" ? item.description.trim() : "";
+
+    const missing: string[] = [];
+    if (!rawId) missing.push("id");
+    if (!rawName) missing.push("name");
+    if (!rawKind) missing.push("kind");
+    if (missing.length > 0) {
+      issues.push(`steps[${index}] missing required fields: ${missing.join(", ")}.`);
+      return;
+    }
+
+    if (idSet.has(rawId)) {
+      issues.push(`steps[${index}] duplicate id: ${rawId}.`);
+      return;
+    }
+    idSet.add(rawId);
+
+    steps.push({
+      id: rawId,
+      name: rawName,
+      kind: rawKind,
+      description: rawDescription,
+    });
+  });
+
+  if (issues.length > 0) {
+    return {
+      steps: [],
+      error: issues.join(" "),
+    };
+  }
+
+  return { steps };
+}
+
 function compareSemverDesc(a: string, b: string): number {
   const parsePart = (value: string): number => {
     const num = Number(value);
@@ -191,6 +320,97 @@ function compareSemverDesc(a: string, b: string): number {
 
 function stepComparable(step: { name: string; kind: string; description: string }): string {
   return `${step.name}|${step.kind}|${step.description}`;
+}
+
+type DiffFieldKey = "name" | "kind" | "description";
+
+type InlineDiffToken = {
+  text: string;
+  changed: boolean;
+};
+
+function getStepFieldValue(
+  step: StepDiffItem["current"] | StepDiffItem["compare"],
+  field: DiffFieldKey,
+): string {
+  if (!step) return "-";
+  const value = step[field];
+  return value && value.trim() ? value : "-";
+}
+
+function tokenizeInlineDiff(value: string): string[] {
+  if (!value) return [];
+  return value.split(/(\s+)/).filter((part) => part.length > 0);
+}
+
+function buildInlineDiffTokens(
+  oldValue: string,
+  newValue: string,
+): { oldTokens: InlineDiffToken[]; newTokens: InlineDiffToken[] } {
+  if (oldValue === newValue) {
+    return {
+      oldTokens: [{ text: oldValue || "-", changed: false }],
+      newTokens: [{ text: newValue || "-", changed: false }],
+    };
+  }
+
+  const oldWords = tokenizeInlineDiff(oldValue);
+  const newWords = tokenizeInlineDiff(newValue);
+
+  if (oldWords.length === 0 || newWords.length === 0) {
+    return {
+      oldTokens: [{ text: oldValue || "-", changed: true }],
+      newTokens: [{ text: newValue || "-", changed: true }],
+    };
+  }
+
+  const m = oldWords.length;
+  const n = newWords.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = m - 1; i >= 0; i -= 1) {
+    for (let j = n - 1; j >= 0; j -= 1) {
+      if (oldWords[i] === newWords[j]) {
+        dp[i][j] = dp[i + 1][j + 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+  }
+
+  const oldMatched = new Array(m).fill(false);
+  const newMatched = new Array(n).fill(false);
+
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (oldWords[i] === newWords[j]) {
+      oldMatched[i] = true;
+      newMatched[j] = true;
+      i += 1;
+      j += 1;
+      continue;
+    }
+    if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+
+  return {
+    oldTokens: oldWords.map((text, idx) => ({ text, changed: !oldMatched[idx] })),
+    newTokens: newWords.map((text, idx) => ({ text, changed: !newMatched[idx] })),
+  };
+}
+
+function buildChangedOnlyText(tokens: InlineDiffToken[]): string {
+  const changedWords = tokens
+    .filter((token) => token.changed)
+    .map((token) => token.text.trim())
+    .filter((token) => token.length > 0);
+
+  return changedWords.length > 0 ? changedWords.join(" ") : "-";
 }
 
 function buildStepDiff(
@@ -290,6 +510,11 @@ export default function PipelinesPage() {
   const [editGuidePlaceholder, setEditGuidePlaceholder] = useState("");
   const [editWelcomeMode, setEditWelcomeMode] = useState<"default" | "init">("default");
   const [draftPipelineKeys, setDraftPipelineKeys] = useState<string[]>([]);
+  const [draftNewVersionSteps, setDraftNewVersionSteps] = useState<ProjectPipelineTemplateStep[]>([]);
+  const [draftParseStatus, setDraftParseStatus] = useState<"idle" | "ready" | "error">("idle");
+  const [draftParseError, setDraftParseError] = useState("");
+  const [expandedDraftDiffKeys, setExpandedDraftDiffKeys] = useState<string[]>([]);
+  const [draftDiffViewMode, setDraftDiffViewMode] = useState<"changedOnly" | "full">("changedOnly");
 
   const currentAgent = useMemo(
     () => getCurrentAgent(agents, selectedAgent),
@@ -481,6 +706,10 @@ export default function PipelinesPage() {
     setEditMode(false);
     setEditGuidePlaceholder("");
     setEditWelcomeMode("default");
+    setDraftNewVersionSteps([]);
+    setDraftParseStatus("idle");
+    setDraftParseError("");
+    setExpandedDraftDiffKeys([]);
   };
 
   const requestCloseEditMode = () => {
@@ -532,6 +761,26 @@ export default function PipelinesPage() {
         ? buildStepDiff(compareTemplate.steps, currentTemplate.steps)
         : [],
     [compareTemplate, currentTemplate],
+  );
+
+  const realtimeDraftDiffItems = useMemo(
+    () =>
+      currentTemplate && draftNewVersionSteps.length > 0
+        ? buildStepDiff(draftNewVersionSteps, currentTemplate.steps)
+        : [],
+    [currentTemplate, draftNewVersionSteps],
+  );
+
+  const draftDiffDetailKeys = useMemo(
+    () => realtimeDraftDiffItems.map((item) => `${item.kind}:${item.id}`),
+    [realtimeDraftDiffItems],
+  );
+
+  const allDraftDiffExpanded = useMemo(
+    () =>
+      draftDiffDetailKeys.length > 0 &&
+      draftDiffDetailKeys.every((key) => expandedDraftDiffKeys.includes(key)),
+    [draftDiffDetailKeys, expandedDraftDiffKeys],
   );
 
   const runningCount = useMemo(
@@ -617,6 +866,7 @@ export default function PipelinesPage() {
           version: targetVersion,
         },
       );
+      const editGuideWithSchema = `${editGuide}\n${buildPipelineDraftHint(t)}`;
 
       const created = await chatApi.createChat({
         name: t("pipelines.designSessionName", "Pipeline Design"),
@@ -628,10 +878,14 @@ export default function PipelinesPage() {
 
       setDesignChatSessionId(created.id);
       if (withEditMode) {
+        setDraftNewVersionSteps([]);
+        setDraftParseStatus("idle");
+        setDraftParseError("");
+        setExpandedDraftDiffKeys([]);
         setEditMode(true);
         setEditTargetKey(`${target?.pipelineId || selectedPipeline?.id || "unknown"}@${normalizeVersion(targetVersion)}`);
         setEditWelcomeMode(isEmptyNodes ? "init" : "default");
-        setEditGuidePlaceholder(editGuide);
+        setEditGuidePlaceholder(editGuideWithSchema);
         return;
       }
 
@@ -721,12 +975,17 @@ export default function PipelinesPage() {
       .replace(/[^a-z0-9_-]+/g, "-")
       .replace(/^-+|-+$/g, "") || `pipeline-${Date.now()}`;
 
+    const effectiveSteps =
+      draftParseStatus === "ready" && draftNewVersionSteps.length > 0
+        ? draftNewVersionSteps
+        : (selectedTemplateItem.steps || []);
+
     const templateDoc = {
       id: safeTemplateId,
       name: selectedTemplateItem.name || safeTemplateId,
       version: selectedTemplateItem.version || "0.1.0",
       description: selectedTemplateItem.description || "",
-      steps: selectedTemplateItem.steps || [],
+      steps: effectiveSteps,
     };
 
     setDraftSaving(true);
@@ -762,6 +1021,10 @@ export default function PipelinesPage() {
       setSelectedPipelineKey(buildPipelineGroupKey(safeTemplateId, "independent"));
       setSelectedCurrentVersion(normalizeVersion(templateDoc.version));
       setSelectedCompareVersion("");
+      setDraftNewVersionSteps([]);
+      setDraftParseStatus("idle");
+      setDraftParseError("");
+      setExpandedDraftDiffKeys([]);
 
       message.success(t("pipelines.saveDraftSuccess", "流程已保存"));
     } catch (error) {
@@ -782,7 +1045,7 @@ export default function PipelinesPage() {
     const isEmptyNodes = (currentTemplate.steps?.length || 0) === 0;
     setEditWelcomeMode(isEmptyNodes ? "init" : "default");
     setEditGuidePlaceholder(
-      t(
+      `${t(
         isEmptyNodes
           ? "pipelines.editInputPlaceholderInit"
           : "pipelines.editInputPlaceholder",
@@ -793,7 +1056,7 @@ export default function PipelinesPage() {
           name: selectedPipeline.name || selectedPipeline.id || "unknown",
           version: currentTemplate.version || "latest",
         },
-      ),
+      )}\n${buildPipelineDraftHint(t)}`,
     );
 
     if (designChatSessionId && editTargetKey === targetKey) {
@@ -808,6 +1071,141 @@ export default function PipelinesPage() {
       isEmptyNodes,
     });
   };
+
+  const handleAssistantTurnCompleted = useCallback(
+    (payload: { text: string; response: Record<string, unknown> | null }) => {
+      if (!editMode) return;
+
+      const parsedFromResponse = payload.response
+        ? normalizeDraftSteps(payload.response)
+        : null;
+      const parsedTextJson = parseJsonFromText(payload.text);
+      const parsedFromText = parsedTextJson
+        ? normalizeDraftSteps(parsedTextJson)
+        : null;
+
+      const candidates = [parsedFromText, parsedFromResponse].filter(
+        (item): item is DraftParseResult => Boolean(item),
+      );
+
+      const parsed =
+        candidates.find((item) => item.steps.length > 0 && !item.error) ||
+        candidates[0] ||
+        null;
+
+      if (!parsedTextJson && !parsedFromResponse) {
+        setDraftParseStatus("error");
+        setDraftParseError(
+          t(
+            "pipelines.draftParseNoJson",
+            "未识别到可用 JSON，请让助手严格输出 schema_version=1 与 steps 数组。",
+          ),
+        );
+        return;
+      }
+
+      if (parsed.error || parsed.steps.length === 0) {
+        setDraftParseStatus("error");
+        setDraftParseError(
+          t(
+            "pipelines.draftParseInvalid",
+            "JSON 解析失败：{{detail}}",
+            {
+              detail:
+                parsed.error ||
+                "invalid step schema: each step requires id/name/kind.",
+            },
+          ),
+        );
+        return;
+      }
+
+      setDraftNewVersionSteps(parsed.steps);
+      setDraftParseStatus("ready");
+      setDraftParseError("");
+      setExpandedDraftDiffKeys([]);
+    },
+    [editMode, t],
+  );
+
+  const toggleDraftDiffDetails = useCallback((key: string) => {
+    setExpandedDraftDiffKeys((prev) =>
+      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key],
+    );
+  }, []);
+
+  const toggleAllDraftDiffDetails = useCallback(() => {
+    setExpandedDraftDiffKeys(allDraftDiffExpanded ? [] : draftDiffDetailKeys);
+  }, [allDraftDiffExpanded, draftDiffDetailKeys]);
+
+  const renderDiffTokenText = useCallback(
+    (
+      tokens: InlineDiffToken[],
+      changedClassName: string,
+      neutralClassName: string,
+    ) => {
+      if (draftDiffViewMode === "changedOnly") {
+        return (
+          <span className={changedClassName}>{buildChangedOnlyText(tokens)}</span>
+        );
+      }
+
+      return tokens.map((token, tokenIndex) => (
+        <span
+          key={`${token.text}-${tokenIndex}`}
+          className={token.changed ? changedClassName : neutralClassName}
+        >
+          {token.text}
+        </span>
+      ));
+    },
+    [draftDiffViewMode],
+  );
+
+  const renderDiffPair = useCallback(
+    (detailKey: string, field: DiffFieldKey, oldValue: string, newValue: string) => {
+      const tokenDiff = buildInlineDiffTokens(oldValue, newValue);
+
+      return (
+        <div key={`${detailKey}-${field}`} className={styles.diffDetailRow}>
+          <Text strong>{field}</Text>
+          <div className={styles.diffPairGrid}>
+            <div className={`${styles.diffPairColumn} ${styles.diffPairOld}`}>
+              <Text type="secondary" className={styles.diffPairLabel}>
+                {t("pipelines.diffOldValue", "旧值")}
+              </Text>
+              <Text className={styles.diffOldText}>
+                {renderDiffTokenText(
+                  tokenDiff.oldTokens,
+                  styles.diffTokenRemoved,
+                  styles.diffTokenNeutral,
+                )}
+              </Text>
+            </div>
+            <div className={`${styles.diffPairColumn} ${styles.diffPairNew}`}>
+              <Text type="secondary" className={styles.diffPairLabel}>
+                {t("pipelines.diffNewValue", "新值")}
+              </Text>
+              <Text className={styles.diffNewText}>
+                {renderDiffTokenText(
+                  tokenDiff.newTokens,
+                  styles.diffTokenAdded,
+                  styles.diffTokenNeutral,
+                )}
+              </Text>
+            </div>
+          </div>
+        </div>
+      );
+    },
+    [renderDiffTokenText, t],
+  );
+
+  useEffect(() => {
+    setExpandedDraftDiffKeys((prev) =>
+      prev.filter((key) => draftDiffDetailKeys.includes(key)),
+    );
+  }, [draftDiffDetailKeys]);
 
   return (
     <div className={styles.page}>
@@ -1052,23 +1450,152 @@ export default function PipelinesPage() {
               title={t("pipelines.newVersionNodes", "New Version Nodes")}
               className={styles.columnCard}
               extra={
-                <Select
-                  size="small"
-                  className={styles.versionSelect}
-                  value={selectedCompareVersion || undefined}
-                  allowClear
-                  placeholder={t("pipelines.compareVersion", "Select history version")}
-                  options={(selectedPipeline?.versions || [])
-                    .filter((item) => normalizeVersion(item.version) !== selectedCurrentVersion)
-                    .map((item) => ({
-                      label: item.version || "0",
-                      value: normalizeVersion(item.version),
-                    }))}
-                  onChange={(value) => setSelectedCompareVersion(value || "")}
-                />
+                <div className={styles.newVersionActions}>
+                  {editMode && draftParseStatus === "ready" && realtimeDraftDiffItems.length > 0 ? (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        setDraftDiffViewMode((prev) =>
+                          prev === "changedOnly" ? "full" : "changedOnly",
+                        )
+                      }
+                    >
+                      {draftDiffViewMode === "changedOnly"
+                        ? t("pipelines.diffViewFull", "显示全文")
+                        : t("pipelines.diffViewChangedOnly", "只看变化")}
+                    </Button>
+                  ) : null}
+                  {editMode && draftParseStatus === "ready" && realtimeDraftDiffItems.length > 0 ? (
+                    <Button size="small" onClick={toggleAllDraftDiffDetails}>
+                      {allDraftDiffExpanded
+                        ? t("pipelines.diffCollapseAll", "收起全部")
+                        : t("pipelines.diffExpandAll", "展开全部")}
+                    </Button>
+                  ) : null}
+                  <Select
+                    size="small"
+                    className={styles.versionSelect}
+                    value={selectedCompareVersion || undefined}
+                    allowClear
+                    placeholder={t("pipelines.compareVersion", "Select history version")}
+                    options={(selectedPipeline?.versions || [])
+                      .filter((item) => normalizeVersion(item.version) !== selectedCurrentVersion)
+                      .map((item) => ({
+                        label: item.version || "0",
+                        value: normalizeVersion(item.version),
+                      }))}
+                    onChange={(value) => setSelectedCompareVersion(value || "")}
+                  />
+                </div>
               }
             >
-              {!compareTemplate ? (
+              {editMode && draftParseStatus === "ready" && draftNewVersionSteps.length > 0 ? (
+                <>
+                  <Text type="secondary" className={styles.draftStatusText}>
+                    {t("pipelines.draftRealtimeReady", "已根据最新对话更新节点草稿")}
+                  </Text>
+                  <div className={styles.list}>
+                    {realtimeDraftDiffItems.map((item) => (
+                      <div key={`draft-${item.kind}-${item.id}`} className={styles.listItemStatic}>
+                        <div className={styles.listItemHeader}>
+                          <Text strong>{item.current?.name || item.compare?.name || item.id}</Text>
+                          <Tag
+                            color={
+                              item.kind === "added"
+                                ? "success"
+                                : item.kind === "removed"
+                                  ? "error"
+                                  : item.kind === "changed"
+                                    ? "warning"
+                                    : "default"
+                            }
+                          >
+                            {item.kind === "added"
+                              ? t("pipelines.diffAdded", "Added")
+                              : item.kind === "removed"
+                                ? t("pipelines.diffRemoved", "Removed")
+                                : item.kind === "changed"
+                                  ? t("pipelines.diffChanged", "Changed")
+                                  : t("pipelines.diffUnchanged", "Unchanged")}
+                          </Tag>
+                          {item.current?.kind ? <Tag color="processing">{item.current.kind}</Tag> : null}
+                        </div>
+                        <Text type="secondary">{item.id}</Text>
+                        <Text type="secondary" className={styles.helperText}>
+                          {item.current?.description || item.compare?.description || "-"}
+                        </Text>
+                        {(() => {
+                          const detailKey = `${item.kind}:${item.id}`;
+                          const expanded = expandedDraftDiffKeys.includes(detailKey);
+                          return (
+                            <>
+                              <Button
+                                type="link"
+                                size="small"
+                                className={styles.diffDetailToggle}
+                                onClick={() => toggleDraftDiffDetails(detailKey)}
+                              >
+                                {expanded
+                                  ? t("pipelines.diffDetailHide", "收起详情")
+                                  : t("pipelines.diffDetailShow", "查看详情")}
+                              </Button>
+                              {expanded ? (
+                                <div className={styles.diffDetailPanel}>
+                                  {item.kind === "changed" ? (
+                                    item.changedFields.map((field) => {
+                                      const typedField = field as DiffFieldKey;
+                                      return renderDiffPair(
+                                        detailKey,
+                                        typedField,
+                                        getStepFieldValue(item.compare, typedField),
+                                        getStepFieldValue(item.current, typedField),
+                                      );
+                                    })
+                                  ) : item.kind === "added" ? (
+                                    (["name", "kind", "description"] as DiffFieldKey[]).map((field) => {
+                                      return renderDiffPair(
+                                        detailKey,
+                                        field,
+                                        "-",
+                                        getStepFieldValue(item.current, field),
+                                      );
+                                    })
+                                  ) : (
+                                    (["name", "kind", "description"] as DiffFieldKey[]).map((field) => {
+                                      return renderDiffPair(
+                                        detailKey,
+                                        field,
+                                        getStepFieldValue(item.compare, field),
+                                        "-",
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                        {item.kind === "changed" && item.changedFields.length > 0 ? (
+                          <Text type="secondary" className={styles.helperText}>
+                            {t("pipelines.diffFields", "Changed: {{fields}}", {
+                              fields: item.changedFields.join(", "),
+                            })}
+                          </Text>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : editMode && draftParseStatus === "error" ? (
+                <Empty description={draftParseError || t("pipelines.draftParseError", "节点草稿解析失败")} />
+              ) : editMode ? (
+                <Empty
+                  description={t(
+                    "pipelines.draftRealtimeHint",
+                    "在右侧编辑对话中输出节点 JSON 草案后，这里会实时更新。",
+                  )}
+                />
+              ) : !compareTemplate ? (
                 <Empty
                   description={t(
                     "pipelines.selectNewVersion",
@@ -1145,6 +1672,7 @@ export default function PipelinesPage() {
                 ) : designChatSessionId ? (
                   <AnywhereChat
                     sessionId={designChatSessionId}
+                    onAssistantTurnCompleted={handleAssistantTurnCompleted}
                     inputPlaceholder={editGuidePlaceholder || undefined}
                     welcomeGreeting={t(
                       editWelcomeMode === "init"

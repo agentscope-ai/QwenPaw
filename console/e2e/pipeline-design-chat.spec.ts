@@ -75,6 +75,15 @@ async function setupApiMocks(page: Page) {
       return;
     }
 
+    if (pathname === "/api/agents/default/pipelines/templates") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+
     if (pathname === "/api/agents/default/projects/p1/pipelines/runs") {
       await route.fulfill({
         status: 200,
@@ -183,7 +192,7 @@ test("health: pipelines page renders design entry", async ({ page }) => {
   await expect(openDesignBtn).toBeVisible({ timeout: 30_000 });
 });
 
-test("behavior: pipeline design entry keeps newly created chat and does not jump to old chat", async ({ page }) => {
+test("behavior: pipeline design entry opens inline edit and keeps dedicated chat id", async ({ page }) => {
   test.setTimeout(90_000);
 
   await setupApiMocks(page);
@@ -204,13 +213,6 @@ test("behavior: pipeline design entry keeps newly created chat and does not jump
   const createChatRequest = page.waitForRequest((request) => {
     return request.method() === "POST" && request.url().includes("/api/chats");
   });
-  const startConsoleChatRequest = page.waitForRequest((request) => {
-    return (
-      request.method() === "POST" &&
-      request.url().includes("/api/console/chat")
-    );
-  });
-
   await openDesignBtn.click();
 
   const request = await createChatRequest;
@@ -220,18 +222,13 @@ test("behavior: pipeline design entry keeps newly created chat and does not jump
     channel: "console",
   });
 
-  const streamRequest = await startConsoleChatRequest;
-  const streamBody = streamRequest.postDataJSON();
-  expect(streamBody).toMatchObject({
-    stream: true,
-    user_id: "default",
-    channel: "console",
+  await expect(page).toHaveURL(/\/pipelines(?:\?.*)?$/);
+  const openFullChatBtn = page.getByRole("button", {
+    name: /Open Full Chat|完整聊天/i,
   });
-  expect(Array.isArray(streamBody.input)).toBeTruthy();
-  expect(streamBody.input[0]?.content?.[0]?.text).toContain(
-    "我想创建一个新的 Pipeline",
-  );
+  await expect(openFullChatBtn).toBeVisible({ timeout: 20_000 });
 
+  await openFullChatBtn.click();
   await expect(page).toHaveURL(/\/chat\/[^/?]+/);
 
   const urlAfterCreate = page.url();
@@ -253,14 +250,32 @@ test("behavior: each pipeline create opens a new chat id", async ({ page }) => {
   const openDesignBtn = page.getByTestId("pipeline-open-design-chat");
   await expect(openDesignBtn).toBeVisible({ timeout: 30_000 });
 
+  const createChatRequestFirst = page.waitForRequest((request) => {
+    return request.method() === "POST" && request.url().includes("/api/chats");
+  });
   await openDesignBtn.click();
+  await createChatRequestFirst;
+  const openFullChatBtnFirst = page.getByRole("button", {
+    name: /Open Full Chat|完整聊天/i,
+  });
+  await expect(openFullChatBtnFirst).toBeVisible({ timeout: 20_000 });
+  await openFullChatBtnFirst.click();
   await expect(page).toHaveURL(/\/chat\/[^/?]+/);
   const firstChatId = page.url().match(/\/chat\/([^/?]+)/)?.[1] || "";
   expect(firstChatId).toBeTruthy();
 
   await page.goto("/pipelines");
   await expect(openDesignBtn).toBeVisible({ timeout: 30_000 });
+  const createChatRequestSecond = page.waitForRequest((request) => {
+    return request.method() === "POST" && request.url().includes("/api/chats");
+  });
   await openDesignBtn.click();
+  await createChatRequestSecond;
+  const openFullChatBtnSecond = page.getByRole("button", {
+    name: /Open Full Chat|完整聊天/i,
+  });
+  await expect(openFullChatBtnSecond).toBeVisible({ timeout: 20_000 });
+  await openFullChatBtnSecond.click();
   await expect(page).toHaveURL(/\/chat\/[^/?]+/);
   const secondChatId = page.url().match(/\/chat\/([^/?]+)/)?.[1] || "";
   expect(secondChatId).toBeTruthy();
@@ -278,7 +293,16 @@ test("behavior: pipeline design entry lands on plain chat url without query para
   const openDesignBtn = page.getByTestId("pipeline-open-design-chat");
   await expect(openDesignBtn).toBeVisible({ timeout: 30_000 });
 
+  const createChatRequest = page.waitForRequest((request) => {
+    return request.method() === "POST" && request.url().includes("/api/chats");
+  });
   await openDesignBtn.click();
+  await createChatRequest;
+  const openFullChatBtn = page.getByRole("button", {
+    name: /Open Full Chat|完整聊天/i,
+  });
+  await expect(openFullChatBtn).toBeVisible({ timeout: 20_000 });
+  await openFullChatBtn.click();
   await expect(page).toHaveURL(/\/chat\/[^/?]+$/);
 
   const currentUrl = new URL(page.url());

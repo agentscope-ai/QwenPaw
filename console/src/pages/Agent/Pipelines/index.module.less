@@ -143,10 +143,97 @@
   width: 180px;
 }
 
+.newVersionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .nodesActions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.draftStatusText {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.diffDetailToggle {
+  padding-left: 0;
+  width: fit-content;
+}
+
+.diffDetailPanel {
+  border: 1px dashed rgba(22, 119, 255, 0.35);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(22, 119, 255, 0.04);
+}
+
+.diffDetailRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diffPairGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.diffPairColumn {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.diffPairOld {
+  background: rgba(255, 77, 79, 0.04);
+  border-color: rgba(255, 77, 79, 0.2);
+}
+
+.diffPairNew {
+  background: rgba(82, 196, 26, 0.06);
+  border-color: rgba(82, 196, 26, 0.2);
+}
+
+.diffPairLabel {
+  font-size: 12px;
+}
+
+.diffOldText {
+  color: #8c8c8c;
+}
+
+.diffNewText {
+  color: #1677ff;
+}
+
+.diffTokenNeutral {
+  color: inherit;
+}
+
+.diffTokenRemoved {
+  color: #8c8c8c;
+  text-decoration: line-through;
+  background: rgba(255, 77, 79, 0.1);
+  border-radius: 3px;
+}
+
+.diffTokenAdded {
+  color: #1677ff;
+  background: rgba(82, 196, 26, 0.16);
+  border-radius: 3px;
 }
 
 .chatLoadingWrap {
@@ -217,6 +304,10 @@
 
   .versionSelect {
     width: 140px;
+  }
+
+  .diffPairGrid {
+    grid-template-columns: 1fr;
   }
 
   .nodesActions {
