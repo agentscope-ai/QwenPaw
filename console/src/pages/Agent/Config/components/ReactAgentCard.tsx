@@ -69,11 +69,7 @@ export function ReactAgentCard({
         name="max_iters"
         rules={[
           { required: true, message: t("agentConfig.maxItersRequired") },
-          {
-            type: "number",
-            min: 1,
-            message: t("agentConfig.maxItersMin"),
-          },
+          { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
         ]}
         tooltip={t("agentConfig.maxItersTooltip")}
       >
@@ -81,6 +77,23 @@ export function ReactAgentCard({
           style={{ width: "100%" }}
           min={1}
           placeholder={t("agentConfig.maxItersPlaceholder")}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.maxContextLength")}
+        name="max_input_length"
+        rules={[
+          { required: true, message: t("agentConfig.maxContextLengthRequired") },
+          { type: "number", min: 1000, message: t("agentConfig.maxContextLengthMin") },
+        ]}
+        tooltip={t("agentConfig.maxContextLengthTooltip")}
+      >
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1000}
+          step={1024}
+          placeholder={t("agentConfig.maxContextLengthPlaceholder")}
         />
       </Form.Item>
     </Card>

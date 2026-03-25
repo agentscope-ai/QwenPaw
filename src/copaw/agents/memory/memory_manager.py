@@ -87,6 +87,9 @@ class MemoryManager(ReMeLight):
 
         # Extract configuration from agent_config
         self.agent_id: str = agent_id
+        logger.info(
+            f"MemoryManager init: agent_id={agent_id}, working_dir={working_dir}",
+        )
 
         if not _REME_AVAILABLE:
             logger.warning(
@@ -126,6 +129,12 @@ class MemoryManager(ReMeLight):
         else:
             memory_backend = memory_store_backend
 
+        # Read rebuild_memory_index_on_start from memory_summary config
+        agent_config = load_agent_config(self.agent_id)
+        rebuild_memory_index_on_start = (
+            agent_config.running.memory_summary.rebuild_memory_index_on_start
+        )
+
         # Initialize parent ReMeCopaw class
         super().__init__(
             working_dir=working_dir,
@@ -135,6 +144,9 @@ class MemoryManager(ReMeLight):
                 "store_name": "copaw",
                 "vector_enabled": vector_enabled,
                 "fts_enabled": fts_enabled,
+            },
+            default_file_watcher_config={
+                "rebuild_index_on_start": rebuild_memory_index_on_start,
             },
         )
 
@@ -423,7 +435,14 @@ class MemoryManager(ReMeLight):
     async def close(self) -> bool:
         """Close the application and perform cleanup."""
         self._warn_if_version_mismatch()
-        return await super().close()
+        logger.info(
+            f"MemoryManager closing: agent_id={self.agent_id}",
+        )
+        result = await super().close()
+        logger.info(
+            f"MemoryManager closed: agent_id={self.agent_id}, result={result}",
+        )
+        return result
 
     async def compact_tool_result(self, **kwargs):
         """Compact tool results by truncating large outputs."""

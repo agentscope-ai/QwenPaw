@@ -273,9 +273,10 @@ class ContextCompactConfig(BaseModel):
 
     token_count_estimate_divisor: float = Field(
         default=3.75,
-        gt=1,
+        ge=1,
+        le=6,
         description=(
-            "Divisor for character-based token estimation (len / divisor)"
+            "Divisor for byte-based token estimation (byte_len / divisor)"
         ),
     )
 
@@ -288,14 +289,20 @@ class ContextCompactConfig(BaseModel):
         default=0.75,
         ge=0.3,
         le=0.9,
-        description="Ratio of context to compact when context is full",
+        description=(
+            "Compaction trigger threshold ratio: compaction is triggered when "
+            "the context length reaches this fraction of max_input_length"
+        ),
     )
 
     memory_reserve_ratio: float = Field(
         default=0.1,
         ge=0.05,
         le=0.3,
-        description="Ratio of context to reserve after compaction",
+        description=(
+            "Context reserve threshold ratio: the most recent fraction of the "
+            "context is preserved after compaction to maintain continuity"
+        ),
     )
 
     compact_with_thinking_block: bool = Field(
@@ -318,7 +325,7 @@ class ToolResultCompactConfig(BaseModel):
         default=2,
         ge=1,
         le=10,
-        description="Number of recent messages to use recent_threshold for",
+        description="Number of recent messages to use recent_max_bytes for",
     )
 
     old_max_bytes: int = Field(
@@ -376,6 +383,15 @@ class MemorySummaryConfig(BaseModel):
         description=(
             "Minimum relevance score for results when force memory"
             " search is enabled"
+        ),
+    )
+
+    rebuild_memory_index_on_start: bool = Field(
+        default=True,
+        description=(
+            "Whether to clear and rebuild the memory search index when the"
+            " agent starts. Set to False to skip re-indexing and only monitor"
+            " new file changes."
         ),
     )
 
