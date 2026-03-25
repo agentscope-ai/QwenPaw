@@ -207,3 +207,19 @@ try:
     )
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0
+
+# 媒体目录清理（聊天上传与 OSS 下载文件在 WORKING_DIR/media）。
+# COPAW_MEDIA_MAX_AGE_DAYS：删除超过 N 天的文件（默认 7，0 表示不按天数删）。
+# COPAW_MEDIA_MAX_SIZE_MB：媒体目录总大小上限（MB），超则按最旧优先删（默认 0 表示不限制）。
+try:
+    MEDIA_MAX_AGE_DAYS = int(
+        os.environ.get("COPAW_MEDIA_MAX_AGE_DAYS", "7"),
+    )
+except (TypeError, ValueError):
+    MEDIA_MAX_AGE_DAYS = 7
+try:
+    MEDIA_MAX_SIZE_MB = int(
+        os.environ.get("COPAW_MEDIA_MAX_SIZE_MB", "0"),
+    )
+except (TypeError, ValueError):
+    MEDIA_MAX_SIZE_MB = 0

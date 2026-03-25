@@ -33,6 +33,7 @@ from ...config.config import (
     TelegramConfig,
     VoiceChannelConfig,
     WecomConfig,
+    WechatConfig,
 )
 
 from .schemas_config import HeartbeatBody
@@ -53,6 +54,7 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
+    "wechat": WechatConfig,
 }
 
 

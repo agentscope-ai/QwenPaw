@@ -10,12 +10,14 @@ import {
 } from "@agentscope-ai/design";
 import { Alert, ConfigProvider } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
+import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import api from "../../../../api";
 
 const WECOM_SDK_URL =
   "https://wwcdn.weixin.qq.com/node/wework/js/wecom-aibot-sdk@0.1.0.min.js";
@@ -112,6 +114,14 @@ interface ChannelDrawerProps {
   onSubmit: (values: Record<string, unknown>) => void;
 }
 
+type WechatQrStatus =
+  | "idle"
+  | "wait"
+  | "scaned"
+  | "expired"
+  | "confirmed"
+  | "error";
+
 export function ChannelDrawer({
   open,
   activeKey,
@@ -128,6 +138,112 @@ export function ChannelDrawer({
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
   const sdkLoadedRef = useRef(false);
+  const wechatPollTimerRef = useRef<number | null>(null);
+  const wechatPollingRef = useRef(false);
+  const [wechatQrLoading, setWechatQrLoading] = useState(false);
+  const [wechatQrStatus, setWechatQrStatus] = useState<WechatQrStatus>("idle");
+  const [wechatQrStatusText, setWechatQrStatusText] = useState("");
+  const [wechatQrUrl, setWechatQrUrl] = useState("");
+  const [wechatQrText, setWechatQrText] = useState("");
+
+  const stopWechatPolling = useCallback(() => {
+    wechatPollingRef.current = false;
+    if (wechatPollTimerRef.current !== null) {
+      window.clearTimeout(wechatPollTimerRef.current);
+      wechatPollTimerRef.current = null;
+    }
+  }, []);
+
+  const pollWechatStatus = useCallback(
+    async (sessionKey: string) => {
+      if (!wechatPollingRef.current || !sessionKey) {
+        return;
+      }
+      try {
+        const res = await api.waitWechatQrLogin({
+          session_key: sessionKey,
+          timeout_ms: 35000,
+        });
+        const nextStatus = (res.status || "wait") as WechatQrStatus;
+        setWechatQrStatus(nextStatus);
+        setWechatQrStatusText(res.message || "");
+        if (res.connected || nextStatus === "confirmed") {
+          stopWechatPolling();
+          setWechatQrStatus("confirmed");
+          setWechatQrStatusText(res.message || t("channels.wechatQrConfirmed"));
+          form.setFieldsValue({ enabled: true });
+          try {
+            const latest = await api.getChannelConfig("wechat");
+            form.setFieldsValue(
+              latest as unknown as Record<string, {} | undefined>,
+            );
+          } catch (error) {
+            console.warn("failed to refresh wechat config after login:", error);
+          }
+          message.success(t("channels.wechatQrConfirmed"));
+          return;
+        }
+        if (nextStatus === "expired") {
+          stopWechatPolling();
+          message.warning(t("channels.wechatQrExpired"));
+          return;
+        }
+      } catch (error) {
+        stopWechatPolling();
+        setWechatQrStatus("error");
+        setWechatQrStatusText(String(error));
+        message.error(t("channels.wechatQrFailed"));
+        return;
+      }
+      wechatPollTimerRef.current = window.setTimeout(() => {
+        void pollWechatStatus(sessionKey);
+      }, 1000);
+    },
+    [form, stopWechatPolling, t],
+  );
+
+  const handleWechatQrStart = useCallback(async () => {
+    setWechatQrLoading(true);
+    try {
+      stopWechatPolling();
+      const baseUrlValue = form.getFieldValue("base_url");
+      const baseUrl =
+        typeof baseUrlValue === "string" && baseUrlValue.trim()
+          ? baseUrlValue.trim()
+          : undefined;
+      const res = await api.startWechatQrLogin({
+        base_url: baseUrl,
+      });
+      setWechatQrUrl(res.qrcode_url || "");
+      setWechatQrText(res.qrcode_text || res.qrcode_url || "");
+      setWechatQrStatus("wait");
+      setWechatQrStatusText(res.message || t("channels.wechatQrGenerated"));
+      wechatPollingRef.current = true;
+      void pollWechatStatus(res.session_key);
+    } catch (error) {
+      setWechatQrStatus("error");
+      setWechatQrStatusText(String(error));
+      message.error(t("channels.wechatQrFailed"));
+    } finally {
+      setWechatQrLoading(false);
+    }
+  }, [form, pollWechatStatus, stopWechatPolling, t]);
+
+  useEffect(() => {
+    if (!open || activeKey !== "wechat") {
+      stopWechatPolling();
+      setWechatQrUrl("");
+      setWechatQrText("");
+      setWechatQrStatus("idle");
+      setWechatQrStatusText("");
+    }
+  }, [activeKey, open, stopWechatPolling]);
+
+  useEffect(() => {
+    return () => {
+      stopWechatPolling();
+    };
+  }, [stopWechatPolling]);
 
   // Dynamically load the WeCom SDK script
   const loadWecomSDK = useCallback((): Promise<void> => {
@@ -711,6 +827,97 @@ export function ChannelDrawer({
               tooltip={t("channels.welcomeTextTooltip")}
             >
               <Input placeholder={t("channels.welcomeTextPlaceholder")} />
+            </Form.Item>
+          </>
+        );
+
+      case "wechat":
+        return (
+          <>
+            <Form.Item label=" " colon={false}>
+              <span
+                style={{
+                  display: "block",
+                  marginBottom: 8,
+                  fontSize: 13,
+                  color: isDark ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.45)",
+                }}
+              >
+                {t("channels.wechatAuthHint")}
+              </span>
+              <Button
+                type="primary"
+                block
+                onClick={handleWechatQrStart}
+                loading={wechatQrLoading}
+              >
+                {t("channels.loginWechat")}
+              </Button>
+            </Form.Item>
+            {(wechatQrText || wechatQrUrl) && (
+              <Form.Item label={t("channels.wechatQrCode")}>
+                <div style={{ textAlign: "center", marginBottom: 12 }}>
+                  {wechatQrText ? (
+                    <QRCodeSVG
+                      value={wechatQrText}
+                      size={240}
+                      includeMargin
+                      bgColor="#FFFFFF"
+                      fgColor="#111111"
+                    />
+                  ) : (
+                    <img
+                      src={wechatQrUrl}
+                      alt="wechat-qr-code"
+                      style={{
+                        maxWidth: 260,
+                        width: "100%",
+                        borderRadius: 8,
+                        border: "1px solid rgba(0,0,0,0.06)",
+                      }}
+                    />
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    textAlign: "center",
+                    color: isDark
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(0,0,0,0.65)",
+                  }}
+                >
+                  {t("channels.wechatQrStatus", {
+                    status: wechatQrStatusText || wechatQrStatus,
+                  })}
+                </div>
+              </Form.Item>
+            )}
+            <Form.Item
+              name="base_url"
+              label="Base URL"
+              rules={[{ required: true, message: "Please input base URL" }]}
+            >
+              <Input placeholder="https://ilinkai.weixin.qq.com" />
+            </Form.Item>
+            <Form.Item name="bot_token" label="Bot Token">
+              <Input.Password placeholder="Will be auto-filled after QR login" />
+            </Form.Item>
+            <Form.Item name="uin" label="UIN">
+              <Input placeholder="Optional fixed X-WECHAT-UIN seed" />
+            </Form.Item>
+            <Form.Item name="poll_timeout_ms" label="Poll Timeout (ms)">
+              <InputNumber min={5000} step={1000} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="request_timeout_ms" label="Request Timeout (ms)">
+              <InputNumber min={1000} step={1000} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="typing_enabled"
+              label="Typing Enabled"
+              valuePropName="checked"
+            >
+              <Switch />
             </Form.Item>
           </>
         );

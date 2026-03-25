@@ -1,5 +1,12 @@
 import { request } from "../request";
-import type { ChannelConfig, SingleChannelConfig } from "../types";
+import type {
+  ChannelConfig,
+  SingleChannelConfig,
+  WechatQrStartRequest,
+  WechatQrStartResponse,
+  WechatQrWaitRequest,
+  WechatQrWaitResponse,
+} from "../types";
 
 export const channelApi = {
   listChannelTypes: () => request<string[]>("/config/channels/types"),
@@ -25,4 +32,16 @@ export const channelApi = {
         body: JSON.stringify(body),
       },
     ),
+
+  startWechatQrLogin: (body: WechatQrStartRequest = {}) =>
+    request<WechatQrStartResponse>("/wechat/login/qr/start", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  waitWechatQrLogin: (body: WechatQrWaitRequest) =>
+    request<WechatQrWaitResponse>("/wechat/login/qr/wait", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

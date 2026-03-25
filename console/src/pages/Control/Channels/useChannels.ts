@@ -42,6 +42,8 @@ export function useChannels() {
       "telegram",
       "qq",
       "matrix",
+      "wecom",
+      "wechat",
       "xiaoyi",
     ],
     [],

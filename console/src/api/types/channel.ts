@@ -110,6 +110,46 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface WechatConfig extends BaseChannelConfig {
+  base_url: string;
+  bot_token: string;
+  uin?: string;
+  poll_timeout_ms?: number;
+  request_timeout_ms?: number;
+  state_dir?: string;
+  media_dir?: string;
+  cdn_base_url?: string;
+  max_send_retries?: number;
+  typing_enabled?: boolean;
+}
+
+export interface WechatQrStartRequest {
+  base_url?: string;
+  bot_type?: string;
+  force?: boolean;
+}
+
+export interface WechatQrStartResponse {
+  session_key: string;
+  qrcode_url: string;
+  qrcode_text?: string;
+  message: string;
+  expires_in_seconds: number;
+}
+
+export interface WechatQrWaitRequest {
+  session_key: string;
+  timeout_ms?: number;
+}
+
+export interface WechatQrWaitResponse {
+  connected: boolean;
+  status: string;
+  message: string;
+  account_id?: string;
+  user_id?: string;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -123,6 +163,7 @@ export interface ChannelConfig {
   wecom: WecomConfig;
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
+  wechat: WechatConfig;
   xiaoyi: XiaoYiConfig;
 }
 
@@ -139,4 +180,5 @@ export type SingleChannelConfig =
   | MattermostConfig
   | WecomConfig
   | VoiceChannelConfig
+  | WechatConfig
   | XiaoYiConfig;

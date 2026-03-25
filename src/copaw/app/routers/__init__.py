@@ -14,12 +14,15 @@ from .envs import router as envs_router
 from .ollama_models import router as ollama_models_router
 from .mcp import router as mcp_router
 from .tools import router as tools_router
+from .files import router as files_router
 from ..crons.api import router as cron_router
 from ..runner.api import router as runner_router
 from .console import router as console_router
+from .channel_send import router as channel_send_router
 from .token_usage import router as token_usage_router
 from .auth import router as auth_router
 from .messages import router as messages_router
+from .wechat import router as wechat_router
 
 router = APIRouter()
 
@@ -27,6 +30,7 @@ router.include_router(agents_router)
 router.include_router(agent_router)
 router.include_router(config_router)
 router.include_router(console_router)
+router.include_router(channel_send_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)
 router.include_router(mcp_router)
@@ -41,6 +45,8 @@ router.include_router(workspace_router)
 router.include_router(envs_router)
 router.include_router(token_usage_router)
 router.include_router(auth_router)
+router.include_router(files_router)
+router.include_router(wechat_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

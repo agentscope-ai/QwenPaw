@@ -502,6 +502,63 @@ Find `wecom` and fill in the corresponding information, for example:
 
 ---
 
+## WeChat
+
+CoPaw talks to **personal WeChat** through the **OpenClaw (ilink) HTTP JSON API**: it long-polls `ilink/bot/getupdates` for inbound traffic and uses `ilink/bot/sendmessage` (and related endpoints) for replies and media. This is **not** the same as **[WeCom](#WeCom-WeChat-Work)** (`wecom`), which targets WeChat Work. For personal WeChat you complete QR login (or your OpenClaw deployment’s flow) to obtain a **Bot Token**.
+
+### Prerequisites
+
+- A reachable **OpenClaw / ilink Base URL** (for example `https://ilinkai.weixin.qq.com`, use the URL your deployment actually exposes).
+- The **`cryptography`** package (`pip install cryptography`) for AES when decrypting inbound CDN media and for upload-side crypto.
+
+### Configure in the Console (recommended)
+
+1. Start CoPaw (`copaw app`) and open the [Console](./console) → **Control → Channels**.
+2. Open the **WeChat** card, click **Log in to WeChat** (or equivalent), and scan the QR code with WeChat.
+
+   ![img.png](img.png)
+
+3. After login, **Bot Token** is filled in automatically; confirm **Base URL** matches your ilink gateway.
+4. Save; config is written back and the channel reloads.
+
+Optional fields: **UIN** (fixed seed for `X-WECHAT-UIN`; leave empty for a stable random identity), **Poll Timeout / Request Timeout**, **Typing Enabled** (whether to send typing indicators).
+
+### Edit config.json manually
+
+Under `channels.wechat` in `~/.copaw/config.json`, for example:
+
+```json
+"wechat": {
+  "enabled": true,
+  "bot_prefix": "[BOT]",
+  "base_url": "https://ilinkai.weixin.qq.com",
+  "bot_token": "filled by the Console after QR login or copied from backend",
+  "uin": "",
+  "poll_timeout_ms": 35000,
+  "request_timeout_ms": 15000,
+  "state_dir": "",
+  "media_dir": "",
+  "cdn_base_url": "",
+  "max_send_retries": 3,
+  "typing_enabled": true
+}
+```
+
+| Field                  | Description                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **base_url**           | Root URL of the OpenClaw ilink API (required); no extra path suffix.                                                            |
+| **bot_token**          | Auth token; usually filled automatically after Console login.                                                                   |
+| **uin**                | Optional identity seed; if empty, a stable fallback is used.                                                                    |
+| **poll_timeout_ms**    | Long-poll timeout for `getupdates` (default 35000).                                                                             |
+| **request_timeout_ms** | Default HTTP request timeout (default 15000).                                                                                   |
+| **state_dir**          | Directory for `get_updates_buf`, per-user `context_token`, etc.; default `~/.copaw/state/wechat` if empty.                      |
+| **media_dir**          | Media working directory; default under the working dir. Inbound CDN files are stored under `media_dir/inbound/`.                |
+| **cdn_base_url**       | WeChat C2C CDN origin; if empty, defaults to `https://novac2c.cdn.weixin.qq.com/c2c`. Set only if you use a different CDN base. |
+| **max_send_retries**   | Max retries when sending fails (default 3).                                                                                     |
+| **typing_enabled**     | Whether to send typing indicators before replies (default true).                                                                |
+
+---
+
 ## Telegram
 
 ### Get Telegram bot credentials
@@ -744,18 +801,19 @@ The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over Web
 
 ### Config overview
 
-| Channel    | Config key | Main fields                                                             |
-| ---------- | ---------- | ----------------------------------------------------------------------- |
-| DingTalk   | dingtalk   | client_id, client_secret                                                |
-| Feishu     | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir |
-| iMessage   | imessage   | db_path, poll_sec (macOS only)                                          |
-| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
-| QQ         | qq         | app_id, client_secret                                                   |
-| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
-| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
-| Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
-| Matrix     | matrix     | homeserver, user_id, access_token                                       |
-| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                       |
+| Channel           | Config key | Main fields                                                                            |
+| ----------------- | ---------- | -------------------------------------------------------------------------------------- |
+| DingTalk          | dingtalk   | client_id, client_secret                                                               |
+| Feishu            | feishu     | app_id, app_secret; optional encrypt_key, verification_token, media_dir                |
+| iMessage          | imessage   | db_path, poll_sec (macOS only)                                                         |
+| Discord           | discord    | bot_token; optional http_proxy, http_proxy_auth                                        |
+| QQ                | qq         | app_id, client_secret                                                                  |
+| WeChat (personal) | wechat     | base_url, bot_token; optional uin, cdn_base_url, state_dir, media_dir, poll_timeout_ms |
+| WeCom             | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                             |
+| Telegram          | telegram   | bot_token; optional http_proxy, http_proxy_auth                                        |
+| Mattermost        | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from                            |
+| Matrix            | matrix     | homeserver, user_id, access_token                                                      |
+| XiaoYi            | xiaoyi     | ak, sk, agent_id; optional ws_url                                                      |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section at the top of this page.
 
@@ -768,18 +826,19 @@ video, audio, and file varies by channel.
 **✓** = supported. **🚧** = under construction (implementable but not yet
 done). **✗** = not supported (not possible on this channel).
 
-| Channel    | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
-| ---------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
-| DingTalk   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
-| QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
-| Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| XiaoYi     | ✓         | ✓          | ✗          | ✗          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Channel           | Recv text | Recv image | Recv video | Recv audio | Recv file | Send text | Send image | Send video | Send audio | Send file |
+| ----------------- | --------- | ---------- | ---------- | ---------- | --------- | --------- | ---------- | ---------- | ---------- | --------- |
+| DingTalk          | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Feishu            | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Discord           | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| iMessage          | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
+| QQ                | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeChat (personal) | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | 🚧         | ✓         |
+| WeCom             | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Telegram          | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Mattermost        | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
+| Matrix            | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| XiaoYi            | ✓         | ✓          | ✗          | ✗          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 
 Notes:
 
@@ -794,6 +853,7 @@ Notes:
   possible on this channel).
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
+- **WeChat (personal)**: Long-poll inbound; images / video / voice / files are fetched from WeChat CDN, decrypted, and written to local paths; sending supports text, image, video, and file; outbound voice is 🚧.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
