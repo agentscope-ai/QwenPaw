@@ -568,7 +568,17 @@
     "modelTestFailedConfirm": "模型连接测试失败：{{message}}。是否仍要添加此模型？",
     "autoDiscoveredAndAdded": "已自动获取 {{count}} 个模型，并新增 {{added}} 个到可选列表",
     "autoDiscoveredNoNew": "已自动获取 {{count}} 个模型，当前列表已是最新",
-    "autoDiscoverFailed": "自动获取模型失败，可在模型管理中手动添加"
+    "autoDiscoverFailed": "自动获取模型失败，可在模型管理中手动添加",
+    "tagImage": "图片",
+    "tagVideo": "视频",
+    "tagTextOnly": "纯文本",
+    "probeMultimodal": "测试多模态",
+    "probeImage": "图片",
+    "probeVideo": "视频",
+    "probeSupported": "支持: {{types}}",
+    "probeNotSupported": "该模型不支持多模态输入",
+    "probeFailed": "探测失败",
+    "tagNotProbed": "未检测"
   },
   "agentConfig": {
     "title": "运行配置",
@@ -704,7 +714,13 @@
     "prompt2": "能告诉我你有哪些技能吗？",
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
-      "fileSizeLimit": "单文件不超过10MB"
+      "tooltipImageOnly": "当前模型仅支持图片上传，单文件不超过10MB",
+      "tooltipNoMultimodal": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理，单文件不超过10MB",
+      "fileSizeLimit": "单文件不超过10MB",
+      "multimodalDisabled": "当前模型不支持文件上传",
+      "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
+      "imageOnlyAccept": "当前模型仅支持图片文件",
+      "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
     }
   },
   "security": {

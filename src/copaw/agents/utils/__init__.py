@@ -23,7 +23,7 @@ from .message_processing import (
 )
 
 # Setup utilities
-from .setup_utils import copy_md_files
+from .setup_utils import copy_builtin_qa_md_files, copy_md_files
 
 # Token counting
 from .copaw_token_counter import get_copaw_token_counter
@@ -47,6 +47,7 @@ __all__ = [
     "is_first_user_interaction",
     "prepend_to_message_content",
     # Setup utilities
+    "copy_builtin_qa_md_files",
     "copy_md_files",
     # Token counting
     "get_copaw_token_counter",

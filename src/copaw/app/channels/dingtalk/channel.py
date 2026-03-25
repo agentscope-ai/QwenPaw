@@ -116,6 +116,7 @@ class DingTalkChannel(BaseChannel):
         deny_message: str = "",
         filter_thinking: bool = False,
         require_mention: bool = False,
+        card_auto_layout: bool = False,
     ):
         super().__init__(
             process,
@@ -137,6 +138,7 @@ class DingTalkChannel(BaseChannel):
         self.card_template_id = card_template_id or ""
         self.card_template_key = card_template_key or "content"
         self.robot_code = robot_code or self.client_id
+        self.card_auto_layout = card_auto_layout
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -212,6 +214,8 @@ class DingTalkChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=os.getenv("DINGTALK_DENY_MESSAGE", ""),
             require_mention=os.getenv("DINGTALK_REQUIRE_MENTION", "0") == "1",
+            card_auto_layout=os.getenv("DINGTALK_CARD_AUTO_LAYOUT", "0")
+            == "1",
         )
 
     @classmethod
@@ -248,6 +252,7 @@ class DingTalkChannel(BaseChannel):
             deny_message=config.deny_message or "",
             filter_thinking=filter_thinking,
             require_mention=config.require_mention,
+            card_auto_layout=getattr(config, "card_auto_layout", False),
         )
 
     # ---------------------------
@@ -1910,10 +1915,13 @@ class DingTalkChannel(BaseChannel):
             or ""
         )
         is_group = bool(meta.get("is_group"))
+        card_param_map: Dict[str, Any] = {self.card_template_key: ""}
+        if self.card_auto_layout:
+            card_param_map["config"] = json.dumps({"autoLayout": True})
         create_payload: Dict[str, Any] = {
             "cardTemplateId": self.card_template_id,
             "outTrackId": card_instance_id,
-            "cardData": {"cardParamMap": {self.card_template_key: ""}},
+            "cardData": {"cardParamMap": card_param_map},
             "callbackType": "STREAM",
             "imGroupOpenSpaceModel": {"supportForward": True},
             "imRobotOpenSpaceModel": {"supportForward": True},

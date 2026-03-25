@@ -65,6 +65,7 @@ class DingTalkConfig(BaseChannelConfig):
     card_template_key: str = "content"
     robot_code: str = ""
     media_dir: Optional[str] = None
+    card_auto_layout: bool = False
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -85,6 +86,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    max_reconnect_attempts: int = 100
 
 
 class TelegramConfig(BaseChannelConfig):
@@ -260,7 +262,7 @@ class AgentsRunningConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     max_iters: int = Field(
-        default=50,
+        default=100,
         ge=1,
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
@@ -770,6 +772,28 @@ class ToolsConfig(BaseModel):
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
         return self
+
+
+def build_qa_agent_tools_config() -> ToolsConfig:
+    """Tools preset for builtin ``default_qa_agent`` (first workspace init).
+
+    Only these are enabled: execute_shell_command, read_file, edit_file,
+    write_file, view_image. All other built-ins are disabled.
+    """
+    allow = frozenset(
+        {
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "view_image",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
 
 
 class ToolGuardRuleConfig(BaseModel):

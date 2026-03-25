@@ -338,6 +338,46 @@ async def add_model_endpoint(
     return provider
 
 
+class ProbeMultimodalResponse(BaseModel):
+    supports_image: bool = Field(
+        default=False,
+        description="Whether the model supports image input",
+    )
+    supports_video: bool = Field(
+        default=False,
+        description="Whether the model supports video input",
+    )
+    supports_multimodal: bool = Field(
+        default=False,
+        description="Whether the model supports any multimodal input",
+    )
+    image_message: str = Field(
+        default="",
+        description="Probe result message for image support",
+    )
+    video_message: str = Field(
+        default="",
+        description="Probe result message for video support",
+    )
+
+
+@router.post(
+    "/{provider_id}/models/{model_id:path}/probe-multimodal",
+    response_model=ProbeMultimodalResponse,
+    summary="Probe model multimodal capability",
+)
+async def probe_model_multimodal(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    model_id: str = Path(...),
+) -> ProbeMultimodalResponse:
+    """Probe image and video support by sending lightweight test requests."""
+    result = await manager.probe_model_multimodal(provider_id, model_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return ProbeMultimodalResponse(**result)
+
+
 @router.delete(
     "/{provider_id}/models/{model_id:path}",
     response_model=ProviderInfo,

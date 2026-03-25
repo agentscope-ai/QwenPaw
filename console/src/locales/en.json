@@ -602,7 +602,17 @@
     "modelTestFailedConfirm": "Model connection test failed: {{message}}. Do you still want to add this model?",
     "autoDiscoveredAndAdded": "Auto-discovered {{count}} models and added {{added}} new model(s)",
     "autoDiscoveredNoNew": "Auto-discovered {{count}} models; model list is already up to date",
-    "autoDiscoverFailed": "Automatic model discovery failed; you can add models manually"
+    "autoDiscoverFailed": "Automatic model discovery failed; you can add models manually",
+    "tagImage": "Image",
+    "tagVideo": "Video",
+    "tagTextOnly": "Text Only",
+    "probeMultimodal": "Test Multimodal",
+    "probeImage": "Image",
+    "probeVideo": "Video",
+    "probeSupported": "Supported: {{types}}",
+    "probeNotSupported": "This model does not support multimodal input",
+    "probeFailed": "Probe failed",
+    "tagNotProbed": "Not Probed"
   },
   "agentConfig": {
     "title": "Configuration",
@@ -738,7 +748,13 @@
     "prompt2": "Can you tell me what skills you have?",
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
-      "fileSizeLimit": "Single file cannot exceed 10MB"
+      "tooltipImageOnly": "Current model supports image upload only, single file up to 10MB",
+      "tooltipNoMultimodal": "No multimodal capability detected for current model, images or videos may not be processed correctly. Single file up to 10MB",
+      "fileSizeLimit": "Single file cannot exceed 10MB",
+      "multimodalDisabled": "Current model does not support file upload",
+      "multimodalWarning": "No multimodal capability detected for current model, images or videos may not be processed correctly",
+      "imageOnlyAccept": "Current model only supports image files",
+      "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     }
   },
   "security": {

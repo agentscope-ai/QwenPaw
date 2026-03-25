@@ -554,7 +554,17 @@
     "modelTestFailedConfirm": "モデルの接続テストに失敗しました: {{message}}。このモデルを追加しますか？",
     "autoDiscoveredAndAdded": "{{count}} 件のモデルを自動検出し、{{added}} 件の新規モデルを追加しました",
     "autoDiscoveredNoNew": "{{count}} 件のモデルを自動検出しました。モデルリストはすでに最新です",
-    "autoDiscoverFailed": "モデルの自動検出に失敗しました。手動でモデルを追加できます"
+    "autoDiscoverFailed": "モデルの自動検出に失敗しました。手動でモデルを追加できます",
+    "tagImage": "画像",
+    "tagVideo": "動画",
+    "tagTextOnly": "テキストのみ",
+    "tagNotProbed": "未検出",
+    "probeMultimodal": "マルチモーダルテスト",
+    "probeImage": "画像",
+    "probeVideo": "動画",
+    "probeSupported": "対応: {{types}}",
+    "probeNotSupported": "このモデルはマルチモーダル入力に対応していません",
+    "probeFailed": "検出に失敗しました"
   },
   "agentConfig": {
     "title": "設定",
@@ -690,7 +700,13 @@
     "prompt2": "あなたのスキルを教えてください。",
     "attachments": {
       "tooltip": "ドキュメント、画像、動画、音声など、様々な形式に対応。1ファイルあたり最大10MB",
-      "fileSizeLimit": "1ファイルあたり最大10MB"
+      "tooltipImageOnly": "現在のモデルは画像アップロードのみ対応、1ファイルあたり最大10MB",
+      "tooltipNoMultimodal": "現在のモデルにマルチモーダル機能が検出されていません。画像や動画が正しく処理されない場合があります。1ファイルあたり最大10MB",
+      "fileSizeLimit": "1ファイルあたり最大10MB",
+      "multimodalDisabled": "現在のモデルはファイルアップロードに対応していません",
+      "multimodalWarning": "現在のモデルにマルチモーダル機能が検出されていません。画像や動画が正しく処理されない場合があります",
+      "imageOnlyAccept": "現在のモデルは画像ファイルのみ対応しています",
+      "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     }
   },
   "security": {
