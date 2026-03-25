@@ -71,6 +71,8 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   mattermost: "https://copaw.agentscope.io/docs/channels/?lang=en#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/?lang=en#Matrix",
   wecom: "https://copaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
+  weixin:
+    "https://copaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
@@ -88,6 +90,8 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   mattermost: "https://copaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/?lang=zh#Matrix",
   wecom: "https://copaw.agentscope.io/docs/channels/?lang=zh#企业微信",
+  weixin:
+    "https://copaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
