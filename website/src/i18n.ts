@@ -33,6 +33,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "features.private.title": "由你掌控",
     "features.private.desc":
       "记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。",
+    "features.multiagent.title": "多智能体",
+    "features.multiagent.desc":
+      "创建多个独立智能体，各司其职；启用协作技能，智能体间可互相通信协作。",
     "features.skills.title": "Skills 扩展",
     "features.skills.desc": "内置定时任务，自定义技能目录，CoPaw 自动加载。",
     "testimonials.title": "社区怎么说",
@@ -165,6 +168,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "features.private.title": "Under your control",
     "features.private.desc":
       "Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders and collaboration to any channel.",
+    "features.multiagent.title": "Multi-Agent",
+    "features.multiagent.desc":
+      "Create multiple independent agents, each with their own specialty; enable collaboration skill for inter-agent communication.",
     "features.skills.title": "Skills",
     "features.skills.desc":
       "Built-in Cron; custom skills in your workspace, auto-loaded.",

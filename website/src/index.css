@@ -127,10 +127,22 @@ button {
 
 .usecases-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-4);
   margin-bottom: var(--space-5);
   text-align: left;
+}
+
+@media (max-width: 1024px) {
+  .usecases-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .usecases-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .usecases-card {
