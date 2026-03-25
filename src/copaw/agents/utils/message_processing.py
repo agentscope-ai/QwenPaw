@@ -140,6 +140,16 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
     src_dir = os.path.dirname(src_path) or "."
     fd, dst_path = tempfile.mkstemp(suffix=".wav", dir=src_dir)
     os.close(fd)
+
+    # AMR (AMR-NB/AMR-WB) used by QQ voice messages has non-standard
+    # encapsulation; increase analyzeduration and probesize so ffmpeg
+    # can correctly detect the codec before decoding.
+    amr_extra: list = (
+        ["-analyzeduration", "200M", "-probesize", "200M"]
+        if ext in (".amr", ".amr-wb")
+        else []
+    )
+
     try:
         subprocess.run(
             [
@@ -147,8 +157,11 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
                 "-y",
                 "-loglevel",
                 "error",
+                *amr_extra,
                 "-i",
                 src_path,
+                "-acodec",
+                "pcm_s16le",
                 "-ar",
                 "16000",
                 "-ac",
