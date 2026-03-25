@@ -41,6 +41,19 @@ type PipelineManagementData = {
   runs: RunItem[];
 };
 
+type PersistedPipelineDraftState = {
+  version: 1;
+  templates: TemplateItem[];
+  draftPipelineKeys: string[];
+  selectedPipelineKey: string;
+  selectedCurrentVersion: string;
+  selectedCompareVersion: string;
+  sourceFilter: "all" | "independent" | "project";
+  draftNewVersionSteps: ProjectPipelineTemplateStep[];
+  draftParseStatus: "idle" | "ready" | "error";
+  draftParseError: string;
+};
+
 type PipelineGroup = {
   key: string;
   id: string;
@@ -74,9 +87,6 @@ type DraftParseResult = {
   error?: string;
 };
 
-const PIPELINE_DRAFT_SCHEMA_HINT =
-  '{"schema_version":1,"steps":[{"id":"collect-input","name":"Collect Inputs","kind":"ingest","description":"..."}]}';
-
 type PipelineChatBindingMeta = {
   binding_type: "pipeline_edit";
   pipeline_binding_key: string;
@@ -88,6 +98,47 @@ type PipelineChatBindingMeta = {
 };
 
 const INDEPENDENT_PIPELINE_SCOPE_ID = "__independent__";
+const PIPELINE_DRAFT_STORAGE_PREFIX = "copaw:pipelines:drafts:";
+
+function getPipelineDraftStorageKey(agentId: string): string {
+  return `${PIPELINE_DRAFT_STORAGE_PREFIX}${agentId}`;
+}
+
+function readPipelineDraftState(agentId: string): PersistedPipelineDraftState | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(getPipelineDraftStorageKey(agentId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedPipelineDraftState;
+
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.templates)) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writePipelineDraftState(agentId: string, state: PersistedPipelineDraftState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(getPipelineDraftStorageKey(agentId), JSON.stringify(state));
+  } catch {
+    // Ignore localStorage quota or serialization failures.
+  }
+}
+
+function clearPipelineDraftState(agentId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(getPipelineDraftStorageKey(agentId));
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
 
 function getTemplateSourceKind(item: TemplateItem): "independent" | "project" {
   return item.projectId === INDEPENDENT_PIPELINE_SCOPE_ID ? "independent" : "project";
@@ -219,13 +270,6 @@ function parseJsonFromText(text: string): unknown | null {
   }
 
   return null;
-}
-
-function buildPipelineDraftHint(t: (key: string, fallback: string) => string): string {
-  return t(
-    "pipelines.realtimeDraftSchemaHint",
-    `请按 JSON 输出，格式示例：${PIPELINE_DRAFT_SCHEMA_HINT}`,
-  );
 }
 
 function getMetaString(meta: Record<string, unknown> | undefined, key: string): string {
@@ -598,8 +642,48 @@ export default function PipelinesPage() {
 
         if (!mounted) return;
 
-        setTemplates(data.templates);
+        const persisted = readPipelineDraftState(selectedAgent);
+        const persistedTemplates = (persisted?.templates || []).filter(
+          (item) => item.projectId === INDEPENDENT_PIPELINE_SCOPE_ID,
+        );
+        const mergedTemplates = [...persistedTemplates, ...data.templates.filter((item) => {
+          const key = buildPipelineGroupKey(item.id, getTemplateSourceKind(item));
+          return !persistedTemplates.some(
+            (draftItem) => buildPipelineGroupKey(draftItem.id, getTemplateSourceKind(draftItem)) === key,
+          );
+        })];
+
+        const restoredDraftKeys = (persisted?.draftPipelineKeys || []).filter((key) =>
+          mergedTemplates.some(
+            (item) => buildPipelineGroupKey(item.id, getTemplateSourceKind(item)) === key,
+          ),
+        );
+
+        setTemplates(mergedTemplates);
         setRuns(data.runs);
+        setDraftPipelineKeys(restoredDraftKeys);
+
+        if (persisted && restoredDraftKeys.length > 0) {
+          setSourceFilter(persisted.sourceFilter || "independent");
+          if (persisted.selectedPipelineKey) {
+            setSelectedPipelineKey(persisted.selectedPipelineKey);
+          }
+          if (persisted.selectedCurrentVersion) {
+            setSelectedCurrentVersion(persisted.selectedCurrentVersion);
+          }
+          if (persisted.selectedCompareVersion) {
+            setSelectedCompareVersion(persisted.selectedCompareVersion);
+          }
+          setDraftNewVersionSteps(persisted.draftNewVersionSteps || []);
+          setDraftParseStatus(persisted.draftParseStatus || "idle");
+          setDraftParseError(persisted.draftParseError || "");
+            message.info(
+              t(
+                "pipelines.localDraftRestored",
+                "已恢复本地未保存草稿。",
+              ),
+            );
+        }
       } catch (err) {
         console.error("failed to load pipeline management data", err);
         if (mounted) {
@@ -841,6 +925,43 @@ export default function PipelinesPage() {
   }, [runs, selectedPipeline]);
 
   useEffect(() => {
+    if (!selectedAgent) return;
+
+    const draftTemplates = templates.filter((item) =>
+      draftPipelineKeys.includes(buildPipelineGroupKey(item.id, getTemplateSourceKind(item))),
+    );
+
+    if (draftTemplates.length === 0) {
+      clearPipelineDraftState(selectedAgent);
+      return;
+    }
+
+    writePipelineDraftState(selectedAgent, {
+      version: 1,
+      templates: draftTemplates,
+      draftPipelineKeys,
+      selectedPipelineKey,
+      selectedCurrentVersion,
+      selectedCompareVersion,
+      sourceFilter,
+      draftNewVersionSteps,
+      draftParseStatus,
+      draftParseError,
+    });
+  }, [
+    draftNewVersionSteps,
+    draftParseError,
+    draftParseStatus,
+    draftPipelineKeys,
+    selectedAgent,
+    selectedCompareVersion,
+    selectedCurrentVersion,
+    selectedPipelineKey,
+    sourceFilter,
+    templates,
+  ]);
+
+  useEffect(() => {
     if (pipelineGroups.length === 0) {
       setSelectedPipelineKey("");
       setSelectedCurrentVersion("");
@@ -992,7 +1113,6 @@ export default function PipelinesPage() {
           version: targetVersion,
         },
       );
-      const editGuideWithSchema = `${editGuide}\n${buildPipelineDraftHint(t)}`;
 
       if (withEditMode) {
         const reusedInMemory =
@@ -1015,7 +1135,7 @@ export default function PipelinesPage() {
           setEditMode(true);
           setEditTargetKey(targetKey);
           setEditWelcomeMode(isEmptyNodes ? "init" : "default");
-          setEditGuidePlaceholder(editGuideWithSchema);
+          setEditGuidePlaceholder(editGuide);
 
           try {
             await injectPipelineContext(restored, normalizedTarget);
@@ -1057,7 +1177,7 @@ export default function PipelinesPage() {
         setEditMode(true);
         setEditTargetKey(targetKey);
         setEditWelcomeMode(isEmptyNodes ? "init" : "default");
-        setEditGuidePlaceholder(editGuideWithSchema);
+        setEditGuidePlaceholder(editGuide);
 
         try {
           await injectPipelineContext(created, normalizedTarget);
@@ -1231,7 +1351,7 @@ export default function PipelinesPage() {
     const isEmptyNodes = (currentTemplate.steps?.length || 0) === 0;
     setEditWelcomeMode(isEmptyNodes ? "init" : "default");
     setEditGuidePlaceholder(
-      `${t(
+      t(
         isEmptyNodes
           ? "pipelines.editInputPlaceholderInit"
           : "pipelines.editInputPlaceholder",
@@ -1242,7 +1362,7 @@ export default function PipelinesPage() {
           name: selectedPipeline.name || selectedPipeline.id || "unknown",
           version: currentTemplate.version || "latest",
         },
-      )}\n${buildPipelineDraftHint(t)}`,
+      ),
     );
 
     await handleOpenDesignChat(true, {
