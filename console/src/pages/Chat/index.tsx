@@ -4,9 +4,9 @@ import {
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Modal, Result, message } from "antd";
+import { Button, Modal, Result, Tooltip, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
-import { SparkCopyLine } from "@agentscope-ai/icons";
+import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -21,9 +21,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
 import styles from "./index.module.less";
-import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkAttachmentLine } from "@agentscope-ai/icons";
 import {
   copyText,
   extractCopyableText,
@@ -34,6 +32,12 @@ import {
   type RuntimeLoadingBridgeApi,
 } from "./utils";
 
+interface SessionInfo {
+  session_id?: string;
+  user_id?: string;
+  channel?: string;
+}
+
 interface CustomWindow extends Window {
   currentSessionId?: string;
   currentUserId?: string;
@@ -41,6 +45,13 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DEFAULT_USER_ID = "default";
+const DEFAULT_CHANNEL = "console";
 
 // ---------------------------------------------------------------------------
 // Custom hooks
@@ -256,9 +267,6 @@ export default function ChatPage() {
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
-  // Setup IME composition handling via custom hook
-  // (isComposingRef is managed by useIMEComposition)
-
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
@@ -312,7 +320,6 @@ export default function ChatPage() {
   }, []);
 
   // Setup multimodal capabilities tracking via custom hook
-  // (multimodalCaps is managed by useMultimodalCapabilities)
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -328,17 +335,6 @@ export default function ChatPage() {
     prevSelectedAgentRef.current = selectedAgent;
   }, [selectedAgent]);
 
-  const wrappedSessionApi = useMemo(
-    () => ({
-      getSessionList: sessionApi.getSessionList.bind(sessionApi),
-      getSession: sessionApi.getSession.bind(sessionApi),
-      createSession: sessionApi.createSession.bind(sessionApi),
-      updateSession: sessionApi.updateSession.bind(sessionApi),
-      removeSession: sessionApi.removeSession.bind(sessionApi),
-    }),
-    [],
-  );
-
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
       try {
@@ -353,8 +349,8 @@ export default function ChatPage() {
 
   const customFetch = useCallback(
     async (data: {
-      input?: any[];
-      biz_params?: any;
+      input?: Array<Record<string, unknown>>;
+      biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
       const headers: Record<string, string> = {
@@ -377,7 +373,7 @@ export default function ChatPage() {
       }
 
       const { input = [], biz_params } = data;
-      const session = input[input.length - 1]?.session || {};
+      const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const rewrittenInput =
@@ -393,8 +389,8 @@ export default function ChatPage() {
       const requestBody = {
         input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",
-        user_id: window.currentUserId || session?.user_id || "default",
-        channel: window.currentChannel || session?.channel || "console",
+        user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
+        channel: window.currentChannel || session?.channel || DEFAULT_CHANNEL,
         stream: true,
         ...biz_params,
       };
@@ -519,7 +515,7 @@ export default function ChatPage() {
           customRequest: handleFileUpload,
         },
       },
-      session: { multiple: true, api: wrappedSessionApi },
+      session: { multiple: true, api: sessionApi },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
@@ -544,8 +540,8 @@ export default function ChatPage() {
             body: JSON.stringify({
               reconnect: true,
               session_id: window.currentSessionId || data.session_id,
-              user_id: window.currentUserId || "default",
-              channel: window.currentChannel || "console",
+              user_id: window.currentUserId || DEFAULT_USER_ID,
+              channel: window.currentChannel || DEFAULT_CHANNEL,
             }),
             signal: data.signal,
           });
@@ -567,15 +563,7 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [
-    wrappedSessionApi,
-    customFetch,
-    copyResponse,
-    handleFileUpload,
-    t,
-    isDark,
-    multimodalCaps,
-  ]);
+  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
 
   return (
     <div
