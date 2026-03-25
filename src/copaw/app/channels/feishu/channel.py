@@ -534,7 +534,7 @@ class FeishuChannel(BaseChannel):
         # app_id matches this instance before dispatching to avoid handling
         # messages intended for a different workspace.
         header = getattr(data, "header", None)
-        event_app_id = getattr(header, "app_id", None) if header else None
+        event_app_id = getattr(header, "app_id", None)
         if event_app_id and event_app_id != self.app_id:
             logger.debug(
                 "feishu: drop misrouted event app_id=%s (expected %s)",
@@ -1759,8 +1759,6 @@ class FeishuChannel(BaseChannel):
             )
 
     def _run_ws_forever(self) -> None:
-        # lark-oapi ws.Client uses a module-level event loop; when start()
-        # runs in this thread it must use this thread's loop, not main's.
         self._ws_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._ws_loop)
         old_ws_client_loop = None
@@ -1771,56 +1769,54 @@ class FeishuChannel(BaseChannel):
         _WS_START_LOCK.acquire()  # pylint: disable=consider-using-with
         lock_released = False
         try:
-            import lark_oapi.ws.client as _lark_ws_mod
+            try:
+                import lark_oapi.ws.client as _lark_ws_mod
 
-            _ws_mod = _lark_ws_mod
-            # Save old loop value to restore later (for multi-instance)
-            old_ws_client_loop = getattr(_ws_mod, "loop", None)
-            _ws_mod.loop = self._ws_loop
+                _ws_mod = _lark_ws_mod
+                old_ws_client_loop = getattr(_ws_mod, "loop", None)
+                _ws_mod.loop = self._ws_loop
+                # Patch _select to release the lock once _connect() is done.
+                _orig_select = _ws_mod._select
+            except ImportError:
+                pass
 
-            # Patch _select to release the lock once _connect() is done.
-            _orig_select = _ws_mod._select
-        except ImportError:
-            pass
+            async def _patched_select() -> None:
+                nonlocal lock_released
+                if not lock_released:
+                    _WS_START_LOCK.release()
+                    lock_released = True
+                if _orig_select is not None:
+                    await _orig_select()
 
-        async def _patched_select() -> None:
-            nonlocal lock_released
-            if not lock_released:
-                _WS_START_LOCK.release()
-                lock_released = True
-            if _orig_select is not None:
-                await _orig_select()
-
-        _ws_mod._select = _patched_select
-        try:
-            if self._ws_client:
-                logger.info("feishu WebSocket connecting (long connection)...")
-                self._ws_client.start()
-        except RuntimeError as e:
-            # Normal shutdown: loop.stop() causes run_until_complete to raise
-            # "Event loop stopped before Future completed."
-            if "Event loop stopped" in str(e):
-                logger.debug("feishu WebSocket stopped normally: %s", e)
-            else:
+            _ws_mod._select = _patched_select
+            try:
+                if self._ws_client:
+                    logger.info(
+                        "feishu WebSocket connecting (long connection)...",
+                    )
+                    self._ws_client.start()
+            except RuntimeError as e:
+                # Normal shutdown: loop.stop() causes run_until_complete
+                # to raise "Event loop stopped before Future completed."
+                if "Event loop stopped" in str(e):
+                    logger.debug("feishu WebSocket stopped normally: %s", e)
+                else:
+                    logger.exception("feishu WebSocket thread failed")
+            except Exception:
                 logger.exception("feishu WebSocket thread failed")
-        except Exception:
-            logger.exception("feishu WebSocket thread failed")
         finally:
-            # Fallback: release the lock if start() raised before _select().
+            # Ensure the lock is always released (covers KeyboardInterrupt).
             if not lock_released:
                 try:
                     _WS_START_LOCK.release()
                 except RuntimeError:
                     pass
-            # Restore _select to avoid permanently patching the module.
             try:
                 _ws_mod._select = _orig_select
             except Exception:
                 pass
-            # Graceful cleanup: disconnect, cancel tasks, close loop
             if self._ws_loop and not self._ws_loop.is_closed():
                 try:
-                    # 1. Disconnect WebSocket
                     if self._ws_client and hasattr(
                         self._ws_client,
                         "_disconnect",
@@ -1837,8 +1833,6 @@ class FeishuChannel(BaseChannel):
                                 "feishu ws disconnect failed",
                                 exc_info=True,
                             )
-
-                    # 2. Cancel all running tasks
                     pending = [
                         t
                         for t in asyncio.all_tasks(self._ws_loop)
@@ -1853,16 +1847,11 @@ class FeishuChannel(BaseChannel):
                         logger.debug(f"feishu cancelled {len(pending)} tasks")
                 except Exception:
                     logger.debug("feishu ws cleanup failed", exc_info=True)
-
-            # Restore ws_client.loop to avoid affecting other instances.
             try:
-                # Only restore if current loop is still ours
                 if _ws_mod and getattr(_ws_mod, "loop", None) is self._ws_loop:
                     _ws_mod.loop = old_ws_client_loop
             except Exception:
                 pass
-
-            # Close event loop
             try:
                 if self._ws_loop and not self._ws_loop.is_closed():
                     self._ws_loop.close()
