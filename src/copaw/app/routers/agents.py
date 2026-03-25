@@ -375,7 +375,7 @@ async def toggle_agent_enabled(
 
     When enabling an agent:
     1. Update enabled field in config.json
-    2. Agent will be lazy-loaded when first requested
+    2. Agent will be started immediately
     """
     config = load_config()
 

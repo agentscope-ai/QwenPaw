@@ -54,13 +54,16 @@ async def get_agent_for_request(
     if not target_agent_id:
         target_agent_id = request.headers.get("X-Agent-Id")
 
+    # Load config once for fallback and validation
+    config = None
     if not target_agent_id:
         # Fallback to active agent from config
         config = load_config()
         target_agent_id = config.agents.active_agent or "default"
 
     # Check if agent exists and is enabled
-    config = load_config()
+    if config is None:
+        config = load_config()
     if target_agent_id not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
