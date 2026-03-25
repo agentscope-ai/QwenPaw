@@ -103,7 +103,7 @@ export default function AgentSelector() {
                 </div>
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
-                    <span>{agent.name}</span>
+                    <span className={styles.agentOptionNameText}>{agent.name}</span>
                     {agent.id === selectedAgent && (
                       <CheckCircle
                         size={14}
@@ -112,7 +112,7 @@ export default function AgentSelector() {
                       />
                     )}
                     {!agent.enabled && (
-                      <Tag color="default" style={{ marginLeft: 4 }}>
+                      <Tag color="error" style={{ margin: 0 }}>
                         {t("agent.disabled")}
                       </Tag>
                     )}

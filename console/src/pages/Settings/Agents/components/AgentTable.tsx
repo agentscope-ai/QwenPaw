@@ -44,7 +44,7 @@ export function AgentTable({
             }}
           />
           <span style={{ opacity: record.enabled ? 1 : 0.5 }}>{text}</span>
-          {!record.enabled && <Tag color="default">{t("agent.disabled")}</Tag>}
+          {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
         </Space>
       ),
     },
@@ -157,7 +157,6 @@ export function AgentTable({
           pageSize: 10,
           showSizeChanger: false,
         }}
-        rowClassName={(record) => (!record.enabled ? styles.disabledRow : "")}
       />
     </div>
   );
