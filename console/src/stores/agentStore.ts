@@ -43,11 +43,22 @@ export const useAgentStore = create<AgentStore>()(
       name: "copaw-agent-storage",
       storage: {
         getItem: (name) => {
-          const value = sessionStorage.getItem(name);
-          return value ? JSON.parse(value) : null;
+          try {
+            const value = sessionStorage.getItem(name);
+            return value ? JSON.parse(value) : null;
+          } catch (error) {
+            console.error(`Failed to parse agent storage "${name}":`, error);
+            // Remove corrupted data to prevent repeated errors
+            sessionStorage.removeItem(name);
+            return null;
+          }
         },
         setItem: (name, value) => {
-          sessionStorage.setItem(name, JSON.stringify(value));
+          try {
+            sessionStorage.setItem(name, JSON.stringify(value));
+          } catch (error) {
+            console.error(`Failed to save agent storage "${name}":`, error);
+          }
         },
         removeItem: (name) => {
           sessionStorage.removeItem(name);

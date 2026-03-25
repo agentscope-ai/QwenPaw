@@ -32,9 +32,19 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
         >>> save_agent_config(workspace.agent_id, agent_config)
         >>> schedule_agent_reload(request, workspace.agent_id)
     """
-    # Extract manager before creating background task
-    # to avoid accessing request after its lifecycle ends
-    manager: "MultiAgentManager" = request.app.state.multi_agent_manager
+    # Extract manager before creating background task (defensive)
+    manager: "MultiAgentManager" = getattr(
+        request.app.state,
+        "multi_agent_manager",
+        None,
+    )
+
+    if manager is None:
+        logger.warning(
+            f"Cannot schedule agent reload for '{agent_id}': "
+            "MultiAgentManager not initialized in app state",
+        )
+        return
 
     async def reload_in_background():
         try:
@@ -42,6 +52,7 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
         except Exception as e:
             logger.warning(
                 f"Background reload failed for agent '{agent_id}': {e}",
+                exc_info=True,
             )
 
     asyncio.create_task(reload_in_background())
