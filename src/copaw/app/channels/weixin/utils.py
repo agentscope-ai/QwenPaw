@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import random
-import struct
 from typing import Dict
 
 
@@ -76,11 +75,9 @@ def aes_ecb_decrypt(data: bytes, key_b64: str) -> bytes:
         raise ValueError(f"Invalid AES key length: {len(key)} (from key_b64={raw[:20]!r})")
     cipher = AES.new(key, AES.MODE_ECB)
     decrypted = cipher.decrypt(data)
-    # Remove PKCS7 padding
-    pad_len = decrypted[-1]
-    if 1 <= pad_len <= 16:
-        decrypted = decrypted[:-pad_len]
-    return decrypted
+    # Remove PKCS7 padding using pycryptodome's validated unpad
+    from Crypto.Util.Padding import unpad
+    return unpad(decrypted, AES.block_size)
 
 
 def aes_ecb_encrypt(data: bytes, key_b64: str) -> bytes:

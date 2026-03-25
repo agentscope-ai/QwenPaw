@@ -25,11 +25,14 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import base64 as _b64
+
 from agentscope_runtime.engine.schemas.agent_schemas import (
     AgentRequest,
     FileContent,
     ImageContent,
     TextContent,
+    VideoContent,
 )
 
 from ....constant import DEFAULT_MEDIA_DIR
@@ -449,7 +452,6 @@ class WeixinChannel(BaseChannel):
                     # Per official SDK: convert hex aeskey → base64 for unified decryption
                     aeskey_hex = img_item.get("aeskey", "")
                     if aeskey_hex:
-                        import base64 as _b64
                         aes_key = _b64.b64encode(bytes.fromhex(aeskey_hex)).decode()
                     else:
                         aes_key = media.get("aes_key", "")
@@ -519,9 +521,6 @@ class WeixinChannel(BaseChannel):
                             encrypt_query_param=encrypt_query_param,
                         )
                         if path:
-                            from agentscope_runtime.engine.schemas.agent_schemas import (
-                                VideoContent,
-                            )
                             content_parts.append(
                                 VideoContent(
                                     type=ContentType.VIDEO,
@@ -613,7 +612,9 @@ class WeixinChannel(BaseChannel):
                 "".join(c for c in filename_hint if c.isalnum() or c in "-_.")
                 or "media"
             )
-            url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+            url_hash = hashlib.md5(
+                (encrypt_query_param or url).encode()
+            ).hexdigest()[:8]
             path = self._media_dir / f"weixin_{url_hash}_{safe_name}"
             path.write_bytes(data)
             return str(path)
@@ -727,9 +728,8 @@ class WeixinChannel(BaseChannel):
         if not self.bot_token:
             self.bot_token = self._load_token_from_file()
 
-        # If still no token, do QR code login
+        # If still no token, do QR code login with a temporary client
         if not self.bot_token:
-            # Create a temporary client for the login flow
             login_client = ILinkClient(base_url=self._base_url)
             await login_client.start()
             try:
@@ -740,9 +740,17 @@ class WeixinChannel(BaseChannel):
                         "WeChat QR code login failed. "
                         "Please provide a valid bot_token in config."
                     )
-            finally:
+                # Login succeeded; login_client becomes the long-lived client
+            except Exception:
                 await login_client.stop()
                 self._client = None
+                raise
+        else:
+            # Token already known — create the long-lived client now
+            self._client = ILinkClient(
+                bot_token=self.bot_token, base_url=self._base_url
+            )
+            await self._client.start()
 
         self._loop = asyncio.get_running_loop()
         self._stop_event.clear()
@@ -771,5 +779,7 @@ class WeixinChannel(BaseChannel):
         if self._poll_thread:
             self._poll_thread.join(timeout=10)
         self._poll_thread = None
+        if self._client:
+            await self._client.stop()
         self._client = None
         logger.info("weixin channel stopped")

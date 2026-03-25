@@ -355,7 +355,8 @@
     "weixinBotTokenTooltip": "扫码登录后获取的 Bearer Token。留空时将在启动时引导扫码登录。",
     "weixinBotTokenPlaceholder": "扫码登录后自动填入，也可手动粘贴",
     "weixinBotTokenFile": "Token 文件路径",
-    "weixinBotTokenFileTooltip": "Token 持久化存储路径，默认为 ~/.copaw/weixin_bot_token"
+    "weixinBotTokenFileTooltip": "Token 持久化存储路径，默认为 ~/.copaw/weixin_bot_token",
+    "weixinMediaDir": "媒体文件目录"
   },
   "sessions": {
     "title": "会话",

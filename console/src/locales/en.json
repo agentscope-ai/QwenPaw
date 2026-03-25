@@ -389,7 +389,8 @@
     "weixinBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
     "weixinBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",
     "weixinBotTokenFile": "Token File Path",
-    "weixinBotTokenFileTooltip": "Path to persist the bot token. Defaults to ~/.copaw/weixin_bot_token"
+    "weixinBotTokenFileTooltip": "Path to persist the bot token. Defaults to ~/.copaw/weixin_bot_token",
+    "weixinMediaDir": "Media Directory"
   },
   "sessions": {
     "title": "Sessions",

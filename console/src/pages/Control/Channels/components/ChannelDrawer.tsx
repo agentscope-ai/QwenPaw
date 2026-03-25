@@ -425,7 +425,7 @@ export function ChannelDrawer({
             <Form.Item name="verification_token" label="Verification Token">
               <Input placeholder="Optional" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
             </Form.Item>
           </>
@@ -595,7 +595,7 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Mattermost bot token" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media/mattermost" />
             </Form.Item>
             <Form.Item
@@ -703,7 +703,7 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Secret from WeCom backend" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
             </Form.Item>
             <Form.Item
@@ -779,7 +779,7 @@ export function ChannelDrawer({
             >
               <Input placeholder="~/.copaw/weixin_bot_token" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
             </Form.Item>
           </>

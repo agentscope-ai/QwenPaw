@@ -341,7 +341,8 @@
     "weixinBotTokenTooltip": "QRコードログイン後に取得したBearerトークン。空の場合は起動時にQRコードログインが案内されます。",
     "weixinBotTokenPlaceholder": "QRログイン後に自動入力、または手動で貼り付け",
     "weixinBotTokenFile": "Tokenファイルパス",
-    "weixinBotTokenFileTooltip": "Botトークンの保存パス。デフォルトは ~/.copaw/weixin_bot_token"
+    "weixinBotTokenFileTooltip": "Botトークンの保存パス。デフォルトは ~/.copaw/weixin_bot_token",
+    "weixinMediaDir": "メディアディレクトリ"
   },
   "sessions": {
     "title": "セッション",
