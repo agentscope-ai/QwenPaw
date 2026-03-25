@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
@@ -26,22 +26,28 @@ export const useAgentsData = () => {
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<"core" | "all">("core");
+  // Track previous agent to distinguish agent-switch vs viewMode-switch
+  const prevAgentRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const initializeData = async () => {
-      // Remember currently selected file name
       const previouslySelectedFilename = selectedFile?.filename;
+      const isAgentSwitch = selectedAgent !== prevAgentRef.current;
+      prevAgentRef.current = selectedAgent;
 
-      // Clear content first
-      setFileContent("");
-      setOriginalContent("");
-      setExpandedMemory(false);
+      // When switching agents, clear everything including content and memory expansion
+      if (isAgentSwitch) {
+        setFileContent("");
+        setOriginalContent("");
+        setExpandedMemory(false);
+      }
 
-      const enabled = await fetchEnabledFiles();
-      const fileList = await agentsApi.listAgentFiles(
-        selectedAgent,
-        viewMode === "all",
-      );
+      // Fetch enabled files and file list concurrently
+      const [enabled, fileList] = await Promise.all([
+        fetchEnabledFiles(),
+        agentsApi.listAgentFiles(selectedAgent, viewMode === "all"),
+      ]);
+
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -55,17 +61,24 @@ export const useAgentsData = () => {
         setWorkspacePath("");
       }
 
-      // Try to re-select the same file in new workspace
       if (previouslySelectedFilename) {
         const sameFile = sortedFiles.find(
           (f) => f.filename === previouslySelectedFilename,
         );
         if (sameFile) {
-          // Auto-load the same file from new workspace
-          await handleFileClick(sameFile);
+          if (isAgentSwitch) {
+            // Agent switched: re-load file content from the new agent's workspace
+            await handleFileClick(sameFile);
+          } else {
+            // viewMode switched: file list changed but content is unchanged,
+            // just update the file reference (metadata may differ)
+            setSelectedFile(sameFile);
+          }
         } else {
-          // File doesn't exist in new workspace, clear selection
+          // File no longer visible in this view (e.g. all→core hides non-core files)
           setSelectedFile(null);
+          setFileContent("");
+          setOriginalContent("");
         }
       } else {
         setSelectedFile(null);
