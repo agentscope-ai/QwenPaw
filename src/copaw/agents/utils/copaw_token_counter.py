@@ -179,32 +179,28 @@ def get_copaw_token_counter(
         Token counters are cached by their configuration tuple to enable
         reuse across agents with identical settings.
     """
-    running_config = agent_config.running
+    cc = agent_config.running.context_compact
     config_key = (
-        running_config.token_count_model,
-        running_config.token_count_use_mirror,
+        cc.token_count_model,
+        cc.token_count_use_mirror,
     )
 
     if config_key not in _token_counter_cache:
         _token_counter_cache[config_key] = CopawTokenCounter(
-            token_count_model=running_config.token_count_model,
-            token_count_use_mirror=running_config.token_count_use_mirror,
-            token_count_estimate_divisor=(
-                running_config.token_count_estimate_divisor
-            ),
+            token_count_model=cc.token_count_model,
+            token_count_use_mirror=cc.token_count_use_mirror,
+            token_count_estimate_divisor=cc.token_count_estimate_divisor,
         )
         logger.info(
             f"Token counter created with "
-            f"model={running_config.token_count_model}, "
-            f"mirror={running_config.token_count_use_mirror}, "
-            f"divisor={running_config.token_count_estimate_divisor}",
+            f"model={cc.token_count_model}, "
+            f"mirror={cc.token_count_use_mirror}, "
+            f"divisor={cc.token_count_estimate_divisor}",
         )
     else:
         # Update estimate divisor for cached counter
         _token_counter_cache[
             config_key
-        ].token_count_estimate_divisor = (
-            running_config.token_count_estimate_divisor
-        )
+        ].token_count_estimate_divisor = cc.token_count_estimate_divisor
 
     return _token_counter_cache[config_key]

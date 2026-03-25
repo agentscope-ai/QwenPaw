@@ -1,4 +1,4 @@
-import { Form, InputNumber, Input, Card } from "@agentscope-ai/design";
+import { Form, InputNumber, Input, Card, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
@@ -114,8 +114,17 @@ export function ContextManagementCard({
       </Form.Item>
 
       <Form.Item
+        label={t("agentConfig.toolResultCompactEnabled")}
+        name={["tool_result_compact", "enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.toolResultCompactEnabledTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
         label={t("agentConfig.toolResultCompactRecentN")}
-        name="tool_result_compact_recent_n"
+        name={["tool_result_compact", "recent_n"]}
         rules={[
           {
             required: true,
@@ -134,7 +143,7 @@ export function ContextManagementCard({
 
       <Form.Item
         label={t("agentConfig.toolResultCompactOldThreshold")}
-        name="tool_result_compact_old_threshold"
+        name={["tool_result_compact", "old_max_bytes"]}
         rules={[
           {
             required: true,
@@ -155,7 +164,7 @@ export function ContextManagementCard({
 
       <Form.Item
         label={t("agentConfig.toolResultCompactRecentThreshold")}
-        name="tool_result_compact_recent_threshold"
+        name={["tool_result_compact", "recent_max_bytes"]}
         rules={[
           {
             required: true,
@@ -176,7 +185,7 @@ export function ContextManagementCard({
 
       <Form.Item
         label={t("agentConfig.toolResultCompactRetentionDays")}
-        name="tool_result_compact_retention_days"
+        name={["tool_result_compact", "retention_days"]}
         rules={[
           {
             required: true,

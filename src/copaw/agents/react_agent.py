@@ -873,6 +873,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         return total_stripped
 
+    # pylint: disable=protected-access
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
@@ -910,6 +911,41 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Normal message processing
         logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
+
+        if hasattr(self.memory, "_long_term_memory"):
+            running = self._agent_config.running
+            if (
+                running.force_memory_search
+                and self.memory_manager is not None
+                and query
+            ):
+                try:
+                    result = await asyncio.wait_for(
+                        self.memory_manager.memory_search(
+                            query=query[:100],
+                            max_results=running.force_max_results,
+                            min_score=running.force_min_score,
+                        ),
+                        timeout=1,
+                    )
+                    self.memory._long_term_memory = "\n".join(
+                        block.text
+                        for block in (result.content or [])
+                        if hasattr(block, "text")
+                    )
+                except BaseException as e:
+                    logger.warning(
+                        "force_memory_search failed or timed out,"
+                        f" skipping e={e}",
+                    )
+                    self.memory._long_term_memory = (
+                        ""  # pylint: disable=protected-access
+                    )
+            else:
+                self.memory._long_term_memory = (
+                    ""  # pylint: disable=protected-access
+                )
+
         return await super().reply(msg=msg, structured_model=structured_model)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:

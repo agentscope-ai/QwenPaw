@@ -6,6 +6,14 @@ export interface AgentRequest {
   [key: string]: unknown;
 }
 
+export interface ToolResultCompactConfig {
+  enabled: boolean;
+  recent_n: number;
+  old_max_bytes: number;
+  recent_max_bytes: number;
+  retention_days: number;
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
   llm_retry_enabled: boolean;
@@ -15,8 +23,5 @@ export interface AgentsRunningConfig {
   max_input_length: number;
   memory_compact_ratio: number;
   memory_reserve_ratio: number;
-  tool_result_compact_recent_n: number;
-  tool_result_compact_old_threshold: number;
-  tool_result_compact_recent_threshold: number;
-  tool_result_compact_retention_days: number;
+  tool_result_compact: ToolResultCompactConfig;
 }

@@ -8,6 +8,7 @@ Extends ReMeLight to provide memory management capabilities including:
 - Vector and full-text search integration
 - Embedding configuration from environment variables
 """
+import importlib.metadata
 import json
 import logging
 import os
@@ -26,6 +27,8 @@ from copaw.config import load_config
 from copaw.config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+_EXPECTED_REME_VERSION = "0.3.1.4"
 
 # Try to import reme, log warning if it fails
 try:
@@ -80,6 +83,8 @@ class MemoryManager(ReMeLight):
         Note:
             Vector search requires api_key, base_url, and model_name.
         """
+        self._reme_version_ok: bool = self.check_reme_version()
+
         # Extract configuration from agent_config
         self.agent_id: str = agent_id
 
@@ -150,8 +155,53 @@ class MemoryManager(ReMeLight):
             return key
         return key[:5] + "*" * (len(key) - 5)
 
+    @staticmethod
+    def check_reme_version() -> bool:
+        """Check that the installed reme-ai version matches the expected
+        version.
+
+        Performs a one-time package metadata lookup. The result should be
+        cached
+        as ``self._reme_version_ok`` in ``__init__`` and reused via
+        ``_warn_if_version_mismatch()`` in subsequent method calls.
+
+        Returns:
+            True if the version matches or the package is not installed,
+            False if there is a version mismatch.
+        """
+        try:
+            installed = importlib.metadata.version("reme-ai")
+        except importlib.metadata.PackageNotFoundError:
+            return True
+
+        if installed != _EXPECTED_REME_VERSION:
+            logger.warning(
+                f"reme-ai version mismatch: installed={installed}, "
+                f"expected={_EXPECTED_REME_VERSION}. "
+                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}` "
+                "to align versions.",
+            )
+            return False
+
+        return True
+
+    def _warn_if_version_mismatch(self) -> None:
+        """Log a warning if the reme-ai version does not match expectations.
+
+        Uses the cached ``_reme_version_ok`` flag set during ``__init__``
+        to avoid repeated package metadata lookups.
+        """
+        if not self._reme_version_ok:
+            logger.warning(
+                "reme-ai version mismatch, "
+                f"expected={_EXPECTED_REME_VERSION}. "
+                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}` "
+                "to align versions.",
+            )
+
     def get_embedding_config(self) -> dict:
         """Get embedding config. Priority: config > env var > default."""
+        self._warn_if_version_mismatch()
         cfg = load_agent_config(self.agent_id).running.embedding_config
 
         # "use_dimensions is used because some models in vLLM
@@ -181,6 +231,7 @@ class MemoryManager(ReMeLight):
             Logs a warning if the model and formatter are not already
             initialized, as this indicates a potential configuration issue.
         """
+        self._warn_if_version_mismatch()
         if self.chat_model is None or self.formatter is None:
             logger.warning("Model and formatter not initialized.")
             chat_model, formatter = create_model_and_formatter(self.agent_id)
@@ -191,6 +242,7 @@ class MemoryManager(ReMeLight):
 
     async def restart_embedding_model(self):
         """Restart the embedding model with current config."""
+        self._warn_if_version_mismatch()
         emb_config = self.get_embedding_config()
         restart_config = {
             "embedding_models": {
@@ -215,12 +267,13 @@ class MemoryManager(ReMeLight):
         Returns:
             str: Condensed summary of the messages, empty string if invalid
         """
-
+        self._warn_if_version_mismatch()
         self.prepare_model_formatter()
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
-        add_thinking_block = agent_config.running.compact_with_thinking_block
+        cc = agent_config.running.context_compact
+        add_thinking_block = cc.compact_with_thinking_block
         workspace_dir = agent_config.workspace_dir
 
         result = await super().compact_memory(
@@ -230,7 +283,7 @@ class MemoryManager(ReMeLight):
             as_token_counter=token_counter,
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
-            compact_ratio=agent_config.running.memory_compact_ratio,
+            compact_ratio=cc.memory_compact_ratio,
             previous_summary=previous_summary,
             return_dict=True,
             add_thinking_block=add_thinking_block,
@@ -286,11 +339,13 @@ class MemoryManager(ReMeLight):
         Returns:
             str: Comprehensive summary of the messages
         """
+        self._warn_if_version_mismatch()
         self.prepare_model_formatter()
 
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
-        add_thinking_block = agent_config.running.compact_with_thinking_block
+        cc = agent_config.running.context_compact
+        add_thinking_block = cc.compact_with_thinking_block
         user_tz = load_config().user_timezone or None
 
         return await super().summary_memory(
@@ -301,7 +356,7 @@ class MemoryManager(ReMeLight):
             toolkit=self.summary_toolkit,
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
-            compact_ratio=agent_config.running.memory_compact_ratio,
+            compact_ratio=cc.memory_compact_ratio,
             timezone=user_tz,
             add_thinking_block=add_thinking_block,
         )
@@ -326,6 +381,7 @@ class MemoryManager(ReMeLight):
             ToolResponse containing the search results as TextBlock content,
             or an error message if ReMe has not been started.
         """
+        self._warn_if_version_mismatch()
         if not self._started:
             return ToolResponse(
                 content=[
@@ -351,9 +407,36 @@ class MemoryManager(ReMeLight):
         Returns:
             The in-memory memory content with token counting support
         """
+        self._warn_if_version_mismatch()
         agent_config = load_agent_config(self.agent_id)
         token_counter = get_copaw_token_counter(agent_config)
 
         return super().get_in_memory_memory(
             as_token_counter=token_counter,
         )
+
+    async def start(self):
+        """Start the application lifecycle."""
+        self._warn_if_version_mismatch()
+        return await super().start()
+
+    async def close(self) -> bool:
+        """Close the application and perform cleanup."""
+        self._warn_if_version_mismatch()
+        return await super().close()
+
+    async def compact_tool_result(self, **kwargs):
+        """Compact tool results by truncating large outputs."""
+        self._warn_if_version_mismatch()
+        return await super().compact_tool_result(**kwargs)
+
+    async def check_context(self, **kwargs):
+        """Check context size and determine if compaction is needed."""
+        self._warn_if_version_mismatch()
+        return await super().check_context(**kwargs)
+
+    def add_async_summary_task(self, **kwargs):
+        """Add an asynchronous background summary task for the given
+        messages."""
+        self._warn_if_version_mismatch()
+        return super().add_async_summary_task(**kwargs)
