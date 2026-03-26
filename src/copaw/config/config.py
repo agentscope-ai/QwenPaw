@@ -256,6 +256,47 @@ class EmbeddingConfig(BaseModel):
     )
 
 
+class AgentSessionConfig(BaseModel):
+    """Session governance configuration for an agent.
+
+    Controls turn limits, handoff manifest generation, and compression
+    metadata marking to manage long-running sessions.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    max_session_turns: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Maximum number of turns per session. 0 = unlimited. "
+            "When reached, agent warns user to start a new session."
+        ),
+    )
+    handoff_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether to generate a handoff manifest on compression "
+            "or when max_session_turns is reached."
+        ),
+    )
+    handoff_auto_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Generate handoff manifest every N turns automatically. "
+            "0 = only on compression or turn limit."
+        ),
+    )
+    compression_mark: bool = Field(
+        default=True,
+        description=(
+            "Whether to mark compressed messages with metadata "
+            "(original/new token counts, timestamp)."
+        ),
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -479,6 +520,10 @@ class AgentProfileConfig(BaseModel):
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
         description="Runtime configuration",
+    )
+    session: "AgentSessionConfig" = Field(
+        default_factory=lambda: AgentSessionConfig(),
+        description="Session governance configuration (turn limits, handoff)",
     )
     llm_routing: AgentsLLMRoutingConfig = Field(
         default_factory=AgentsLLMRoutingConfig,
