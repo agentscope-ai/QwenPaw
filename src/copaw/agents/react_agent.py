@@ -33,6 +33,13 @@ from .skills_manager import (
     list_available_skills,
 )
 from .tool_guard_mixin import ToolGuardMixin
+
+# Sandbox integration: fs_backend abstraction layer
+from .fs_backend import set_backend, reset_backend
+from .fs_backend.e2b_backend import E2BBackend
+from .fs_backend.agentscope_backend import AgentscopeBackend
+from .fs_backend.local_backend import LocalBackend
+from .fs_backend import tools as unified_tools
 from .tools import (
     browser_use,
     desktop_screenshot,
@@ -94,6 +101,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
+        sandbox: Optional[Any] = None,
     ):
         """Initialize CoPawAgent.
 
@@ -121,6 +129,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
+        self._sandbox = sandbox
+        self._setup_fs_backend(sandbox)
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -211,7 +221,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Map of tool functions
         tool_functions = {
-            "execute_shell_command": execute_shell_command,
+            "execute_shell_command": (
+                unified_tools.execute_shell_command
+                if self._sandbox
+                else execute_shell_command
+            ),
             "read_file": read_file,
             "write_file": write_file,
             "edit_file": edit_file,
@@ -313,6 +327,18 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             sys_prompt = sys_prompt + "\n\n" + self._env_context
 
         return sys_prompt
+
+    def _setup_fs_backend(self, sandbox):
+        """Set up fs_backend based on sandbox instance type."""
+        if sandbox is None:
+            set_backend(LocalBackend(working_dir=str(WORKING_DIR)))
+            return
+        from .sandbox.agentscope_provider import AgentscopeSandboxHandle
+
+        if isinstance(sandbox, AgentscopeSandboxHandle):
+            set_backend(AgentscopeBackend(sandbox))
+        else:
+            set_backend(E2BBackend(sandbox))
 
     def _setup_memory_manager(
         self,
