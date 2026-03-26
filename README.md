@@ -34,6 +34,8 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 >
 > **Under your control** — Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders to any channel.
 >
+> **Multi-Agent** — Create multiple independent agents, each with their own specialty; enable collaboration skill for inter-agent communication.
+>
 > **Skills** — Built-in cron; custom skills in your workspace, auto-loaded. No lock-in.
 >
 > <details>
@@ -373,6 +375,7 @@ copaw app # start the server
 | [Context](https://copaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
+| [Multi-Agent](https://copaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
 | [Config & working dir](https://copaw.agentscope.io/docs/config) | Working directory and config file                |
 | [CLI](https://copaw.agentscope.io/docs/cli)                            | Init, cron jobs, skills, clean                   |
 | [FAQ](https://copaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
@@ -453,6 +456,8 @@ pip install -e .
 
 - **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
 - **Then**: Run `copaw init --defaults`, then `copaw app`.
+
+> **Note for updates:** When updating to a new major version after `git pull`, please also rebuild the frontend, reinstall the package (`pip install -e .`), restart `copaw app`, and clear your browser cache with `Ctrl+Shift+R` (or `Cmd+Shift+R` on macOS).
 
 ---
 

@@ -120,12 +120,36 @@ export function buildModelError(): Response {
 // URL normalization utilities
 // ---------------------------------------------------------------------------
 
-/** Convert file URL to stored name format for backend. */
+/** Decode each path segment; keeps `/` delimiters (including repeated `/`). */
+function decodeUriPathSegments(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => {
+      if (!segment) return segment;
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+}
+
+/** Convert file URL to stored path for backend: keep full path after `/files/preview/`. */
 export function toStoredName(v: string): string {
-  const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-  if (m1) return m1[1];
-  const m2 = v.match(/^[^/]+\/(.+)$/);
-  if (m2) return m2[1];
+  const marker = "/files/preview/";
+  const idx = v.indexOf(marker);
+  if (idx !== -1) {
+    let rest = v.slice(idx + marker.length);
+    const q = rest.indexOf("?");
+    if (q !== -1) rest = rest.slice(0, q);
+    const h = rest.indexOf("#");
+    if (h !== -1) rest = rest.slice(0, h);
+    if (rest) {
+      const decoded = decodeUriPathSegments(rest);
+      return decoded.startsWith("/") ? decoded : `/${decoded}`;
+    }
+  }
   return v;
 }
 

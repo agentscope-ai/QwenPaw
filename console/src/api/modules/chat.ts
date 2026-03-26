@@ -1,5 +1,5 @@
 import { request } from "../request";
-import { getApiUrl } from "../config";
+import { getApiUrl, getApiToken } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
@@ -15,21 +15,7 @@ export interface ChatUploadResponse {
   stored_name?: string;
 }
 
-const CONSOLE_FILES_PREFIX = "/console/files";
-
-function getSelectedAgentId(): string {
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const id = parsed?.state?.selectedAgent;
-      if (id) return id;
-    }
-  } catch {
-    // ignore
-  }
-  return "";
-}
+const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
   /** Upload a file for chat attachment. Returns URL path for content. */
@@ -52,17 +38,19 @@ export const chatApi = {
     return response.json();
   },
 
-  /** Build full API URL for a console file. Backend returns filename only; agent_id from header/context (selectedAgent). */
-  fileUrl: (filename: string): string => {
+  filePreviewUrl: (filename: string): string => {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    const agentId = getSelectedAgentId() || "default";
-    const path = `${CONSOLE_FILES_PREFIX}/${agentId}/${filename.replace(
-      /^\/+/,
-      "",
-    )}`;
-    return getApiUrl(path);
+    const path = `${FILES_PREVIEW}/${filename.replace(/^\/+/, "")}`;
+    const url = getApiUrl(path);
+
+    const token = getApiToken();
+    if (token) {
+      return `${url}?token=${encodeURIComponent(token)}`;
+    }
+
+    return url;
   },
   listChats: (params?: { user_id?: string; channel?: string }) => {
     const searchParams = new URLSearchParams();

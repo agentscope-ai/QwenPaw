@@ -10,6 +10,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from ..utils import schedule_agent_reload
 from ...agents.skills_manager import (
     SkillService,
     SkillInfo,
@@ -605,18 +607,7 @@ async def disable_skill(
         shutil.rmtree(active_skill_dir)
 
         # Hot reload config (async, non-blocking)
-        # IMPORTANT: Get manager and agent_id before creating background task
-        # to avoid accessing request/workspace after their lifecycle ends
-        manager = request.app.state.multi_agent_manager
-        agent_id = workspace.agent_id
-
-        async def reload_in_background():
-            try:
-                await manager.reload_agent(agent_id)
-            except Exception as e:
-                logger.warning(f"Background reload failed: {e}")
-
-        asyncio.create_task(reload_in_background())
+        schedule_agent_reload(request, workspace.agent_id)
 
         return {"disabled": True}
 
@@ -677,18 +668,7 @@ async def enable_skill(
     shutil.copytree(source_dir, active_skill_dir)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    manager = request.app.state.multi_agent_manager
-    agent_id = workspace.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            logger.warning(f"Background reload failed: {e}")
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, workspace.agent_id)
 
     return {"enabled": True}
 

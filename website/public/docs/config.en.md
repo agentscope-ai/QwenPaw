@@ -16,7 +16,7 @@ By default, all config and data live in one folder — the **working directory**
 
 - **`~/.copaw`** (the `.copaw` folder under your home directory)
 
-Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run `copaw init`, the new structure looks like:
+Starting from **v0.1.0**, CoPaw supports **multi-agent**. When you run `copaw init`, the new structure looks like:
 
 ```
 ~/.copaw/
@@ -65,7 +65,7 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 > them based on your language choice (`zh` / `en` / `ru`). You can also
 > change the language later via the Console (Agent → Configuration).
 
-> **Multi-Agent Workspace:** See the [Multi-Agent Workspace](./multi-agent) documentation for details.
+> **Multi-Agent:** See the [Multi-Agent](./multi-agent) documentation for details.
 
 ---
 
@@ -501,7 +501,7 @@ Recommended to configure in `agent.json` under `running.embedding_config`, which
 - [Introduction](./intro) — What the project can do
 - [Channels](./channels) — How to fill in channels in config
 - [Heartbeat](./heartbeat) — How to fill in heartbeat in config
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration
 
 ---
 
