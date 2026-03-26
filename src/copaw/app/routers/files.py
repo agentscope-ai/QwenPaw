@@ -15,7 +15,9 @@ async def preview_file(
     filepath: str,
 ):
     """Preview file."""
-    path = Path(filepath) if filepath.startswith("/") else Path(f"/{filepath}")
+    path = Path(filepath)
+    if not path.is_absolute():
+        path = Path("/" + filepath)
     path = path.resolve()
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Not found")
