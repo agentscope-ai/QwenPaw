@@ -521,17 +521,24 @@ copaw agents chat --background \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --text "复杂任务请求"
-# 返回 [TASK_ID: xxx]
+# 返回 [TASK_ID: xxx] [SESSION: xxx]
 
-# 查询后台任务状态
+# 查询后台任务状态（查询时 --to-agent 为可选）
 copaw agents chat --background \
-  --to-agent <target_agent> \
   --task-id <task_id>
+# 状态流程：submitted → pending → running → finished
+# finished 时结果显示：completed（✅）或 failed（❌）
 ```
 
 **后台模式说明**：
 
 当任务比较复杂（如数据分析、批量处理、报告生成）时，使用 `--background` 可以避免阻塞当前智能体，让它可以继续处理其他工作。提交后会返回 `task_id`，稍后可以查询任务状态和结果。
+
+**任务状态流程**：
+- `submitted`：任务已接受，等待开始
+- `pending`：排队等待执行
+- `running`：正在执行
+- `finished`：已完成（需检查结果是 `completed` 或 `failed`）
 
 **建议使用后台模式的场景**：
 

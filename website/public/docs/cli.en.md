@@ -54,6 +54,9 @@ copaw app --log-level debug           # Verbose logging
 | `--port`      | `8088`      | Bind port                                                     |
 | `--reload`    | off         | Auto-reload on file changes (dev only)                        |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
+| `--workers`   | —           | **[DEPRECATED]** Ignored. CoPaw always uses 1 worker          |
+
+> **Note:** The `--workers` option is deprecated for stability reasons. CoPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 
 ### Console
 
@@ -347,12 +350,13 @@ copaw agents chat --background \
   --agent-id my_bot \
   --to-agent data_analyst \
   --text "Analyze /data/logs/2026-03-26.log and generate detailed report"
-# Returns [TASK_ID: xxx]
+# Returns [TASK_ID: xxx] [SESSION: xxx]
 
-# Check background task status
+# Check background task status (--to-agent is optional when querying)
 copaw agents chat --background \
-  --to-agent data_analyst \
   --task-id <task_id>
+# Status flow: submitted → pending → running → finished
+# When finished, result shows: completed (✅) or failed (❌)
 
 # Stream mode (incremental response, real-time mode only)
 copaw agents chat \
@@ -394,7 +398,13 @@ When tasks are complex (e.g., data analysis, batch processing, report generation
 - Calling slow external APIs
 - Complex tasks with uncertain execution time
 
-**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent. When checking task status, only `--to-agent` and `--task-id` are needed.
+**Task Status Flow**:
+- `submitted`: Task accepted, waiting to start
+- `pending`: Queued for execution
+- `running`: Currently executing
+- `finished`: Completed (result shows `completed` for success or `failed` for error)
+
+**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent. When checking task status, only `--task-id` is required (`--to-agent` is optional).
 
 **Key differences from `copaw channels send`:**
 

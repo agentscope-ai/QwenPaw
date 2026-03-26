@@ -521,17 +521,24 @@ copaw agents chat --background \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --text "Complex task request"
-# Returns [TASK_ID: xxx]
+# Returns [TASK_ID: xxx] [SESSION: xxx]
 
-# Check background task status
+# Check background task status (--to-agent is optional when querying)
 copaw agents chat --background \
-  --to-agent <target_agent> \
   --task-id <task_id>
+# Status flow: submitted → pending → running → finished
+# When finished, result shows: completed (✅) or failed (❌)
 ```
 
 **Background Mode Explanation**:
 
 When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent, allowing it to continue processing other work. After submission, it returns a `task_id` that can be used later to query the task status and result.
+
+**Task Status Flow**:
+- `submitted`: Task accepted, waiting to start
+- `pending`: Queued for execution
+- `running`: Currently executing
+- `finished`: Completed (check result for `completed` or `failed`)
 
 **Scenarios for using background mode**:
 

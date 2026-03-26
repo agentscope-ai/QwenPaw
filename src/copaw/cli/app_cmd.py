@@ -44,14 +44,37 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
     show_default=True,
     help="Path substrings to hide from uvicorn access log (repeatable).",
 )
+@click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help="[DEPRECATED] Number of worker processes. "
+    "This option is deprecated and will be removed in a future version. "
+    "CoPaw always uses 1 worker.",
+)
 def app_cmd(
     host: str,
     port: int,
     reload: bool,
     log_level: str,
     hide_access_paths: tuple[str, ...],
+    workers: int | None,
 ) -> None:
     """Run CoPaw FastAPI app."""
+    # Handle deprecated --workers parameter
+    if workers is not None:
+        click.echo(
+            "⚠️  WARNING: --workers option is deprecated and will be removed "
+            "in a future version.",
+            err=True,
+        )
+        click.echo(
+            "   CoPaw always uses 1 worker for stability. "
+            "Your specified value will be ignored.",
+            err=True,
+        )
+        click.echo(err=True)
+
     # Persist last used host/port for other terminals
     if host == "0.0.0.0":
         write_last_api("127.0.0.1", port)

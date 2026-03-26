@@ -70,7 +70,7 @@ copaw agents chat --background \
 ### 4) 查询后台任务状态
 
 ```bash
-copaw agents chat --background --to-agent <target_agent> --task-id <task_id>
+copaw agents chat --background --task-id <task_id>
 ```
 
 **重要**：不要频繁查询！提交任务后：
@@ -287,8 +287,6 @@ copaw agents chat \
 
 ---
 
----
-
 ## 后台任务模式详解（Background Task）
 
 ### 什么时候用后台模式？
@@ -341,33 +339,76 @@ Check status with:
 # 提交任务后，继续完成用户的其他请求
 # 在适当时机查询：
 copaw agents chat --background \
-  --to-agent data_analyst \
   --task-id 20802ea3-832d-4fb4-86f0-666ad79fcc80
 
 # 方式 2：如果必须等待，使用合理间隔
 sleep 30 && copaw agents chat --background \
-  --to-agent data_analyst \
   --task-id 20802ea3-832d-4fb4-86f0-666ad79fcc80
 ```
 
+**状态说明**：
+
+任务状态分为两层：
+- **外层状态**（API 返回）：`submitted` → `pending` → `running` → `finished`
+- **内层状态**（仅当外层是 `finished` 时）：`completed`（成功）或 `failed`（失败）
+
 **可能的输出**：
 
-1. **运行中**：
+1. **已提交**（刚提交后立即查询可能看到）：
 ```
-[STATUS: running]
-⏳ Task is still running...
-   Started at: 1774516703
+[TASK_ID: 20802ea3-832d-4fb4-86f0-666ad79fcc80]
+[STATUS: submitted]
 
-Check again later (wait 10-30s):
+📤 Task submitted, waiting to start...
+
+💡 Don't wait - continue with other work!
+   Check again in a few seconds:
   copaw agents chat --background --task-id 20802ea3-...
 ```
 
-2. **已完成**：
+2. **等待执行**：
 ```
+[TASK_ID: 20802ea3-832d-4fb4-86f0-666ad79fcc80]
+[STATUS: pending]
+
+⏸️  Task is pending in queue...
+
+💡 Don't wait - handle other work first!
+   Check again in a few seconds:
+  copaw agents chat --background --task-id 20802ea3-...
+```
+
+4. **正在执行**：
+```
+[TASK_ID: 20802ea3-832d-4fb4-86f0-666ad79fcc80]
+[STATUS: running]
+
+⏳ Task is still running...
+   Started at: 1774516703
+
+💡 Don't wait - continue with other tasks first!
+   Check again later (10-30s):
+  copaw agents chat --background --task-id 20802ea3-...
+```
+
+5. **成功完成**：
+```
+[TASK_ID: 20802ea3-832d-4fb4-86f0-666ad79fcc80]
 [STATUS: finished]
+
 ✅ Task completed
 
 （任务结果内容...）
+```
+
+6. **执行失败**：
+```
+[TASK_ID: 20802ea3-832d-4fb4-86f0-666ad79fcc80]
+[STATUS: finished]
+
+❌ Task failed
+
+Error: （错误信息...）
 ```
 
 ### 查询间隔策略
@@ -398,15 +439,15 @@ copaw agents chat --background ...
 
 # 3. 在适当时机查询结果
 # （比如处理完当前任务后，或用户询问进度时）
-copaw agents chat --background --to-agent <agent> --task-id <id>
+copaw agents chat --background --task-id <id>
 ```
 
 **方式 2：定时轮询**（如果必须等待）
 ```bash
 # 递增间隔，先快后慢
-sleep 10 && copaw agents chat --background --to-agent <agent> --task-id <id>
-sleep 20 && copaw agents chat --background --to-agent <agent> --task-id <id>
-sleep 30 && copaw agents chat --background --to-agent <agent> --task-id <id>
+sleep 10 && copaw agents chat --background --task-id <id>
+sleep 20 && copaw agents chat --background --task-id <id>
+sleep 30 && copaw agents chat --background --task-id <id>
 ```
 
 #### ❌ 不要这样做
@@ -414,7 +455,7 @@ sleep 30 && copaw agents chat --background --to-agent <agent> --task-id <id>
 ```bash
 # 错误：查询太频繁
 while true; do
-    copaw agents chat --background --to-agent <agent> --task-id <id>
+    copaw agents chat --background --task-id <id>
     sleep 1  # 太频繁了！
 done
 ```

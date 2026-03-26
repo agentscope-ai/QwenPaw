@@ -49,6 +49,9 @@ copaw app --log-level debug           # 详细日志
 | `--port`      | `8088`      | 绑定端口                                                      |
 | `--reload`    | 关闭        | 文件变动时自动重载（仅开发用）                                |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
+| `--workers`   | —           | **[已废弃]** 将被忽略，CoPaw 始终使用 1 个 worker             |
+
+> **说明：** `--workers` 选项因稳定性原因已废弃。CoPaw 被设计为单 worker 进程运行。多 worker 模式会导致内存状态管理和 WebSocket 连接出现问题。此选项将在未来版本中移除。
 
 ### 控制台
 
@@ -335,12 +338,13 @@ copaw agents chat --background \
   --agent-id my_bot \
   --to-agent data_analyst \
   --text "分析 /data/logs/2026-03-26.log 并生成详细报告"
-# 返回 [TASK_ID: xxx]
+# 返回 [TASK_ID: xxx] [SESSION: xxx]
 
-# 查询后台任务状态
+# 查询后台任务状态（查询时 --to-agent 为可选）
 copaw agents chat --background \
-  --to-agent data_analyst \
   --task-id <task_id>
+# 状态流程：submitted → pending → running → finished
+# finished 时结果显示：completed（✅）或 failed（❌）
 
 # 流式模式（逐步返回，仅实时模式支持）
 copaw agents chat \
@@ -382,7 +386,13 @@ copaw agents chat \
 - 调用慢速外部 API
 - 不确定执行时间的复杂任务
 
-**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。查询任务状态时只需 `--to-agent` 和 `--task-id`。
+**任务状态流程**：
+- `submitted`：任务已接受，等待开始
+- `pending`：排队等待执行
+- `running`：正在执行
+- `finished`：已完成（结果为 `completed` 成功或 `failed` 失败）
+
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。查询任务状态时只需 `--task-id`（`--to-agent` 为可选）。
 
 **与 `copaw channels send` 的区别：**
 

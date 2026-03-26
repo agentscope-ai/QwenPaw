@@ -224,15 +224,24 @@ def _validate_chat_parameters(
     background: bool,
     task_id: Optional[str],
     from_agent: Optional[str],
+    to_agent: Optional[str],
     text: Optional[str],
     mode: str,
 ) -> None:
     """Validate chat command parameters."""
-    # When not checking task status, require from_agent and text
+    # When not checking task status, require from_agent, to_agent, and text
     if not (background and task_id):
         if not from_agent:
             click.echo(
                 "ERROR: --from-agent is required "
+                "(unless checking task status)",
+                err=True,
+            )
+            ctx.exit(1)
+
+        if not to_agent:
+            click.echo(
+                "ERROR: --to-agent is required "
                 "(unless checking task status)",
                 err=True,
             )
@@ -262,13 +271,13 @@ def _validate_chat_parameters(
 
 def _check_task_status(
     base_url: str,
-    to_agent: str,
     task_id: str,
     json_output: bool,
+    to_agent: Optional[str] = None,
 ) -> None:
     """Check background task status and display result."""
     with client(base_url) as c:
-        headers = {"X-Agent-Id": to_agent}
+        headers = {"X-Agent-Id": to_agent} if to_agent else {}
 
         try:
             r = c.get(
@@ -328,6 +337,17 @@ def _check_task_status(
                 click.echo()
                 click.echo(
                     "💡 Don't wait - handle other work first!",
+                )
+                click.echo("   Check again in a few seconds:")
+                click.echo(
+                    f"  copaw agents chat --background --task-id {task_id}",
+                )
+
+            elif status == "submitted":
+                click.echo("📤 Task submitted, waiting to start...")
+                click.echo()
+                click.echo(
+                    "💡 Don't wait - continue with other work!",
                 )
                 click.echo("   Check again in a few seconds:")
                 click.echo(
@@ -417,8 +437,9 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
 )
 @click.option(
     "--to-agent",
-    required=True,
-    help="Target agent ID (the one being asked)",
+    required=False,
+    help="Target agent ID (the one being asked, required unless checking "
+    "task with --task-id)",
 )
 @click.option(
     "--text",
@@ -513,11 +534,12 @@ def chat_cmd(
       copaw agents chat --background \\
         --from-agent bot_a --to-agent bot_b \\
         --text "Analyze large dataset"
-      # Output: [TASK_ID: xxx]
+      # Output: [TASK_ID: xxx] [SESSION: xxx]
 
-      # Check task status
+      # Check task status (note --to-agent is optional here)
       copaw agents chat --background --task-id <task_id>
-      # Output: [STATUS: completed] + result
+      # Possible status: submitted → pending → running → finished
+      # When finished, shows completed (success) or failed (error)
 
     \b
     Output Format (text mode):
@@ -559,11 +581,12 @@ def chat_cmd(
         --from-agent bot_a \\
         --to-agent bot_b \\
         --text "Process complex data analysis"
-      # Output: [TASK_ID: xxx]
+      # Output: [TASK_ID: xxx] [SESSION: xxx]
 
-      # Check background task status
+      # Check background task status (note --to-agent is optional)
       copaw agents chat --background --task-id <task_id>
-      # Output: [STATUS: completed] + result
+      # Possible status: submitted → pending → running → finished
+      # When finished, shows completed (success) or failed (error)
 
     \b
     Prerequisites:
@@ -576,17 +599,27 @@ def chat_cmd(
       - Default: Text with [SESSION: xxx] header containing session_id
       - With --json-output: Full JSON with metadata and content
       - With --mode stream: Incremental updates (SSE)
-      - With --background: Task ID for background task
+      - With --background: Task ID and session ID for background task
       - With --background --task-id: Task status and result
+        * Status flow: submitted → pending → running → finished
+        * finished includes: completed (✅) or failed (❌)
 """
     resolved_base_url = resolve_base_url(ctx, base_url)
 
     # Validate parameters
-    _validate_chat_parameters(ctx, background, task_id, from_agent, text, mode)
+    _validate_chat_parameters(
+        ctx,
+        background,
+        task_id,
+        from_agent,
+        to_agent,
+        text,
+        mode,
+    )
 
     # Check task status mode (early return)
     if background and task_id:
-        _check_task_status(resolved_base_url, to_agent, task_id, json_output)
+        _check_task_status(resolved_base_url, task_id, json_output, to_agent)
         return
 
     final_session_id = _resolve_session_id(
