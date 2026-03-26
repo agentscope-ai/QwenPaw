@@ -14,6 +14,7 @@ from ...config import (
     get_available_channels,
     ToolGuardConfig,
     ToolGuardRuleConfig,
+    UserLanguageConfig,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.config import (
@@ -377,6 +378,26 @@ async def put_user_timezone(
     config.user_timezone = tz
     save_config(config)
     return {"timezone": tz}
+
+
+# ── User Language ─────────────────────────────────────────────────────
+
+
+@router.get("/user-language", summary="Get user language")
+async def get_user_language() -> dict:
+    config = load_config()
+    return {"language": config.user_language}
+
+
+@router.put("/user-language", summary="Update user language")
+async def put_user_language(body: UserLanguageConfig) -> dict:
+    lang = body.language.strip()
+    if not lang:
+        raise HTTPException(status_code=400, detail="language is required")
+    config = load_config()
+    config.user_language = lang
+    save_config(config)
+    return {"language": lang}
 
 
 # ── Security / Tool Guard ────────────────────────────────────────────

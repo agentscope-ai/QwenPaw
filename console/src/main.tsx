@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./i18n";
+import { languageReady } from "./i18n";
 
 if (typeof window !== "undefined") {
   const originalError = console.error;
@@ -27,4 +28,6 @@ if (typeof window !== "undefined") {
   };
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+languageReady.then(() => {
+  createRoot(document.getElementById("root")!).render(<App />);
+});

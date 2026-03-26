@@ -858,6 +858,12 @@ class SecurityConfig(BaseModel):
     )
 
 
+class UserLanguageConfig(BaseModel):
+    """Request body for PUT /config/user-language."""
+
+    language: str
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -873,6 +879,10 @@ class Config(BaseModel):
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
         "Defaults to the system timezone.",
+    )
+    user_language: str = Field(
+        default="en",
+        description="UI display language (e.g. en, zh, ja, ru).",
     )
 
 

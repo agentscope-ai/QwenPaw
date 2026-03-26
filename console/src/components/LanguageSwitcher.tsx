@@ -2,6 +2,7 @@ import { Dropdown, Button } from "@agentscope-ai/design";
 import { GlobalOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MenuProps } from "antd";
+import api from "../api";
 
 export default function LanguageSwitcher() {
   const { i18n } = useTranslation();
@@ -11,6 +12,9 @@ export default function LanguageSwitcher() {
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
+    api.updateUserLanguage(lang).catch((error) => {
+      console.error("Failed to save user language to server:", error);
+    });
   };
 
   const items: MenuProps["items"] = [
