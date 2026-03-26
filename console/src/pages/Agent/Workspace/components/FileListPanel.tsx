@@ -18,7 +18,7 @@ import {
 import { useVirtualList } from "ahooks";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { FileItem } from "./FileItem";
-import { FolderNode, FolderRowItem } from "./FolderNode";
+import { FolderRowItem } from "./FolderNode";
 import { buildFileTree, flattenTree } from "./utils";
 import type { VirtualRow } from "./utils";
 import { useTranslation } from "react-i18next";
@@ -286,7 +286,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
           ) : hasSubfolders ? (
             /* ── Virtual tree view (all mode) ── */
             <div ref={wrapperRef}>
-              {virtualList.map(({ data: row, index }) =>
+              {virtualList.map(({ data: row }) =>
                 row.type === "folder" ? (
                   <FolderRowItem
                     key={row.node.id}
