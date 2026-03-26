@@ -126,11 +126,14 @@ function SkillPoolPage() {
   const openEdit = (skill: PoolSkillSpec) => {
     setMode("edit");
     setActiveSkill(skill);
-    setName(skill.protected ? `${skill.name}_custom` : skill.name);
+    const targetName = skill.protected
+      ? `${skill.name}_custom`
+      : skill.name;
+    setName(targetName);
     setDrawerContent(skill.content);
     setConfigText(JSON.stringify(skill.config || {}, null, 2));
     form.setFieldsValue({
-      name: skill.name,
+      name: targetName,
       content: skill.content,
     });
   };

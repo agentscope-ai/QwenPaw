@@ -225,7 +225,7 @@ Discord 上。
 ### 步骤
 
 1. 在 `~/.copaw/workspaces/{agent_id}/skills/` 下新建一个目录，例如 `my_skill`。
-2. 在该目录下新建 `SKILL.md`。文件**必须**以 YAML front matter 开头，至少包含 `name` 字段，建议同时填写 `description`。front matter 之后用 Markdown 编写给 Agent 的能力说明。若 Skill 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
+2. 在该目录下新建 `SKILL.md`。文件**必须**以 YAML front matter 开头，包含 `name` 和 `description` 两个必填字段。front matter 之后用 Markdown 编写给 Agent 的能力说明。若 Skill 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
 
 ### SKILL.md 示例
 

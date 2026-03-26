@@ -360,21 +360,25 @@ def init_cmd(
 
     # --- skills (prompt if needed) ---
     if use_defaults:
-        # Using --defaults: enable all skills, skip existing
+        # Using --defaults: download all pool skills into workspace, then enable
         from ..agents.skills_manager import (
+            SkillPoolService,
             SkillService,
-            get_workspace_skills_dir,
         )
 
+        pool = SkillPoolService()
         service = SkillService(default_workspace)
-        skills_dir = get_workspace_skills_dir(default_workspace)
-        skills_dir.mkdir(parents=True, exist_ok=True)
-        click.echo("Enabling all skills by default (skip existing)...")
+        click.echo("Downloading pool skills into workspace...")
+        for skill in pool.list_all_skills():
+            pool.download_to_workspace(
+                skill.name,
+                default_workspace,
+                overwrite=False,
+            )
+        click.echo("Enabling all skills by default...")
         synced = 0
-        for skill_dir in sorted(skills_dir.iterdir()):
-            if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
-                continue
-            result = service.enable_skill(skill_dir.name)
+        for skill in service.list_all_skills():
+            result = service.enable_skill(skill.name)
             if result.get("success"):
                 synced += 1
         click.echo(f"✓ All {synced} skills enabled.")
@@ -388,22 +392,23 @@ def init_cmd(
 
         if skills_choice == "all":
             from ..agents.skills_manager import (
+                SkillPoolService,
                 SkillService,
-                get_workspace_skills_dir,
             )
 
+            pool = SkillPoolService()
             service = SkillService(default_workspace)
-            skills_dir = get_workspace_skills_dir(default_workspace)
-            skills_dir.mkdir(parents=True, exist_ok=True)
+            click.echo("Downloading pool skills into workspace...")
+            for skill in pool.list_all_skills():
+                pool.download_to_workspace(
+                    skill.name,
+                    default_workspace,
+                    overwrite=False,
+                )
             click.echo("Enabling all skills...")
             synced = 0
-            for skill_dir in sorted(skills_dir.iterdir()):
-                if (
-                    not skill_dir.is_dir()
-                    or not (skill_dir / "SKILL.md").exists()
-                ):
-                    continue
-                result = service.enable_skill(skill_dir.name)
+            for skill in service.list_all_skills():
+                result = service.enable_skill(skill.name)
                 if result.get("success"):
                     synced += 1
             click.echo(f"✓ Skills synced: {synced}")

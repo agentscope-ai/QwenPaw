@@ -235,7 +235,7 @@ skill under a workspace's `skills/` directory.
 
 1. Create a directory under `~/.copaw/workspaces/{agent_id}/skills/`, e.g.
    `my_skill`.
-2. Add a `SKILL.md` file in that directory. The file **must** start with YAML front matter containing at least a `name` field. `description` is recommended. Write Markdown body after the front matter to describe the capability for the agent. If the skill depends on external binaries or environment variables, declare them in `metadata.requires`; CoPaw exposes them as `require_bins` and `require_envs` metadata, but does not disable the skill automatically.
+2. Add a `SKILL.md` file in that directory. The file **must** start with YAML front matter containing both `name` and `description` fields. Write Markdown body after the front matter to describe the capability for the agent. If the skill depends on external binaries or environment variables, declare them in `metadata.requires`; CoPaw exposes them as `require_bins` and `require_envs` metadata, but does not disable the skill automatically.
 
 ### Example SKILL.md
 
