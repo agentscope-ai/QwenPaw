@@ -120,7 +120,7 @@ class WeixinChannel(BaseChannel):
         self._processed_ids: OrderedDict[str, None] = OrderedDict()
         self._processed_ids_lock = threading.Lock()
 
-        # Cache last context_token per user for proactive sends (heartbeat/cron)
+        # Cache last context_token per user for proactive sends
         self._user_context_tokens: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
