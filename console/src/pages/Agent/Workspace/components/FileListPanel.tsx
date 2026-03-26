@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useTransition, useRef } from "react";
+import React, { useState, useMemo, useTransition } from "react";
 import { Button, Card } from "@agentscope-ai/design";
 import { Segmented, Checkbox, Input as AntInput, Spin } from "antd";
 import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
@@ -15,12 +15,10 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { useVirtualList } from "ahooks";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { FileItem } from "./FileItem";
-import { FolderRowItem } from "./FolderNode";
-import { buildFileTree, flattenTree } from "./utils";
-import type { VirtualRow } from "./utils";
+import { FolderNode } from "./FolderNode";
+import { buildFileTree } from "./utils";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -64,25 +62,6 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   const [selectedForDownload, setSelectedForDownload] = useState<string[]>([]);
 
   const [isPending, startTransition] = useTransition();
-
-  // Virtual list refs for all-mode tree view
-  const virtualContainerRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  // Expanded folder state for virtual tree (replaces FolderNode internal state)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-
-  const toggleFolder = (id: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
 
   const handleViewModeChange = (val: "core" | "all") => {
     startTransition(() => {
@@ -148,19 +127,6 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
 
   const hasSubfolders =
     fileTree.children.length > 0 || fileTree.files.length !== files.length;
-
-  // Flatten tree into a 1-D row array for virtual scrolling (all mode only)
-  const flatRows = useMemo<VirtualRow[]>(() => {
-    if (viewMode !== "all" || !hasSubfolders) return [];
-    return flattenTree(fileTree, expandedFolders);
-  }, [fileTree, expandedFolders, viewMode, hasSubfolders]);
-
-  const [virtualList] = useVirtualList(flatRows, {
-    containerTarget: virtualContainerRef,
-    wrapperTarget: wrapperRef,
-    itemHeight: 36,
-    overscan: 10,
-  });
 
   return (
     <div className={styles.fileListPanel}>
@@ -243,12 +209,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
 
         <div className={styles.divider} />
 
-        {/* Virtual scroll container for all-mode tree; plain scroll for core/search */}
-        <div
-          ref={viewMode === "all" && hasSubfolders && !filteredFiles ? virtualContainerRef : undefined}
-          className={styles.scrollContainer}
-          style={viewMode === "all" && hasSubfolders && !filteredFiles ? { overflow: "auto" } : undefined}
-        >
+        <div className={styles.scrollContainer}>
           {(listLoading || isPending) ? (
             <div style={{ display: "flex", justifyContent: "center", paddingTop: 32 }}>
               <Spin />
@@ -284,42 +245,45 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
               ))
             )
           ) : hasSubfolders ? (
-            /* ── Virtual tree view (all mode) ── */
-            <div ref={wrapperRef}>
-              {virtualList.map(({ data: row }) =>
-                row.type === "folder" ? (
-                  <FolderRowItem
-                    key={row.node.id}
-                    node={row.node}
-                    depth={row.depth}
-                    expanded={expandedFolders.has(row.node.id)}
-                    onToggle={() => toggleFolder(row.node.id)}
-                  />
-                ) : (
-                  <div
-                    key={row.file.path || row.file.rel_path || row.file.filename}
-                    style={{ paddingLeft: row.depth * 12 }}
-                  >
-                    <FileItem
-                      file={row.file}
-                      selectedFile={selectedFile}
-                      expandedMemory={expandedMemory}
-                      dailyMemories={dailyMemories}
-                      enabled={enabledFiles.includes(row.file.filename)}
-                      onFileClick={onFileClick}
-                      onDailyMemoryClick={onDailyMemoryClick}
-                      onToggleEnabled={onToggleEnabled}
-                      viewMode={viewMode}
-                      disableDnd
-                      selectedForDownload={selectedForDownload.includes(
-                        row.file.path || row.file.filename,
-                      )}
-                      onSelectForDownload={handleSelectForDownload}
-                    />
-                  </div>
-                )
-              )}
-            </div>
+            /* ── Tree view when subfolders exist ── */
+            <>
+              {fileTree.files.map((file) => (
+                <FileItem
+                  key={file.path || file.rel_path || file.filename}
+                  file={file}
+                  selectedFile={selectedFile}
+                  expandedMemory={expandedMemory}
+                  dailyMemories={dailyMemories}
+                  enabled={enabledFiles.includes(file.filename)}
+                  onFileClick={onFileClick}
+                  onDailyMemoryClick={onDailyMemoryClick}
+                  onToggleEnabled={onToggleEnabled}
+                  viewMode={viewMode}
+                  disableDnd
+                  selectedForDownload={selectedForDownload.includes(
+                    file.path || file.filename,
+                  )}
+                  onSelectForDownload={handleSelectForDownload}
+                />
+              ))}
+              {fileTree.children.map((node) => (
+                <FolderNode
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  selectedFile={selectedFile}
+                  expandedMemory={expandedMemory}
+                  dailyMemories={dailyMemories}
+                  enabledFiles={enabledFiles}
+                  onFileClick={onFileClick}
+                  onDailyMemoryClick={onDailyMemoryClick}
+                  onToggleEnabled={onToggleEnabled}
+                  viewMode={viewMode}
+                  selectedForDownload={selectedForDownload}
+                  onSelectForDownload={handleSelectForDownload}
+                />
+              ))}
+            </>
           ) : (
             /* ── Flat sortable list (core mode, no subfolders) ── */
             <DndContext

@@ -49,7 +49,7 @@ export const buildFileTree = (
     // Attempt to derive relative path segments
     let relPath = file.rel_path || file.filename;
 
-    const segments = relPath.split("/").filter(Boolean);
+    const segments = relPath.split(/[\/\\]/).filter(Boolean);
 
     if (segments.length <= 1) {
       // Root-level file
