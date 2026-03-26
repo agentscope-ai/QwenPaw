@@ -138,7 +138,7 @@
 - id: TOOL_CMD_SERVICE_RESTART
   tools: [execute_shell_command]
   params: [command]
-  category: privilege_escalation
+  category: resource_abuse
   severity: HIGH
   patterns:
     - "\\bsystemctl\\s+(restart|stop|start|reload|kill)\\b"
@@ -157,11 +157,10 @@
   severity: HIGH
   patterns:
     - "\\b(pkill|killall)\\b"
-    - "\\bkill\\s+(-9\\s+)?[^-\\s]"
+    - "\\bkill\\s+(-(9|KILL|15|TERM|1|HUP|2|INT)\\s+)?[^-\\s]"
     - "\\btaskkill\\s+\\/F\\b"
     - "\\bStop-Process\\b.*-Force\\b"
   exclude_patterns:
-    - "\\btaskkill\\s+\\/F\\s+\\/T\\s+\\/PID\\s+\\$\\$"
     - "kill\\s+\\$\\$"
   description: "Detects process termination commands that may kill critical processes"
   remediation: "Confirm with user. Killing processes may cause data loss or system instability."
@@ -174,8 +173,7 @@
   severity: CRITICAL
   patterns:
     - "\\bsudo\\s+"
-    - "\\bsu\\s+(\\S+)?\\s*$"
-    - "\\bsu\\s+-"
+    - "\\bsu\\b"
     - "\\bdoas\\s+"
     - "\\bpkexec\\b"
     - "\\brunas\\s+\\/user:"
