@@ -4,9 +4,11 @@
 # pylint: disable=too-many-nested-blocks
 """WeCom (Enterprise WeChat) Channel.
 
-Uses the aibot WebSocket SDK to receive messages from WeCom AI Bot.
+Uses the wecom-aibot-sdk WebSocket SDK to receive messages from WeCom AI Bot.
 Sends replies via the same WebSocket channel using stream mode
 (reply_stream). Supports text, image, voice, file, and mixed messages.
+Also supports sending media files (image, file, audio, video) via upload
+and send_media_message methods.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ImageContent,
     TextContent,
 )
-from aibot import WSClient, WSClientOptions, generate_req_id
+from wecom_aibot_sdk import WSClient, generate_req_id, WeComMediaType
 
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
@@ -585,6 +587,201 @@ class WecomChannel(BaseChannel):
         except Exception:
             logger.exception("wecom _send_image_via_send_message failed")
 
+    @staticmethod
+    def _resolve_file_path(file_url: str) -> Path:
+        """Resolve a file URL or path string to a local Path.
+
+        Handles:
+        - ``file:///abs/path`` — standard file URI (triple slash)
+        - ``file://abs/path``  — non-standard double slash
+        - ``file:/abs/path``   — non-standard single slash
+        - Absolute paths like ``/abs/path`` or ``C:\\path``
+        - Relative paths (returned as-is for caller to join with media_dir)
+        """
+        if file_url.startswith("file:"):
+            from urllib.parse import urlparse, unquote
+            parsed = urlparse(file_url)
+            # parsed.path gives the path component after stripping scheme/netloc
+            return Path(unquote(parsed.path))
+        return Path(file_url)
+
+    def _get_media_type(self, content_type: ContentType) -> Optional[str]:
+        """Map internal ContentType to WeComMediaType string.
+
+        WeComMediaType is a Literal type with values:
+        'file', 'image', 'voice', 'video'
+        """
+        mapping = {
+            ContentType.IMAGE: "image",
+            ContentType.FILE: "file",
+            ContentType.AUDIO: "voice",
+            ContentType.VIDEO: "video",
+        }
+        return mapping.get(content_type)
+
+    async def _send_media_part(
+        self,
+        chatid: str,
+        part: OutgoingContentPart,
+    ) -> None:
+        """Upload and send a single media part to WeCom.
+
+        Args:
+            chatid: Target chat ID.
+            part: Media content part (image, file, audio, video).
+        """
+        if not self._client or not chatid:
+            return
+
+        pt = getattr(part, "type", None)
+        if not pt:
+            return
+
+        # Get the media type mapping
+        media_type = self._get_media_type(pt)
+        if not media_type:
+            logger.warning("wecom _send_media_part: unsupported type %s", pt)
+            return
+
+        # Get file URL/path based on type
+        file_url = ""
+        if pt == ContentType.IMAGE:
+            file_url = getattr(part, "image_url", "") or ""
+        elif pt == ContentType.FILE:
+            file_url = getattr(part, "file_url", "") or ""
+        elif pt == ContentType.AUDIO:
+            file_url = getattr(part, "audio_url", "") or ""
+        elif pt == ContentType.VIDEO:
+            file_url = getattr(part, "video_url", "") or ""
+
+        if not file_url:
+            logger.warning("wecom _send_media_part: no file_url for type %s", pt)
+            return
+
+        # Resolve file path (supports file:// URI and plain path)
+        file_path = self._resolve_file_path(file_url)
+        if not file_path.is_absolute():
+            # Try as relative path from media_dir
+            file_path = Path(self._media_dir) / file_path
+
+        if not file_path.exists():
+            logger.warning("wecom _send_media_part: file not found %s", file_path)
+            return
+
+        try:
+            # Read file and upload
+            file_data = file_path.read_bytes()
+            filename = file_path.name
+
+            # Upload media
+            upload_result = await self._client.upload_media(
+                file_data,
+                type=media_type,
+                filename=filename,
+            )
+
+            media_id = (upload_result or {}).get("media_id", "")
+            if not media_id:
+                logger.error("wecom _send_media_part: upload failed for %s", filename)
+                return
+
+            # Send media message
+            await self._client.send_media_message(
+                chatid,
+                media_type=media_type,
+                media_id=media_id,
+            )
+
+            logger.info(
+                "wecom _send_media_part: sent %s (%s) to %s",
+                media_type,
+                filename,
+                chatid[:20],
+            )
+        except Exception:
+            logger.exception("wecom _send_media_part failed for %s", file_url)
+
+    async def send_media(
+        self,
+        to_handle: str,
+        media_type: ContentType,
+        file_path: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Send a media file to WeCom.
+
+        Args:
+            to_handle: Target handle (session_id format).
+            media_type: Type of media (IMAGE, FILE, AUDIO, VIDEO).
+            file_path: Path to the media file.
+            meta: Optional metadata.
+
+        Returns:
+            True if sent successfully, False otherwise.
+        """
+        if not self.enabled or not self._client:
+            return False
+
+        m = meta or {}
+        chatid = (
+            m.get("wecom_chatid")
+            or self._parse_chatid_from_handle(to_handle)
+            or ""
+        )
+
+        if not chatid:
+            logger.warning("wecom send_media: no chatid for to_handle=%s", to_handle)
+            return False
+
+        # Map to WeCom media type
+        wecom_media_type = self._get_media_type(media_type)
+        if not wecom_media_type:
+            logger.warning("wecom send_media: unsupported media_type %s", media_type)
+            return False
+
+        # Resolve file path (supports file:// URI and plain path)
+        path = self._resolve_file_path(file_path)
+        if not path.is_absolute():
+            path = Path(self._media_dir) / path
+
+        if not path.exists():
+            logger.warning("wecom send_media: file not found %s", path)
+            return False
+
+        try:
+            # Read and upload file
+            file_data = path.read_bytes()
+            filename = path.name
+
+            upload_result = await self._client.upload_media(
+                file_data,
+                type=wecom_media_type,
+                filename=filename,
+            )
+
+            media_id = (upload_result or {}).get("media_id", "")
+            if not media_id:
+                logger.error("wecom send_media: upload failed for %s", filename)
+                return False
+
+            # Send media message
+            await self._client.send_media_message(
+                chatid,
+                media_type=wecom_media_type,
+                media_id=media_id,
+            )
+
+            logger.info(
+                "wecom send_media: sent %s (%s) to %s",
+                wecom_media_type,
+                filename,
+                chatid[:20],
+            )
+            return True
+        except Exception:
+            logger.exception("wecom send_media failed for %s", file_path)
+            return False
+
     async def send_content_parts(
         self,
         to_handle: str,
@@ -659,36 +856,9 @@ class WecomChannel(BaseChannel):
                         "wecom send_content_parts proactive failed",
                     )
 
-        # # the SDK does not support sending media files.
-        # for part in media_parts:
-        #     pt = getattr(part, "type", None)
-        #     if pt == ContentType.IMAGE and chatid:
-        #         await self._send_image_via_send_message(chatid, part)
-        #     elif pt in (
-        #         ContentType.FILE, ContentType.AUDIO, ContentType.VIDEO
-        #     ):
-        #         # Send file path/url as markdown link (WS channel limitation)
-        #         file_url = (
-        #             getattr(part, "file_url", "")
-        #             or getattr(part, "video_url", "")
-        #             or ""
-        #         )
-        #         if file_url and chatid:
-        #             filename = Path(file_url).name or "file"
-        #             try:
-        #                 await self._client.send_message(
-        #                     chatid,
-        #                     {
-        #                         "msgtype": "markdown",
-        #                         "markdown": {
-        #                             "content": f"[{filename}]({file_url})"
-        #                         },
-        #                     },
-        #                 )
-        #             except Exception:
-        #                 logger.exception(
-        #                     "wecom send_content_parts file link failed"
-        #                 )
+        # Send media files using the new SDK support
+        for part in media_parts:
+            await self._send_media_part(chatid, part)
 
     async def send(
         self,
@@ -787,12 +957,18 @@ class WecomChannel(BaseChannel):
             )
 
         self._loop = asyncio.get_running_loop()
-        options = WSClientOptions(
-            bot_id=self.bot_id,
-            secret=self.secret,
-            max_reconnect_attempts=self._max_reconnect_attempts,
+        # max_reconnect_attempts: -1 means unlimited in old SDK;
+        # new SDK does not support -1; use a large number to simulate unlimited.
+        max_reconnect = (
+            self._max_reconnect_attempts
+            if self._max_reconnect_attempts >= 0
+            else 2147483647  # max int, effectively unlimited
         )
-        self._client = WSClient(options)
+        self._client = WSClient(
+            self.bot_id,
+            self.secret,
+            max_reconnect_attempts=max_reconnect,
+        )
 
         # Register event handlers
         self._client.on("message", self._on_message_sync)
