@@ -4,7 +4,14 @@
 
 from types import SimpleNamespace
 
+import pytest
+
+from copaw.app.exceptions import AgentReloadRequiresRestartError
 from copaw.app.multi_agent_manager import MultiAgentManager
+from copaw.app.runner.daemon_commands import (
+    DaemonContext,
+    run_daemon_restart,
+)
 from copaw.config.config import MCPClientConfig, MCPConfig
 
 
@@ -51,3 +58,20 @@ def test_requires_serial_reload_ignores_disabled_or_safe_clients():
     )
 
     assert MultiAgentManager._requires_serial_reload(agent_config) is False
+
+
+@pytest.mark.asyncio
+async def test_daemon_restart_reports_process_restart_when_reload_is_unsafe():
+    """Unsafe reloads should return a restart-required message."""
+
+    class FakeManager:
+        async def reload_agent(self, _agent_id):
+            raise AgentReloadRequiresRestartError(
+                "Restart CoPaw to apply changes safely.",
+            )
+
+    context = DaemonContext(manager=FakeManager(), agent_id="default")
+
+    result = await run_daemon_restart(context)
+
+    assert result.startswith("**Restart requires process restart**")
