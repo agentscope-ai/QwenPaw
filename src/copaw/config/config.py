@@ -16,6 +16,7 @@ from ..constant import (
     LLM_BACKOFF_CAP,
     LLM_MAX_CONCURRENT,
     LLM_MAX_RETRIES,
+    LLM_MAX_QPM,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
@@ -302,10 +303,19 @@ class AgentsRunningConfig(BaseModel):
     llm_max_concurrent: int = Field(
         default=LLM_MAX_CONCURRENT,
         ge=1,
-        le=50,
         description=(
             "Maximum number of concurrent in-flight LLM calls. "
             "Shared across all agents; only the first initialization wins."
+        ),
+    )
+
+    llm_max_qpm: int = Field(
+        default=LLM_MAX_QPM,
+        ge=0,
+        description=(
+            "Maximum queries per minute (60-second sliding window). "
+            "New requests that would exceed this limit wait before being "
+            "dispatched — proactively preventing 429s. 0 = disabled."
         ),
     )
 

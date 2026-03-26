@@ -4,6 +4,7 @@ import styles from "../index.module.less";
 
 const RL_PAUSE_FIELD = "llm_rate_limit_pause";
 const RL_JITTER_FIELD = "llm_rate_limit_jitter";
+const RL_MAX_QPM_FIELD = "llm_max_qpm";
 
 export function LlmRateLimiterCard() {
   const { t } = useTranslation();
@@ -26,7 +27,7 @@ export function LlmRateLimiterCard() {
           {
             type: "number",
             min: 1,
-            max: 50,
+            max: 100,
             message: t("agentConfig.llmMaxConcurrentRange"),
           },
         ]}
@@ -35,9 +36,35 @@ export function LlmRateLimiterCard() {
         <InputNumber
           style={{ width: "100%" }}
           min={1}
-          max={50}
+          max={100}
           step={1}
           placeholder={t("agentConfig.llmMaxConcurrentPlaceholder")}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.llmMaxQpm")}
+        name={RL_MAX_QPM_FIELD}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.llmMaxQpmRequired"),
+          },
+          {
+            type: "number",
+            min: 0,
+            max: 10000,
+            message: t("agentConfig.llmMaxQpmRange"),
+          },
+        ]}
+        tooltip={t("agentConfig.llmMaxQpmTooltip")}
+      >
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          max={10000}
+          step={10}
+          placeholder={t("agentConfig.llmMaxQpmPlaceholder")}
         />
       </Form.Item>
 

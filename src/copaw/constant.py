@@ -200,12 +200,22 @@ LLM_BACKOFF_CAP = EnvVarLoader.get_float(
 # LLM concurrency control
 # Maximum number of concurrent in-flight LLM calls; excess requests wait on
 # the semaphore.  Tune to your API quota: start conservatively at 3-5 and
-# increase (e.g. OpenAI Tier 1 ~500 RPM allows ~25 at 3 s/call average).
+# increase (e.g. OpenAI Tier 1 ~500 QPM allows ~25 at 3 s/call average).
 LLM_MAX_CONCURRENT = EnvVarLoader.get_int(
     "COPAW_LLM_MAX_CONCURRENT",
-    5,
+    10,
     min_value=1,
-    max_value=50,
+)
+
+# Maximum queries per minute (QPM), enforced via a 60-second sliding window.
+# New requests that would exceed this limit will wait before being dispatched
+# to the API — proactively preventing 429s rather than reacting to them.
+# 0 = unlimited (disabled).
+# Examples: Anthropic Tier-1 ≈ 50 QPM; OpenAI Tier-1 ≈ 500 QPM.
+LLM_MAX_QPM = EnvVarLoader.get_int(
+    "COPAW_LLM_MAX_QPM",
+    600,
+    min_value=0,
 )
 
 # Default global pause duration (seconds) applied to all waiters when a 429
@@ -228,7 +238,7 @@ LLM_RATE_LIMIT_JITTER = EnvVarLoader.get_float(
 # giving up with a RuntimeError rather than blocking indefinitely.
 LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
     "COPAW_LLM_ACQUIRE_TIMEOUT",
-    120.0,
+    300.0,
     min_value=10.0,
 )
 

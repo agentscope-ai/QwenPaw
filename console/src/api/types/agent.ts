@@ -13,6 +13,7 @@ export interface AgentsRunningConfig {
   llm_backoff_base: number;
   llm_backoff_cap: number;
   llm_max_concurrent: number;
+  llm_max_qpm: number;
   llm_rate_limit_pause: number;
   llm_rate_limit_jitter: number;
   llm_acquire_timeout: number;

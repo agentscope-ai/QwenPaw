@@ -39,6 +39,7 @@ from ..constant import (
     LLM_BACKOFF_CAP,
     LLM_MAX_CONCURRENT,
     LLM_MAX_RETRIES,
+    LLM_MAX_QPM,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
 )
@@ -69,9 +70,17 @@ class RateLimitConfig:
     Controls the global LLMRateLimiter singleton that caps concurrency and
     coordinates pauses when a 429 is received.  The singleton is initialised
     on the *first* call; subsequent callers share the same instance.
+
+    Attributes:
+        max_concurrent: Maximum concurrent in-flight LLM calls.
+        max_qpm: Maximum queries per minute (sliding window). 0 = disabled.
+        pause_seconds: Global pause duration (s) on a 429 response.
+        jitter_range: Random jitter (s) added on top of the pause.
+        acquire_timeout: Max seconds to wait for a slot before raising.
     """
 
     max_concurrent: int = LLM_MAX_CONCURRENT
+    max_qpm: int = LLM_MAX_QPM
     pause_seconds: float = LLM_RATE_LIMIT_PAUSE
     jitter_range: float = LLM_RATE_LIMIT_JITTER
     acquire_timeout: float = LLM_ACQUIRE_TIMEOUT
@@ -173,7 +182,8 @@ def _normalize_rate_limit_config(
     if cfg is None:
         return RateLimitConfig()
     return RateLimitConfig(
-        max_concurrent=max(1, min(50, cfg.max_concurrent)),
+        max_concurrent=max(1, cfg.max_concurrent),
+        max_qpm=max(0, cfg.max_qpm),
         pause_seconds=max(1.0, cfg.pause_seconds),
         jitter_range=max(0.0, cfg.jitter_range),
         acquire_timeout=max(10.0, cfg.acquire_timeout),
@@ -260,6 +270,7 @@ class RetryChatModel(ChatModelBase):
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         limiter = await get_rate_limiter(
             max_concurrent=self._rate_limit_config.max_concurrent,
+            max_qpm=self._rate_limit_config.max_qpm,
             default_pause_seconds=self._rate_limit_config.pause_seconds,
             jitter_range=self._rate_limit_config.jitter_range,
         )
