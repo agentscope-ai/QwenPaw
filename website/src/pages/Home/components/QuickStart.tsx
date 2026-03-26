@@ -246,7 +246,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                 className="overflow-hidden rounded-[calc(1rem-2px)] bg-white"
                 variants={itemVariants}
               >
-              <div className="grid grid-cols-2 gap-px bg-(--bg) p-px sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-px bg-(--bg) sm:grid-cols-5">
                 {METHOD_ORDER.map((method) => {
                   const active = method === selectedMethod;
                   return (

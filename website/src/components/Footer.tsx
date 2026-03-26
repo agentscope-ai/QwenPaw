@@ -1,7 +1,8 @@
-import { Github, MessageCircle, Twitter, Youtube } from "lucide-react";
+import { MessageCircle, Twitter } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { CopawMascot } from "@/components/CopawMascot";
+import { GitHubIcon } from "./Icon";
 
 const AGENTSCOPE_ORG = "https://github.com/agentscope-ai";
 const AGENTSCOPE_REPO = "https://github.com/agentscope-ai/agentscope";
@@ -12,8 +13,11 @@ const ANTHROPIC_SKILLS_URL =
   "https://github.com/anthropics/skills?tab=readme-ov-file";
 
 const X_URL = "https://x.com/agentscope_ai";
-const DISCORD_URL = "https://discord.gg/XJ9KWJ9WmN";
-const YOUTUBE_URL = "https://www.youtube.com/@AgentScope";
+const DISCORD_URL = "https://discord.com/invite/eYMpfnkG8h";
+const DINGTALK_URL =
+  "https://qr.dingtalk.com/action/joingroup?code=v1,k1,1k7GcVwa5PzZWRaWyBA5OFImW0zNNx1Gj9RkjnuKVGY=&_dt_no_comment=1&origin=1";
+const XIAOHONGSHU_URL =
+  "https://www.xiaohongshu.com/user/profile/691c18db0000000037032be9";
 const TERMS_URL =
   "https://www.alibabacloud.com/help/en/legal/latest/terms-of-service";
 const PRIVACY_URL =
@@ -48,28 +52,43 @@ export function Footer() {
                 <Twitter size={18} strokeWidth={1.8} className="text-orange-400" />
               </a>
               <a
-                href="https://github.com/agentscope-ai/CoPaw"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t("footer.social.github")}
-              >
-                <Github size={18} strokeWidth={1.8} className="text-orange-400" />
-              </a>
-              <a
                 href={DISCORD_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("footer.social.discord")}
               >
-                <MessageCircle size={18} strokeWidth={1.8} className="text-orange-400"/>
+                <MessageCircle size={18} strokeWidth={1.8} className="text-orange-400" />
               </a>
               <a
-                href={YOUTUBE_URL}
+                href="https://github.com/agentscope-ai/CoPaw"
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={t("footer.social.youtube")}
+                aria-label={t("footer.social.github")}
               >
-                <Youtube size={18} strokeWidth={1.8} className="text-orange-400" />
+                <GitHubIcon size={18} className="text-orange-400" />
+              </a>
+              <a
+                href={DINGTALK_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("footer.social.dingtalk")}
+              >
+                <span
+                  aria-hidden
+                  className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border border-orange-300 text-[11px] font-bold leading-none text-orange-400"
+                >
+                  钉
+                </span>
+              </a>
+              <a
+                href={XIAOHONGSHU_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("footer.social.xiaohongshu")}
+              >
+                <span aria-hidden className="text-[18px] leading-none text-orange-400">
+                  🍠
+                </span>
               </a>
             </div>
           </section>

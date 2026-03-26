@@ -7,7 +7,6 @@ import {
   Globe,
   FileText,
   Download,
-  ChevronDown,
 } from "lucide-react";
 import { CopawMascot } from "@/components/CopawMascot";
 import { useTranslation } from "react-i18next";
@@ -87,44 +86,6 @@ export function Nav() {
           </span>
         </Link>
         <div className="nav-links hidden min-[641px]:flex min-[641px]:items-center min-[641px]:gap-6 lg:gap-8">
-          {/* <div ref={moreRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setMoreOpen((o) => !o)}
-              className={`${navLinkClass} cursor-pointer border-0 bg-transparent`}
-              aria-expanded={moreOpen}
-              aria-haspopup="true"
-              aria-label={t("nav.more")}
-            >
-              <ChevronDown size={18} strokeWidth={navIconStroke} aria-hidden />
-              <span>{t("nav.more")}</span>
-            </button>
-            {moreOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 top-[calc(100%+0.5rem)] z-50 min-w-[10rem] overflow-hidden rounded-xl border border-neutral-100 bg-white py-1 shadow-lg"
-              >
-                <Link
-                  to="/release-notes"
-                  role="menuitem"
-                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm font-medium text-neutral-600 no-underline transition-colors hover:bg-neutral-50 hover:text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-orange-400"
-                  onClick={() => setMoreOpen(false)}
-                >
-                  <FileText size={16} strokeWidth={navIconStroke} aria-hidden />
-                  <span>{t("nav.releaseNotes")}</span>
-                </Link>
-                <Link
-                  to={`${docsBase}/quickstart`}
-                  role="menuitem"
-                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm font-medium text-neutral-600 no-underline transition-colors hover:bg-neutral-50 hover:text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-orange-400"
-                  onClick={() => setMoreOpen(false)}
-                >
-                  <Download size={16} strokeWidth={navIconStroke} aria-hidden />
-                  <span>{t("nav.download")}</span>
-                </Link>
-              </div>
-            )}
-          </div> */}
           <Link to={docsBase} className={navLinkClass}>
             <SelectTextIcon />
             <span>{t("nav.docs")}</span>
@@ -159,14 +120,20 @@ export function Nav() {
             <Globe size={18} strokeWidth={navIconStroke} aria-hidden />
             <span>{t("nav.lang")}</span>
           </button>
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-md px-3 py-1 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)"
-            onClick={() => {}}
+          <Link
+            to="/release-notes"
+            role="menuitem"
+            className={navLinkClass}
           >
-            <Download size={18} strokeWidth={navIconStroke} /> Install
-          </button>
+            <FileText size={16} strokeWidth={navIconStroke} aria-hidden />
+            <span>{t("nav.releaseNotes")}</span>
+          </Link>
+          <Link
+            to={`${docsBase}/quickstart`}
+            className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)"
+          >
+            <Download size={18} strokeWidth={navIconStroke} /> {t("nav.download")}
+          </Link>
         </div>
 
         <button
@@ -186,22 +153,6 @@ export function Nav() {
           open ? "" : "hidden"
         }`}
       >
-        <Link
-          to="/release-notes"
-          className={navLinkClass}
-          onClick={() => setOpen(false)}
-        >
-          <FileText size={18} strokeWidth={navIconStroke} />
-          {t("nav.releaseNotes")}
-        </Link>
-        <Link
-          to={`${docsBase}/quickstart`}
-          className={navLinkClass}
-          onClick={() => setOpen(false)}
-        >
-          <Download size={18} strokeWidth={navIconStroke} />
-          {t("nav.download")}
-        </Link>
         <Link
           to={docsBase}
           className={navLinkClass}
@@ -241,6 +192,22 @@ export function Nav() {
         >
           <Globe size={18} strokeWidth={navIconStroke} /> {t("nav.lang")}
         </button>
+        <Link
+          to="/release-notes"
+          className={navLinkClass}
+          onClick={() => setOpen(false)}
+        >
+          <FileText size={18} strokeWidth={navIconStroke} />
+          {t("nav.releaseNotes")}
+        </Link>
+        <Link
+          to={`${docsBase}/quickstart`}
+          className={navLinkClass}
+          onClick={() => setOpen(false)}
+        >
+          <Download size={18} strokeWidth={navIconStroke} />
+          {t("nav.download")}
+        </Link>
       </div>
     </header>
   );

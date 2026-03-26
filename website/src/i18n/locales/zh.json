@@ -4,7 +4,7 @@
     "more": "更多",
     "releaseNotes": "更新日志",
     "copaw": "Copaw",
-    "download": "下载",
+    "download": "安装",
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "EN",
@@ -35,7 +35,7 @@
     "headingPrefix": "Why",
     "headingEmphasis": "CoPaw？",
     "sub": "安装简单，可部署在本机或云端；\n支持多种 IM 应用；能力可轻松扩展。",
-    "heroLine": "CoPaw 既是 Co Personal Agent Workstation（协同个人智能体工作台），也寓意「co-paw」——始终陪伴在你身边的伙伴。",
+    "heroLine": "CoPaw 既是协同个人智能体工作台，也寓意「co-paw」——始终陪伴在你身边的伙伴。",
     "secondPrefix": "它不只是冰冷的工具，",
     "secondEmphasis": "（CoPaw 随时准备搭把手 / 伸出一爪）",
     "secondSuffix": "它会成为你数字生活中最默契的队友。"
@@ -229,7 +229,8 @@
       "x": "X",
       "github": "GitHub",
       "discord": "Discord",
-      "youtube": "YouTube"
+      "dingtalk": "钉钉",
+      "xiaohongshu": "小红书"
     },
     "copyright": "© 2026 COPAW PRIVATE LIMITED，保留所有权利。",
     "poweredBy": {
