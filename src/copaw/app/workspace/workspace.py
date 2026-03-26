@@ -4,7 +4,7 @@
 Each Workspace represents a standalone agent workspace with its own:
 - Runner (request processing)
 - ChannelManager (communication channels)
-- MemoryManager (conversation memory)
+- BaseMemoryManager (conversation memory)
 - MCPClientManager (MCP tool clients)
 - CronManager (scheduled tasks)
 
@@ -42,7 +42,7 @@ class Workspace:
     Each Workspace is an independent agent instance with its own:
     - Runner: Processes agent requests
     - ChannelManager: Manages communication channels
-    - MemoryManager: Manages conversation memory
+    - BaseMemoryManager: Manages conversation memory
     - MCPClientManager: Manages MCP tool clients
     - CronManager: Manages scheduled tasks
 
@@ -278,7 +278,7 @@ class Workspace:
         Args:
             components: Dict mapping component name to instance.
                 Supported keys:
-                - 'memory_manager': MemoryManager instance
+                - 'memory_manager': BaseMemoryManager instance
                 - 'chat_manager': ChatManager instance
 
         Example:

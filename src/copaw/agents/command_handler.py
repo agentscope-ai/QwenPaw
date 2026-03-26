@@ -14,8 +14,7 @@ from ..config.config import load_agent_config
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 
 if TYPE_CHECKING:
-    from .memory import MemoryManager
-    from reme.memory.file_based import ReMeInMemoryMemory
+    from .memory import BaseMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +61,15 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory: "ReMeInMemoryMemory",
-        memory_manager: "MemoryManager | None" = None,
+        memory,
+        memory_manager: "BaseMemoryManager | None" = None,
         enable_memory_manager: bool = True,
     ):
         """Initialize command handler.
 
         Args:
             agent_name: Name of the agent for message creation
-            memory: Agent's ReMeInMemoryMemory instance
+            memory: Agent's in-memory memory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
         """

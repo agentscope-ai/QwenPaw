@@ -3,10 +3,10 @@
 
 from .agent_md_manager import AgentMdManager
 from .base_memory_manager import BaseMemoryManager
-from .memory_manager import MemoryManager
+from .reme_light_memory_manager import ReMeLightMemoryManager
 
 __all__ = [
     "AgentMdManager",
     "BaseMemoryManager",
-    "MemoryManager",
+    "ReMeLightMemoryManager",
 ]

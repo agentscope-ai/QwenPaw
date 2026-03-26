@@ -53,7 +53,7 @@ from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     WORKING_DIR,
 )
-from ..agents.memory import MemoryManager
+from ..agents.memory import BaseMemoryManager
 
 if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
@@ -90,7 +90,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         env_context: Optional[str] = None,
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
-        memory_manager: "MemoryManager | None" = None,
+        memory_manager: "BaseMemoryManager | None" = None,
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
@@ -317,7 +317,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def _setup_memory_manager(
         self,
         enable_memory_manager: bool,
-        memory_manager: MemoryManager | None,
+        memory_manager: BaseMemoryManager | None,
         namesake_strategy: NamesakeStrategy,
     ) -> None:
         """Setup memory manager and register memory search tool if enabled.
@@ -389,6 +389,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         message stored in self.memory.content (if one exists).
         """
         self._sys_prompt = self._build_sys_prompt()
+
+        if self.memory is None:
+            logger.warning(
+                "rebuild_sys_prompt: self.memory is None, "
+                "skipping in-memory system prompt update.",
+            )
+            return
 
         for msg, _marks in self.memory.content:
             if msg.role == "system":

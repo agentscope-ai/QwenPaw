@@ -145,12 +145,12 @@ async def create_memory_manager_service(ws: "Workspace", _):
         BaseMemoryManager instance registered in services and wired to runner.
     """
     # pylint: disable=protected-access
-    from ...agents.memory import MemoryManager
+    from ...agents.memory import ReMeLightMemoryManager
 
     backend = ws._config.running.memory_manager_backend
 
     if backend == "remelight":
-        mm = MemoryManager(
+        mm = ReMeLightMemoryManager(
             working_dir=str(ws.workspace_dir),
             agent_id=ws.agent_id,
         )

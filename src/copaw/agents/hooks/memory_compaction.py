@@ -19,7 +19,7 @@ from ..utils import (
 from ...config.config import load_agent_config
 
 if TYPE_CHECKING:
-    from ..memory import MemoryManager
+    from ..memory import BaseMemoryManager
     from reme.memory.file_based import ReMeInMemoryMemory
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class MemoryCompactionHook:
     messages while summarizing older conversation history.
     """
 
-    def __init__(self, memory_manager: "MemoryManager"):
+    def __init__(self, memory_manager: "BaseMemoryManager"):
         """Initialize memory compaction hook.
 
         Args:
