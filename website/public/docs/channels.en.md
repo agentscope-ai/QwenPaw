@@ -57,7 +57,6 @@ Step-by-step:
    ![save](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
 
 6. In the app details, copy:
-
    - **Client ID** (AppKey)
    - **Client Secret** (AppSecret)
 
@@ -288,7 +287,6 @@ The app polls the local iMessage database for new messages and sends replies on 
 3. For CoPaw to read iMessage data, **Terminal** (or the app you use to run `copaw app`) and **Messages** need **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access).
 
 4. Set the iMessage database path. The default is `~/Library/Messages/chat.db`; use this unless you've moved the database. You can configure it in either of these ways:
-
    - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
 
      ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
@@ -537,15 +535,15 @@ You can also configure directly in `config.json` (default path `~/.copaw/config.
 }
 ```
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| `bot_token` | Bearer token obtained after QR code login; leave empty to trigger QR login on startup | `""` |
-| `bot_token_file` | Path to persist the token for future runs | `~/.copaw/weixin_bot_token` |
-| `base_url` | iLink API base URL; leave empty to use the official default | official default |
-| `media_dir` | Directory to save received images and files | `~/.copaw/media` |
-| `dm_policy` | Direct message policy: `open` (everyone) / `close` (disabled) / `allowlist` | `open` |
-| `group_policy` | Group chat policy: same options as `dm_policy` | `open` |
-| `allow_from` | List of allowed user IDs (used when policy is `allowlist`) | `[]` |
+| Field            | Description                                                                           | Default                     |
+| ---------------- | ------------------------------------------------------------------------------------- | --------------------------- |
+| `bot_token`      | Bearer token obtained after QR code login; leave empty to trigger QR login on startup | `""`                        |
+| `bot_token_file` | Path to persist the token for future runs                                             | `~/.copaw/weixin_bot_token` |
+| `base_url`       | iLink API base URL; leave empty to use the official default                           | official default            |
+| `media_dir`      | Directory to save received images and files                                           | `~/.copaw/media`            |
+| `dm_policy`      | Direct message policy: `open` (everyone) / `close` (disabled) / `allowlist`           | `open`                      |
+| `group_policy`   | Group chat policy: same options as `dm_policy`                                        | `open`                      |
+| `allow_from`     | List of allowed user IDs (used when policy is `allowlist`)                            | `[]`                        |
 
 ### Configure via environment variables
 
@@ -715,7 +713,6 @@ The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio
 1. Create a bot account on any Matrix homeserver (e.g. [matrix.org](https://matrix.org) — register at [app.element.io](https://app.element.io/#/register)).
 
 2. Get the bot's **access token**. The easiest way is via Element:
-
    - Log in as the bot account at [app.element.io](https://app.element.io)
    - Go to **Settings → Help & About → Advanced → Access Token**
    - Copy the token (it starts with `syt_...`)
@@ -810,7 +807,7 @@ The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over Web
 | Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
 | QQ         | qq         | app_id, client_secret                                                   |
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
-| WeChat     | weixin     | bot_token (or QR login); optional bot_token_file, base_url, media_dir  |
+| WeChat     | weixin     | bot_token (or QR login); optional bot_token_file, base_url, media_dir   |
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                       |

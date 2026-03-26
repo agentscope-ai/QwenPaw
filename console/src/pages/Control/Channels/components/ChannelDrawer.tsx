@@ -90,8 +90,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   mattermost: "https://copaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/?lang=zh#Matrix",
   wecom: "https://copaw.agentscope.io/docs/channels/?lang=zh#企业微信",
-  weixin:
-    "https://copaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
+  weixin: "https://copaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
@@ -847,7 +846,15 @@ export function ChannelDrawer({
                     alt="WeChat QR Code"
                     style={{ width: 200, height: 200 }}
                   />
-                  <div style={{ marginTop: 8, fontSize: 12, color: isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)" }}>
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      color: isDark
+                        ? "rgba(255,255,255,0.45)"
+                        : "rgba(0,0,0,0.45)",
+                    }}
+                  >
                     {t("channels.weixinScanHint")}
                   </div>
                 </div>
@@ -858,7 +865,9 @@ export function ChannelDrawer({
               label={t("channels.weixinBotToken")}
               tooltip={t("channels.weixinBotTokenTooltip")}
             >
-              <Input.Password placeholder={t("channels.weixinBotTokenPlaceholder")} />
+              <Input.Password
+                placeholder={t("channels.weixinBotTokenPlaceholder")}
+              />
             </Form.Item>
             <Form.Item
               name="bot_token_file"

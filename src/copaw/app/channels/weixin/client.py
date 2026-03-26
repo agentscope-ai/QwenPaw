@@ -6,10 +6,11 @@ Protocol: HTTP/JSON, no third-party SDK required.
 
 Authentication flow:
 1. GET /ilink/bot/get_bot_qrcode?bot_type=3  → qrcode + qrcode_img_content
-2. Poll GET /ilink/bot/get_qrcode_status?qrcode=<qrcode> until status=="confirmed"
+2. Poll GET /ilink/bot/get_qrcode_status?qrcode=<qrcode> until confirmed
 3. Save bot_token + baseurl from the confirmed response
 4. Use bearer token for all subsequent requests
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -156,12 +157,12 @@ class ILinkClient:
                 base_url = data.get("baseurl", self.base_url)
                 return token, base_url
             if status == "expired":
-                raise RuntimeError("WeChat QR code expired, please retry login")
+                raise RuntimeError(
+                    "WeChat QR code expired, please retry login",
+                )
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
-        raise TimeoutError(
-            f"WeChat QR code not scanned within {max_wait}s"
-        )
+        raise TimeoutError(f"WeChat QR code not scanned within {max_wait}s")
 
     # ------------------------------------------------------------------
     # Messaging APIs
@@ -171,7 +172,8 @@ class ILinkClient:
         """Long-poll for incoming messages (holds up to 35 seconds).
 
         Args:
-            cursor: get_updates_buf from previous response; empty string on first call.
+            cursor: get_updates_buf from previous response;
+                empty on first call.
 
         Returns:
             Dict with keys:
@@ -233,10 +235,8 @@ class ILinkClient:
                 "message_type": 2,
                 "message_state": 2,
                 "context_token": context_token,
-                "item_list": [
-                    {"type": 1, "text_item": {"text": text}}
-                ],
-            }
+                "item_list": [{"type": 1, "text_item": {"text": text}}],
+            },
         )
 
     async def getconfig(self) -> Dict[str, Any]:
@@ -247,7 +247,11 @@ class ILinkClient:
         """
         return await self._post("ilink/bot/getconfig", {})
 
-    async def sendtyping(self, to_user_id: str, typing_ticket: str) -> Dict[str, Any]:
+    async def sendtyping(
+        self,
+        to_user_id: str,
+        typing_ticket: str,
+    ) -> Dict[str, Any]:
         """Send "typing..." indicator to a user.
 
         Args:
@@ -279,12 +283,13 @@ class ILinkClient:
 
         iLink media files are stored on https://novac2c.cdn.weixin.qq.com/c2c.
         The 'url' field in image_item/file_item is a hex media-ID (not HTTP).
-        The actual download URL is constructed from the CDN base + encrypt_query_param.
+        The actual download URL is built from CDN base + encrypt_query_param.
 
         Args:
-            url: CDN HTTP URL, or hex media-ID (ignored if encrypt_query_param given).
+            url: CDN HTTP URL, or hex media-ID
+                (ignored if encrypt_query_param).
             aes_key_b64: Base64-encoded AES-128 key; if empty, no decryption.
-            encrypt_query_param: Query param string from media.encrypt_query_param;
+            encrypt_query_param: Query param from media.encrypt_query_param;
                 if provided, use CDN base URL + this param to download.
 
         Returns:
@@ -295,13 +300,14 @@ class ILinkClient:
         if encrypt_query_param:
             cdn_base = "https://novac2c.cdn.weixin.qq.com/c2c"
             # Note: parameter name is "encrypted_query_param" (with 'd')
-            download_url = f"{cdn_base}/download?encrypted_query_param={quote(encrypt_query_param, safe='')}"
+            enc = quote(encrypt_query_param, safe="")
+            download_url = f"{cdn_base}/download?encrypted_query_param={enc}"
         elif url.startswith("http"):
             download_url = url
         else:
             raise ValueError(
                 f"Cannot download media: no valid HTTP URL. "
-                f"url={url[:40]!r}, encrypt_query_param empty."
+                f"url={url[:40]!r}, encrypt_query_param empty.",
             )
 
         resp = await self._client.get(download_url, timeout=60.0)

@@ -198,9 +198,9 @@ class WeixinChannel(BaseChannel):
     def _parse_user_id_from_handle(to_handle: str) -> str:
         h = (to_handle or "").strip()
         if h.startswith("weixin:group:"):
-            return h[len("weixin:group:"):]
+            return h[len("weixin:group:") :]
         if h.startswith("weixin:"):
-            return h[len("weixin:"):]
+            return h[len("weixin:") :]
         return h
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
@@ -217,14 +217,18 @@ class WeixinChannel(BaseChannel):
             getattr(request, "session_id", "") or "",
         )
 
-    def build_agent_request_from_native(self, native_payload: Any) -> "AgentRequest":
+    def build_agent_request_from_native(
+        self,
+        native_payload: Any,
+    ) -> "AgentRequest":
         payload = native_payload if isinstance(native_payload, dict) else {}
         channel_id = payload.get("channel_id") or self.channel
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
         session_id = payload.get("session_id") or self.resolve_session_id(
-            sender_id, meta
+            sender_id,
+            meta,
         )
         user_id = payload.get("user_id", sender_id)
         request = self.build_agent_request_from_user_content(
@@ -263,7 +267,9 @@ class WeixinChannel(BaseChannel):
         """Try to load persisted bot_token from token file."""
         try:
             if self._bot_token_file.exists():
-                token = self._bot_token_file.read_text(encoding="utf-8").strip()
+                token = self._bot_token_file.read_text(
+                    encoding="utf-8",
+                ).strip()
                 if token:
                     logger.info(
                         "weixin: loaded bot_token from %s",
@@ -311,16 +317,21 @@ class WeixinChannel(BaseChannel):
         try:
             qr_data = await self._client.get_bot_qrcode()
             qrcode = qr_data.get("qrcode", "")
-            qrcode_url = qr_data.get("url") or qr_data.get("qrcode_img_content", "")
+            qrcode_url = qr_data.get("url") or qr_data.get(
+                "qrcode_img_content",
+                "",
+            )
             logger.info(
-                "weixin: Please scan the QR code to log in.\n"
-                "  QR URL: %s",
+                "weixin: Please scan the QR code to log in.\n" "  QR URL: %s",
                 qrcode_url or "(see qrcode_img_content in debug log)",
             )
             if logger.isEnabledFor(logging.DEBUG):
                 img_b64 = qr_data.get("qrcode_img_content", "")
                 if img_b64:
-                    logger.debug("weixin: QR code base64 PNG: %s", img_b64[:80])
+                    logger.debug(
+                        "weixin: QR code base64 PNG: %s",
+                        img_b64[:80],
+                    )
 
             logger.info("weixin: waiting for QR code scan (up to 300s)…")
             token, base_url = await self._client.wait_for_login(qrcode)
@@ -341,7 +352,7 @@ class WeixinChannel(BaseChannel):
     # ------------------------------------------------------------------
 
     def _run_poll_forever(self) -> None:
-        """Background thread: run long-poll loop in a dedicated asyncio loop."""
+        """Background thread: run long-poll loop in a dedicated event loop."""
         if sys.platform == "darwin":
             poll_loop = asyncio.SelectorEventLoop()
         else:
@@ -359,7 +370,7 @@ class WeixinChannel(BaseChannel):
                     task.cancel()
                 if pending:
                     poll_loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
+                        asyncio.gather(*pending, return_exceptions=True),
                     )
                 poll_loop.run_until_complete(poll_loop.shutdown_asyncgens())
                 poll_loop.close()
@@ -388,10 +399,11 @@ class WeixinChannel(BaseChannel):
                     msgs: List[Dict[str, Any]] = data.get("msgs") or []
                     for msg in msgs:
                         await self._on_message(msg, client)
-                    # Only warn+retry on non-zero ret when there are no messages
+                    # Only warn+retry on non-zero ret when no messages
                     if ret != 0 and not msgs:
                         logger.warning(
-                            "weixin getupdates non-zero ret=%s (no msgs), retry in 3s",
+                            "weixin getupdates non-zero ret=%s"
+                            " (no msgs), retry in 3s",
                             ret,
                         )
                         await asyncio.sleep(3)
@@ -426,9 +438,14 @@ class WeixinChannel(BaseChannel):
                 return
 
             # Dedup: use context_token as unique id
-            dedup_key = context_token or f"{from_user_id}_{msg.get('msg_id', '')}"
+            dedup_key = (
+                context_token or f"{from_user_id}_{msg.get('msg_id', '')}"
+            )
             if dedup_key and self._is_duplicate(dedup_key):
-                logger.debug("weixin: duplicate message skipped: %s", dedup_key[:40])
+                logger.debug(
+                    "weixin: duplicate message skipped: %s",
+                    dedup_key[:40],
+                )
                 return
 
             content_parts: List[Any] = []
@@ -440,7 +457,9 @@ class WeixinChannel(BaseChannel):
 
                 if item_type == 1:
                     # Text
-                    text = (item.get("text_item") or {}).get("text", "").strip()
+                    text = (
+                        (item.get("text_item") or {}).get("text", "").strip()
+                    )
                     if text:
                         text_parts.append(text)
 
@@ -449,16 +468,21 @@ class WeixinChannel(BaseChannel):
                     img_item = item.get("image_item") or {}
                     media = img_item.get("media") or {}
                     encrypt_query_param = media.get("encrypt_query_param", "")
-                    # Key priority: image_item.aeskey (hex) > media.aes_key (base64)
-                    # Per official SDK: convert hex aeskey → base64 for unified decryption
+                    # Key priority: image_item.aeskey (hex) > media.aes_key
+                    # Per official SDK: hex aeskey → base64 for decryption
                     aeskey_hex = img_item.get("aeskey", "")
                     if aeskey_hex:
-                        aes_key = _b64.b64encode(bytes.fromhex(aeskey_hex)).decode()
+                        aes_key = _b64.b64encode(
+                            bytes.fromhex(aeskey_hex),
+                        ).decode()
                     else:
                         aes_key = media.get("aes_key", "")
                     if encrypt_query_param:
                         path = await self._download_media(
-                            client, "", aes_key, "image.jpg",
+                            client,
+                            "",
+                            aes_key,
+                            "image.jpg",
                             encrypt_query_param=encrypt_query_param,
                         )
                         if path:
@@ -466,7 +490,7 @@ class WeixinChannel(BaseChannel):
                                 ImageContent(
                                     type=ContentType.IMAGE,
                                     image_url=path,
-                                )
+                                ),
                             )
                         else:
                             text_parts.append("[image: download failed]")
@@ -489,13 +513,21 @@ class WeixinChannel(BaseChannel):
                 elif item_type == 4:
                     # File attachment
                     file_item = item.get("file_item") or {}
-                    filename = file_item.get("file_name", "file.bin") or "file.bin"
+                    filename = (
+                        file_item.get("file_name", "file.bin") or "file.bin"
+                    )
                     media = file_item.get("media") or {}
                     encrypt_query_param = media.get("encrypt_query_param", "")
-                    aes_key = media.get("aes_key", "")  # base64(Format A or B), handled by aes_ecb_decrypt
+                    aes_key = media.get(
+                        "aes_key",
+                        "",
+                    )  # base64(Format A or B), handled by aes_ecb_decrypt
                     if encrypt_query_param:
                         path = await self._download_media(
-                            client, "", aes_key, filename,
+                            client,
+                            "",
+                            aes_key,
+                            filename,
                             encrypt_query_param=encrypt_query_param,
                         )
                         if path:
@@ -503,7 +535,7 @@ class WeixinChannel(BaseChannel):
                                 FileContent(
                                     type=ContentType.FILE,
                                     file_url=path,
-                                )
+                                ),
                             )
                         else:
                             text_parts.append("[file: download failed]")
@@ -518,7 +550,10 @@ class WeixinChannel(BaseChannel):
                     aes_key = media.get("aes_key", "")
                     if encrypt_query_param:
                         path = await self._download_media(
-                            client, "", aes_key, "video.mp4",
+                            client,
+                            "",
+                            aes_key,
+                            "video.mp4",
                             encrypt_query_param=encrypt_query_param,
                         )
                         if path:
@@ -526,7 +561,7 @@ class WeixinChannel(BaseChannel):
                                 VideoContent(
                                     type=ContentType.VIDEO,
                                     video_url=path,
-                                )
+                                ),
                             )
                         else:
                             text_parts.append("[video: download failed]")
@@ -538,7 +573,8 @@ class WeixinChannel(BaseChannel):
             text = "\n".join(text_parts).strip()
             if text:
                 content_parts.insert(
-                    0, TextContent(type=ContentType.TEXT, text=text)
+                    0,
+                    TextContent(type=ContentType.TEXT, text=text),
                 )
             if not content_parts:
                 return
@@ -560,12 +596,19 @@ class WeixinChannel(BaseChannel):
                     is_group,
                 )
                 if error_msg and context_token:
-                    asyncio.run_coroutine_threadsafe(
-                        self._send_text_direct(
-                            from_user_id, error_msg, context_token, client
-                        ),
-                        self._loop,
-                    ) if self._loop else None
+                    (
+                        asyncio.run_coroutine_threadsafe(
+                            self._send_text_direct(
+                                from_user_id,
+                                error_msg,
+                                context_token,
+                                client,
+                            ),
+                            self._loop,
+                        )
+                        if self._loop
+                        else None
+                    )
                 return
 
             session_id = self.resolve_session_id(from_user_id, meta)
@@ -606,15 +649,18 @@ class WeixinChannel(BaseChannel):
         Returns local file path, or None on failure.
         """
         try:
-            data = await client.download_media(url, aes_key, encrypt_query_param)
+            data = await client.download_media(
+                url,
+                aes_key,
+                encrypt_query_param,
+            )
             self._media_dir.mkdir(parents=True, exist_ok=True)
-            hint_ext = Path(filename_hint).suffix
             safe_name = (
                 "".join(c for c in filename_hint if c.isalnum() or c in "-_.")
                 or "media"
             )
             url_hash = hashlib.md5(
-                (encrypt_query_param or url).encode()
+                (encrypt_query_param or url).encode(),
             ).hexdigest()[:8]
             path = self._media_dir / f"weixin_{url_hash}_{safe_name}"
             path.write_bytes(data)
@@ -681,7 +727,7 @@ class WeixinChannel(BaseChannel):
                 text_parts.append(text_val)
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val)
-            # Media send not yet implemented for iLink (no upload API used here)
+            # Media send not yet implemented for iLink (no upload API)
 
         body = "\n".join(text_parts).strip()
         if prefix and body:
@@ -739,7 +785,7 @@ class WeixinChannel(BaseChannel):
                 if not ok:
                     raise RuntimeError(
                         "WeChat QR code login failed. "
-                        "Please provide a valid bot_token in config."
+                        "Please provide a valid bot_token in config.",
                     )
                 # Login succeeded; login_client becomes the long-lived client
             except Exception:
@@ -749,7 +795,8 @@ class WeixinChannel(BaseChannel):
         else:
             # Token already known — create the long-lived client now
             self._client = ILinkClient(
-                bot_token=self.bot_token, base_url=self._base_url
+                bot_token=self.bot_token,
+                base_url=self._base_url,
             )
             await self._client.start()
 

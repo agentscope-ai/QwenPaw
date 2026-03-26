@@ -175,7 +175,8 @@ class WeixinConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
     bot_token:      Bearer token obtained after QR code login.
-    bot_token_file: Path to persist/load the bot_token (default ~/.copaw/weixin_bot_token).
+    bot_token_file: Path to persist/load the bot_token
+                    (default ~/.copaw/weixin_bot_token).
     base_url:       iLink API base URL (leave empty to use default).
     media_dir:      Local directory for downloaded media files.
     """

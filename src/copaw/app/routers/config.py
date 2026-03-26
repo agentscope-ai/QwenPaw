@@ -153,10 +153,12 @@ async def put_channels(
 
 
 async def _get_weixin_base_url(request: Request) -> str:
-    """Return configured WeChat base_url for the current agent, or the default."""
+    """Return configured WeChat base_url for the current agent."""
     from ..channels.weixin.client import _DEFAULT_BASE_URL
+
     try:
         from ..agent_context import get_agent_for_request
+
         agent = await get_agent_for_request(request)
         channels = agent.config.channels
         if channels is not None:
@@ -171,7 +173,7 @@ async def _get_weixin_base_url(request: Request) -> str:
 @router.get(
     "/channels/weixin/qrcode",
     summary="Get WeChat iLink login QR code",
-    description="Fetch a one-time QR code image (base64 PNG) for WeChat iLink Bot login.",
+    description="Fetch QR code image (base64 PNG) for WeChat iLink Bot login.",
 )
 async def get_weixin_qrcode(request: Request) -> dict:
     """Return a QR code image (base64 PNG) for WeChat iLink Bot login."""
@@ -186,7 +188,10 @@ async def get_weixin_qrcode(request: Request) -> dict:
     try:
         qr_data = await client.get_bot_qrcode()
     except (httpx.HTTPError, Exception) as exc:
-        raise HTTPException(status_code=502, detail=f"WeChat QR code fetch failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"WeChat QR code fetch failed: {exc}",
+        ) from exc
     finally:
         await client.stop()
 
@@ -194,19 +199,32 @@ async def get_weixin_qrcode(request: Request) -> dict:
     qrcode_img_url = qr_data.get("qrcode_img_content", "")
 
     if not qrcode and not qrcode_img_url:
-        raise HTTPException(status_code=502, detail="WeChat returned empty QR code data")
+        raise HTTPException(
+            status_code=502,
+            detail="WeChat returned empty QR code data",
+        )
 
-    # Generate QR code image from the scan URL using segno (pure Python, no deps)
+    # Generate QR code image from the scan URL using segno (pure Python)
     # The scan target is the URL that WeChat app should open when scanning
-    scan_url = qrcode_img_url if qrcode_img_url.startswith("http") else f"https://liteapp.weixin.qq.com/q/7GiQu1?qrcode={qrcode}&bot_type=3"
+    if qrcode_img_url.startswith("http"):
+        scan_url = qrcode_img_url
+    else:
+        scan_url = (
+            f"https://liteapp.weixin.qq.com/q/7GiQu1"
+            f"?qrcode={qrcode}&bot_type=3"
+        )
     try:
         import segno
+
         qr = segno.make(scan_url, error="M")
         buf = io.BytesIO()
         qr.save(buf, kind="png", scale=6, border=2)
         qrcode_img_b64 = base64.b64encode(buf.getvalue()).decode()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"QR code image generation failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"QR code image generation failed: {exc}",
+        ) from exc
 
     return {"qrcode_img": qrcode_img_b64, "qrcode": qrcode}
 
@@ -229,7 +247,10 @@ async def get_weixin_qrcode_status(
     try:
         data = await client.get_qrcode_status(qrcode)
     except (httpx.HTTPError, Exception) as exc:
-        raise HTTPException(status_code=502, detail=f"WeChat status check failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"WeChat status check failed: {exc}",
+        ) from exc
     finally:
         await client.stop()
 

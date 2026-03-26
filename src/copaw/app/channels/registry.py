@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Channel registry: built-in + custom channels from working dir."""
+
 from __future__ import annotations
 
 import importlib
