@@ -258,24 +258,18 @@ metadata (可选):
 可以在控制台 **Agent → Skills** 中点击技能的配置图标设置 config，也可以通过
 API 操作。
 
-### 支持的注入方式
+### 注入方式
 
-- `config.env`：按键值对注入为环境变量；若宿主进程中该变量已存在，则不会覆盖。
-- `config.api_key` 或 `config.apiKey`：若该 Skill 只声明了一个 `metadata.requires.env`
-  变量，则会自动映射到那个变量。
-- 整个 `config`：会额外注入为 `COPAW_SKILL_CONFIG_<SKILL_NAME>`，值为 JSON 字符串。
+config 中与 SKILL.md `metadata.requires.env` 声明匹配的 key 会被注入为环境变量。
+未在 `requires.env` 中声明的 key 不会注入（但仍可通过完整 JSON 变量读取）。
+如果 config 缺少某个必需 key，会记录警告日志。
+
+完整 config 始终以 `COPAW_SKILL_CONFIG_<SKILL_NAME>`（JSON 字符串）注入，
+不受 `requires.env` 影响。
+
+宿主进程中已存在的同名环境变量不会被覆盖。
 
 ### 示例
-
-```json
-{
-  "api_key": "sk-demo",
-  "env": {
-    "BASE_URL": "https://api.example.com"
-  },
-  "timeout": 30
-}
-```
 
 若 `SKILL.md` 中声明：
 
@@ -285,15 +279,26 @@ name: my_skill
 description: demo
 metadata:
   requires:
-    env: [MY_SKILL_API_KEY]
+    env: [MY_API_KEY, BASE_URL]
 ---
+```
+
+config 为：
+
+```json
+{
+  "MY_API_KEY": "sk-demo",
+  "BASE_URL": "https://api.example.com",
+  "timeout": 30
+}
 ```
 
 则运行时可读取：
 
-- `MY_SKILL_API_KEY` ← 自动来自 `config.api_key`
-- `BASE_URL` ← 来自 `config.env.BASE_URL`
-- `COPAW_SKILL_CONFIG_MY_SKILL` ← 完整 JSON 配置
+- `MY_API_KEY` ← 来自 config，匹配 `requires.env`
+- `BASE_URL` ← 来自 config，匹配 `requires.env`
+- `timeout` ← 不在 `requires.env` 中，仅可通过完整 JSON 读取
+- `COPAW_SKILL_CONFIG_MY_SKILL` ← 完整 JSON 配置（始终注入）
 
 Python 示例：
 
@@ -301,7 +306,7 @@ Python 示例：
 import json
 import os
 
-api_key = os.environ.get("MY_SKILL_API_KEY", "")
+api_key = os.environ.get("MY_API_KEY", "")
 base_url = os.environ.get("BASE_URL", "")
 cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
 timeout = cfg.get("timeout", 30)

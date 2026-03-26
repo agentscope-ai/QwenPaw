@@ -431,30 +431,37 @@ def _build_skill_config_env_overrides(
     config: dict[str, Any],
     require_envs: list[str],
 ) -> dict[str, str]:
+    """Map config keys to env vars based on ``require_envs``.
+
+    Config keys that match a declared ``require_envs`` entry are
+    injected as environment variables.  Keys not in ``require_envs``
+    are silently skipped (still available via the full JSON var).
+    Missing required keys are logged as warnings.
+    """
     overrides: dict[str, str] = {}
-
-    env_config = config.get("env")
-    if isinstance(env_config, dict):
-        for raw_key, raw_value in env_config.items():
-            env_key = str(raw_key or "").strip()
-            if not env_key or raw_value in (None, ""):
-                continue
-            overrides[env_key] = _stringify_skill_env_value(raw_value)
-
-    api_key = config.get("api_key")
-    if api_key in (None, ""):
-        api_key = config.get("apiKey")
 
     normalized_required_envs = [
         str(env_name).strip()
         for env_name in require_envs
         if str(env_name).strip()
     ]
-    if api_key not in (None, "") and len(normalized_required_envs) == 1:
-        overrides.setdefault(
-            normalized_required_envs[0],
-            _stringify_skill_env_value(api_key),
-        )
+
+    required_set = set(normalized_required_envs)
+    for key, value in config.items():
+        if key not in required_set:
+            continue
+        if value in (None, ""):
+            continue
+        overrides[key] = _stringify_skill_env_value(value)
+
+    for env_name in normalized_required_envs:
+        if env_name not in overrides:
+            logger.warning(
+                "Skill '%s' requires env '%s' but config does "
+                "not provide it",
+                skill_name,
+                env_name,
+            )
 
     overrides[_skill_config_env_var_name(skill_name)] = json.dumps(
         config,
@@ -507,12 +514,9 @@ def apply_skill_config_env_overrides(
 ) -> Iterator[None]:
     """Inject effective skill config into env for one agent turn.
 
-    Mirrors the provider-style runtime injection pattern without requiring
-    skill registration changes. Skill scripts can read:
-
-    - explicit env values from ``config.env``
-    - a single required env auto-filled from ``config.api_key``/``apiKey``
-    - the full JSON config from ``COPAW_SKILL_CONFIG_<SKILL_NAME>``
+    Config keys matching ``metadata.requires.env`` entries are injected
+    as environment variables.  The full config is always available as
+    ``COPAW_SKILL_CONFIG_<SKILL_NAME>`` (JSON string).
     """
     manifest = reconcile_workspace_manifest(workspace_dir)
     entries = manifest.get("skills", {})

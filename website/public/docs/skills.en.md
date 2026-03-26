@@ -269,24 +269,19 @@ for that agent turn, then restores the environment after the turn completes.
 You can set config per skill in the Console (**Agent → Skills** → click the
 config icon on a skill) or via the API.
 
-### Supported injection paths
+### How it works
 
-- `config.env`: injected as environment variables; existing host env vars are not overwritten.
-- `config.api_key` or `config.apiKey`: if the skill declares exactly one
-  `metadata.requires.env` entry, CoPaw maps the API key into that env var automatically.
-- Entire `config`: also injected as `COPAW_SKILL_CONFIG_<SKILL_NAME>` as a JSON string.
+Config keys that match a `metadata.requires.env` entry in SKILL.md are
+injected as environment variables. Keys not declared in `requires.env` are
+skipped (but still available via the full JSON variable). If a required key
+is missing from the config, a warning is logged.
+
+The full config is always available as `COPAW_SKILL_CONFIG_<SKILL_NAME>`
+(JSON string), regardless of `requires.env`.
+
+Existing host environment variables are never overwritten.
 
 ### Example
-
-```json
-{
-  "api_key": "sk-demo",
-  "env": {
-    "BASE_URL": "https://api.example.com"
-  },
-  "timeout": 30
-}
-```
 
 If `SKILL.md` declares:
 
@@ -296,15 +291,26 @@ name: my_skill
 description: demo
 metadata:
   requires:
-    env: [MY_SKILL_API_KEY]
+    env: [MY_API_KEY, BASE_URL]
 ---
+```
+
+And the config is:
+
+```json
+{
+  "MY_API_KEY": "sk-demo",
+  "BASE_URL": "https://api.example.com",
+  "timeout": 30
+}
 ```
 
 The skill can read:
 
-- `MY_SKILL_API_KEY` ← auto-filled from `config.api_key`
-- `BASE_URL` ← from `config.env.BASE_URL`
-- `COPAW_SKILL_CONFIG_MY_SKILL` ← full JSON config
+- `MY_API_KEY` ← from config, matches `requires.env`
+- `BASE_URL` ← from config, matches `requires.env`
+- `timeout` ← not in `requires.env`, only available via the full JSON below
+- `COPAW_SKILL_CONFIG_MY_SKILL` ← full JSON config (always injected)
 
 Python example:
 
@@ -312,7 +318,7 @@ Python example:
 import json
 import os
 
-api_key = os.environ.get("MY_SKILL_API_KEY", "")
+api_key = os.environ.get("MY_API_KEY", "")
 base_url = os.environ.get("BASE_URL", "")
 cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
 timeout = cfg.get("timeout", 30)
