@@ -2,7 +2,7 @@ import React from "react";
 import type { IconProps } from "./types";
 
 export const XIcon: React.FC<IconProps> = ({
-  size = 18,
+  size = 16,
   className = "",
 }) => {
   return (

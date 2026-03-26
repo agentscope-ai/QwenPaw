@@ -1,8 +1,7 @@
-import { MessageCircle, Twitter } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { CopawMascot } from "@/components/CopawMascot";
-import { GitHubIcon } from "./Icon";
+import { GitHubIcon, XIcon, DiscordIcon } from "./Icon";
 
 const AGENTSCOPE_ORG = "https://github.com/agentscope-ai";
 const AGENTSCOPE_REPO = "https://github.com/agentscope-ai/agentscope";
@@ -37,7 +36,7 @@ export function Footer() {
             <Link to="/" className="inline-flex items-center mb-4">
               <CopawMascot size={80} />
             </Link>
-            <p className="mb-2 text-[15px] leading-7 text-[var(--text)]">
+            <p className="mb-2 text-[15px] leading-7 text-(--text)">
               {t("brandstory.para1")}
               <br />
               {t("brandstory.para2")}
@@ -48,45 +47,57 @@ export function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("footer.social.x")}
+                className="inline-flex h-6 w-6 items-center justify-center leading-none"
               >
-                <Twitter size={18} strokeWidth={1.8} className="text-orange-400" />
-              </a>
-              <a
-                href={DISCORD_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t("footer.social.discord")}
-              >
-                <MessageCircle size={18} strokeWidth={1.8} className="text-orange-400" />
+                <XIcon className="block" />
               </a>
               <a
                 href="https://github.com/agentscope-ai/CoPaw"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("footer.social.github")}
+                className="inline-flex h-6 w-6 items-center justify-center leading-none"
               >
-                <GitHubIcon size={18} className="text-orange-400" />
+                <GitHubIcon size={20} className="block text-orange-400" />
+              </a>
+              <a
+                href={DISCORD_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("footer.social.discord")}
+                className="inline-flex h-6 w-6 items-center justify-center leading-none"
+              >
+                <DiscordIcon className="block" />
               </a>
               <a
                 href={DINGTALK_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("footer.social.dingtalk")}
+                className="inline-flex h-6 w-6 items-center justify-center leading-none"
               >
-                <span
-                  aria-hidden
-                  className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border border-orange-300 text-[11px] font-bold leading-none text-orange-400"
-                >
-                  钉
-                </span>
+                <img
+                  height={20}
+                  width={20}
+                  src="/channelsIcon//DingTalk.png"
+                  className="block h-6 w-6"
+                  style={{
+                    filter:
+                      "sepia(100%) hue-rotate(330deg) saturate(300%) brightness(90%)",
+                  }}
+                />
               </a>
               <a
                 href={XIAOHONGSHU_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("footer.social.xiaohongshu")}
+                className="inline-flex h-6 w-6 items-center justify-center leading-none"
               >
-                <span aria-hidden className="text-[18px] leading-none text-orange-400">
+                <span
+                  aria-hidden
+                  className="block text-[18px] leading-none text-orange-400"
+                >
                   🍠
                 </span>
               </a>
@@ -176,22 +187,20 @@ export function Footer() {
           </section>
         </div>
 
-        <div className="mt-10 pt-6 text-base text-[var(--text-muted)]">
+        <div className="mt-10 pt-6 text-base text-(--text-muted)">
           <p>
             {t("footer.thanksSkills.text")}
             <a
               href={ANTHROPIC_SKILLS_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:!text-(--color-primary) transition-colors"
+              className="hover:text-(--color-primary)! transition-colors"
             >
               {t("footer.thanksSkills.name")}
             </a>
             {t("footer.thanksSkills.suffix")}
           </p>
-          <p className="mt-2">
-            {t("footer.copyright")}
-          </p>
+          <p className="mt-2">{t("footer.copyright")}</p>
         </div>
       </div>
     </footer>

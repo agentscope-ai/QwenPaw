@@ -196,7 +196,7 @@ export function CopawContributors() {
             {t("contributors.noteLine1Prefix")}
             <a
               href="/docs/community/"
-              className="text-(--color-primary) ml-1"
+              className="text-(--color-primary) mx-1"
             >
               {t("contributors.contactUs")}
             </a>

@@ -269,6 +269,25 @@ export function Docs() {
     return { current: t("docs.intro") };
   }, [activeSlug, t]);
 
+  const flatDocNav = useMemo(() => {
+    const out: Array<{ slug: string; title: string }> = [];
+    for (const entry of DOC_SLUGS) {
+      out.push({ slug: entry.slug, title: t(entry.titleKey) });
+      for (const child of entry.children ?? []) {
+        out.push({ slug: child.slug, title: t(child.titleKey) });
+      }
+    }
+    return out;
+  }, [t]);
+
+  const { prevDoc, nextDoc } = useMemo(() => {
+    const idx = flatDocNav.findIndex((d) => d.slug === activeSlug);
+    return {
+      prevDoc: idx > 0 ? flatDocNav[idx - 1] : null,
+      nextDoc: idx >= 0 && idx < flatDocNav.length - 1 ? flatDocNav[idx + 1] : null,
+    };
+  }, [activeSlug, flatDocNav]);
+
   const getTocTargets = () => {
     const container = articleRef.current;
     if (!container) return [];
@@ -548,30 +567,30 @@ export function Docs() {
         </aside>
         <main className="docs-main relative min-w-0">
           <div className="docs-content-scroll" ref={articleRef}>
-            <div className="border-y border-border/60 bg-(--surface) py-3 md:hidden">
+            <div className="sticky -top-px z-20 border-y border-border/60 bg-(--surface) py-3 md:hidden">
               <div
                 className="flex items-center gap-2"
                 onClick={() => setSidebarOpen((o) => !o)}
               >
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-(--text-muted) hover:bg-(--bg)"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-(--text-muted) hover:bg-(--bg)"
                   aria-label={
                     sidebarOpen
                       ? t("docs.closeSidebar")
                       : t("docs.toggleSidebar")
                   }
                 >
-                  <Menu size={18} />
+                  <Menu size={20} />
                 </button>
-                <div className="min-w-0 text-sm">
+                <div className="min-w-0 text-base">
                   {mobileBreadcrumb.parent ? (
                     <>
                       <span className="align-middle text-(--text-muted)">
                         {mobileBreadcrumb.parent}
                       </span>
                       <ChevronRight
-                        size={14}
+                        size={16}
                         className="mx-1 inline align-middle text-(--text-muted)"
                       />
                     </>
@@ -742,6 +761,48 @@ export function Docs() {
                       {content}
                     </ReactMarkdown>
                   )}
+
+                  {!isSearchPage && (prevDoc || nextDoc) ? (
+                    <div className="mt-10 rounded-xl border border-(--border) bg-(--surface) px-4 py-4 md:px-6">
+                      <div className="flex items-center justify-between gap-4">
+                        {prevDoc ? (
+                          <Link
+                            to={`/docs/${prevDoc.slug}`}
+                            className="group inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-(--color-text) no-underline hover:!text-(--color-primary) hover:no-underline"
+                            style={{ textDecoration: "none" }}
+                          >
+                            <ChevronRight
+                              size={16}
+                              className="shrink-0 rotate-180 text-(--text-muted) group-hover:text-(--color-primary)"
+                              aria-hidden
+                            />
+                            <span className="truncate group-hover:text-(--color-primary)">
+                              {prevDoc.title}
+                            </span>
+                          </Link>
+                        ) : (
+                          <span />
+                        )}
+
+                        {nextDoc ? (
+                          <Link
+                            to={`/docs/${nextDoc.slug}`}
+                            className="group inline-flex min-w-0 items-center justify-end gap-2 text-sm font-semibold text-(--color-text) no-underline hover:!text-(--color-primary) hover:no-underline"
+                            style={{ textDecoration: "none" }}
+                          >
+                            <span className="truncate group-hover:text-(--color-primary)">
+                              {nextDoc.title}
+                            </span>
+                            <ChevronRight
+                              size={16}
+                              className="shrink-0 text-(--text-muted) group-hover:text-(--color-primary)"
+                              aria-hidden
+                            />
+                          </Link>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </article>
               </>
             )}
