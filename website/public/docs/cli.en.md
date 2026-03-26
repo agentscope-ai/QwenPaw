@@ -389,6 +389,7 @@ copaw agents chat \
 When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent. After submission, it returns a `task_id` that can be used later to query the task status and result.
 
 **Use cases for background mode**:
+
 - Data analysis and statistics
 - Batch file processing
 - Generating detailed reports
