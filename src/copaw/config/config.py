@@ -468,7 +468,7 @@ class AgentProfileConfig(BaseModel):
         description="Runtime configuration",
     )
     session: "AgentSessionConfig" = Field(
-        default_factory=lambda: AgentSessionConfig(),
+        default_factory=AgentSessionConfig,
         description="Session governance configuration (turn limits, handoff)",
     )
     llm_routing: AgentsLLMRoutingConfig = Field(
