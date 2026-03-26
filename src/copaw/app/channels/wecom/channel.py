@@ -29,7 +29,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ImageContent,
     TextContent,
 )
-from wecom_aibot_sdk import WSClient, generate_req_id, WeComMediaType
+from wecom_aibot_sdk import WSClient, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
@@ -701,86 +701,6 @@ class WecomChannel(BaseChannel):
         except Exception:
             logger.exception("wecom _send_media_part failed for %s", file_url)
 
-    async def send_media(
-        self,
-        to_handle: str,
-        media_type: ContentType,
-        file_path: str,
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Send a media file to WeCom.
-
-        Args:
-            to_handle: Target handle (session_id format).
-            media_type: Type of media (IMAGE, FILE, AUDIO, VIDEO).
-            file_path: Path to the media file.
-            meta: Optional metadata.
-
-        Returns:
-            True if sent successfully, False otherwise.
-        """
-        if not self.enabled or not self._client:
-            return False
-
-        m = meta or {}
-        chatid = (
-            m.get("wecom_chatid")
-            or self._parse_chatid_from_handle(to_handle)
-            or ""
-        )
-
-        if not chatid:
-            logger.warning("wecom send_media: no chatid for to_handle=%s", to_handle)
-            return False
-
-        # Map to WeCom media type
-        wecom_media_type = self._get_media_type(media_type)
-        if not wecom_media_type:
-            logger.warning("wecom send_media: unsupported media_type %s", media_type)
-            return False
-
-        # Resolve file path (supports file:// URI and plain path)
-        path = self._resolve_file_path(file_path)
-        if not path.is_absolute():
-            path = Path(self._media_dir) / path
-
-        if not path.exists():
-            logger.warning("wecom send_media: file not found %s", path)
-            return False
-
-        try:
-            # Read and upload file
-            file_data = path.read_bytes()
-            filename = path.name
-
-            upload_result = await self._client.upload_media(
-                file_data,
-                type=wecom_media_type,
-                filename=filename,
-            )
-
-            media_id = (upload_result or {}).get("media_id", "")
-            if not media_id:
-                logger.error("wecom send_media: upload failed for %s", filename)
-                return False
-
-            # Send media message
-            await self._client.send_media_message(
-                chatid,
-                media_type=wecom_media_type,
-                media_id=media_id,
-            )
-
-            logger.info(
-                "wecom send_media: sent %s (%s) to %s",
-                wecom_media_type,
-                filename,
-                chatid[:20],
-            )
-            return True
-        except Exception:
-            logger.exception("wecom send_media failed for %s", file_path)
-            return False
 
     async def send_content_parts(
         self,
@@ -949,7 +869,7 @@ class WecomChannel(BaseChannel):
         if not self.enabled:
             logger.debug("wecom channel disabled")
             return
-
+        logger.info("wecom channel starting")
         if not self.bot_id or not self.secret:
             raise RuntimeError(
                 "WECOM_BOT_ID and WECOM_SECRET are required when "
@@ -958,16 +878,11 @@ class WecomChannel(BaseChannel):
 
         self._loop = asyncio.get_running_loop()
         # max_reconnect_attempts: -1 means unlimited in old SDK;
-        # new SDK does not support -1; use a large number to simulate unlimited.
-        max_reconnect = (
-            self._max_reconnect_attempts
-            if self._max_reconnect_attempts >= 0
-            else 2147483647  # max int, effectively unlimited
-        )
+
         self._client = WSClient(
             self.bot_id,
             self.secret,
-            max_reconnect_attempts=max_reconnect,
+            max_reconnect_attempts=self._max_reconnect_attempts,
         )
 
         # Register event handlers
