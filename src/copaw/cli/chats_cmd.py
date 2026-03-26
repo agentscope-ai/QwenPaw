@@ -8,21 +8,8 @@ from typing import Optional
 
 import click
 
-from .http import client, print_json
+from .http import client, print_json, resolve_base_url
 from ..app.channels.schema import DEFAULT_CHANNEL
-
-
-def _base_url(ctx: click.Context, base_url: Optional[str]) -> str:
-    """Resolve base_url with priority:
-    1) command --base-url
-    2) global --host/--port
-        (already resolved in main.py, may come from config.json)
-    """
-    if base_url:
-        return base_url.rstrip("/")
-    host = (ctx.obj or {}).get("host", "127.0.0.1")
-    port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
 
 
 @click.group("chats")
@@ -77,7 +64,7 @@ def list_chats(
       copaw chats list --channel discord
       copaw chats list --user-id alice --channel discord
     """
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     params: dict[str, str] = {}
     if user_id:
         params["user_id"] = user_id
@@ -114,7 +101,7 @@ def get_chat(
     Examples:
       copaw chats get 823845fe-dd13-43c2-ab8b-d05870602fd8
     """
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.get(f"/chats/{chat_id}", headers=headers)
@@ -188,7 +175,7 @@ def create_chat(
     JSON file creation example:
       copaw chats create -f chat.json
     """
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     if file_ is not None:
         payload = json.loads(file_.read_text(encoding="utf-8"))
     else:
@@ -241,7 +228,7 @@ def update_chat(
     Examples:
       copaw chats update <chat_id> --name "Renamed Chat"
     """
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     headers = {"X-Agent-Id": agent_id}
     # Fetch existing spec, then patch name
     with client(base_url) as c:
@@ -289,7 +276,7 @@ def delete_chat(
     Examples:
       copaw chats delete 823845fe-dd13-43c2-ab8b-d05870602fd8
     """
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.delete(f"/chats/{chat_id}", headers=headers)

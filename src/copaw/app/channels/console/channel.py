@@ -141,7 +141,7 @@ class ConsoleChannel(BaseChannel):
         return cls(
             process=process,
             enabled=os.getenv("CONSOLE_CHANNEL_ENABLED", "1") == "1",
-            bot_prefix=os.getenv("CONSOLE_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("CONSOLE_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
             media_dir=os.getenv("CONSOLE_MEDIA_DIR", ""),
         )
@@ -174,7 +174,7 @@ class ConsoleChannel(BaseChannel):
         return cls(
             process=process,
             enabled=config.enabled,
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -211,21 +211,21 @@ class ConsoleChannel(BaseChannel):
                 if url:
                     return ImageContent(
                         type=ContentType.IMAGE,
-                        image_url=str(self._media_dir / url),
+                        image_url=url,
                     )
             elif content_type == ContentType.VIDEO:
                 url = getattr(part, "video_url", None)
                 if url:
                     return VideoContent(
                         type=ContentType.VIDEO,
-                        video_url=str(self._media_dir / url),
+                        video_url=url,
                     )
             elif content_type == ContentType.AUDIO:
                 url = getattr(part, "data", None)
                 if url:
                     return AudioContent(
                         type=ContentType.AUDIO,
-                        data=str(self._media_dir / url),
+                        data=url,
                     )
             elif content_type == ContentType.FILE:
                 url = getattr(part, "file_url", None)
@@ -233,7 +233,7 @@ class ConsoleChannel(BaseChannel):
                     return FileContent(
                         type=ContentType.FILE,
                         filename=getattr(part, "filename", None) or url,
-                        file_url=str(self._media_dir / url),
+                        file_url=url,
                     )
             elif content_type == ContentType.TEXT:
                 return TextContent(type=ContentType.TEXT, text=part.text)
@@ -451,7 +451,7 @@ class ConsoleChannel(BaseChannel):
         body = "\n".join(text_parts) if text_parts else ""
         prefix = (meta or {}).get("bot_prefix", self.bot_prefix) or ""
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         return body
 
     # ── send (for proactive sends / cron) ───────────────────────────

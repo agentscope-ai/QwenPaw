@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from starlette.responses import FileResponse, StreamingResponse
+from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ..agent_context import get_agent_for_request
@@ -191,42 +191,14 @@ async def post_console_upload(
         )
     safe_name = _safe_filename(file.filename or "file")
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
-    (media_dir / stored_name).write_bytes(data)
+
+    path = (media_dir / stored_name).resolve()
+    path.write_bytes(data)
     return {
-        "url": stored_name,
+        "url": path,
         "file_name": safe_name,
         "size": len(data),
     }
-
-
-@router.get("/files/{agent_id}/{filename}", summary="Serve uploaded chat file")
-async def get_console_file(
-    request: Request,
-    agent_id: str,
-    filename: str,
-):
-    """Serve file from console channel media_dir."""
-
-    if "/" in filename or ".." in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    workspace = await get_agent_for_request(request)
-    if workspace.agent_id != agent_id:
-        raise HTTPException(status_code=404, detail="Not found")
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
-    media_dir = console_channel.media_dir
-    path = (media_dir / filename).resolve()
-    try:
-        path.relative_to(media_dir)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Not found") from None
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(path, filename=filename)
 
 
 @router.get("/push-messages")

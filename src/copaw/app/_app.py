@@ -25,8 +25,9 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from .multi_agent_manager import MultiAgentManager
 from .migration import (
-    migrate_legacy_workspace_to_default_agent,
     ensure_default_agent_exists,
+    ensure_qa_agent_exists,
+    migrate_legacy_workspace_to_default_agent,
 )
 
 # Apply log level on load so reload child process gets same level as CLI.
@@ -140,8 +141,11 @@ runner = DynamicMultiAgentRunner()
 
 agent_app = AgentApp(
     app_name="Friday",
-    app_description="A helpful assistant",
+    app_description="A helpful assistant with background task support",
     runner=runner,
+    enable_stream_task=True,
+    stream_task_queue="stream_query",
+    stream_task_timeout=300,
 )
 
 
@@ -178,6 +182,7 @@ async def lifespan(
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
+    ensure_qa_agent_exists()
 
     # --- Multi-agent manager initialization ---
     logger.info("Initializing MultiAgentManager...")

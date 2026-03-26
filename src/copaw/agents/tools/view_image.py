@@ -35,6 +35,7 @@ async def view_image(image_path: str) -> ToolResponse:
         `ToolResponse`:
             An ImageBlock the model can inspect, or an error message.
     """
+
     image_path = unicodedata.normalize(
         "NFC",
         os.path.expanduser(image_path),

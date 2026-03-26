@@ -19,8 +19,7 @@ from ..utils import (
 from ...config.config import load_agent_config
 
 if TYPE_CHECKING:
-    from ..memory import MemoryManager
-    from reme.memory.file_based import ReMeInMemoryMemory
+    from ..memory import BaseMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class MemoryCompactionHook:
     messages while summarizing older conversation history.
     """
 
-    def __init__(self, memory_manager: "MemoryManager"):
+    def __init__(self, memory_manager: "BaseMemoryManager"):
         """Initialize memory compaction hook.
 
         Args:
@@ -77,6 +76,7 @@ class MemoryCompactionHook:
                 # the reasoning loop.
                 pass
 
+    # pylint: disable=too-many-branches
     async def __call__(
         self,
         agent: ReActAgent,
@@ -105,7 +105,7 @@ class MemoryCompactionHook:
             running_config = agent_config.running
             token_counter = get_copaw_token_counter(agent_config)
 
-            memory: "ReMeInMemoryMemory" = agent.memory
+            memory = agent.memory
 
             system_prompt = agent.sys_prompt
             compressed_summary = memory.get_compressed_summary()
@@ -133,17 +133,15 @@ class MemoryCompactionHook:
             messages = await memory.get_memory(prepend_summary=False)
 
             # Compact tool results with configured thresholds
-            recent_threshold = (
-                running_config.tool_result_compact_recent_threshold
-            )
-            retention_days = running_config.tool_result_compact_retention_days
-            await self.memory_manager.compact_tool_result(
-                messages=messages,
-                recent_n=running_config.tool_result_compact_recent_n,
-                old_threshold=running_config.tool_result_compact_old_threshold,
-                recent_threshold=recent_threshold,
-                retention_days=retention_days,
-            )
+            trc = running_config.tool_result_compact
+            if trc.enabled:
+                await self.memory_manager.compact_tool_result(
+                    messages=messages,
+                    recent_n=trc.recent_n,
+                    old_max_bytes=trc.old_max_bytes,
+                    recent_max_bytes=trc.recent_max_bytes,
+                    retention_days=trc.retention_days,
+                )
 
             # memory_compact_reserve is always available from config
             (
@@ -184,29 +182,44 @@ class MemoryCompactionHook:
             if not messages_to_compact:
                 return None
 
-            self.memory_manager.add_async_summary_task(
-                messages=messages_to_compact,
-            )
+            if running_config.memory_summary.memory_summary_enabled:
+                self.memory_manager.add_async_summary_task(
+                    messages=messages_to_compact,
+                )
+
             await self._print_status_message(
                 agent,
                 "🔄 Context compaction started...",
             )
 
-            compact_content = await self.memory_manager.compact_memory(
-                messages=messages_to_compact,
-                previous_summary=memory.get_compressed_summary(),
-            )
+            if running_config.context_compact.context_compact_enabled:
+                compact_content = await self.memory_manager.compact_memory(
+                    messages=messages_to_compact,
+                    previous_summary=memory.get_compressed_summary(),
+                )
+                if not compact_content:
+                    await self._print_status_message(
+                        agent,
+                        "⚠️ Context compaction failed.",
+                    )
+                else:
+                    await self._print_status_message(
+                        agent,
+                        "✅ Context compaction completed",
+                    )
+            else:
+                compact_content = ""
+                await self._print_status_message(
+                    agent,
+                    "✅ Context compaction skipped",
+                )
 
-            await self._print_status_message(
-                agent,
-                "✅ Context compaction completed",
-            )
-
-            await agent.memory.update_compressed_summary(compact_content)
             updated_count = await memory.mark_messages_compressed(
                 messages_to_compact,
             )
             logger.info(f"Marked {updated_count} messages as compacted")
+
+            await memory.update_compressed_summary(compact_content)
 
         except Exception as e:
             logger.exception(

@@ -4,9 +4,9 @@ import {
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Modal, Result, message } from "antd";
+import { Button, Modal, Result, Tooltip, message } from "antd";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
-import { SparkCopyLine } from "@agentscope-ai/icons";
+import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -15,34 +15,28 @@ import { chatApi } from "../../api/modules/chat";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
+import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
 import styles from "./index.module.less";
-import { Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkAttachmentLine } from "@agentscope-ai/icons";
+import {
+  copyText,
+  extractCopyableText,
+  buildModelError,
+  normalizeContentUrls,
+  extractUserMessageText,
+  type CopyableResponse,
+  type RuntimeLoadingBridgeApi,
+} from "./utils";
 
-type CopyableContent = {
-  type?: string;
-  text?: string;
-  refusal?: string;
-};
-
-type CopyableMessage = {
-  role?: string;
-  content?: string | CopyableContent[];
-};
-
-type CopyableResponse = {
-  output?: CopyableMessage[];
-};
-
-type RuntimeLoadingBridgeApi = {
-  getLoading?: () => boolean | string;
-  setLoading?: (loading: boolean | string) => void;
-};
+interface SessionInfo {
+  session_id?: string;
+  user_id?: string;
+  channel?: string;
+}
 
 interface CustomWindow extends Window {
   currentSessionId?: string;
@@ -52,73 +46,160 @@ interface CustomWindow extends Window {
 
 declare const window: CustomWindow;
 
-function extractCopyableText(response: CopyableResponse): string {
-  const collectText = (assistantOnly: boolean) => {
-    const chunks = (response.output || []).flatMap((item: CopyableMessage) => {
-      if (assistantOnly && item.role !== "assistant") return [];
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-      if (typeof item.content === "string") {
-        return [item.content];
-      }
+const DEFAULT_USER_ID = "default";
+const DEFAULT_CHANNEL = "console";
 
-      if (!Array.isArray(item.content)) {
-        return [];
-      }
+// ---------------------------------------------------------------------------
+// Custom hooks
+// ---------------------------------------------------------------------------
 
-      return item.content.flatMap((content: CopyableContent) => {
-        if (content.type === "text" && typeof content.text === "string") {
-          return [content.text];
+/** Handle IME composition events to prevent premature Enter key submission. */
+function useIMEComposition(isChatActive: () => boolean) {
+  const isComposingRef = useRef(false);
+
+  useEffect(() => {
+    const handleCompositionStart = () => {
+      if (!isChatActive()) return;
+      isComposingRef.current = true;
+    };
+
+    const handleCompositionEnd = () => {
+      if (!isChatActive()) return;
+      // Use a slightly longer delay for Safari on macOS, which fires keydown
+      // after compositionend within the same event loop tick.
+      setTimeout(() => {
+        isComposingRef.current = false;
+      }, 200);
+    };
+
+    const suppressImeEnter = (e: KeyboardEvent) => {
+      if (!isChatActive()) return;
+      const target = e.target as HTMLElement;
+      if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+        // e.isComposing is the standard flag; isComposingRef covers the
+        // post-compositionend grace period needed by Safari.
+        if (isComposingRef.current || (e as any).isComposing) {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          return false;
         }
+      }
+    };
 
-        if (content.type === "refusal" && typeof content.refusal === "string") {
-          return [content.refusal];
-        }
+    document.addEventListener("compositionstart", handleCompositionStart, true);
+    document.addEventListener("compositionend", handleCompositionEnd, true);
+    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
+    document.addEventListener("keydown", suppressImeEnter, true);
+    document.addEventListener("keypress", suppressImeEnter, true);
 
-        return [];
+    return () => {
+      document.removeEventListener(
+        "compositionstart",
+        handleCompositionStart,
+        true,
+      );
+      document.removeEventListener(
+        "compositionend",
+        handleCompositionEnd,
+        true,
+      );
+      document.removeEventListener("keydown", suppressImeEnter, true);
+      document.removeEventListener("keypress", suppressImeEnter, true);
+    };
+  }, [isChatActive]);
+
+  return isComposingRef;
+}
+
+/** Fetch and track multimodal capabilities for the active model. */
+function useMultimodalCapabilities(
+  refreshKey: number,
+  locationPathname: string,
+  isChatActive: () => boolean,
+  selectedAgent: string,
+) {
+  const [multimodalCaps, setMultimodalCaps] = useState<{
+    supportsMultimodal: boolean;
+    supportsImage: boolean;
+    supportsVideo: boolean;
+  }>({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
+
+  const fetchMultimodalCaps = useCallback(async () => {
+    try {
+      const [providers, activeModels] = await Promise.all([
+        providerApi.listProviders(),
+        providerApi.getActiveModels({
+          scope: "effective",
+          agent_id: selectedAgent,
+        }),
+      ]);
+      const activeProviderId = activeModels?.active_llm?.provider_id;
+      const activeModelId = activeModels?.active_llm?.model;
+      if (!activeProviderId || !activeModelId) {
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
+        return;
+      }
+      const provider = (providers as ProviderInfo[]).find(
+        (p) => p.id === activeProviderId,
+      );
+      if (!provider) {
+        setMultimodalCaps({
+          supportsMultimodal: false,
+          supportsImage: false,
+          supportsVideo: false,
+        });
+        return;
+      }
+      const allModels: ModelInfo[] = [
+        ...(provider.models ?? []),
+        ...(provider.extra_models ?? []),
+      ];
+      const model = allModels.find((m) => m.id === activeModelId);
+      setMultimodalCaps({
+        supportsMultimodal: model?.supports_multimodal ?? false,
+        supportsImage: model?.supports_image ?? false,
+        supportsVideo: model?.supports_video ?? false,
       });
-    });
+    } catch {
+      setMultimodalCaps({
+        supportsMultimodal: false,
+        supportsImage: false,
+        supportsVideo: false,
+      });
+    }
+  }, [selectedAgent]);
 
-    return chunks.filter(Boolean).join("\n\n").trim();
-  };
+  // Fetch caps on mount and whenever refreshKey changes
+  useEffect(() => {
+    fetchMultimodalCaps();
+  }, [fetchMultimodalCaps, refreshKey]);
 
-  return collectText(true) || JSON.stringify(response);
-}
+  // Also poll caps when navigating back to chat
+  useEffect(() => {
+    if (isChatActive()) {
+      fetchMultimodalCaps();
+    }
+  }, [locationPathname, fetchMultimodalCaps, isChatActive]);
 
-async function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
+  // Listen for model-switched event from ModelSelector
+  useEffect(() => {
+    const handler = () => {
+      fetchMultimodalCaps();
+    };
+    window.addEventListener("model-switched", handler);
+    return () => window.removeEventListener("model-switched", handler);
+  }, [fetchMultimodalCaps]);
 
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-
-  let copied = false;
-  try {
-    textarea.focus();
-    textarea.select();
-    copied = document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
-
-  if (!copied) {
-    throw new Error("Failed to copy text");
-  }
-}
-
-function buildModelError(): Response {
-  return new Response(
-    JSON.stringify({
-      error: "Model not configured",
-      message: "Please configure a model first",
-    }),
-    { status: 400, headers: { "Content-Type": "application/json" } },
-  );
+  return multimodalCaps;
 }
 
 function RuntimeLoadingBridge({
@@ -169,10 +250,20 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
 
-  const isComposingRef = useRef(false);
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
     location.pathname === "/" || location.pathname.startsWith("/chat");
+
+  const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  // Use custom hooks for better separation of concerns
+  const isComposingRef = useIMEComposition(isChatActive);
+  const multimodalCaps = useMultimodalCapabilities(
+    refreshKey,
+    location.pathname,
+    isChatActive,
+    selectedAgent,
+  );
 
   const lastSessionIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
@@ -181,80 +272,59 @@ export default function ChatPage() {
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
-  useEffect(() => {
-    const handleCompositionStart = () => {
-      if (!isChatActiveRef.current) return;
-      isComposingRef.current = true;
-    };
-
-    const handleCompositionEnd = () => {
-      if (!isChatActiveRef.current) return;
-      // Use a slightly longer delay for Safari on macOS, which fires keydown
-      // after compositionend within the same event loop tick.
-      setTimeout(() => {
-        isComposingRef.current = false;
-      }, 200);
-    };
-
-    const suppressImeEnter = (e: KeyboardEvent) => {
-      if (!isChatActiveRef.current) return;
-      const target = e.target as HTMLElement;
-      if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
-        // e.isComposing is the standard flag; isComposingRef covers the
-        // post-compositionend grace period needed by Safari.
-        if (isComposingRef.current || (e as any).isComposing) {
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-          e.preventDefault();
-          return false;
-        }
-      }
-    };
-
-    document.addEventListener("compositionstart", handleCompositionStart, true);
-    document.addEventListener("compositionend", handleCompositionEnd, true);
-    // Listen on both keydown (Safari) and keypress (legacy) in capture phase.
-    document.addEventListener("keydown", suppressImeEnter, true);
-    document.addEventListener("keypress", suppressImeEnter, true);
-
-    return () => {
-      document.removeEventListener(
-        "compositionstart",
-        handleCompositionStart,
-        true,
-      );
-      document.removeEventListener(
-        "compositionend",
-        handleCompositionEnd,
-        true,
-      );
-      document.removeEventListener("keydown", suppressImeEnter, true);
-      document.removeEventListener("keypress", suppressImeEnter, true);
-    };
-  }, []);
+  // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (tempId, realId) => {
+    sessionApi.onSessionIdResolved = (realId) => {
       if (!isChatActiveRef.current) return;
-      if (chatIdRef.current === tempId) {
-        lastSessionIdRef.current = realId;
-        navigateRef.current(`/chat/${realId}`, { replace: true });
-      }
+      // Update URL when realId is resolved, regardless of current chatId
+      // (chatId may be undefined if URL was cleared in onSessionCreated)
+      lastSessionIdRef.current = realId;
+      navigateRef.current(`/chat/${realId}`, { replace: true });
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
       if (!isChatActiveRef.current) return;
-      if (chatIdRef.current === removedId) {
+      // Clear URL when current session is removed
+      // Check if removed session matches current session (by realId or sessionId)
+      const currentRealId = sessionApi.getRealIdForSession(
+        chatIdRef.current || "",
+      );
+      if (chatIdRef.current === removedId || currentRealId === removedId) {
         lastSessionIdRef.current = null;
         navigateRef.current("/chat", { replace: true });
       }
     };
 
+    sessionApi.onSessionSelected = (
+      sessionId: string | null | undefined,
+      realId: string | null,
+    ) => {
+      if (!isChatActiveRef.current) return;
+      // Update URL when session is selected and different from current
+      const targetId = realId || sessionId;
+      if (targetId && targetId !== lastSessionIdRef.current) {
+        lastSessionIdRef.current = targetId;
+        navigateRef.current(`/chat/${targetId}`, { replace: true });
+      }
+    };
+
+    sessionApi.onSessionCreated = () => {
+      if (!isChatActiveRef.current) return;
+      // Clear URL when creating new session, wait for realId resolution to update
+      lastSessionIdRef.current = null;
+      navigateRef.current("/chat", { replace: true });
+    };
+
     return () => {
       sessionApi.onSessionIdResolved = null;
       sessionApi.onSessionRemoved = null;
+      sessionApi.onSessionSelected = null;
+      sessionApi.onSessionCreated = null;
     };
   }, []);
+
+  // Setup multimodal capabilities tracking via custom hook
 
   // Refresh chat when selectedAgent changes
   const prevSelectedAgentRef = useRef(selectedAgent);
@@ -270,62 +340,6 @@ export default function ChatPage() {
     prevSelectedAgentRef.current = selectedAgent;
   }, [selectedAgent]);
 
-  const getSessionListWrapped = useCallback(async () => {
-    const sessions = await sessionApi.getSessionList();
-    const currentChatId = chatIdRef.current;
-
-    if (currentChatId) {
-      const idx = sessions.findIndex((s) => s.id === currentChatId);
-      if (idx > 0) {
-        return [
-          sessions[idx],
-          ...sessions.slice(0, idx),
-          ...sessions.slice(idx + 1),
-        ];
-      }
-    }
-
-    return sessions;
-  }, []);
-
-  const getSessionWrapped = useCallback(async (sessionId: string) => {
-    const currentChatId = chatIdRef.current;
-
-    if (
-      isChatActiveRef.current &&
-      sessionId &&
-      sessionId !== lastSessionIdRef.current &&
-      sessionId !== currentChatId
-    ) {
-      const urlId = sessionApi.getRealIdForSession(sessionId) ?? sessionId;
-      lastSessionIdRef.current = urlId;
-      navigateRef.current(`/chat/${urlId}`, { replace: true });
-    }
-
-    return sessionApi.getSession(sessionId);
-  }, []);
-
-  const createSessionWrapped = useCallback(async (session: any) => {
-    const result = await sessionApi.createSession(session);
-    const newSessionId = session?.id || result[0]?.id;
-    if (isChatActiveRef.current && newSessionId) {
-      lastSessionIdRef.current = newSessionId;
-      navigateRef.current(`/chat/${newSessionId}`, { replace: true });
-    }
-    return result;
-  }, []);
-
-  const wrappedSessionApi = useMemo(
-    () => ({
-      getSessionList: getSessionListWrapped,
-      getSession: getSessionWrapped,
-      createSession: createSessionWrapped,
-      updateSession: sessionApi.updateSession.bind(sessionApi),
-      removeSession: sessionApi.removeSession.bind(sessionApi),
-    }),
-    [],
-  );
-
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
       try {
@@ -340,8 +354,8 @@ export default function ChatPage() {
 
   const customFetch = useCallback(
     async (data: {
-      input?: any[];
-      biz_params?: any;
+      input?: Array<Record<string, unknown>>;
+      biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
       const headers: Record<string, string> = {
@@ -350,7 +364,10 @@ export default function ChatPage() {
       };
 
       try {
-        const activeModels = await providerApi.getActiveModels();
+        const activeModels = await providerApi.getActiveModels({
+          scope: "effective",
+          agent_id: selectedAgent,
+        });
         if (
           !activeModels?.active_llm?.provider_id ||
           !activeModels?.active_llm?.model
@@ -364,7 +381,7 @@ export default function ChatPage() {
       }
 
       const { input = [], biz_params } = data;
-      const session = input[input.length - 1]?.session || {};
+      const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const rewrittenInput =
@@ -372,26 +389,7 @@ export default function ChatPage() {
           ? [
               {
                 ...lastMsg,
-                content: lastMsg.content.map((part: any) => {
-                  const p = { ...part };
-                  const toStoredName = (v: string) => {
-                    const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-                    if (m1) return m1[1];
-                    const m2 = v.match(/^[^/]+\/(.+)$/);
-                    if (m2) return m2[1];
-                    return v;
-                  };
-                  if (p.type === "image" && typeof p.image_url === "string")
-                    p.image_url = toStoredName(p.image_url);
-                  if (p.type === "file" && typeof p.file_url === "string")
-                    p.file_url = toStoredName(p.file_url);
-                  if (p.type === "audio" && typeof p.data === "string")
-                    p.data = toStoredName(p.data);
-                  if (p.type === "video" && typeof p.video_url === "string")
-                    p.video_url = toStoredName(p.video_url);
-
-                  return p;
-                }),
+                content: lastMsg.content.map(normalizeContentUrls),
               },
             ]
           : lastInput;
@@ -399,8 +397,8 @@ export default function ChatPage() {
       const requestBody = {
         input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",
-        user_id: window.currentUserId || session?.user_id || "default",
-        channel: window.currentChannel || session?.channel || "console",
+        user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
+        channel: window.currentChannel || session?.channel || DEFAULT_CHANNEL,
         stream: true,
         ...biz_params,
       };
@@ -412,14 +410,7 @@ export default function ChatPage() {
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m: any) => m.role === "user")
-          .map((m: any) => {
-            if (typeof m.content === "string") return m.content;
-            if (!Array.isArray(m.content)) return "";
-            return m.content
-              .filter((p: any) => p.type === "text")
-              .map((p: any) => p.text || "")
-              .join("\n");
-          })
+          .map(extractUserMessageText)
           .join("\n")
           .trim();
         if (userText) {
@@ -436,7 +427,46 @@ export default function ChatPage() {
 
       return response;
     },
-    [],
+    [selectedAgent],
+  );
+
+  const handleFileUpload = useCallback(
+    async (options: {
+      file: File;
+      onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+      onError?: (e: Error) => void;
+      onProgress?: (e: { percent?: number }) => void;
+    }) => {
+      const { file, onSuccess, onError, onProgress } = options;
+      try {
+        // Warn when model has no multimodal support
+        if (!multimodalCaps.supportsMultimodal) {
+          message.warning(t("chat.attachments.multimodalWarning"));
+        } else if (
+          multimodalCaps.supportsImage &&
+          !multimodalCaps.supportsVideo &&
+          !file.type.startsWith("image/")
+        ) {
+          // Warn (not block) when only image is supported
+          message.warning(t("chat.attachments.imageOnlyWarning"));
+        }
+        // Check file size limit (10MB)
+        const isLt10M = file.size / 1024 / 1024 < 10;
+
+        if (!isLt10M) {
+          message.error(t("chat.attachments.fileSizeLimit"));
+          onError?.(new Error("File size exceeds 10MB"));
+          return;
+        }
+
+        const res = await chatApi.uploadFile(file);
+        onProgress?.({ percent: 100 });
+        onSuccess({ url: chatApi.filePreviewUrl(res.url) });
+      } catch (e) {
+        onError?.(e instanceof Error ? e : new Error(String(e)));
+      }
+    },
+    [multimodalCaps, t],
   );
 
   const options = useMemo(() => {
@@ -471,10 +501,16 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
+        allowSpeech: true,
         attachments: {
           trigger: function (props: any) {
+            const tooltipKey = multimodalCaps.supportsMultimodal
+              ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
+                ? "chat.attachments.tooltipImageOnly"
+                : "chat.attachments.tooltip"
+              : "chat.attachments.tooltipNoMultimodal";
             return (
-              <Tooltip title={t("chat.attachments.tooltip")}>
+              <Tooltip title={t(tooltipKey)}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}
@@ -484,34 +520,10 @@ export default function ChatPage() {
             );
           },
           accept: "*/*",
-          customRequest: async (options: {
-            file: File;
-            onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
-            onError?: (e: Error) => void;
-            onProgress?: (e: { percent?: number }) => void;
-          }) => {
-            try {
-              console.log("options.file", options.file);
-
-              // Check file size limit (10MB)
-              const file = options.file as File;
-              const isLt10M = file.size / 1024 / 1024 < 10;
-              if (!isLt10M) {
-                message.error(t("chat.attachments.fileSizeLimit"));
-                return options.onError?.(new Error("File size exceeds 10MB"));
-              }
-
-              options.onProgress?.({ percent: 0 });
-              const res = await chatApi.uploadFile(options.file);
-              options.onProgress?.({ percent: 100 });
-              options.onSuccess({ url: chatApi.fileUrl(res.url) });
-            } catch (e) {
-              options.onError?.(e instanceof Error ? e : new Error(String(e)));
-            }
-          },
+          customRequest: handleFileUpload,
         },
       },
-      session: { multiple: true, api: wrappedSessionApi },
+      session: { multiple: true, api: sessionApi },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
@@ -536,8 +548,8 @@ export default function ChatPage() {
             body: JSON.stringify({
               reconnect: true,
               session_id: window.currentSessionId || data.session_id,
-              user_id: window.currentUserId || "default",
-              channel: window.currentChannel || "console",
+              user_id: window.currentUserId || DEFAULT_USER_ID,
+              channel: window.currentChannel || DEFAULT_CHANNEL,
             }),
             signal: data.signal,
           });
@@ -559,7 +571,7 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [wrappedSessionApi, customFetch, copyResponse, t, isDark]);
+  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
 
   return (
     <div

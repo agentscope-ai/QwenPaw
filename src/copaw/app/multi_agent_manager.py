@@ -397,22 +397,33 @@ class MultiAgentManager:
             return False
 
     async def start_all_configured_agents(self) -> dict[str, bool]:
-        """Start all agents defined in configuration concurrently.
+        """Start all enabled agents defined in configuration concurrently.
 
-        This method loads the current configuration and starts all
-        configured agents in parallel for optimal performance.
+        Only agents with enabled=True will be started.
+        Disabled agents are skipped to save resources.
 
         Returns:
             dict[str, bool]: Mapping of agent_id to success status
         """
         config = load_config()
-        agent_ids = list(config.agents.profiles.keys())
+        # Filter only enabled agents
+        enabled_agents = {
+            agent_id: ref
+            for agent_id, ref in config.agents.profiles.items()
+            if getattr(ref, "enabled", True)
+        }
+        agent_ids = list(enabled_agents.keys())
 
         if not agent_ids:
-            logger.warning("No agents configured in config")
+            logger.warning("No enabled agents configured in config")
             return {}
 
-        logger.info(f"Starting {len(agent_ids)} configured agent(s)")
+        total_agents = len(config.agents.profiles)
+        disabled_count = total_agents - len(agent_ids)
+        logger.info(
+            f"Starting {len(agent_ids)} enabled agent(s) "
+            f"({disabled_count} disabled)",
+        )
 
         async def start_single_agent(agent_id: str) -> tuple[str, bool]:
             """Start a single agent with error handling."""
@@ -439,7 +450,7 @@ class MultiAgentManager:
         success_count = sum(1 for success in result_map.values() if success)
         logger.info(
             f"Agent startup complete: {success_count}/{len(agent_ids)} "
-            f"agents started successfully",
+            f"agents started successfully, {disabled_count} disabled",
         )
 
         return result_map

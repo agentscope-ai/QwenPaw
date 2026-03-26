@@ -54,9 +54,9 @@ what it actually does depends on which Skills you enable.
   [Heartbeat](./heartbeat).
 - **Cron jobs** — Scheduled tasks (send X at 9am, ask Y every 2h, etc.), managed
   via [CLI](./cli) or API.
-- **Agent/Workspace** — Starting from **v0.1.0**, CoPaw supports multi-agent workspace,
+- **Agent/Workspace** — Starting from **v0.1.0**, CoPaw supports multi-agent,
   allowing you to run multiple independent AI agents, each with its own configuration,
-  memory, skills, and conversation history. See [Multi-Agent Workspace](./multi-agent).
+  memory, skills, and conversation history. Agents can also collaborate with each other. See [Multi-Agent](./multi-agent).
 
 Each term is explained in detail in its chapter.
 
@@ -75,4 +75,4 @@ Each term is explained in detail in its chapter.
    - [CLI](./cli) — Init, cron jobs, clean working dir, etc.;
    - [Skills](./skills) — Understand and extend CoPaw’s capabilities;
    - [Config & working dir](./config) — Working directory and config file;
-   - [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management (v0.1.0+ feature).
+   - [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration (v0.1.0+ feature).

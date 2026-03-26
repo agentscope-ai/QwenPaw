@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel
 
+from ..utils import schedule_agent_reload
 from ...config import (
     load_config,
     save_config,
@@ -130,24 +131,7 @@ async def put_channels(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return channels_config
 
@@ -243,24 +227,7 @@ async def put_channel(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return channel_config
 
