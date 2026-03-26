@@ -218,7 +218,11 @@ class MCPClientManager:
         try:
             await client.close()
         except Exception as e:
-            logger.warning(f"Error closing MCP client '{key}': {e}")
+            logger.warning(
+                "Error closing MCP client '%s': %s",
+                key,
+                e,
+            )
         finally:
             await cls._force_cleanup_client(client)
 
