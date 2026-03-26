@@ -9,6 +9,7 @@ endpoint or via POST /console/chat. This channel handles the **output** side:
 whenever a completed message event or a proactive send arrives, it is
 pretty-printed to the terminal.
 """
+
 from __future__ import annotations
 
 import logging
@@ -408,7 +409,7 @@ class ConsoleChannel(BaseChannel):
         for p in parts:
             t = getattr(p, "type", None)
             if t == ContentType.TEXT and getattr(p, "text", None):
-                self._safe_print(f"{self.bot_prefix}{p.text}")
+                self._safe_print(f"{self.bot_prefix}  {p.text}")
             elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
                 self._safe_print(f"{_RED}⚠ Refusal: {p.refusal}{_RESET}")
             elif t == ContentType.IMAGE and getattr(p, "image_url", None):
@@ -418,19 +419,14 @@ class ConsoleChannel(BaseChannel):
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 self._safe_print(f"{_YELLOW}🔊 [Audio]{_RESET}")
             elif t == ContentType.FILE:
-                url = (
-                    getattr(p, "file_url", None)
-                    or getattr(p, "file_id", None)
-                    or ""
-                )
+                url = getattr(p, "file_url", None) or getattr(p, "file_id", None) or ""
                 self._safe_print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
         self._safe_print("")
 
     def _print_error(self, err: str) -> None:
         ts = _ts()
         self._safe_print(
-            f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n"
-            f"{_RED}{err}{_RESET}\n",
+            f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n{_RED}{err}{_RESET}\n",
         )
 
     def _parts_to_text(
@@ -468,8 +464,7 @@ class ConsoleChannel(BaseChannel):
         ts = _ts()
         prefix = (meta or {}).get("bot_prefix", self.bot_prefix) or ""
         self._safe_print(
-            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n"
-            f"{prefix}{text}\n",
+            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n{prefix}{text}\n",
         )
         sid = (meta or {}).get("session_id")
         if sid and text.strip():
