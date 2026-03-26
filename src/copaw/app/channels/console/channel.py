@@ -277,7 +277,7 @@ class ConsoleChannel(BaseChannel):
     async def _extract_media_message(self, message: Message) -> Message:
         """Extract media message from message."""
         parts = self._message_to_content_parts(message)
-        meida_message = None
+        media_message = None
         if message.type in (
             MessageType.FUNCTION_CALL_OUTPUT,
             MessageType.PLUGIN_CALL_OUTPUT,
@@ -298,12 +298,12 @@ class ConsoleChannel(BaseChannel):
                     part.file_url = file_url_to_local_path(
                         part.file_url,
                     )
-            meida_message = Message(
+            media_message = Message(
                 type=MessageType.MESSAGE,
                 role="assistant",
                 content=parts,
             )
-        return meida_message
+        return media_message
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
