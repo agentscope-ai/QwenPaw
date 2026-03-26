@@ -27,7 +27,6 @@ export function LlmRateLimiterCard() {
           {
             type: "number",
             min: 1,
-            max: 100,
             message: t("agentConfig.llmMaxConcurrentRange"),
           },
         ]}
@@ -36,7 +35,6 @@ export function LlmRateLimiterCard() {
         <InputNumber
           style={{ width: "100%" }}
           min={1}
-          max={100}
           step={1}
           placeholder={t("agentConfig.llmMaxConcurrentPlaceholder")}
         />
@@ -53,7 +51,6 @@ export function LlmRateLimiterCard() {
           {
             type: "number",
             min: 0,
-            max: 10000,
             message: t("agentConfig.llmMaxQpmRange"),
           },
         ]}
@@ -62,7 +59,6 @@ export function LlmRateLimiterCard() {
         <InputNumber
           style={{ width: "100%" }}
           min={0}
-          max={10000}
           step={10}
           placeholder={t("agentConfig.llmMaxQpmPlaceholder")}
         />
