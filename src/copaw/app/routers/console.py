@@ -14,6 +14,7 @@ from starlette.responses import FileResponse, StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ..agent_context import get_agent_for_request
+from ..runner.daemon_commands import is_stop_command
 
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,44 @@ async def post_console_chat(
         name=name,
     )
     tracker = workspace.task_tracker
+
+    # --- /stop early interception (before attach_or_start) ---
+    try:
+        user_text = ""
+        if native_payload["content_parts"]:
+            first = native_payload["content_parts"][0]
+            if first:
+                user_text = getattr(first, "text", "") or ""
+        if is_stop_command(user_text):
+            stopped = await tracker.request_stop(chat.id)
+            msg = "已停止当前任务。" if stopped else "当前没有运行中的任务。"
+
+            async def stop_event() -> AsyncGenerator[str, None]:
+                yield f"data: {json.dumps({'stop': stopped, 'message': msg})}\n\n"
+
+            return StreamingResponse(
+                stop_event(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+    except Exception as exc:
+        logger.exception("Error handling /stop command")
+        err_msg = f"停止命令执行失败：{exc}"
+
+        async def error_event() -> AsyncGenerator[str, None]:
+            yield f"data: {json.dumps({'stop': False, 'message': err_msg})}\n\n"
+
+        return StreamingResponse(
+            error_event(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
     is_reconnect = False
     if isinstance(request_data, dict):
