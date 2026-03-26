@@ -135,6 +135,64 @@ class BaseMemoryManager(ABC):
         )
         self.summary_tasks.append(task)
 
+    async def await_summary_tasks(self) -> str:
+        """
+        Wait for all background summary tasks to complete and collect results.
+
+        Blocks until all pending summary tasks in the task list have completed,
+        canceled, or failed. Collects status information from each task and
+        clears the task list after processing.
+
+        Returns:
+            str: A concatenated string of status messages, including:
+                - Completion confirmations with results
+                - Cancellation notices
+                - Error messages for failed tasks
+
+        Note:
+            - This method will block if any tasks are still running
+            - All tasks are removed from summary_tasks after this call
+            - Task exceptions are logged but do not raise to the caller
+            - Use this before application shutdown
+        """
+        result = ""
+        for task in self.summary_tasks:
+            if task.done():
+                # Task has already completed, check its status
+                if task.cancelled():
+                    logger.warning("Summary task was cancelled.")
+                    result += "Summary task was cancelled.\n"
+                else:
+                    # Check if the task raised an exception
+                    exc = task.exception()
+                    if exc is not None:
+                        logger.error(f"Summary task failed: {exc}")
+                        result += f"Summary task failed: {exc}\n"
+                    else:
+                        # Task completed successfully, collect result
+                        task_result = task.result()
+                        logger.info(f"Summary task completed: {task_result}")
+                        result += f"Summary task completed: {task_result}\n"
+
+            else:
+                # Task is still running, wait for it to complete
+                try:
+                    task_result = await task
+                    logger.info(f"Summary task completed: {task_result}")
+                    result += f"Summary task completed: {task_result}\n"
+
+                except asyncio.CancelledError:
+                    logger.warning("Summary task was cancelled while waiting.")
+                    result += "Summary task was cancelled.\n"
+
+                except Exception as e:
+                    logger.exception(f"Summary task failed: {e}")
+                    result += f"Summary task failed: {e}\n"
+
+        # Clear the task list after processing all tasks
+        self.summary_tasks.clear()
+        return result
+
     @abstractmethod
     async def memory_search(
         self,
