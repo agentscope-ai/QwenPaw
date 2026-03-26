@@ -1246,79 +1246,47 @@ def _persist_project_pipeline_run(project_dir: Path, run: PipelineRunDetail, tem
     )
 
 
-def _advance_pipeline_run_if_due(
+def _execute_project_pipeline_run(
     project_dir: Path,
     run: PipelineRunDetail,
     template: PipelineTemplateInfo,
 ) -> PipelineRunDetail:
-    if run.status not in {"running", "pending"}:
-        return run
     if not run.steps:
+        run.status = "succeeded"
+        run.updated_at = _pipeline_now_iso()
+        _persist_project_pipeline_run(project_dir, run, template)
         return run
 
-    now = datetime.now(timezone.utc)
-    now_iso = _pipeline_now_iso()
-    changed = False
-    step_duration_sec = 6
-    step_outputs: list[str] = []
-
-    running_index = next(
-        (idx for idx, step in enumerate(run.steps) if step.status == "running"),
-        -1,
-    )
-
-    if running_index < 0:
-        next_index = next(
-            (idx for idx, step in enumerate(run.steps) if step.status in {"pending", "blocked"}),
-            -1,
-        )
-        if next_index >= 0:
-            run.steps[next_index].status = "running"
-            run.steps[next_index].started_at = now_iso
-            running_index = next_index
-            changed = True
-
-    if running_index >= 0:
-        current_step = run.steps[running_index]
-        started_at = _parse_pipeline_iso(current_step.started_at) or now
-        elapsed = (now - started_at).total_seconds()
-        if elapsed >= step_duration_sec:
-            step_outputs = _apply_real_step_results(project_dir, current_step)
-            current_step.status = "succeeded"
-            current_step.ended_at = now_iso
-            current_step.metrics = {
-                **current_step.metrics,
-                "duration_sec": round(elapsed, 2),
-            }
-            current_step.evidence = current_step.evidence or ["PROJECT.md"]
-            if step_outputs:
-                merged_artifacts = list(dict.fromkeys([*run.artifacts, *step_outputs]))
-                run.artifacts = merged_artifacts[:200]
-            changed = True
-
-            next_index = next(
-                (
-                    idx
-                    for idx in range(running_index + 1, len(run.steps))
-                    if run.steps[idx].status in {"pending", "blocked"}
-                ),
-                -1,
-            )
-            if next_index >= 0:
-                run.steps[next_index].status = "running"
-                run.steps[next_index].started_at = now_iso
-            else:
-                run.status = "succeeded"
-
-    if run.status == "succeeded":
-        run.updated_at = now_iso
-    elif changed:
+    for step in run.steps:
+        started_at = _pipeline_now_iso()
+        step.status = "running"
+        step.started_at = started_at
         run.status = "running"
-        run.updated_at = now_iso
-
-    if changed:
+        run.updated_at = started_at
         _persist_project_pipeline_run(project_dir, run, template)
 
+        step_started_dt = _parse_pipeline_iso(started_at) or datetime.now(timezone.utc)
+        step_outputs = _apply_real_step_results(project_dir, step)
+        ended_at = _pipeline_now_iso()
+        step_ended_dt = _parse_pipeline_iso(ended_at) or datetime.now(timezone.utc)
+        duration_sec = max((step_ended_dt - step_started_dt).total_seconds(), 0.0)
+
+        step.status = "succeeded"
+        step.ended_at = ended_at
+        step.metrics = {
+            **step.metrics,
+            "duration_sec": round(duration_sec, 3),
+        }
+        step.evidence = step.evidence or ["PROJECT.md"]
+        if step_outputs:
+            merged_artifacts = list(dict.fromkeys([*run.artifacts, *step_outputs]))
+            run.artifacts = merged_artifacts[:200]
+
+        run.updated_at = ended_at
+
+    run.status = "succeeded"
+    run.updated_at = _pipeline_now_iso()
+    _persist_project_pipeline_run(project_dir, run, template)
     return run
 
 
@@ -1410,7 +1378,7 @@ def _load_pipeline_run_from_manifest(project_dir: Path, run_id: str) -> Pipeline
         steps=steps,
         artifacts=sorted(set(all_artifacts)),
     )
-    return _advance_pipeline_run_if_due(project_dir, run_detail, template)
+    return run_detail
 
 
 def _load_legacy_pipeline_run(project_dir: Path, run_id: str) -> PipelineRunDetail:
@@ -1556,5 +1524,4 @@ def _create_project_pipeline_run(
         focus_type="project_run",
         focus_path=f"projects/{project_id}",
     )
-    _persist_project_pipeline_run(project_dir, run, template)
-    return run
+    return _execute_project_pipeline_run(project_dir, run, template)
