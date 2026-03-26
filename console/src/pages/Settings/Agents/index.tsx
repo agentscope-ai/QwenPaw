@@ -65,12 +65,18 @@ export default function AgentsPage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      const workspaceRaw = values.workspace_dir;
+      const workspace_dir =
+        typeof workspaceRaw === "string"
+          ? workspaceRaw.trim() || undefined
+          : workspaceRaw;
+      const payload = { ...values, workspace_dir };
 
       if (editingAgent) {
-        await agentsApi.updateAgent(editingAgent.id, values);
+        await agentsApi.updateAgent(editingAgent.id, payload);
         message.success(t("agent.updateSuccess"));
       } else {
-        const result = await agentsApi.createAgent(values);
+        const result = await agentsApi.createAgent(payload);
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
