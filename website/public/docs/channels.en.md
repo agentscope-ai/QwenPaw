@@ -57,6 +57,7 @@ Step-by-step:
    ![save](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
 
 6. In the app details, copy:
+
    - **Client ID** (AppKey)
    - **Client Secret** (AppSecret)
 
@@ -287,6 +288,7 @@ The app polls the local iMessage database for new messages and sends replies on 
 3. For CoPaw to read iMessage data, **Terminal** (or the app you use to run `copaw app`) and **Messages** need **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access).
 
 4. Set the iMessage database path. The default is `~/Library/Messages/chat.db`; use this unless you've moved the database. You can configure it in either of these ways:
+
    - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
 
      ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
@@ -713,6 +715,7 @@ The Matrix channel connects CoPaw to any Matrix homeserver using the [matrix-nio
 1. Create a bot account on any Matrix homeserver (e.g. [matrix.org](https://matrix.org) — register at [app.element.io](https://app.element.io/#/register)).
 
 2. Get the bot's **access token**. The easiest way is via Element:
+
    - Log in as the bot account at [app.element.io](https://app.element.io)
    - Go to **Settings → Help & About → Advanced → Access Token**
    - Copy the token (it starts with `syt_...`)
