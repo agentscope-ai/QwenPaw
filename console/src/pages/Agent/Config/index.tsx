@@ -71,8 +71,9 @@ function AgentConfigPage() {
         />
 
         <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+
         <LlmRateLimiterCard />
-        
+
         <ContextCompactCard maxInputLength={maxInputLength} />
 
         <ToolResultCompactCard />
@@ -80,7 +81,6 @@ function AgentConfigPage() {
         <MemorySummaryCard />
 
         <EmbeddingConfigCard />
-        
       </Form>
 
       <div className={styles.footerActions}>
