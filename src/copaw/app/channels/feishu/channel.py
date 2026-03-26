@@ -35,6 +35,8 @@ from lark_oapi.api.im.v1 import (
     CreateMessageReactionRequestBody,
     Emoji,
     P2ImMessageReceiveV1,
+    P2ImMessageReactionCreatedV1,
+    P2ImMessageReactionDeletedV1,
 )
 from agentscope_runtime.engine.schemas.agent_schemas import (
     # AudioContent,
@@ -462,6 +464,18 @@ class FeishuChannel(BaseChannel):
             self._on_message(data),
             self._loop,
         )
+
+    def _on_reaction_created_sync(
+        self, data: "P2ImMessageReactionCreatedV1"
+    ) -> None:
+        """Sync handler for reaction created events (no-op to prevent error)."""
+        logger.debug("feishu: received reaction created event, ignoring")
+
+    def _on_reaction_deleted_sync(
+        self, data: "P2ImMessageReactionDeletedV1"
+    ) -> None:
+        """Sync handler for reaction deleted events (no-op to prevent error)."""
+        logger.debug("feishu: received reaction deleted event, ignoring")
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
         """Handle one Feishu message: dedup, parse, download media, enqueue."""
@@ -1563,6 +1577,12 @@ class FeishuChannel(BaseChannel):
                 self.verification_token,
             )
             .register_p2_im_message_receive_v1(self._on_message_sync)
+            .register_p2_im_message_reaction_created_v1(
+                self._on_reaction_created_sync
+            )
+            .register_p2_im_message_reaction_deleted_v1(
+                self._on_reaction_deleted_sync
+            )
             .build()
         )
         self._ws_client = lark.ws.Client(
