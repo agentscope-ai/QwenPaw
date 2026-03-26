@@ -7,7 +7,7 @@ import logging
 import os
 import platform
 import uuid
-
+from typing import TYPE_CHECKING
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 
@@ -17,6 +17,10 @@ from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
 from copaw.config import load_config
 from copaw.config.config import load_agent_config
+from copaw.constant import EnvVarLoader
+
+if TYPE_CHECKING:
+    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +82,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
         )
 
-        fts_enabled = os.environ.get("FTS_ENABLED", "true").lower() == "true"
+        fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
 
-        backend_env = os.environ.get("MEMORY_STORE_BACKEND", "auto")
+        backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
         memory_backend = (
             ("local" if platform.system() == "Windows" else "chroma")
             if backend_env == "auto"
@@ -167,10 +171,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         cfg = load_agent_config(self.agent_id).running.embedding_config
         return {
             "backend": cfg.backend,
-            "api_key": cfg.api_key or os.getenv("EMBEDDING_API_KEY", ""),
-            "base_url": cfg.base_url or os.getenv("EMBEDDING_BASE_URL", ""),
+            "api_key": cfg.api_key
+            or EnvVarLoader.get_str("EMBEDDING_API_KEY"),
+            "base_url": cfg.base_url
+            or EnvVarLoader.get_str("EMBEDDING_BASE_URL"),
             "model_name": cfg.model_name
-            or os.getenv("EMBEDDING_MODEL_NAME", ""),
+            or EnvVarLoader.get_str("EMBEDDING_MODEL_NAME"),
             "dimensions": cfg.dimensions,
             "enable_cache": cfg.enable_cache,
             "use_dimensions": cfg.use_dimensions,
@@ -334,7 +340,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             min_score=min_score,
         )
 
-    def get_in_memory_memory(self, **_kwargs):
+    def get_in_memory_memory(self, **_kwargs) -> "ReMeInMemoryMemory | None":
         """Retrieve the in-memory memory object with token counting support."""
         self._warn_if_version_mismatch()
         if self._reme is None:

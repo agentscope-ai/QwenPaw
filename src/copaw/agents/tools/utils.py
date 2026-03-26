@@ -5,6 +5,8 @@ import re
 
 import logging
 
+from ...constant import TRUNCATION_NOTICE_MARKER
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,23 +16,11 @@ DEFAULT_MAX_BYTES = 50 * 1024
 # Maximum file size to read into memory (1GB)
 MAX_FILE_READ_BYTES = 1024 * 1024 * 1024
 
-# Marker prepended to every truncation notice.
-# Format:
-#   <<<TRUNCATED>>>
-#   File: <path>
-#   Starting at start_line=X, next N bytes.
-#   Total lines: Z
-#   Use start_line=Y to continue.
-#
-# Split output on this marker to recover the original (untruncated) portion:
-#   original = output.split(TRUNCATION_NOTICE_MARKER)[0]
-TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
-
 
 # pylint: disable=too-many-return-statements
 def truncate_text_output(
     text: str,
-    start_line: int = 0,
+    start_line: int = 1,
     total_lines: int = 0,
     max_bytes: int = DEFAULT_MAX_BYTES,
     file_path: str | None = None,

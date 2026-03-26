@@ -695,7 +695,7 @@
     "toolResultCompactEnabled": "启用工具结果压缩",
     "toolResultCompactEnabledTooltip": "对过长的工具调用结果进行压缩，节省上下文空间",
     "memorySummaryTitle": "记忆总结配置",
-    "memorySummaryEnabled": "启用记忆摘要",
+    "memorySummaryEnabled": "启动记忆总结",
     "memorySummaryEnabledTooltip": "在上下文压缩时自动生成并保存记忆摘要",
     "forceMemorySearch": "强制记忆搜索",
     "forceMemorySearchTooltip": "每轮对话都强制触发记忆搜索。每次 query 进来都会调用记忆，让 CoPaw 更懂你，但会增加 token 消耗。",

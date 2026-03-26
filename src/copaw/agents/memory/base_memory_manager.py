@@ -3,12 +3,17 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse
+
+if TYPE_CHECKING:
+    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +55,15 @@ class BaseMemoryManager(ABC):
         self.summary_tasks: list[asyncio.Task] = []
 
     @abstractmethod
-    async def start(self):
+    async def start(self) -> None:
         """Start the memory manager lifecycle."""
 
     @abstractmethod
-    async def close(self):
+    async def close(self) -> bool:
         """Close the memory manager and perform cleanup."""
 
     @abstractmethod
-    async def compact_tool_result(self, **kwargs):
+    async def compact_tool_result(self, **kwargs) -> None:
         """Compact tool results by truncating large outputs.
 
         Args:
@@ -149,7 +154,7 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def get_in_memory_memory(self, **kwargs):
+    def get_in_memory_memory(self, **kwargs) -> "ReMeInMemoryMemory | None":
         """Retrieve the in-memory memory object for the agent.
 
         Args:

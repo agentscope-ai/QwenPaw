@@ -729,7 +729,7 @@
     "toolResultCompactEnabled": "Enable Tool Result Compaction",
     "toolResultCompactEnabledTooltip": "Compact oversized tool call results to save context space",
     "memorySummaryTitle": "Memory Summary Config",
-    "memorySummaryEnabled": "Enable Memory Summary",
+    "memorySummaryEnabled": "Activate Memory Summary",
     "memorySummaryEnabledTooltip": "Automatically generate and save memory summaries during context compaction",
     "forceMemorySearch": "Force Memory Search",
     "forceMemorySearchTooltip": "Force memory search to run on every conversation turn. Each query will retrieve relevant memories, helping CoPaw understand you better — but this increases token consumption.",

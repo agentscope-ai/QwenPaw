@@ -681,7 +681,7 @@
     "toolResultCompactEnabled": "ツール結果圧縮を有効化",
     "toolResultCompactEnabledTooltip": "過大なツール呼び出し結果を圧縮してコンテキストスペースを節約します",
     "memorySummaryTitle": "記憶サマリー設定",
-    "memorySummaryEnabled": "記憶サマリーを有効化",
+    "memorySummaryEnabled": "記憶まとめを起動",
     "memorySummaryEnabledTooltip": "コンテキスト圧縮時に自動的に記憶サマリーを生成・保存します",
     "forceMemorySearch": "強制記憶検索",
     "forceMemorySearchTooltip": "毎回の会話で記憶検索を強制実行します。各クエリで関連する記憶を取得し、CoPawがあなたをより理解できますが、トークン消費が増加します",

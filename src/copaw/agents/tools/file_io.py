@@ -8,12 +8,11 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...constant import WORKING_DIR
+from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 from ...config.context import get_current_workspace_dir
 from .utils import (
     truncate_text_output,
     read_file_safe,
-    TRUNCATION_NOTICE_MARKER,
 )
 
 

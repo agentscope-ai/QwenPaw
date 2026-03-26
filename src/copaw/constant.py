@@ -207,3 +207,15 @@ try:
     )
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0
+
+# Marker prepended to every truncation notice.
+# Format:
+#   <<<TRUNCATED>>>
+#   File: <path>
+#   Starting at start_line=X, next N bytes.
+#   Total lines: Z
+#   Use start_line=Y to continue.
+#
+# Split output on this marker to recover the original (untruncated) portion:
+#   original = output.split(TRUNCATION_NOTICE_MARKER)[0]
+TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
