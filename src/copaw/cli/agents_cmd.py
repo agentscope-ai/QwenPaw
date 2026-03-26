@@ -210,7 +210,8 @@ def _submit_background_task(
         click.echo()
         click.echo("✅ Task submitted successfully")
         click.echo()
-        click.echo("Check status with:")
+        click.echo("💡 Don't wait - continue with other tasks!")
+        click.echo("   Check status later (10-60s depending on complexity):")
         click.echo(f"  copaw agents chat --background --task-id {task_id}")
 
     except Exception as e:
@@ -314,7 +315,10 @@ def _check_task_status(
                 created_at = result.get("created_at", "N/A")
                 click.echo(f"   Started at: {created_at}")
                 click.echo()
-                click.echo("Check again later (wait 10-30s):")
+                click.echo(
+                    "💡 Don't wait - continue with other tasks first!",
+                )
+                click.echo("   Check again later (10-30s):")
                 click.echo(
                     f"  copaw agents chat --background --task-id {task_id}",
                 )
@@ -322,7 +326,10 @@ def _check_task_status(
             elif status == "pending":
                 click.echo("⏸️  Task is pending in queue...")
                 click.echo()
-                click.echo("Check again in a few seconds:")
+                click.echo(
+                    "💡 Don't wait - handle other work first!",
+                )
+                click.echo("   Check again in a few seconds:")
                 click.echo(
                     f"  copaw agents chat --background --task-id {task_id}",
                 )
