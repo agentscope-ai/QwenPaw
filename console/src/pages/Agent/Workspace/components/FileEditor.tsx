@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, memo } from "react";
 import { Button, Card, Input, Switch, message } from "@agentscope-ai/design";
 import { CopyOutlined, UndoOutlined, SaveOutlined } from "@ant-design/icons";
 import type { MarkdownFile } from "../../../../api/types";
@@ -17,7 +17,7 @@ interface FileEditorProps {
   onReset: () => void;
 }
 
-export const FileEditor: React.FC<FileEditorProps> = ({
+const FileEditorInner: React.FC<FileEditorProps> = ({
   selectedFile,
   fileContent,
   loading,
@@ -137,3 +137,5 @@ export const FileEditor: React.FC<FileEditorProps> = ({
     </div>
   );
 };
+
+export const FileEditor = memo(FileEditorInner);

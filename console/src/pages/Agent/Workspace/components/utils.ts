@@ -73,3 +73,32 @@ export const buildFileTree = (
 
   return root;
 };
+
+export type VirtualRow =
+  | { type: "folder"; node: FileTreeNode; depth: number }
+  | { type: "file"; file: MarkdownFile; depth: number };
+
+/**
+ * Flatten a FileTreeNode tree into a one-dimensional row array for virtual
+ * scrolling. Folders whose id is in expandedFolders will have their children
+ * included; collapsed folders contribute only one row (the folder header).
+ */
+export function flattenTree(
+  tree: FileTreeNode,
+  expandedFolders: Set<string>,
+  depth = 0,
+): VirtualRow[] {
+  const rows: VirtualRow[] = [];
+  // Root-level files first
+  for (const file of tree.files) {
+    rows.push({ type: "file", file, depth });
+  }
+  // Then folder nodes
+  for (const child of tree.children) {
+    rows.push({ type: "folder", node: child, depth });
+    if (expandedFolders.has(child.id)) {
+      rows.push(...flattenTree(child, expandedFolders, depth + 1));
+    }
+  }
+  return rows;
+}

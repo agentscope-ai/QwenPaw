@@ -9,6 +9,52 @@ import type { FileTreeNode } from "./utils";
 import { FileItem } from "./FileItem";
 import styles from "../index.module.less";
 
+// ---------------------------------------------------------------------------
+// FolderRowItem — lightweight single-row component used by the virtual list
+// (all mode). Only renders the folder header; children are managed by the
+// virtual list itself via flattenTree.
+// ---------------------------------------------------------------------------
+interface FolderRowItemProps {
+  node: FileTreeNode;
+  depth: number;
+  expanded: boolean;
+  onToggle: () => void;
+}
+
+export const FolderRowItem: React.FC<FolderRowItemProps> = ({
+  node,
+  depth,
+  expanded,
+  onToggle,
+}) => {
+  return (
+    <div
+      className={styles.folderNode}
+      style={{ marginLeft: depth > 0 ? depth * 12 : 0 }}
+    >
+      <div
+        className={styles.folderRow}
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && onToggle()}
+      >
+        <span
+          className={`${styles.folderChevron} ${
+            expanded ? styles.folderChevronOpen : ""
+          }`}
+        >
+          <CaretRightOutlined />
+        </span>
+        <span className={styles.folderIcon}>
+          {expanded ? <FolderOpenOutlined /> : <FolderOutlined />}
+        </span>
+        <span className={styles.folderName}>{node.name}</span>
+      </div>
+    </div>
+  );
+};
+
 interface FolderNodeProps {
   node: FileTreeNode;
   depth: number;
@@ -38,7 +84,7 @@ export const FolderNode: React.FC<FolderNodeProps> = ({
   selectedForDownload = [],
   onSelectForDownload,
 }) => {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const totalFiles =
     node.files.length +

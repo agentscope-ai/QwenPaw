@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
@@ -121,7 +121,7 @@ export const useAgentsData = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledFiles]);
 
-  const fetchEnabledFiles = async () => {
+  const fetchEnabledFiles = useCallback(async () => {
     try {
       const result = await workspaceApi.getSystemPromptFiles();
       const enabled = Array.isArray(result) ? result : [];
@@ -131,9 +131,9 @@ export const useAgentsData = () => {
       console.error("Failed to fetch enabled files", error);
       return [];
     }
-  };
+  }, []);
 
-  const sortFilesByEnabled = (
+  const sortFilesByEnabled = useCallback((
     fileList: MarkdownFile[],
     currentEnabledFiles: string[],
   ) => {
@@ -153,9 +153,19 @@ export const useAgentsData = () => {
       if (bEnabled) return 1;
       return a.filename.localeCompare(b.filename);
     });
-  };
+  }, []);
 
-  const fetchFiles = async (latestEnabledFiles?: string[]) => {
+  const fetchDailyMemories = useCallback(async () => {
+    try {
+      const memoryList = await api.listDailyMemory();
+      setDailyMemories(memoryList);
+    } catch (error) {
+      console.error("Failed to fetch daily memories", error);
+      message.error("Failed to load memory list");
+    }
+  }, []);
+  
+  const fetchFiles = useCallback(async (latestEnabledFiles?: string[]) => {
     try {
       // Validate with Array.isArray: onClick handlers may pass a MouseEvent as the first argument
       const enabled = Array.isArray(latestEnabledFiles)
@@ -181,19 +191,9 @@ export const useAgentsData = () => {
       console.error("Failed to fetch files", error);
       message.error("Failed to load file list");
     }
-  };
-
-  const fetchDailyMemories = async () => {
-    try {
-      const memoryList = await api.listDailyMemory();
-      setDailyMemories(memoryList);
-    } catch (error) {
-      console.error("Failed to fetch daily memories", error);
-      message.error("Failed to load memory list");
-    }
-  };
-
-  const handleFileClick = async (file: MarkdownFile) => {
+  }, [selectedAgent, viewMode, fetchEnabledFiles, sortFilesByEnabled]);
+  
+  const handleFileClick = useCallback(async (file: MarkdownFile) => {
     if (file.filename === "MEMORY.md") {
       if (expandedMemory && selectedFile?.filename === "MEMORY.md") {
         setExpandedMemory(false);
@@ -203,7 +203,7 @@ export const useAgentsData = () => {
         fetchDailyMemories();
       }
     }
-
+  
     setSelectedFile(file);
     setLoading(true);
     try {
@@ -220,9 +220,9 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDailyMemoryClick = async (daily: DailyMemoryFile) => {
+  }, [selectedAgent, expandedMemory, selectedFile, fetchDailyMemories]);
+  
+  const handleDailyMemoryClick = useCallback(async (daily: DailyMemoryFile) => {
     setSelectedFile({
       filename: `${daily.date}.md`,
       path: daily.path,
@@ -242,9 +242,9 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSave = async () => {
+  }, []);
+  
+  const handleSave = useCallback(async () => {
     if (!selectedFile) return;
     setLoading(true);
     try {
@@ -271,15 +271,15 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleReset = () => {
+  }, [selectedFile, fileContent, selectedAgent, fetchDailyMemories, fetchFiles]);
+  
+  const handleReset = useCallback(() => {
     setFileContent(originalContent);
-  };
-
-  const handleToggleFileEnabled = async (filename: string) => {
+  }, [originalContent]);
+  
+  const handleToggleFileEnabled = useCallback(async (filename: string) => {
     const isEnabling = !enabledFiles.includes(filename);
-
+  
     // Show warning for MEMORY.md
     if (isEnabling && filename === "MEMORY.md") {
       message.warning({
@@ -287,11 +287,11 @@ export const useAgentsData = () => {
         duration: 5,
       });
     }
-
+  
     const newEnabledFiles = enabledFiles.includes(filename)
       ? enabledFiles.filter((f) => f !== filename)
       : [...enabledFiles, filename];
-
+  
     try {
       await workspaceApi.setSystemPromptFiles(newEnabledFiles);
       setEnabledFiles(newEnabledFiles);
@@ -305,9 +305,9 @@ export const useAgentsData = () => {
           "Failed to update system prompt configuration",
       );
     }
-  };
-
-  const handleReorderFiles = async (newOrder: string[]) => {
+  }, [enabledFiles, t]);
+  
+  const handleReorderFiles = useCallback(async (newOrder: string[]) => {
     try {
       await workspaceApi.setSystemPromptFiles(newOrder);
       setEnabledFiles(newOrder);
@@ -315,9 +315,9 @@ export const useAgentsData = () => {
       console.error("Failed to reorder files", error);
       message.error("Failed to update file order");
     }
-  };
-
-  const handleDownloadSelected = async (paths: string[]) => {
+  }, []);
+  
+  const handleDownloadSelected = useCallback(async (paths: string[]) => {
     try {
       setLoading(true);
       await agentsApi.downloadSelectedFiles(selectedAgent, paths);
@@ -328,7 +328,7 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedAgent, t]);
 
   const hasChanges = fileContent !== originalContent;
 
