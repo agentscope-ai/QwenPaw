@@ -29,6 +29,42 @@ def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
 
 
+def _extract_stop_text(native_payload: dict) -> str:
+    """Extract the user text from the first content part."""
+    if not native_payload["content_parts"]:
+        return ""
+    first = native_payload["content_parts"][0]
+    return (getattr(first, "text", "") or "").strip()
+
+
+async def _handle_stop_interrupt(request: Request) -> StreamingResponse:
+    """Handle /stop soft interrupt: signal agent and return ack stream."""
+    from ...agents.middleware.stop_interrupt import request_agent_stop
+    from ..agent_context import get_agent_for_request as _get_agent
+
+    try:
+        ws = await _get_agent(request)
+        request_agent_stop(ws.agent_id)
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+    async def _stop_ack() -> AsyncGenerator[str, None]:
+        payload = {
+            "status": "interrupted",
+            "message": "Task interrupted. Send your next message.",
+        }
+        yield f"data: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(
+        _stop_ack(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -110,36 +146,9 @@ async def post_console_chat(
     tracker = workspace.task_tracker
 
     # ── /stop soft interrupt ────────────────────────────
-    user_text = ""
-    if native_payload["content_parts"]:
-        first = native_payload["content_parts"][0]
-        user_text = (getattr(first, "text", "") or "").strip()
-
+    user_text = _extract_stop_text(native_payload)
     if user_text.lower() == "/stop":
-        from ...agents.middleware.stop_interrupt import request_agent_stop
-        from ..agent_context import get_agent_for_request as _get_agent
-
-        try:
-            ws = await _get_agent(request)
-            request_agent_stop(ws.agent_id)
-        except Exception:
-            pass
-
-        async def _stop_ack() -> AsyncGenerator[str, None]:
-            payload = {
-                "status": "interrupted",
-                "message": ("Task interrupted. Send your next message."),
-            }
-            yield f"data: {json.dumps(payload)}\n\n"
-
-        return StreamingResponse(
-            _stop_ack(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
+        return await _handle_stop_interrupt(request)
     # ── end /stop ───────────────────────────────────────
 
     is_reconnect = False
