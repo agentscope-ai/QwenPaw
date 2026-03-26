@@ -35,7 +35,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     - Vector and full-text search via memory_search()
     """
 
-    def __init__(self, working_dir: str, agent_id: str, **kwargs):
+    def __init__(self, working_dir: str, agent_id: str):
         """Initialize with ReMeLight.
 
         Args:
@@ -46,7 +46,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         EMBEDDING_BASE_URL / EMBEDDING_MODEL_NAME).
         Backend: MEMORY_STORE_BACKEND env var (auto/local/chroma, default auto).
         """
-        super().__init__(working_dir=working_dir, agent_id=agent_id, **kwargs)
+        super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
 

@@ -20,7 +20,6 @@ from ...config.config import load_agent_config
 
 if TYPE_CHECKING:
     from ..memory import BaseMemoryManager
-    from reme.memory.file_based import ReMeInMemoryMemory
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +87,7 @@ class MemoryCompactionHook:
             running_config = agent_config.running
             token_counter = get_copaw_token_counter(agent_config)
 
-            memory: "ReMeInMemoryMemory" = agent.memory
+            memory = agent.memory
 
             system_prompt = agent.sys_prompt
             compressed_summary = memory.get_compressed_summary()

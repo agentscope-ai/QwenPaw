@@ -921,8 +921,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         if hasattr(self.memory, "_long_term_memory"):
             running = self._agent_config.running
+            ms = running.memory_summary
             if (
-                running.force_memory_search
+                ms.force_memory_search
                 and self.memory_manager is not None
                 and query
             ):
@@ -930,8 +931,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     result = await asyncio.wait_for(
                         self.memory_manager.memory_search(
                             query=query[:100],
-                            max_results=running.force_max_results,
-                            min_score=running.force_min_score,
+                            max_results=ms.force_max_results,
+                            min_score=ms.force_min_score,
                         ),
                         timeout=1,
                     )
