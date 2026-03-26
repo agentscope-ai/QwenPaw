@@ -23,6 +23,11 @@ from .command_dispatch import (
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
+from .runtime_status_store import (
+    RuntimeStatusWriteContext,
+    reset_current_runtime_status_context,
+    set_current_runtime_status_context,
+)
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
@@ -510,6 +515,7 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        runtime_status_token = None
         user_id = getattr(request, "user_id", "") or ""
         channel = str(
             getattr(request, "channel", DEFAULT_CHANNEL) or DEFAULT_CHANNEL,
@@ -678,6 +684,16 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
+            runtime_status_token = set_current_runtime_status_context(
+                RuntimeStatusWriteContext(
+                    session=self.session,
+                    agent_id=self.agent_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    chat_id=chat.id if chat is not None else "",
+                )
+            )
+
             stream_retry_budget = 1
             while True:
                 try:
@@ -780,6 +796,8 @@ class AgentRunner(Runner):
                 return
             raise
         finally:
+            if runtime_status_token is not None:
+                reset_current_runtime_status_context(runtime_status_token)
             if agent is not None and session_state_loaded:
                 await self.session.save_session_state(
                     session_id=session_id,

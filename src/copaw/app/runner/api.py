@@ -7,10 +7,9 @@ from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope.memory import InMemoryMemory
 from agentscope_runtime.engine.schemas.agent_schemas import Message
 
-from .session import SafeJSONSession
+from .session import SafeJSONSession, restore_in_memory_memory
 from .manager import ChatManager
 from .models import (
     ChatSpec,
@@ -269,8 +268,7 @@ async def get_chat(
     if not state:
         return ChatHistory(messages=[], status=status)
     memories = state.get("agent", {}).get("memory", [])
-    memory = InMemoryMemory()
-    memory.load_state_dict(memories)
+    memory = restore_in_memory_memory(memories)
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)

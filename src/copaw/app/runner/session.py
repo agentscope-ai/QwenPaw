@@ -13,9 +13,11 @@ import os
 import re
 import uuid
 
-from typing import Union, Sequence
+from typing import Any, Union, Sequence
 
 import aiofiles
+from agentscope.memory import InMemoryMemory
+from agentscope.message import Msg
 from agentscope.session import SessionBase
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,90 @@ logger = logging.getLogger(__name__)
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
+
+
+def _coerce_message_dict(message: dict[str, Any]) -> dict[str, Any] | None:
+    if "role" not in message or "content" not in message:
+        return None
+
+    coerced = dict(message)
+    role = coerced.get("role")
+    default_name = {
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+    }.get(role)
+    if default_name is None:
+        return None
+
+    if not coerced.get("name"):
+        coerced["name"] = default_name
+
+    try:
+        msg = Msg.from_dict(coerced)
+    except Exception:
+        return None
+    return msg.to_dict()
+
+
+def _normalize_memory_state_item(item: Any) -> list[Any] | dict[str, Any] | None:
+    if isinstance(item, (tuple, list)) and len(item) == 2:
+        msg_dict, marks = item
+        if not isinstance(msg_dict, dict):
+            return None
+        normalized_msg = _coerce_message_dict(msg_dict)
+        if normalized_msg is None:
+            return None
+        if not isinstance(marks, list):
+            marks = list(marks) if isinstance(marks, tuple) else []
+        return [normalized_msg, marks]
+
+    if isinstance(item, dict):
+        return _coerce_message_dict(item)
+
+    return None
+
+
+def normalize_in_memory_memory_state(memory_state: Any) -> dict[str, Any]:
+    compressed_summary = ""
+    raw_items: list[Any] = []
+
+    if isinstance(memory_state, dict):
+        compressed_summary = str(memory_state.get("_compressed_summary", "") or "")
+        content = memory_state.get("content", [])
+        if isinstance(content, list):
+            raw_items = content
+    elif isinstance(memory_state, list):
+        raw_items = memory_state
+
+    normalized_items: list[Any] = []
+    invalid_count = 0
+    for item in raw_items:
+        normalized = _normalize_memory_state_item(item)
+        if normalized is None:
+            invalid_count += 1
+            continue
+        normalized_items.append(normalized)
+
+    if invalid_count > 0:
+        logger.warning(
+            "Skipped %d invalid memory state items while restoring session memory.",
+            invalid_count,
+        )
+
+    return {
+        "_compressed_summary": compressed_summary,
+        "content": normalized_items,
+    }
+
+
+def restore_in_memory_memory(memory_state: Any) -> InMemoryMemory:
+    memory = InMemoryMemory()
+    memory.load_state_dict(
+        normalize_in_memory_memory_state(memory_state),
+        strict=False,
+    )
+    return memory
 
 
 def sanitize_filename(name: str) -> str:
@@ -188,7 +274,7 @@ class SafeJSONSession(SessionBase):
             )
 
         elif allow_not_exist:
-            logger.info(
+            logger.debug(
                 "Session file %s does not exist. Skip loading session state.",
                 session_save_path,
             )
@@ -271,7 +357,7 @@ class SafeJSONSession(SessionBase):
             return states
 
         if allow_not_exist:
-            logger.info(
+            logger.debug(
                 "Session file %s does not exist. Return empty state dict.",
                 session_save_path,
             )

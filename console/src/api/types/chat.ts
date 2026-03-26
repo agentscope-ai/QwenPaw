@@ -25,6 +25,33 @@ export interface ChatHistory {
   total?: number;
 }
 
+export interface ChatRuntimeStatusBreakdownItem {
+  key: string;
+  label: string;
+  tokens: number;
+  ratio: number;
+  section: "system" | "user";
+}
+
+export interface ChatRuntimeStatus {
+  scope_level: string;
+  snapshot_source: string;
+  snapshot_stage: string;
+  agent_id?: string | null;
+  session_id?: string | null;
+  user_id?: string | null;
+  chat_id?: string | null;
+  context_window_tokens: number;
+  used_tokens: number;
+  used_ratio: number;
+  reserved_response_tokens: number;
+  remaining_tokens: number;
+  model_id?: string | null;
+  provider_id?: string | null;
+  profile_label: string;
+  breakdown: ChatRuntimeStatusBreakdownItem[];
+}
+
 export interface ChatDeleteResponse {
   success: boolean;
   chat_id: string;

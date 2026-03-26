@@ -18,6 +18,7 @@ from .daemon_commands import (
 )
 from ...agents.command_handler import CommandHandler
 from ...config.config import load_agent_config
+from .session import restore_in_memory_memory
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,8 @@ async def run_command_path(
         user_id=user_id,
     )
     memory_state = session_state.get("agent", {}).get("memory", {})
-    memory.load_state_dict(memory_state, strict=False)
+    restored_memory = restore_in_memory_memory(memory_state)
+    memory.load_state_dict(restored_memory.state_dict(), strict=False)
 
     conv_handler = CommandHandler(
         agent_name="Friday",

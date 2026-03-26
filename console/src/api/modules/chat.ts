@@ -4,6 +4,7 @@ import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
+  ChatRuntimeStatus,
   ChatDeleteResponse,
   Session,
 } from "../types";
@@ -153,6 +154,11 @@ export const chatApi = {
       `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
     );
   },
+
+  getRuntimeStatus: (chatId: string) =>
+    request<ChatRuntimeStatus>(
+      `/console/chats/${encodeURIComponent(chatId)}/runtime-status`,
+    ),
 
   updateChat: (chatId: string, chat: Partial<ChatSpec>) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {

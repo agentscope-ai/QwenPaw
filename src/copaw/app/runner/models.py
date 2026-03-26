@@ -64,6 +64,77 @@ class ChatHistory(BaseModel):
     )
 
 
+class ChatRuntimeStatusBreakdownItem(BaseModel):
+    """One categorized token usage item inside a chat runtime snapshot."""
+
+    key: str = Field(..., description="Stable breakdown key")
+    label: str = Field(..., description="Display label")
+    tokens: int = Field(default=0, description="Token count for this category")
+    ratio: float = Field(
+        default=0,
+        description="Category ratio relative to context window",
+    )
+    section: str = Field(
+        ...,
+        description="Breakdown section, e.g. system or user",
+    )
+
+
+class ChatRuntimeStatus(BaseModel):
+    """Runtime context usage snapshot for a chat session."""
+
+    scope_level: str = Field(
+        default="chat",
+        description="Ownership level of this snapshot, currently chat",
+    )
+    snapshot_source: str = Field(
+        default="runtime_push",
+        description="How this snapshot was produced, e.g. runtime_push or empty_baseline",
+    )
+    snapshot_stage: str = Field(
+        default="pre_model_call",
+        description="Runtime stage captured by this snapshot",
+    )
+    agent_id: str | None = Field(default=None, description="Owning agent id")
+    session_id: str | None = Field(default=None, description="Owning session id")
+    user_id: str | None = Field(default=None, description="Owning user id")
+    chat_id: str | None = Field(default=None, description="Owning chat id")
+
+    context_window_tokens: int = Field(
+        ...,
+        description="Estimated or configured total context window",
+    )
+    used_tokens: int = Field(
+        default=0,
+        description="Tokens currently occupied in the prompt context",
+    )
+    used_ratio: float = Field(
+        default=0,
+        description="Used tokens divided by context window",
+    )
+    reserved_response_tokens: int = Field(
+        default=0,
+        description="Tokens reserved for the model response",
+    )
+    remaining_tokens: int = Field(
+        default=0,
+        description="Context tokens still available after reservation",
+    )
+    model_id: str | None = Field(default=None, description="Active model id")
+    provider_id: str | None = Field(
+        default=None,
+        description="Active provider id",
+    )
+    profile_label: str = Field(
+        default="Unknown runtime",
+        description="Human-friendly runtime label",
+    )
+    breakdown: list[ChatRuntimeStatusBreakdownItem] = Field(
+        default_factory=list,
+        description="Token usage breakdown items",
+    )
+
+
 class ChatsFile(BaseModel):
     """Chat registry file for JSON repository.
 

@@ -11,6 +11,7 @@ Example:
 
 
 import logging
+import os
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
@@ -31,10 +32,16 @@ except ImportError:  # pragma: no cover - compatibility fallback
     GeminiChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
+from .utils.copaw_token_counter import get_copaw_token_counter
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import RetryChatModel, RetryConfig
 from ..token_usage import TokenRecordingModelWrapper
 from ..local_models import create_local_chat_model
+from ..app.runner.runtime_status_store import (
+    RuntimeStatusRecorder,
+    resolve_context_window_tokens,
+    resolve_reserved_response_tokens,
+)
 
 
 def _file_url_to_path(url: str) -> str:
@@ -49,6 +56,7 @@ def _file_url_to_path(url: str) -> str:
 
 
 logger = logging.getLogger(__name__)
+_TRACING_CONFIGURED = False
 
 
 # Mapping from chat model class to formatter class
@@ -277,6 +285,33 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _ensure_agentscope_tracing_configured() -> None:
+    global _TRACING_CONFIGURED
+    if _TRACING_CONFIGURED:
+        return
+
+    tracing_url = (os.environ.get("COPAW_AGENTSCOPE_TRACING_URL") or "").strip()
+    studio_url = (os.environ.get("COPAW_AGENTSCOPE_STUDIO_URL") or "").strip()
+    endpoint = tracing_url or (
+        studio_url.rstrip("/") + "/v1/traces" if studio_url else ""
+    )
+    if not endpoint:
+        return
+
+    try:
+        from agentscope.tracing import setup_tracing
+
+        setup_tracing(endpoint=endpoint)
+        _TRACING_CONFIGURED = True
+        logger.info("AgentScope tracing enabled: %s", endpoint)
+    except Exception:
+        logger.warning(
+            "Failed to initialize AgentScope tracing for endpoint %s",
+            endpoint,
+            exc_info=True,
+        )
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -298,6 +333,8 @@ def create_model_and_formatter(
     from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
 
+    _ensure_agentscope_tracing_configured()
+
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
         try:
@@ -307,10 +344,13 @@ def create_model_and_formatter(
 
     # Try to get agent-specific model first
     model_slot = None
+    global_model = None
     retry_config = None
+    effective_agent_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
+            effective_agent_config = agent_config
             model_slot = agent_config.active_model
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
@@ -351,11 +391,42 @@ def create_model_and_formatter(
             )
         provider_id = global_model.provider_id
 
+    provider = ProviderManager.get_instance().get_provider(provider_id)
+    runtime_status_recorder = None
+    if effective_agent_config is not None:
+        try:
+            reserved_response_tokens = resolve_reserved_response_tokens(provider)
+            context_window_tokens = resolve_context_window_tokens(
+                provider,
+                effective_agent_config.running,
+                reserved_response_tokens,
+            )
+            runtime_status_recorder = RuntimeStatusRecorder(
+                token_counter=get_copaw_token_counter(effective_agent_config),
+                context_window_tokens=context_window_tokens,
+                reserved_response_tokens=reserved_response_tokens,
+                provider_id=provider_id,
+                model_id=(
+                    getattr(model_slot, "model", None)
+                    if model_slot is not None
+                    else getattr(global_model, "model", None)
+                ),
+                profile_label=(
+                    "Local runtime" if getattr(provider, "is_local", False) else "Cloud/runtime"
+                ),
+            )
+        except Exception:
+            runtime_status_recorder = None
+
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
     # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    wrapped_model = TokenRecordingModelWrapper(
+        provider_id,
+        model,
+        runtime_status_recorder=runtime_status_recorder,
+    )
     wrapped_model = RetryChatModel(
         wrapped_model,
         retry_config=retry_config,

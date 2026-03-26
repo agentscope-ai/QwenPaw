@@ -15,13 +15,19 @@ from .manager import get_token_usage_manager
 class TokenRecordingModelWrapper(ChatModelBase):
     """Wraps a ChatModelBase to record token usage on each call."""
 
-    def __init__(self, provider_id: str, model: ChatModelBase) -> None:
+    def __init__(
+        self,
+        provider_id: str,
+        model: ChatModelBase,
+        runtime_status_recorder=None,
+    ) -> None:
         super().__init__(
             model_name=getattr(model, "model_name", "unknown"),
             stream=getattr(model, "stream", True),
         )
         self._model = model
         self._provider_id = provider_id
+        self._runtime_status_recorder = runtime_status_recorder
 
     async def _record_usage(self, usage: ChatUsage | None) -> None:
         if usage is None:
@@ -45,6 +51,15 @@ class TokenRecordingModelWrapper(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        if self._runtime_status_recorder is not None:
+            try:
+                await self._runtime_status_recorder.record(
+                    messages=messages,
+                    tools=tools,
+                )
+            except Exception:
+                pass
+
         result = await self._model(
             messages=messages,
             tools=tools,

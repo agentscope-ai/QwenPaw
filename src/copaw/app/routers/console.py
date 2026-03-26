@@ -14,6 +14,14 @@ from starlette.responses import FileResponse, StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ..agent_context import get_agent_for_request
+from ..runner.models import ChatRuntimeStatus
+from ..runner.runtime_status_store import (
+    build_empty_runtime_status,
+    load_persisted_runtime_status,
+    resolve_context_window_tokens,
+    resolve_reserved_response_tokens,
+)
+from .providers import get_provider_manager
 
 
 logger = logging.getLogger(__name__)
@@ -164,6 +172,57 @@ async def post_console_chat_stop(
     workspace = await get_agent_for_request(request)
     stopped = await workspace.task_tracker.request_stop(chat_id)
     return {"stopped": stopped}
+
+
+@router.get(
+    "/chats/{chat_id}/runtime-status",
+    response_model=ChatRuntimeStatus,
+    summary="Get precise runtime context status for a chat",
+)
+async def get_console_chat_runtime_status(
+    chat_id: str,
+    request: Request,
+) -> ChatRuntimeStatus:
+    """Return the last runtime-pushed context snapshot for a chat."""
+    workspace = await get_agent_for_request(request)
+    chat_spec = await workspace.chat_manager.get_chat(chat_id)
+    if not chat_spec:
+        raise HTTPException(status_code=404, detail=f"Chat not found: {chat_id}")
+
+    provider_manager = get_provider_manager(request)
+    snapshot = await load_persisted_runtime_status(
+        workspace.runner.session,
+        session_id=chat_spec.session_id,
+        user_id=chat_spec.user_id,
+        chat_id=chat_id,
+    )
+    if snapshot is not None:
+        return snapshot
+
+    agent_config = workspace.config
+    model_slot = agent_config.active_model or provider_manager.get_active_model()
+    provider = None
+    if model_slot and model_slot.provider_id:
+        provider = provider_manager.get_provider(model_slot.provider_id)
+    reserved_response_tokens = resolve_reserved_response_tokens(provider)
+    context_window_tokens = resolve_context_window_tokens(
+        provider,
+        agent_config.running,
+        reserved_response_tokens,
+    )
+    return build_empty_runtime_status(
+        agent_id=workspace.agent_id,
+        session_id=chat_spec.session_id,
+        user_id=chat_spec.user_id,
+        chat_id=chat_id,
+        context_window_tokens=context_window_tokens,
+        reserved_response_tokens=reserved_response_tokens,
+        model_id=getattr(model_slot, "model", None),
+        provider_id=getattr(model_slot, "provider_id", None),
+        profile_label=(
+            "Local runtime" if getattr(provider, "is_local", False) else "Cloud/runtime"
+        ),
+    )
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
