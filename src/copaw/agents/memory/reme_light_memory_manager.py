@@ -44,34 +44,53 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         Embedding priority: config > env var (EMBEDDING_API_KEY /
         EMBEDDING_BASE_URL / EMBEDDING_MODEL_NAME).
-        Backend: MEMORY_STORE_BACKEND env var (auto/local/chroma, default auto).
+        Backend: MEMORY_STORE_BACKEND env var (auto/local/chroma,
+        default auto).
         """
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
 
-        logger.info(f"ReMeLightMemoryManager init: agent_id={agent_id}, working_dir={working_dir}")
+        logger.info(
+            f"ReMeLightMemoryManager init: "
+            f"agent_id={agent_id}, working_dir={working_dir}",
+        )
 
         try:
             from reme.reme_light import ReMeLight
         except ImportError as e:
-            logger.warning(f"reme package not installed, memory features will be limited. {e}")
+            logger.warning(
+                "reme package not installed, memory features will be "
+                f"limited. {e}",
+            )
             return
 
         emb_config = self.get_embedding_config()
-        vector_enabled = bool(emb_config["base_url"]) and bool(emb_config["model_name"])
+        vector_enabled = bool(emb_config["base_url"]) and bool(
+            emb_config["model_name"],
+        )
 
-        log_cfg = {**emb_config, "api_key": self._mask_key(emb_config["api_key"])}
-        logger.info(f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}")
+        log_cfg = {
+            **emb_config,
+            "api_key": self._mask_key(emb_config["api_key"]),
+        }
+        logger.info(
+            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
+        )
 
         fts_enabled = os.environ.get("FTS_ENABLED", "true").lower() == "true"
 
         backend_env = os.environ.get("MEMORY_STORE_BACKEND", "auto")
-        memory_backend = ("local" if platform.system() == "Windows" else "chroma") \
-            if backend_env == "auto" else backend_env
+        memory_backend = (
+            ("local" if platform.system() == "Windows" else "chroma")
+            if backend_env == "auto"
+            else backend_env
+        )
 
         agent_config = load_agent_config(self.agent_id)
-        rebuild_on_start = agent_config.running.memory_summary.rebuild_memory_index_on_start
+        rebuild_on_start = (
+            agent_config.running.memory_summary.rebuild_memory_index_on_start
+        )
 
         self._reme = ReMeLight(
             working_dir=working_dir,
@@ -82,7 +101,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 "vector_enabled": vector_enabled,
                 "fts_enabled": fts_enabled,
             },
-            default_file_watcher_config={"rebuild_index_on_start": rebuild_on_start},
+            default_file_watcher_config={
+                "rebuild_index_on_start": rebuild_on_start,
+            },
         )
 
         self.summary_toolkit = Toolkit()
@@ -101,7 +122,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     @staticmethod
     def _check_reme_version() -> bool:
-        """Return False (and warn) when installed reme-ai version mismatches."""
+        """Return False (and warn) when installed reme-ai version
+        mismatches."""
         try:
             installed = importlib.metadata.version("reme-ai")
         except importlib.metadata.PackageNotFoundError:
@@ -110,7 +132,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.warning(
                 f"reme-ai version mismatch: installed={installed}, "
                 f"expected={_EXPECTED_REME_VERSION}. "
-                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}` to align.",
+                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
+                " to align.",
             )
             return False
         return True
@@ -119,29 +142,35 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Warn once per call if the cached version check failed."""
         if not self._reme_version_ok:
             logger.warning(
-                f"reme-ai version mismatch, expected={_EXPECTED_REME_VERSION}. "
-                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}` to align.",
+                "reme-ai version mismatch, "
+                f"expected={_EXPECTED_REME_VERSION}. "
+                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
+                " to align.",
             )
 
     def _prepare_model_formatter(self) -> None:
         """Lazily initialize chat_model and formatter if not already set."""
         self._warn_if_version_mismatch()
         if self.chat_model is None or self.formatter is None:
-            self.chat_model, self.formatter = create_model_and_formatter(self.agent_id)
+            self.chat_model, self.formatter = create_model_and_formatter(
+                self.agent_id,
+            )
 
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
 
     def get_embedding_config(self) -> dict:
-        """Return embedding config with priority: config > env var > default."""
+        """Return embedding config with priority:
+        config > env var > default."""
         self._warn_if_version_mismatch()
         cfg = load_agent_config(self.agent_id).running.embedding_config
         return {
             "backend": cfg.backend,
             "api_key": cfg.api_key or os.getenv("EMBEDDING_API_KEY", ""),
             "base_url": cfg.base_url or os.getenv("EMBEDDING_BASE_URL", ""),
-            "model_name": cfg.model_name or os.getenv("EMBEDDING_MODEL_NAME", ""),
+            "model_name": cfg.model_name
+            or os.getenv("EMBEDDING_MODEL_NAME", ""),
             "dimensions": cfg.dimensions,
             "enable_cache": cfg.enable_cache,
             "use_dimensions": cfg.use_dimensions,
@@ -156,7 +185,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if self._reme is None:
             return
         await self._reme.restart(
-            restart_config={"embedding_models": {"default": self.get_embedding_config()}}
+            restart_config={
+                "embedding_models": {"default": self.get_embedding_config()},
+            },
         )
 
     # ------------------------------------------------------------------
@@ -173,11 +204,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def close(self) -> bool:
         """Close ReMeLight and perform cleanup."""
         self._warn_if_version_mismatch()
-        logger.info(f"ReMeLightMemoryManager closing: agent_id={self.agent_id}")
+        logger.info(
+            f"ReMeLightMemoryManager closing: agent_id={self.agent_id}",
+        )
         if self._reme is None:
             return True
         result = await self._reme.close()
-        logger.info(f"ReMeLightMemoryManager closed: agent_id={self.agent_id}, result={result}")
+        logger.info(
+            f"ReMeLightMemoryManager closed: "
+            f"agent_id={self.agent_id}, result={result}",
+        )
         return result
 
     async def compact_tool_result(self, **kwargs):
@@ -195,10 +231,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return await self._reme.check_context(**kwargs)
 
     async def compact_memory(
-            self,
-            messages: list[Msg],
-            previous_summary: str = "",
-            **_kwargs,
+        self,
+        messages: list[Msg],
+        previous_summary: str = "",
+        **_kwargs,
     ) -> str:
         """Compact messages into a condensed summary.
 
@@ -224,24 +260,30 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         if isinstance(result, str):
             logger.error(
-                f"compact_memory returned str instead of dict, result: {result[:200]}... "
+                "compact_memory returned str instead of dict, "
+                f"result: {result[:200]}... "
                 "Please install the latest reme package.",
             )
             return result
 
         if not result.get("is_valid", True):
             unique_id = uuid.uuid4().hex[:8]
-            filepath = os.path.join(agent_config.workspace_dir, f"compact_invalid_{unique_id}.json")
+            filepath = os.path.join(
+                agent_config.workspace_dir,
+                f"compact_invalid_{unique_id}.json",
+            )
             try:
                 with open(filepath, "w", encoding="utf-8") as f:
                     json.dump(result, f, ensure_ascii=False, indent=2)
                 logger.error(
                     f"Invalid compact result saved to {filepath}. "
                     f"user_msg: {result.get('user_message', '')[:200]}..., "
-                    f"history_compact: {result.get('history_compact', '')[:200]}...",
+                    "history_compact: "
+                    f"{result.get('history_compact', '')[:200]}...",
                 )
                 logger.error(
-                    "Please upload the log: https://github.com/agentscope-ai/CoPaw/issues",
+                    "Please upload the log: "
+                    "https://github.com/agentscope-ai/CoPaw/issues",
                 )
             except Exception as _e:
                 logger.error(f"Failed to save invalid compact result: {_e}")
@@ -270,19 +312,26 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
     async def memory_search(
-            self,
-            query: str,
-            max_results: int = 5,
-            min_score: float = 0.1,
+        self,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0.1,
     ) -> ToolResponse:
         """Search stored memories for relevant content."""
         self._warn_if_version_mismatch()
-        if self._reme is None or not self._reme._started:
+        if self._reme is None or not getattr(self._reme, "_started", False):
             return ToolResponse(
-                content=[TextBlock(type="text", text="ReMe is not started, report github issue!")],
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="ReMe is not started, report github issue!",
+                    ),
+                ],
             )
         return await self._reme.memory_search(
-            query=query, max_results=max_results, min_score=min_score,
+            query=query,
+            max_results=max_results,
+            min_score=min_score,
         )
 
     def get_in_memory_memory(self, **_kwargs):

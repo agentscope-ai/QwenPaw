@@ -31,9 +31,9 @@ class BaseMemoryManager(ABC):
     """
 
     def __init__(
-            self,
-            working_dir: str,
-            agent_id: str,
+        self,
+        working_dir: str,
+        agent_id: str,
     ):
         """Initialize common memory manager attributes.
 
@@ -55,8 +55,7 @@ class BaseMemoryManager(ABC):
 
     @abstractmethod
     async def close(self):
-        """Close the memory manager and perform cleanup.
-        """
+        """Close the memory manager and perform cleanup."""
 
     @abstractmethod
     async def compact_tool_result(self, **kwargs):
@@ -79,10 +78,10 @@ class BaseMemoryManager(ABC):
 
     @abstractmethod
     async def compact_memory(
-            self,
-            messages: list[Msg],
-            previous_summary: str = "",
-            **kwargs,
+        self,
+        messages: list[Msg],
+        previous_summary: str = "",
+        **kwargs,
     ) -> str:
         """Compact a list of messages into a condensed summary.
 
@@ -126,15 +125,17 @@ class BaseMemoryManager(ABC):
                 remaining_tasks.append(task)
         self.summary_tasks = remaining_tasks
 
-        task = asyncio.create_task(self.summary_memory(messages=messages, **kwargs))
+        task = asyncio.create_task(
+            self.summary_memory(messages=messages, **kwargs),
+        )
         self.summary_tasks.append(task)
 
     @abstractmethod
     async def memory_search(
-            self,
-            query: str,
-            max_results: int = 5,
-            min_score: float = 0.1,
+        self,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0.1,
     ) -> ToolResponse:
         """Search stored memories for relevant content.
 

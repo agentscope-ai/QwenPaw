@@ -168,14 +168,14 @@ class CopawEstimateTokenCounter(HuggingFaceTokenCounter):
     def __init__(
         self,
         token_count_estimate_divisor: float = 3.75,
-        **kwargs,
+        **_kwargs,
     ):
         """Initialize the estimate-only token counter.
 
         Args:
             token_count_estimate_divisor: Divisor for character-based token
                 estimation (default: 3.75).
-            **kwargs: Accepted but not forwarded (no tokenizer is loaded).
+            **_kwargs: Accepted but not forwarded (no tokenizer is loaded).
         """
         self.token_count_estimate_divisor = token_count_estimate_divisor
         self._tokenizer_available = False
@@ -185,7 +185,7 @@ class CopawEstimateTokenCounter(HuggingFaceTokenCounter):
         messages: list[dict],
         tools: list[dict] | None = None,
         text: str | None = None,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> int:
         """Count tokens using character-based estimation only.
 
@@ -236,7 +236,10 @@ class CopawEstimateTokenCounter(HuggingFaceTokenCounter):
 
 
 # Global token counter instance cache (keyed by configuration tuple)
-_token_counter_cache: dict[tuple, CopawTokenCounter | CopawEstimateTokenCounter] = {}
+_token_counter_cache: dict[
+    tuple,
+    CopawTokenCounter | CopawEstimateTokenCounter,
+] = {}
 
 
 def get_copaw_token_counter(
