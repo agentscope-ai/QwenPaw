@@ -42,6 +42,7 @@ dependencies = [
     "pillow>=10.0.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (CoPaw#2632)
     "anyio>=4.0.0,<4.13.0",
+    "psycopg2-binary==2.9.10",
 ]
 
 [tool.setuptools.dynamic]

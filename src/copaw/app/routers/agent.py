@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
+import asyncio
+
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -12,6 +14,8 @@ from ...config import (
 )
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
+from ...agents.memory.adbpg_client import test_adbpg_connection
+from ...agents.memory.adbpg_memory_manager import strip_local_memory_from_agents_md
 from ...agents.utils import copy_builtin_qa_md_files, copy_md_files
 from ...constant import BUILTIN_QA_AGENT_ID
 from ..agent_context import get_agent_for_request
@@ -458,6 +462,13 @@ async def put_agents_running_config(
     agent_config.running = running_config
     save_agent_config(workspace.agent_id, agent_config)
 
+    if (
+        running_config.memory_manager_backend == "adbpg"
+        and running_config.adbpg
+        and running_config.adbpg.strip_local_memory_instructions
+    ):
+        strip_local_memory_from_agents_md(workspace.workspace_dir)
+
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, workspace.agent_id)
 
@@ -502,3 +513,25 @@ async def put_system_prompt_files(
     schedule_agent_reload(request, workspace.agent_id)
 
     return files
+
+
+@router.post(
+    "/test-adbpg-connection",
+    summary="Test ADBPG database connectivity",
+)
+async def test_adbpg_connection_endpoint(
+    body: dict = Body(...),
+) -> dict:
+    """Test connectivity to an ADBPG instance."""
+    loop = asyncio.get_event_loop()
+    success, message = await loop.run_in_executor(
+        None,
+        lambda: test_adbpg_connection(
+            host=body.get("host", ""),
+            port=body.get("port", 5432),
+            user=body.get("user", ""),
+            password=body.get("password", ""),
+            dbname=body.get("dbname", ""),
+        ),
+    )
+    return {"success": success, "message": message}

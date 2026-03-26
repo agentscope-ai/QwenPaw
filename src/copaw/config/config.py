@@ -438,6 +438,149 @@ class MemorySummaryConfig(BaseModel):
     )
 
 
+class ADBPGConnectionConfig(BaseModel):
+    """ADBPG connection and LLM/Embedding configuration.
+
+    Mirrors the fields in ``ADBPGConfig`` (adbpg_client.py) so that
+    they can be persisted in agent.json instead of environment variables.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Database connection (required)
+    host: str = Field(default="", description="ADBPG host")
+    port: int = Field(default=5432, ge=1, description="ADBPG port")
+    user: str = Field(default="", description="ADBPG user")
+    password: str = Field(default="", description="ADBPG password")
+    dbname: str = Field(default="", description="ADBPG database name")
+
+    # LLM configuration (required)
+    llm_model: str = Field(default="", description="LLM model name")
+    llm_api_key: str = Field(default="", description="LLM API key")
+    llm_base_url: str = Field(default="", description="LLM base URL")
+
+    # Embedding configuration (required)
+    embedding_model: str = Field(
+        default="text-embedding-v4",
+        description="Embedding model name",
+    )
+    embedding_api_key: str = Field(
+        default="",
+        description="Embedding API key",
+    )
+    embedding_base_url: str = Field(
+        default="",
+        description="Embedding base URL",
+    )
+    embedding_dims: int = Field(
+        default=1024,
+        ge=1,
+        description="Embedding dimensions",
+    )
+
+    # Optional configuration
+    search_timeout: float = Field(
+        default=10.0,
+        ge=0.1,
+        description="Memory search timeout in seconds",
+    )
+
+    # Connection pool tuning
+    pool_minconn: int = Field(
+        default=2,
+        ge=1,
+        description="Minimum connections in the shared pool",
+    )
+    pool_maxconn: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum connections in the shared pool",
+    )
+
+    # Tool result compaction
+    tool_compact_mode: Literal["summarize", "truncate"] = Field(
+        default="summarize",
+        description=(
+            "Tool output compaction mode: 'summarize' (LLM summary) "
+            "or 'truncate' (simple truncation)"
+        ),
+    )
+    tool_compact_max_len: int = Field(
+        default=500,
+        ge=50,
+        description="Max character length after tool output compaction",
+    )
+
+    # Memory isolation
+    memory_isolation: bool = Field(
+        default=False,
+        description=(
+            "When False (default), all agents share the same long-term "
+            "memory pool. When True, each agent's memory is isolated "
+            "via its own agent_id."
+        ),
+    )
+    user_isolation: bool = Field(
+        default=False,
+        description=(
+            "When False (default), all users share the same memory "
+            "pool (user_id='shared'). When True, each user's memory "
+            "is isolated via the configured user_isolation_id."
+        ),
+    )
+    user_isolation_id: str = Field(
+        default="",
+        description=(
+            "User ID for memory isolation. Only used when "
+            "user_isolation is True. Set via the console UI."
+        ),
+    )
+    run_isolation: bool = Field(
+        default=False,
+        description=(
+            "When False (default), all sessions share the same "
+            "memory pool (run_id='shared'). When True, each "
+            "session's memory is isolated via its run_id from "
+            "the upstream request."
+        ),
+    )
+
+    # --- REST API mode (alternative to SQL) ---
+    api_mode: Literal["sql", "rest"] = Field(
+        default="sql",
+        description=(
+            "API mode: 'sql' (default, direct ADBPG SQL via psycopg2) "
+            "or 'rest' (ADBPG memory REST API via HTTP)"
+        ),
+    )
+
+    # --- Custom fact extraction prompt (SQL mode only) ---
+    custom_fact_extraction_prompt: str = Field(
+        default="",
+        description=(
+            "Custom prompt for fact extraction in adbpg_llm_memory.config(). "
+            "Only effective in SQL mode. The prompt output must follow "
+            '{"facts": ["fact1", "fact2", ...]} JSON format.'
+        ),
+    )
+    rest_api_key: str = Field(
+        default="",
+        description="ADBPG memory REST API key (required when api_mode='rest')",
+    )
+    rest_base_url: str = Field(
+        default="",
+        description="ADBPG memory REST API base URL",
+    )
+
+    strip_local_memory_instructions: bool = Field(
+        default=True,
+        description=(
+            "When True, strip local-file memory instructions from "
+            "AGENTS.md system prompt."
+        ),
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -567,11 +710,19 @@ class AgentsRunningConfig(BaseModel):
         description="Embedding model configuration",
     )
 
-    memory_manager_backend: Literal["remelight"] = Field(
+    memory_manager_backend: Literal["remelight", "adbpg"] = Field(
         default="remelight",
         description=(
-            "Memory manager backend type. "
-            "Currently only 'remelight' is supported."
+            "Memory manager backend: 'remelight' (local) or 'adbpg' "
+            "(AnalyticDB for PostgreSQL)"
+        ),
+    )
+
+    adbpg: Optional[ADBPGConnectionConfig] = Field(
+        default=None,
+        description=(
+            "ADBPG connection config (used when "
+            "memory_manager_backend='adbpg')"
         ),
     )
 

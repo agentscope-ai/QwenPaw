@@ -82,4 +82,19 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/agent/local-whisper-status"),
+
+  testAdbpgConnection: (params: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    dbname: string;
+  }) =>
+    request<{ success: boolean; message: string }>(
+      "/agent/test-adbpg-connection",
+      {
+        method: "POST",
+        body: JSON.stringify(params),
+      },
+    ),
 };
