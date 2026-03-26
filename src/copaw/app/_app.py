@@ -31,7 +31,6 @@ from .migration import (
     ensure_qa_agent_exists,
 )
 from .channels.registry import register_custom_channel_routes
-from ..agents.skills_manager import ensure_skill_pool_initialized
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -186,7 +185,6 @@ async def lifespan(
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
     migrate_legacy_skills_to_skill_pool()
-    ensure_skill_pool_initialized()
     ensure_qa_agent_exists()
 
     # --- Multi-agent manager initialization ---

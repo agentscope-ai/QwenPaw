@@ -13,6 +13,8 @@
 `skill.json` 控制是否启用。任意子目录只要包含一份 `SKILL.md`，就会被识别为
 Skill，无需额外注册。
 
+所有新建或导入的 Skill 默认**处于禁用状态**，需要在控制台或 CLI 中手动启用后才会生效。
+
 ---
 
 ## 内置 Skills 一览
@@ -61,6 +63,86 @@ workspace 的 Agent 行为。适合不习惯直接改文件的用户。
 - 创建任务：`copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
 - 查看列表：`copaw cron list`
 - 查看状态：`copaw cron state <job_id>`
+
+---
+
+## 技能池（Skill Pool）
+
+**技能池** 是一个本地共享仓库，存放在 `~/.copaw/skill_pool/`。它保存内置技能和
+你选择跨 workspace 共享的自定义技能。
+
+```
+~/.copaw/
+  skill_pool/                # 共享池
+    skill.json               # 池清单（源数据）
+    pdf/
+      SKILL.md
+    cron/
+      SKILL.md
+    my_shared_skill/
+      SKILL.md
+  workspaces/
+    default/
+      skill.json             # workspace 清单（启用/频道/配置）
+      skills/                # 当前 workspace 的本地副本
+        pdf/
+          SKILL.md
+        my_skill/
+          SKILL.md
+```
+
+要点：
+
+- 池中的技能**不会被任何 workspace 直接使用**。workspace 必须先**下载**一份副本，
+  才能启用该技能。
+- 每个 workspace 的 `skill.json` 是该 workspace 技能启用、频道路由和配置的唯一
+  数据源。
+- 池中的内置技能受**保护**：不可删除或原地覆盖。编辑受保护的内置技能会创建一份
+  分叉（副本）。
+
+### 从池下载到 workspace（pool → workspace）
+
+要在 workspace 中使用池技能：
+
+1. 在控制台 **Agent → Skills** 中浏览池技能列表。
+2. 点击想要的技能旁的 **下载**。
+3. 技能被复制到 workspace 的 `skills/` 目录，**默认禁用**。
+4. 用开关启用它。
+
+如果 workspace 中已有同名技能，下载会报告冲突并建议一个带时间戳后缀的替代名称。
+
+workspace 通过 `sync_to_pool` 字段跟踪与池的关系：
+
+| 状态       | 含义                                       |
+| ---------- | ------------------------------------------ |
+| `synced`   | workspace 副本与池版本一致                 |
+| `not_sync` | 池中没有对应条目（如本地创建的技能）       |
+| `conflict` | 两者都存在但内容不同（下载后本地做了修改） |
+
+### 从 workspace 上传到池（workspace → pool）
+
+要在多个 agent 之间共享 workspace 技能，可以上传到池：
+
+1. 在 workspace 技能列表中，点击技能旁的 **上传到池**。
+2. 如果池中已有同名技能，可以选择覆盖或改名。
+3. 上传后，workspace 条目标记为 `synced`，并关联到池中的副本。
+
+受保护的内置技能不可被上传覆盖；系统会建议使用其他名称。
+
+### 获取最新版本（更新内置技能）
+
+CoPaw 升级后，打包的内置技能可能比本地池中的版本更新。首次启动时，CoPaw 会
+**添加缺失的内置技能**到池中，但不会覆盖本地已修改的版本。
+
+如需手动将所有内置技能更新到最新打包版本：
+
+1. 在控制台进入池管理页面。
+2. 点击 **获取最新版本**。
+3. 系统显示新增、更新和冲突的预览。
+4. 确认后应用更新。
+
+如果你本地修改过某个内置技能，系统会报告冲突。你可以批准冲突以恢复打包版本
+（你修改的副本会被重命名并加上时间戳后缀），或跳过以保留你的版本。
 
 ---
 
@@ -113,8 +195,27 @@ workspace 的 Agent 行为。适合不习惯直接改文件的用户。
 
 ### 说明
 
+- 导入的技能**默认处于禁用状态**，需要手动启用。
 - 若同名 Skill 已存在，默认不会覆盖；建议先在列表中确认现有内容后再处理。
 - 导入失败时优先检查：URL 是否完整、来源域名是否受支持、外网是否可访问。若遇到 GitHub 限流，建议在 [控制台 → 设置 → 环境变量](./console#环境变量) 中添加 `GITHUB_TOKEN`；获取方式可参考 GitHub 官方文档：[管理个人访问令牌（PAT）](https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)。
+
+---
+
+## 频道路由
+
+每个 Skill 可以限制在特定频道上生效。默认情况下，Skill 对**所有频道**生效
+（`channels: ["all"]`）。
+
+要限制某个 Skill 只在特定频道上生效：
+
+1. 在 **Agent → Skills** 中，点击某个技能的频道设置。
+2. 选择希望该技能生效的频道（如 `discord`、`telegram`、`console`）。
+
+Agent 在某个频道运行时，只会加载 `channels` 列表包含该频道（或 `"all"`）的技能。
+这样可以实现频道专属技能——例如，钉钉接入引导技能只在钉钉频道出现，不会出现在
+Discord 上。
+
+---
 
 ## 自定义 Skill（在工作目录中）
 
@@ -125,21 +226,6 @@ workspace 的 Agent 行为。适合不习惯直接改文件的用户。
 
 1. 在 `~/.copaw/workspaces/{agent_id}/skills/` 下新建一个目录，例如 `my_skill`。
 2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；可选在文件开头用 YAML front matter 写 `name`、`description`、`metadata`，方便在 Agent 或控制台里展示。若 Skill 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
-
-### 目录结构示例
-
-```
-~/.copaw/
-  skill_pool/           # 本地共享池（内置 + 共享自定义 Skill）
-    cron/
-      SKILL.md
-  workspaces/
-    default/
-      skills/           # 当前 workspace 可用的 Skill
-        my_skill/
-          SKILL.md
-      skill.json        # 当前 workspace 的启用/频道/元数据状态
-```
 
 ### SKILL.md 示例
 
@@ -158,23 +244,28 @@ metadata (可选):
 本 Skill 用于……
 ```
 
-内置 Skill 存在于本地 `skill_pool/` 中。workspace 与 pool 完全解耦：把
-Skill 下载到 workspace 后，会复制到该 workspace 的 `skills/` 目录，而是否启用
-由 `skill.json` 决定。requirement 元数据主要用于前端展示和工具提示，不作为硬性启用门槛。
+手动放置的 Skill 会在下次清单调和时被检测到，并以**禁用**状态写入 `skill.json`。
+在控制台或 CLI 中启用即可。
 
-### Skill Config 运行时注入
+---
 
-控制台中的 Skill `config` 不只是展示字段；当某个 Skill 在当前 workspace 和频道下生效时，
-CoPaw 会在该次 Agent 运行期间把它注入到运行时环境中，Skill 结束后再回滚。
+## Skill Config 运行时注入
 
-当前支持的注入方式：
+每个 Skill 可以在 manifest 条目中存储一个 `config` 对象。这个 config 不只是
+展示字段——当某个 Skill 在当前 workspace 和频道下生效时，CoPaw 会在该次 Agent
+运行期间把它注入到运行时环境中，Skill 结束后再回滚。
+
+可以在控制台 **Agent → Skills** 中点击技能的配置图标设置 config，也可以通过
+API 操作。
+
+### 支持的注入方式
 
 - `config.env`：按键值对注入为环境变量；若宿主进程中该变量已存在，则不会覆盖。
 - `config.api_key` 或 `config.apiKey`：若该 Skill 只声明了一个 `metadata.requires.env`
   变量，则会自动映射到那个变量。
 - 整个 `config`：会额外注入为 `COPAW_SKILL_CONFIG_<SKILL_NAME>`，值为 JSON 字符串。
 
-示例：
+### 示例
 
 ```json
 {
@@ -215,6 +306,26 @@ base_url = os.environ.get("BASE_URL", "")
 cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
 timeout = cfg.get("timeout", 30)
 ```
+
+Config 在池与 workspace 同步时也会保留：上传 workspace 技能会把 config 复制到
+池条目，下载时则把池的 config 复制到 workspace 条目。
+
+---
+
+## 从旧版本升级
+
+在最新版本引入。将旧的 `active_skills/` 和 `customized_skills/` 目录转换为统一的工作区技能布局。
+
+所有迁移在首次启动时自动执行，无需手动操作。
+
+| 迁移前               | 迁移后                                                           |
+| -------------------- | ---------------------------------------------------------------- |
+| `active_skills/`     | 工作区 `skills/`（已启用）                                       |
+| `customized_skills/` | 工作区 `skills/`（未启用，除非同名且内容相同地存在于 active 中） |
+
+- 两个目录中同名但**内容不同**的技能：两个版本都会保留，分别添加 `-active` / `-customize` 后缀。
+- 内置技能由系统单独管理，始终从打包版本同步。
+- 如需跨智能体共享工作区技能，可通过 UI 手动上传至技能池。
 
 ---
 

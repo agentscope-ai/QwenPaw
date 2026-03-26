@@ -160,7 +160,7 @@ class SavePoolSkillRequest(CreateSkillRequest):
 class HubInstallRequest(BaseModel):
     bundle_url: str = Field(..., description="Skill URL")
     version: str = Field(default="", description="Optional version tag")
-    enable: bool = Field(default=True, description="Enable after import")
+    enable: bool = Field(default=False, description="Enable after import")
     overwrite: bool = Field(
         default=False,
         description="Overwrite existing workspace skill",
@@ -179,7 +179,7 @@ class HubInstallTask(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     bundle_url: str
     version: str = ""
-    enable: bool = True
+    enable: bool = False
     overwrite: bool = False
     status: HubInstallTaskStatus = HubInstallTaskStatus.PENDING
     error: str | None = None

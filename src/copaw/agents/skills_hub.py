@@ -1489,7 +1489,7 @@ def install_skill_from_hub(
     workspace_dir: Path,
     bundle_url: str,
     version: str = "",
-    enable: bool = True,
+    enable: bool = False,
     overwrite: bool = False,
     cancel_checker: Any | None = None,
 ) -> HubInstallResult:

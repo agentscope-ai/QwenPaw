@@ -30,8 +30,6 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_DEFAULT_WORKING_DIR = Path.home() / ".openclaw"
-
 # Workspace items to migrate: (name, is_directory)
 _WORKSPACE_ITEMS_TO_MIGRATE = [
     # Directories
@@ -44,13 +42,6 @@ _WORKSPACE_ITEMS_TO_MIGRATE = [
     ("jobs.json", False),
     ("feishu_receive_ids.json", False),
     ("dingtalk_session_webhooks.json", False),
-    # Markdown files
-    ("AGENTS.md", False),
-    ("SOUL.md", False),
-    ("PROFILE.md", False),
-    ("HEARTBEAT.md", False),
-    ("MEMORY.md", False),
-    ("BOOTSTRAP.md", False),
 ]
 
 _WORKSPACE_JSON_DEFAULTS: list[tuple[str, dict]] = [
@@ -159,12 +150,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
 
     migrated_items = []
 
-    sources_to_migrate = [Path(WORKING_DIR).expanduser()]
-    legacy_source = _LEGACY_DEFAULT_WORKING_DIR.expanduser()
-    if legacy_source not in sources_to_migrate:
-        sources_to_migrate.append(legacy_source)
-
-    for source_dir in sources_to_migrate:
+    for source_dir in [Path(WORKING_DIR).expanduser()]:
         _migrate_workspace_items_from_source(
             source_dir,
             default_workspace,
@@ -266,39 +252,55 @@ def _migrate_workspace_items_from_source(
             migrated_items,
         )
 
+    # Migrate all .md files
+    if source_dir.exists():
+        for md_file in sorted(source_dir.glob("*.md")):
+            _migrate_workspace_item(
+                md_file,
+                target_dir / md_file.name,
+                md_file.name,
+                migrated_items,
+            )
+
 
 # pylint: disable=too-many-branches,too-many-statements
 def migrate_legacy_skills_to_skill_pool() -> bool:
-    """Migrate legacy skill layouts into workspaces and the local skill pool.
+    """Migrate legacy skill layouts into workspace skills/ directories.
+
+    Legacy layout had two flat directories per workspace:
+    - ``active_skills/``  — skills the agent was actually using
+    - ``customized_skills/`` — user-created or edited skills (may overlap)
+
+    New layout uses ``<workspace>/skills/`` (unified).
 
     Migration rules:
-    1. Legacy ``active_skills`` become enabled workspace skills.
-    2. Legacy ``customized_skills`` become workspace skills and shared pool
-       entries.
-    3. Legacy active-only custom skills are also preserved in the pool.
+    1. Legacy ``active_skills`` are copied to ``skills/`` and marked
+       enabled.
+    2. Legacy ``customized_skills`` are copied to ``skills/`` and marked
+       enabled only if the same name also appears in ``active_skills``
+       with identical content. Otherwise they remain disabled.
+    3. When both directories contain the same name with different
+       content, both are preserved with suffixes: ``<name>-customize``
+       (disabled) and ``<name>-active`` (enabled).
     4. Channels default to ``["all"]`` when metadata is absent.
 
-    The migration is idempotent and intentionally non-destructive: existing
-    new-layout skills are never overwritten.
+    The migration is idempotent and non-destructive: existing new-layout
+    skills are never overwritten; ``_copy_if_missing`` skips targets that
+    already exist on disk.
+
+    Users can manually upload workspace skills to the shared pool later
+    via the UI.
     """
     from ..agents.skills_manager import (
         _build_signature,
-        _build_skill_metadata,
         _copy_skill_dir,
-        _default_pool_manifest,
         _default_workspace_manifest,
         _mutate_json,
         _timestamp,
         ensure_skill_pool_initialized,
-        get_builtin_skills_dir,
-        get_pool_skill_manifest_path,
-        get_skill_pool_dir,
         get_workspace_skill_manifest_path,
         get_workspace_skills_dir,
-        read_skill_pool_manifest,
-        reconcile_pool_manifest,
         reconcile_workspace_manifest,
-        suggest_conflict_name,
     )
 
     def _has_legacy_skill_root(root: Path) -> bool:
@@ -348,56 +350,7 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
         _copy_skill_dir(source_dir, target_dir)
         return True
 
-    def _import_skill_to_pool(
-        source_dir: Path,
-        preferred_name: str,
-        origin: dict[str, str],
-    ) -> tuple[str, bool]:
-        manifest = read_skill_pool_manifest()
-        source_signature = _build_signature(source_dir)
-
-        for existing_name, entry in sorted(manifest.get("skills", {}).items()):
-            if entry.get("signature") == source_signature:
-                return existing_name, False
-
-        final_name = preferred_name
-        while True:
-            existing = manifest.get("skills", {}).get(final_name)
-            if existing is None:
-                break
-            if existing.get("signature") == source_signature:
-                return final_name, False
-            final_name = suggest_conflict_name(final_name, source_dir)
-
-        target_dir = get_skill_pool_dir() / final_name
-        if target_dir.exists():
-            try:
-                if _build_signature(target_dir) != source_signature:
-                    _copy_skill_dir(source_dir, target_dir)
-            except Exception:
-                _copy_skill_dir(source_dir, target_dir)
-        else:
-            _copy_skill_dir(source_dir, target_dir)
-
-        def _update(payload: dict) -> None:
-            payload.setdefault("skills", {})
-            payload["skills"][final_name] = _build_skill_metadata(
-                final_name,
-                target_dir,
-                source="shared",
-                origin=origin,
-                protected=False,
-            )
-
-        _mutate_json(
-            get_pool_skill_manifest_path(),
-            _default_pool_manifest(),
-            _update,
-        )
-        return final_name, True
-
-    pool_was_empty = not bool(_discover_skill_dirs(get_skill_pool_dir()))
-
+    # --- Phase 0: Initialize pool ---
     try:
         ensure_skill_pool_initialized()
     except Exception as e:
@@ -418,6 +371,7 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
     ).expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
 
+    # --- Phase 1: Discover workspaces ---
     workspace_dirs: list[Path] = []
     seen_workspaces: set[str] = set()
     for profile in config.agents.profiles.values():
@@ -439,6 +393,7 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
 
     _register_workspace(default_workspace, workspace_dirs, seen_workspaces)
 
+    # --- Phase 2: Build migration sources ---
     migration_sources: list[tuple[Path, Path, str]] = []
     seen_sources: set[tuple[str, str, str]] = set()
 
@@ -460,65 +415,24 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
             ):
                 workspaces_with_existing_skills.add(str(workspace_dir))
 
-    for legacy_root in (
-        Path(WORKING_DIR).expanduser(),
-        _LEGACY_DEFAULT_WORKING_DIR,
+    legacy_root = Path(WORKING_DIR).expanduser()
+    if (
+        legacy_root != default_workspace
+        and _has_legacy_skill_root(legacy_root)
+        and not _has_legacy_skill_root(default_workspace)
+        and str(default_workspace) not in workspaces_with_existing_skills
     ):
-        if legacy_root == default_workspace or not _has_legacy_skill_root(
-            legacy_root,
-        ):
-            continue
-        if (
-            _has_legacy_skill_root(
-                default_workspace,
-            )
-            or str(default_workspace) in workspaces_with_existing_skills
-        ):
-            logger.debug(
-                "Skipping legacy skill migration from %s to %s: "
-                "target workspace already has legacy dirs or "
-                "migrated skills",
-                legacy_root,
-                default_workspace,
-            )
-            continue
         key = (str(legacy_root), str(default_workspace), "legacy_root")
-        if key in seen_sources:
-            continue
-        seen_sources.add(key)
-        migration_sources.append(
-            (legacy_root, default_workspace, "legacy_root"),
-        )
-
-    builtin_names = (
-        {
-            path.name
-            for path in get_builtin_skills_dir().iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
-        }
-        if get_builtin_skills_dir().exists()
-        else set()
-    )
+        if key not in seen_sources:
+            seen_sources.add(key)
+            migration_sources.append(
+                (legacy_root, default_workspace, "legacy_root"),
+            )
 
     workspace_active_names: dict[Path, set[str]] = {}
-    workspace_pool_candidates: dict[Path, dict[str, dict[str, str]]] = {}
     copied_workspace_skills = 0
-    imported_pool_skills = 0
-    linked_workspace_skills = 0
 
-    def _remember_pool_candidate(
-        workspace_dir: Path,
-        skill_name: str,
-        origin_type: str,
-        legacy_root: Path,
-    ) -> None:
-        """Register a skill for pool import."""
-        candidates = workspace_pool_candidates.setdefault(workspace_dir, {})
-        candidates[skill_name] = {
-            "origin_type": origin_type,
-            "legacy_root": str(legacy_root),
-        }
-
+    # --- Phase 3: Copy legacy skills into workspace skills/ dir ---
     for source_root, target_workspace, source_kind in migration_sources:
         workspace_skills_dir = get_workspace_skills_dir(target_workspace)
         workspace_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -534,7 +448,10 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
             set(),
         )
 
-        # First, detect same-name skills with different content
+        # Intra-workspace conflict: when active/ and customized/ both
+        # contain a skill with the same directory name but different file
+        # content, we suffix *both* copies ("-customize" and "-active")
+        # to avoid silently discarding either version.
         same_name_diff_content: set[str] = set()
         for skill_name in set(customized.keys()) & set(active.keys()):
             custom_sig = _build_signature(customized[skill_name])
@@ -553,12 +470,6 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                 ):
                     copied_workspace_skills += 1
                 # NOT added to active_names, so will be disabled
-                _remember_pool_candidate(
-                    target_workspace,
-                    target_name,
-                    "legacy_customized_migration",
-                    source_root,
-                )
             else:
                 # Normal case: copy without suffix
                 if _copy_if_missing(
@@ -569,12 +480,6 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                 # If also in active with same content, mark as enabled
                 if skill_name in active:
                     active_names.add(skill_name)
-                _remember_pool_candidate(
-                    target_workspace,
-                    skill_name,
-                    "legacy_customized_migration",
-                    source_root,
-                )
 
         # Process active skills
         for skill_name, skill_dir in active.items():
@@ -587,14 +492,6 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                 ):
                     copied_workspace_skills += 1
                 active_names.add(target_name)  # Mark as enabled
-                if skill_name in builtin_names:
-                    continue
-                _remember_pool_candidate(
-                    target_workspace,
-                    target_name,
-                    "legacy_active_migration",
-                    source_root,
-                )
             elif skill_name not in customized:
                 # Different name: copy without suffix
                 if _copy_if_missing(
@@ -603,14 +500,6 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                 ):
                     copied_workspace_skills += 1
                 active_names.add(skill_name)  # Mark as enabled
-                if skill_name in builtin_names:
-                    continue
-                _remember_pool_candidate(
-                    target_workspace,
-                    skill_name,
-                    "legacy_active_migration",
-                    source_root,
-                )
             # else: already handled in customized loop
         logger.debug(
             "Prepared legacy skill migration from %s to %s (%s)",
@@ -619,91 +508,19 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
             source_kind,
         )
 
-    if pool_was_empty:
-        legacy_pool_roots = [
-            Path(WORKING_DIR).expanduser() / "skill_hub",
-            Path(WORKING_DIR).expanduser() / "skill_pool",
-            _LEGACY_DEFAULT_WORKING_DIR / "skill_hub",
-            _LEGACY_DEFAULT_WORKING_DIR / "skill_pool",
-        ]
-
-        for legacy_pool_root in legacy_pool_roots:
-            if (
-                not legacy_pool_root.exists()
-                or legacy_pool_root == get_skill_pool_dir()
-            ):
-                continue
-            for skill_name, skill_dir in _discover_skill_dirs(
-                legacy_pool_root,
-            ).items():
-                _, created = _import_skill_to_pool(
-                    skill_dir,
-                    skill_name,
-                    origin={
-                        "type": "legacy_pool_migration",
-                        "legacy_source_root": str(legacy_pool_root),
-                    },
-                )
-                if created:
-                    imported_pool_skills += 1
-
-    workspace_pool_links: dict[Path, dict[str, str]] = {}
-    for workspace_dir, candidates in workspace_pool_candidates.items():
-        links = workspace_pool_links.setdefault(workspace_dir, {})
-        workspace_skill_root = get_workspace_skills_dir(workspace_dir)
-        for skill_name, candidate in sorted(candidates.items()):
-            source_dir = workspace_skill_root / skill_name
-            if not source_dir.exists():
-                continue
-
-            workspace_id = workspace_dir.name
-            origin_type = candidate["origin_type"]
-
-            # Build pool skill name:
-            # - Default agent: skill_name as-is
-            # - Non-default agent: insert workspace_id
-            # (e.g., docx-agent1, docx-agent1-customize)
-            if workspace_id == "default":
-                preferred_name = skill_name
-            else:
-                # Parse and rebuild with workspace_id
-                if skill_name.endswith("-customize"):
-                    base_name = skill_name[: -len("-customize")]
-                    preferred_name = f"{base_name}-{workspace_id}-customize"
-                elif skill_name.endswith("-active"):
-                    base_name = skill_name[: -len("-active")]
-                    preferred_name = f"{base_name}-{workspace_id}-active"
-                else:
-                    preferred_name = f"{skill_name}-{workspace_id}"
-
-            final_name, created = _import_skill_to_pool(
-                source_dir,
-                preferred_name,
-                origin={
-                    "type": origin_type,
-                    "workspace_id": workspace_id,
-                    "legacy_source_root": candidate["legacy_root"],
-                },
-            )
-            links[skill_name] = final_name
-            if created:
-                imported_pool_skills += 1
-
-    reconcile_pool_manifest()
-
+    # --- Phase 4: Reconcile workspace manifests ---
     for workspace_dir in workspace_dirs:
+        # reconcile discovers on-disk skills and populates skill.json
+        # with correct source, metadata, signature, and sync_to_pool.
         reconcile_workspace_manifest(workspace_dir)
         active_names = workspace_active_names.get(workspace_dir, set())
-        pool_links = workspace_pool_links.get(workspace_dir, {})
 
-        if not active_names and not pool_links:
+        if not active_names:
             continue
 
-        # pylint: disable=too-many-branches
         def _update(
             payload: dict,
             active_names: set[str] = active_names,
-            pool_links: dict[str, str] = pool_links,
         ) -> int:
             payload.setdefault("skills", {})
             changed = 0
@@ -711,91 +528,25 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                 entry = payload["skills"].get(skill_name)
                 if entry is None:
                     continue
-                entry_changed = False
-                if (
-                    skill_name in builtin_names
-                    and entry.get("source") != "builtin"
-                ):
-                    entry["source"] = "builtin"
-                    entry_changed = True
                 if not entry.get("enabled", False):
                     entry["enabled"] = True
-                    entry_changed = True
-                channels = entry.get("channels") or ["all"]
-                if entry.get("channels") != channels:
-                    entry["channels"] = channels
-                    entry_changed = True
-                if entry_changed:
                     entry["updated_at"] = _timestamp()
                     changed += 1
-
-            for skill_name, pool_name in sorted(pool_links.items()):
-                entry = payload["skills"].get(skill_name)
-                if entry is None:
-                    continue
-                entry_changed = False
-                next_origin = {
-                    **(entry.get("origin") or {}),
-                    "pool_name": pool_name,
-                }
-                next_sync = {
-                    "status": "synced",
-                    "pool_name": pool_name,
-                }
-                channels = entry.get("channels") or ["all"]
-                if entry.get("origin") != next_origin:
-                    entry["origin"] = next_origin
-                    entry_changed = True
-                if entry.get("sync_to_pool") != next_sync:
-                    entry["sync_to_pool"] = next_sync
-                    entry_changed = True
-                if "sync_to_hub" in entry:
-                    entry.pop("sync_to_hub", None)
-                    entry_changed = True
-                if entry.get("channels") != channels:
-                    entry["channels"] = channels
-                    entry_changed = True
-                if skill_name in active_names and not entry.get(
-                    "enabled",
-                    False,
-                ):
-                    entry["enabled"] = True
-                    entry_changed = True
-                if entry_changed:
-                    entry["updated_at"] = _timestamp()
-                    changed += 1
-
             return changed
 
-        changed = _mutate_json(
+        _mutate_json(
             get_workspace_skill_manifest_path(workspace_dir),
             _default_workspace_manifest(),
             _update,
         )
-        linked_workspace_skills += int(changed)
-        reconcile_workspace_manifest(workspace_dir)
 
-    migrated = any(
-        count > 0
-        for count in (
-            copied_workspace_skills,
-            imported_pool_skills,
-            linked_workspace_skills,
-        )
-    )
-
-    if migrated:
+    if copied_workspace_skills > 0:
         logger.info(
-            (
-                "Legacy skill migration completed: %d workspace copies, "
-                "%d pool imports, %d workspace-pool links"
-            ),
+            "Legacy skill migration completed: %d workspace copies",
             copied_workspace_skills,
-            imported_pool_skills,
-            linked_workspace_skills,
         )
 
-    return migrated
+    return copied_workspace_skills > 0
 
 
 def _ensure_workspace_json_files(

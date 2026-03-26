@@ -586,18 +586,10 @@ def _build_skill_metadata(
     }
 
 
-def suggest_conflict_name(skill_name: str, skill_dir: Path) -> str:
-    """Return a deterministic rename suggestion for collisions."""
-    suffix = ""
-    try:
-        post = _read_frontmatter(skill_dir)
-        suffix = _extract_version(post)
-    except Exception:
-        suffix = ""
-    if not suffix:
-        suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    suffix = str(suffix).strip("_")
-    return f"{skill_name}_{suffix}" if suffix else f"{skill_name}_copy"
+def suggest_conflict_name(skill_name: str) -> str:
+    """Return a timestamp-suffixed rename suggestion for collisions."""
+    suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{skill_name}-{suffix}"
 
 
 # pylint: disable=too-many-statements
@@ -656,47 +648,58 @@ def _sync_builtin_skills_into_pool(
                 _build_signature(target) if target.exists() else ""
             )
 
+            # Gate 1: non-builtin skill already occupies this name.
+            # Three branches:
+            #   same-signature  -> pass-through (content identical)
+            #   approve_conflicts -> rename the occupant, then restore
+            #   else            -> report conflict to caller
             if existing is not None and existing_source not in {
                 "builtin",
                 None,
             }:
-                if not approve_conflicts:
+                if existing_signature == builtin_signature:
+                    pass
+                elif approve_conflicts:
+                    suggested_name = suggest_conflict_name(
+                        skill_name,
+                    )
+                    renamed_target = pool_dir / suggested_name
+                    while renamed_target.exists():
+                        suggested_name = suggest_conflict_name(
+                            suggested_name,
+                        )
+                        renamed_target = pool_dir / suggested_name
+                    if target.exists():
+                        target.rename(renamed_target)
+                    skills[suggested_name] = _build_skill_metadata(
+                        suggested_name,
+                        renamed_target,
+                        source=str(existing_source or "customized"),
+                        origin=existing.get("origin") or {},
+                        protected=bool(
+                            existing.get("protected", False),
+                        ),
+                    )
+                    skills.pop(skill_name, None)
+                    renamed.append(
+                        {"from": skill_name, "to": suggested_name},
+                    )
+                else:
                     conflicts.append(
                         {
                             "skill_name": skill_name,
                             "suggested_name": suggest_conflict_name(
                                 skill_name,
-                                target if target.exists() else skill_dir,
                             ),
                         },
                     )
                     continue
 
-                suggested_name = suggest_conflict_name(
-                    skill_name,
-                    target if target.exists() else skill_dir,
-                )
-                renamed_target = pool_dir / suggested_name
-                while renamed_target.exists():
-                    suggested_name = suggest_conflict_name(
-                        suggested_name,
-                        target if target.exists() else skill_dir,
-                    )
-                    renamed_target = pool_dir / suggested_name
-                if target.exists():
-                    target.rename(renamed_target)
-                skills[suggested_name] = _build_skill_metadata(
-                    suggested_name,
-                    renamed_target,
-                    source=str(existing_source or "customized"),
-                    origin=existing.get("origin") or {},
-                    protected=bool(existing.get("protected", False)),
-                )
-                skills.pop(skill_name, None)
-                renamed.append(
-                    {"from": skill_name, "to": suggested_name},
-                )
-
+            # Gate 2: the pool slot is source="builtin" (or new), but
+            # the on-disk copy has been locally modified. We report a
+            # "local_modified" conflict when we can't safely overwrite
+            # without user approval—this prevents silent data loss when
+            # a user edits a builtin skill on disk and then upgrades.
             would_overwrite = False
             has_modified_target = (
                 target.exists() and builtin_signature != target_signature
@@ -723,7 +726,6 @@ def _sync_builtin_skills_into_pool(
                         "reason": "local_modified",
                         "suggested_name": suggest_conflict_name(
                             skill_name,
-                            target,
                         ),
                     },
                 )
@@ -1768,7 +1770,6 @@ class SkillPoolService:
                     "mode": "rename",
                     "suggested_name": suggest_conflict_name(
                         normalized_target,
-                        get_skill_pool_dir() / skill_name,
                     ),
                 }
             return {
@@ -1778,11 +1779,7 @@ class SkillPoolService:
             }
 
         suggested_name = str(
-            target_name
-            or suggest_conflict_name(
-                skill_name,
-                get_skill_pool_dir() / skill_name,
-            ),
+            target_name or suggest_conflict_name(skill_name),
         )
         existing = manifest.get("skills", {}).get(suggested_name)
         if existing is not None:
@@ -1792,7 +1789,6 @@ class SkillPoolService:
                 "mode": "fork",
                 "suggested_name": suggest_conflict_name(
                     suggested_name,
-                    get_skill_pool_dir() / skill_name,
                 ),
             }
         return {
@@ -1910,7 +1906,6 @@ class SkillPoolService:
                     "reason": "conflict",
                     "suggested_name": suggest_conflict_name(
                         final_name,
-                        source_dir,
                     ),
                 }
             if not overwrite:
@@ -1919,7 +1914,6 @@ class SkillPoolService:
                     "reason": "conflict",
                     "suggested_name": suggest_conflict_name(
                         final_name,
-                        source_dir,
                     ),
                 }
 
@@ -2007,7 +2001,6 @@ class SkillPoolService:
                 "workspace_id": workspace_dir.name,
                 "suggested_name": suggest_conflict_name(
                     final_name,
-                    source_dir,
                 ),
             }
 
@@ -2079,7 +2072,6 @@ class SkillPoolService:
                 "workspace_id": workspace_dir.name,
                 "suggested_name": suggest_conflict_name(
                     final_name,
-                    get_skill_pool_dir() / skill_name,
                 ),
             }
         return {
