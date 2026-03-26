@@ -801,7 +801,11 @@
         "TOOL_CMD_REVERSE_SHELL": "检测建立反向 Shell 或未授权网络隧道的行为",
         "TOOL_CMD_SYSTEM_TAMPERING": "检测对定时任务、SSH 密钥或 sudo 权限的访问（包括读取和修改）",
         "TOOL_CMD_UNSAFE_PERMISSIONS": "检测全局权限降级（chmod 777）或设置不可变标志的操作",
-        "TOOL_CMD_OBFUSCATED_EXEC": "检测将 base64 编码字符串直接传递给 Shell 解释器执行的行为"
+        "TOOL_CMD_OBFUSCATED_EXEC": "检测将 base64 编码字符串直接传递给 Shell 解释器执行的行为",
+        "TOOL_CMD_SYSTEM_REBOOT": "检测将终止主机系统的系统重启或关机命令",
+        "TOOL_CMD_SERVICE_RESTART": "检测可能中断系统服务的服务管理命令",
+        "TOOL_CMD_PROCESS_KILL": "检测可能终止关键进程的进程终止命令",
+        "TOOL_CMD_PRIVILEGE_ESCALATION": "检测使用 sudo、su、doas、pkexec 或 runas 的权限提升尝试"
       }
     },
     "fileGuard": {

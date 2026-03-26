@@ -835,7 +835,11 @@
         "TOOL_CMD_REVERSE_SHELL": "Detects attempts to establish reverse shells or unauthorized network tunnels",
         "TOOL_CMD_SYSTEM_TAMPERING": "Detects access to cron jobs, SSH keys, or sudo permissions (including reads and modifications)",
         "TOOL_CMD_UNSAFE_PERMISSIONS": "Detects global permission downgrades (chmod 777) or setting immutable flags",
-        "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter"
+        "TOOL_CMD_OBFUSCATED_EXEC": "Detects execution of base64 encoded strings passed directly to a shell interpreter",
+        "TOOL_CMD_SYSTEM_REBOOT": "Detects system reboot or shutdown commands that will terminate the host system",
+        "TOOL_CMD_SERVICE_RESTART": "Detects service management commands that can disrupt system services",
+        "TOOL_CMD_PROCESS_KILL": "Detects process termination commands that may kill critical processes",
+        "TOOL_CMD_PRIVILEGE_ESCALATION": "Detects privilege escalation attempts using sudo, su, doas, pkexec, or runas"
       }
     },
     "fileGuard": {

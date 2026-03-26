@@ -787,7 +787,11 @@
         "TOOL_CMD_REVERSE_SHELL": "リバースシェルまたは不正なネットワークトンネルの確立を検出",
         "TOOL_CMD_SYSTEM_TAMPERING": "cron ジョブ、SSH キー、sudo 権限へのアクセス（読み取り・変更を含む）を検出",
         "TOOL_CMD_UNSAFE_PERMISSIONS": "グローバル権限の引き下げ（chmod 777）や不変フラグの設定を検出",
-        "TOOL_CMD_OBFUSCATED_EXEC": "base64 エンコード文字列をシェルインタプリタに直接渡して実行する操作を検出"
+        "TOOL_CMD_OBFUSCATED_EXEC": "base64 エンコード文字列をシェルインタプリタに直接渡して実行する操作を検出",
+        "TOOL_CMD_SYSTEM_REBOOT": "ホストシステムを終了させるシステム再起動またはシャットダウンコマンドを検出",
+        "TOOL_CMD_SERVICE_RESTART": "システムサービスを中断させる可能性のあるサービス管理コマンドを検出",
+        "TOOL_CMD_PROCESS_KILL": "重要なプロセスを終了させる可能性のあるプロセス終了コマンドを検出",
+        "TOOL_CMD_PRIVILEGE_ESCALATION": "sudo、su、doas、pkexec、または runas を使用した権限昇格の試みを検出"
       }
     },
     "fileGuard": {
