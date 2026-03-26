@@ -87,6 +87,7 @@ export const FolderNode: React.FC<FolderNodeProps> = ({
               onDailyMemoryClick={onDailyMemoryClick}
               onToggleEnabled={onToggleEnabled}
               viewMode={viewMode}
+              disableDnd
               selectedForDownload={selectedForDownload.includes(file.path)}
               onSelectForDownload={onSelectForDownload}
             />

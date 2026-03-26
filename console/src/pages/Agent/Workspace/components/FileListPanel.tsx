@@ -222,6 +222,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                   onToggleEnabled={onToggleEnabled}
                   viewMode={viewMode}
                   showRelPath
+                  disableDnd
                   selectedForDownload={selectedForDownload.includes(
                     file.path || file.filename,
                   )}
@@ -247,6 +248,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                     onDailyMemoryClick={onDailyMemoryClick}
                     onToggleEnabled={onToggleEnabled}
                     viewMode={viewMode}
+                    disableDnd
                     selectedForDownload={selectedForDownload.includes(
                       file.path || file.filename,
                     )}
