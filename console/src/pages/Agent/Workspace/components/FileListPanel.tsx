@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Button, Card } from "@agentscope-ai/design";
-import { Segmented, Checkbox, Input as AntInput } from "antd";
+import { Segmented, Checkbox, Input as AntInput, Spin } from "antd";
 import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   DndContext,
@@ -37,6 +37,7 @@ interface FileListPanelProps {
   onToggleEnabled: (filename: string) => void;
   onReorder: (newOrder: string[]) => void;
   onDownloadSelected?: (files: string[]) => void;
+  listLoading?: boolean;
 }
 
 export const FileListPanel: React.FC<FileListPanelProps> = ({
@@ -54,6 +55,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   onToggleEnabled,
   onReorder,
   onDownloadSelected,
+  listLoading = false,
 }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
@@ -200,7 +202,11 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
         <div className={styles.divider} />
 
         <div className={styles.scrollContainer}>
-          {files.length === 0 ? (
+          {listLoading ? (
+            <div style={{ display: "flex", justifyContent: "center", paddingTop: 32 }}>
+              <Spin />
+            </div>
+          ) : files.length === 0 ? (
             <div className={styles.emptyState}>{t("workspace.noFiles")}</div>
           ) : filteredFiles !== null ? (
             /* ── Search results: flat list ── */

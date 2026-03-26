@@ -23,6 +23,7 @@ export const useAgentsData = () => {
   const [fileContent, setFileContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<"core" | "all">("core");
@@ -46,6 +47,11 @@ export const useAgentsData = () => {
           setExpandedMemory(false);
         }
 
+        // Clear the file list immediately so the old large list is unmounted
+        // before the network request completes, avoiding a double heavy render.
+        setFiles([]);
+        setListLoading(true);
+
         // Fetch enabled files and file list concurrently
         const [enabled, fileList] = await Promise.all([
           fetchEnabledFiles(),
@@ -57,6 +63,7 @@ export const useAgentsData = () => {
           enabled,
         );
         setFiles(sortedFiles);
+        setListLoading(false);
 
         // Set workspace path (handle both Unix '/' and Windows '\' separators)
         if (fileList.length > 0) {
@@ -88,6 +95,7 @@ export const useAgentsData = () => {
           setSelectedFile(null);
         }
       } finally {
+        setListLoading(false);
         isInitializingRef.current = false;
       }
     };
@@ -334,6 +342,7 @@ export const useAgentsData = () => {
     expandedMemory,
     fileContent,
     loading,
+    listLoading,
     workspacePath: effectiveWorkspacePath,
     hasChanges,
     enabledFiles,
