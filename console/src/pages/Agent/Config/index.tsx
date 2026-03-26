@@ -5,6 +5,7 @@ import {
   PageHeader,
   ReactAgentCard,
   LlmRetryCard,
+  LlmRateLimiterCard,
   ContextCompactCard,
   ToolResultCompactCard,
   MemorySummaryCard,
@@ -70,7 +71,8 @@ function AgentConfigPage() {
         />
 
         <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
-
+        <LlmRateLimiterCard />
+        
         <ContextCompactCard maxInputLength={maxInputLength} />
 
         <ToolResultCompactCard />
@@ -78,6 +80,7 @@ function AgentConfigPage() {
         <MemorySummaryCard />
 
         <EmbeddingConfigCard />
+        
       </Form>
 
       <div className={styles.footerActions}>

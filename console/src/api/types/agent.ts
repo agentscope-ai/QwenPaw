@@ -51,6 +51,11 @@ export interface AgentsRunningConfig {
   llm_max_retries: number;
   llm_backoff_base: number;
   llm_backoff_cap: number;
+  llm_max_concurrent: number;
+  llm_max_qpm: number;
+  llm_rate_limit_pause: number;
+  llm_rate_limit_jitter: number;
+  llm_acquire_timeout: number;
   max_input_length: number;
   history_max_length: number;
   context_compact: ContextCompactConfig;

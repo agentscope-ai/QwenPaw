@@ -11,9 +11,14 @@ from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
+    LLM_MAX_CONCURRENT,
     LLM_MAX_RETRIES,
+    LLM_MAX_QPM,
+    LLM_RATE_LIMIT_JITTER,
+    LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
 from ..providers.models import ModelSlotConfig
@@ -432,6 +437,52 @@ class AgentsRunningConfig(BaseModel):
         description=(
             "Maximum delay cap in seconds for LLM retry backoff; "
             "must be greater than or equal to the base delay"
+        ),
+    )
+
+    llm_max_concurrent: int = Field(
+        default=LLM_MAX_CONCURRENT,
+        ge=1,
+        description=(
+            "Maximum number of concurrent in-flight LLM calls. "
+            "Shared across all agents; only the first initialization wins."
+        ),
+    )
+
+    llm_max_qpm: int = Field(
+        default=LLM_MAX_QPM,
+        ge=0,
+        description=(
+            "Maximum queries per minute (60-second sliding window). "
+            "New requests that would exceed this limit wait before being "
+            "dispatched — proactively preventing 429s. 0 = disabled."
+        ),
+    )
+
+    llm_rate_limit_pause: float = Field(
+        default=LLM_RATE_LIMIT_PAUSE,
+        ge=1.0,
+        description=(
+            "Default pause duration (seconds) applied globally when a 429 "
+            "rate-limit response is received."
+        ),
+    )
+
+    llm_rate_limit_jitter: float = Field(
+        default=LLM_RATE_LIMIT_JITTER,
+        ge=0.0,
+        description=(
+            "Random jitter range (seconds) added on top of the pause so "
+            "concurrent waiters stagger their wake-up."
+        ),
+    )
+
+    llm_acquire_timeout: float = Field(
+        default=LLM_ACQUIRE_TIMEOUT,
+        ge=10.0,
+        description=(
+            "Maximum time (seconds) a caller waits to acquire a rate-limiter "
+            "slot before giving up with an error."
         ),
     )
 

@@ -2,7 +2,6 @@
 import json
 import logging
 import platform
-import os
 from datetime import datetime, timezone
 from typing import List, Optional, Union
 from urllib.parse import urlparse
@@ -111,12 +110,13 @@ def _is_local_file_url(url: str) -> bool:
     )
 
 
-def _basename_from_url(url: str) -> str:
-    """Extract filename from file:// or path."""
+def _abspath_from_url(url: str) -> str:
+    """Extract absolute path from file:// URL."""
     s = url.strip()
     if s.lower().startswith("file:"):
-        s = s[5:].lstrip("/")
-    return os.path.basename(s.rstrip("/") or "file")
+        s = s[5:]
+    s = "/" + s.lstrip("/")
+    return s
 
 
 def _resolve_content_url(url: str) -> str:
@@ -125,7 +125,7 @@ def _resolve_content_url(url: str) -> str:
         return url
     if not _is_local_file_url(url):
         return url
-    return _basename_from_url(url)
+    return _abspath_from_url(url)
 
 
 # pylint: disable=too-many-branches,too-many-statements

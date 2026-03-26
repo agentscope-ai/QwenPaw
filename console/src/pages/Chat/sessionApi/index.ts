@@ -82,7 +82,7 @@ function generateId(): string {
 function toDisplayUrl(url: string | undefined): string {
   if (!url) return "";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return chatApi.fileUrl(url.startsWith("/") ? url : `/${url}`);
+  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }
 
 /** Extract plain text from a message's content array. */
