@@ -387,6 +387,7 @@ copaw agents chat \
 - 不确定执行时间的复杂任务
 
 **任务状态流程**：
+
 - `submitted`：任务已接受，等待开始
 - `pending`：排队等待执行
 - `running`：正在执行

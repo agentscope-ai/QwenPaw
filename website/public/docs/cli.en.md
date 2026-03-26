@@ -399,6 +399,7 @@ When tasks are complex (e.g., data analysis, batch processing, report generation
 - Complex tasks with uncertain execution time
 
 **Task Status Flow**:
+
 - `submitted`: Task accepted, waiting to start
 - `pending`: Queued for execution
 - `running`: Currently executing

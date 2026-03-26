@@ -535,6 +535,7 @@ copaw agents chat --background \
 When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent, allowing it to continue processing other work. After submission, it returns a `task_id` that can be used later to query the task status and result.
 
 **Task Status Flow**:
+
 - `submitted`: Task accepted, waiting to start
 - `pending`: Queued for execution
 - `running`: Currently executing
