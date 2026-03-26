@@ -300,15 +300,14 @@ def _sync_browser_launch(state: dict, cdp_port: int = 0):
     elif default_kind != "webkit":
         exe = _chromium_executable_path()
 
+    extra_args = list(_chromium_launch_args())
+    if cdp_port:
+        extra_args.append(f"--remote-debugging-port={cdp_port}")
+
     if exe:
         user_data_dir = state["user_data_dir"]
         if user_data_dir:
             Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-            extra_args = _chromium_launch_args()
-            if cdp_port:
-                extra_args = list(extra_args) + [
-                    f"--remote-debugging-port={cdp_port}",
-                ]
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
                 headless=state["headless"],
@@ -318,11 +317,6 @@ def _sync_browser_launch(state: dict, cdp_port: int = 0):
             _attach_context_listeners(state, context)
             return pw, None, context
         launch_kwargs = {"headless": state["headless"]}
-        extra_args = _chromium_launch_args()
-        if cdp_port:
-            extra_args = list(extra_args) + [
-                f"--remote-debugging-port={cdp_port}",
-            ]
         if extra_args:
             launch_kwargs["args"] = extra_args
         launch_kwargs["executable_path"] = exe
@@ -331,11 +325,6 @@ def _sync_browser_launch(state: dict, cdp_port: int = 0):
         browser = pw.webkit.launch(headless=state["headless"])
     else:
         launch_kwargs = {"headless": state["headless"]}
-        extra_args = _chromium_launch_args()
-        if cdp_port:
-            extra_args = list(extra_args) + [
-                f"--remote-debugging-port={cdp_port}",
-            ]
         if extra_args:
             launch_kwargs["args"] = extra_args
         browser = pw.chromium.launch(**launch_kwargs)
@@ -734,16 +723,15 @@ async def _action_start(
                 exe = default_path
             elif default_kind != "webkit":
                 exe = _chromium_executable_path()
+            extra_args = list(_chromium_launch_args())
+            if cdp_port:
+                extra_args.append(f"--remote-debugging-port={cdp_port}")
+
             if exe:
                 # Use persistent context so cookies/storage survive browser restarts
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
                     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-                    extra_args = _chromium_launch_args()
-                    if cdp_port:
-                        extra_args = list(extra_args) + [
-                            f"--remote-debugging-port={cdp_port}",
-                        ]
                     context = await pw.chromium.launch_persistent_context(
                         user_data_dir=user_data_dir,
                         headless=state["headless"],
@@ -759,11 +747,6 @@ async def _action_start(
                     state["context"] = context
                 else:
                     launch_kwargs = {"headless": state["headless"]}
-                    extra_args = _chromium_launch_args()
-                    if cdp_port:
-                        extra_args = list(extra_args) + [
-                            f"--remote-debugging-port={cdp_port}",
-                        ]
                     if extra_args:
                         launch_kwargs["args"] = extra_args
                     launch_kwargs["executable_path"] = exe
@@ -784,11 +767,6 @@ async def _action_start(
                 state["context"] = context
             else:
                 launch_kwargs = {"headless": state["headless"]}
-                extra_args = _chromium_launch_args()
-                if cdp_port:
-                    extra_args = list(extra_args) + [
-                        f"--remote-debugging-port={cdp_port}",
-                    ]
                 if extra_args:
                     launch_kwargs["args"] = extra_args
                 pw_browser = await pw.chromium.launch(**launch_kwargs)
@@ -2861,11 +2839,11 @@ async def _action_list_cdp_targets(
                 indent=2,
             ),
         )
-    scan_desc = (
-        f"port {port}"
-        if port
-        else f"range {ports_to_scan.start}-{ports_to_scan.stop - 1}"
-    )
+    if port:
+        scan_desc = f"port {port}"
+    else:
+        # ports_to_scan is a range when port is not set
+        scan_desc = f"range {ports_to_scan.start}-{ports_to_scan.stop - 1}"
     msg = (
         f"No CDP endpoints found in {scan_desc}. "
         "Try expanding the range with port_min/port_max, "
