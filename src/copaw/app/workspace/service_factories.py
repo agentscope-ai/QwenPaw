@@ -96,6 +96,9 @@ async def create_channel_service(ws: "Workspace", _):
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
     )
+    # Inject task_tracker into all channels for /stop interception
+    for ch in cm.channels:
+        ch.set_task_tracker(ws._task_tracker)
     ws._service_manager.services["channel_manager"] = cm
     return cm
     # pylint: enable=protected-access

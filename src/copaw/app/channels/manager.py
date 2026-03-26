@@ -23,6 +23,7 @@ from typing import (
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
 from .registry import get_channel_registry
 from ...config import get_available_channels
+from ..runner.daemon_commands import is_stop_command
 
 if TYPE_CHECKING:
     from ....config.config import Config
@@ -37,6 +38,24 @@ _CHANNEL_QUEUE_MAXSIZE = 1000
 
 # Workers per channel: drain same-session from queue and process in parallel
 _CONSUMER_WORKERS_PER_CHANNEL = 4
+
+
+def _extract_text_from_payload(ch: BaseChannel, payload: Any) -> str:
+    """Extract first text content from a payload for /stop detection."""
+    try:
+        request = ch._payload_to_request(payload)
+        if not request.input:
+            return ""
+        contents = list(
+            getattr(request.input[0], "content", None) or [],
+        )
+        for c in contents:
+            ctype = getattr(c, "type", None)
+            if ctype == ContentType.TEXT or ctype == "text":
+                return getattr(c, "text", "") or ""
+        return ""
+    except Exception:
+        return ""
 
 
 def _drain_same_key(
@@ -131,6 +150,10 @@ class ChannelManager:
         # [image1, text] are not split across workers (avoids no-text
         # debounce reordering and duplicate content in AgentRequest).
         self._key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+        # Track active processing tasks per session key for /stop cancellation
+        self._active_process_tasks: Dict[
+            Tuple[str, str], asyncio.Task
+        ] = {}
 
     @classmethod
     def from_env(
@@ -297,6 +320,13 @@ class ChannelManager:
                 else "queue",
             )
         if (channel_id, key) in self._in_progress:
+            # /stop must bypass pending — put directly in queue so a free
+            # worker can pick it up immediately and cancel the running task.
+            if ch._task_tracker is not None:
+                _stop_text = _extract_text_from_payload(ch, payload)
+                if is_stop_command(_stop_text):
+                    q.put_nowait(payload)
+                    return
             self._pending.setdefault((channel_id, key), []).append(payload)
             return
         q.put_nowait(payload)
@@ -340,6 +370,46 @@ class ChannelManager:
                 if not ch:
                     continue
                 key = ch.get_debounce_key(payload)
+
+                # --- /stop fast-path: bypass session lock ---
+                if ch._task_tracker is not None:
+                    _stop_text = _extract_text_from_payload(ch, payload)
+                    if is_stop_command(_stop_text):
+                        logger.info(
+                            "/stop fast-path: key=%s text=%r",
+                            key,
+                            _stop_text[:30],
+                        )
+                        try:
+                            # Cancel the active processing task for this key
+                            active = self._active_process_tasks.get(
+                                (channel_id, key),
+                            )
+                            if active and not active.done():
+                                active.cancel()
+                                stopped = True
+                                logger.info(
+                                    "/stop cancelled active task: key=%s",
+                                    key,
+                                )
+                            else:
+                                stopped = False
+                            request = ch._payload_to_request(payload)
+                            msg = (
+                                "已停止当前任务。"
+                                if stopped
+                                else "当前没有运行中的任务。"
+                            )
+                            to_handle = ch.get_to_handle_from_request(request)
+                            await ch.send(to_handle, msg)
+                        except Exception:
+                            logger.exception(
+                                "/stop fast-path failed: key=%s",
+                                key,
+                            )
+                        continue
+                # --- end /stop fast-path ---
+
                 key_lock = self._key_locks.setdefault(
                     (channel_id, key),
                     asyncio.Lock(),
@@ -348,7 +418,24 @@ class ChannelManager:
                     async with key_lock:
                         self._in_progress.add((channel_id, key))
                         batch = _drain_same_key(q, ch, key, payload)
-                    await _process_batch(ch, batch)
+                    process_task = asyncio.create_task(
+                        _process_batch(ch, batch),
+                    )
+                    self._active_process_tasks[(channel_id, key)] = (
+                        process_task
+                    )
+                    try:
+                        await process_task
+                    except asyncio.CancelledError:
+                        logger.info(
+                            "/stop: task cancelled for key=%s",
+                            key,
+                        )
+                    finally:
+                        self._active_process_tasks.pop(
+                            (channel_id, key),
+                            None,
+                        )
                 finally:
                     self._in_progress.discard((channel_id, key))
                     pending = self._pending.pop((channel_id, key), [])

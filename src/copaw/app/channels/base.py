@@ -35,7 +35,6 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 from .renderer import MessageRenderer, RenderStyle
 from .schema import ChannelType
 from ...config.utils import load_config
-from ..runner.daemon_commands import is_stop_command
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -491,39 +490,6 @@ class BaseChannel(ABC):
         consume_one (direct or after time-debounce flush).
         """
         request = self._payload_to_request(payload)
-
-        # --- /stop early interception (cross-channel) ---
-        try:
-            user_text = ""
-            if request.input:
-                _contents = list(
-                    getattr(request.input[0], "content", None) or [],
-                )
-                for _c in _contents:
-                    if getattr(_c, "type", None) == ContentType.TEXT:
-                        user_text = getattr(_c, "text", "") or ""
-                        break
-            if is_stop_command(user_text) and self._task_tracker is not None:
-                session_id = getattr(request, "session_id", "") or ""
-                stopped = await self._task_tracker.request_stop(session_id)
-                msg = (
-                    "已停止当前任务。"
-                    if stopped
-                    else "当前没有运行中的任务。"
-                )
-                to_handle = self.get_to_handle_from_request(request)
-                await self.send(to_handle, msg)
-                return
-        except Exception:
-            logger.exception("channel /stop interception failed")
-            to_handle = self.get_to_handle_from_request(request)
-            await self._on_consume_error(
-                request,
-                to_handle,
-                "执行 /stop 命令时发生错误。",
-            )
-            return
-        # --- end /stop interception ---
 
         # Build meta from payload so session_webhook is never lost when
         # request has no channel_meta (e.g. AgentRequest schema has no field).
