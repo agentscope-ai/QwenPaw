@@ -113,9 +113,7 @@ export function LlmRateLimiterCard() {
               ) {
                 return;
               }
-              throw new Error(
-                t("agentConfig.llmAcquireTimeoutGtPauseJitter"),
-              );
+              throw new Error(t("agentConfig.llmAcquireTimeoutGtPauseJitter"));
             },
           },
         ]}
