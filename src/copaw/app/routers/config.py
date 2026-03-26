@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import segno
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -214,8 +215,6 @@ async def get_weixin_qrcode(request: Request) -> dict:
             f"?qrcode={qrcode}&bot_type=3"
         )
     try:
-        import segno
-
         qr = segno.make(scan_url, error="M")
         buf = io.BytesIO()
         qr.save(buf, kind="png", scale=6, border=2)
