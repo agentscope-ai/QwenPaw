@@ -4,7 +4,6 @@
 Provides RESTful API for managing multiple agent instances.
 """
 
-import asyncio
 import io
 import json
 import logging
@@ -19,6 +18,7 @@ from fastapi import Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -318,17 +318,7 @@ async def update_agent(
     save_agent_config(agentId, existing_config)
 
     # Trigger hot reload if agent is running (async, non-blocking)
-    # IMPORTANT: Get manager before creating background task to avoid
-    # accessing request object after its lifecycle ends
-    manager = _get_multi_agent_manager(request)
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agentId)
-        except Exception as e:
-            logger.warning(f"Background reload failed for {agentId}: {e}")
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agentId)
 
     return agent_config
 

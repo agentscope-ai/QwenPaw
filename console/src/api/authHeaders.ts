@@ -8,7 +8,7 @@ export function buildAuthHeaders(): Record<string, string> {
     headers.Authorization = `Bearer ${token}`;
   }
   try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    const agentStorage = sessionStorage.getItem("copaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;

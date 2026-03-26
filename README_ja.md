@@ -34,6 +34,8 @@
 >
 > **あなたの管理下** — メモリとパーソナライズはあなたの管理下に。ローカルまたはクラウドにデプロイ。任意のチャネルへのスケジュールリマインダー。
 >
+> **マルチエージェント** — 複数の独立したエージェントを作成し、それぞれが専門性を持つ。コラボレーションスキルを有効化すると、エージェント間で通信・協力が可能。
+>
 > **スキル** — 組み込みのcron機能。ワークスペース内のカスタムスキルを自動読み込み。ロックインなし。
 >
 > <details>
@@ -83,6 +85,7 @@
 - [ローカルモデル](#ローカルモデル)
 - [ドキュメント](#ドキュメント)
 - [FAQ](#faq)
+- [最新情報をいち早く](#最新情報をいち早く)
 - [ロードマップ](#ロードマップ)
 - [参加方法](#参加方法)
 - [ソースからインストール](#ソースからインストール)
@@ -368,6 +371,7 @@ copaw app    # サーバーを起動
 | [コンテキスト](https://copaw.agentscope.io/docs/context)                  | コンテキスト管理メカニズム                          |
 | [魔法コマンド](https://copaw.agentscope.io/docs/commands)                 | AIの応答を待たずに会話状態を制御                     |
 | [ハートビート](https://copaw.agentscope.io/docs/heartbeat)                 | スケジュールされたチェックインとダイジェスト        |
+| [マルチエージェント](https://copaw.agentscope.io/docs/multi-agent)        | 複数のエージェントを作成し、コラボレーションを有効化 |
 | [設定とワーキングディレクトリ](https://copaw.agentscope.io/docs/config)   | ワーキングディレクトリと設定ファイル                 |
 | [CLI](https://copaw.agentscope.io/docs/cli)                                | Init、cronジョブ、スキル、クリーン                   |
 | [FAQ](https://copaw.agentscope.io/docs/faq)                               | よくある質問とトラブルシューティング                 |
@@ -379,6 +383,16 @@ copaw app    # サーバーを起動
 ## FAQ
 
 よくある質問、トラブルシューティングのヒント、既知の問題については、**[FAQページ](https://copaw.agentscope.io/docs/faq)** をご覧ください。
+
+---
+
+## 最新情報をいち早く
+
+<a href="https://github.com/agentscope-ai/CoPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+</a>
+
+GitHubでCoPawにスターを付けて、新しいリリースの通知を即座に受け取りましょう。
 
 ---
 
@@ -437,6 +451,8 @@ pip install -e .
 
 - **開発**（テスト、フォーマット）: `pip install -e ".[dev,full]"`
 - **その後**: `copaw init --defaults` を実行し、次に `copaw app` を実行。
+
+> **アップデート時の注意:** `git pull` 後に新しいメジャーバージョンにアップデートする場合は、フロントエンドの再ビルド、パッケージの再インストール（`pip install -e .`）、`copaw app` の再起動、およびブラウザキャッシュの削除（`Ctrl+Shift+R` または macOSでは `Cmd+Shift+R`）も行ってください。
 
 ---
 

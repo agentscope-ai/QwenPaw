@@ -5,7 +5,7 @@ import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 function getSelectedAgentId(): string {
   try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    const agentStorage = sessionStorage.getItem("copaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;

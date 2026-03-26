@@ -156,6 +156,18 @@ jobs:
                 comment += `> \n`;
                 comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
                 comment += `> \n`;
+                comment += `> <div align="center">\n`;
+                comment += `> \n`;
+                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
+                comment += `> \n`;
+                comment += `> </div>\n`;
+                comment += `> \n`;
+                comment += `> **掌握最新动态 / Staying ahead**\n`;
+                comment += `> \n`;
+                comment += `> 在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。\n`;
+                comment += `> \n`;
+                comment += `> Star CoPaw on GitHub and be instantly notified of new releases.\n`;
+                comment += `> \n`;
                 comment += `> 你的 star 将帮助更多开发者发现这个项目！🐾\n`;
                 comment += `> \n`;
                 comment += `> Your star helps more developers discover this project! 🐾`;
@@ -196,6 +208,16 @@ jobs:
                 comment += `---\n\n`;
                 comment += `> [!TIP]\n`;
                 comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> \n`;
+                comment += `> <div align="center">\n`;
+                comment += `> \n`;
+                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
+                comment += `> \n`;
+                comment += `> </div>\n`;
+                comment += `> \n`;
+                comment += `> **Staying ahead**\n`;
+                comment += `> \n`;
+                comment += `> Star CoPaw on GitHub and be instantly notified of new releases.\n`;
                 comment += `> \n`;
                 comment += `> Your star helps more developers discover this project! 🐾`;
               }

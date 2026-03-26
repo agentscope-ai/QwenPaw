@@ -34,6 +34,8 @@
 >
 > **由你掌控** — 记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。
 >
+> **多智能体** — 创建多个独立智能体，各司其职；启用协作技能，智能体间可互相通信协作。
+>
 > **Skills 扩展** — 内置定时任务，自定义技能目录，CoPaw 自动加载，无绑定。
 >
 > <details>
@@ -87,6 +89,7 @@
 - [本地模型](#本地模型)
 - [文档](#文档)
 - [常见问题](#常见问题)
+- [掌握最新动态](#掌握最新动态)
 - [路线图](#路线图)
 - [参与贡献](#参与贡献)
 - [从源码安装](#从源码安装)
@@ -378,6 +381,7 @@ copaw app # 启动服务
 | [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
 | [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |
+| [多智能体](https://copaw.agentscope.io/docs/multi-agent)  | 创建多个智能体并启用协作             |
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
 | [CLI](https://copaw.agentscope.io/docs/cli)               | 初始化、定时任务、Skills、清理       |
 | [FAQ 常见问题](https://copaw.agentscope.io/docs/faq)               | 常见问题与报错排查                   |
@@ -389,6 +393,16 @@ copaw app # 启动服务
 ## 常见问题
 
 常见问题、排错指南与已知问题，请访问 **[FAQ 页面](https://copaw.agentscope.io/docs/faq)**。
+
+---
+
+## 掌握最新动态
+
+<a href="https://github.com/agentscope-ai/CoPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+</a>
+
+在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。
 
 ---
 
@@ -447,6 +461,8 @@ pip install -e .
 
 - **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
 - **然后**：运行 `copaw init --defaults`，再运行 `copaw app`。
+
+> **版本更新提示：** 当执行 `git pull` 更新到大版本后，请重新构建前端、重新安装 Python 包（`pip install -e .`）、重启 `copaw app`，并清除浏览器缓存（`Ctrl+Shift+R` 或 macOS 上 `Cmd+Shift+R`）。
 
 ---
 

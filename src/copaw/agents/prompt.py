@@ -312,20 +312,40 @@ def build_bootstrap_guidance(
 def _get_active_model_info():
     """Resolve the active model's ModelInfo and model name.
 
+    Tries agent-specific model first, then falls back to global.
+
     Returns:
         A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
         when the active model cannot be resolved.
     """
     try:
+        from ..app.agent_context import get_current_agent_id
+        from ..config.config import load_agent_config
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        active = manager.get_active_model()
+
+        # Try to get agent-specific model first
+        active = None
+        try:
+            agent_id = get_current_agent_id()
+            agent_config = load_agent_config(agent_id)
+            if agent_config.active_model:
+                active = agent_config.active_model
+        except Exception:
+            pass
+
+        # Fallback to global active model
+        if not active:
+            active = manager.get_active_model()
+
         if not active:
             return None, None
+
         provider = manager.get_provider(active.provider_id)
         if not provider:
             return None, None
+
         for m in provider.models + provider.extra_models:
             if m.id == active.model:
                 return m, active.model
