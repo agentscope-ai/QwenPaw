@@ -33,7 +33,7 @@ Himalaya is a CLI email client that lets you manage emails from the terminal usi
 ## Prerequisites
 
 1. **Himalaya CLI** - the `himalaya` binary must already be on `PATH`. Check with `himalaya --version`.
-   - **Recommended: v1.2.0 or newer.** Older releases can fail against some IMAP servers (notably QQ Mail and similar) due to UID/sequence handling; v1.2.0+ includes related fixes.
+   - **Recommended: v1.2.0 or newer.** Older releases can fail against some IMAP servers; v1.2.0+ includes related fixes.
 2. A configuration file at `~/.config/himalaya/config.toml`
 3. IMAP/SMTP credentials configured (password stored securely)
 
