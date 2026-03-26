@@ -52,7 +52,7 @@ ALL_SKILL_ROUTING_CHANNELS = [
 ]
 
 _RegistryResult = TypeVar("_RegistryResult")
-_MAX_ZIP_BYTES = 1024 * 1024 * 1024
+_MAX_ZIP_BYTES = 200 * 1024 * 1024
 
 
 class SkillInfo(BaseModel):

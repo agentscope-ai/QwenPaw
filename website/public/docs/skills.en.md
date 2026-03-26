@@ -235,7 +235,7 @@ skill under a workspace's `skills/` directory.
 
 1. Create a directory under `~/.copaw/workspaces/{agent_id}/skills/`, e.g.
    `my_skill`.
-2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. You can optionally use YAML front matter at the top for `name`, `description`, and `metadata` (for the agent or Console). If the skill depends on external binaries or environment variables, declare them in `metadata.requires`; CoPaw exposes them as `require_bins` and `require_envs` metadata, but does not disable the skill automatically.
+2. Add a `SKILL.md` file in that directory. The file **must** start with YAML front matter containing at least a `name` field. `description` is recommended. Write Markdown body after the front matter to describe the capability for the agent. If the skill depends on external binaries or environment variables, declare them in `metadata.requires`; CoPaw exposes them as `require_bins` and `require_envs` metadata, but does not disable the skill automatically.
 
 ### Example SKILL.md
 
@@ -243,7 +243,7 @@ skill under a workspace's `skills/` directory.
 ---
 name: my_skill
 description: My custom capability
-metadata (optional):
+metadata:
   requires:
     bins: [ffmpeg]
     env: [MY_SKILL_API_KEY]
@@ -253,6 +253,8 @@ metadata (optional):
 
 This skill is used for…
 ```
+
+`name` and `description` are **required**. `metadata` is optional.
 
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
@@ -327,6 +329,16 @@ timeout = cfg.get("timeout", 30)
 Config is also preserved across pool ↔ workspace sync: uploading a workspace
 skill copies its config to the pool entry, and downloading copies the pool
 config into the workspace entry.
+
+### Config priority
+
+When a skill runs, the effective config follows this priority (highest wins):
+
+1. **Host environment** — existing env vars on the machine are never overwritten.
+2. **Workspace config** — the `config` object in the workspace manifest entry (`skill.json`). This is what you edit in the Console per agent.
+3. **Pool config** — when downloading a pool skill to a workspace, the pool's `config` is copied as the initial workspace config. Subsequent workspace edits take precedence.
+
+For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.copaw.requires` → `metadata.requires`. The first one found is used.
 
 ---
 

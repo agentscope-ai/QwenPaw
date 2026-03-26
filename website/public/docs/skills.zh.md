@@ -225,7 +225,7 @@ Discord 上。
 ### 步骤
 
 1. 在 `~/.copaw/workspaces/{agent_id}/skills/` 下新建一个目录，例如 `my_skill`。
-2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；可选在文件开头用 YAML front matter 写 `name`、`description`、`metadata`，方便在 Agent 或控制台里展示。若 Skill 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
+2. 在该目录下新建 `SKILL.md`。文件**必须**以 YAML front matter 开头，至少包含 `name` 字段，建议同时填写 `description`。front matter 之后用 Markdown 编写给 Agent 的能力说明。若 Skill 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
 
 ### SKILL.md 示例
 
@@ -233,7 +233,7 @@ Discord 上。
 ---
 name: my_skill
 description: 我的自定义能力说明
-metadata (可选):
+metadata:
   requires:
     bins: [ffmpeg]
     env: [MY_SKILL_API_KEY]
@@ -243,6 +243,8 @@ metadata (可选):
 
 本 Skill 用于……
 ```
+
+`name` 和 `description` 为**必填**字段，`metadata` 为可选。
 
 手动放置的 Skill 会在下次清单调和时被检测到，并以**禁用**状态写入 `skill.json`。
 在控制台或 CLI 中启用即可。
@@ -314,6 +316,16 @@ timeout = cfg.get("timeout", 30)
 
 Config 在池与 workspace 同步时也会保留：上传 workspace 技能会把 config 复制到
 池条目，下载时则把池的 config 复制到 workspace 条目。
+
+### 配置优先级
+
+Skill 运行时，生效配置按以下优先级（高优先覆盖低优先）：
+
+1. **宿主环境变量** — 机器上已存在的环境变量不会被覆盖。
+2. **工作区配置** — 工作区 manifest 条目（`skill.json`）中的 `config` 对象，即控制台中针对每个 Agent 编辑的配置。
+3. **池配置** — 从池下载技能到工作区时，池的 `config` 会作为初始工作区配置复制过来，之后工作区的编辑优先。
+
+对于 `requires` 元数据，解析器按顺序检查：`metadata.openclaw.requires` → `metadata.copaw.requires` → `metadata.requires`，取第一个找到的。
 
 ---
 

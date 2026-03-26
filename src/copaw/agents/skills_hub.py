@@ -66,6 +66,42 @@ LOBEHUB_MAX_ZIP_ENTRIES = 256
 LOBEHUB_MAX_ZIP_BYTES = 5 * 1024 * 1024
 HTTP_READ_CHUNK_BYTES = 64 * 1024
 
+_GITHUB_CACHE_DEFAULT_TTL = 300  # 5 minutes
+_github_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _github_cache_ttl() -> float:
+    raw = os.environ.get("COPAW_GITHUB_CACHE_TTL", "")
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    return float(_GITHUB_CACHE_DEFAULT_TTL)
+
+
+def _github_cache_get(key: str) -> Any:
+    entry = _github_cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if time.monotonic() - ts > _github_cache_ttl():
+        del _github_cache[key]
+        return None
+    return value
+
+
+_GITHUB_CACHE_MISS = object()
+
+
+def _github_cached(key: str) -> Any:
+    val = _github_cache_get(key)
+    return _GITHUB_CACHE_MISS if val is None else val
+
+
+def _github_cache_set(key: str, value: Any) -> None:
+    _github_cache[key] = (time.monotonic(), value)
+
 
 def _hub_http_timeout() -> float:
     raw = os.environ.get("COPAW_SKILLS_HUB_HTTP_TIMEOUT", "15")
@@ -327,6 +363,7 @@ def _http_fetch(
                     attempts,
                     delay,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -831,11 +868,17 @@ def _extract_github_spec(
 def _github_repo_exists(owner: str, repo: str) -> bool:
     if not owner or not repo:
         return False
+    cache_key = f"repo_exists:{owner}/{repo}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     try:
         data = _http_json_get(_github_api_url(owner, repo, ""))
-        return isinstance(data, dict) and data.get("full_name") is not None
+        result = isinstance(data, dict) and data.get("full_name") is not None
     except Exception:
-        return False
+        result = False
+    _github_cache_set(cache_key, result)
+    return result
 
 
 # pylint: disable-next=too-many-return-statements,too-many-branches
@@ -900,12 +943,18 @@ def _github_encode_path(path: str) -> str:
 
 
 def _github_get_default_branch(owner: str, repo: str) -> str:
+    cache_key = f"default_branch:{owner}/{repo}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     repo_meta = _http_json_get(_github_api_url(owner, repo, ""))
+    branch = "main"
     if isinstance(repo_meta, dict):
-        branch = repo_meta.get("default_branch")
-        if isinstance(branch, str) and branch.strip():
-            return branch.strip()
-    return "main"
+        raw = repo_meta.get("default_branch")
+        if isinstance(raw, str) and raw.strip():
+            branch = raw.strip()
+    _github_cache_set(cache_key, branch)
+    return branch
 
 
 def _normalize_skill_key(text: str) -> str:
@@ -917,6 +966,10 @@ def _github_list_skill_md_roots(
     repo: str,
     ref: str,
 ) -> list[str]:
+    cache_key = f"skill_md_roots:{owner}/{repo}/{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     tree_url = _github_api_url(owner, repo, f"git/trees/{ref}")
     try:
         data = _http_json_get(tree_url, {"recursive": "1"})
@@ -949,6 +1002,7 @@ def _github_list_skill_md_roots(
             continue
         seen.add(root)
         unique.append(root)
+    _github_cache_set(cache_key, unique)
     return unique
 
 
@@ -958,11 +1012,16 @@ def _github_get_content_entry(
     path: str,
     ref: str,
 ) -> dict[str, Any]:
+    cache_key = f"content:{owner}/{repo}/{path}@{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     encoded_path = _github_encode_path(path)
     content_url = _github_api_url(owner, repo, f"contents/{encoded_path}")
     data = _http_json_get(content_url, {"ref": ref})
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected GitHub response for path: {path}")
+    _github_cache_set(cache_key, data)
     return data
 
 
@@ -972,13 +1031,19 @@ def _github_get_dir_entries(
     path: str,
     ref: str,
 ) -> list[dict[str, Any]]:
+    cache_key = f"dir:{owner}/{repo}/{path}@{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     encoded_path = _github_encode_path(path)
     suffix = "contents" if not encoded_path else f"contents/{encoded_path}"
     content_url = _github_api_url(owner, repo, suffix)
     data = _http_json_get(content_url, {"ref": ref})
+    result: list[dict[str, Any]] = []
     if isinstance(data, list):
-        return [x for x in data if isinstance(x, dict)]
-    return []
+        result = [x for x in data if isinstance(x, dict)]
+    _github_cache_set(cache_key, result)
+    return result
 
 
 def _github_read_file(entry: dict[str, Any]) -> str:
