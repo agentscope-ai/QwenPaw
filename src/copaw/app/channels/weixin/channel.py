@@ -322,7 +322,7 @@ class WeixinChannel(BaseChannel):
                 "",
             )
             logger.info(
-                "weixin: Please scan the QR code to log in.\n" "  QR URL: %s",
+                "weixin: Please scan the QR code to log in.\n  QR URL: %s",
                 qrcode_url or "(see qrcode_img_content in debug log)",
             )
             if logger.isEnabledFor(logging.DEBUG):
@@ -596,7 +596,7 @@ class WeixinChannel(BaseChannel):
                     is_group,
                 )
                 if error_msg and context_token:
-                    (
+                    if self._loop:
                         asyncio.run_coroutine_threadsafe(
                             self._send_text_direct(
                                 from_user_id,
@@ -606,9 +606,6 @@ class WeixinChannel(BaseChannel):
                             ),
                             self._loop,
                         )
-                        if self._loop
-                        else None
-                    )
                 return
 
             session_id = self.resolve_session_id(from_user_id, meta)
