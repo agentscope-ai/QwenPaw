@@ -21,7 +21,6 @@ from .service_factories import (
     create_channel_service,
     create_agent_config_watcher,
     create_mcp_config_watcher,
-    create_memory_manager_service,
 )
 from ..runner import AgentRunner
 from ..runner.task_tracker import TaskTracker
@@ -34,6 +33,15 @@ if TYPE_CHECKING:
     from ..channels.base import BaseChannel
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_memory_class(backend: str) -> type:
+    """Return the memory manager class for the given backend name."""
+    from ...agents.memory import ReMeLightMemoryManager
+
+    if backend == "remelight":
+        return ReMeLightMemoryManager
+    raise ValueError(f"Unsupported memory manager backend: '{backend}'")
 
 
 class Workspace:
@@ -161,8 +169,18 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=None,
-                post_init=create_memory_manager_service,
+                service_class=lambda ws: _resolve_memory_class(
+                    ws._config.running.memory_manager_backend,
+                ),
+                init_args=lambda ws: {
+                    "working_dir": str(ws.workspace_dir),
+                    "agent_id": ws.agent_id,
+                },
+                post_init=lambda ws, mm: setattr(
+                    ws._service_manager.services["runner"],
+                    "memory_manager",
+                    mm,
+                ),
                 start_method="start",
                 stop_method="close",
                 reusable=True,

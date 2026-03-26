@@ -129,9 +129,6 @@ async def run_command_path(
         user_id=user_id,
     )
     memory_state = session_state.get("agent", {}).get("memory", {})
-    # Normalize old list format (saved before InMemoryMemory switched to dict)
-    if isinstance(memory_state, list):
-        memory_state = {"content": memory_state}
     memory.load_state_dict(memory_state, strict=False)
 
     conv_handler = CommandHandler(

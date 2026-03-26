@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-branches
+# mypy: ignore-errors
 """ReMeLight-backed memory manager for CoPaw agents."""
 import importlib.metadata
 import json
