@@ -64,7 +64,7 @@ class WeixinChannel(BaseChannel):
         - Group chat:    weixin:group:<group_id>
     """
 
-    channel = "weixin"
+    channel = "wechat"
 
     def __init__(
         self,
@@ -447,14 +447,20 @@ class WeixinChannel(BaseChannel):
                     msgs: List[Dict[str, Any]] = data.get("msgs") or []
                     for msg in msgs:
                         await self._on_message(msg, client)
-                    # Only warn+retry on non-zero ret when no messages
+                    # ret=-1 is normal long-poll timeout (no new messages)
                     if ret != 0 and not msgs:
-                        logger.warning(
-                            "weixin getupdates non-zero ret=%s"
-                            " (no msgs), retry in 3s",
-                            ret,
-                        )
-                        await asyncio.sleep(3)
+                        if ret == -1:
+                            logger.debug(
+                                "weixin getupdates timeout (ret=-1)"
+                                ", continue polling",
+                            )
+                        else:
+                            logger.warning(
+                                "weixin getupdates non-zero ret=%s"
+                                " (no msgs), retry in 3s",
+                                ret,
+                            )
+                            await asyncio.sleep(3)
                 except asyncio.CancelledError:
                     break
                 except Exception:
