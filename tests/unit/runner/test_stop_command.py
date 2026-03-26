@@ -143,7 +143,7 @@ class TestRunDaemonStopUnit:
         ctx = DaemonContext()
         result = run_daemon_stop(ctx)
         assert isinstance(result, str)
-        assert "没有运行中的任务" in result
+        assert "No running task" in result
 
     def test_return_type_is_str(self):
         ctx = DaemonContext()
@@ -181,7 +181,7 @@ class TestHandleDaemonCommandStopUnit:
             if block.get("type") == "text"
         ]
         full_text = " ".join(text_parts)
-        assert "没有运行中的任务" in full_text
+        assert "No running task" in full_text
 
     @pytest.mark.asyncio
     async def test_daemon_stop_variant_returns_msg(self):
@@ -198,7 +198,7 @@ class TestHandleDaemonCommandStopUnit:
             if block.get("type") == "text"
         ]
         full_text = " ".join(text_parts)
-        assert "没有运行中的任务" in full_text
+        assert "No running task" in full_text
 
 
 # Feature: stop-magic-command, Property 2: 停止活跃任务返回成功

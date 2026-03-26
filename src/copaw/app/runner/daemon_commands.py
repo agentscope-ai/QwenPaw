@@ -200,7 +200,7 @@ def run_daemon_logs(context: DaemonContext, lines: int = 100) -> str:
 
 def run_daemon_stop(_context: DaemonContext) -> str:
     """Handle /stop when session is idle — no task to cancel."""
-    return "当前没有运行中的任务。"
+    return "No running task."
 
 
 async def run_daemon_approve(

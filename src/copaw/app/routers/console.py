@@ -81,7 +81,7 @@ async def _handle_console_stop(
         if not is_stop_command(user_text):
             return None
         stopped = await tracker.request_stop(chat_id)
-        msg = "已停止当前任务。" if stopped else "当前没有运行中的任务。"
+        msg = "Task stopped." if stopped else "No running task."
 
         async def stop_event() -> AsyncGenerator[str, None]:
             data = json.dumps({"stop": stopped, "message": msg})
@@ -97,7 +97,7 @@ async def _handle_console_stop(
         )
     except Exception as exc:
         logger.exception("Error handling /stop command")
-        err_msg = f"停止命令执行失败：{exc}"
+        err_msg = f"/stop command failed: {exc}"
 
         async def error_event() -> AsyncGenerator[str, None]:
             data = json.dumps({"stop": False, "message": err_msg})

@@ -378,7 +378,7 @@ class ChannelManager:
             else:
                 stopped = False
             request = ch._payload_to_request(payload)
-            msg = "已停止当前任务。" if stopped else "当前没有运行中的任务。"
+            msg = "Task stopped." if stopped else "No running task."
             to_handle = ch.get_to_handle_from_request(request)
             await ch.send(to_handle, msg)
         except Exception:
