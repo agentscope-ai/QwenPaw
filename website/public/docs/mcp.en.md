@@ -75,6 +75,27 @@ CoPaw supports three JSON formats for importing MCP clients:
 }
 ```
 
+### Optional field: `hot_reload_safe`
+
+You can optionally set `hot_reload_safe` on an MCP client:
+
+```json
+{
+  "mcpServers": {
+    "chrome-mcp-stdio": {
+      "command": "npx",
+      "args": ["node", "mcp-server-stdio.js"],
+      "hot_reload_safe": false
+    }
+  }
+}
+```
+
+- Default: `true`
+- Meaning: whether this MCP client can be safely reloaded inside the current CoPaw process
+- Use `false` for single-session or fragile stdio bridges that are known to break on in-process reconnect
+- When set to `false`, config changes to that client require a full CoPaw restart to take effect safely
+
 ---
 
 ## Example: Filesystem MCP server

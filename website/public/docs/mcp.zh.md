@@ -75,6 +75,27 @@ CoPaw 支持三种 JSON 格式导入 MCP 客户端：
 }
 ```
 
+### 可选字段：`hot_reload_safe`
+
+你也可以为某个 MCP 客户端显式设置 `hot_reload_safe`：
+
+```json
+{
+  "mcpServers": {
+    "chrome-mcp-stdio": {
+      "command": "npx",
+      "args": ["node", "mcp-server-stdio.js"],
+      "hot_reload_safe": false
+    }
+  }
+}
+```
+
+- 默认值：`true`
+- 含义：这个 MCP 客户端是否适合在当前 CoPaw 进程内安全热重载
+- 对于单连接、易在重连时失效的 stdio bridge，建议设置为 `false`
+- 当设置为 `false` 时，该客户端的配置变更需要完整重启 CoPaw 才会安全生效
+
 ---
 
 ## 示例：文件系统 MCP 服务器
