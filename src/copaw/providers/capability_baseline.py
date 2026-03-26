@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Capability baseline — expected multimodal capabilities and discrepancy
-reporting for all built-in providers."""
+reporting for all built-in providers.
+"""
 
 from __future__ import annotations
 

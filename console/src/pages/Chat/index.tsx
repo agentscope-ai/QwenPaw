@@ -23,6 +23,7 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeW
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import {
+  toDisplayUrl,
   copyText,
   extractCopyableText,
   buildModelError,
@@ -519,6 +520,9 @@ export default function ChatPage() {
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
+        replaceMediaURL: (url: string) => {
+          return toDisplayUrl(url);
+        },
         cancel(data: { session_id: string }) {
           const chatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
