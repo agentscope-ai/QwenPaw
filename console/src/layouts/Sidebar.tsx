@@ -36,10 +36,7 @@ import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
-import {
-  KEY_TO_PATH,
-  DEFAULT_OPEN_KEYS,
-} from "./constants";
+import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -68,7 +65,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     authApi
       .getStatus()
       .then((res) => setAuthEnabled(res.enabled))
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -138,20 +135,40 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.control"),
       children: [
         { key: "channels", label: t("nav.channels"), icon: <Wifi size={16} /> },
-        { key: "sessions", label: t("nav.sessions"), icon: <UsersRound size={16} /> },
-        { key: "cron-jobs", label: t("nav.cronJobs"), icon: <CalendarClock size={16} /> },
-        { key: "heartbeat", label: t("nav.heartbeat"), icon: <Activity size={16} /> },
+        {
+          key: "sessions",
+          label: t("nav.sessions"),
+          icon: <UsersRound size={16} />,
+        },
+        {
+          key: "cron-jobs",
+          label: t("nav.cronJobs"),
+          icon: <CalendarClock size={16} />,
+        },
+        {
+          key: "heartbeat",
+          label: t("nav.heartbeat"),
+          icon: <Activity size={16} />,
+        },
       ],
     },
     {
       key: "agent-group",
       label: t("nav.agent"),
       children: [
-        { key: "workspace", label: t("nav.workspace"), icon: <Briefcase size={16} /> },
+        {
+          key: "workspace",
+          label: t("nav.workspace"),
+          icon: <Briefcase size={16} />,
+        },
         { key: "skills", label: t("nav.skills"), icon: <Sparkles size={16} /> },
         { key: "tools", label: t("nav.tools"), icon: <Wrench size={16} /> },
         { key: "mcp", label: t("nav.mcp"), icon: <Plug size={16} /> },
-        { key: "agent-config", label: t("nav.agentConfig"), icon: <Settings size={16} /> },
+        {
+          key: "agent-config",
+          label: t("nav.agentConfig"),
+          icon: <Settings size={16} />,
+        },
       ],
     },
     {
@@ -160,10 +177,26 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       children: [
         { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
         { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
-        { key: "environments", label: t("nav.environments"), icon: <Globe size={16} /> },
-        { key: "security", label: t("nav.security"), icon: <Shield size={16} /> },
-        { key: "token-usage", label: t("nav.tokenUsage"), icon: <BarChart3 size={16} /> },
-        { key: "voice-transcription", label: t("nav.voiceTranscription"), icon: <Mic size={16} /> },
+        {
+          key: "environments",
+          label: t("nav.environments"),
+          icon: <Globe size={16} />,
+        },
+        {
+          key: "security",
+          label: t("nav.security"),
+          icon: <Shield size={16} />,
+        },
+        {
+          key: "token-usage",
+          label: t("nav.tokenUsage"),
+          icon: <BarChart3 size={16} />,
+        },
+        {
+          key: "voice-transcription",
+          label: t("nav.voiceTranscription"),
+          icon: <Mic size={16} />,
+        },
       ],
     },
   ];
@@ -175,7 +208,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       width={275}
       className={`${styles.sider}${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      <AgentSelector />
+      <div className={styles.agentSelectorContainer}>
+        <AgentSelector />
+      </div>
       <Menu
         mode="inline"
         selectedKeys={[selectedKey]}
@@ -186,6 +221,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         }}
         items={menuItems}
         theme={isDark ? "dark" : "light"}
+        className={styles.sideMenu}
       />
 
       {authEnabled && (

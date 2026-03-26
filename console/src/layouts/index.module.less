@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #F9F8F4;
+  background: #f9f8f4;
 }
 
 .headerTitle {
@@ -26,22 +26,65 @@
   white-space: nowrap;
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
-  background: #F9F8F4 !important;
+  background: #f9f8f4 !important;
   overflow: auto;
-  height: 100vh;
+  height: calc(100vh - 64px);
   padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+
+  // Hide scrollbar in browser
+  &::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
+  }
+  &::-moz-scrollbar {
+    display: none; /* Firefox */
+  }
+  &::-ms-scrollbar {
+    display: none; /* IE/Edge */
+  }
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+
+  // AgentSelector container - fixed at top
+  .agentSelectorContainer {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f9f8f4;
+    margin-bottom: 12px;
+  }
+
+  // Menu takes remaining space
+  .sideMenu {
+    flex: 1;
+    overflow-y: auto;
+
+    // Hide scrollbar for menu too
+    &::-webkit-scrollbar {
+      display: none;
+    }
+    &::-moz-scrollbar {
+      display: none;
+    }
+    &::-ms-scrollbar {
+      display: none;
+    }
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
 
   :global {
     .copaw-menu {
-      background: #F9F8F4 !important;
+      background: #f9f8f4 !important;
       border-inline-end: 0 !important;
     }
 
     /* Group title (一级菜单分组) */
     .copaw-menu-submenu-title {
-      font-family: 'PingFang SC', sans-serif !important;
+      font-family: "PingFang SC", sans-serif !important;
       font-size: 12px !important;
       font-weight: 500 !important;
       line-height: 32px !important;
@@ -56,7 +99,7 @@
 
     /* Always expand submenus */
     .copaw-menu-submenu {
-      >.copaw-menu {
+      > .copaw-menu {
         display: block !important;
       }
     }
@@ -82,6 +125,11 @@
 .siderDark {
   background: #1a1a1a !important;
   border-right-color: rgba(255, 255, 255, 0.08) !important;
+
+  // AgentSelector container - fixed at top (dark mode)
+  .agentSelectorContainer {
+    background: #1a1a1a;
+  }
 
   :global {
     .copaw-menu {
@@ -159,7 +207,7 @@
 
 .collapseBtn {
   margin: auto;
-  color: #FF7F16;
+  color: #ff7f16;
 }
 
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
@@ -185,7 +233,7 @@
   justify-content: center;
 }
 
-.authBtn+.authBtn {
+.authBtn + .authBtn {
   margin-top: 4px;
 }
 
@@ -218,7 +266,8 @@
 }
 
 .updateModalBanner {
-  background: url('https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png') no-repeat center top;
+  background: url("https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png")
+    no-repeat center top;
   background-size: contain;
   padding: 48px 28px 0px;
   display: flex;
@@ -255,11 +304,11 @@
   font-weight: 500;
   line-height: 64.78px;
   letter-spacing: normal;
-  color: #FF7F16;
+  color: #ff7f16;
 }
 
 .updateModalTitle {
-  color: #FF7F16;
+  color: #ff7f16;
 }
 
 .updateModalBody {
@@ -278,8 +327,8 @@
 }
 
 .updateViewReleasesBtn {
-  background: #FF7F16 !important;
-  border-color: #FF7F16 !important;
+  background: #ff7f16 !important;
+  border-color: #ff7f16 !important;
   color: #fff !important;
 
   &:hover {
@@ -289,8 +338,8 @@
 }
 
 .updateModalPrimaryBtn {
-  background: #FF7F16;
-  border-color: #FF7F16;
+  background: #ff7f16;
+  border-color: #ff7f16;
 }
 
 // ─── Code block inside update modal ──────────────────────────────────────────

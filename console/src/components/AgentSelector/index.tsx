@@ -132,9 +132,7 @@ export default function AgentSelector() {
                       />
                     )}
                     {!agent.enabled && (
-                      <Tag style={{ margin: 0 }}>
-                        {t("agent.disabled")}
-                      </Tag>
+                      <Tag style={{ margin: 0 }}>{t("agent.disabled")}</Tag>
                     )}
                   </div>
                   {agent.description && (

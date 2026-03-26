@@ -109,9 +109,12 @@ function ChannelsPage() {
   return (
     <div className={styles.channelsPage}>
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.title}>{t("channels.title")}</h1>
-          <p className={styles.description}>{t("channels.description")}</p>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Control</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("channels.title")}
+          </span>
         </div>
         <div className={styles.filterTabs}>
           {FILTER_TABS.map(({ key, label }) => (

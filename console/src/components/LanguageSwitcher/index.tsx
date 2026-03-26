@@ -53,10 +53,10 @@ export default function LanguageSwitcher() {
       placement="bottomRight"
       overlayClassName={styles.languageDropdown}
     >
-      <img 
+      <img
         className={styles.languageIcon}
-        src={currentLabel as string} 
-        alt="Language" 
+        src={currentLabel as string}
+        alt="Language"
       />
     </Dropdown>
   );

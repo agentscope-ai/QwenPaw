@@ -154,26 +154,28 @@ function SessionsPage() {
 
   return (
     <div className={styles.sessionsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("sessions.title")}</h1>
-          <p className={styles.description}>{t("sessions.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Control</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("sessions.title")}
+          </span>
         </div>
-        {selectedRowKeys.length > 0 && (
-          <Button type="primary" danger onClick={handleBatchDelete}>
-            {t("sessions.batchDeleteButton")} ({selectedRowKeys.length})
-          </Button>
-        )}
-      </div>
-
-      <div className={styles.filterBar}>
-        <FilterBar
-          filterUserId={filterUserId}
-          filterChannel={filterChannel}
-          uniqueChannels={availableChannels}
-          onUserIdChange={setFilterUserId}
-          onChannelChange={setFilterChannel}
-        />
+        <div className={styles.headerRight}>
+          <FilterBar
+            filterUserId={filterUserId}
+            filterChannel={filterChannel}
+            uniqueChannels={availableChannels}
+            onUserIdChange={setFilterUserId}
+            onChannelChange={setFilterChannel}
+          />
+          {selectedRowKeys.length > 0 && (
+            <Button type="primary" danger onClick={handleBatchDelete}>
+              {t("sessions.batchDeleteButton")} ({selectedRowKeys.length})
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>

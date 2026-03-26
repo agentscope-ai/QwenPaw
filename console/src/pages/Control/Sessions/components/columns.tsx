@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ColumnsType } from "antd/es/table";
 import { CHANNEL_COLORS, formatTime, type Session } from "./constants";
+import styles from "../index.module.less";
 
 interface ColumnHandlers {
   onEdit: (session: Session) => void;
@@ -82,7 +83,7 @@ export const createColumns = (
       width: 180,
       fixed: "right",
       render: (_: unknown, record: Session) => (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className={styles.actionColumn}>
           <Button
             type="link"
             size="small"

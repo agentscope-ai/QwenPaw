@@ -61,7 +61,7 @@ export default function Header() {
     api
       .getVersion()
       .then((res) => setVersion(res?.version ?? ""))
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -105,7 +105,7 @@ export default function Header() {
           setLatestVersion("");
         }
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   const hasUpdate =
@@ -117,8 +117,8 @@ export default function Header() {
     const lang = i18n.language?.startsWith("zh")
       ? "zh"
       : i18n.language?.startsWith("ru")
-        ? "ru"
-        : "en";
+      ? "ru"
+      : "en";
     const faqLang = lang === "zh" ? "zh" : "en";
     const url = `https://copaw.agentscope.io/docs/faq.${faqLang}.md`;
     fetch(url, { cache: "no-cache" })
@@ -164,12 +164,17 @@ export default function Header() {
           />
           <div className={styles.logoDivider} />
           {version && (
-            <Badge dot={!!hasUpdate} color="rgba(255, 157, 77, 1)" offset={[4, 28]}>
+            <Badge
+              dot={!!hasUpdate}
+              color="rgba(255, 157, 77, 1)"
+              offset={[4, 28]}
+            >
               <span
-                className={`${styles.versionBadge} ${hasUpdate
+                className={`${styles.versionBadge} ${
+                  hasUpdate
                     ? styles.versionBadgeClickable
                     : styles.versionBadgeDefault
-                  }`}
+                }`}
                 onClick={() => hasUpdate && handleOpenUpdateModal()}
               >
                 v{version}
@@ -203,10 +208,7 @@ export default function Header() {
             </Button>
           </Tooltip>
           <Tooltip title={t("header.github")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(GITHUB_URL)}
-            >
+            <Button type="text" onClick={() => handleNavClick(GITHUB_URL)}>
               {t("header.github")}
             </Button>
           </Tooltip>
@@ -244,7 +246,9 @@ export default function Header() {
               Version {latestVersion || version}
             </span>
             <div className={styles.updateModalBannerTitle}>
-              {t("sidebar.updateModal.title", { version: latestVersion || version })}
+              {t("sidebar.updateModal.title", {
+                version: latestVersion || version,
+              })}
             </div>
           </div>
         </div>
@@ -261,7 +265,9 @@ export default function Header() {
                     node?.position?.start?.line !== node?.position?.end?.line ||
                     match;
                   return isBlock ? (
-                    <UpdateCodeBlock code={String(children).replace(/\n$/, "")} />
+                    <UpdateCodeBlock
+                      code={String(children).replace(/\n$/, "")}
+                    />
                   ) : (
                     <code className={styles.codeInline} {...props}>
                       {children}
