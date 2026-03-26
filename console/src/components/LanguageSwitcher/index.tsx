@@ -1,12 +1,14 @@
-import { Dropdown, Button } from "@agentscope-ai/design";
+import { Dropdown } from "@agentscope-ai/design";
 import { GlobalOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MenuProps } from "antd";
+import styles from "./index.module.less";
 
 export default function LanguageSwitcher() {
   const { i18n } = useTranslation();
 
   const currentLanguage = i18n.resolvedLanguage || i18n.language;
+  const currentLangKey = currentLanguage.split("-")[0];
 
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
@@ -36,23 +38,26 @@ export default function LanguageSwitcher() {
     },
   ];
 
-  const languageLabels: Record<string, string> = {
-    en: "English",
-    ru: "Русский",
-    zh: "简体中文",
-    ja: "日本語",
+  const languageIcons: Record<string, string> = {
+    en: "https://gw.alicdn.com/imgextra/i1/O1CN015nxrjZ1JkjjTH3DLE_!!6000000001067-2-tps-80-80.png",
+    ru: "https://gw.alicdn.com/imgextra/i4/O1CN01QjtbJU1HWQ7WlCXce_!!6000000000765-2-tps-80-80.png",
+    zh: "https://gw.alicdn.com/imgextra/i3/O1CN01L3Tjzd22UqhdBWnXO_!!6000000007124-2-tps-80-80.png",
+    ja: "https://gw.alicdn.com/imgextra/i3/O1CN019bbf8m1y6L2lor0bZ_!!6000000006529-2-tps-80-80.png",
   };
 
-  const currentLabel = languageLabels[currentLanguage] ?? "English";
+  const currentLabel = languageIcons[currentLanguage] ?? <GlobalOutlined />;
 
   return (
     <Dropdown
-      menu={{ items, selectedKeys: [currentLanguage.split("-")[0]] }}
+      menu={{ items, selectedKeys: [currentLangKey] }}
       placement="bottomRight"
+      overlayClassName={styles.languageDropdown}
     >
-      <Button icon={<GlobalOutlined />} type="text">
-        {currentLabel}
-      </Button>
+      <img 
+        className={styles.languageIcon}
+        src={currentLabel as string} 
+        alt="Language" 
+      />
     </Dropdown>
   );
 }

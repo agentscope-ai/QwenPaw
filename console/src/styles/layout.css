@@ -4,6 +4,7 @@ body {
   overflow: hidden;
   margin: 0;
   padding: 0;
+  background: #F9F8F4;
 }
 
 /* ─── Dark mode global token overrides ─────────────────────────────────────── */
@@ -688,10 +689,54 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   min-height: 100vh;
   max-height: 100vh;
   overflow: hidden;
+  background: #F9F8F4;
 }
 
 .ant-layout-content {
   overflow: hidden;
+  background: #F9F8F4;
+}
+
+/* Menu background in light mode */
+.copaw-menu,
+.ant-menu {
+  background: #F9F8F4 !important;
+}
+
+/* Menu selected item in light mode */
+.copaw-menu-item-selected,
+.ant-menu-item-selected {
+  background: rgba(43, 18, 0, 0.08) !important;
+  color: inherit !important;
+}
+
+/* Hide submenu arrow in light mode */
+.copaw-menu-submenu-arrow,
+.ant-menu-submenu-arrow {
+  display: none !important;
+}
+
+/* Group title (一级菜单) in light mode */
+.copaw-menu-submenu-title,
+.ant-menu-submenu-title {
+  font-family: 'PingFang SC', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 32px !important;
+  letter-spacing: normal !important;
+  color: rgba(26, 23, 22, 0.25) !important;
+}
+
+/* Remove submenu indent - align with parent in light mode */
+.copaw-menu-submenu .copaw-menu-item,
+.ant-menu-submenu .ant-menu-item {
+  padding-left: 24px !important;
+}
+
+/* Selected submenu item - keep text color unchanged in light mode */
+.copaw-menu-submenu .copaw-menu-item-selected,
+.ant-menu-submenu .ant-menu-item-selected {
+  color: inherit !important;
 }
 
 .page-container {

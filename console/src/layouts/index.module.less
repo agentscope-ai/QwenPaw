@@ -14,8 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
+  background: #F9F8F4;
 }
 
 .headerTitle {
@@ -29,14 +28,54 @@
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 .sider {
-  background: #fff !important;
+  background: #F9F8F4 !important;
   border-right: 1px solid #f0f0f0;
   overflow: auto;
   height: 100vh;
+  padding: 0 16px;
 
   :global {
     .copaw-menu {
+      background: #F9F8F4 !important;
       border-inline-end: 0 !important;
+    }
+
+    /* Group title (一级菜单分组) */
+    .copaw-menu-submenu-title {
+      font-family: 'PingFang SC', sans-serif !important;
+      font-size: 12px !important;
+      font-weight: 500 !important;
+      line-height: 32px !important;
+      letter-spacing: normal !important;
+      color: rgba(26, 23, 22, 0.25) !important;
+    }
+
+    /* Hide submenu arrow */
+    .copaw-menu-submenu-arrow {
+      display: none !important;
+    }
+
+    /* Always expand submenus */
+    .copaw-menu-submenu {
+      > .copaw-menu {
+        display: block !important;
+      }
+    }
+
+    /* Remove submenu indent - align with parent */
+    .copaw-menu-submenu .copaw-menu-item {
+      padding-left: 24px !important;
+    }
+
+    /* Selected item */
+    .copaw-menu-item-selected {
+      background: rgba(43, 18, 0, 0.08) !important;
+      color: inherit !important;
+    }
+
+    /* Selected submenu item - keep text color unchanged */
+    .copaw-menu-submenu .copaw-menu-item-selected {
+      color: inherit !important;
     }
   }
 }
@@ -50,20 +89,24 @@
       background: #1a1a1a !important;
       border-inline-end: 0 !important;
     }
+
     /* Group title (sub-menu label) */
     .copaw-menu-submenu-title {
       color: rgba(255, 255, 255, 0.45) !important;
     }
+
     /* Regular menu item */
     .copaw-menu-item {
       color: rgba(255, 255, 255, 0.75) !important;
     }
+
     /* Hover state */
     .copaw-menu-item:hover,
     .copaw-menu-submenu-title:hover {
       background: rgba(255, 255, 255, 0.1) !important;
       color: rgba(255, 255, 255, 0.95) !important;
     }
+
     /* Selected item */
     .copaw-menu-item-selected {
       background: rgba(97, 92, 237, 0.3) !important;
@@ -72,31 +115,39 @@
   }
 }
 
-.siderTop {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 12px;
-}
-
 .logoWrapper {
   display: flex;
   align-items: center;
 }
 
 .logoImg {
-  height: 32px;
+  height: 16px;
   width: auto;
 }
 
+.logoDivider {
+  width: 16px;
+  height: 0px;
+  transform: rotate(90deg);
+  border-top: 1px solid rgba(234, 232, 231, 1);
+  margin: 0 8px;
+}
+
+.headerDivider {
+  width: 16px;
+  height: 0px;
+  transform: rotate(90deg);
+  z-index: 4;
+  border-top: 1px solid rgba(234, 232, 231, 1);
+}
+
 .versionBadge {
-  font-size: 10px;
-  color: #615ced;
+  font-size: 12px;
+  color: #1a171673;
   font-weight: 600;
   line-height: 1;
   position: relative;
-  top: 10px;
+  top: 3px;
 }
 
 .versionBadgeClickable {
@@ -135,7 +186,7 @@
   justify-content: center;
 }
 
-.authBtn + .authBtn {
+.authBtn+.authBtn {
   margin-top: 4px;
 }
 
