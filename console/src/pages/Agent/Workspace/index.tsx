@@ -119,7 +119,6 @@ export default function WorkspacePage() {
           </p>
         </div>
         <div className={styles.workspaceInfo}>
-
           <div className={styles.actionButtons}>
             <input
               type="file"
@@ -178,7 +177,6 @@ export default function WorkspacePage() {
           onReset={handleReset}
         />
       </div>
-
     </div>
   );
 }
