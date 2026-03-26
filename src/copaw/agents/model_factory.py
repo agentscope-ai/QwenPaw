@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
 
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
-from ..providers.retry_chat_model import RetryChatModel
+from ..providers.retry_chat_model import RetryChatModel, RetryConfig
 from ..token_usage import TokenRecordingModelWrapper
 from ..local_models import create_local_chat_model
 
@@ -307,10 +307,17 @@ def create_model_and_formatter(
 
     # Try to get agent-specific model first
     model_slot = None
+    retry_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
+            retry_config = RetryConfig(
+                enabled=agent_config.running.llm_retry_enabled,
+                max_retries=agent_config.running.llm_max_retries,
+                backoff_base=agent_config.running.llm_backoff_base,
+                backoff_cap=agent_config.running.llm_backoff_cap,
+            )
         except Exception:
             pass
 
@@ -335,16 +342,24 @@ def create_model_and_formatter(
     else:
         # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
-        provider_id = (
-            ProviderManager.get_instance().get_active_model().provider_id
-        )
+        global_model = ProviderManager.get_instance().get_active_model()
+        if not global_model:
+            raise ValueError(
+                "No active model configured. "
+                "Please configure a model using 'copaw models config' "
+                "or set an agent-specific model.",
+            )
+        provider_id = global_model.provider_id
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
     # Wrap with retry logic for transient LLM API errors
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(wrapped_model)
+    wrapped_model = RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+    )
 
     return wrapped_model, formatter
 
@@ -368,7 +383,10 @@ def _create_formatter_instance(
         base_formatter_class,
     )
     kwargs: dict[str, Any] = {}
-    if issubclass(base_formatter_class, OpenAIChatFormatter):
+    if issubclass(
+        base_formatter_class,
+        (OpenAIChatFormatter, GeminiChatFormatter),
+    ):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)
 

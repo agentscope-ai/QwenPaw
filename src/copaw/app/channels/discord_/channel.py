@@ -7,6 +7,7 @@ import logging
 import asyncio
 import re
 import tempfile
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Optional
@@ -23,6 +24,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
+from ..utils import file_url_to_local_path
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -40,6 +42,7 @@ class DiscordChannel(BaseChannel):
     channel = "discord"
     uses_manager_queue = True
     _DISCORD_MAX_LEN: int = 2000
+    _MAX_CACHED_MESSAGE_IDS: int = 500
 
     def __init__(
         self,
@@ -78,6 +81,8 @@ class DiscordChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._task: Optional[asyncio.Task] = None
         self._client = None
+        self._processed_message_ids: set[str] = set()
+        self._processed_message_id_queue: deque[str] = deque()
 
         if self.enabled:
             import discord  # type: ignore
@@ -103,6 +108,21 @@ class DiscordChannel(BaseChannel):
             async def on_message(message):
                 if message.author.bot:
                     return
+                msg_id = str(message.id)
+                if msg_id in self._processed_message_ids:
+                    logger.debug(
+                        "discord: duplicate message %s skipped",
+                        msg_id,
+                    )
+                    return
+                if (
+                    len(self._processed_message_ids)
+                    >= self._MAX_CACHED_MESSAGE_IDS
+                ):
+                    oldest = self._processed_message_id_queue.popleft()
+                    self._processed_message_ids.discard(oldest)
+                self._processed_message_ids.add(msg_id)
+                self._processed_message_id_queue.append(msg_id)
                 text = (message.content or "").strip()
                 attachments = message.attachments
 
@@ -246,7 +266,7 @@ class DiscordChannel(BaseChannel):
                 "",
             ),
             http_proxy_auth=os.getenv("DISCORD_HTTP_PROXY_AUTH", ""),
-            bot_prefix=os.getenv("DISCORD_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("DISCORD_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("DISCORD_DM_POLICY", "open"),
             group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
@@ -271,7 +291,7 @@ class DiscordChannel(BaseChannel):
             token=config.bot_token or "",
             http_proxy=config.http_proxy,
             http_proxy_auth=config.http_proxy_auth or "",
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -436,9 +456,7 @@ class DiscordChannel(BaseChannel):
         meta: Optional[dict] = None,
     ) -> None:
         """Send a media part as a Discord file attachment."""
-        if not self.enabled or not self._client:
-            return
-        if not self._client.is_ready():
+        if not self.enabled or not self._client or not self._client.is_ready():
             return
         import discord
 
@@ -460,7 +478,14 @@ class DiscordChannel(BaseChannel):
 
         temp_path = None
         if url.startswith("file://"):
-            file = discord.File(url[7:])
+            local_path = file_url_to_local_path(url)
+            if not local_path:
+                logger.warning(
+                    "discord send_media: invalid file URL %s",
+                    url,
+                )
+                return
+            file = discord.File(local_path)
         elif url.startswith(("http://", "https://")):
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:

@@ -34,6 +34,8 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 >
 > **Under your control** — Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders to any channel.
 >
+> **Multi-Agent** — Create multiple independent agents, each with their own specialty; enable collaboration skill for inter-agent communication.
+>
 > **Skills** — Built-in cron; custom skills in your workspace, auto-loaded. No lock-in.
 >
 > <details>
@@ -54,12 +56,14 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 ## News
 
-[2026-03-18] We released v0.1.0! See the [v0.1.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+[2026-03-24] We released v0.2.0! See the [v0.2.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v0.1.0] Added:** Multi-workspace architecture with agent selector; skill security scanner and destructive shell command detection; optional web authentication; WeCom and XiaoYi channels; DingTalk AI Card replies; Gemini, DeepSeek, MiniMax, and Kimi providers; console dark mode and multimodal chat; SSE-based chat streaming with reconnect; voice message transcription via Whisper; `view_image` tool for multimodal conversations; LobeHub, ModelScope, and zip archive skill import; `glob_search` and `grep_search` built-in tools; timezone selector; `copaw update` CLI.
-- **[v0.1.0] Improved:** Graceful lifecycle management with zero-downtime agent reload; dynamic per-agent token counting; config loading protection; console internationalization with localized chat prompts; Windows desktop startup speed via bytecode pre-compilation; QQ channel reply logic with DM support.
-- **[v0.1.0] Fixed:** Telegram thread replies, media handling, and auto-reconnect; Discord cross-channel message merging and debounce generalization; Feishu channel reload; Ollama/LM Studio context length and error messages; cron jobs in correct workspace; Windows cross-disk moves, AutoRun stderr, and GBK encoding.
-- **[v0.1.0] Contributors:** Thanks to new contributors: [@dipeshbabu](https://github.com/dipeshbabu), [@sljeff](https://github.com/sljeff), [@octo-patch](https://github.com/octo-patch), [@Alexxigang](https://github.com/Alexxigang), [@howyoungchen](https://github.com/howyoungchen), [@nphenix](https://github.com/nphenix), [@skyfaker](https://github.com/skyfaker), [@hh0592821](https://github.com/hh0592821), [@futuremeng](https://github.com/futuremeng), [@toby1123yjh](https://github.com/toby1123yjh), [@hiyuchang](https://github.com/hiyuchang), [@hanson-hex](https://github.com/hanson-hex), [@JackyMao1999](https://github.com/JackyMao1999), [@mvanhorn](https://github.com/mvanhorn), [@yuanxs21](https://github.com/yuanxs21), [@aissac](https://github.com/aissac), [@lcq225](https://github.com/lcq225), [@Justin-lu](https://github.com/Justin-lu), [@rowanchen-com](https://github.com/rowanchen-com), [@pzlav](https://github.com/pzlav), [@mautops](https://github.com/mautops), [@hikariming](https://github.com/hikariming), [@Vanlee0129](https://github.com/Vanlee0129), [@JiwaniZakir](https://github.com/JiwaniZakir), [@EuanTop](https://github.com/EuanTop).
+- **[v0.2.0] Added:** Inter-agent communication; built-in QA agent; LLM auto-retry settings; file access guard for sensitive paths; audio, video & speech input in console chat; stream reconnection on page refresh; model provider search; multimodal capability probing with UI tags; enhanced grep & glob search; config auto-repair; summarization improvements.
+- **[v0.2.0] Changed:** Stable prompts for better KV cache hit rates; faster CLI startup; QQ channel refactor; smart text chunking for QQ & WeCom; QQ WebSocket reconnect config; dark mode polish across console UI.
+- **[v0.2.0] Fixed:** Shell command hang on Windows; Windows file path handling; macOS desktop build; channel message processing lock leak; agent list crash and refresh; console reconnect overflow; cron job cancellation.
+- **[v0.2.0] Contributors:** Thanks to new contributors: [@ixiadao](https://github.com/ixiadao), [@leoleils](https://github.com/leoleils), [@ltzu929](https://github.com/ltzu929), [@emoubarak](https://github.com/emoubarak), [@f3125472](https://github.com/f3125472), [@shiweijiezero](https://github.com/shiweijiezero), [@Yaohua-Leo](https://github.com/Yaohua-Leo), [@finenter-molei](https://github.com/finenter-molei), [@lizeruicq](https://github.com/lizeruicq), [@hbsjmsjwj](https://github.com/hbsjmsjwj), [@aquamarine-bot](https://github.com/aquamarine-bot), [@sanfran1068](https://github.com/sanfran1068), [@x1n95c](https://github.com/x1n95c), [@saschabuehrle](https://github.com/saschabuehrle).
+
+[2026-03-18] We released v0.1.0! See the [v0.1.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
 [2026-03-12] We released v0.0.7! See the [v0.0.7 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
@@ -85,6 +89,7 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 - [Local Models](#local-models)
 - [Documentation](#documentation)
 - [FAQ](#faq)
+- [Staying ahead](#staying-ahead)
 - [Roadmap](#roadmap)
 - [Contributing](#get-involved)
 - [Install from source](#install-from-source)
@@ -370,6 +375,7 @@ copaw app # start the server
 | [Context](https://copaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
+| [Multi-Agent](https://copaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
 | [Config & working dir](https://copaw.agentscope.io/docs/config) | Working directory and config file                |
 | [CLI](https://copaw.agentscope.io/docs/cli)                            | Init, cron jobs, skills, clean                   |
 | [FAQ](https://copaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
@@ -384,6 +390,16 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 ---
 
+## Staying ahead
+
+<a href="https://github.com/agentscope-ai/CoPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+</a>
+
+Star CoPaw on GitHub and be instantly notified of new releases.
+
+---
+
 ## Roadmap
 
 | Area                                  | Item                                                                                                                                             | Status               |
@@ -391,28 +407,23 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
 | **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Self-healing**                      | Magic commands and daemon capabilities (CLI, status, restart, logs)                                                                              | In Progress          |
-|                                       | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | Planned              |
+| **Self-healing**                      | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | In Progress          |
 | **Multi-agent**                       | Background task support                                                                                                                          | In Progress          |
-|                                       | Multi-agent isolation                                                                                                                            | Planned              |
+|                                       | Async tasks                                                                                                                                      | Planned              |
 |                                       | Inter-agent contention resolution                                                                                                                | Planned              |
-|                                       | Multi-agent communication                                                                                                                        | Planned              |
 | **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows and sensitive-data use cases                                                                | In Progress          |
-|                                       | Multi-model routing. Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability          | Planned              |
+| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows                                                                                               | In Progress          |
+|                                       | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
 | **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
+|                                       | Memory mechanism switching                                                                                                                       | Planned              |
 |                                       | Multimodal memory fusion                                                                                                                         | Planned              |
 |                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
-| **Security**                          | Shell execution confirmation                                                                                                                     | Planned              |
-|                                       | Tool/skills security                                                                                                                             | Planned              |
-|                                       | Configurable security levels (user-configurable)                                                                                                 | Planned              |
-| **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term Planned    |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term Planned    |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planned    |
+| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | In Progress          |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Planned              |
+| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Planned              |
 
 
-*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planned* — longer-horizon roadmap.
+*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**.
 
 ### Get involved
 
@@ -445,6 +456,8 @@ pip install -e .
 
 - **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
 - **Then**: Run `copaw init --defaults`, then `copaw app`.
+
+> **Note for updates:** When updating to a new major version after `git pull`, please also rebuild the frontend, reinstall the package (`pip install -e .`), restart `copaw app`, and clear your browser cache with `Ctrl+Shift+R` (or `Cmd+Shift+R` on macOS).
 
 ---
 

@@ -1,5 +1,6 @@
 import { request } from "../request";
-import { getApiUrl } from "../config";
+import { getApiUrl, getApiToken } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
@@ -14,38 +15,7 @@ export interface ChatUploadResponse {
   stored_name?: string;
 }
 
-const CONSOLE_FILES_PREFIX = "/console/files";
-
-function buildChatUploadHeaders(): HeadersInit {
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem("copaw_auth_token");
-  if (token) headers.Authorization = `Bearer ${token}`;
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) headers["X-Agent-Id"] = selectedAgent;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
-}
-
-function getSelectedAgentId(): string {
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const id = parsed?.state?.selectedAgent;
-      if (id) return id;
-    }
-  } catch {
-    // ignore
-  }
-  return "";
-}
+const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
   /** Upload a file for chat attachment. Returns URL path for content. */
@@ -54,7 +24,7 @@ export const chatApi = {
     formData.append("file", file);
     const response = await fetch(getApiUrl("/console/upload"), {
       method: "POST",
-      headers: buildChatUploadHeaders(),
+      headers: buildAuthHeaders(),
       body: formData,
     });
     if (!response.ok) {
@@ -68,17 +38,19 @@ export const chatApi = {
     return response.json();
   },
 
-  /** Build full API URL for a console file. Backend returns filename only; agent_id from header/context (selectedAgent). */
-  fileUrl: (filename: string): string => {
+  filePreviewUrl: (filename: string): string => {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    const agentId = getSelectedAgentId() || "default";
-    const path = `${CONSOLE_FILES_PREFIX}/${agentId}/${filename.replace(
-      /^\/+/,
-      "",
-    )}`;
-    return getApiUrl(path);
+    const path = `${FILES_PREVIEW}/${filename.replace(/^\/+/, "")}`;
+    const url = getApiUrl(path);
+
+    const token = getApiToken();
+    if (token) {
+      return `${url}?token=${encodeURIComponent(token)}`;
+    }
+
+    return url;
   },
   listChats: (params?: { user_id?: string; channel?: string }) => {
     const searchParams = new URLSearchParams();
@@ -117,12 +89,10 @@ export const chatApi = {
       },
     ),
 
-  /** Stop a running console chat (only stop when user clicks stop). chat_id = ChatSpec.id */
-  stopConsoleChat: (chatId: string) =>
-    request<{ stopped: boolean }>(
-      `/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`,
-      { method: "POST" },
-    ),
+  stopChat: (chatId: string) =>
+    request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
+      method: "POST",
+    }),
 };
 
 export const sessionApi = {

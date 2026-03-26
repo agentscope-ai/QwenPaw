@@ -91,6 +91,7 @@ export function ModelsSection({
     const body: ModelSlotRequest = {
       provider_id: selectedProviderId,
       model: selectedModel,
+      scope: "global",
     };
 
     setSaving(true);
@@ -116,18 +117,6 @@ export function ModelsSection({
 
   return (
     <div className={styles.slotSection}>
-      <div className={styles.slotHeader}>
-        <h3 className={styles.slotTitle}>{t("models.llmConfiguration")}</h3>
-        {currentSlot?.provider_id && currentSlot?.model && (
-          <span className={styles.slotCurrent}>
-            {t("models.active", {
-              provider: currentSlot.provider_id,
-              model: currentSlot.model,
-            })}
-          </span>
-        )}
-      </div>
-
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>

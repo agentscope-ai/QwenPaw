@@ -179,16 +179,26 @@ class MemoryCompactionHook:
                 previous_summary=memory.get_compressed_summary(),
             )
 
-            await self._print_status_message(
-                agent,
-                "✅ Context compaction completed",
-            )
+            if not compact_content:
+                logger.error("Memory compaction returned empty result")
+                await self._print_status_message(
+                    agent,
+                    "⚠️ Context compaction failed. "
+                    "If context exceeds max length, "
+                    "please use /new or /clear to clear the context.",
+                )
+            else:
+                await self._print_status_message(
+                    agent,
+                    "✅ Context compaction completed",
+                )
+
+                updated_count = await memory.mark_messages_compressed(
+                    messages_to_compact,
+                )
+                logger.info(f"Marked {updated_count} messages as compacted")
 
             await agent.memory.update_compressed_summary(compact_content)
-            updated_count = await memory.mark_messages_compressed(
-                messages_to_compact,
-            )
-            logger.info(f"Marked {updated_count} messages as compacted")
 
         except Exception as e:
             logger.exception(

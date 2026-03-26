@@ -20,6 +20,18 @@ export interface ToolGuardConfig {
   disabled_rules: string[];
 }
 
+// ── File Guard types ──────────────────────────────────────────────
+
+export interface FileGuardResponse {
+  enabled: boolean;
+  paths: string[];
+}
+
+export interface FileGuardUpdateBody {
+  enabled?: boolean;
+  paths?: string[];
+}
+
 // ── Skill Scanner types ────────────────────────────────────────────
 
 export interface SkillScannerWhitelistEntry {
@@ -75,6 +87,16 @@ export const securityApi = {
 
   getBuiltinRules: () =>
     request<ToolGuardRule[]>("/config/security/tool-guard/builtin-rules"),
+
+  // ── File Guard ─────────────────────────────────────────────────
+
+  getFileGuard: () => request<FileGuardResponse>("/config/security/file-guard"),
+
+  updateFileGuard: (body: FileGuardUpdateBody) =>
+    request<FileGuardResponse>("/config/security/file-guard", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   // ── Skill Scanner ───────────────────────────────────────────────
 

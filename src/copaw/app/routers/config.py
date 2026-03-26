@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 
 from datetime import datetime, timezone
-from typing import Any, List
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel
 
+from ..utils import schedule_agent_reload
 from ...config import (
     load_config,
     save_config,
@@ -130,24 +131,7 @@ async def put_channels(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return channels_config
 
@@ -243,24 +227,7 @@ async def put_channel(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return channel_config
 
@@ -438,6 +405,66 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── Security / File Guard ────────────────────────────────────────────
+
+
+class FileGuardResponse(BaseModel):
+    enabled: bool = True
+    paths: List[str] = []
+
+
+class FileGuardUpdateBody(BaseModel):
+    enabled: Optional[bool] = None
+    paths: Optional[List[str]] = None
+
+
+@router.get(
+    "/security/file-guard",
+    response_model=FileGuardResponse,
+    summary="Get file guard settings",
+)
+async def get_file_guard() -> FileGuardResponse:
+    config = load_config()
+    fg = config.security.file_guard
+    paths = fg.sensitive_files
+    if not paths:
+        from ...security.tool_guard.guardians.file_guardian import (
+            _DEFAULT_DENY_DIRS,
+        )
+
+        paths = list(_DEFAULT_DENY_DIRS)
+    return FileGuardResponse(enabled=fg.enabled, paths=paths)
+
+
+@router.put(
+    "/security/file-guard",
+    response_model=FileGuardResponse,
+    summary="Update file guard settings",
+)
+async def put_file_guard(
+    body: FileGuardUpdateBody,
+) -> FileGuardResponse:
+    config = load_config()
+    fg = config.security.file_guard
+
+    if body.enabled is not None:
+        fg.enabled = body.enabled
+    if body.paths is not None:
+        fg.sensitive_files = body.paths
+
+    save_config(config)
+
+    from ...security.tool_guard.engine import get_guard_engine
+
+    engine = get_guard_engine()
+    engine.reload_rules()
+
+    return FileGuardResponse(
+        enabled=fg.enabled,
+        paths=fg.sensitive_files,
+    )
 
 
 # ── Security / Skill Scanner ────────────────────────────────────────

@@ -219,12 +219,15 @@ Connect CoPaw to messaging platforms.
 ### copaw channels
 
 Manage channel configuration (iMessage, Discord, DingTalk, Feishu, QQ,
-Console, etc.). **Note:** Use `config` for interactive setup (no `configure`
+Console, etc.) and send messages to channels. **Note:** Use `config` for interactive setup (no `configure`
 subcommand); use `remove` to uninstall custom channels (no `uninstall`).
+
+**Alias:** You can use `copaw channel` (singular) as a shorthand for `copaw channels`.
 
 | Command                        | What it does                                                                                                      |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | `copaw channels list`          | Show all channels and their status (secrets masked)                                                               |
+| `copaw channels send`          | Send a one-way message to a user/session via a channel (requires all 5 parameters)                                |
 | `copaw channels install <key>` | Install a channel into `custom_channels/`: create stub or use `--path`/`--url`                                    |
 | `copaw channels add <key>`     | Install and add to config; built-in channels only get config entry; supports `--path`/`--url`                     |
 | `copaw channels remove <key>`  | Remove a custom channel from `custom_channels/` (built-ins cannot be removed); `--keep-config` keeps config entry |
@@ -256,6 +259,117 @@ The interactive `config` flow lets you pick a channel, enable/disable it, and en
 | **Console**  | Bot prefix                                                                           |
 
 > For platform-specific credential setup, see [Channels](./channels).
+
+#### Sending messages to channels (Proactive Notifications)
+
+> Corresponding skill: **Channel Message**
+
+Use `copaw channels send` to proactively push messages to users/sessions via any configured channel. This is a **one-way send** — no response expected.
+
+When agents have the **channel_message** skill enabled, they can automatically use this command to send proactive notifications when needed.
+
+**Typical use cases:**
+
+- Notify user after task completion
+- Scheduled reminders, alerts, status updates
+- Push async processing results back to original session
+- User explicitly requested "notify me when done"
+
+```bash
+# Step 1: Query available sessions
+copaw chats list --agent-id my_bot --channel feishu
+
+# Step 2: Send message using queried parameters
+copaw channels send \
+  --agent-id my_bot \
+  --channel feishu \
+  --target-user ou_xxxx \
+  --target-session session_id_xxxx \
+  --text "Task completed!"
+```
+
+**Required parameters (all 5):**
+
+- `--agent-id`: Sending agent ID
+- `--channel`: Target channel (console/dingtalk/feishu/discord/imessage/qq)
+- `--target-user`: User ID (get from `copaw chats list`)
+- `--target-session`: Session ID (get from `copaw chats list`)
+- `--text`: Message content
+
+**Important:**
+
+- Always query sessions with `copaw chats list` first — do NOT guess `target-user` or `target-session`
+- If multiple sessions exist, prefer the most recently updated one
+- This is for proactive notifications only; for agent-to-agent communication, use `copaw agents chat` (see "Agents" section below)
+
+**Key differences from `copaw agents chat`:**
+
+- `copaw channels send`: Agent-to-user/channel, one-way, no response
+- `copaw agents chat`: Agent-to-agent, bidirectional, with response
+
+---
+
+## Agents
+
+Manage agents and enable inter-agent communication.
+
+### copaw agents
+
+> Corresponding skill: **Multi-Agent Collaboration**
+
+When agents have the **multi_agent_collaboration** skill enabled, they can automatically use `copaw agents chat` to collaborate with other agents as needed.
+
+**Alias:** You can use `copaw agent` (singular) as a shorthand for `copaw agents`.
+
+| Command             | What it does                                                                 |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `copaw agents list` | List all configured agents with their IDs, names, descriptions, workspaces   |
+| `copaw agents chat` | Communicate with another agent (bidirectional, supports multi-turn dialogue) |
+
+```bash
+# List all agents
+copaw agents list
+copaw agent list  # Same with singular alias
+
+# Chat with another agent (one-shot)
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --text "Please analyze this data"
+
+# Multi-turn conversation (session reuse)
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --session-id collab_session_001 \
+  --text "Follow-up question"
+
+# Stream mode (incremental response)
+copaw agents chat \
+  --agent-id my_bot \
+  --to-agent helper_bot \
+  --text "Long analysis task" \
+  --mode stream
+```
+
+**Required parameters:**
+
+- `--from-agent` (alias: `--agent-id`): Your agent ID (sender)
+- `--to-agent`: Target agent ID (recipient)
+- `--text`: Message content
+
+**Optional parameters:**
+
+- `--session-id`: Session ID for multi-turn conversations (auto-generated if omitted)
+- `--mode`: Response mode — `final` (default, complete response) or `stream` (incremental)
+- `--base-url`: Override API base URL
+
+**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent.
+
+**Key differences from `copaw channels send`:**
+
+- `copaw agents chat`: Agent-to-agent, bidirectional, returns response
+- `copaw channels send`: Agent-to-user/channel, one-way, no response
 
 ---
 
@@ -350,6 +464,8 @@ Five fields: **minute hour day month weekday** (no seconds).
 Manage chat sessions via the API. **Requires `copaw app` to be running.**
 
 ### copaw chats
+
+**Alias:** You can use `copaw chat` (singular) as a shorthand for `copaw chats`.
 
 | Command                                | What it does                                                  |
 | -------------------------------------- | ------------------------------------------------------------- |
@@ -457,7 +573,7 @@ All config and data live in `~/.copaw` by default:
 | `COPAW_WORKING_DIR` | Override the working directory path |
 | `COPAW_CONFIG_FILE` | Override the config file path       |
 
-See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-agent) for full details.
+See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for full details.
 
 ---
 
@@ -469,7 +585,8 @@ See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-a
 | `copaw app`      | —                                                                                                                                      |  — (starts it)   |
 | `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        No        |
 | `copaw env`      | `list` · `set` · `delete`                                                                                                              |        No        |
-| `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        No        |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                              |     **Yes**      |
+| `copaw agents`   | `list` · `chat`                                                                                                                        |     **Yes**      |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |     **Yes**      |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |     **Yes**      |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        No        |
@@ -485,4 +602,4 @@ See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-a
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration

@@ -16,7 +16,7 @@ By default, all config and data live in one folder — the **working directory**
 
 - **`~/.copaw`** (the `.copaw` folder under your home directory)
 
-Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run `copaw init`, the new structure looks like:
+Starting from **v0.1.0**, CoPaw supports **multi-agent**. When you run `copaw init`, the new structure looks like:
 
 ```
 ~/.copaw/
@@ -57,6 +57,7 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 | `active_skills/`     | Currently enabled skills                                     |
 | `customized_skills/` | User-created custom skills                                   |
 | `memory/`            | Memory files (auto-managed)                                  |
+| `browser/`           | Browser user data (cookies, cache, localStorage, etc.)       |
 
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
@@ -64,7 +65,7 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 > them based on your language choice (`zh` / `en` / `ru`). You can also
 > change the language later via the Console (Agent → Configuration).
 
-> **Multi-Agent Workspace:** See the [Multi-Agent Workspace](./multi-agent) documentation for details.
+> **Multi-Agent:** See the [Multi-Agent](./multi-agent) documentation for details.
 
 ---
 
@@ -161,6 +162,10 @@ automatically use defaults.
     },
     "running": {
       "max_iters": 50,
+      "llm_retry_enabled": true,
+      "llm_max_retries": 3,
+      "llm_backoff_base": 1.0,
+      "llm_backoff_cap": 10.0,
       "max_input_length": 131072
     },
     "language": "zh",
@@ -276,10 +281,18 @@ Each agent's detailed configuration is stored in `~/.copaw/workspaces/{agent_id}
 
 **`agents.running`** — Agent runtime behavior
 
-| Field              | Type | Default         | Description                                                                                                              |
-| ------------------ | ---- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `max_iters`        | int  | `50`            | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                              |
-| `max_input_length` | int  | `131072` (128K) | Maximum input length (tokens) for model context window. Memory compaction triggers at 80% of this value (must be ≥ 1000) |
+| Field               | Type  | Default         | Description                                                                                                              |
+| ------------------- | ----- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `max_iters`         | int   | `50`            | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                              |
+| `llm_retry_enabled` | bool  | `true`          | Whether to auto-retry transient LLM API failures such as rate limits, timeouts, and connection errors                    |
+| `llm_max_retries`   | int   | `3`             | Maximum retry attempts for transient LLM API failures. Use together with `llm_retry_enabled`; must be ≥ 1                |
+| `llm_backoff_base`  | float | `1.0`           | Base delay in seconds for exponential retry backoff (must be ≥ 0.1)                                                      |
+| `llm_backoff_cap`   | float | `10.0`          | Maximum backoff delay cap in seconds (must be ≥ 0.5 and greater than or equal to `llm_backoff_base`)                     |
+| `max_input_length`  | int   | `131072` (128K) | Maximum input length (tokens) for model context window. Memory compaction triggers at 80% of this value (must be ≥ 1000) |
+
+These retry settings can also be changed in the Console under
+**Agent → Configuration**. Changes apply to new LLM requests after saving;
+restarting the service is not required.
 
 **`agents.defaults.heartbeat`** — Heartbeat scheduling
 
@@ -488,7 +501,7 @@ Recommended to configure in `agent.json` under `running.embedding_config`, which
 - [Introduction](./intro) — What the project can do
 - [Channels](./channels) — How to fill in channels in config
 - [Heartbeat](./heartbeat) — How to fill in heartbeat in config
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration
 
 ---
 

@@ -116,6 +116,7 @@ class DingTalkChannel(BaseChannel):
         deny_message: str = "",
         filter_thinking: bool = False,
         require_mention: bool = False,
+        card_auto_layout: bool = False,
     ):
         super().__init__(
             process,
@@ -137,6 +138,7 @@ class DingTalkChannel(BaseChannel):
         self.card_template_id = card_template_id or ""
         self.card_template_key = card_template_key or "content"
         self.robot_code = robot_code or self.client_id
+        self.card_auto_layout = card_auto_layout
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -196,7 +198,7 @@ class DingTalkChannel(BaseChannel):
             enabled=os.getenv("DINGTALK_CHANNEL_ENABLED", "1") == "1",
             client_id=os.getenv("DINGTALK_CLIENT_ID", ""),
             client_secret=os.getenv("DINGTALK_CLIENT_SECRET", ""),
-            bot_prefix=os.getenv("DINGTALK_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("DINGTALK_BOT_PREFIX", ""),
             message_type=os.getenv("DINGTALK_MESSAGE_TYPE", "markdown"),
             card_template_id=os.getenv("DINGTALK_CARD_TEMPLATE_ID", ""),
             card_template_key=os.getenv(
@@ -212,6 +214,8 @@ class DingTalkChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=os.getenv("DINGTALK_DENY_MESSAGE", ""),
             require_mention=os.getenv("DINGTALK_REQUIRE_MENTION", "0") == "1",
+            card_auto_layout=os.getenv("DINGTALK_CARD_AUTO_LAYOUT", "0")
+            == "1",
         )
 
     @classmethod
@@ -230,7 +234,7 @@ class DingTalkChannel(BaseChannel):
             enabled=config.enabled,
             client_id=config.client_id or "",
             client_secret=config.client_secret or "",
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             message_type=getattr(config, "message_type", "markdown"),
             card_template_id=getattr(config, "card_template_id", ""),
             card_template_key=getattr(config, "card_template_key", "content"),
@@ -248,6 +252,7 @@ class DingTalkChannel(BaseChannel):
             deny_message=config.deny_message or "",
             filter_thinking=filter_thinking,
             require_mention=config.require_mention,
+            card_auto_layout=getattr(config, "card_auto_layout", False),
         )
 
     # ---------------------------
@@ -590,7 +595,7 @@ class DingTalkChannel(BaseChannel):
                 text_parts.append("[Audio]")
         body = "\n".join(text_parts) if text_parts else ""
         if bot_prefix and body:
-            body = bot_prefix + body
+            body = bot_prefix + "  " + body
         return body
 
     async def _send_payload_via_session_webhook(
@@ -674,7 +679,7 @@ class DingTalkChannel(BaseChannel):
     ) -> bool:
         """Send one text message via DingTalk sessionWebhook. Returns True
         on success."""
-        text = (bot_prefix + body) if body else bot_prefix
+        text = (bot_prefix + "  " + body) if body else bot_prefix
         if len(text) > 3500:
             payload = {"msgtype": "text", "text": {"content": text}}
         else:
@@ -1239,7 +1244,7 @@ class DingTalkChannel(BaseChannel):
         body = "\n".join(text_parts) if text_parts else ""
         prefix = (meta or {}).get("bot_prefix", "") or ""
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         elif prefix and not body and not media_parts:
             body = prefix
         m = meta or {}
@@ -1300,7 +1305,7 @@ class DingTalkChannel(BaseChannel):
                     text_parts.append(f"[File: {url_or_id}]")
             body = "\n".join(text_parts) if text_parts else ""
             if prefix and body:
-                body = prefix + body
+                body = prefix + "  " + body
         if (
             m.get("reply_loop") is not None
             and m.get("reply_future") is not None
@@ -1910,10 +1915,13 @@ class DingTalkChannel(BaseChannel):
             or ""
         )
         is_group = bool(meta.get("is_group"))
+        card_param_map: Dict[str, Any] = {self.card_template_key: ""}
+        if self.card_auto_layout:
+            card_param_map["config"] = json.dumps({"autoLayout": True})
         create_payload: Dict[str, Any] = {
             "cardTemplateId": self.card_template_id,
             "outTrackId": card_instance_id,
-            "cardData": {"cardParamMap": {self.card_template_key: ""}},
+            "cardData": {"cardParamMap": card_param_map},
             "callbackType": "STREAM",
             "imGroupOpenSpaceModel": {"supportForward": True},
             "imRobotOpenSpaceModel": {"supportForward": True},

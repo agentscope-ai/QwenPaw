@@ -137,11 +137,11 @@
       transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
-        background: rgba(97, 92, 237, 0.08) !important;
+        background: rgba(97, 92, 237, 0.15) !important;
       }
 
       &.copaw-select-item-option-selected {
-        background: rgba(97, 92, 237, 0.05) !important;
+        background: rgba(97, 92, 237, 0.12) !important;
 
         .agentOptionIcon {
           background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
@@ -159,11 +159,11 @@
       transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
-        background: rgba(97, 92, 237, 0.08) !important;
+        background: rgba(97, 92, 237, 0.15) !important;
       }
 
       &.ant-select-item-option-selected {
-        background: rgba(97, 92, 237, 0.05) !important;
+        background: rgba(97, 92, 237, 0.12) !important;
 
         .agentOptionIcon {
           background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);
@@ -226,13 +226,14 @@
 .agentOptionName {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
   color: #1a1a2e;
   line-height: 1.4;
 
-  span {
+  .agentOptionNameText {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -344,11 +345,11 @@
     :global {
       .ant-select-item {
         &:hover {
-          background: rgba(255, 255, 255, 0.1) !important;
+          background: rgba(255, 255, 255, 0.15) !important;
         }
 
         &.ant-select-item-option-selected {
-          background: rgba(255, 255, 255, 0.06) !important;
+          background: rgba(255, 255, 255, 0.12) !important;
 
           .agentOptionIcon {
             background: linear-gradient(135deg, #615ced 0%, #8b87f0 100%);

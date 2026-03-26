@@ -12,6 +12,7 @@ from ..auth import (
     has_registered_users,
     is_auth_enabled,
     register_user,
+    update_credentials,
     verify_token,
 )
 
@@ -111,3 +112,63 @@ async def verify(request: Request):
         )
 
     return {"valid": True, "username": username}
+
+
+class UpdateProfileRequest(BaseModel):
+    current_password: str
+    new_username: str | None = None
+    new_password: str | None = None
+
+
+@router.post("/update-profile")
+async def update_profile(req: UpdateProfileRequest, request: Request):
+    """Update username and/or password for the authenticated user."""
+    if not is_auth_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication is not enabled",
+        )
+
+    if not has_registered_users():
+        raise HTTPException(
+            status_code=403,
+            detail="No user registered",
+        )
+
+    # Verify caller is authenticated
+    auth_header = request.headers.get("Authorization", "")
+    caller_token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
+    if not caller_token or verify_token(caller_token) is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if not req.new_username and not req.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="Nothing to update",
+        )
+
+    if req.new_username is not None and not req.new_username.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Username cannot be empty",
+        )
+
+    if req.new_password is not None and not req.new_password.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Password cannot be empty",
+        )
+
+    token = update_credentials(
+        current_password=req.current_password,
+        new_username=req.new_username,
+        new_password=req.new_password,
+    )
+    if token is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Current password is incorrect",
+        )
+
+    username = req.new_username.strip() if req.new_username else ""
+    return LoginResponse(token=token, username=username)

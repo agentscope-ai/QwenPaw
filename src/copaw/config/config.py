@@ -11,6 +11,9 @@ from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    LLM_BACKOFF_BASE,
+    LLM_BACKOFF_CAP,
+    LLM_MAX_RETRIES,
     WORKING_DIR,
 )
 from ..providers.models import ModelSlotConfig
@@ -62,11 +65,13 @@ class DingTalkConfig(BaseChannelConfig):
     card_template_key: str = "content"
     robot_code: str = ""
     media_dir: Optional[str] = None
+    card_auto_layout: bool = False
 
 
 class FeishuConfig(BaseChannelConfig):
     """Feishu/Lark channel: app_id, app_secret; optional encrypt_key,
     verification_token for event handler. media_dir for received media.
+    domain: 'feishu' for China, 'lark' for international.
     """
 
     app_id: str = ""
@@ -74,12 +79,14 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
+    domain: Literal["feishu", "lark"] = "feishu"
 
 
 class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    max_reconnect_attempts: int = 100
 
 
 class TelegramConfig(BaseChannelConfig):
@@ -238,7 +245,7 @@ class EmbeddingConfig(BaseModel):
         default=False,
         description="Whether to use custom dimensions",
     )
-    max_cache_size: int = Field(default=2000, description="Maximum cache size")
+    max_cache_size: int = Field(default=3000, description="Maximum cache size")
     max_input_length: int = Field(
         default=8192,
         description="Maximum input length for embedding",
@@ -252,15 +259,51 @@ class EmbeddingConfig(BaseModel):
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     max_iters: int = Field(
-        default=50,
+        default=100,
         ge=1,
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
         ),
     )
+
+    llm_retry_enabled: bool = Field(
+        default=LLM_MAX_RETRIES > 0,
+        description="Whether to auto-retry transient LLM API errors",
+    )
+
+    llm_max_retries: int = Field(
+        default=max(LLM_MAX_RETRIES, 1),
+        ge=1,
+        description="Maximum retry attempts for transient LLM API errors",
+    )
+
+    llm_backoff_base: float = Field(
+        default=LLM_BACKOFF_BASE,
+        ge=0.1,
+        description="Base delay in seconds for exponential LLM retry backoff",
+    )
+
+    llm_backoff_cap: float = Field(
+        default=LLM_BACKOFF_CAP,
+        ge=0.5,
+        description=(
+            "Maximum delay cap in seconds for LLM retry backoff; "
+            "must be greater than or equal to the base delay"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
+        """Validate LLM retry backoff relationships."""
+        if self.llm_backoff_cap < self.llm_backoff_base:
+            raise ValueError(
+                "llm_backoff_cap must be greater than or equal to "
+                "llm_backoff_base",
+            )
+        return self
 
     token_count_model: str = Field(
         default="default",
@@ -303,7 +346,7 @@ class AgentsRunningConfig(BaseModel):
     )
 
     tool_result_compact_recent_n: int = Field(
-        default=2,
+        default=1,
         ge=1,
         le=10,
         description="Number of recent messages to use recent_threshold for",
@@ -324,9 +367,9 @@ class AgentsRunningConfig(BaseModel):
     )
 
     tool_result_compact_retention_days: int = Field(
-        default=7,
+        default=3,
         ge=1,
-        le=30,
+        le=10,
         description="Number of days to retain tool result files",
     )
 
@@ -334,6 +377,11 @@ class AgentsRunningConfig(BaseModel):
         default=10000,
         ge=1000,
         description="Maximum length for /history command output",
+    )
+
+    compact_with_thinking_block: bool = Field(
+        default=True,
+        description="Whether to include thinking blocks when compact",
     )
 
     embedding_config: EmbeddingConfig = Field(
@@ -384,10 +432,16 @@ class AgentProfileRef(BaseModel):
     Full agent configuration is stored in workspace/agent.json.
     """
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str = Field(..., description="Unique agent ID")
     workspace_dir: str = Field(
         ...,
         description="Path to agent's workspace directory",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Whether agent is enabled (controls instance loading)",
     )
 
 
@@ -726,6 +780,28 @@ class ToolsConfig(BaseModel):
         return self
 
 
+def build_qa_agent_tools_config() -> ToolsConfig:
+    """Tools preset for builtin ``default_qa_agent`` (first workspace init).
+
+    Only these are enabled: execute_shell_command, read_file, edit_file,
+    write_file, view_image. All other built-ins are disabled.
+    """
+    allow = frozenset(
+        {
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "view_image",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
+
+
 class ToolGuardRuleConfig(BaseModel):
     """A single user-defined guard rule (stored in config.json)."""
 
@@ -752,6 +828,13 @@ class ToolGuardConfig(BaseModel):
     denied_tools: List[str] = Field(default_factory=list)
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
+
+
+class FileGuardConfig(BaseModel):
+    """File guard settings under ``security.file_guard``."""
+
+    enabled: bool = True
+    sensitive_files: List[str] = Field(default_factory=list)
 
 
 class SkillScannerWhitelistEntry(BaseModel):
@@ -798,6 +881,7 @@ class SecurityConfig(BaseModel):
     """Top-level ``security`` section in config.json."""
 
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
+    file_guard: FileGuardConfig = Field(default_factory=FileGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )

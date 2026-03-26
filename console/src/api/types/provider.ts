@@ -1,6 +1,9 @@
 export interface ModelInfo {
   id: string;
   name: string;
+  supports_multimodal: boolean | null;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
 }
 
 export interface ProviderInfo {
@@ -43,9 +46,18 @@ export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
 }
 
+export type ActiveModelScope = "effective" | "global" | "agent";
+
+export interface GetActiveModelsRequest {
+  scope?: ActiveModelScope;
+  agent_id?: string;
+}
+
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
+  scope: Exclude<ActiveModelScope, "effective">;
+  agent_id?: string;
 }
 
 /* ---- Custom provider CRUD ---- */
@@ -139,4 +151,12 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   added_count: number;
+}
+
+export interface ProbeMultimodalResponse {
+  supports_image: boolean;
+  supports_video: boolean;
+  supports_multimodal: boolean;
+  image_message: string;
+  video_message: string;
 }

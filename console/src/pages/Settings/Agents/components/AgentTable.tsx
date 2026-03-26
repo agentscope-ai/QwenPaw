@@ -1,7 +1,8 @@
-import { Table, Button, Space, Popconfirm } from "antd";
+import { Table, Button, Space, Popconfirm, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
+import { EyeOff, Eye } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
@@ -11,6 +12,7 @@ interface AgentTableProps {
   loading: boolean;
   onEdit: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
+  onToggle: (agentId: string, currentEnabled: boolean) => void;
 }
 
 export function AgentTable({
@@ -18,6 +20,7 @@ export function AgentTable({
   loading,
   onEdit,
   onDelete,
+  onToggle,
 }: AgentTableProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -32,10 +35,16 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      render: (text: string) => (
+      render: (text: string, record: AgentSummary) => (
         <Space>
-          <RobotOutlined style={{ fontSize: 16 }} />
-          <span>{text}</span>
+          <RobotOutlined
+            style={{
+              fontSize: 16,
+              opacity: record.enabled ? 1 : 0.5,
+            }}
+          />
+          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>{text}</span>
+          {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
         </Space>
       ),
     },
@@ -59,7 +68,7 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
-      width: 200,
+      width: 400,
       render: (_: any, record: AgentSummary) => (
         <Space>
           <Button
@@ -77,6 +86,37 @@ export function AgentTable({
           >
             {t("common.edit")}
           </Button>
+          <Popconfirm
+            title={
+              record.enabled
+                ? t("agent.disableConfirm")
+                : t("agent.enableConfirm")
+            }
+            description={
+              record.enabled
+                ? t("agent.disableConfirmDesc")
+                : t("agent.enableConfirmDesc")
+            }
+            onConfirm={() => onToggle(record.id, record.enabled)}
+            disabled={record.id === "default"}
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
+          >
+            <Button
+              type="link"
+              size="small"
+              icon={record.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
+              disabled={record.id === "default"}
+              style={record.id === "default" ? disabledStyle : undefined}
+              title={
+                record.id === "default"
+                  ? t("agent.defaultNotDisablable")
+                  : undefined
+              }
+            >
+              {record.enabled ? t("agent.disable") : t("agent.enable")}
+            </Button>
+          </Popconfirm>
           <Popconfirm
             title={t("agent.deleteConfirm")}
             description={t("agent.deleteConfirmDesc")}

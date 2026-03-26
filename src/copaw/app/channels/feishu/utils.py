@@ -40,6 +40,40 @@ def extract_json_key(content: Optional[str], *keys: str) -> Optional[str]:
     return None
 
 
+# Magic bytes mapping for common file formats
+_MAGIC_BYTES_MAP = [
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF8", "gif"),
+    (b"%PDF", "pdf"),
+    (b"PK\x03\x04", "zip"),  # Also docx, xlsx, pptx
+    (b"ID3", "mp3"),
+    (b"\xff\xfb", "mp3"),
+    (b"\xff\xfa", "mp3"),
+    (b"OggS", "ogg"),
+    (b"fLaC", "flac"),
+    (b"\x1aE\xdf\xa3", "webm"),
+]
+
+
+def detect_file_ext(data: bytes, default: str = "bin") -> str:
+    """Detect file extension from magic bytes."""
+    if not data:
+        return default
+    # Check simple magic bytes
+    for magic, ext in _MAGIC_BYTES_MAP:
+        if data.startswith(magic):
+            return ext
+    # Special cases needing offset checks
+    if data[:4] == b"RIFF" and len(data) > 12 and data[8:12] == b"WEBP":
+        return "webp"
+    if len(data) > 8 and data[4:8] == b"ftyp":
+        return "mp4"
+    # JPEG: starts with FFD8FF
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    return default
+
+
 def extract_post_text(content: Optional[str]) -> Optional[str]:
     # pylint: disable=too-many-branches
     """Extract plain text from Feishu post message content."""

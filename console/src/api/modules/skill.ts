@@ -1,38 +1,15 @@
 import { request } from "../request";
-import { getApiUrl, getApiToken } from "../config";
+import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type { HubSkillSpec, SkillSpec } from "../types";
 
-// Declare BASE_URL as global (injected by Vite)
-declare const BASE_URL: string;
+// Declare VITE_API_BASE_URL as global (injected by Vite)
+declare const VITE_API_BASE_URL: string;
 
 // Get the API base URL for streaming requests
 function getStreamApiUrl(): string {
-  const base = typeof BASE_URL === "string" ? BASE_URL : "";
+  const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
   return `${base}/api`;
-}
-
-function buildHeaders(): HeadersInit {
-  const headers: Record<string, string> = {};
-
-  const token = getApiToken();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) {
-        headers["X-Agent-Id"] = selectedAgent;
-      }
-    }
-  } catch (error) {
-    console.warn("Failed to get selected agent from storage:", error);
-  }
-
-  return headers;
 }
 
 export const skillApi = {
@@ -228,7 +205,7 @@ export const skillApi = {
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
 
-    const headers = buildHeaders();
+    const headers = buildAuthHeaders();
 
     const response = await fetch(url, {
       method: "POST",

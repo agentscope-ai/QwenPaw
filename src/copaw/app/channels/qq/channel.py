@@ -42,6 +42,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
+from ..utils import split_text
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ INTENT_GUILD_MEMBERS = 1 << 1
 
 RECONNECT_DELAYS = [1, 2, 5, 10, 30, 60]
 RATE_LIMIT_DELAY = 60
-MAX_RECONNECT_ATTEMPTS = 100
 QUICK_DISCONNECT_THRESHOLD = 5
 MAX_QUICK_DISCONNECT_COUNT = 3
 
@@ -520,6 +520,7 @@ class QQChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
         media_dir: str = "",
+        max_reconnect_attempts: int = 100,
     ):
         super().__init__(
             process,
@@ -536,6 +537,7 @@ class QQChannel(BaseChannel):
         self._media_dir = (
             Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
         )
+        self._max_reconnect_attempts = max_reconnect_attempts
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
@@ -656,6 +658,11 @@ class QQChannel(BaseChannel):
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
             media_dir=getattr(config, "media_dir", ""),
+            max_reconnect_attempts=getattr(
+                config,
+                "max_reconnect_attempts",
+                100,
+            ),
         )
 
     def _resolve_send_path(
@@ -943,13 +950,13 @@ class QQChannel(BaseChannel):
         clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
 
         text_sent = False
-        if clean_text:
+        for chunk in split_text(clean_text) if clean_text else []:
             text_sent = await self._send_text_with_fallback(
                 message_type,
                 sender_id,
                 channel_id,
                 group_openid,
-                clean_text,
+                chunk,
                 msg_id,
                 token,
                 use_markdown,
@@ -1360,7 +1367,8 @@ class QQChannel(BaseChannel):
 
         delay = self._compute_reconnect_delay(state)
         state.reconnect_attempts += 1
-        if state.reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
+        max_attempts = self._max_reconnect_attempts
+        if max_attempts != -1 and state.reconnect_attempts >= max_attempts:
             logger.error("qq max reconnect attempts reached")
             return False
         logger.info(
@@ -1384,10 +1392,14 @@ class QQChannel(BaseChannel):
             )
             return
         state = _WSState()
-        while self._ws_connect_once(state, websocket):
-            pass
-        self._stop_event.set()
-        logger.info("qq ws thread stopped")
+        try:
+            while self._ws_connect_once(state, websocket):
+                pass
+        except Exception:
+            logger.exception("qq ws thread unexpected error")
+        finally:
+            self._stop_event.set()
+            logger.info("qq ws thread stopped")
 
     async def start(self) -> None:
         if not self.enabled:

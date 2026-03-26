@@ -5,10 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
@@ -39,25 +38,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_APPROVE_RE = re.compile(
-    r"(?:^|[\s/])approve(?:\s|$)|批准|同意",
-    re.IGNORECASE,
-)
-_DENY_RE = re.compile(
-    r"not\s+approve|don'?t\s+approve|never\s+approve|不批准|拒绝|别批准|否决",
-    re.IGNORECASE,
+_APPROVE_EXACT = frozenset(
+    {
+        "approve",
+        "/approve",
+        "/daemon approve",
+    },
 )
 
 
 def _is_approval(text: str) -> bool:
-    """Return True when *text* expresses approval intent.
+    """Return True only when *text* is exactly ``approve``,
+    ``/approve``, or ``/daemon approve`` (case-insensitive).
 
-    Matches loosely (``approve`` / ``批准`` / ``同意`` anywhere) but rejects
-    negated forms (``not approve``, ``don't approve``, ``不批准``, …).
+    Leading/trailing whitespace and blank lines are stripped before
+    comparison.  Everything else is treated as denial.
     """
-    if _DENY_RE.search(text):
-        return False
-    return bool(_APPROVE_RE.search(text))
+    normalized = " ".join(text.split()).lower()
+    return normalized in _APPROVE_EXACT
 
 
 class AgentRunner(Runner):
@@ -98,25 +96,26 @@ class AgentRunner(Runner):
         self,
         session_id: str,
         query: str | None,
-    ) -> tuple[Msg | None, bool]:
+    ) -> tuple[Msg | None, bool, dict[str, Any] | None]:
         """Check for a pending tool-guard approval for *session_id*.
 
-        Returns ``(response_msg, was_consumed)``:
+        Returns ``(response_msg, was_consumed, approved_tool_call)``:
 
-        - ``(None, False)`` — no pending approval, continue normally.
-        - ``(Msg, True)``   — denied; yield the Msg and stop.
-        - ``(None, True)``  — approved; skip the command path and let
-          the message reach the agent so the LLM can re-call the tool.
+        - ``(None, False, None)`` — no pending approval, continue normally.
+        - ``(Msg, True, None)``   — denied; yield the Msg and stop.
+        - ``(None, True, dict)``  — approved with stored tool call.
+
+        Approvals are resolved FIFO per session (oldest pending first).
         """
         if not session_id:
-            return None, False
+            return None, False, None
 
         from ..approvals import get_approval_service
 
         svc = get_approval_service()
         pending = await svc.get_pending_by_session(session_id)
         if pending is None:
-            return None, False
+            return None, False, None
 
         elapsed = time.time() - pending.created_at
         if elapsed > self._APPROVAL_TIMEOUT_SECONDS:
@@ -141,15 +140,28 @@ class AgentRunner(Runner):
                     ],
                 ),
                 True,
+                None,
             )
 
         normalized = (query or "").strip().lower()
         if _is_approval(normalized):
-            await svc.resolve_request(
+            resolved = await svc.resolve_request(
                 pending.request_id,
                 ApprovalDecision.APPROVED,
             )
-            return None, True
+            approved_tool_call: dict[str, Any] | None = None
+            record = resolved or pending
+            if isinstance(record.extra, dict):
+                candidate = record.extra.get("tool_call")
+                if isinstance(candidate, dict):
+                    approved_tool_call = dict(candidate)
+                    siblings = record.extra.get("sibling_tool_calls")
+                    if isinstance(siblings, list):
+                        approved_tool_call["_sibling_tool_calls"] = siblings
+                    remaining = record.extra.get("remaining_queue")
+                    if isinstance(remaining, list):
+                        approved_tool_call["_remaining_queue"] = remaining
+            return None, True, approved_tool_call
 
         await svc.resolve_request(
             pending.request_id,
@@ -170,6 +182,7 @@ class AgentRunner(Runner):
                 ],
             ),
             True,
+            None,
         )
 
     async def query_handler(
@@ -191,6 +204,7 @@ class AgentRunner(Runner):
         (
             approval_response,
             approval_consumed,
+            approved_tool_call,
         ) = await self._resolve_pending_approval(session_id, query)
         if approval_response is not None:
             yield approval_response, True
@@ -270,6 +284,16 @@ class AgentRunner(Runner):
                     "user_id": user_id,
                     "channel": channel,
                     "agent_id": self.agent_id,
+                    **(
+                        {
+                            "forced_tool_call_json": json.dumps(
+                                approved_tool_call,
+                                ensure_ascii=False,
+                            ),
+                        }
+                        if approved_tool_call
+                        else {}
+                    ),
                 },
                 workspace_dir=self.workspace_dir,
             )

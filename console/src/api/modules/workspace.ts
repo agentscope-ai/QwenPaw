@@ -1,34 +1,11 @@
 import { request } from "../request";
-import { getApiUrl, getApiToken } from "../config";
+import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
-
-function buildHeaders(): HeadersInit {
-  const headers: Record<string, string> = {};
-
-  const token = getApiToken();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) {
-        headers["X-Agent-Id"] = selectedAgent;
-      }
-    }
-  } catch (error) {
-    console.warn("Failed to get selected agent from storage:", error);
-  }
-
-  return headers;
-}
 
 function getSelectedAgentId(): string {
   try {
-    const agentStorage = localStorage.getItem("copaw-agent-storage");
+    const agentStorage = sessionStorage.getItem("copaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;
@@ -84,7 +61,7 @@ export const workspaceApi = {
   downloadWorkspace: async (): Promise<WorkspaceDownloadResult> => {
     const response = await fetch(getApiUrl("/workspace/download"), {
       method: "GET",
-      headers: buildHeaders(),
+      headers: buildAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -122,7 +99,7 @@ export const workspaceApi = {
 
     const response = await fetch(getApiUrl("/workspace/upload"), {
       method: "POST",
-      headers: buildHeaders(),
+      headers: buildAuthHeaders(),
       body: formData,
     });
 

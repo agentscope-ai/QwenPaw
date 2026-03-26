@@ -5,11 +5,13 @@ import json
 import os
 import platform
 import subprocess
-import tempfile
 import time
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
+
+from ...config.context import get_current_workspace_dir
+from ...constant import WORKING_DIR
 
 
 def _tool_error(msg: str) -> ToolResponse:
@@ -112,8 +114,8 @@ async def desktop_screenshot(
 
     Args:
         path (`str`):
-            Optional path to save the screenshot. If empty, saves to a temp
-            file and returns that path. Should end in .png for PNG output.
+            Optional path to save the screenshot. If empty, saves under
+            the current workspace directory. Should end in .png for PNG output.
         capture_window (`bool`):
             If True on macOS, the user can click a window to capture just
             that window. On Windows/Linux, only full-screen is supported
@@ -126,10 +128,8 @@ async def desktop_screenshot(
     """
     path = (path or "").strip()
     if not path:
-        path = os.path.join(
-            tempfile.gettempdir(),
-            f"desktop_screenshot_{int(time.time())}.png",
-        )
+        base_dir = get_current_workspace_dir() or WORKING_DIR
+        path = str(base_dir / f"desktop_screenshot_{int(time.time())}.png")
     if not path.lower().endswith(".png"):
         path = path.rstrip("/\\") + ".png"
 

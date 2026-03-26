@@ -3,6 +3,7 @@ import type {
   ProviderInfo,
   ProviderConfigRequest,
   ActiveModelsInfo,
+  GetActiveModelsRequest,
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
@@ -10,7 +11,24 @@ import type {
   TestProviderRequest,
   TestModelRequest,
   DiscoverModelsResponse,
+  ProbeMultimodalResponse,
 } from "../types";
+
+function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
+  if (!params?.scope && !params?.agent_id) {
+    return "/models/active";
+  }
+
+  const searchParams = new URLSearchParams();
+  if (params.scope) {
+    searchParams.set("scope", params.scope);
+  }
+  if (params.agent_id) {
+    searchParams.set("agent_id", params.agent_id);
+  }
+
+  return `/models/active?${searchParams.toString()}`;
+}
 
 export const providerApi = {
   listProviders: () => request<ProviderInfo[]>("/models"),
@@ -21,7 +39,8 @@ export const providerApi = {
       body: JSON.stringify(body),
     }),
 
-  getActiveModels: () => request<ActiveModelsInfo>("/models/active"),
+  getActiveModels: (params?: GetActiveModelsRequest) =>
+    request<ActiveModelsInfo>(buildActiveModelQuery(params)),
 
   setActiveLlm: (body: ModelSlotRequest) =>
     request<ActiveModelsInfo>("/models/active", {
@@ -86,5 +105,13 @@ export const providerApi = {
         method: "POST",
         body: body ? JSON.stringify(body) : undefined,
       },
+    ),
+
+  probeMultimodal: (providerId: string, modelId: string) =>
+    request<ProbeMultimodalResponse>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/probe-multimodal`,
+      { method: "POST" },
     ),
 };

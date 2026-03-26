@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 async def get_current_time() -> ToolResponse:
-    """Get the current time.
-    Only call this tool when the user explicitly asks for the time.
+    """Get the current time in format `%Y-%m-%d %H:%M:%S TZ (Day)`,
+    e.g. "2026-02-13 19:30:45 Asia/Shanghai (Friday)".
+
+    Call this tool when the user asks for the current time or when
+    the current time is needed for other operations.
 
     Returns:
         `ToolResponse`:

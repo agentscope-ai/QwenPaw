@@ -36,6 +36,16 @@ export const agentsApi = {
       method: "DELETE",
     }),
 
+  // Toggle agent enabled state
+  toggleAgentEnabled: (agentId: string, enabled: boolean) =>
+    request<{ success: boolean; agent_id: string; enabled: boolean }>(
+      `/agents/${agentId}/toggle`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      },
+    ),
+
   // Agent workspace files
   listAgentFiles: (agentId: string) =>
     request<MdFileInfo[]>(`/agents/${agentId}/files`),

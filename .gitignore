@@ -89,3 +89,10 @@ CLAUDE.md
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+
+# Hypothesis test cache
+.hypothesis/
+src/.hypothesis/
+
+# Kiro IDE
+.kiro/

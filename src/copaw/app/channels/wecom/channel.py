@@ -38,6 +38,7 @@ from ..base import (
     ProcessHandler,
 )
 from .utils import format_markdown_tables
+from ..utils import split_text
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class WecomChannel(BaseChannel):
         enabled: bool,
         bot_id: str,
         secret: str,
-        bot_prefix: str = "[BOT] ",
+        bot_prefix: str = "",
         media_dir: str = "",
         welcome_text: str = "",
         on_reply_sent: OnReplySent = None,
@@ -121,7 +122,7 @@ class WecomChannel(BaseChannel):
             enabled=os.getenv("WECOM_CHANNEL_ENABLED", "0") == "1",
             bot_id=os.getenv("WECOM_BOT_ID", ""),
             secret=os.getenv("WECOM_SECRET", ""),
-            bot_prefix=os.getenv("WECOM_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("WECOM_BOT_PREFIX", ""),
             media_dir=os.getenv("WECOM_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("WECOM_DM_POLICY", "open"),
@@ -148,7 +149,7 @@ class WecomChannel(BaseChannel):
             enabled=getattr(config, "enabled", False),
             bot_id=getattr(config, "bot_id", "") or "",
             secret=getattr(config, "secret", "") or "",
-            bot_prefix=getattr(config, "bot_prefix", "[BOT] ") or "[BOT] ",
+            bot_prefix=getattr(config, "bot_prefix", "") or "",
             media_dir=getattr(config, "media_dir", None) or "",
             welcome_text=getattr(config, "welcome_text", "") or "",
             on_reply_sent=on_reply_sent,
@@ -629,7 +630,7 @@ class WecomChannel(BaseChannel):
 
         body = "\n".join(text_parts).strip()
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
 
         # Format markdown tables for WeCom compatibility
         body = format_markdown_tables(body)
@@ -638,20 +639,25 @@ class WecomChannel(BaseChannel):
         # Only first reply uses it; subsequent replies get new stream_id
         processing_sid = m.pop("wecom_processing_stream_id", "")
 
-        if body and frame:
-            await self._send_text_via_frame(frame, body, processing_sid)
-        elif body and chatid:
-            # Proactive send without an inbound frame
-            try:
-                await self._client.send_message(
-                    chatid,
-                    {
-                        "msgtype": "markdown",
-                        "markdown": {"content": body},
-                    },
-                )
-            except Exception:
-                logger.exception("wecom send_content_parts proactive failed")
+        first_chunk = True
+        for chunk in split_text(body) if body else []:
+            sid = processing_sid if first_chunk else ""
+            first_chunk = False
+            if frame:
+                await self._send_text_via_frame(frame, chunk, sid)
+            elif chatid:
+                try:
+                    await self._client.send_message(
+                        chatid,
+                        {
+                            "msgtype": "markdown",
+                            "markdown": {"content": chunk},
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "wecom send_content_parts proactive failed",
+                    )
 
         # # the SDK does not support sending media files.
         # for part in media_parts:
@@ -706,27 +712,29 @@ class WecomChannel(BaseChannel):
         if not body:
             return
 
-        if frame:
-            await self._send_text_via_frame(frame, body)
-        elif chatid and self._client:
-            try:
-                await self._client.send_message(
-                    chatid,
-                    {
-                        "msgtype": "markdown",
-                        "markdown": {"content": body},
-                    },
+        for chunk in split_text(body):
+            if frame:
+                await self._send_text_via_frame(frame, chunk)
+            elif chatid and self._client:
+                try:
+                    await self._client.send_message(
+                        chatid,
+                        {
+                            "msgtype": "markdown",
+                            "markdown": {"content": chunk},
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "wecom send proactive failed chatid=%s",
+                        chatid,
+                    )
+            else:
+                logger.warning(
+                    "wecom send: no frame/chatid for to_handle=%s",
+                    (to_handle or "")[:40],
                 )
-            except Exception:
-                logger.exception(
-                    "wecom send proactive failed chatid=%s",
-                    chatid,
-                )
-        else:
-            logger.warning(
-                "wecom send: no frame/chatid for to_handle=%s",
-                (to_handle or "")[:40],
-            )
+                break
 
     # ------------------------------------------------------------------
     # Lifecycle
