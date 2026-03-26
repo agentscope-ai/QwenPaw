@@ -7,14 +7,26 @@ interface ContextCompactCardProps {
   maxInputLength: number;
 }
 
-export function ContextCompactCard({ maxInputLength }: ContextCompactCardProps) {
+export function ContextCompactCard({
+  maxInputLength,
+}: ContextCompactCardProps) {
   const { t } = useTranslation();
 
-  const memoryCompactRatio = Form.useWatch(["context_compact", "memory_compact_ratio"]);
-  const memoryReserveRatio = Form.useWatch(["context_compact", "memory_reserve_ratio"]);
+  const memoryCompactRatio = Form.useWatch([
+    "context_compact",
+    "memory_compact_ratio",
+  ]);
+  const memoryReserveRatio = Form.useWatch([
+    "context_compact",
+    "memory_reserve_ratio",
+  ]);
 
-  const contextCompactThreshold = Math.floor((maxInputLength ?? 0) * (memoryCompactRatio ?? 0));
-  const contextCompactReserveThreshold = Math.floor((maxInputLength ?? 0) * (memoryReserveRatio ?? 0));
+  const contextCompactThreshold = Math.floor(
+    (maxInputLength ?? 0) * (memoryCompactRatio ?? 0),
+  );
+  const contextCompactReserveThreshold = Math.floor(
+    (maxInputLength ?? 0) * (memoryReserveRatio ?? 0),
+  );
 
   return (
     <Card
@@ -35,22 +47,30 @@ export function ContextCompactCard({ maxInputLength }: ContextCompactCardProps) 
         label={t("agentConfig.tokenCountEstimateDivisor")}
         name={["context_compact", "token_count_estimate_divisor"]}
         rules={[
-          { required: true, message: t("agentConfig.tokenCountEstimateDivisorRequired") },
+          {
+            required: true,
+            message: t("agentConfig.tokenCountEstimateDivisorRequired"),
+          },
         ]}
         tooltip={t("agentConfig.tokenCountEstimateDivisorTooltip")}
       >
         <SliderWithValue
-          min={1}
-          max={6}
+          min={2}
+          max={5}
           step={0.25}
-          marks={{ 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6" }}
+          marks={{ 2: "2", 3: "3", 4: "4", 5: "5" }}
         />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.contextCompactRatio")}
         name={["context_compact", "memory_compact_ratio"]}
-        rules={[{ required: true, message: t("agentConfig.contextCompactRatioRequired") }]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.contextCompactRatioRequired"),
+          },
+        ]}
         tooltip={t("agentConfig.contextCompactRatioTooltip")}
       >
         <SliderWithValue
@@ -67,7 +87,11 @@ export function ContextCompactCard({ maxInputLength }: ContextCompactCardProps) 
       >
         <Input
           disabled
-          value={contextCompactThreshold > 0 ? contextCompactThreshold.toLocaleString() : ""}
+          value={
+            contextCompactThreshold > 0
+              ? contextCompactThreshold.toLocaleString()
+              : ""
+          }
           placeholder={t("agentConfig.contextCompactThresholdPlaceholder")}
         />
       </Form.Item>
@@ -75,7 +99,12 @@ export function ContextCompactCard({ maxInputLength }: ContextCompactCardProps) 
       <Form.Item
         label={t("agentConfig.contextCompactReserveRatio")}
         name={["context_compact", "memory_reserve_ratio"]}
-        rules={[{ required: true, message: t("agentConfig.contextCompactReserveRatioRequired") }]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.contextCompactReserveRatioRequired"),
+          },
+        ]}
         tooltip={t("agentConfig.contextCompactReserveRatioTooltip")}
       >
         <SliderWithValue
@@ -97,7 +126,9 @@ export function ContextCompactCard({ maxInputLength }: ContextCompactCardProps) 
               ? contextCompactReserveThreshold.toLocaleString()
               : ""
           }
-          placeholder={t("agentConfig.contextCompactReserveThresholdPlaceholder")}
+          placeholder={t(
+            "agentConfig.contextCompactReserveThresholdPlaceholder",
+          )}
         />
       </Form.Item>
 

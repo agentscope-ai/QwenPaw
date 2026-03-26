@@ -273,8 +273,8 @@ class ContextCompactConfig(BaseModel):
 
     token_count_estimate_divisor: float = Field(
         default=3.75,
-        ge=1,
-        le=6,
+        ge=2,
+        le=5,
         description=(
             "Divisor for byte-based token estimation (byte_len / divisor)"
         ),
@@ -387,7 +387,7 @@ class MemorySummaryConfig(BaseModel):
     )
 
     rebuild_memory_index_on_start: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to clear and rebuild the memory search index when the"
             " agent starts. Set to False to skip re-indexing and only monitor"
@@ -477,6 +477,14 @@ class AgentsRunningConfig(BaseModel):
     embedding_config: EmbeddingConfig = Field(
         default_factory=EmbeddingConfig,
         description="Embedding model configuration",
+    )
+
+    memory_manager_backend: Literal["remelight"] = Field(
+        default="remelight",
+        description=(
+            "Memory manager backend type. "
+            "Currently only 'remelight' is supported."
+        ),
     )
 
     @property

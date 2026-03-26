@@ -35,7 +35,11 @@ export function MemorySummaryCard() {
         name={["memory_summary", "force_max_results"]}
         rules={[
           { required: true, message: t("agentConfig.forceMaxResultsRequired") },
-          { type: "number", min: 1, message: t("agentConfig.forceMaxResultsMin") },
+          {
+            type: "number",
+            min: 1,
+            message: t("agentConfig.forceMaxResultsMin"),
+          },
         ]}
         tooltip={t("agentConfig.forceMaxResultsTooltip")}
       >
@@ -45,7 +49,9 @@ export function MemorySummaryCard() {
       <Form.Item
         label={t("agentConfig.forceMinScore")}
         name={["memory_summary", "force_min_score"]}
-        rules={[{ required: true, message: t("agentConfig.forceMinScoreRequired") }]}
+        rules={[
+          { required: true, message: t("agentConfig.forceMinScoreRequired") },
+        ]}
         tooltip={t("agentConfig.forceMinScoreTooltip")}
       >
         <SliderWithValue

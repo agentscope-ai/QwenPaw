@@ -25,17 +25,30 @@ export function ToolResultCompactCard() {
       <Form.Item
         label={t("agentConfig.toolResultCompactRecentN")}
         name={["tool_result_compact", "recent_n"]}
-        rules={[{ required: true, message: t("agentConfig.toolResultCompactRecentNRequired") }]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactRecentNRequired"),
+          },
+        ]}
         tooltip={t("agentConfig.toolResultCompactRecentNTooltip")}
       >
-        <SliderWithValue min={1} max={10} step={1} marks={{ 1: "1", 5: "5", 10: "10" }} />
+        <SliderWithValue
+          min={1}
+          max={10}
+          step={1}
+          marks={{ 1: "1", 5: "5", 10: "10" }}
+        />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.toolResultCompactOldThreshold")}
         name={["tool_result_compact", "old_max_bytes"]}
         rules={[
-          { required: true, message: t("agentConfig.toolResultCompactOldThresholdRequired") },
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactOldThresholdRequired"),
+          },
         ]}
         tooltip={t("agentConfig.toolResultCompactOldThresholdTooltip")}
       >
@@ -43,7 +56,9 @@ export function ToolResultCompactCard() {
           style={{ width: "100%" }}
           min={100}
           step={100}
-          placeholder={t("agentConfig.toolResultCompactOldThresholdPlaceholder")}
+          placeholder={t(
+            "agentConfig.toolResultCompactOldThresholdPlaceholder",
+          )}
         />
       </Form.Item>
 
@@ -52,7 +67,10 @@ export function ToolResultCompactCard() {
         name={["tool_result_compact", "recent_max_bytes"]}
         dependencies={[["tool_result_compact", "old_max_bytes"]]}
         rules={[
-          { required: true, message: t("agentConfig.toolResultCompactRecentThresholdRequired") },
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactRecentThresholdRequired"),
+          },
           {
             validator: async (_, value) => {
               const oldMaxBytes = form.getFieldValue([
@@ -76,7 +94,9 @@ export function ToolResultCompactCard() {
           style={{ width: "100%" }}
           min={1000}
           step={1000}
-          placeholder={t("agentConfig.toolResultCompactRecentThresholdPlaceholder")}
+          placeholder={t(
+            "agentConfig.toolResultCompactRecentThresholdPlaceholder",
+          )}
         />
       </Form.Item>
 
@@ -84,11 +104,19 @@ export function ToolResultCompactCard() {
         label={t("agentConfig.toolResultCompactRetentionDays")}
         name={["tool_result_compact", "retention_days"]}
         rules={[
-          { required: true, message: t("agentConfig.toolResultCompactRetentionDaysRequired") },
+          {
+            required: true,
+            message: t("agentConfig.toolResultCompactRetentionDaysRequired"),
+          },
         ]}
         tooltip={t("agentConfig.toolResultCompactRetentionDaysTooltip")}
       >
-        <SliderWithValue min={1} max={10} step={1} marks={{ 1: "1", 5: "5", 10: "10" }} />
+        <SliderWithValue
+          min={1}
+          max={10}
+          step={1}
+          marks={{ 1: "1", 5: "5", 10: "10" }}
+        />
       </Form.Item>
     </Card>
   );

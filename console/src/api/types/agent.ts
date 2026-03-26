@@ -57,4 +57,5 @@ export interface AgentsRunningConfig {
   tool_result_compact: ToolResultCompactConfig;
   memory_summary: MemorySummaryConfig;
   embedding_config: EmbeddingConfig;
+  memory_manager_backend: "remelight";
 }

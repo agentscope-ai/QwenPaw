@@ -21,13 +21,13 @@ from .service_factories import (
     create_channel_service,
     create_agent_config_watcher,
     create_mcp_config_watcher,
+    create_memory_manager_service,
 )
 from ..runner import AgentRunner
 from ..runner.task_tracker import TaskTracker
 from ..mcp import MCPClientManager
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
-from ...agents.memory import MemoryManager
 from ...config.config import load_agent_config
 
 if TYPE_CHECKING:
@@ -161,16 +161,8 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=MemoryManager,
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
-                post_init=lambda ws, mm: setattr(
-                    ws._service_manager.services["runner"],
-                    "memory_manager",
-                    mm,
-                ),
+                service_class=None,
+                post_init=create_memory_manager_service,
                 start_method="start",
                 stop_method="close",
                 reusable=True,

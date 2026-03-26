@@ -20,6 +20,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
 
+from copaw.agents.memory.base_memory_manager import BaseMemoryManager
 from copaw.agents.model_factory import create_model_and_formatter
 from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
@@ -47,7 +48,7 @@ except ImportError as e:
             """No-op start when reme is unavailable."""
 
 
-class MemoryManager(ReMeLight):
+class MemoryManager(BaseMemoryManager, ReMeLight):
     """Memory manager that extends ReMeLight for CoPaw agents.
 
     This class provides memory management capabilities including:

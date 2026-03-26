@@ -15,7 +15,11 @@ export function ContextManagementCard() {
         name="max_input_length"
         rules={[
           { required: true, message: t("agentConfig.maxInputLengthRequired") },
-          { type: "number", min: 1000, message: t("agentConfig.maxInputLengthMin") },
+          {
+            type: "number",
+            min: 1000,
+            message: t("agentConfig.maxInputLengthMin"),
+          },
         ]}
         tooltip={t("agentConfig.maxInputLengthTooltip")}
       >
@@ -31,8 +35,15 @@ export function ContextManagementCard() {
         label={t("agentConfig.historyMaxLength")}
         name="history_max_length"
         rules={[
-          { required: true, message: t("agentConfig.historyMaxLengthRequired") },
-          { type: "number", min: 1000, message: t("agentConfig.historyMaxLengthMin") },
+          {
+            required: true,
+            message: t("agentConfig.historyMaxLengthRequired"),
+          },
+          {
+            type: "number",
+            min: 1000,
+            message: t("agentConfig.historyMaxLengthMin"),
+          },
         ]}
         tooltip={t("agentConfig.historyMaxLengthTooltip")}
       >

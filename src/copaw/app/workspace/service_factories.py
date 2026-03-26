@@ -131,6 +131,38 @@ async def create_agent_config_watcher(ws: "Workspace", _):
     # pylint: enable=protected-access
 
 
+async def create_memory_manager_service(ws: "Workspace", _):
+    """Create a memory manager using the configured backend.
+
+    Reads ``ws._config.running.memory_manager.backend`` to select the
+    implementation. Falls back to ``remelight`` when the field is unset.
+
+    Args:
+        ws: Workspace instance
+        _: Unused (service_class is None for this factory)
+
+    Returns:
+        BaseMemoryManager instance registered in services and wired to runner.
+    """
+    # pylint: disable=protected-access
+    from ...agents.memory import MemoryManager
+
+    backend = ws._config.running.memory_manager_backend
+
+    if backend == "remelight":
+        mm = MemoryManager(
+            working_dir=str(ws.workspace_dir),
+            agent_id=ws.agent_id,
+        )
+    else:
+        raise ValueError(f"Unsupported memory manager backend: '{backend}'")
+
+    ws._service_manager.services["memory_manager"] = mm
+    ws._service_manager.services["runner"].memory_manager = mm
+    return mm
+    # pylint: enable=protected-access
+
+
 async def create_mcp_config_watcher(ws: "Workspace", _):
     """Create MCP config watcher if MCP manager exists.
 

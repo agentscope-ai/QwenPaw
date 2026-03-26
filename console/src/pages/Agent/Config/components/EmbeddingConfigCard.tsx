@@ -1,4 +1,11 @@
-import { Form, Card, Switch, InputNumber, Input, Alert } from "@agentscope-ai/design";
+import {
+  Form,
+  Card,
+  Switch,
+  InputNumber,
+  Input,
+  Alert,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -18,7 +25,9 @@ export function EmbeddingConfigCard() {
       <Alert
         type="warning"
         showIcon
-        message={`${t("agentConfig.embeddingEnableHint")} ${t("agentConfig.embeddingRestartWarning")}`}
+        message={`${t("agentConfig.embeddingEnableHint")} ${t(
+          "agentConfig.embeddingRestartWarning",
+        )}`}
         style={{ marginBottom: 16 }}
       />
 
@@ -43,19 +52,33 @@ export function EmbeddingConfigCard() {
         name={["embedding_config", "api_key"]}
         tooltip={t("agentConfig.embeddingApiKeyTooltip")}
       >
-        <Input.Password placeholder={t("agentConfig.embeddingApiKeyPlaceholder")} />
+        <Input.Password
+          placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
+        />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.embeddingDimensions")}
         name={["embedding_config", "dimensions"]}
         rules={[
-          { required: true, message: t("agentConfig.embeddingDimensionsRequired") },
-          { type: "number", min: 1, message: t("agentConfig.embeddingDimensionsMin") },
+          {
+            required: true,
+            message: t("agentConfig.embeddingDimensionsRequired"),
+          },
+          {
+            type: "number",
+            min: 1,
+            message: t("agentConfig.embeddingDimensionsMin"),
+          },
         ]}
         tooltip={t("agentConfig.embeddingDimensionsTooltip")}
       >
-        <InputNumber style={{ width: "100%" }} min={1} step={256} disabled={!embeddingEnabled} />
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          step={256}
+          disabled={!embeddingEnabled}
+        />
       </Form.Item>
 
       <Form.Item
@@ -70,28 +93,58 @@ export function EmbeddingConfigCard() {
       <Form.Item
         label={t("agentConfig.embeddingMaxCacheSize")}
         name={["embedding_config", "max_cache_size"]}
-        rules={[{ required: true, message: t("agentConfig.embeddingMaxCacheSizeRequired") }]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.embeddingMaxCacheSizeRequired"),
+          },
+        ]}
         tooltip={t("agentConfig.embeddingMaxCacheSizeTooltip")}
       >
-        <InputNumber style={{ width: "100%" }} min={1} step={100} disabled={!embeddingEnabled} />
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          step={100}
+          disabled={!embeddingEnabled}
+        />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.embeddingMaxInputLength")}
         name={["embedding_config", "max_input_length"]}
-        rules={[{ required: true, message: t("agentConfig.embeddingMaxInputLengthRequired") }]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.embeddingMaxInputLengthRequired"),
+          },
+        ]}
         tooltip={t("agentConfig.embeddingMaxInputLengthTooltip")}
       >
-        <InputNumber style={{ width: "100%" }} min={1} step={1024} disabled={!embeddingEnabled} />
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          step={1024}
+          disabled={!embeddingEnabled}
+        />
       </Form.Item>
 
       <Form.Item
         label={t("agentConfig.embeddingMaxBatchSize")}
         name={["embedding_config", "max_batch_size"]}
-        rules={[{ required: true, message: t("agentConfig.embeddingMaxBatchSizeRequired") }]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.embeddingMaxBatchSizeRequired"),
+          },
+        ]}
         tooltip={t("agentConfig.embeddingMaxBatchSizeTooltip")}
       >
-        <InputNumber style={{ width: "100%" }} min={1} step={1} disabled={!embeddingEnabled} />
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          step={1}
+          disabled={!embeddingEnabled}
+        />
       </Form.Item>
     </Card>
   );

@@ -390,6 +390,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         self._sys_prompt = self._build_sys_prompt()
 
+        if self.memory is None:
+            return
+
         for msg, _marks in self.memory.content:
             if msg.role == "system":
                 msg.content = self.sys_prompt
