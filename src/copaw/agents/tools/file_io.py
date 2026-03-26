@@ -10,7 +10,12 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir, get_current_focus_dir
-from .utils import truncate_file_output, read_file_safe
+from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
+from ...config.context import get_current_workspace_dir, get_current_focus_dir
+from .utils import (
+    truncate_text_output,
+    read_file_safe,
+)
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -29,7 +34,11 @@ def _resolve_file_path(file_path: str) -> str:
     else:
         # Prefer focus-level directory when set (e.g. pipeline workspace or
         # project directory), then fall back to full workspace_dir.
-        workspace_dir = get_current_focus_dir() or get_current_workspace_dir() or WORKING_DIR
+        workspace_dir = (
+            get_current_focus_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
+        )
         return str(workspace_dir / file_path)
 
 
@@ -134,19 +143,25 @@ async def read_file(  # pylint: disable=too-many-return-statements
         selected_content = "\n".join(all_lines[s - 1 : e])
 
         # Apply smart truncation (consistent with shell output format)
-        text = truncate_file_output(
+        text = truncate_text_output(
             selected_content,
             start_line=s,
             total_lines=total,
+            file_path=file_path,
         )
 
-        # Add continuation hint if partial read without truncation
+        # Add continuation hint if partial read without truncation.
+        # Use TRUNCATION_NOTICE_MARKER format so ToolResultCompactor can
+        # re-truncate with the correct start_line when compacting old messages.
         if text == selected_content and e < total:
-            remaining = total - e
-            text = (
-                f"{file_path}  (lines {s}-{e} of {total})\n{text}\n\n"
-                f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
+            content_bytes = len(text.encode("utf-8"))
+            notice = (
+                TRUNCATION_NOTICE_MARKER
+                + f"\nFile: {file_path}\nStarting at start_line={s}, next {content_bytes} bytes."
+                f"\nTotal lines: {total}"
+                f"\nUse start_line={e + 1} to continue."
             )
+            text = text + notice
 
         return ToolResponse(
             content=[TextBlock(type="text", text=text)],

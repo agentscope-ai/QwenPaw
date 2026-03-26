@@ -20,7 +20,7 @@ from typing import Any, cast
 from urllib.parse import unquote, urlparse
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..utils import schedule_agent_reload
 from ...config.config import (
@@ -88,6 +88,17 @@ class CreateAgentRequest(BaseModel):
     description: str = ""
     workspace_dir: str | None = None
     language: str = "en"
+
+    @field_validator("workspace_dir", mode="before")
+    @classmethod
+    def strip_workspace_dir(cls, value: str | None) -> str | None:
+        """Strip accidental whitespace"""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped if stripped else None
+        return value
 
 
 class MdFileInfo(BaseModel):

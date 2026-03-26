@@ -201,6 +201,7 @@ function useMultimodalCapabilities(
   refreshKey: number,
   locationPathname: string,
   isChatActive: () => boolean,
+  selectedAgent: string,
 ) {
   const [multimodalCaps, setMultimodalCaps] = useState<{
     supportsMultimodal: boolean;
@@ -212,7 +213,10 @@ function useMultimodalCapabilities(
     try {
       const [providers, activeModels] = await Promise.all([
         providerApi.listProviders(),
-        providerApi.getActiveModels(),
+        providerApi.getActiveModels({
+          scope: "effective",
+          agent_id: selectedAgent,
+        }),
       ]);
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
@@ -252,7 +256,7 @@ function useMultimodalCapabilities(
         supportsVideo: false,
       });
     }
-  }, []);
+  }, [selectedAgent]);
 
   // Fetch caps on mount and whenever refreshKey changes
   useEffect(() => {
@@ -444,6 +448,7 @@ export default function ChatPage() {
     refreshKey,
     location.pathname,
     isChatActive,
+    selectedAgent,
   );
 
   const lastSessionIdRef = useRef<string | null>(null);
@@ -941,7 +946,10 @@ export default function ChatPage() {
       }
 
       try {
-        const activeModels = await providerApi.getActiveModels();
+        const activeModels = await providerApi.getActiveModels({
+          scope: "effective",
+          agent_id: selectedAgent,
+        });
         if (
           !activeModels?.active_llm?.provider_id ||
           !activeModels?.active_llm?.model
@@ -1039,7 +1047,7 @@ export default function ChatPage() {
         headers: response.headers,
       });
     },
-    [persistStreamSession, setChatStatus, setReconnectStreaming],
+    [persistStreamSession, selectedAgent, setChatStatus, setReconnectStreaming],
   );
 
   const handleFileUpload = useCallback(
@@ -1073,7 +1081,7 @@ export default function ChatPage() {
 
         const res = await chatApi.uploadFile(file);
         onProgress?.({ percent: 100 });
-        onSuccess({ url: chatApi.fileUrl(res.url) });
+        onSuccess({ url: chatApi.filePreviewUrl(res.url) });
       } catch (e) {
         onError?.(e instanceof Error ? e : new Error(String(e)));
       }
