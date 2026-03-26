@@ -16,7 +16,7 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi import Path as PathParam
 from fastapi import Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel,field_validator
 
 from ..utils import schedule_agent_reload
 from ...config.config import (
