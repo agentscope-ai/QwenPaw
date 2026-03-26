@@ -95,6 +95,26 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
     )
+    supports_oauth_login: bool = Field(
+        default=False,
+        description="Whether this provider supports OAuth/device login.",
+    )
+    is_authenticated: bool = Field(
+        default=False,
+        description="Whether the provider currently has a valid auth session.",
+    )
+    auth_method: str | None = Field(
+        default=None,
+        description="Authentication method used by the provider.",
+    )
+    auth_account_label: str | None = Field(
+        default=None,
+        description="Human-readable authenticated account label.",
+    )
+    auth_expires_at: int | None = Field(
+        default=None,
+        description="Unix timestamp when the current auth session expires.",
+    )
 
 
 class Provider(ProviderInfo, ABC):
@@ -239,6 +259,11 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            supports_oauth_login=getattr(self, "supports_oauth_login", False),
+            is_authenticated=getattr(self, "is_authenticated", False),
+            auth_method=getattr(self, "auth_method", None),
+            auth_account_label=getattr(self, "auth_account_label", None),
+            auth_expires_at=getattr(self, "auth_expires_at", None),
         )
 
 

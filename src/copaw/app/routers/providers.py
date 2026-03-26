@@ -24,6 +24,7 @@ from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
 from ...providers.models import ModelSlotConfig
+from ...providers.github_copilot_provider import GitHubCopilotProvider
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,24 @@ def get_provider_manager(request: Request) -> ProviderManager:
     if provider_manager is None:
         provider_manager = ProviderManager.get_instance()
     return provider_manager
+
+
+def _get_github_copilot_provider(
+    manager: ProviderManager,
+    provider_id: str,
+) -> GitHubCopilotProvider:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+    if not isinstance(provider, GitHubCopilotProvider):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{provider_id}' does not support device login",
+        )
+    return provider
 
 
 class ProviderConfigRequest(BaseModel):
@@ -97,6 +116,27 @@ class CreateCustomProviderRequest(BaseModel):
 class AddModelRequest(BaseModel):
     id: str = Field(...)
     name: str = Field(...)
+
+
+class DeviceAuthStartResponse(BaseModel):
+    session_id: str = Field(...)
+    user_code: str = Field(...)
+    verification_uri: str = Field(...)
+    expires_at: int = Field(...)
+    interval: int = Field(...)
+
+
+class DeviceAuthPollResponse(BaseModel):
+    status: Literal[
+        "pending",
+        "authorized",
+        "denied",
+        "expired",
+        "error",
+        "missing",
+    ] = Field(...)
+    message: str = Field(default="")
+    provider: ProviderInfo | None = Field(default=None)
 
 
 def _validate_model_slot(
@@ -200,6 +240,71 @@ async def create_custom_provider_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    return provider_info
+
+
+@router.post(
+    "/{provider_id}/auth/device/start",
+    response_model=DeviceAuthStartResponse,
+    summary="Start device authorization for a provider",
+)
+async def start_provider_device_auth(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> DeviceAuthStartResponse:
+    provider = _get_github_copilot_provider(manager, provider_id)
+    session = await provider.start_device_authorization()
+    manager.update_provider(provider_id, {})
+    return DeviceAuthStartResponse(
+        session_id=session.session_id,
+        user_code=session.user_code,
+        verification_uri=session.verification_uri,
+        expires_at=session.expires_at,
+        interval=session.interval,
+    )
+
+
+@router.get(
+    "/{provider_id}/auth/device/{session_id}",
+    response_model=DeviceAuthPollResponse,
+    summary="Poll device authorization status for a provider",
+)
+async def poll_provider_device_auth(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    session_id: str = Path(...),
+) -> DeviceAuthPollResponse:
+    provider = _get_github_copilot_provider(manager, provider_id)
+    status, message = await provider.poll_device_authorization(session_id)
+    manager.update_provider(provider_id, {})
+    provider_info = None
+    if status == "authorized":
+        provider_info = await manager.get_provider_info(provider_id)
+    return DeviceAuthPollResponse(
+        status=status,
+        message=message,
+        provider=provider_info,
+    )
+
+
+@router.post(
+    "/{provider_id}/auth/logout",
+    response_model=ProviderInfo,
+    summary="Log out a provider OAuth session",
+)
+async def logout_provider_auth(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+) -> ProviderInfo:
+    provider = _get_github_copilot_provider(manager, provider_id)
+    provider.logout()
+    manager.update_provider(provider_id, {})
+    provider_info = await manager.get_provider_info(provider_id)
+    if provider_info is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found after logout",
+        )
     return provider_info
 
 

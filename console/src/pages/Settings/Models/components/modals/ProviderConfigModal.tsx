@@ -9,7 +9,10 @@ import {
   Select,
 } from "@agentscope-ai/design";
 import { ApiOutlined, DownOutlined, RightOutlined } from "@ant-design/icons";
-import type { ProviderConfigRequest } from "../../../../../api/types";
+import type {
+  ProviderConfigRequest,
+  DeviceAuthStartResponse,
+} from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
@@ -253,6 +256,9 @@ interface ProviderConfigModalProps {
     chat_model: string;
     support_connection_check: boolean;
     generate_kwargs: Record<string, unknown>;
+    supports_oauth_login: boolean;
+    is_authenticated: boolean;
+    auth_account_label?: string | null;
   };
   activeModels: any;
   open: boolean;
@@ -272,9 +278,14 @@ export function ProviderConfigModal({
   const [testing, setTesting] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [authStarting, setAuthStarting] = useState(false);
+  const [authPolling, setAuthPolling] = useState(false);
+  const [authSession, setAuthSession] =
+    useState<DeviceAuthStartResponse | null>(null);
   const [form] = Form.useForm<ProviderConfigFormValues>();
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
+  const isOauthProvider = provider.supports_oauth_login;
 
   const parseGenerateConfig = (value?: string) => {
     const trimmed = value?.trim();
@@ -326,6 +337,9 @@ export function ProviderConfigModal({
     if (provider.id === "openai") {
       return t("models.openAIEndpoint");
     }
+    if (provider.id === "github-copilot") {
+      return t("models.githubCopilotEndpointHint");
+    }
     if (provider.id === "ollama") {
       return t("models.ollamaEndpointHint");
     }
@@ -352,6 +366,9 @@ export function ProviderConfigModal({
     }
     if (provider.id === "openai") {
       return "https://api.openai.com/v1";
+    }
+    if (provider.id === "github-copilot") {
+      return "https://api.individual.githubcopilot.com";
     }
     if (provider.id === "ollama") {
       return "http://localhost:11434";
@@ -380,8 +397,89 @@ export function ProviderConfigModal({
       });
       setAdvancedOpen(false);
       setFormDirty(false);
+      setAuthSession(null);
+      setAuthPolling(false);
     }
   }, [provider, form, open]);
+
+  useEffect(() => {
+    if (!open || !authSession || !isOauthProvider) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setAuthPolling(true);
+      try {
+        const result = await api.pollDeviceAuth(provider.id, authSession.session_id);
+        if (cancelled) {
+          return;
+        }
+        if (result.status === "authorized") {
+          setAuthSession(null);
+          setAuthPolling(false);
+          try {
+            await api.discoverModels(provider.id);
+          } catch {
+            // Ignore model discovery failure here; auth already succeeded.
+          }
+          await onSaved();
+          message.success(result.message || t("models.githubAuthSuccess"));
+          return;
+        }
+        if (result.status === "pending") {
+          setAuthPolling(false);
+          return;
+        }
+        setAuthSession(null);
+        setAuthPolling(false);
+        message.warning(result.message || t("models.githubAuthFailed"));
+      } catch (error) {
+        if (!cancelled) {
+          setAuthPolling(false);
+          setAuthSession(null);
+          message.error(
+            error instanceof Error
+              ? error.message
+              : t("models.githubAuthFailed"),
+          );
+        }
+      }
+    }, Math.max(authSession.interval, 2) * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [authSession, isOauthProvider, onSaved, open, provider.id, t]);
+
+  const handleStartOauthLogin = async () => {
+    setAuthStarting(true);
+    try {
+      const session = await api.startDeviceAuth(provider.id);
+      setAuthSession(session);
+      window.open(session.verification_uri, "_blank", "noopener,noreferrer");
+      message.info(t("models.githubAuthStarted"));
+    } catch (error) {
+      const errMsg =
+        error instanceof Error ? error.message : t("models.githubAuthFailed");
+      message.error(errMsg);
+    } finally {
+      setAuthStarting(false);
+    }
+  };
+
+  const handleCopyUserCode = async () => {
+    if (!authSession?.user_code) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(authSession.user_code);
+      message.success(t("models.githubUserCodeCopied"));
+    } catch {
+      message.warning(t("models.githubUserCodeCopyFailed"));
+    }
+  };
 
   const handleSubmit = async () => {
     try {
@@ -475,7 +573,11 @@ export function ProviderConfigModal({
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {
-          await api.configureProvider(provider.id, { api_key: "" });
+          if (isOauthProvider) {
+            await api.logoutProviderAuth(provider.id);
+          } else {
+            await api.configureProvider(provider.id, { api_key: "" });
+          }
           await onSaved();
           onClose();
           if (isActiveLlmProvider) {
@@ -504,12 +606,13 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.api_key && (
+            {(isOauthProvider ? provider.is_authenticated : provider.api_key) && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
             )}
-            {provider.support_connection_check && (
+            {provider.support_connection_check &&
+              (!isOauthProvider || provider.is_authenticated) && (
               <Button
                 size="small"
                 icon={<ApiOutlined />}
@@ -549,6 +652,75 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        {isOauthProvider && (
+          <div
+            style={{
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+              background: "rgba(0,0,0,0.02)",
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+              {t("models.githubAuthSectionTitle")}
+            </div>
+            <div style={{ color: "rgba(0,0,0,0.65)", marginBottom: 12 }}>
+              {provider.is_authenticated
+                ? t("models.githubAuthSignedInAs", {
+                    account: provider.auth_account_label || provider.name,
+                  })
+                : t("models.githubAuthSectionDescription")}
+            </div>
+            {!provider.is_authenticated && (
+              <Button
+                type="primary"
+                loading={authStarting}
+                onClick={handleStartOauthLogin}
+              >
+                {t("models.githubLogin")}
+              </Button>
+            )}
+            {authSession && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ marginBottom: 8 }}>
+                  {t("models.githubAuthPendingHint")}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: 8,
+                  }}
+                >
+                  <Input value={authSession.user_code} readOnly style={{ width: 180 }} />
+                  <Button onClick={handleCopyUserCode}>
+                    {t("models.githubCopyUserCode")}
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      window.open(
+                        authSession.verification_uri,
+                        "_blank",
+                        "noopener,noreferrer",
+                      )
+                    }
+                  >
+                    {t("models.githubOpenVerificationPage")}
+                  </Button>
+                </div>
+                <div style={{ color: "rgba(0,0,0,0.45)" }}>
+                  {authPolling
+                    ? t("models.githubPolling")
+                    : t("models.githubWaitingForAuthorization")}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {provider.is_custom && (
           <Form.Item
             name="chat_model"
@@ -619,32 +791,34 @@ export function ProviderConfigModal({
         </Form.Item>
 
         {/* API Key */}
-        <Form.Item
-          name="api_key"
-          label={t("models.apiKey")}
-          rules={[
-            {
-              validator: (_, value) => {
-                if (
-                  value &&
-                  provider.api_key_prefix &&
-                  !value.startsWith(provider.api_key_prefix)
-                ) {
-                  return Promise.reject(
-                    new Error(
-                      t("models.apiKeyShouldStart", {
-                        prefix: provider.api_key_prefix,
-                      }),
-                    ),
-                  );
-                }
-                return Promise.resolve();
+        {!isOauthProvider && (
+          <Form.Item
+            name="api_key"
+            label={t("models.apiKey")}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (
+                    value &&
+                    provider.api_key_prefix &&
+                    !value.startsWith(provider.api_key_prefix)
+                  ) {
+                    return Promise.reject(
+                      new Error(
+                        t("models.apiKeyShouldStart", {
+                          prefix: provider.api_key_prefix,
+                        }),
+                      ),
+                    );
+                  }
+                  return Promise.resolve();
+                },
               },
-            },
-          ]}
-        >
-          <Input.Password placeholder={apiKeyPlaceholder} />
-        </Form.Item>
+            ]}
+          >
+            <Input.Password placeholder={apiKeyPlaceholder} />
+          </Form.Item>
+        )}
 
         <div className={styles.advancedConfigSection}>
           <button

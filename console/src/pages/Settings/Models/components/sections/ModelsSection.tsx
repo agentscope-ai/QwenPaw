@@ -17,6 +17,8 @@ interface ModelsSectionProps {
     is_custom: boolean;
     is_local?: boolean;
     require_api_key?: boolean;
+    supports_oauth_login?: boolean;
+    is_authenticated?: boolean;
   }>;
   activeModels: {
     active_llm?: {
@@ -51,6 +53,9 @@ export function ModelsSection({
           (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
         if (!hasModels) return false;
         if (p.is_local) return true;
+        if (p.supports_oauth_login) {
+          return !!p.is_authenticated;
+        }
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
         if (p.require_api_key ?? true) return !!p.api_key;
