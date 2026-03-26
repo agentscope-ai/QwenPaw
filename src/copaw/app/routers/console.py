@@ -74,10 +74,12 @@ async def _handle_console_stop(
     """Intercept /stop before attach_or_start. Returns response or None."""
     try:
         user_text = ""
-        if native_payload["content_parts"]:
-            first = native_payload["content_parts"][0]
-            if first:
-                user_text = getattr(first, "text", "") or ""
+        for part in native_payload.get("content_parts") or []:
+            if getattr(part, "type", None) == "text":
+                text = getattr(part, "text", "")
+                if text.strip():
+                    user_text = text
+                    break
         if not is_stop_command(user_text):
             return None
         stopped = await tracker.request_stop(chat_id)

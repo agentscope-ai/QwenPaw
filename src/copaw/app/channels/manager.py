@@ -55,6 +55,10 @@ def _extract_text_from_payload(ch: BaseChannel, payload: Any) -> str:
                 return getattr(c, "text", "") or ""
         return ""
     except Exception:
+        logger.debug(
+            "Failed to extract text from payload for /stop detection",
+            exc_info=True,
+        )
         return ""
 
 

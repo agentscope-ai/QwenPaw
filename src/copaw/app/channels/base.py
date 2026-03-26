@@ -51,6 +51,8 @@ if TYPE_CHECKING:
         Event,
     )
 
+    from ..runner.task_tracker import TaskTracker
+
 # process: accepts AgentRequest, streams Event
 # (including message events with status completed)
 ProcessHandler = Callable[[Any], AsyncIterator["Event"]]
@@ -122,9 +124,9 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
-        self._task_tracker = None
+        self._task_tracker: Optional["TaskTracker"] = None
 
-    def set_task_tracker(self, tracker) -> None:
+    def set_task_tracker(self, tracker: "TaskTracker") -> None:
         """Allow ChannelManager to inject a TaskTracker reference."""
         self._task_tracker = tracker
 
