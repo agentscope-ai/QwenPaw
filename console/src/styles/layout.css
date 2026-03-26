@@ -132,8 +132,8 @@ html.dark-mode .ant-pagination .ant-pagination-item a {
 
 html.dark-mode .copaw-pagination .copaw-pagination-item-active,
 html.dark-mode .ant-pagination .ant-pagination-item-active {
-  background: #615ced !important;
-  border-color: #615ced !important;
+  background: #FF7F16 !important;
+  border-color: #FF7F16 !important;
 }
 
 html.dark-mode .copaw-pagination .copaw-pagination-item-active a,
@@ -172,8 +172,8 @@ html.dark-mode .ant-checkbox-inner {
 
 html.dark-mode .copaw-checkbox-checked .copaw-checkbox-inner,
 html.dark-mode .ant-checkbox-checked .ant-checkbox-inner {
-  background: #615ced !important;
-  border-color: #615ced !important;
+  background: #FF7F16 !important;
+  border-color: #FF7F16 !important;
 }
 
 /* Page titles (h1) */
@@ -412,7 +412,7 @@ html.dark-mode .ant-picker-cell-disabled {
 /* Today marker */
 html.dark-mode .copaw-picker-cell-today .copaw-picker-cell-inner::before,
 html.dark-mode .ant-picker-cell-today .ant-picker-cell-inner::before {
-  border-color: #615ced !important;
+  border-color: #FF7F16 !important;
 }
 
 /* Selected start/end cell */
@@ -422,7 +422,7 @@ html.dark-mode .copaw-picker-cell-range-start .copaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-range-start .ant-picker-cell-inner,
 html.dark-mode .copaw-picker-cell-range-end .copaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-range-end .ant-picker-cell-inner {
-  background: #615ced !important;
+  background: #FF7F16 !important;
   color: #fff !important;
 }
 
@@ -606,12 +606,12 @@ html.dark-mode .ant-slider-rail {
 
 html.dark-mode .copaw-slider-track,
 html.dark-mode .ant-slider-track {
-  background-color: #615ced !important;
+  background-color: #FF7F16 !important;
 }
 
 html.dark-mode .copaw-slider-handle::after,
 html.dark-mode .ant-slider-handle::after {
-  box-shadow: 0 0 0 2px #615ced !important;
+  box-shadow: 0 0 0 2px #FF7F16 !important;
   background-color: #1f1f1f !important;
 }
 
@@ -744,6 +744,8 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding-bottom: 8px;
+  padding-right: 8px;
 }
 
 .page-header {
@@ -753,6 +755,10 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
 .page-content {
   flex: 1 1 auto;
   overflow: auto;
+  background-color: #fff;
+  border-radius: 8px; /* 8px */
+  box-sizing: border-box;
+  border: 1px solid #EAE9E7; /* #EAE9E7 */
 }
 
 .table-container {

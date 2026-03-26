@@ -20,8 +20,34 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { CopyOutlined, CheckOutlined, TagOutlined } from "@ant-design/icons";
 
 const { Header: AntHeader } = Layout;
+
+// ── Code block with copy button ───────────────────────────────────────────
+function UpdateCodeBlock({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className={styles.codeBlock}>
+      <code className={styles.codeBlockInner}>{code}</code>
+      <button
+        className={`${styles.copyBtn} ${
+          copied ? styles.copyBtnCopied : styles.copyBtnDefault
+        }`}
+        onClick={handleCopy}
+        title="Copy"
+      >
+        {copied ? <CheckOutlined /> : <CopyOutlined />}
+      </button>
+    </div>
+  );
+}
 
 export default function Header() {
   const { t, i18n } = useTranslation();
@@ -191,19 +217,59 @@ export default function Header() {
       </AntHeader>
 
       <Modal
-        title={<span className={styles.updateModalTitle}>{t("header.updateAvailable")}</span>}
+        title={null}
         open={updateModalOpen}
         onCancel={() => setUpdateModalOpen(false)}
         footer={[
           <Button key="close" onClick={() => setUpdateModalOpen(false)}>
             {t("common.close")}
           </Button>,
+          <Button
+            key="releases"
+            type="primary"
+            className={styles.updateViewReleasesBtn}
+            onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
+          >
+            {t("sidebar.updateModal.viewReleases")}
+          </Button>,
         ]}
-        width={600}
+        width={960}
+        className={styles.updateModal}
       >
+        {/* Banner area */}
+        <div className={styles.updateModalBanner}>
+          <div className={styles.updateModalBannerLeft}>
+            <span className={styles.updateModalVersionTag}>
+              <TagOutlined />
+              Version {latestVersion || version}
+            </span>
+            <div className={styles.updateModalBannerTitle}>
+              {t("sidebar.updateModal.title", { version: latestVersion || version })}
+            </div>
+          </div>
+        </div>
+
+        {/* Markdown content */}
         <div className={styles.updateModalBody}>
           {updateMarkdown ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ node, className, children, ...props }: any) {
+                  const match = /language-(\w+)/.exec(className || "");
+                  const isBlock =
+                    node?.position?.start?.line !== node?.position?.end?.line ||
+                    match;
+                  return isBlock ? (
+                    <UpdateCodeBlock code={String(children).replace(/\n$/, "")} />
+                  ) : (
+                    <code className={styles.codeInline} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
               {updateMarkdown}
             </ReactMarkdown>
           ) : (

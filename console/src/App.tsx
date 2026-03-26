@@ -141,6 +141,9 @@ function AppInner() {
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
+          token: {
+            colorPrimary: "#FF7F16",
+          },
         }}
       >
         <Routes>

@@ -734,7 +734,8 @@
     "docs": "Doc",
     "tutorial": "Tutorial",
     "faq": "FAQ",
-    "github": "GitHub"
+    "github": "GitHub",
+    "updateAvailable": "Update Available"
   },
   "theme": {
     "dark": "Dark",

@@ -700,7 +700,8 @@
     "docs": "文档",
     "tutorial": "教程",
     "faq": "常见问题",
-    "github": "GitHub"
+    "github": "GitHub",
+    "updateAvailable": "有可用更新"
   },
   "theme": {
     "dark": "深色",

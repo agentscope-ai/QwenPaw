@@ -691,7 +691,8 @@
     "docs": "Документация",
     "tutorial": "Руководство",
     "faq": "FAQ",
-    "github": "GitHub"
+    "github": "GitHub",
+    "updateAvailable": "Доступно обновление"
   },
   "theme": {
     "dark": "Тёмная",

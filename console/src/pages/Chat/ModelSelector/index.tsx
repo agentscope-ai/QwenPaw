@@ -229,7 +229,7 @@ export default function ModelSelector() {
         className={[styles.trigger, open ? styles.triggerActive : ""].join(" ")}
       >
         {saving && (
-          <LoadingOutlined style={{ fontSize: 11, color: "#615ced" }} />
+          <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
         )}
         <span className={styles.triggerName}>{activeModelName}</span>
         <DownOutlined

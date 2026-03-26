@@ -686,7 +686,8 @@
     "docs": "ドキュメント",
     "tutorial": "チュートリアル",
     "faq": "よくある質問",
-    "github": "GitHub"
+    "github": "GitHub",
+    "updateAvailable": "利用可能な更新"
   },
   "theme": {
     "dark": "ダーク",

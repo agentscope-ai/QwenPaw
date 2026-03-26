@@ -508,7 +508,7 @@ export function ModelManageModal({
               gap: 10,
             }}
           >
-            <LoadingOutlined spin style={{ fontSize: 16, color: "#615CED" }} />
+            <LoadingOutlined spin style={{ fontSize: 16, color: "#FF7F16" }} />
             <span style={{ color: "#333", fontSize: 13, flex: 1 }}>
               {task.status === "pending"
                 ? t("models.localDownloadPending")
@@ -637,7 +637,7 @@ export function ModelManageModal({
               gap: 10,
             }}
           >
-            <LoadingOutlined spin style={{ fontSize: 16, color: "#615CED" }} />
+            <LoadingOutlined spin style={{ fontSize: 16, color: "#FF7F16" }} />
             <span style={{ color: "#333", fontSize: 13, flex: 1 }}>
               {task.status === "pending"
                 ? t("models.downloadPending")
