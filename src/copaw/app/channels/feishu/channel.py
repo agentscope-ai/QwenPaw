@@ -552,12 +552,10 @@ class FeishuChannel(BaseChannel):
             self._loop,
         )
 
-    def _on_reaction_created_sync(self, data: "P2ImMessageReactionCreatedV1") -> None:
-        """Sync handler for reaction created events (no-op)."""
+    def _on_reaction_created_sync(self, data):
         logger.debug("feishu: received reaction created event, ignoring")
 
-    def _on_reaction_deleted_sync(self, data: "P2ImMessageReactionDeletedV1") -> None:
-        """Sync handler for reaction deleted events (no-op)."""
+    def _on_reaction_deleted_sync(self, data):
         logger.debug("feishu: received reaction deleted event, ignoring")
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
