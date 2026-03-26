@@ -752,14 +752,21 @@ class ProviderManager:
         )
         self.save_active_model(self.active_model)
 
+        self.maybe_probe_multimodal(provider_id, model_id)
+
+    def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
+        """Schedule multimodal probing for a model if capability is unknown."""
+        provider = self.get_provider(provider_id)
+        if provider is None or provider.is_local:
+            return
+
         # Auto-probe multimodal if not yet probed
-        if provider and not provider.is_local:
-            for model in provider.models + provider.extra_models:
-                if model.id == model_id and model.supports_multimodal is None:
-                    asyncio.create_task(
-                        self._auto_probe_multimodal(provider_id, model_id),
-                    )
-                    break
+        for model in provider.models + provider.extra_models:
+            if model.id == model_id and model.supports_multimodal is None:
+                asyncio.create_task(
+                    self._auto_probe_multimodal(provider_id, model_id),
+                )
+                break
 
     async def _auto_probe_multimodal(
         self,
