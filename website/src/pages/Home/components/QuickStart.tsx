@@ -141,7 +141,7 @@ function CodeBlock({
         )}
         {copied ? t("docs.copied") : t("docs.copy")}
       </button>
-      <pre className="min-h-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all pr-20 text-left font-mono text-sm leading-6 text-[#1A1716] md:pr-24 md:text-[0.92rem] md:leading-7">
+      <pre className="min-h-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all pr-20 text-left font-mono text-sm leading-6 text-[#1A1716] md:pr-24 md:text-base md:leading-7">
         {lines.join("\n")}
       </pre>
     </div>
@@ -246,7 +246,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                 className="overflow-hidden rounded-[calc(1rem-2px)] bg-white"
                 variants={itemVariants}
               >
-              <div className="grid grid-cols-2 border-b border-[#efe3d8] sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-px bg-(--bg) p-px sm:grid-cols-5">
                 {METHOD_ORDER.map((method) => {
                   const active = method === selectedMethod;
                   return (
@@ -254,7 +254,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                       key={method}
                       type="button"
                       onClick={() => setSelectedMethod(method)}
-                      className={`inline-flex h-10 items-center justify-center gap-1 border-r-2 border-(--bg) px-2 text-xs font-medium leading-none transition last:border-r-0 sm:h-12 sm:gap-1.5 sm:text-sm ${
+                      className={`inline-flex h-10 items-center justify-center gap-1 px-2 text-xs font-medium leading-none transition sm:h-12 sm:gap-1.5 sm:text-sm ${
                         active
                           ? "bg-(--color-primary)"
                           : "bg-(--color-secondary) text-[#4a4a4a] hover:bg-(--color-primary)"
@@ -397,7 +397,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                             href={ALIYUN_ECS_URL}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#dfc2a2] bg-(--color-secondary) px-4 py-2 text-sm font-semibold text-[#5e3d1e] shadow-[0_1px_1px_rgba(0,0,0,0.08)] hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
+                            className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#dfc2a2] bg-(--color-secondary) px-4 py-2 text-sm font-semibold text-(--color-text) shadow-[0_1px_1px_rgba(0,0,0,0.08)] hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
                           >
                             <AliyunIcon size={20} />
                             {t("quickstart.cloud.aliyunDeploy")}
@@ -416,7 +416,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                               href={MODELSCOPE_URL}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#dfc2a2] bg-(--color-secondary) px-4 py-2 text-sm font-semibold text-[#5e3d1e] shadow-[0_1px_1px_rgba(0,0,0,0.08)] hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
+                              className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#dfc2a2] bg-(--color-secondary) px-4 py-2 text-sm font-semibold text-(--color-text) shadow-[0_1px_1px_rgba(0,0,0,0.08)] hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
                             >
                               <ModelIcon size={20} />
                               {t("quickstart.cloud.modelscopeGo")}
@@ -453,7 +453,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                             href={DESKTOP_RELEASES_URL}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#dfc2a2] bg-(--color-secondary) px-4 py-2 text-sm font-semibold text-[#5e3d1e] shadow-[0_1px_1px_rgba(0,0,0,0.08)] hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#dfc2a2] bg-(--color-secondary) px-4 py-2 text-sm font-semibold text-(--color-text) shadow-[0_1px_1px_rgba(0,0,0,0.08)] hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
                           >
                             <GitHubIcon size={20} />
                             {t("quickstart.desktop.downloadGithub")}

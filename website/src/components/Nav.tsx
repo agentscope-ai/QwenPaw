@@ -87,7 +87,7 @@ export function Nav() {
           </span>
         </Link>
         <div className="nav-links hidden min-[641px]:flex min-[641px]:items-center min-[641px]:gap-6 lg:gap-8">
-          <div ref={moreRef} className="relative">
+          {/* <div ref={moreRef} className="relative">
             <button
               type="button"
               onClick={() => setMoreOpen((o) => !o)}
@@ -124,7 +124,7 @@ export function Nav() {
                 </Link>
               </div>
             )}
-          </div>
+          </div> */}
           <Link to={docsBase} className={navLinkClass}>
             <SelectTextIcon />
             <span>{t("nav.docs")}</span>
@@ -159,6 +159,14 @@ export function Nav() {
             <Globe size={18} strokeWidth={navIconStroke} aria-hidden />
             <span>{t("nav.lang")}</span>
           </button>
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md px-3 py-1 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)"
+            onClick={() => {}}
+          >
+            <Download size={18} strokeWidth={navIconStroke} /> Install
+          </button>
         </div>
 
         <button
@@ -174,7 +182,9 @@ export function Nav() {
 
       {/* 移动端菜单 */}
       <div
-        className={`nav-mobile flex min-[641px]:hidden flex-col gap-2 border-t border-neutral-100 bg-white px-4 py-3 sm:px-8 ${open ? "" : "hidden"}`}
+        className={`nav-mobile flex min-[641px]:hidden flex-col gap-2 border-t border-neutral-100 bg-white px-4 py-3 sm:px-8 ${
+          open ? "" : "hidden"
+        }`}
       >
         <Link
           to="/release-notes"

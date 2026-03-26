@@ -27,6 +27,7 @@
   --color-text-secondary: rgba(20, 20, 19, 0.65);
   --color-text-tertiary: rgba(20, 20, 19, 0.45);
   --color-fill-tertiary: rgba(205, 208, 220, 0.15);
+  --color-card-fill: rgba(43, 18, 0, 0.02);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

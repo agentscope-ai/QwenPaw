@@ -3,10 +3,11 @@ import { motion } from "motion/react";
 import Grainient from "@/components/Grainient";
 
 const sectionVariants = {
-  hidden: { opacity: 0, y: 16 },
+  hidden: { opacity: 0, y: 40, scale: 0.98 },
   show: {
     opacity: 1,
     y: 0,
+    scale: 1,
     transition: {
       duration: 0.45,
       ease: "easeOut",
@@ -16,13 +17,7 @@ const sectionVariants = {
 
 export function CopawFinalCTA() {
   return (
-    <motion.section
-      className="relative overflow-hidden py-12 md:py-16"
-      variants={sectionVariants}
-      initial="hidden"
-      whileInView="show"
-      viewport={{ once: true, amount: 0.2 }}
-    >
+    <section className="relative overflow-hidden py-12 md:py-16">
       <Grainient
         className="min-h-125 md:min-h-150"
         color1="#ffcd9e"
@@ -48,7 +43,13 @@ export function CopawFinalCTA() {
         centerY={0}
         zoom={1.4}
       >
-        <div className="flex min-h-125 md:min-h-150 h-full w-full items-center justify-center px-4">
+        <motion.div
+          className="flex min-h-125 md:min-h-150 h-full w-full items-center justify-center px-4"
+          variants={sectionVariants}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, amount: 0.2 }}
+        >
           <div className="flex mx-auto w-full max-w-190">
             <div className="relative min-h-75 w-full overflow-hidden rounded-xl border border-[#ece5dc] bg-white px-5 pb-5 pt-5 shadow-[0_8px_24px_rgba(56,33,12,0.08)] sm:px-7 sm:pb-6 sm:pt-6 md:min-h-107.5 md:px-8 md:pb-7 md:pt-7">
               <div className="relative z-10 h-[48%] w-full">
@@ -76,8 +77,8 @@ export function CopawFinalCTA() {
               />
             </div>
           </div>
-        </div>
+        </motion.div>
       </Grainient>
-    </motion.section>
+    </section>
   );
 }
