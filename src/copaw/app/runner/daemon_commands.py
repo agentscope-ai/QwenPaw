@@ -31,7 +31,15 @@ class RestartInProgressError(Exception):
 
 DAEMON_PREFIX = "/daemon"
 DAEMON_SUBCOMMANDS = frozenset(
-    {"status", "restart", "reload-config", "version", "logs", "approve", "stop"},
+    {
+        "status",
+        "restart",
+        "reload-config",
+        "version",
+        "logs",
+        "approve",
+        "stop",
+    },
 )
 # Short names: /restart -> /daemon restart, etc.
 DAEMON_SHORT_ALIASES = {
@@ -190,7 +198,7 @@ def run_daemon_logs(context: DaemonContext, lines: int = 100) -> str:
     return f"**Console log (last {lines} lines)**\n\n```\n{content}\n```"
 
 
-def run_daemon_stop(context: DaemonContext) -> str:
+def run_daemon_stop(_context: DaemonContext) -> str:
     """Handle /stop when session is idle — no task to cancel."""
     return "当前没有运行中的任务。"
 

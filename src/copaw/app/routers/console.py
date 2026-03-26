@@ -66,6 +66,53 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
+async def _handle_console_stop(
+    native_payload: dict,
+    tracker,
+    chat_id: str,
+) -> StreamingResponse | None:
+    """Intercept /stop before attach_or_start. Returns response or None."""
+    try:
+        user_text = ""
+        if native_payload["content_parts"]:
+            first = native_payload["content_parts"][0]
+            if first:
+                user_text = getattr(first, "text", "") or ""
+        if not is_stop_command(user_text):
+            return None
+        stopped = await tracker.request_stop(chat_id)
+        msg = "已停止当前任务。" if stopped else "当前没有运行中的任务。"
+
+        async def stop_event() -> AsyncGenerator[str, None]:
+            data = json.dumps({"stop": stopped, "message": msg})
+            yield f"data: {data}\n\n"
+
+        return StreamingResponse(
+            stop_event(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error handling /stop command")
+        err_msg = f"停止命令执行失败：{exc}"
+
+        async def error_event() -> AsyncGenerator[str, None]:
+            data = json.dumps({"stop": False, "message": err_msg})
+            yield f"data: {data}\n\n"
+
+        return StreamingResponse(
+            error_event(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+
 @router.post(
     "/chat",
     status_code=200,
@@ -111,42 +158,13 @@ async def post_console_chat(
     tracker = workspace.task_tracker
 
     # --- /stop early interception (before attach_or_start) ---
-    try:
-        user_text = ""
-        if native_payload["content_parts"]:
-            first = native_payload["content_parts"][0]
-            if first:
-                user_text = getattr(first, "text", "") or ""
-        if is_stop_command(user_text):
-            stopped = await tracker.request_stop(chat.id)
-            msg = "已停止当前任务。" if stopped else "当前没有运行中的任务。"
-
-            async def stop_event() -> AsyncGenerator[str, None]:
-                yield f"data: {json.dumps({'stop': stopped, 'message': msg})}\n\n"
-
-            return StreamingResponse(
-                stop_event(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                },
-            )
-    except Exception as exc:
-        logger.exception("Error handling /stop command")
-        err_msg = f"停止命令执行失败：{exc}"
-
-        async def error_event() -> AsyncGenerator[str, None]:
-            yield f"data: {json.dumps({'stop': False, 'message': err_msg})}\n\n"
-
-        return StreamingResponse(
-            error_event(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
+    stop_resp = await _handle_console_stop(
+        native_payload,
+        tracker,
+        chat.id,
+    )
+    if stop_resp is not None:
+        return stop_resp
 
     is_reconnect = False
     if isinstance(request_data, dict):
