@@ -1,32 +1,79 @@
-.agentsPage {
-  padding: 24px;
-  height: calc(100vh - 96px);
+.workspacePage {
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  :global {
+    .copaw-card  {
+      border-radius: 0px;
+    }
+  }
 }
 
-.header {
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
   flex-shrink: 0;
 }
 
-.title {
-  margin-bottom: 4px;
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
 }
 
-.description {
-  margin: 0;
+.workspaceInfo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.breadcrumbParent {
   color: #999;
-  font-size: 14px;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.workspacePath {
+  margin: 0;
+  font-size: 12px;
+  color: #666;
+  font-family: monospace;
+  margin-left: 12px;
+  border-radius: 2px; /* 2px */
+  background: rgba(239, 240, 243, 0.8); /* rgba(239, 240, 243, 0.8) */
+  padding: 0px 4px;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .content {
   display: flex;
-  gap: 16px;
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding-bottom: 12px;
 }
 
 .fileListPanel {
@@ -51,26 +98,12 @@
   min-height: 0;
 }
 
-.workspaceInfo {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 30px;
-}
-
 .headerRow {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
   flex-shrink: 0;
-}
-
-.actionButtons {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 12px;
 }
 
 .sectionTitle {
@@ -85,18 +118,6 @@
   font-size: 12px;
   color: #999;
   flex-shrink: 0;
-}
-
-.workspacePath {
-  margin: 0;
-  margin-bottom: 12px;
-  font-size: 12px;
-  color: #666;
-  font-family: monospace;
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .divider {
@@ -278,8 +299,7 @@
   }
 
   &.selected {
-    border: 2px solid #ff7f16;
-    background-color: #f6f5ff;
+    border: 1px solid #ff7f16;
   }
 }
 
@@ -326,7 +346,6 @@
 .dragging {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   border-color: #ff7f16 !important;
-  background-color: #f6f5ff !important;
 }
 
 .enabledBadge {
@@ -380,8 +399,7 @@
   }
 
   &.selected {
-    border: 2px solid #ff7f16;
-    background-color: #f6f5ff;
+    border: 1px solid #ff7f16;
   }
 }
 
@@ -397,8 +415,7 @@
 }
 
 .attribution {
-  margin: 0;
-  padding: 4px 0 0;
+  margin: 6px auto;
   font-size: 11px;
   color: #bbb;
   text-align: right;
@@ -407,8 +424,20 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .description {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .breadcrumbParent {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
   }
 
   .workspacePath {

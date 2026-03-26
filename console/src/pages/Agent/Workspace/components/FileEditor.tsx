@@ -134,6 +134,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
           <div className={styles.emptyState}>{t("workspace.selectFile")}</div>
         )}
       </Card>
+      <p className={styles.attribution}>{t("workspace.attribution")}</p>
     </div>
   );
 };
