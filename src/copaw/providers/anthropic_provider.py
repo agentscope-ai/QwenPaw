@@ -70,6 +70,9 @@ class AnthropicProvider(Provider):
             await client.models.list()
             return True, ""
         except anthropic.NotFoundError:
+            # Anthropic-compatible providers (e.g. MiniMax) may not
+            # support /models. A 404 here means the server is reachable
+            # and responding, but API key validity is not confirmed.
             return True, ""
         except anthropic.APIError:
             return False, "Anthropic API error"
