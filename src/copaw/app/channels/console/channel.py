@@ -409,7 +409,11 @@ class ConsoleChannel(BaseChannel):
         for p in parts:
             t = getattr(p, "type", None)
             if t == ContentType.TEXT and getattr(p, "text", None):
-                self._safe_print(f"{self.bot_prefix}  {p.text}")
+                text = p.text
+                if self.bot_prefix:
+                    self._safe_print(f"{self.bot_prefix}  {text}")
+                else:
+                    self._safe_print(text)
             elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
                 self._safe_print(f"{_RED}⚠ Refusal: {p.refusal}{_RESET}")
             elif t == ContentType.IMAGE and getattr(p, "image_url", None):
