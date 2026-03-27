@@ -947,9 +947,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         timeout=1,
                     )
                     self.memory._long_term_memory = "\n".join(
-                        block.text
+                        block["text"]
                         for block in (result.content or [])
-                        if hasattr(block, "text")
+                        if block.get("text")
                     )
                 except BaseException as e:
                     logger.warning(
