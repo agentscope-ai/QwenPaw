@@ -20,6 +20,7 @@ import re
 import sys
 import threading
 import time
+from email.utils import parsedate_to_datetime
 import types
 from collections import OrderedDict
 from pathlib import Path
@@ -228,6 +229,8 @@ class FeishuChannel(BaseChannel):
         self._closed = False
         self._stop_event = threading.Event()
         self._http_client: Any = None
+        # Clock offset (ms) = server_time - local_time
+        self._clock_offset: int = 0
 
         self._bot_open_id: Optional[str] = None
 
@@ -444,6 +447,20 @@ class FeishuChannel(BaseChannel):
                 },
                 timeout=10.0,
             )
+            # Compute clock offset from server Date header
+            date_str = response.headers.get("Date")
+            if date_str:
+                try:
+                    server_ms = int(
+                        parsedate_to_datetime(date_str).timestamp() * 1000,
+                    )
+                    self._clock_offset = server_ms - int(time.time() * 1000)
+                    logger.debug(
+                        "feishu clock offset: %dms",
+                        self._clock_offset,
+                    )
+                except (ValueError, TypeError) as e:
+                    logger.debug("feishu failed to parse Date header: %s", e)
             data = response.json()
             if data.get("code", -1) != 0:
                 logger.warning(
@@ -551,9 +568,10 @@ class FeishuChannel(BaseChannel):
         # Drop stale messages from Feishu retry mechanism.
         # Feishu retries failed deliveries at 5s, 5min, 1h, 6h intervals.
         # Messages older than 20 seconds are likely stale retries.
+        # Use clock_offset to correct local clock skew against server time.
         create_time = getattr(header, "create_time", None)
         if create_time:
-            now_ms = int(time.time() * 1000)
+            now_ms = int(time.time() * 1000) + self._clock_offset
             age_ms = now_ms - int(create_time)
             if age_ms > FEISHU_STALE_MSG_THRESHOLD_MS:
                 logger.debug(
