@@ -1,4 +1,4 @@
-import { Select, message, Tag } from "antd";
+import { Select, message, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
@@ -7,7 +7,11 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import styles from "./index.module.less";
 
-export default function AgentSelector() {
+interface AgentSelectorProps {
+  collapsed?: boolean;
+}
+
+export default function AgentSelector({ collapsed = false }: AgentSelectorProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =
@@ -61,6 +65,23 @@ export default function AgentSelector() {
   // Count only enabled agents for badge
   const enabledCount = agents?.filter((a) => a.enabled).length ?? 0;
   const agentCount = enabledCount;
+
+  const currentAgentInfo = agents?.find((a) => a.id === selectedAgent);
+
+  // Collapsed: show just the Bot icon with Tooltip
+  if (collapsed) {
+    return (
+      <Tooltip
+        title={currentAgentInfo?.name ?? selectedAgent}
+        placement="right"
+        overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
+      >
+        <div className={styles.agentSelectorCollapsed}>
+          <Bot size={18} strokeWidth={2} />
+        </div>
+      </Tooltip>
+    );
+  }
 
   return (
     <div className={styles.agentSelectorWrapper}>

@@ -335,8 +335,16 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
   .breadcrumbCurrent {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .mcpTitle {
+    color: rgba(255, 255, 255, 0.88);
   }
 
   .descriptionLabel {
@@ -345,5 +353,37 @@
 
   .descriptionText {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusText.disabled {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .statusDot.disabled {
+    background-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .mcpCard {
+    background: #2d2d2d;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Action buttons - Enable/Disable link */
+  .enableLink {
+    color: rgba(255, 255, 255, 0.85) !important;
+
+    &:hover {
+      color: #ff7f16 !important;
+    }
+  }
+
+  /* Action buttons - Delete icon */
+  .deleteIconButton {
+    color: rgba(255, 255, 255, 0.65) !important;
+
+    &:hover {
+      color: #ff7875 !important;
+      background-color: rgba(255, 77, 79, 0.15);
+    }
   }
 }

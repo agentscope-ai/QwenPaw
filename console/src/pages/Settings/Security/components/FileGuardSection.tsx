@@ -180,24 +180,6 @@ export function FileGuardSection() {
           }}
         />
       </Card>
-
-      <div className={styles.footerButtons}>
-        <Button
-          onClick={handleReset}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button
-          type="primary"
-          onClick={handleSave}
-          loading={saving}
-          disabled={!enabled}
-        >
-          {t("common.save")}
-        </Button>
-      </div>
     </>
   );
 }

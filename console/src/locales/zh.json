@@ -71,6 +71,8 @@
     "saveFailed": "保存失败"
   },
   "agent": {
+    "parent": "设置",
+    "agents": "智能体",
     "management": "智能体管理",
     "pageDescription": "创建、配置和管理多个 AI 智能体，支持自定义工作空间和身份。",
     "name": "名称",
@@ -401,6 +403,8 @@
     "sessionNamePlaceholder": "会话名称"
   },
   "environments": {
+    "parent": "设置",
+    "environments": "环境变量",
     "title": "环境变量",
     "description": "为智能体和技能配置键值环境变量。",
     "key": "键",
@@ -857,6 +861,8 @@
     }
   },
   "security": {
+    "parent": "设置",
+    "security": "安全",
     "title": "安全",
     "description": "管理工具和技能的安全功能。",
     "toolGuardTitle": "工具防护",

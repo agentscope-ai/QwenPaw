@@ -37,16 +37,24 @@
 
   // Hide scrollbar in browser
   &::-webkit-scrollbar {
-    display: none; /* Safari and Chrome */
+    display: none;
+    /* Safari and Chrome */
   }
+
   &::-moz-scrollbar {
-    display: none; /* Firefox */
+    display: none;
+    /* Firefox */
   }
+
   &::-ms-scrollbar {
-    display: none; /* IE/Edge */
+    display: none;
+    /* IE/Edge */
   }
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE and Edge */
+
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
 
   // AgentSelector container - fixed at top
   .agentSelectorContainer {
@@ -66,14 +74,58 @@
     &::-webkit-scrollbar {
       display: none;
     }
+
     &::-moz-scrollbar {
       display: none;
     }
+
     &::-ms-scrollbar {
       display: none;
     }
+
     scrollbar-width: none;
     -ms-overflow-style: none;
+  }
+
+  &.siderCollapsed {
+    padding: 0 8px;
+
+    .agentSelectorContainer {
+      display: flex;
+      justify-content: center;
+    }
+
+    .collapseToggleContainer {
+      justify-content: center;
+      width: calc(100% + 16px);
+      margin: 0 -8px;
+      padding: 8px 0;
+    }
+
+    :global {
+
+      /* Center icon in collapsed menu items */
+      .copaw-menu-item,
+      .copaw-menu-submenu .copaw-menu-item {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+
+      /* Hide label text in collapsed mode */
+      .copaw-menu-title-content,
+      .copaw-menu-item>span:not([role]),
+      .copaw-menu-item-only-child>span {
+        display: none !important;
+      }
+
+      /* Hide group labels */
+      .copaw-menu-submenu-title {
+        display: none !important;
+      }
+    }
   }
 
   :global {
@@ -99,7 +151,7 @@
 
     /* Always expand submenus */
     .copaw-menu-submenu {
-      > .copaw-menu {
+      >.copaw-menu {
         display: block !important;
       }
     }
@@ -113,6 +165,14 @@
     .copaw-menu-item-selected {
       background: rgba(43, 18, 0, 0.08) !important;
       color: inherit !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+
+      .copaw-menu-title-content {
+        display: flex !important;
+        align-items: center !important;
+      }
     }
 
     /* Selected submenu item - keep text color unchanged */
@@ -233,8 +293,72 @@
   justify-content: center;
 }
 
-.authBtn + .authBtn {
+.authBtn+.authBtn {
   margin-top: 4px;
+}
+
+/* Collapse Toggle Button */
+.collapseToggleContainer {
+  flex-shrink: 0;
+  z-index: 10;
+  width: calc(100% + 32px);
+  margin: 0 -16px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.collapseToggle {
+  color: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06) !important;
+    color: #ff7f16 !important;
+  }
+}
+
+/* Collapsed nav (icon-only group list) */
+.collapsedNav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.collapsedNavItem {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.55);
+  transition: all 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.88);
+  }
+}
+
+.collapsedNavItemActive {
+  background: rgba(43, 18, 0, 0.08) !important;
+  color: rgba(0, 0, 0, 0.88) !important;
 }
 
 // ─── Update Modal ─────────────────────────────────────────────────────────────
@@ -266,8 +390,7 @@
 }
 
 .updateModalBanner {
-  background: url("https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png")
-    no-repeat center top;
+  background: url("https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png") no-repeat center top;
   background-size: contain;
   padding: 48px 28px 0px;
   display: flex;
@@ -453,6 +576,29 @@
       color: rgba(255, 255, 255, 0.9) !important;
       background: rgba(255, 255, 255, 0.06) !important;
     }
+  }
+
+  .collapseToggle {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ff7f16;
+    }
+  }
+
+  .collapsedNavItem {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .collapsedNavItemActive {
+    background: rgba(255, 127, 22, 0.5) !important;
+    color: rgba(255, 255, 255, 0.88) !important;
   }
 
   .codeBlock {

@@ -1,4 +1,8 @@
 .toolsPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .pageHeader {
@@ -9,6 +13,10 @@
   padding: 20px;
   border-bottom: 1px solid #eae9e7;
   margin-bottom: 0;
+}
+
+.toolsContainer {
+  overflow: auto;
 }
 
 .breadcrumbHeader {
@@ -227,6 +235,8 @@
 
   /* Tool card */
   .toolCard {
+    background: #2d2d2d;
+
     &.normalCard {
       border-color: rgba(255, 255, 255, 0.08) !important;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
@@ -242,12 +252,20 @@
     color: rgba(255, 255, 255, 0.85);
   }
 
-  .statusDot.disabled {
+  .statusDot {
     background-color: rgba(255, 255, 255, 0.2);
   }
 
-  .statusText.disabled {
+  .statusDot.enabled {
+    background-color: rgba(20, 184, 166, 1);
+  }
+
+  .statusText {
     color: rgba(255, 255, 255, 0.45);
+  }
+
+  .statusText.enabled {
+    color: rgba(20, 184, 166, 1);
   }
 
   .toolDescription {

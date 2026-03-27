@@ -160,7 +160,7 @@ html.dark-mode .copaw-table-column-sorter-up.active,
 html.dark-mode .copaw-table-column-sorter-down.active,
 html.dark-mode .ant-table-column-sorter-up.active,
 html.dark-mode .ant-table-column-sorter-down.active {
-  color: #8b87f0 !important;
+  color: #ff7f16 !important;
 }
 
 /* Checkbox in table */
@@ -261,7 +261,7 @@ html.dark-mode .ant-select-item-option-active {
 html.dark-mode .copaw-select-item-option-selected,
 html.dark-mode .ant-select-item-option-selected {
   background: rgba(97, 92, 237, 0.2) !important;
-  color: #8b87f0 !important;
+  color: #ff7f16 !important;
 }
 
 /* Form labels */
@@ -342,7 +342,7 @@ html.dark-mode
   .ant-picker-time-panel-cell-selected
   .ant-picker-time-panel-cell-inner {
   background: rgba(97, 92, 237, 0.2) !important;
-  color: #8b87f0 !important;
+  color: #ff7f16 !important;
 }
 
 /* DatePicker / RangePicker calendar panel */
@@ -447,7 +447,7 @@ html.dark-mode
 html.dark-mode
   .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-end::after,
 html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-end::after {
-  border-color: #8b87f0 !important;
+  border-color: #ff7f16 !important;
 }
 
 /* Panel footer (OK button area) */
@@ -459,7 +459,7 @@ html.dark-mode .ant-picker-footer {
 
 html.dark-mode .copaw-picker-today-btn,
 html.dark-mode .ant-picker-today-btn {
-  color: #8b87f0 !important;
+  color: #ff7f16 !important;
 }
 
 /* Divider between two panels in RangePicker */
@@ -677,7 +677,7 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] code {
 }
 
 html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
-  color: #8b87f5 !important;
+  color: #ff7f16 !important;
 }
 
 #root {

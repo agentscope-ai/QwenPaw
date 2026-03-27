@@ -105,6 +105,8 @@
     "saveFailed": "Save failed"
   },
   "agent": {
+    "parent": "Settings",
+    "agents": "Agents",
     "management": "Agent Management",
     "pageDescription": "Create, configure, and manage multiple AI agents with custom workspaces and identities.",
     "name": "Name",
@@ -435,6 +437,8 @@
     "sessionNamePlaceholder": "Session name"
   },
   "environments": {
+    "parent": "Settings",
+    "environments": "Environment Variables",
     "title": "Environment Variables",
     "description": "Configure key-value environment variables for agents and skills.",
     "key": "Key",
@@ -891,6 +895,8 @@
     }
   },
   "security": {
+    "parent": "Settings",
+    "security": "Security",
     "title": "Security",
     "description": "Manage security features for tools and skills.",
     "toolGuardTitle": "Tool Guard",

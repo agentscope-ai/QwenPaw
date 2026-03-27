@@ -43,7 +43,7 @@ export function LocalProviderCard({
         <div className={styles.cardHeader}>
           <span className={styles.cardName}>
             {provider.name}
-            <Tag color="purple" style={{ marginLeft: 8, fontSize: 11 }}>
+            <Tag style={{ marginLeft: 8, fontSize: 11, color: "#fff", backgroundColor: "rgba(29, 212, 215, 1)" }}>
               {t("models.local")}
             </Tag>
           </span>

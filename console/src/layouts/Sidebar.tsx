@@ -6,6 +6,7 @@ import {
   Input,
   Form,
   message,
+  Tooltip,
   type MenuProps,
 } from "antd";
 import { useState, useEffect } from "react";
@@ -31,7 +32,10 @@ import {
   Bot,
   LogOut,
   UserCog,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
+import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
@@ -58,6 +62,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
+  const [collapsed, setCollapsed] = useState(false);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -65,7 +70,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     authApi
       .getStatus()
       .then((res) => setAuthEnabled(res.enabled))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -128,73 +133,122 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     }
   };
 
+  // ── Collapsed nav items (all leaf pages) ──────────────────────────────
+
+  const collapsedNavItems = [
+    { key: "chat",               icon: <MessageCircle size={18} />, path: "/chat",               label: t("nav.chat") },
+    { key: "channels",          icon: <Wifi size={18} />,          path: "/channels",          label: t("nav.channels") },
+    { key: "sessions",          icon: <UsersRound size={18} />,    path: "/sessions",          label: t("nav.sessions") },
+    { key: "cron-jobs",         icon: <CalendarClock size={18} />, path: "/cron-jobs",         label: t("nav.cronJobs") },
+    { key: "heartbeat",         icon: <Activity size={18} />,      path: "/heartbeat",         label: t("nav.heartbeat") },
+    { key: "workspace",         icon: <Briefcase size={18} />,     path: "/workspace",         label: t("nav.workspace") },
+    { key: "skills",            icon: <Sparkles size={18} />,      path: "/skills",            label: t("nav.skills") },
+    { key: "tools",             icon: <Wrench size={18} />,        path: "/tools",             label: t("nav.tools") },
+    { key: "mcp",               icon: <Plug size={18} />,          path: "/mcp",               label: t("nav.mcp") },
+    { key: "agent-config",      icon: <Settings size={18} />,      path: "/agent-config",      label: t("nav.agentConfig") },
+    { key: "agents",            icon: <Bot size={18} />,           path: "/agents",            label: t("nav.agents") },
+    { key: "models",            icon: <Box size={18} />,           path: "/models",            label: t("nav.models") },
+    { key: "environments",      icon: <Globe size={18} />,         path: "/environments",      label: t("nav.environments") },
+    { key: "security",          icon: <Shield size={18} />,        path: "/security",          label: t("nav.security") },
+    { key: "token-usage",       icon: <BarChart3 size={18} />,     path: "/token-usage",       label: t("nav.tokenUsage") },
+    { key: "voice-transcription",icon: <Mic size={18} />,          path: "/voice-transcription",label: t("nav.voiceTranscription") },
+  ];
+
   const menuItems: MenuProps["items"] = [
-    { key: "chat", label: t("nav.chat"), icon: <MessageCircle size={16} /> },
+    {
+      key: "chat",
+      label: collapsed ? null : t("nav.chat"),
+      icon: <MessageCircle size={16} />,
+    },
     {
       key: "control-group",
-      label: t("nav.control"),
+      label: collapsed ? null : t("nav.control"),
       children: [
-        { key: "channels", label: t("nav.channels"), icon: <Wifi size={16} /> },
+        {
+          key: "channels",
+          label: collapsed ? null : t("nav.channels"),
+          icon: <Wifi size={16} />,
+        },
         {
           key: "sessions",
-          label: t("nav.sessions"),
+          label: collapsed ? null : t("nav.sessions"),
           icon: <UsersRound size={16} />,
         },
         {
           key: "cron-jobs",
-          label: t("nav.cronJobs"),
+          label: collapsed ? null : t("nav.cronJobs"),
           icon: <CalendarClock size={16} />,
         },
         {
           key: "heartbeat",
-          label: t("nav.heartbeat"),
+          label: collapsed ? null : t("nav.heartbeat"),
           icon: <Activity size={16} />,
         },
       ],
     },
     {
       key: "agent-group",
-      label: t("nav.agent"),
+      label: collapsed ? null : t("nav.agent"),
       children: [
         {
           key: "workspace",
-          label: t("nav.workspace"),
+          label: collapsed ? null : t("nav.workspace"),
           icon: <Briefcase size={16} />,
         },
-        { key: "skills", label: t("nav.skills"), icon: <Sparkles size={16} /> },
-        { key: "tools", label: t("nav.tools"), icon: <Wrench size={16} /> },
-        { key: "mcp", label: t("nav.mcp"), icon: <Plug size={16} /> },
+        {
+          key: "skills",
+          label: collapsed ? null : t("nav.skills"),
+          icon: <Sparkles size={16} />,
+        },
+        {
+          key: "tools",
+          label: collapsed ? null : t("nav.tools"),
+          icon: <Wrench size={16} />,
+        },
+        {
+          key: "mcp",
+          label: collapsed ? null : t("nav.mcp"),
+          icon: <Plug size={16} />,
+        },
         {
           key: "agent-config",
-          label: t("nav.agentConfig"),
+          label: collapsed ? null : t("nav.agentConfig"),
           icon: <Settings size={16} />,
         },
       ],
     },
     {
       key: "settings-group",
-      label: t("nav.settings"),
+      label: collapsed ? null : t("nav.settings"),
       children: [
-        { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
-        { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
+        {
+          key: "agents",
+          label: collapsed ? null : t("nav.agents"),
+          icon: <Bot size={16} />,
+        },
+        {
+          key: "models",
+          label: collapsed ? null : t("nav.models"),
+          icon: <Box size={16} />,
+        },
         {
           key: "environments",
-          label: t("nav.environments"),
+          label: collapsed ? null : t("nav.environments"),
           icon: <Globe size={16} />,
         },
         {
           key: "security",
-          label: t("nav.security"),
+          label: collapsed ? null : t("nav.security"),
           icon: <Shield size={16} />,
         },
         {
           key: "token-usage",
-          label: t("nav.tokenUsage"),
+          label: collapsed ? null : t("nav.tokenUsage"),
           icon: <BarChart3 size={16} />,
         },
         {
           key: "voice-transcription",
-          label: t("nav.voiceTranscription"),
+          label: collapsed ? null : t("nav.voiceTranscription"),
           icon: <Mic size={16} />,
         },
       ],
@@ -205,26 +259,54 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   return (
     <Sider
-      width={275}
-      className={`${styles.sider}${isDark ? ` ${styles.siderDark}` : ""}`}
+      width={collapsed ? 72 : 275}
+      className={`${styles.sider}${collapsed ? ` ${styles.siderCollapsed}` : ""}${isDark ? ` ${styles.siderDark}` : ""}`}
     >
       <div className={styles.agentSelectorContainer}>
-        <AgentSelector />
+        <AgentSelector collapsed={collapsed} />
       </div>
-      <Menu
-        mode="inline"
-        selectedKeys={[selectedKey]}
-        openKeys={DEFAULT_OPEN_KEYS}
-        onClick={({ key }) => {
-          const path = KEY_TO_PATH[String(key)];
-          if (path) navigate(path);
-        }}
-        items={menuItems}
-        theme={isDark ? "dark" : "light"}
-        className={styles.sideMenu}
-      />
+      {/* Collapse Toggle Button */}
 
-      {authEnabled && (
+
+      {collapsed ? (
+        <nav className={styles.collapsedNav}>
+          {collapsedNavItems.map((item) => {
+            const isActive = selectedKey === item.key;
+            return (
+              <Tooltip
+                key={item.key}
+                title={item.label}
+                placement="right"
+                overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
+              >
+                <button
+                  className={`${styles.collapsedNavItem} ${
+                    isActive ? styles.collapsedNavItemActive : ""
+                  }`}
+                  onClick={() => navigate(item.path)}
+                >
+                  {item.icon}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </nav>
+      ) : (
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          openKeys={DEFAULT_OPEN_KEYS}
+          onClick={({ key }) => {
+            const path = KEY_TO_PATH[String(key)];
+            if (path) navigate(path);
+          }}
+          items={menuItems}
+          theme={isDark ? "dark" : "light"}
+          className={styles.sideMenu}
+        />
+      )}
+
+      {authEnabled && !collapsed && (
         <div className={styles.authActions}>
           <Button
             type="text"
@@ -234,9 +316,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               setAccountModalOpen(true);
             }}
             block
-            className={styles.authBtn}
+            className={`${styles.authBtn} ${collapsed ? styles.authBtnCollapsed : ""}`}
           >
-            {t("account.title")}
+            {!collapsed && t("account.title")}
           </Button>
           <Button
             type="text"
@@ -246,12 +328,27 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               window.location.href = "/login";
             }}
             block
-            className={styles.authBtn}
+            className={`${styles.authBtn} ${collapsed ? styles.authBtnCollapsed : ""}`}
           >
-            {t("login.logout")}
+            {!collapsed && t("login.logout")}
           </Button>
         </div>
       )}
+
+      <div className={styles.collapseToggleContainer}>
+        <Button
+          type="text"
+          icon={
+            collapsed ? (
+              <PanelLeftOpen size={20} />
+            ) : (
+              <PanelLeftClose size={20} />
+            )
+          }
+          onClick={() => setCollapsed(!collapsed)}
+          className={styles.collapseToggle}
+        />
+      </div>
 
       <Modal
         open={accountModalOpen}

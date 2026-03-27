@@ -12,6 +12,10 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
 
+// export const PROVIDER_IMG_MAP = {
+
+// }
+
 interface RemoteProviderCardProps {
   provider: ProviderInfo;
   activeModels: ActiveModelsInfo | null;
@@ -79,7 +83,7 @@ export function RemoteProviderCard({
       {t("models.custom")}
     </Tag>
   ) : (
-    <Tag color="green" style={{ marginLeft: 8, fontSize: 11 }}>
+    <Tag color="rgba(142, 140, 153, 1)" style={{ marginLeft: 8, fontSize: 11 }}>
       {t("models.builtin")}
     </Tag>
   );
@@ -95,7 +99,7 @@ export function RemoteProviderCard({
     ? "partial"
     : "disabled";
   const statusDotColor = isAvailable
-    ? "#52c41a"
+    ? "rgba(20, 184, 166, 1)"
     : isConfigured
     ? "#faad14"
     : "#d9d9d9";

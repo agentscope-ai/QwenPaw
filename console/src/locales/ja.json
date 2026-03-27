@@ -45,6 +45,8 @@
     "agents": "エージェント管理"
   },
   "agent": {
+    "parent": "設定",
+    "agents": "エージェント",
     "management": "エージェント管理",
     "pageDescription": "カスタムワークスペースとアイデンティティを持つ複数の AI エージェントを作成、設定、管理します。",
     "name": "名前",
@@ -387,6 +389,8 @@
     "sessionNamePlaceholder": "セッション名"
   },
   "environments": {
+    "parent": "設定",
+    "environments": "環境変数",
     "title": "環境変数",
     "description": "エージェントとスキルのキー・バリュー形式の環境変数を設定します。",
     "key": "キー",
@@ -843,6 +847,8 @@
     }
   },
   "security": {
+    "parent": "設定",
+    "security": "セキュリティ",
     "title": "セキュリティ",
     "description": "ツールとスキルのセキュリティ機能を管理します。",
     "toolGuardTitle": "ツールガード",

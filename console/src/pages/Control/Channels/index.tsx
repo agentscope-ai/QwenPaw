@@ -120,9 +120,8 @@ function ChannelsPage() {
           {FILTER_TABS.map(({ key, label }) => (
             <button
               key={key}
-              className={`${styles.filterTab} ${
-                filter === key ? styles.filterTabActive : ""
-              }`}
+              className={`${styles.filterTab} ${filter === key ? styles.filterTabActive : ""
+                }`}
               onClick={() => setFilter(key)}
             >
               {label}
@@ -130,27 +129,27 @@ function ChannelsPage() {
           ))}
         </div>
       </div>
-
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("channels.loading")}</span>
-        </div>
-      ) : (
-        <div className={styles.channelsGrid}>
-          {cards.map(({ key, config }) => (
-            <ChannelCard
-              key={key}
-              channelKey={key}
-              config={config}
-              isHover={hoverKey === key}
-              onClick={() => handleCardClick(key)}
-              onMouseEnter={() => setHoverKey(key)}
-              onMouseLeave={() => setHoverKey(null)}
-            />
-          ))}
-        </div>
-      )}
-
+      <div className={styles.channelsContainer}>
+        {loading ? (
+          <div className={styles.loading}>
+            <span className={styles.loadingText}>{t("channels.loading")}</span>
+          </div>
+        ) : (
+          <div className={styles.channelsGrid}>
+            {cards.map(({ key, config }) => (
+              <ChannelCard
+                key={key}
+                channelKey={key}
+                config={config}
+                isHover={hoverKey === key}
+                onClick={() => handleCardClick(key)}
+                onMouseEnter={() => setHoverKey(key)}
+                onMouseLeave={() => setHoverKey(null)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <ChannelDrawer
         open={drawerOpen}
         activeKey={activeKey}
@@ -162,6 +161,7 @@ function ChannelsPage() {
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />
+
     </div>
   );
 }
