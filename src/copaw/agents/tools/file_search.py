@@ -161,6 +161,123 @@ def _resolve_search_root(
     return search_root
 
 
+def _emit_match_entries(
+    entries: list[tuple[int, str, bool]],
+    disp_path: str,
+    matches: list[str],
+    total_chars: int,
+) -> tuple[bool, int]:
+    """Append a batch of context entries to matches.
+
+    Each entry is a tuple of (line_no, content, is_hit).
+    The is_hit flag determines the prefix ('>' for hit, ' ' for context).
+    Empty entries list is allowed and will be a no-op.
+
+    Args:
+        entries: List of (line_no, content, is_hit) tuples.
+        disp_path: Display path for the file.
+        matches: List to append formatted entries to (modified in place).
+        total_chars: Current character count.
+
+    Returns:
+        Tuple of (success, new_total_chars). Success is True if all entries
+        were appended, False if limits were reached.
+    """
+    for ln, content, is_hit in entries:
+        if len(matches) >= _MAX_MATCHES:
+            return False, total_chars
+        prefix = ">" if is_hit else " "
+        entry = f"{disp_path}:{ln}:{prefix} {content}"
+        total_chars += len(entry) + 1
+        if total_chars >= _MAX_OUTPUT_CHARS:
+            return False, total_chars
+        matches.append(entry)
+
+    return True, total_chars
+
+
+def _output_context_for_hit(
+    hit_line_no: int,
+    line_buffer: deque[tuple[int, str]],
+    disp_path: str,
+    context_lines: int,
+    matches: list[str],
+    total_chars: int,
+) -> tuple[bool, int]:
+    """Output context lines around a hit.
+
+    For each hit, we output lines from (hit - context_lines) to
+    (hit + context_lines), clamped to file boundaries. The hit line
+    is marked with '>' prefix, others with ' '.
+
+    Uses fast path when hit is found in buffer: direct slice indexing.
+    Falls back to range scan for edge cases (e.g., file start/end).
+
+    Args:
+        hit_line_no: Line number of the hit.
+        line_buffer: Deque of (line_no, content) tuples.
+        disp_path: Display path for the file.
+        context_lines: Number of context lines before/after hit.
+        matches: List to append formatted entries to (modified in place).
+        total_chars: Current character count.
+
+    Returns:
+        Tuple of (success, new_total_chars). Success is False if limits
+        were reached during output.
+    """
+    start_line = max(1, hit_line_no - context_lines)
+    end_line = hit_line_no + context_lines
+
+    # Find the index of hit_line_no in the buffer for fast slicing
+    hit_idx = None
+    for idx, (ln, _) in enumerate(line_buffer):
+        if ln == hit_line_no:
+            hit_idx = idx
+            break
+
+    # Collect all entries to output: (line_no, content, is_hit)
+    entries: list[tuple[int, str, bool]] = []
+
+    if hit_idx is None:
+        # Fallback: hit not in current buffer, scan by line number range
+        for ln, content in line_buffer:
+            if start_line <= ln <= end_line:
+                is_hit = ln == hit_line_no
+                entries.append((ln, content, is_hit))
+    else:
+        # Fast path: slice the buffer directly around the hit index
+        slice_start = max(0, hit_idx - context_lines)
+        slice_end = min(len(line_buffer), hit_idx + context_lines + 1)
+
+        for idx in range(slice_start, slice_end):
+            ln, content = line_buffer[idx]
+            # Clamp to actual context range for file boundaries
+            if start_line <= ln <= end_line:
+                is_hit = idx == hit_idx
+                entries.append((ln, content, is_hit))
+
+    # Batch append all collected entries
+    success, total_chars = _emit_match_entries(
+        entries,
+        disp_path,
+        matches,
+        total_chars,
+    )
+    if not success:
+        return False, total_chars
+
+    # Append separator if needed
+    if context_lines > 0:
+        if len(matches) >= _MAX_MATCHES:
+            return False, total_chars
+        matches.append("---")
+        total_chars += 4
+        if total_chars >= _MAX_OUTPUT_CHARS:
+            return False, total_chars
+
+    return True, total_chars
+
+
 # ---------------------------------------------------------------------------
 # Synchronous workers (run inside asyncio.to_thread)
 # ---------------------------------------------------------------------------
@@ -236,100 +353,6 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         # Track which line numbers have been output to avoid duplicates
         outputted_hits: set[int] = set()
 
-        def _emit_match_entries(
-            entries: list[tuple[int, str, bool]],
-            disp_path: str,
-        ) -> bool:
-            """Append a batch of context entries to matches.
-
-            Each entry is a tuple of (line_no, content, is_hit).
-            The is_hit flag determines the prefix ('>' for hit, ' ' for context).
-            Empty entries list is allowed and will be a no-op.
-
-            Args:
-                entries: List of (line_no, content, is_hit) tuples.
-                disp_path: Display path for the file.
-
-            Returns:
-                True if all entries were appended successfully, False if
-                limits were reached during appending.
-            """
-            nonlocal total_chars
-
-            for ln, content, is_hit in entries:
-                if len(matches) >= _MAX_MATCHES:
-                    return False
-                prefix = ">" if is_hit else " "
-                entry = f"{disp_path}:{ln}:{prefix} {content}"
-                total_chars += len(entry) + 1
-                if total_chars >= _MAX_OUTPUT_CHARS:
-                    return False
-                matches.append(entry)
-
-            return True
-
-        def _output_context_for_hit(
-            hit_line_no: int,
-            line_buffer: deque[tuple[int, str]],
-            disp_path: str,
-        ) -> bool:
-            """Output context lines around a hit.
-
-            For each hit, we output lines from (hit - context_lines) to
-            (hit + context_lines), clamped to file boundaries. The hit line
-            is marked with '>' prefix, others with ' '.
-
-            Uses fast path when hit is found in buffer: direct slice indexing.
-            Falls back to range scan for edge cases (e.g., file start/end).
-            """
-            nonlocal total_chars
-            start_line = max(1, hit_line_no - context_lines)
-            end_line = hit_line_no + context_lines
-
-            # Find the index of hit_line_no in the buffer for fast slicing
-            hit_idx = None
-            for idx, (ln, _) in enumerate(line_buffer):
-                if ln == hit_line_no:
-                    hit_idx = idx
-                    break
-
-            # Collect all entries to output: (line_no, content, is_hit)
-            entries: list[tuple[int, str, bool]] = []
-
-            if hit_idx is None:
-                # Fallback: hit not in current buffer, scan by line number range
-                for ln, content in line_buffer:
-                    if start_line <= ln <= end_line:
-                        is_hit = ln == hit_line_no
-                        entries.append((ln, content, is_hit))
-            else:
-                # Fast path: slice the buffer directly around the hit index
-                slice_start = max(0, hit_idx - context_lines)
-                slice_end = min(len(line_buffer), hit_idx + context_lines + 1)
-
-                for idx in range(slice_start, slice_end):
-                    ln, content = line_buffer[idx]
-                    # Clamp to actual context range for file boundaries
-                    if start_line <= ln <= end_line:
-                        is_hit = idx == hit_idx
-                        entries.append((ln, content, is_hit))
-
-            # Batch append all collected entries
-            # pylint: disable=cell-var-from-loop
-            if not _emit_match_entries(entries, disp_path):
-                return False
-
-            # Append separator if needed
-            if context_lines > 0:
-                if len(matches) >= _MAX_MATCHES:
-                    return False
-                matches.append("---")
-                total_chars += 4
-                if total_chars >= _MAX_OUTPUT_CHARS:
-                    return False
-
-            return True
-
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 line_no = 0
@@ -352,11 +375,15 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         while hit_indices and hit_indices[0] < middle_idx:
                             hit_line = window[hit_indices.pop(0)][0]
                             if hit_line not in outputted_hits:
-                                if not _output_context_for_hit(
+                                success, total_chars = _output_context_for_hit(
                                     hit_line,
                                     window,
                                     display_path,
-                                ):
+                                    context_lines,
+                                    matches,
+                                    total_chars,
+                                )
+                                if not success:
                                     status = (
                                         f"truncated: match limit ({_MAX_MATCHES})"
                                         if len(matches) >= _MAX_MATCHES
@@ -372,11 +399,15 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         if hit_indices and hit_indices[0] == middle_idx:
                             hit_line = window[hit_indices.pop(0)][0]
                             if hit_line not in outputted_hits:
-                                if not _output_context_for_hit(
+                                success, total_chars = _output_context_for_hit(
                                     hit_line,
                                     window,
                                     display_path,
-                                ):
+                                    context_lines,
+                                    matches,
+                                    total_chars,
+                                )
+                                if not success:
                                     status = (
                                         f"truncated: match limit ({_MAX_MATCHES})"
                                         if len(matches) >= _MAX_MATCHES
@@ -399,11 +430,15 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                     hit_line_no = window[hit_idx][0]
                     if hit_line_no in outputted_hits:
                         continue
-                    if not _output_context_for_hit(
+                    success, total_chars = _output_context_for_hit(
                         hit_line_no,
                         window,
                         display_path,
-                    ):
+                        context_lines,
+                        matches,
+                        total_chars,
+                    )
+                    if not success:
                         status = (
                             f"truncated: match limit ({_MAX_MATCHES})"
                             if len(matches) >= _MAX_MATCHES
