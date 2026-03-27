@@ -351,7 +351,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         # Indices in window where matches occurred, ordered by position
         hit_indices: list[int] = []
         # Track which line numbers have been output to avoid duplicates
-        outputted_hits: set[int] = set()
+        emitted_hit_lines: set[int] = set()
 
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -374,7 +374,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         # These hits have collected their full context (context_lines after).
                         while hit_indices and hit_indices[0] < middle_idx:
                             hit_line = window[hit_indices.pop(0)][0]
-                            if hit_line not in outputted_hits:
+                            if hit_line not in emitted_hit_lines:
                                 success, total_chars = _output_context_for_hit(
                                     hit_line,
                                     window,
@@ -390,7 +390,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                                         else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
                                     )
                                     break
-                                outputted_hits.add(hit_line)
+                                emitted_hit_lines.add(hit_line)
 
                         if status != "ok":
                             break
@@ -398,7 +398,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         # At this point, the hit has context_lines before and after.
                         if hit_indices and hit_indices[0] == middle_idx:
                             hit_line = window[hit_indices.pop(0)][0]
-                            if hit_line not in outputted_hits:
+                            if hit_line not in emitted_hit_lines:
                                 success, total_chars = _output_context_for_hit(
                                     hit_line,
                                     window,
@@ -414,7 +414,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                                         else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
                                     )
                                     break
-                                outputted_hits.add(hit_line)
+                                emitted_hit_lines.add(hit_line)
                         # Slide the window forward by removing the oldest line.
                         # Adjust remaining hit indices to match new positions.
                         window.popleft()
@@ -428,7 +428,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                 # (e.g., hits near file start or end).
                 for hit_idx in hit_indices:
                     hit_line_no = window[hit_idx][0]
-                    if hit_line_no in outputted_hits:
+                    if hit_line_no in emitted_hit_lines:
                         continue
                     success, total_chars = _output_context_for_hit(
                         hit_line_no,
