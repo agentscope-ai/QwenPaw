@@ -35,7 +35,6 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
 } from "lucide-react";
-import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
@@ -75,8 +74,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  // ── Menu items ────────────────────────────────────────────────────────────
-
   const handleUpdateProfile = async (values: {
     currentPassword: string;
     newUsername?: string;
@@ -85,13 +82,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     const trimmedUsername = values.newUsername?.trim() || undefined;
     const trimmedPassword = values.newPassword?.trim() || undefined;
 
-    // User typed spaces only in password field
     if (values.newPassword && !trimmedPassword) {
       message.error(t("account.passwordEmpty"));
       return;
     }
 
-    // User typed spaces only in username field
     if (values.newUsername && !trimmedUsername) {
       message.error(t("account.usernameEmpty"));
       return;
@@ -112,7 +107,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       message.success(t("account.updateSuccess"));
       setAccountModalOpen(false);
       accountForm.resetFields();
-      // Force re-login with new credentials
       clearAuthToken();
       window.location.href = "/login";
     } catch (err: unknown) {
@@ -136,23 +130,26 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // ── Collapsed nav items (all leaf pages) ──────────────────────────────
 
   const collapsedNavItems = [
-    { key: "chat",               icon: <MessageCircle size={18} />, path: "/chat",               label: t("nav.chat") },
-    { key: "channels",          icon: <Wifi size={18} />,          path: "/channels",          label: t("nav.channels") },
-    { key: "sessions",          icon: <UsersRound size={18} />,    path: "/sessions",          label: t("nav.sessions") },
-    { key: "cron-jobs",         icon: <CalendarClock size={18} />, path: "/cron-jobs",         label: t("nav.cronJobs") },
-    { key: "heartbeat",         icon: <Activity size={18} />,      path: "/heartbeat",         label: t("nav.heartbeat") },
-    { key: "workspace",         icon: <Briefcase size={18} />,     path: "/workspace",         label: t("nav.workspace") },
-    { key: "skills",            icon: <Sparkles size={18} />,      path: "/skills",            label: t("nav.skills") },
-    { key: "tools",             icon: <Wrench size={18} />,        path: "/tools",             label: t("nav.tools") },
-    { key: "mcp",               icon: <Plug size={18} />,          path: "/mcp",               label: t("nav.mcp") },
-    { key: "agent-config",      icon: <Settings size={18} />,      path: "/agent-config",      label: t("nav.agentConfig") },
-    { key: "agents",            icon: <Bot size={18} />,           path: "/agents",            label: t("nav.agents") },
-    { key: "models",            icon: <Box size={18} />,           path: "/models",            label: t("nav.models") },
-    { key: "environments",      icon: <Globe size={18} />,         path: "/environments",      label: t("nav.environments") },
-    { key: "security",          icon: <Shield size={18} />,        path: "/security",          label: t("nav.security") },
-    { key: "token-usage",       icon: <BarChart3 size={18} />,     path: "/token-usage",       label: t("nav.tokenUsage") },
-    { key: "voice-transcription",icon: <Mic size={18} />,          path: "/voice-transcription",label: t("nav.voiceTranscription") },
+    { key: "chat",                icon: <MessageCircle size={18} />, path: "/chat",                label: t("nav.chat") },
+    { key: "channels",            icon: <Wifi size={18} />,          path: "/channels",            label: t("nav.channels") },
+    { key: "sessions",            icon: <UsersRound size={18} />,    path: "/sessions",            label: t("nav.sessions") },
+    { key: "cron-jobs",           icon: <CalendarClock size={18} />, path: "/cron-jobs",           label: t("nav.cronJobs") },
+    { key: "heartbeat",           icon: <Activity size={18} />,      path: "/heartbeat",           label: t("nav.heartbeat") },
+    { key: "workspace",           icon: <Briefcase size={18} />,     path: "/workspace",           label: t("nav.workspace") },
+    { key: "skills",              icon: <Sparkles size={18} />,      path: "/skills",              label: t("nav.skills") },
+    { key: "skill-pool",          icon: <Sparkles size={18} />,      path: "/skill-pool",          label: t("nav.skillPool", "Skill Pool") },
+    { key: "tools",               icon: <Wrench size={18} />,        path: "/tools",               label: t("nav.tools") },
+    { key: "mcp",                 icon: <Plug size={18} />,          path: "/mcp",                 label: t("nav.mcp") },
+    { key: "agent-config",        icon: <Settings size={18} />,      path: "/agent-config",        label: t("nav.agentConfig") },
+    { key: "agents",              icon: <Bot size={18} />,           path: "/agents",              label: t("nav.agents") },
+    { key: "models",              icon: <Box size={18} />,           path: "/models",              label: t("nav.models") },
+    { key: "environments",        icon: <Globe size={18} />,         path: "/environments",        label: t("nav.environments") },
+    { key: "security",            icon: <Shield size={18} />,        path: "/security",            label: t("nav.security") },
+    { key: "token-usage",         icon: <BarChart3 size={18} />,     path: "/token-usage",         label: t("nav.tokenUsage") },
+    { key: "voice-transcription", icon: <Mic size={18} />,           path: "/voice-transcription", label: t("nav.voiceTranscription") },
   ];
+
+  // ── Menu items ────────────────────────────────────────────────────────────
 
   const menuItems: MenuProps["items"] = [
     {
@@ -198,6 +195,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "skills",
           label: collapsed ? null : t("nav.skills"),
+          icon: <Sparkles size={16} />,
+        },
+        {
+          key: "skill-pool",
+          label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
           icon: <Sparkles size={16} />,
         },
         {
@@ -265,8 +267,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       <div className={styles.agentSelectorContainer}>
         <AgentSelector collapsed={collapsed} />
       </div>
-      {/* Collapse Toggle Button */}
-
 
       {collapsed ? (
         <nav className={styles.collapsedNav}>

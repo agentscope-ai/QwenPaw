@@ -326,6 +326,17 @@ class Workspace:
 
         logger.info(f"Starting workspace: {self.agent_id}")
 
+        from ...agents.skills_manager import (
+            ensure_skill_pool_initialized,
+        )
+
+        try:
+            ensure_skill_pool_initialized()
+        except Exception as e:
+            logger.warning(
+                f"Skill pool initialization failed (non-fatal): {e}",
+            )
+
         try:
             # 1. Load agent configuration
             self._config = load_agent_config(self.agent_id)

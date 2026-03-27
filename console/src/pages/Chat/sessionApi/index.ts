@@ -9,7 +9,7 @@ import api, {
   type ChatStatus,
   type Message,
 } from "../../../api";
-import { chatApi } from "../../../api/modules/chat";
+import { toDisplayUrl } from "../utils";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -68,6 +68,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   realId?: string;
   /** Conversation status from backend. */
   status?: ChatStatus;
+  /** Whether the backend is still generating a response for this session. */
+  generating?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,13 +78,6 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/** Turn a backend content URL (path or full URL) into a full URL for display. */
-function toDisplayUrl(url: string | undefined): string {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }
 
 /** Extract plain text from a message's content array. */
@@ -96,6 +91,26 @@ const extractTextFromContent = (content: unknown): string => {
     .join("\n");
 };
 
+function resolveContentItemUrl(c: ContentItem): ContentItem {
+  if (c.type === "image" && c.image_url) {
+    return { ...c, image_url: toDisplayUrl(c.image_url as string) };
+  }
+  if (c.type === "audio" && c.data) {
+    return { ...c, data: toDisplayUrl(c.data as string) };
+  }
+  if (c.type === "video" && c.video_url) {
+    return { ...c, video_url: toDisplayUrl(c.video_url as string) };
+  }
+  if (c.type === "file" && (c.file_url || c.file_id)) {
+    return {
+      ...c,
+      file_url: toDisplayUrl((c.file_url as string) || (c.file_id as string)),
+      file_name: (c.filename as string) || (c.file_name as string) || "file",
+    };
+  }
+  return c;
+}
+
 /** Map backend message content to request card content (text + image + file). */
 function contentToRequestParts(
   content: unknown,
@@ -106,41 +121,20 @@ function contentToRequestParts(
   if (!Array.isArray(content)) {
     return [{ type: "text", text: String(content || ""), status: "created" }];
   }
-  const parts: Array<Record<string, unknown>> = [];
-  for (const c of content as ContentItem[]) {
-    if (c.type === "text") {
-      if (c.text) parts.push({ type: "text", text: c.text, status: "created" });
-    } else if (c.type === "image" && c.image_url) {
-      parts.push({
-        type: "image",
-        image_url: toDisplayUrl(c.image_url as string),
-        status: "created",
-      });
-    } else if (c.type === "audio" && c.data) {
-      parts.push({
-        type: "audio",
-        data: toDisplayUrl(c.data as string),
-        status: "created",
-      });
-    } else if (c.type === "video" && c.video_url) {
-      parts.push({
-        type: "video",
-        video_url: toDisplayUrl(c.video_url as string),
-        status: "created",
-      });
-    } else if (c.type === "file" && (c.file_url || c.file_id)) {
-      parts.push({
-        type: "file",
-        file_url: toDisplayUrl((c.file_url as string) || (c.file_id as string)),
-        file_name: (c.filename as string) || (c.file_name as string) || "file",
-        status: "created",
-      });
-    }
-  }
+  const parts = (content as ContentItem[])
+    .map(resolveContentItemUrl)
+    .map((c) => ({ ...c, status: "created" }));
+
   if (parts.length === 0) {
-    parts.push({ type: "text", text: "", status: "created" });
+    return [{ type: "text", text: "", status: "created" }];
   }
+
   return parts;
+}
+function normalizeOutputMessageContent(content: unknown): unknown {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return content;
+  return (content as ContentItem[]).map(resolveContentItemUrl);
 }
 
 /**
@@ -191,6 +185,12 @@ const buildResponseCard = (
     (max, m) => Math.max(max, m.sequence_number || 0),
     0,
   );
+
+  const normalizedMessages = outputMessages.map((msg) => ({
+    ...msg,
+    content: normalizeOutputMessageContent(msg.content),
+  }));
+
   return {
     id: generateId(),
     role: ROLE_ASSISTANT,
@@ -199,7 +199,7 @@ const buildResponseCard = (
         code: CARD_RESPONSE,
         data: {
           id: `response_${generateId()}`,
-          output: outputMessages,
+          output: normalizedMessages,
           object: "response",
           status: "completed",
           created_at: now,

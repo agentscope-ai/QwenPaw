@@ -1010,6 +1010,93 @@ def build_agent_request_from_native(self, native_payload):
 - **Remove**: `copaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
 - **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `copaw channels config` for interactive setup or edit config by hand.
 
+### HTTP route registration
+
+For channels that require webhook callbacks (e.g., WeChat, Slack, LINE), you can register custom HTTP routes by exporting a `register_app_routes` callable in your module — no changes to CoPaw's core source required.
+
+At startup, CoPaw scans modules in `custom_channels/` for a `register_app_routes` export. If found, it is called with the FastAPI `app` instance, allowing the channel to register any routes it needs.
+
+**Route prefix behavior**:
+
+| Prefix      | Behavior                                   |
+| ----------- | ------------------------------------------ |
+| `/api/`     | Silent registration                        |
+| Other paths | Prints a warning at startup (non-blocking) |
+
+**Interface — `register_app_routes(app)`**
+
+- **Parameter**: `app` — FastAPI application instance
+- **Returns**: None
+- **Scope**: Register routes, middleware, or startup/shutdown events
+- **Error isolation**: A single channel's registration failure does not affect other channels
+
+**Minimal example — Echo channel**:
+
+```
+<workspace>/
+└── custom_channels/
+    └── my_echo/
+        └── __init__.py
+```
+
+```python
+# custom_channels/my_echo/__init__.py
+from copaw.app.channels.base import BaseChannel
+
+class MyEchoChannel(BaseChannel):
+    """A minimal channel that echoes messages back."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def _listen(self):
+        pass  # Receive messages via HTTP callback
+
+    async def _send(self, target, content, **kwargs):
+        self.logger.info(f"Would send to {target}: {content}")
+
+
+def register_app_routes(app):
+    """Register HTTP routes for this channel."""
+
+    @app.post("/api/my-echo/callback")
+    async def echo_callback(request):
+        """Webhook entry point."""
+        body = await request.json()
+
+        from copaw.app.channels.base import TextContent
+        channel = MyEchoChannel()
+        channel.enqueue_user_message(
+            user_id=body.get("user_id", "anonymous"),
+            session_id=body.get("session_id", "default"),
+            content=[TextContent(type="text", text=body.get("text", ""))],
+        )
+
+        return {"status": "ok"}
+```
+
+Configure `config.json`:
+
+```json
+{
+  "channels": {
+    "my_echo": {
+      "enabled": true
+    }
+  }
+}
+```
+
+Test after startup:
+
+```bash
+curl -X POST http://localhost:8088/api/my-echo/callback \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
+```
+
+**Real-world example**: WeChat ClawBot integration ([PR #2140](https://github.com/agentscope-ai/CoPaw/pull/2140), [Issue #2043](https://github.com/agentscope-ai/CoPaw/issues/2043)) uses this mechanism to register the `/api/wechat/callback` route with Tencent's official SDK for message delivery.
+
 ---
 
 ## Related pages
