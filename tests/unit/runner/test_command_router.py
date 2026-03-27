@@ -16,18 +16,18 @@ from copaw.app.runner.command_router import (
 
 def _make_context(command_name: str = "test", **overrides) -> CommandContext:
     """Build a minimal CommandContext for testing."""
-    defaults = dict(
-        channel=MagicMock(),
-        channel_id="ch-1",
-        session_id="sess-1",
-        user_id="user-1",
-        command_name=command_name,
-        command_args=[],
-        raw_query=f"/{command_name}",
-        payload=None,
-        task_tracker=None,
-        runner=None,
-    )
+    defaults = {
+        "channel": MagicMock(),
+        "channel_id": "ch-1",
+        "session_id": "sess-1",
+        "user_id": "user-1",
+        "command_name": command_name,
+        "command_args": [],
+        "raw_query": f"/{command_name}",
+        "payload": None,
+        "task_tracker": None,
+        "runner": None,
+    }
     defaults.update(overrides)
     return CommandContext(**defaults)
 
@@ -43,8 +43,16 @@ class TestCommandRouterInit:
         router = CommandRouter()
         cmds = router.get_registered_commands()
         # All daemon commands + /daemon meta-command
-        for name in ("stop", "approve", "restart", "reload-config",
-                      "status", "version", "logs", "daemon"):
+        for name in (
+            "stop",
+            "approve",
+            "restart",
+            "reload-config",
+            "status",
+            "version",
+            "logs",
+            "daemon",
+        ):
             assert name in cmds, f"/{name} not registered"
 
     def test_accepts_dependencies(self):
@@ -52,8 +60,8 @@ class TestCommandRouterInit:
         tt = MagicMock()
         rn = MagicMock()
         router = CommandRouter(task_tracker=tt, runner=rn)
-        assert router._task_tracker is tt
-        assert router._runner is rn
+        assert router._task_tracker is tt  # pylint: disable=protected-access
+        assert router._runner is rn  # pylint: disable=protected-access
 
 
 # ------------------------------------------------------------------
@@ -131,7 +139,7 @@ class TestDispatchKnownCommand:
         router = CommandRouter()
         expected = Msg(name="Friday", role="assistant", content=[])
 
-        async def handler(ctx):
+        async def handler(ctx):  # pylint: disable=unused-argument
             return expected
 
         router.register_command("ping", handler)
@@ -217,7 +225,7 @@ class TestDispatchExceptionSafety:
         router = CommandRouter()
 
         async def bad_handler(ctx):
-            raise Exception("generic")
+            raise Exception("generic")  # pylint: disable=broad-exception-raised
 
         router.register_command("gen", bad_handler)
         ctx = _make_context("gen")
@@ -251,9 +259,9 @@ class TestRegisterBuiltinsDaemon:
     def test_daemon_command_priorities(self):
         router = CommandRouter()
         for name, expected_prio in self.EXPECTED_DAEMON_COMMANDS.items():
-            assert router.get_priority(name) == expected_prio, (
-                f"/{name} priority mismatch"
-            )
+            assert (
+                router.get_priority(name) == expected_prio
+            ), f"/{name} priority mismatch"
 
     def test_daemon_meta_command_registered(self):
         router = CommandRouter()
@@ -265,9 +273,10 @@ class TestRegisterBuiltinsDaemon:
         tt = MagicMock()
         tt.request_stop = MagicMock(return_value=True)
         # Make request_stop a coroutine
-        import asyncio
 
-        async def _mock_stop(run_key):
+        async def _mock_stop(
+            run_key,  # pylint: disable=unused-argument
+        ):
             return True
 
         tt.request_stop = _mock_stop
@@ -290,7 +299,9 @@ class TestRegisterBuiltinsDaemon:
         """Validates: Req 4.9 — /stop when no task running."""
         tt = MagicMock()
 
-        async def _mock_stop(run_key):
+        async def _mock_stop(
+            run_key,  # pylint: disable=unused-argument
+        ):
             return False
 
         tt.request_stop = _mock_stop
@@ -425,7 +436,9 @@ class TestRegisterBuiltinsConversation:
         router = CommandRouter()
         cmds = router.get_registered_commands()
         # 7 daemon + 1 daemon-meta + 9 conversation = 17
-        assert len(cmds) == 17, f"Expected 17 commands, got {len(cmds)}: {cmds}"
+        assert (
+            len(cmds) == 17
+        ), f"Expected 17 commands, got {len(cmds)}: {cmds}"
 
     @pytest.mark.asyncio
     async def test_conversation_command_without_runner_returns_error(self):
@@ -464,7 +477,7 @@ class TestRegisterBuiltinsConversation:
         ctx = _make_context("clear", raw_query="/clear", runner=runner)
 
         with patch(
-            "copaw.app.runner.command_router.ConvCommandHandler"
+            "copaw.app.runner.command_router.ConvCommandHandler",
         ) as MockHandler:
             instance = MockHandler.return_value
             instance.handle_conversation_command = AsyncMock(
@@ -484,7 +497,9 @@ class TestRegisterBuiltinsConversation:
         runner = MagicMock()
         memory = MagicMock()
         memory.load_state_dict = MagicMock()
-        memory.state_dict = MagicMock(return_value={"content": [], "summary": "x"})
+        memory.state_dict = MagicMock(
+            return_value={"content": [], "summary": "x"}
+        )
         runner.memory_manager.get_in_memory_memory.return_value = memory
 
         runner.session.get_session_state_dict = AsyncMock(
@@ -502,7 +517,7 @@ class TestRegisterBuiltinsConversation:
         )
 
         with patch(
-            "copaw.app.runner.command_router.ConvCommandHandler"
+            "copaw.app.runner.command_router.ConvCommandHandler",
         ) as MockHandler:
             instance = MockHandler.return_value
             instance.handle_conversation_command = AsyncMock(
@@ -537,7 +552,7 @@ class TestRegisterBuiltinsConversation:
         ctx = _make_context("compact", raw_query="/compact", runner=runner)
 
         with patch(
-            "copaw.app.runner.command_router.ConvCommandHandler"
+            "copaw.app.runner.command_router.ConvCommandHandler",
         ) as MockHandler:
             instance = MockHandler.return_value
             instance.handle_conversation_command = AsyncMock(
@@ -574,7 +589,7 @@ class TestRegisterBuiltinsConversation:
         )
 
         with patch(
-            "copaw.app.runner.command_router.ConvCommandHandler"
+            "copaw.app.runner.command_router.ConvCommandHandler",
         ) as MockHandler:
             instance = MockHandler.return_value
             instance.handle_conversation_command = AsyncMock(
@@ -588,6 +603,7 @@ class TestRegisterBuiltinsConversation:
 # ------------------------------------------------------------------
 # /stop — ChannelManager cancel path (Task: P1 coverage gap)
 # ------------------------------------------------------------------
+# pylint: disable=protected-access,unused-argument
 class TestStopChannelManagerCancelPath:
     """Validates: /stop cancels active process task via ChannelManager."""
 
@@ -737,6 +753,7 @@ class TestStopChannelManagerCancelPath:
     @pytest.mark.asyncio
     async def test_stop_both_paths_fail(self):
         """When both TaskTracker and ChannelManager have nothing, reports no task."""
+
         async def _mock_stop(run_key):
             return False
 
