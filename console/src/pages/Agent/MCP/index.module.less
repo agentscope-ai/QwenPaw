@@ -30,7 +30,7 @@
 }
 
 .breadcrumbCurrent {
-  color: rgba(255, 255, 255, 0.85);
+  color: #333;
   font-weight: 600;
   font-size: 20px;
 }
@@ -139,14 +139,14 @@
 .descriptionLabel {
   margin: 0 0 4px 0;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(20, 20, 19, 0.45);
   font-weight: normal;
 }
 
 .descriptionText {
   margin: 0;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(20, 20, 19, 0.65);
   line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -331,4 +331,19 @@
     Courier New,
     monospace;
   font-size: 13px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .descriptionLabel {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .descriptionText {
+    color: rgba(255, 255, 255, 0.85);
+  }
 }
