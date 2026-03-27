@@ -3,6 +3,7 @@
 # mypy: ignore-errors
 """ReMeLight-backed memory manager for CoPaw agents."""
 import importlib.metadata
+import inspect
 import json
 import logging
 import os
@@ -54,6 +55,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme_version_ok: bool = self._check_reme_version()
+        self._version_mismatch_warned: bool = False
         self._reme = None
 
         logger.info(
@@ -97,19 +99,28 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             agent_config.running.memory_summary.rebuild_memory_index_on_start
         )
 
-        self._reme = ReMeLight(
-            working_dir=working_dir,
-            default_embedding_model_config=emb_config,
-            default_file_store_config={
+        reme_kwargs = {
+            "working_dir": working_dir,
+            "default_embedding_model_config": emb_config,
+            "default_file_store_config": {
                 "backend": memory_backend,
                 "store_name": "copaw",
                 "vector_enabled": vector_enabled,
                 "fts_enabled": fts_enabled,
             },
-            default_file_watcher_config={
+        }
+        reme_signature = inspect.signature(ReMeLight.__init__)
+        if "default_file_watcher_config" in reme_signature.parameters:
+            reme_kwargs["default_file_watcher_config"] = {
                 "rebuild_index_on_start": rebuild_on_start,
-            },
-        )
+            }
+        elif rebuild_on_start:
+            logger.warning(
+                "ReMeLight init does not support default_file_watcher_config; "
+                "rebuild_memory_index_on_start will be ignored for this version",
+            )
+
+        self._reme = ReMeLight(**reme_kwargs)
 
         self.summary_toolkit = Toolkit()
         self.summary_toolkit.register_tool_function(read_file)
@@ -144,14 +155,40 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return True
 
     def _warn_if_version_mismatch(self) -> None:
-        """Warn once per call if the cached version check failed."""
-        if not self._reme_version_ok:
+        """Warn once per instance if the cached version check failed."""
+        if not self._reme_version_ok and not self._version_mismatch_warned:
+            self._version_mismatch_warned = True
             logger.warning(
                 "reme-ai version mismatch, "
                 f"expected={_EXPECTED_REME_VERSION}. "
                 f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
                 " to align.",
             )
+
+    @staticmethod
+    def _compact_tool_result_kwargs_compat(
+        kwargs: dict,
+        compact_fn,
+    ) -> dict:
+        """Normalize compact_tool_result kwargs across reme-ai versions.
+
+        Newer CoPaw config fields use *_max_bytes, while some reme-ai
+        versions still accept old_threshold/recent_threshold.
+        """
+        normalized = dict(kwargs)
+        if "old_max_bytes" in normalized and "old_threshold" not in normalized:
+            normalized["old_threshold"] = normalized.pop("old_max_bytes")
+        if (
+            "recent_max_bytes" in normalized
+            and "recent_threshold" not in normalized
+        ):
+            normalized["recent_threshold"] = normalized.pop(
+                "recent_max_bytes",
+            )
+
+        signature = inspect.signature(compact_fn)
+        accepted = set(signature.parameters.keys())
+        return {k: v for k, v in normalized.items() if k in accepted}
 
     def _prepare_model_formatter(self) -> None:
         """Lazily initialize chat_model and formatter if not already set."""
@@ -201,12 +238,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     # BaseMemoryManager interface
     # ------------------------------------------------------------------
 
-    async def start(self):
+    async def start(self) -> None:
         """Start the ReMeLight lifecycle."""
         self._warn_if_version_mismatch()
         if self._reme is None:
             return None
-        return await self._reme.start()
+        await self._reme.start()
+        return None
 
     async def close(self) -> bool:
         """Close ReMeLight and perform cleanup."""
@@ -223,18 +261,23 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         return result
 
-    async def compact_tool_result(self, **kwargs):
+    async def compact_tool_result(self, **kwargs) -> None:
         """Compact tool results by truncating large outputs."""
         self._warn_if_version_mismatch()
         if self._reme is None:
             return None
-        return await self._reme.compact_tool_result(**kwargs)
+        compat_kwargs = self._compact_tool_result_kwargs_compat(
+            kwargs,
+            self._reme.compact_tool_result,
+        )
+        await self._reme.compact_tool_result(**compat_kwargs)
+        return None
 
-    async def check_context(self, **kwargs):
+    async def check_context(self, **kwargs) -> tuple:
         """Check context size and determine if compaction is needed."""
         self._warn_if_version_mismatch()
         if self._reme is None:
-            return None
+            return ([], [], True)
         return await self._reme.check_context(**kwargs)
 
     async def compact_memory(
@@ -248,6 +291,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         Returns the compacted string, or empty string on failure.
         """
         self._prepare_model_formatter()
+        if self._reme is None:
+            return ""
+        if self.chat_model is None or self.formatter is None:
+            return ""
 
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.context_compact
@@ -301,6 +348,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def summary_memory(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a comprehensive summary of the given messages."""
         self._prepare_model_formatter()
+        if self._reme is None:
+            return ""
+        if self.chat_model is None or self.formatter is None:
+            return ""
 
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.context_compact

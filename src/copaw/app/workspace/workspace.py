@@ -174,7 +174,6 @@ class Workspace:
                 ),
                 init_args=lambda ws: {
                     "working_dir": str(ws.workspace_dir),
-                    "agent_config": ws.config,
                     "agent_id": ws.agent_id,
                 },
                 post_init=lambda ws, mm: setattr(

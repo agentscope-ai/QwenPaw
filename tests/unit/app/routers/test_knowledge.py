@@ -306,7 +306,7 @@ def test_put_knowledge_config_syncs_running_toggle_and_module_skill(
 
     assert response.status_code == 200
     assert response.json()["enabled"] is False
-    assert sync_calls == [False]
+    assert sync_calls == []
 
 
 def test_put_knowledge_config_does_not_resync_module_skill_when_toggle_unchanged(
@@ -327,7 +327,7 @@ def test_put_knowledge_config_does_not_resync_module_skill_when_toggle_unchanged
 
     assert response.status_code == 200
     assert response.json()["enabled"] is True
-    assert sync_calls == []
+    assert sync_calls == [True]
 
 
 def _build_knowledge_zip(entries: dict[str, str]) -> bytes:

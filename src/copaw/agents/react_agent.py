@@ -56,7 +56,6 @@ from .tools import (
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
-from ..agents.memory import MemoryManager
 from ..config import load_config
 from ..constant import (
     WORKING_DIR,

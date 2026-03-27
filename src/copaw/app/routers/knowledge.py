@@ -204,7 +204,9 @@ async def put_knowledge_config(
     knowledge_config: KnowledgeConfig = Body(...),
 ) -> KnowledgeConfig:
     config, _, running_config, _, agent_id = await _resolve_knowledge_request_context(request)
-    previous_enabled = bool(getattr(running_config, "knowledge_enabled", True))
+    previous_enabled = bool(
+        getattr(running_config, "knowledge_enabled", config.knowledge.enabled)
+    )
 
     # Persist structural knowledge config in root config.
     config.knowledge = knowledge_config
@@ -270,7 +272,6 @@ async def upsert_source(
     source: KnowledgeSourceSpec = Body(...),
 ) -> KnowledgeSourceSpec:
     config, knowledge_config, _, workspace_dir, _ = await _resolve_knowledge_request_context(request)
-    _ensure_knowledge_enabled_flag(knowledge_config.enabled)
     manager = _manager_for_workspace(workspace_dir)
     source = manager.normalize_source_name(source, knowledge_config)
     existing = _find_source(config.knowledge, source.id)

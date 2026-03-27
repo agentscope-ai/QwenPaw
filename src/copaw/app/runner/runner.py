@@ -34,6 +34,7 @@ from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
 from ...agents.hooks import MemoryCompactionHook
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
+from ...config import load_config
 from ...config.config import load_agent_config
 from ...constant import (
     LLM_MAX_RETRIES,
@@ -481,11 +482,16 @@ class AgentRunner(Runner):
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
-        (
-            approval_response,
-            approval_consumed,
-            approved_tool_call,
-        ) = await self._resolve_pending_approval(session_id, query)
+        approval_result = await self._resolve_pending_approval(session_id, query)
+        if isinstance(approval_result, tuple) and len(approval_result) == 2:
+            approval_response, approval_consumed = approval_result
+            approved_tool_call = None
+        else:
+            (
+                approval_response,
+                approval_consumed,
+                approved_tool_call,
+            ) = approval_result
         if approval_response is not None:
             yield approval_response, True
             user_id = getattr(request, "user_id", "") or ""
@@ -591,8 +597,10 @@ class AgentRunner(Runner):
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
             # Default to agent-level workspace unless chat meta injects a focus.
-            agent.clear_focus_dir()
-            agent.set_flow_memory_path(None)
+            if hasattr(agent, "clear_focus_dir"):
+                agent.clear_focus_dir()
+            if hasattr(agent, "set_flow_memory_path"):
+                agent.set_flow_memory_path(None)
 
             logger.debug(
                 f"Agent Query msgs {msgs}",
@@ -629,8 +637,10 @@ class AgentRunner(Runner):
 
                 try:
                     # Always reset focus first, then inject from current chat meta.
-                    agent.clear_focus_dir()
-                    agent.set_flow_memory_path(None)
+                    if hasattr(agent, "clear_focus_dir"):
+                        agent.clear_focus_dir()
+                    if hasattr(agent, "set_flow_memory_path"):
+                        agent.set_flow_memory_path(None)
 
                     chat_meta = (
                         chat.meta
@@ -642,15 +652,20 @@ class AgentRunner(Runner):
                         self.workspace_dir,
                     )
                     if focus_ctx is not None:
-                        agent.set_focus_dir(focus_ctx.focus_dir)
+                        if hasattr(agent, "set_focus_dir"):
+                            agent.set_focus_dir(focus_ctx.focus_dir)
                         focus_env_context = build_env_context(
                             session_id=session_id,
                             user_id=user_id,
                             channel=channel,
                             working_dir=str(focus_ctx.focus_dir),
                         )
-                        agent.update_env_context(focus_env_context)
-                        if focus_ctx.flow_memory_path:
+                        if hasattr(agent, "update_env_context"):
+                            agent.update_env_context(focus_env_context)
+                        if focus_ctx.flow_memory_path and hasattr(
+                            agent,
+                            "set_flow_memory_path",
+                        ):
                             agent.set_flow_memory_path(focus_ctx.flow_memory_path)
                         logger.debug(
                             "Scoped agent focus dir (%s): %s",

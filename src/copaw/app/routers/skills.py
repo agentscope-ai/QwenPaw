@@ -175,9 +175,21 @@ _MARKETPLACE_CACHE: dict[str, Any] = {
     "errors": [],
     "meta": {},
 }
+_SKILLS_MARKET_DEFAULT_DIR = Path(__file__).resolve().parents[2] / "skills_market"
+_SKILLS_MARKET_CONFIG_PATH = _SKILLS_MARKET_DEFAULT_DIR / "config.json"
+_SKILLS_MARKET_DEFAULT_PATH = _SKILLS_MARKET_DEFAULT_DIR / "default.json"
 
 
 router = APIRouter(prefix="/skills", tags=["skills"])
+
+
+def _load_market_payload_from_path(path: Path) -> SkillsMarketPayload:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return SkillsMarketPayload.model_validate(raw)
+
+
+def _load_current_market_config() -> SkillsMarketConfig:
+    return load_config().skills_market
 
 
 def _extract_github_market_spec(
@@ -682,12 +694,30 @@ async def search_hub(
 
 @router.get("/markets", response_model=SkillsMarketPayload)
 async def get_markets() -> SkillsMarketPayload:
-    config = load_config()
-    return _market_config_to_payload(config.skills_market)
+    return _market_config_to_payload(_load_current_market_config())
+
+
+@router.get("/markets/defaults", response_model=SkillsMarketPayload)
+async def get_market_defaults() -> SkillsMarketPayload:
+    if not _SKILLS_MARKET_DEFAULT_PATH.exists():
+        return _market_config_to_payload(SkillsMarketConfig())
+    return _load_market_payload_from_path(_SKILLS_MARKET_DEFAULT_PATH)
 
 
 @router.put("/markets", response_model=SkillsMarketPayload)
 async def put_markets(payload: SkillsMarketPayload) -> SkillsMarketPayload:
+    config = load_config()
+    market_cfg = _payload_to_market_config(payload)
+    config.skills_market = market_cfg
+    save_config(config)
+    with _MARKETPLACE_CACHE_LOCK:
+        _MARKETPLACE_CACHE["expires_at"] = 0.0
+    return _market_config_to_payload(market_cfg)
+
+
+@router.post("/markets/reset", response_model=SkillsMarketPayload)
+async def reset_markets() -> SkillsMarketPayload:
+    payload = await get_market_defaults()
     config = load_config()
     market_cfg = _payload_to_market_config(payload)
     config.skills_market = market_cfg
@@ -752,9 +782,9 @@ async def validate_market(payload: ValidateMarketRequest) -> dict[str, Any]:
 
 @router.get("/marketplace")
 async def get_marketplace(refresh: bool = False) -> dict[str, Any]:
-    config = load_config()
+    config = _load_current_market_config()
     items, errors, meta = _aggregate_marketplace(
-        config.skills_market,
+        config,
         refresh=refresh,
     )
     return {
@@ -960,11 +990,11 @@ async def install_from_marketplace(
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
-    config = load_config()
+    config = _load_current_market_config()
     overwrite = request_body.overwrite or bool(
-        config.skills_market.install.overwrite_default,
+        config.install.overwrite_default,
     )
-    items, _, _ = _aggregate_marketplace(config.skills_market, refresh=False)
+    items, _, _ = _aggregate_marketplace(config, refresh=False)
     selected = None
     for item in items:
         if (

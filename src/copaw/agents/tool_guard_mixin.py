@@ -67,6 +67,15 @@ class ToolGuardMixin:
     def _ensure_tool_guard(self) -> None:
         if not hasattr(self, "_tool_guard_engine"):
             self._init_tool_guard()
+            return
+        if not hasattr(self, "_tool_guard_approval_service"):
+            from copaw.app.approvals import get_approval_service
+
+            self._tool_guard_approval_service = get_approval_service()
+        if not hasattr(self, "_tool_guard_pending_info"):
+            self._tool_guard_pending_info = None
+        if not hasattr(self, "_tool_guard_lock"):
+            self._tool_guard_lock = asyncio.Lock()
 
     @staticmethod
     def _iter_exception_chain(exc: BaseException):
