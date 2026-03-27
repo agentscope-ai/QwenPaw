@@ -998,6 +998,93 @@ def build_agent_request_from_native(self, native_payload):
 - **删除**：`copaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
 - **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`copaw channels config` 交互式配置，或直接编辑 config。
 
+### HTTP 路由注册
+
+对于需要 Webhook 回调的渠道（如微信、Slack、LINE 等），可以通过在模块中导出 `register_app_routes` 可调用对象来注册自定义 HTTP 路由，无需修改 CoPaw 核心源码。
+
+CoPaw 启动时会扫描 `custom_channels/` 下的模块，发现 `register_app_routes` 后将其与 FastAPI `app` 实例一起调用，渠道即可注册所需的任何路由。
+
+**路由前缀规则**：
+
+| 路由前缀 | 行为                     |
+| -------- | ------------------------ |
+| `/api/`  | 静默注册                 |
+| 其他路径 | 启动时打印警告（不阻断） |
+
+**接口说明 — `register_app_routes(app)`**
+
+- **参数**：`app` — FastAPI 应用实例
+- **返回**：None
+- **作用域**：注册路由、中间件、或 startup/shutdown 事件
+- **错误隔离**：单个渠道注册失败不影响其他渠道
+
+**最简示例 — Echo 频道**：
+
+```
+<workspace>/
+└── custom_channels/
+    └── my_echo/
+        └── __init__.py
+```
+
+```python
+# custom_channels/my_echo/__init__.py
+from copaw.app.channels.base import BaseChannel
+
+class MyEchoChannel(BaseChannel):
+    """最简单的回声频道。"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def _listen(self):
+        pass  # 通过 HTTP 回调接收消息
+
+    async def _send(self, target, content, **kwargs):
+        self.logger.info(f"Would send to {target}: {content}")
+
+
+def register_app_routes(app):
+    """注册该频道的 HTTP 路由。"""
+
+    @app.post("/api/my-echo/callback")
+    async def echo_callback(request):
+        """Webhook 入口。"""
+        body = await request.json()
+
+        from copaw.app.channels.base import TextContent
+        channel = MyEchoChannel()
+        channel.enqueue_user_message(
+            user_id=body.get("user_id", "anonymous"),
+            session_id=body.get("session_id", "default"),
+            content=[TextContent(type="text", text=body.get("text", ""))],
+        )
+
+        return {"status": "ok"}
+```
+
+配置 `config.json`：
+
+```json
+{
+  "channels": {
+    "my_echo": {
+      "enabled": true
+    }
+  }
+}
+```
+
+启动后测试：
+
+```bash
+curl -X POST http://localhost:8088/api/my-echo/callback \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
+```
+
+**实际案例**：微信 ClawBot 集成（[PR #2140](https://github.com/agentscope-ai/CoPaw/pull/2140)、[Issue #2043](https://github.com/agentscope-ai/CoPaw/issues/2043)）通过此机制注册 `/api/wechat/callback` 路由，使用腾讯官方 SDK 处理消息投递。
+
 ---
 
 ## 相关页面
