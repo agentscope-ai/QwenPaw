@@ -5,7 +5,7 @@
       flex-direction: column;
       height: 100%;
       overflow: hidden;
-      background-color: var(--efm_ant-color-bg-base);
+      background-color: var(--colorBgBase, #fff);
     }
   }
 }
@@ -16,7 +16,7 @@
   align-items: center;
   padding: 16px 16px 16px 20px;
   gap: 8px;
-  background-color: var(--efm_ant-color-bg-base);
+  background-color: var(--colorBgBase, #fff);
   flex-shrink: 0;
 }
 
@@ -31,12 +31,12 @@
   font-size: 16px;
   font-weight: 500;
   line-height: 32px;
-  color: var(--efm_ant-color-text);
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
 }
 
 .headerInfoIcon {
   font-size: 20px;
-  color: var(--efm_ant-color-text-secondary);
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
 }
 
 .headerRight {
@@ -103,7 +103,7 @@
   height: 28px;
   background: linear-gradient(
     180deg,
-    var(--efm_ant-color-bg-base) 0%,
+    var(--colorBgBase, #fff) 0%,
     rgba(255, 255, 255, 0) 100%
   );
   z-index: 1;
@@ -119,7 +119,7 @@
   height: 28px;
   background: linear-gradient(
     0deg,
-    var(--efm_ant-color-bg-base) 0%,
+    var(--colorBgBase, #fff) 0%,
     rgba(255, 255, 255, 0) 100%
   );
   z-index: 1;
@@ -130,12 +130,12 @@
 .footer {
   flex-shrink: 0;
   padding: 20px 16px;
-  background-color: var(--efm_ant-color-bg-base);
+  background-color: var(--colorBgBase, #fff);
 }
 
 .footerText {
   font-size: 14px;
   font-weight: 500;
   line-height: 24px;
-  color: var(--efm_ant-color-text);
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
 }
