@@ -503,7 +503,7 @@ Profile: [自动生成的详细能力描述]
 #### 与其他智能体通信
 
 ```bash
-# 发起新对话
+# 发起新对话（实时模式，适合快速查询）
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
@@ -515,7 +515,39 @@ copaw agents chat \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
   --text "继续请求"
+
+# 复杂任务（后台模式，适合数据分析、报告生成等）
+copaw agents chat --background \
+  --from-agent <current_agent> \
+  --to-agent <target_agent> \
+  --text "复杂任务请求"
+# 返回 [TASK_ID: xxx] [SESSION: xxx]
+
+# 查询后台任务状态（查询时 --to-agent 为可选）
+copaw agents chat --background \
+  --task-id <task_id>
+# 状态流程：submitted → pending → running → finished
+# finished 时结果显示：completed（✅）或 failed（❌）
 ```
+
+**后台模式说明**：
+
+当任务比较复杂（如数据分析、批量处理、报告生成）时，使用 `--background` 可以避免阻塞当前智能体，让它可以继续处理其他工作。提交后会返回 `task_id`，稍后可以查询任务状态和结果。
+
+**任务状态流程**：
+
+- `submitted`：任务已接受，等待开始
+- `pending`：排队等待执行
+- `running`：正在执行
+- `finished`：已完成（需检查结果是 `completed` 或 `failed`）
+
+**建议使用后台模式的场景**：
+
+- 数据分析和统计
+- 批量文件处理
+- 生成详细报告
+- 调用慢速外部API
+- 不确定执行时间的复杂任务
 
 > **说明**：这些命令由智能体自动执行，通常无需用户手动调用。详见 [CLI - 智能体](./cli#智能体)。
 
