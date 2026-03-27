@@ -141,8 +141,11 @@ runner = DynamicMultiAgentRunner()
 
 agent_app = AgentApp(
     app_name="Friday",
-    app_description="A helpful assistant",
+    app_description="A helpful assistant with background task support",
     runner=runner,
+    enable_stream_task=True,
+    stream_task_queue="stream_query",
+    stream_task_timeout=300,
 )
 
 

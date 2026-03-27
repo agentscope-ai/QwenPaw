@@ -503,7 +503,7 @@ Agents reference both **Description** and **Profile** when deciding which agent 
 #### Communicate with Other Agents
 
 ```bash
-# Initiate new conversation
+# Initiate new conversation (real-time mode, for quick queries)
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
@@ -515,7 +515,39 @@ copaw agents chat \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
   --text "Follow-up request"
+
+# Complex task (background mode, for data analysis, report generation, etc.)
+copaw agents chat --background \
+  --from-agent <current_agent> \
+  --to-agent <target_agent> \
+  --text "Complex task request"
+# Returns [TASK_ID: xxx] [SESSION: xxx]
+
+# Check background task status (--to-agent is optional when querying)
+copaw agents chat --background \
+  --task-id <task_id>
+# Status flow: submitted → pending → running → finished
+# When finished, result shows: completed (✅) or failed (❌)
 ```
+
+**Background Mode Explanation**:
+
+When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent, allowing it to continue processing other work. After submission, it returns a `task_id` that can be used later to query the task status and result.
+
+**Task Status Flow**:
+
+- `submitted`: Task accepted, waiting to start
+- `pending`: Queued for execution
+- `running`: Currently executing
+- `finished`: Completed (check result for `completed` or `failed`)
+
+**Scenarios for using background mode**:
+
+- Data analysis and statistics
+- Batch file processing
+- Generating detailed reports
+- Calling slow external APIs
+- Complex tasks with uncertain execution time
 
 > **Note**: These commands are executed automatically by agents; users typically don't need to call them manually. See [CLI - Agents](./cli#agents) for details.
 
