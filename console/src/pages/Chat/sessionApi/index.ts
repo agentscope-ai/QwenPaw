@@ -74,6 +74,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   status?: ChatStatus;
   /** ISO 8601 creation timestamp from backend. */
   createdAt?: string | null;
+  /** Whether the backend is still generating a response for this session. */
+  generating?: boolean;
 }
 
 // ---------------------------------------------------------------------------

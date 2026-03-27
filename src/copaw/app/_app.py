@@ -25,9 +25,10 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from .multi_agent_manager import MultiAgentManager
 from .migration import (
+    migrate_legacy_workspace_to_default_agent,
+    migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
-    migrate_legacy_workspace_to_default_agent,
 )
 from .channels.registry import register_custom_channel_routes
 
@@ -183,6 +184,7 @@ async def lifespan(
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
     # --- Multi-agent manager initialization ---
