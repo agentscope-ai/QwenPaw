@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { Button, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import {
-  isSupportedSkillUrl,
-  SUPPORTED_SKILL_URL_PREFIXES,
-} from "@/constants/skill";
+import { ExportOutlined } from "@ant-design/icons";
+import { isSupportedSkillUrl, skillMarkets, type SkillMarket } from "./index";
 import styles from "../index.module.less";
 
 interface ImportHubModalProps {
@@ -89,28 +87,58 @@ export function ImportHubModal({
       }
       width={760}
     >
-      <div className={styles.importHintBlock}>
-        {hint && <p className={styles.importHintTitle}>{hint}</p>}
-        <p className={styles.importHintTitle}>
+      <div className={styles.importMarketsSection}>
+        {hint && <p className={styles.importSectionTitle}>{hint}</p>}
+        <p className={styles.importSectionTitle}>
           {t("skills.supportedSkillUrlSources")}
         </p>
-        <ul className={styles.importHintList}>
-          {SUPPORTED_SKILL_URL_PREFIXES.map((url) => (
-            <li key={url}>{url}</li>
+        <div className={styles.importMarketsGrid}>
+          {skillMarkets.map((market: SkillMarket) => (
+            <div key={market.key} className={styles.marketCard}>
+              <div className={styles.marketCardHeader}>
+                <a
+                  href={market.homepage}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.marketName}
+                  onClick={(e) => e.stopPropagation()}
+                  title={market.homepage}
+                >
+                  {market.name}
+                </a>
+                <a
+                  href={market.homepage}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.marketArrow}
+                  onClick={(e) => e.stopPropagation()}
+                  title={market.homepage}
+                >
+                  <ExportOutlined />
+                </a>
+              </div>
+              {market.examples.length > 0 && (
+                <div className={styles.marketExamples}>
+                  <span className={styles.examplesLabel}>
+                    {t("skills.examples")}
+                  </span>
+                  <div className={styles.exampleTags}>
+                    {market.examples.map((example, idx) => (
+                      <button
+                        key={idx}
+                        className={styles.exampleTag}
+                        onClick={() => handleUrlChange(example.url)}
+                        title={example.url}
+                      >
+                        {example.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ))}
-        </ul>
-        <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
-        <ul className={styles.importHintList}>
-          <li>https://skills.sh/vercel-labs/skills/find-skills</li>
-          <li>https://lobehub.com/zh/skills/openclaw-skills-cli-developer</li>
-          <li>
-            https://market.lobehub.com/api/v1/skills/openclaw-skills-cli-developer/download
-          </li>
-          <li>
-            https://github.com/anthropics/skills/tree/main/skills/skill-creator
-          </li>
-          <li>https://modelscope.cn/skills/@anthropics/skill-creator</li>
-        </ul>
+        </div>
       </div>
 
       <input

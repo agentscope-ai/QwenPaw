@@ -81,21 +81,112 @@
   color: #999;
 }
 
-.importHintBlock {
-  margin-bottom: 12px;
+.importMarketsSection {
+  margin-bottom: 16px;
 }
 
-.importHintTitle {
-  margin: 0;
-  font-size: 13px;
-  color: #666;
+.importSectionTitle {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
 }
 
-.importHintList {
-  margin: 8px 0;
-  padding: 0 0 0 20px;
-  font-size: 12px;
+.importMarketsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.marketCard {
+  padding: 12px 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #fafafa;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: #615ced;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(97, 92, 237, 0.1);
+  }
+}
+
+.marketCardHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.marketName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: #615ced;
+    text-decoration: underline;
+  }
+}
+
+.marketArrow {
+  font-size: 14px;
   color: #999;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    color: #615ced;
+    background: rgba(97, 92, 237, 0.1);
+  }
+}
+
+.marketExamples {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.examplesLabel {
+  font-size: 11px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.exampleTags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.exampleTag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: #615ced;
+    color: #615ced;
+    background: rgba(97, 92, 237, 0.05);
+  }
 }
 
 .importUrlInput {
@@ -1441,6 +1532,47 @@
           color: rgba(255, 255, 255, 0.45);
         }
       }
+    }
+  }
+
+  /* Market cards */
+  .marketCard {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+
+    &:hover {
+      border-color: #615ced;
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0 2px 8px rgba(97, 92, 237, 0.2);
+    }
+  }
+
+  .marketName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .marketArrow {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover {
+      color: #8b87f0;
+      background: rgba(97, 92, 237, 0.15);
+    }
+  }
+
+  .examplesLabel {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .exampleTag {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.6);
+
+    &:hover {
+      border-color: #615ced;
+      color: #8b87f0;
+      background: rgba(97, 92, 237, 0.1);
     }
   }
 }
