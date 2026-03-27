@@ -570,6 +570,29 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
     return hb if hb is not None else HeartbeatConfig()
 
 
+def get_memory_consolidation_cron(agent_id: Optional[str] = None) -> str:
+    """Return memory consolidation job cron expression for the agent.
+
+    Args:
+        agent_id: Agent ID to load config from. If None, tries to load from
+                  root config.agents.defaults (legacy behavior).
+
+    Returns:
+        str: Cron expression for memory consolidation job, or empty string
+          if disabled.
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            return (
+                agent_config.running.memory_summary.memory_consolidation_cron
+            )
+        except Exception:
+            return ""
+
+    return ""
+
+
 def update_last_dispatch(
     channel: str,
     user_id: str,

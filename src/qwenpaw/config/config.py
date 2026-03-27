@@ -407,6 +407,12 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    memory_consolidation_cron: str = Field(
+        default="",
+        description="Cron expression for memory consolidation job "
+        "(empty to disable)",
+    )
+
     force_memory_search: bool = Field(
         default=False,
         description="Whether to force memory search on every turn",

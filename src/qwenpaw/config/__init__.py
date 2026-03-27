@@ -21,6 +21,7 @@ from .utils import (
     load_config,
     save_config,
     update_last_dispatch,
+    get_memory_consolidation_cron,
 )
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
+    "get_memory_consolidation_cron",
     "get_heartbeat_query_path",
     "get_playwright_chromium_executable_path",
     "get_system_default_browser",

@@ -32,6 +32,14 @@ def _heartbeat_hash(hb: Optional[HeartbeatConfig]) -> int:
     return hash(str(hb.model_dump(mode="json")))
 
 
+def _memory_job_hash(memory_summary: Any) -> int:
+    """Hash of memory job config for change detection."""
+    if memory_summary is None:
+        return hash("None")
+    cron_expr = getattr(memory_summary, "memory_consolidation_cron", "")
+    return hash(str(cron_expr))
+
+
 class AgentConfigWatcher:
     """Poll agent.json mtime and reload changed configs automatically.
 
@@ -68,6 +76,7 @@ class AgentConfigWatcher:
         self._last_channels: Optional[ChannelConfig] = None
         self._last_channels_hash: Optional[int] = None
         self._last_heartbeat_hash: Optional[int] = None
+        self._last_memory_job_hash: Optional[int] = None
         # mtime of agent.json at last check
         self._last_mtime: float = 0.0
 
@@ -121,6 +130,9 @@ class AgentConfigWatcher:
             self._last_heartbeat_hash = _heartbeat_hash(
                 agent_config.heartbeat,
             )
+            self._last_memory_job_hash = _memory_job_hash(
+                getattr(agent_config, "memory_summary", None),
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher: failed to load initial config "
@@ -129,6 +141,7 @@ class AgentConfigWatcher:
             self._last_channels = None
             self._last_channels_hash = None
             self._last_heartbeat_hash = None
+            self._last_memory_job_hash = None
 
     @staticmethod
     def _channels_hash(channels: ChannelConfig) -> int:
@@ -237,6 +250,29 @@ class AgentConfigWatcher:
         else:
             self._last_heartbeat_hash = new_hb_hash
 
+    async def _apply_memory_job_change(self, agent_config: Any) -> None:
+        """Update memory job hash and reschedule if changed."""
+        new_memory_summary = getattr(agent_config, "memory_summary", None)
+        new_memory_job_hash = _memory_job_hash(new_memory_summary)
+        if (
+            self._cron_manager is not None
+            and new_memory_job_hash != self._last_memory_job_hash
+        ):
+            self._last_memory_job_hash = new_memory_job_hash
+            try:
+                await self._cron_manager.reschedule_memory()
+                logger.info(
+                    f"AgentConfigWatcher ({self._agent_id}): "
+                    f"memory job rescheduled",
+                )
+            except Exception:
+                logger.exception(
+                    f"AgentConfigWatcher ({self._agent_id}): "
+                    f"failed to reschedule memory job",
+                )
+        else:
+            self._last_memory_job_hash = new_memory_job_hash
+
     async def _poll_loop(self) -> None:
         """Main polling loop."""
         while True:
@@ -275,3 +311,4 @@ class AgentConfigWatcher:
             await self._apply_channel_changes(agent_config)
         if self._cron_manager:
             await self._apply_heartbeat_change(agent_config)
+            await self._apply_memory_job_change(agent_config)

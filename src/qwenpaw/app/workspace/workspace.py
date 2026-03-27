@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Optional
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
+from copaw.config.utils import load_config
+
 from .service_manager import ServiceDescriptor, ServiceManager
 from .service_factories import (
     create_mcp_service,
@@ -251,7 +253,7 @@ class Workspace:
                     "channel_manager": ws._service_manager.services.get(
                         "channel_manager",
                     ),
-                    "timezone": "UTC",
+                    "timezone": load_config().user_timezone or "UTC",
                     "agent_id": ws.agent_id,
                 },
                 start_method="start",

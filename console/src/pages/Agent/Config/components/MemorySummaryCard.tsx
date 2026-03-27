@@ -1,4 +1,4 @@
-import { Form, Card, Switch, InputNumber } from "@agentscope-ai/design";
+import { Form, Card, Switch, InputNumber, Input } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
@@ -19,6 +19,16 @@ export function MemorySummaryCard() {
         tooltip={t("agentConfig.memorySummaryEnabledTooltip")}
       >
         <Switch />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.memoryConsolidationCron")}
+        name={["memory_summary", "memory_consolidation_cron"]}
+        tooltip={t("agentConfig.memoryConsolidationCronTooltip")}
+      >
+        <Input
+          placeholder={t("agentConfig.memoryConsolidationCronPlaceholder")}
+        />
       </Form.Item>
 
       <Form.Item
