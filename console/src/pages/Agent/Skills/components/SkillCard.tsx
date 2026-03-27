@@ -1,5 +1,6 @@
 import { Card, Button, Tooltip } from "@agentscope-ai/design";
 import {
+  CalendarFilled,
   DeleteOutlined,
   FileTextFilled,
   FileZipFilled,
@@ -13,6 +14,10 @@ import {
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
+import {
+  getSkillDisplaySource,
+  getSkillSyncStatusLabel,
+} from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
@@ -24,7 +29,44 @@ interface SkillCardProps {
   onDelete?: (e?: React.MouseEvent) => void;
 }
 
-const getFileIcon = (filePath: string) => {
+const extractSkillEmoji = (content?: string) => {
+  if (!content) return "";
+  const match = content.match(/"emoji"\s*:\s*"([^"]+)"/);
+  return match?.[1] || "";
+};
+
+const normalizeSkillIconKey = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)[0]
+    ?.replace(/[^a-z0-9_-]/g, "") || "";
+
+export const getFileIcon = (filePath: string) => {
+  const skillKey = normalizeSkillIconKey(filePath);
+
+  switch (skillKey) {
+    case "docx":
+      return <FileWordFilled style={{ color: "#2b579a" }} />;
+    case "xlsx":
+      return <FileExcelFilled style={{ color: "#217346" }} />;
+    case "pptx":
+      return <FilePptFilled style={{ color: "#d24726" }} />;
+    case "pdf":
+      return <FilePdfFilled style={{ color: "#f5222d" }} />;
+    case "cron":
+      return <CalendarFilled style={{ color: "#13c2c2" }} />;
+    case "news":
+    case "file_reader":
+    case "browser_visible":
+    case "guidance":
+    case "himalaya":
+    case "dingtalk_channel":
+      return <FileTextFilled style={{ color: "#1890ff" }} />;
+    default:
+      break;
+  }
+
   const extension = filePath.split(".").pop()?.toLowerCase() || "";
 
   switch (extension) {
@@ -74,6 +116,14 @@ const getFileIcon = (filePath: string) => {
   }
 };
 
+export const getSkillVisual = (name: string, content?: string) => {
+  const emoji = extractSkillEmoji(content);
+  if (emoji) {
+    return <span className={styles.skillEmoji}>{emoji}</span>;
+  }
+  return getFileIcon(name);
+};
+
 export function SkillCard({
   skill,
   isHover,
@@ -84,7 +134,12 @@ export function SkillCard({
   onDelete,
 }: SkillCardProps) {
   const { t } = useTranslation();
-  const isCustomized = skill.source === "customized";
+  const displaySource = getSkillDisplaySource(skill.source);
+  const isBuiltin = displaySource === "builtin";
+  const syncStatusLabel = getSkillSyncStatusLabel(
+    skill.sync_to_pool?.status,
+    t,
+  );
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -106,7 +161,9 @@ export function SkillCard({
       <div className={styles.cardBody}>
         <div className={styles.cardHeader}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.fileIcon}>{getFileIcon(skill.name)}</span>
+            <span className={styles.fileIcon}>
+              {getSkillVisual(skill.name, skill.content)}
+            </span>
             <h3 className={styles.skillTitle}>{skill.name}</h3>
           </div>
           <div className={styles.statusContainer}>
@@ -140,26 +197,26 @@ export function SkillCard({
 
         <div className={styles.metaStack}>
           <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.source")}</div>
+            <div className={styles.infoLabel}>{t("skills.type")}</div>
             <div>
               <span
-                className={
-                  isCustomized ? styles.customizedTag : styles.builtinTag
-                }
+                className={isBuiltin ? styles.builtinTag : styles.customizedTag}
               >
-                {skill.source}
+                {displaySource}
               </span>
             </div>
           </div>
 
           <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.path")}</div>
-            <div
-              className={`${styles.infoBlock} ${styles.singleLineValue} ${styles.pathValue}`}
-              title={skill.path}
-            >
-              {skill.path}
+            <div className={styles.infoLabel}>{t("skills.channels")}</div>
+            <div className={styles.infoBlock}>
+              {(skill.channels || ["all"]).join(", ")}
             </div>
+          </div>
+
+          <div className={styles.infoSection}>
+            <div className={styles.infoLabel}>{t("skills.poolSync")}</div>
+            <div className={styles.infoBlock}>{syncStatusLabel}</div>
           </div>
         </div>
       </div>
@@ -174,7 +231,7 @@ export function SkillCard({
           {skill.enabled ? t("common.disable") : t("common.enable")}
         </Button>
 
-        {isCustomized && onDelete && (
+        {onDelete && (
           <Button
             type="text"
             size="small"

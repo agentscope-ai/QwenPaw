@@ -25,4 +25,16 @@ export const channelApi = {
         body: JSON.stringify(body),
       },
     ),
+
+  getWeixinQrcode: () =>
+    request<{ qrcode_img: string; qrcode: string }>(
+      "/config/channels/weixin/qrcode",
+    ),
+
+  getWeixinQrcodeStatus: (qrcode: string) =>
+    request<{ status: string; bot_token: string; base_url: string }>(
+      `/config/channels/weixin/qrcode/status?qrcode=${encodeURIComponent(
+        qrcode,
+      )}`,
+    ),
 };

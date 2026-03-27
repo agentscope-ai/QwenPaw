@@ -497,6 +497,66 @@
 
 ---
 
+## 微信个人（iLink）
+
+微信 iLink Bot 频道允许通过**个人微信账号**运行 AI 机器人，无需企业资质，使用官方 [iLink Bot HTTP API](https://weixin.qq.com/cgi-bin/readtemplate?t=ilink/chatbot) 协议。
+
+> **注意**：微信个人 Bot（iLink 协议）目前仍处于内测阶段，需申请接入资格后方可使用。
+
+### 工作原理
+
+- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.copaw/weixin_bot_token`），后续启动无需重复扫码。
+- **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
+- **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
+
+### 扫码登录（推荐通过 Console）
+
+1. 在 CoPaw Web Console 中进入 **设置 → 通道 → 微信个人（iLink）**。
+2. 点击 **获取登录二维码**，等待二维码显示。
+3. 用手机微信扫描二维码并确认授权。
+4. 扫码成功后，Bot Token 会自动填入表单，点击 **保存** 即可。
+
+### 在配置文件中填写
+
+也可直接在 `config.json`（默认路径 `~/.copaw/config.json`）中配置：
+
+```json
+"weixin": {
+  "enabled": true,
+  "bot_token": "your_bot_token",
+  "bot_token_file": "~/.copaw/weixin_bot_token",
+  "base_url": "",
+  "media_dir": "~/.copaw/media",
+  "dm_policy": "open",
+  "group_policy": "open"
+}
+```
+
+| 字段             | 说明                                                     | 默认值                      |
+| ---------------- | -------------------------------------------------------- | --------------------------- |
+| `bot_token`      | 扫码登录后获取的 Bearer Token；留空则启动时引导扫码      | `""`                        |
+| `bot_token_file` | Token 持久化路径，下次启动自动读取                       | `~/.copaw/weixin_bot_token` |
+| `base_url`       | iLink API 地址，一般留空使用默认值                       | 官方默认地址                |
+| `media_dir`      | 接收到的图片、文件保存目录                               | `~/.copaw/media`            |
+| `dm_policy`      | 私聊策略：`open`（所有人）/ `close`（禁用）/ `allowlist` | `open`                      |
+| `group_policy`   | 群聊策略：同上                                           | `open`                      |
+| `allow_from`     | 允许的用户 ID 列表（`allowlist` 模式下有效）             | `[]`                        |
+
+### 环境变量方式
+
+也可通过环境变量配置：
+
+```bash
+WEIXIN_CHANNEL_ENABLED=1
+WEIXIN_BOT_TOKEN=your_bot_token
+WEIXIN_BOT_TOKEN_FILE=~/.copaw/weixin_bot_token
+WEIXIN_MEDIA_DIR=~/.copaw/media
+WEIXIN_DM_POLICY=open
+WEIXIN_GROUP_POLICY=open
+```
+
+---
+
 ## Telegram
 
 ### 获取 Telegram 机器人凭证
@@ -749,6 +809,8 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                       |
+| 企业微信   | wecom      | bot_id, secret；可选 media_dir                                                          |
+| 微信个人   | weixin     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                       |
 | 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                           |
 
 所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。
@@ -767,7 +829,8 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
-| 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 企业微信   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| 微信个人   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
 | Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
@@ -781,7 +844,8 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
-- **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
+- **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
+- **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送当前仅支持文本（iLink API 限制）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 - **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
 
@@ -933,6 +997,93 @@ def build_agent_request_from_native(self, native_payload):
 - **安装**：`copaw channels install <key>` 会在 `custom_channels/` 下生成名为 `<key>.py` 的模板文件，可直接编辑实现；也可用 `--path <本地路径>` 或 `--url <URL>` 从本地/网络复制渠道模块。`copaw channels add <key>` 等价于安装后并写入 config 默认项，且可加 `--path`/`--url`。
 - **删除**：`copaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
 - **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`copaw channels config` 交互式配置，或直接编辑 config。
+
+### HTTP 路由注册
+
+对于需要 Webhook 回调的渠道（如微信、Slack、LINE 等），可以通过在模块中导出 `register_app_routes` 可调用对象来注册自定义 HTTP 路由，无需修改 CoPaw 核心源码。
+
+CoPaw 启动时会扫描 `custom_channels/` 下的模块，发现 `register_app_routes` 后将其与 FastAPI `app` 实例一起调用，渠道即可注册所需的任何路由。
+
+**路由前缀规则**：
+
+| 路由前缀 | 行为                     |
+| -------- | ------------------------ |
+| `/api/`  | 静默注册                 |
+| 其他路径 | 启动时打印警告（不阻断） |
+
+**接口说明 — `register_app_routes(app)`**
+
+- **参数**：`app` — FastAPI 应用实例
+- **返回**：None
+- **作用域**：注册路由、中间件、或 startup/shutdown 事件
+- **错误隔离**：单个渠道注册失败不影响其他渠道
+
+**最简示例 — Echo 频道**：
+
+```
+<workspace>/
+└── custom_channels/
+    └── my_echo/
+        └── __init__.py
+```
+
+```python
+# custom_channels/my_echo/__init__.py
+from copaw.app.channels.base import BaseChannel
+
+class MyEchoChannel(BaseChannel):
+    """最简单的回声频道。"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def _listen(self):
+        pass  # 通过 HTTP 回调接收消息
+
+    async def _send(self, target, content, **kwargs):
+        self.logger.info(f"Would send to {target}: {content}")
+
+
+def register_app_routes(app):
+    """注册该频道的 HTTP 路由。"""
+
+    @app.post("/api/my-echo/callback")
+    async def echo_callback(request):
+        """Webhook 入口。"""
+        body = await request.json()
+
+        from copaw.app.channels.base import TextContent
+        channel = MyEchoChannel()
+        channel.enqueue_user_message(
+            user_id=body.get("user_id", "anonymous"),
+            session_id=body.get("session_id", "default"),
+            content=[TextContent(type="text", text=body.get("text", ""))],
+        )
+
+        return {"status": "ok"}
+```
+
+配置 `config.json`：
+
+```json
+{
+  "channels": {
+    "my_echo": {
+      "enabled": true
+    }
+  }
+}
+```
+
+启动后测试：
+
+```bash
+curl -X POST http://localhost:8088/api/my-echo/callback \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
+```
+
+**实际案例**：微信 ClawBot 集成（[PR #2140](https://github.com/agentscope-ai/CoPaw/pull/2140)、[Issue #2043](https://github.com/agentscope-ai/CoPaw/issues/2043)）通过此机制注册 `/api/wechat/callback` 路由，使用腾讯官方 SDK 处理消息投递。
 
 ---
 

@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "pairs": [
+    {"source": "登录成功", "target": "Login Successful"},
+    {"source": "密码错误，请重试", "target": "Incorrect Password. Please Try Again"},
+    {"source": "网络连接失败", "target": "Network Connection Failed"},
+    {"source": "保存成功", "target": "Saved Successfully"},
+    {"source": "确定要删除吗？", "target": "Are you sure you want to delete?"},
+    {"source": "加载中...", "target": "Loading..."},
+    {"source": "加载失败", "target": "Failed to Load"},
+    {"source": "下载完成", "target": "Download Complete"},
+    {"source": "上传成功", "target": "Upload Successful"},
+    {"source": "分享成功", "target": "Shared Successfully"},
+    {"source": "收藏成功", "target": "Added to Favorites"},
+    {"source": "关注成功", "target": "Followed Successfully"},
+    {"source": "发送成功", "target": "Sent Successfully"},
+    {"source": "验证成功", "target": "Verified Successfully"},
+    {"source": "验证失败", "target": "Verification Failed"},
+    {"source": "注册成功", "target": "Registration Successful"},
+    {"source": "退出登录", "target": "Logged Out"},
+    {"source": "登录过期", "target": "Login Expired"},
+    {"source": "请重新登录", "target": "Please Login Again"},
+    {"source": "删除确认", "target": "Confirm Deletion"},
+    {"source": "刷新成功", "target": "Refreshed Successfully"},
+    {"source": "评论成功", "target": "Comment Posted"},
+    {"source": "取消关注", "target": "Unfollowed"},
+    {"source": "请稍后重试", "target": "Please Try Again Later"},
+    {"source": "操作成功", "target": "Operation Successful"}
+  ]
+}

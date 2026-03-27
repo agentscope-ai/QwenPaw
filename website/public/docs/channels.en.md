@@ -502,6 +502,64 @@ Find `wecom` and fill in the corresponding information, for example:
 
 ---
 
+## WeChat Personal (iLink)
+
+The WeChat iLink Bot channel lets you run an AI bot via a **personal WeChat account** — no enterprise account required — using the official [iLink Bot HTTP API](https://weixin.qq.com/cgi-bin/readtemplate?t=ilink/chatbot) protocol.
+
+> **Note**: WeChat personal bots (iLink protocol) are currently in limited beta. You need to apply for access before using this feature.
+
+### How it works
+
+- **Authentication**: On first use, scan a QR code to authorize. The token is automatically persisted to a local file (default `~/.copaw/weixin_bot_token`), so you won't need to scan again on subsequent starts.
+- **Receiving messages**: Uses HTTP long-polling (`getupdates`) to continuously fetch new messages. Supports text, images, voice (ASR transcription), files, and videos.
+- **Sending messages**: Replies via `sendmessage`. Currently only text is supported (iLink API limitation).
+
+### QR code login (recommended via Console)
+
+1. Open the CoPaw Web Console and go to **Settings → Channels → WeChat Personal (iLink)**.
+2. Click **Get Login QR Code** and wait for the QR code to appear.
+3. Scan the QR code with your WeChat mobile app and confirm authorization.
+4. Once confirmed, the Bot Token is automatically filled in the form — click **Save**.
+
+### Configure via config file
+
+You can also configure directly in `config.json` (default path `~/.copaw/config.json`):
+
+```json
+"weixin": {
+  "enabled": true,
+  "bot_token": "your_bot_token",
+  "bot_token_file": "~/.copaw/weixin_bot_token",
+  "base_url": "",
+  "media_dir": "~/.copaw/media",
+  "dm_policy": "open",
+  "group_policy": "open"
+}
+```
+
+| Field            | Description                                                                           | Default                     |
+| ---------------- | ------------------------------------------------------------------------------------- | --------------------------- |
+| `bot_token`      | Bearer token obtained after QR code login; leave empty to trigger QR login on startup | `""`                        |
+| `bot_token_file` | Path to persist the token for future runs                                             | `~/.copaw/weixin_bot_token` |
+| `base_url`       | iLink API base URL; leave empty to use the official default                           | official default            |
+| `media_dir`      | Directory to save received images and files                                           | `~/.copaw/media`            |
+| `dm_policy`      | Direct message policy: `open` (everyone) / `close` (disabled) / `allowlist`           | `open`                      |
+| `group_policy`   | Group chat policy: same options as `dm_policy`                                        | `open`                      |
+| `allow_from`     | List of allowed user IDs (used when policy is `allowlist`)                            | `[]`                        |
+
+### Configure via environment variables
+
+```bash
+WEIXIN_CHANNEL_ENABLED=1
+WEIXIN_BOT_TOKEN=your_bot_token
+WEIXIN_BOT_TOKEN_FILE=~/.copaw/weixin_bot_token
+WEIXIN_MEDIA_DIR=~/.copaw/media
+WEIXIN_DM_POLICY=open
+WEIXIN_GROUP_POLICY=open
+```
+
+---
+
 ## Telegram
 
 ### Get Telegram bot credentials
@@ -752,6 +810,7 @@ The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over Web
 | Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
 | QQ         | qq         | app_id, client_secret                                                   |
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
+| WeChat     | weixin     | bot_token (or QR login); optional bot_token_file, base_url, media_dir   |
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                       |
@@ -775,7 +834,8 @@ done). **✗** = not supported (not possible on this channel).
 | Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
-| WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeCom      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -795,7 +855,8 @@ Notes:
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
-- **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
+- **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports receiving and sending text, image, voice, video, and file.
+- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending currently supports text only (iLink API limitation).
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 
@@ -948,6 +1009,93 @@ def build_agent_request_from_native(self, native_payload):
 - **Install**: `copaw channels install <key>` creates a template `<key>.py` in `custom_channels/` for you to edit, or use `--path <local path>` / `--url <URL>` to copy a channel module from disk or the web. `copaw channels add <key>` does the same and also adds a default entry to config (with optional `--path`/`--url`).
 - **Remove**: `copaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
 - **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `copaw channels config` for interactive setup or edit config by hand.
+
+### HTTP route registration
+
+For channels that require webhook callbacks (e.g., WeChat, Slack, LINE), you can register custom HTTP routes by exporting a `register_app_routes` callable in your module — no changes to CoPaw's core source required.
+
+At startup, CoPaw scans modules in `custom_channels/` for a `register_app_routes` export. If found, it is called with the FastAPI `app` instance, allowing the channel to register any routes it needs.
+
+**Route prefix behavior**:
+
+| Prefix      | Behavior                                   |
+| ----------- | ------------------------------------------ |
+| `/api/`     | Silent registration                        |
+| Other paths | Prints a warning at startup (non-blocking) |
+
+**Interface — `register_app_routes(app)`**
+
+- **Parameter**: `app` — FastAPI application instance
+- **Returns**: None
+- **Scope**: Register routes, middleware, or startup/shutdown events
+- **Error isolation**: A single channel's registration failure does not affect other channels
+
+**Minimal example — Echo channel**:
+
+```
+<workspace>/
+└── custom_channels/
+    └── my_echo/
+        └── __init__.py
+```
+
+```python
+# custom_channels/my_echo/__init__.py
+from copaw.app.channels.base import BaseChannel
+
+class MyEchoChannel(BaseChannel):
+    """A minimal channel that echoes messages back."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def _listen(self):
+        pass  # Receive messages via HTTP callback
+
+    async def _send(self, target, content, **kwargs):
+        self.logger.info(f"Would send to {target}: {content}")
+
+
+def register_app_routes(app):
+    """Register HTTP routes for this channel."""
+
+    @app.post("/api/my-echo/callback")
+    async def echo_callback(request):
+        """Webhook entry point."""
+        body = await request.json()
+
+        from copaw.app.channels.base import TextContent
+        channel = MyEchoChannel()
+        channel.enqueue_user_message(
+            user_id=body.get("user_id", "anonymous"),
+            session_id=body.get("session_id", "default"),
+            content=[TextContent(type="text", text=body.get("text", ""))],
+        )
+
+        return {"status": "ok"}
+```
+
+Configure `config.json`:
+
+```json
+{
+  "channels": {
+    "my_echo": {
+      "enabled": true
+    }
+  }
+}
+```
+
+Test after startup:
+
+```bash
+curl -X POST http://localhost:8088/api/my-echo/callback \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
+```
+
+**Real-world example**: WeChat ClawBot integration ([PR #2140](https://github.com/agentscope-ai/CoPaw/pull/2140), [Issue #2043](https://github.com/agentscope-ai/CoPaw/issues/2043)) uses this mechanism to register the `/api/wechat/callback` route with Tencent's official SDK for message delivery.
 
 ---
 

@@ -49,6 +49,7 @@ CONVERSATION_COMMANDS = frozenset(
         "message",
         "dump_history",
         "load_history",
+        "long_term_memory",
     ],
 )
 ALL_KNOWN_COMMANDS = DAEMON_COMMANDS | CONVERSATION_COMMANDS

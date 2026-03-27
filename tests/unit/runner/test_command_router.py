@@ -413,6 +413,7 @@ class TestRegisterBuiltinsConversation:
         "message": CommandPriority.LOW,
         "dump_history": CommandPriority.LOW,
         "load_history": CommandPriority.LOW,
+        "long_term_memory": CommandPriority.LOW,
     }
 
     def test_all_conversation_commands_registered(self):
@@ -435,10 +436,10 @@ class TestRegisterBuiltinsConversation:
         """All 16 built-in commands + /daemon meta = 17 registered."""
         router = CommandRouter()
         cmds = router.get_registered_commands()
-        # 7 daemon + 1 daemon-meta + 9 conversation = 17
+        # 7 daemon + 1 daemon-meta + 10 conversation = 18
         assert (
-            len(cmds) == 17
-        ), f"Expected 17 commands, got {len(cmds)}: {cmds}"
+            len(cmds) == 18
+        ), f"Expected 18 commands, got {len(cmds)}: {cmds}"
 
     @pytest.mark.asyncio
     async def test_conversation_command_without_runner_returns_error(self):
