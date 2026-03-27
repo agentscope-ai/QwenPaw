@@ -147,6 +147,9 @@ export function toStoredName(v: string): string {
     if (h !== -1) rest = rest.slice(0, h);
     if (rest) {
       const decoded = decodeUriPathSegments(rest);
+      // Windows absolute path: C:\... or C:/...
+      const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(decoded);
+      if (isWindowsAbsolute) return decoded;
       return decoded.startsWith("/") ? decoded : `/${decoded}`;
     }
   }
