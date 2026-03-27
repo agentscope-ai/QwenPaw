@@ -77,38 +77,6 @@ One page per day, appended with the day's work and interactions.
 
 ## Memory Configuration
 
-### Long-Term Memory Configuration via Cron
-
-In daily interactions, most information is accumulated as a "running log" in memory/YYYY-MM-DD.md (Daily Log). As conversations grow, these logs become fragmented and redundant.
-
-#### Create the Task Configuration File
-
-Create a file named memory_cron.json anywhere and fill it with the following configuration (replace channel, target_user, and target_session with your actual values):
-
-```json
-{
-  "type": "agent",
-  "name": "Daily Memory Purification and De-redundancy",
-  "cron": "0 23 * * *",
-  "channel": "console",
-  "target_user": "YOUR_USER_ID",
-  "target_session": "YOUR_SESSION_ID",
-  "text": "Execute daily memory consolidation. Please act as a 'Memory Organizer', read today's logs and existing long-term memory, extract high-value incremental information, deduplicate and merge, and ultimately overwrite `MEMORY.md`. Ensure the long-term memory file remains up-to-date, concise, and non-redundant.\n\n[Execution Principles]\n1. Extreme Minimalism: Strictly forbid recording daily routines, specific bug-fix details, or one-off tasks. Retain ONLY 'core business decisions', 'confirmed user preferences', and 'high-value reusable experiences'.\n2. State Overwrite: If a state change is detected (e.g., tech stack changes, config updates), you MUST replace the old state with the new one. Contradictory old and new information must not coexist.\n3. Inductive Consolidation: Proactively distill and merge fragmented, similar rules into highly universal, independent entries.\n4. Deprecation: Proactively delete hypotheses that have been proven false or outdated entries that no longer apply.\n\n[Execution Steps]\nStep 1 [Load]: Invoke the `read` tool to read `MEMORY.md` in the root directory and today's log file `memory/YYYY-MM-DD.md`.\nStep 2 [Purify]: Compare the old and new content in the background. Strictly follow the [Execution Principles] to deduplicate, replace, remove, and merge, generating entirely new memory content.\nStep 3 [Save]: Invoke the `write` or `edit` tool to overwrite the newly organized Markdown content into `MEMORY.md` (maintain clear hierarchy and list structures).\nStep 4 [Report]: Briefly report to me in the chat: 1) What core memories were newly added/consolidated; 2) What outdated content was corrected/deleted."
-}
-```
-
-#### Start the Cron Job
-
-Ensure the copaw app service is running, then execute the following command in the terminal to load the task:
-
-```bash
-copaw cron create -f memory_cron.json
-```
-
-With this configuration, the Agent will automatically review the day's running logs at the specified time (e.g., 23:00 daily), strictly follow the instructions to purify high-value information, and update it in MEMORY.md, achieving self-purification and iteration of long-term memory.
-
-**Starting from the latest version, CoPaw automatically creates a default memory cleanup cron job during initialization**, eliminating the need for manual setup. This ensures your long-term memory stays organized without additional configuration.
-
 ### Embedding Configuration (Optional)
 
 Embedding configuration is used for vector semantic search. Configuration priority: **config file > env var > default**.
