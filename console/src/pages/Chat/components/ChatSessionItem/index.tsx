@@ -50,7 +50,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
             value={props.editValue}
             onChange={(e) => props.onEditChange?.(e.target.value)}
             onPressEnter={props.onEditSubmit}
-            onBlur={props.onEditCancel}
+            onBlur={props.onEditSubmit}
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
