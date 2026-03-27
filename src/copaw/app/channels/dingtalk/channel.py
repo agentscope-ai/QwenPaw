@@ -432,40 +432,33 @@ class DingTalkChannel(BaseChannel):
             return None
         async with self._session_webhook_lock:
             raw = self._session_webhook_store.get(webhook_key)
+            source = "memory"
+
+            if raw is None:
+                self._load_session_webhook_store_from_disk()
+                raw = self._session_webhook_store.get(webhook_key)
+                source = "disk"
+
             if raw is not None:
                 entry = raw if isinstance(raw, dict) else {"webhook": raw}
                 logger.info(
-                    "dingtalk _load_session_webhook_entry hit: webhook_key=%s "
-                    "session_from_url=%s",
-                    webhook_key,
-                    session_param_from_webhook_url(entry.get("webhook", "")),
-                )
-                if self._is_webhook_expired(entry):
-                    logger.info(
-                        "dingtalk _load_session_webhook_entry: webhook_key=%s "
-                        "is expired, returning None",
-                        webhook_key,
-                    )
-                    return None
-                return entry
-            self._load_session_webhook_store_from_disk()
-            raw = self._session_webhook_store.get(webhook_key)
-            if raw is not None:
-                entry = raw if isinstance(raw, dict) else {"webhook": raw}
-                logger.info(
-                    "dingtalk _load_session_webhook_entry hit(disk): "
+                    "dingtalk _load_session_webhook_entry hit(%s): "
                     "webhook_key=%s session_from_url=%s",
+                    source,
                     webhook_key,
-                    session_param_from_webhook_url(entry.get("webhook", "")),
+                    session_param_from_webhook_url(
+                        entry.get("webhook", ""),
+                    ),
                 )
                 if self._is_webhook_expired(entry):
                     logger.info(
-                        "dingtalk _load_session_webhook_entry: webhook_key=%s "
-                        "is expired, returning None",
+                        "dingtalk _load_session_webhook_entry: "
+                        "webhook_key=%s is expired, returning None",
                         webhook_key,
                     )
                     return None
                 return entry
+
             logger.info(
                 "dingtalk _load_session_webhook_entry miss: webhook_key=%s",
                 webhook_key,
@@ -476,11 +469,36 @@ class DingTalkChannel(BaseChannel):
         """Check if a webhook entry is expired (with safety margin)."""
         expired_time = entry.get("expired_time")
         if expired_time is None:
-            # No expiry info: treat as valid until proven otherwise
             return False
         now_ms = int(time.time() * 1000)
         threshold = expired_time - SESSION_WEBHOOK_EXPIRY_SAFETY_MARGIN_MS
         return now_ms >= threshold
+
+    @staticmethod
+    def _resolve_open_api_params(
+        meta: Dict[str, Any],
+        webhook_entry: Optional[Dict[str, Any]],
+    ) -> Dict[str, str]:
+        """Extract conversation_id / conversation_type / sender_staff_id.
+
+        Merges values from *meta* (higher priority) and *webhook_entry*
+        (lower priority) so that callers don't repeat the same pattern.
+        """
+        entry = webhook_entry or {}
+        return {
+            "conversation_id": (
+                meta.get("conversation_id", "")
+                or entry.get("conversation_id", "")
+            ),
+            "conversation_type": (
+                meta.get("conversation_type", "")
+                or entry.get("conversation_type", "")
+            ),
+            "sender_staff_id": (
+                meta.get("sender_staff_id", "")
+                or entry.get("sender_staff_id", "")
+            ),
+        }
 
     # ---------------------------
     # Reply via stream thread
@@ -882,20 +900,17 @@ class DingTalkChannel(BaseChannel):
         if webhook_key:
             async with self._session_webhook_lock:
                 raw = self._session_webhook_store.get(webhook_key)
-                if isinstance(raw, dict):
-                    webhook_entry = raw
+                if raw is None:
+                    self._load_session_webhook_store_from_disk()
+                    raw = self._session_webhook_store.get(webhook_key)
+                if raw is not None:
+                    webhook_entry = (
+                        raw if isinstance(raw, dict) else {"webhook": raw}
+                    )
 
-        conversation_id = m.get("conversation_id", "") or (
-            webhook_entry or {}
-        ).get("conversation_id", "")
-        conversation_type = m.get("conversation_type", "") or (
-            webhook_entry or {}
-        ).get("conversation_type", "")
-        sender_staff_id = m.get("sender_staff_id", "") or (
-            webhook_entry or {}
-        ).get("sender_staff_id", "")
+        params = self._resolve_open_api_params(m, webhook_entry)
 
-        if not conversation_id:
+        if not params["conversation_id"]:
             logger.warning(
                 "dingtalk _try_open_api_fallback: no conversation_id, skip",
             )
@@ -903,9 +918,9 @@ class DingTalkChannel(BaseChannel):
 
         return await self._send_via_open_api(
             text,
-            conversation_id=conversation_id,
-            conversation_type=conversation_type,
-            sender_staff_id=sender_staff_id,
+            conversation_id=params["conversation_id"],
+            conversation_type=params["conversation_type"],
+            sender_staff_id=params["sender_staff_id"],
             bot_prefix="",
         )
 
@@ -2524,23 +2539,12 @@ class DingTalkChannel(BaseChannel):
             "trying Open API fallback for to_handle=%s",
             to_handle,
         )
-        conversation_id = meta.get("conversation_id", "") or (
-            webhook_entry or {}
-        ).get("conversation_id", "")
-        conversation_type = meta.get(
-            "conversation_type",
-            "",
-        ) or (
-            webhook_entry or {}
-        ).get("conversation_type", "")
-        sender_staff_id = meta.get(
-            "sender_staff_id",
-            "",
-        ) or (
-            webhook_entry or {}
-        ).get("sender_staff_id", "")
+        params = self._resolve_open_api_params(
+            meta,
+            webhook_entry,
+        )
 
-        if not conversation_id:
+        if not params["conversation_id"]:
             logger.warning(
                 "DingTalkChannel.send: Open API fallback skipped: "
                 "no conversation_id available",
@@ -2549,9 +2553,9 @@ class DingTalkChannel(BaseChannel):
 
         await self._send_via_open_api(
             text,
-            conversation_id=conversation_id,
-            conversation_type=conversation_type,
-            sender_staff_id=sender_staff_id,
+            conversation_id=params["conversation_id"],
+            conversation_type=params["conversation_type"],
+            sender_staff_id=params["sender_staff_id"],
             bot_prefix="",
         )
 
