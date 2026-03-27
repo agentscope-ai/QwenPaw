@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Dropdown, message, Spin } from "antd";
 import {
-  DownOutlined,
   CheckOutlined,
   LoadingOutlined,
   RightOutlined,
