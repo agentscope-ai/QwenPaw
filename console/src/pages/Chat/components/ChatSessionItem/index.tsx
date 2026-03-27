@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Input } from 'antd';
 import { IconButton } from '@agentscope-ai/design';

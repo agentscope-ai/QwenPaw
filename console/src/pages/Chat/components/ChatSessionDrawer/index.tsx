@@ -1,7 +1,3 @@
-/*
- * reusability: false
- * https://mgdone.alibaba-inc.com/file/188196543332628?file=188196543332628&layer_id=25:54705&page_id=2:72603
- */
 import React, { useCallback, useState } from 'react';
 import { Drawer } from 'antd';
 import { IconButton } from '@agentscope-ai/design';
