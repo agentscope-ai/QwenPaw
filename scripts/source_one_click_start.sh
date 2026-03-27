@@ -313,6 +313,24 @@ prepare_venv() {
         log "activate script not found, using $VENV_PYTHON directly."
     fi
 
+    # Some broken/minimal venvs miss pip. Try to self-heal before install.
+    if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+        log "pip is missing in venv, attempting bootstrap via ensurepip..."
+        if ! "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
+            echo "Failed to bootstrap pip in $VENV_DIR." >&2
+            echo "Please remove .venv and rerun this script." >&2
+            echo "Command: rm -rf .venv" >&2
+            exit 1
+        fi
+    fi
+
+    if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+        echo "pip is still unavailable in $VENV_DIR after ensurepip." >&2
+        echo "Please remove .venv and rerun this script." >&2
+        echo "Command: rm -rf .venv" >&2
+        exit 1
+    fi
+
     log "Upgrading pip/setuptools/wheel"
     "$VENV_PYTHON" -m pip install -U pip setuptools wheel
 
