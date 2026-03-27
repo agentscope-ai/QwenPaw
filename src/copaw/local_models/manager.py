@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .llamacpp import LlamaCppBackend
+from .schema import DownloadSource
 from .model_manager import LocalModelInfo as RecommendedLocalModelInfo
 from .model_manager import ModelManager
 
@@ -67,9 +68,17 @@ class LocalModelManager:
         """Return whether the requested model is already downloaded."""
         return self._model_manager.is_downloaded(model_name)
 
-    def start_model_download(self, model_name: str) -> None:
+    def list_downloaded_models(self) -> list[RecommendedLocalModelInfo]:
+        """Return all downloaded local model repositories."""
+        return self._model_manager.list_downloaded_models()
+
+    def start_model_download(
+        self,
+        model_name: str,
+        source: DownloadSource | None = None,
+    ) -> None:
         """Start downloading the requested model."""
-        self._model_manager.download_model(model_name)
+        self._model_manager.download_model(model_name, source=source)
 
     def get_model_download_progress(self) -> dict[str, Any]:
         """Return the current model download progress."""
@@ -78,6 +87,10 @@ class LocalModelManager:
     def cancel_model_download(self) -> None:
         """Cancel the current model download task."""
         self._model_manager.cancel_download()
+
+    def remove_downloaded_model(self, model_name: str) -> None:
+        """Delete a downloaded local model by repo id or directory name."""
+        self._model_manager.remove_downloaded_model(model_name)
 
     async def setup_server(self, model_path: Path, model_name: str) -> int:
         """Start the llama.cpp server for the specified model."""
@@ -89,3 +102,7 @@ class LocalModelManager:
     async def shutdown_server(self) -> None:
         """Stop the current llama.cpp server if it is running."""
         await self._llamacpp_backend.shutdown_server()
+
+    def force_shutdown_server(self) -> None:
+        """Best-effort synchronous shutdown for process teardown paths."""
+        self._llamacpp_backend.force_shutdown_server()

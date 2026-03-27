@@ -641,6 +641,25 @@
   line-height: 1.4;
 }
 
+.localEngineStatusValue {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.localEngineStatusModelName {
+  min-width: 0;
+  max-width: 160px;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .localStatusBadge {
   display: inline-flex;
   align-items: center;
@@ -854,6 +873,7 @@
   .localSummaryValue,
   .localSectionInfoValue,
   .localSectionInfoMeta,
+  .localEngineStatusModelName,
   .localLockedPanelTitle {
     color: rgba(255, 255, 255, 0.88);
   }

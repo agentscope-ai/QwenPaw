@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 import asyncio
@@ -7,11 +8,28 @@ import tarfile
 import time
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import copaw.local_models.llamacpp as downloader_module
 from copaw.local_models.llamacpp import LlamaCppBackend
+
+
+class _FakeServerProcess:
+    def __init__(self, pid: int = 4321) -> None:
+        self.pid = pid
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.returncode = -15
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
 
 
 class _FakeResponse:
@@ -312,3 +330,64 @@ async def test_download_flattens_single_top_level_archive_dir(
     assert progress["local_path"] == str(dest)
     assert (dest / "bin" / "server").read_text() == "tar-binary"
     assert not (dest / "llama-b1234").exists()
+
+
+def test_force_shutdown_server_kills_process_group_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    process = _FakeServerProcess()
+    killed: list[tuple[int, int]] = []
+
+    downloader._server_process = process
+    downloader._server_port = 8080
+    downloader._server_model_name = "demo"
+    downloader._server_owns_process_group = True
+    downloader._server_log_task = SimpleNamespace(done=lambda: True)
+
+    monkeypatch.setattr(downloader_module.os, "name", "posix")
+    monkeypatch.setattr(downloader_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(
+        downloader_module.os,
+        "killpg",
+        lambda pgid, sig: killed.append((pgid, int(sig))),
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_wait_for_process_exit",
+        lambda pid, timeout: True,
+    )
+
+    downloader.force_shutdown_server()
+
+    assert killed == [(process.pid, int(downloader_module.signal.SIGTERM))]
+    assert downloader.get_server_status() == {
+        "running": False,
+        "port": None,
+        "model_name": None,
+        "pid": None,
+    }
+
+
+def test_force_shutdown_server_escalates_to_kill_when_needed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    process = _FakeServerProcess()
+    signals: list[int] = []
+
+    downloader._server_process = process
+    downloader._server_owns_process_group = False
+    downloader._server_log_task = SimpleNamespace(done=lambda: True)
+
+    monkeypatch.setattr(
+        downloader,
+        "_wait_for_process_exit",
+        lambda pid, timeout: timeout < 2.0,
+    )
+    monkeypatch.setattr(process, "terminate", lambda: signals.append(15))
+    monkeypatch.setattr(process, "kill", lambda: signals.append(9))
+
+    downloader.force_shutdown_server()
+
+    assert signals == [15, 9]

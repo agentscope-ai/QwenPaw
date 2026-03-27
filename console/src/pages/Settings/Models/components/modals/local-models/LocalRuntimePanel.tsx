@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import { CloseOutlined, DownloadOutlined, StopOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -17,7 +18,7 @@ interface LocalRuntimePanelProps {
   stopping: boolean;
 }
 
-export function LocalRuntimePanel({
+export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   serverStatus,
   progress,
   onStart,
@@ -93,6 +94,17 @@ export function LocalRuntimePanel({
                 {runBadge.label}
               </span>
             </Tooltip>
+          ) : isRunning && serverStatus?.model_name ? (
+            <div className={styles.localEngineStatusValue}>
+              <Tooltip title={serverStatus.model_name}>
+                <span className={styles.localEngineStatusModelName}>
+                  {serverStatus.model_name}
+                </span>
+              </Tooltip>
+              <span className={`${styles.localStatusBadge} ${runBadge.className}`}>
+                {runBadge.label}
+              </span>
+            </div>
           ) : (
             <span className={`${styles.localStatusBadge} ${runBadge.className}`}>
               {runBadge.label}
@@ -118,6 +130,7 @@ export function LocalRuntimePanel({
           </div>
         ) : installed && isRunning ? (
           <Button
+            danger
             size="small"
             icon={<StopOutlined />}
             loading={stopping}
@@ -133,4 +146,4 @@ export function LocalRuntimePanel({
       </div>
     </div>
   );
-}
+});

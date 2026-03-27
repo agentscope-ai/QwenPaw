@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field
 
 from ...local_models.model_manager import LocalModelInfo
 from ...local_models.manager import LocalModelManager
+from ...providers.provider import ModelInfo
+from ...providers.models import ModelSlotConfig
+from ...providers.provider_manager import ProviderManager
 
 router = APIRouter(prefix="/local-models", tags=["local-models"])
 
@@ -18,6 +21,11 @@ router = APIRouter(prefix="/local-models", tags=["local-models"])
 def get_local_model_manager(request: Request) -> LocalModelManager:
     """Helper to get the LocalModelManager instance from app state."""
     return request.app.state.local_model_manager
+
+
+def get_provider_manager(request: Request) -> ProviderManager:
+    """Helper to get the ProviderManager instance from app state."""
+    return request.app.state.provider_manager
 
 
 class ServerStatus(BaseModel):
@@ -185,16 +193,38 @@ async def cancel_llamacpp_download(
 )
 async def start_llamacpp_server(
     payload: StartServerRequest,
-    manager: LocalModelManager = Depends(get_local_model_manager),
+    model_manager: LocalModelManager = Depends(get_local_model_manager),
+    provider_manager: ProviderManager = Depends(get_provider_manager),
 ) -> StartServerResponse:
     """Start a local llama.cpp server for a downloaded model."""
     try:
-        port = await manager.setup_server(
+        port = await model_manager.setup_server(
             model_path=Path(payload.model_path).expanduser().resolve(),
             model_name=payload.model_name,
         )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    local_provider = provider_manager.get_provider("copaw-local")
+
+    if local_provider is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Local provider not found in provider manager",
+        )
+
+    local_provider.models = [
+        ModelInfo(id=payload.model_name, name=payload.model_name),
+    ]
+    local_provider.base_url = f"http://localhost:{port}/v1"
+
+    # update the active model slot to point to the new local model
+    provider_manager.save_active_model(
+        ModelSlotConfig(
+            provider_id=local_provider.id,
+            model=payload.model_name,
+        ),
+    )
 
     return StartServerResponse(
         port=port,
@@ -232,7 +262,7 @@ async def list_local(
     manager: LocalModelManager = Depends(get_local_model_manager),
 ) -> List[LocalModelInfo]:
     """List all recommended local models."""
-    return manager.get_recommended_models() or []
+    return manager.get_recommended_models()
 
 
 @router.post(

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button, Input } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
@@ -24,7 +24,9 @@ function ModelsPage() {
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const refreshProvidersSilently = () => fetchAll(false);
+  const refreshProvidersSilently = useCallback(() => {
+    void fetchAll(false);
+  }, [fetchAll]);
 
   const { regularProviders, localProviders } = useMemo(() => {
     const regular: ProviderInfo[] = [];

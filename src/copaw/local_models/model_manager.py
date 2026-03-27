@@ -78,44 +78,44 @@ class ModelManager:
         if memory_gb <= 8:
             models = [
                 LocalModelInfo(
-                    id="CoPaw-flash-2B-Q4_K_M",
-                    name="AgentScope/CoPaw-flash-2B-Q4_K_M",
+                    id="AgentScope/CoPaw-flash-2B-Q4_K_M",
+                    name="CoPaw-flash-2B-Q4_K_M",
                     size_bytes=1560460768,
                 ),
                 LocalModelInfo(
-                    id="Copaw-2B-Q8_0",
-                    name="AgentScope/CoPaw-flash-2B-Q8_0",
+                    id="AgentScope/CoPaw-flash-2B-Q8_0",
+                    name="CoPaw-flash-2B-Q8_0",
                     size_bytes=2552356320,
                 ),
             ]
         elif memory_gb <= 16:
             models = [
                 LocalModelInfo(
-                    id="CoPaw-flash-4B-Q4_K_M",
-                    name="AgentScope/CoPaw-flash-4B-Q4_K_M",
+                    id="AgentScope/CoPaw-flash-4B-Q4_K_M",
+                    name="CoPaw-flash-4B-Q4_K_M",
                     size_bytes=3066384736,
                 ),
                 LocalModelInfo(
-                    id="CoPaw-flash-4B-Q8_0",
-                    name="AgentScope/CoPaw-flash-4B-Q8_0",
+                    id="AgentScope/CoPaw-flash-4B-Q8_0",
+                    name="CoPaw-flash-4B-Q8_0",
                     size_bytes=5157833056,
                 ),
                 LocalModelInfo(
-                    id="Qwen3-0.6B-GGUF",
-                    name="Qwen/Qwen3-0.6B-GGUF",
+                    id="Qwen/Qwen3-0.6B-GGUF",
+                    name="Qwen3-0.6B-GGUF",
                     size_bytes=596000000,
                 ),
             ]
         else:
             models = [
                 LocalModelInfo(
-                    id="CoPaw-flash-9B-Q4_K_M",
-                    name="AgentScope/CoPaw-flash-9B-Q4_K_M",
+                    id="AgentScope/CoPaw-flash-9B-Q4_K_M",
+                    name="CoPaw-flash-9B-Q4_K_M",
                     size_bytes=5476080128,
                 ),
                 LocalModelInfo(
-                    id="CoPaw-flash-9B-Q8_0",
-                    name="AgentScope/CoPaw-flash-9B-Q8_0",
+                    id="AgentScope/CoPaw-flash-9B-Q8_0",
+                    name="CoPaw-flash-9B-Q8_0",
                     size_bytes=10590617600,
                 ),
             ]
@@ -130,16 +130,60 @@ class ModelManager:
 
     def get_model_dir(self, repo_id: str) -> Path:
         """Get the expected local path for a given model repo_id."""
-        return self._model_dir / repo_id.split("/")[-1]
+        return self._model_dir.joinpath(*repo_id.split("/"))
 
     def is_downloaded(self, repo_id: str) -> bool:
         """Check if a model repo_id is already downloaded."""
         local_path = self.get_model_dir(repo_id)
         return local_path.exists() and any(local_path.glob("*.gguf"))
 
+    def list_downloaded_models(self) -> list[LocalModelInfo]:
+        """Return all downloaded local model repositories."""
+        model_root = self._model_dir
+        if not model_root.exists():
+            return []
+
+        models: list[LocalModelInfo] = []
+        for entry in self._iter_downloaded_model_dirs():
+            repo_id = self._infer_repo_id_from_path(entry)
+            size_bytes = self._calculate_downloaded_size(entry)
+            models.append(
+                LocalModelInfo(
+                    id=repo_id,
+                    name=repo_id,
+                    size_bytes=size_bytes,
+                    downloaded=True,
+                    local_path=str(entry),
+                ),
+            )
+
+        return models
+
+    def remove_downloaded_model(self, model_name: str) -> None:
+        """Delete a downloaded local model by repo id or directory name."""
+        model_path = self.get_model_dir(model_name)
+        if model_path.exists():
+            self._cleanup_path(model_path)
+            self._cleanup_empty_parent_dirs(model_path.parent)
+            return
+
+        for model in self.list_downloaded_models():
+            if model.id != model_name:
+                continue
+            local_path = model.local_path
+            if local_path is None:
+                break
+            resolved_path = Path(local_path)
+            self._cleanup_path(resolved_path)
+            self._cleanup_empty_parent_dirs(resolved_path.parent)
+            return
+
+        raise ValueError(f"Downloaded local model not found: {model_name}")
+
     def download_model(
         self,
         model_name: str,
+        source: DownloadSource | None = None,
     ) -> None:
         """Start downloading the selected model into the target directory."""
         with self._lock:
@@ -152,7 +196,7 @@ class ModelManager:
             )
 
             final_dir.parent.mkdir(parents=True, exist_ok=True)
-            self._resolved_source = self._resolve_download_source()
+            self._resolved_source = source or self._resolve_download_source()
             total_bytes = self._estimate_download_size(
                 repo_id=repo_id,
                 source=self._resolved_source,
@@ -285,6 +329,7 @@ class ModelManager:
             with self._lock:
                 self._process = None
                 self._queue = None
+                self._resolved_source = None
             apply_download_result(
                 self._progress,
                 DownloadTaskResult(
@@ -300,6 +345,7 @@ class ModelManager:
         with self._lock:
             self._process = None
             self._queue = None
+            self._resolved_source = None
         apply_download_result(self._progress, result)
 
     def _resolve_download_source(self) -> DownloadSource:
@@ -545,3 +591,42 @@ class ModelManager:
             shutil.rmtree(path, ignore_errors=True)
             return
         path.unlink(missing_ok=True)
+
+    def _iter_downloaded_model_dirs(self) -> list[Path]:
+        candidates: list[Path] = []
+        entries = sorted(
+            self._model_dir.rglob("*"),
+            key=lambda item: item.parts,
+        )
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            if not any(entry.rglob("*.gguf")):
+                continue
+            if not self._looks_like_model_root(entry):
+                continue
+            candidates.append(entry)
+
+        selected: list[Path] = []
+        for candidate in sorted(candidates, key=lambda item: len(item.parts)):
+            if any(candidate.is_relative_to(parent) for parent in selected):
+                continue
+            selected.append(candidate)
+        return selected
+
+    def _looks_like_model_root(self, path: Path) -> bool:
+        visible_children = [
+            child for child in path.iterdir() if not child.name.startswith(".")
+        ]
+        return any(not child.is_dir() for child in visible_children)
+
+    def _infer_repo_id_from_path(self, model_dir: Path) -> str:
+        relative_path = model_dir.relative_to(self._model_dir)
+        return "/".join(relative_path.parts)
+
+    def _cleanup_empty_parent_dirs(self, path: Path) -> None:
+        while path != self._model_dir and path.exists():
+            if any(path.iterdir()):
+                return
+            path.rmdir()
+            path = path.parent

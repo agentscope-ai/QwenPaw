@@ -26,7 +26,6 @@ from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
 
-# from copaw.local_models import create_local_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -1077,24 +1076,8 @@ class ProviderManager:
                     model.probe_source = "documentation"
 
     def update_local_models(self):
-        """Update the model list of a local provider."""
-        try:
-            from ..local_models.manager import list_local_models
-            from ..local_models.schema import BackendType
-
-            llamacpp_models: list[ModelInfo] = []
-            mlx_models: list[ModelInfo] = []
-
-            for model in list_local_models():
-                info = ModelInfo(id=model.id, name=model.display_name)
-                if model.backend == BackendType.LLAMACPP:
-                    llamacpp_models.append(info)
-                elif model.backend == BackendType.MLX:
-                    mlx_models.append(info)
-            PROVIDER_LLAMACPP.models = llamacpp_models
-        except ImportError:
-            # local_models dependencies not installed; leave model lists empty
-            pass
+        # TODO: serve a model when starting
+        pass
 
     @staticmethod
     def get_instance() -> "ProviderManager":
@@ -1115,10 +1098,4 @@ class ProviderManager:
             raise ValueError(
                 f"Active provider '{model.provider_id}' not found.",
             )
-        # if provider.is_local:
-        #     return create_local_chat_model(
-        #         model_id=model.model,
-        #         stream=True,
-        #         generate_kwargs={"max_tokens": None},
-        #     )
         return provider.get_chat_model_instance(model.model)

@@ -139,3 +139,105 @@ def test_cancel_download_stops_active_process(tmp_path: Path) -> None:
     assert not staging_dir.exists()
     assert progress_snapshot["status"] == "cancelled"
     assert progress_snapshot["speed_bytes_per_sec"] == 0.0
+
+
+def test_download_model_uses_explicit_source_without_probe(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    downloader = ModelManager()
+    captured = {}
+    target_dir = tmp_path / "resolved-model-dir"
+
+    monkeypatch.setattr(
+        downloader,
+        "get_model_dir",
+        lambda repo_id: target_dir,
+    )
+
+    def _unexpected_probe():
+        raise AssertionError("source probing should be skipped")
+
+    monkeypatch.setattr(
+        downloader,
+        "_resolve_download_source",
+        _unexpected_probe,
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_estimate_download_size",
+        lambda **kwargs: 100,
+    )
+
+    class _FakeQueue:
+        pass
+
+    class _FakeContext:
+        def Queue(self):
+            return _FakeQueue()
+
+        def Process(self, **kwargs):
+            captured["process_kwargs"] = kwargs
+
+            class _Process:
+                def start(self):
+                    captured["started"] = True
+
+                def is_alive(self):
+                    return True
+
+            return _Process()
+
+    downloader.__dict__["_context"] = _FakeContext()
+
+    class _FakeThread:
+        def __init__(self, **kwargs):
+            captured["thread_kwargs"] = kwargs
+
+        def start(self):
+            captured["thread_started"] = True
+
+    monkeypatch.setattr(
+        "copaw.local_models.model_manager.threading.Thread",
+        _FakeThread,
+    )
+
+    downloader.download_model(
+        "Qwen/Qwen2-0.5B-Instruct-GGUF",
+        source=DownloadSource.HUGGINGFACE,
+    )
+
+    assert captured["started"] is True
+    assert downloader.get_download_progress()["source"] == "huggingface"
+
+
+def test_get_model_dir_preserves_repo_id_path() -> None:
+    downloader = ModelManager()
+
+    model_dir = downloader.get_model_dir("Qwen/Qwen3-0.6B-GGUF")
+
+    assert model_dir.parts[-2:] == ("Qwen", "Qwen3-0.6B-GGUF")
+
+
+def test_list_and_remove_downloaded_models_with_repo_id_layout(
+    tmp_path: Path,
+) -> None:
+    downloader = ModelManager()
+    downloader.__dict__["_model_dir"] = tmp_path / "models"
+
+    repo_dir = downloader.get_model_dir("Qwen/Qwen3-0.6B-GGUF")
+    repo_dir.mkdir(parents=True)
+    (repo_dir / "model.gguf").write_bytes(b"123")
+    (repo_dir / "README.md").write_text("demo", encoding="utf-8")
+
+    models = downloader.list_downloaded_models()
+
+    assert len(models) == 1
+    assert models[0].id == "Qwen/Qwen3-0.6B-GGUF"
+    assert models[0].name == "Qwen/Qwen3-0.6B-GGUF"
+    assert models[0].local_path == str(repo_dir)
+
+    downloader.remove_downloaded_model("Qwen/Qwen3-0.6B-GGUF")
+
+    assert not repo_dir.exists()
+    assert not (tmp_path / "models" / "Qwen").exists()

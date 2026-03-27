@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Button, Tag, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
@@ -21,7 +22,7 @@ interface LocalModelRowProps {
   onStopServer: () => void;
 }
 
-export function LocalModelRow({
+export const LocalModelRow = memo(function LocalModelRow({
   model,
   currentRunningModelName,
   isModelDownloading,
@@ -54,7 +55,7 @@ export function LocalModelRow({
               type="primary"
               size="small"
               icon={<DownloadOutlined />}
-              onClick={() => onStartDownload(model.name)}
+              onClick={() => onStartDownload(model.id)}
               disabled={isModelDownloading || isServerBusy}
             >
               {t("common.download")}
@@ -71,6 +72,7 @@ export function LocalModelRow({
           </>
         ) : isRunning ? (
           <Button
+            danger
             size="small"
             icon={<StopOutlined />}
             loading={stoppingServer}
@@ -93,4 +95,4 @@ export function LocalModelRow({
       </div>
     </div>
   );
-}
+});

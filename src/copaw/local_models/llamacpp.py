@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import atexit
 import asyncio
 import logging
 import os
+import signal
 import shutil
 import socket
 import tempfile
 import threading
+import time
 import urllib.request
 from contextlib import suppress
 from pathlib import Path
@@ -52,10 +55,12 @@ class LlamaCppBackend:
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
+        self._server_owns_process_group = False
         self._download_lock = threading.Lock()
         self._download_thread: threading.Thread | None = None
         self._download_cancel_event: threading.Event | None = None
         self._progress = DownloadProgressTracker()
+        atexit.register(self._shutdown_server_at_exit)
 
     # -----------------------------
     # Public APIs
@@ -155,6 +160,9 @@ class LlamaCppBackend:
             await self.shutdown_server()
 
         port = self._find_free_port()
+        process_kwargs: dict[str, Any] = {}
+        if os.name != "nt":
+            process_kwargs["start_new_session"] = True
         process = await asyncio.create_subprocess_exec(
             str(self.executable),
             "--host",
@@ -167,11 +175,13 @@ class LlamaCppBackend:
             model_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            **process_kwargs,
         )
 
         self._server_process = process
         self._server_port = port
         self._server_model_name = model_name
+        self._server_owns_process_group = bool(process_kwargs)
         self._server_log_task = asyncio.create_task(
             self._drain_server_logs(),
             name="llamacpp_server_logs",
@@ -192,23 +202,31 @@ class LlamaCppBackend:
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""
-        if self._server_log_task and not self._server_log_task.done():
-            self._server_log_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._server_log_task
+        await self._cancel_server_log_task()
 
-        if self._server_process and self._server_process.returncode is None:
-            self._server_process.terminate()
+        process = self._server_process
+        if process and process.returncode is None:
+            self._terminate_server_process(signal.SIGTERM)
             try:
-                await asyncio.wait_for(self._server_process.wait(), timeout=5)
+                await asyncio.wait_for(process.wait(), timeout=5)
             except asyncio.TimeoutError:
-                self._server_process.kill()
-                await self._server_process.wait()
+                self._terminate_server_process(signal.SIGKILL)
+                await process.wait()
 
-        self._server_process = None
-        self._server_log_task = None
-        self._server_port = None
-        self._server_model_name = None
+        self._reset_server_state()
+
+    def force_shutdown_server(self) -> None:
+        """Best-effort synchronous cleanup for shutdown and atexit paths."""
+        self._cancel_server_log_task_nowait()
+
+        process = self._server_process
+        if process and process.returncode is None:
+            self._terminate_server_process(signal.SIGTERM)
+            if not self._wait_for_process_exit(process.pid, timeout=5.0):
+                self._terminate_server_process(signal.SIGKILL)
+                self._wait_for_process_exit(process.pid, timeout=1.0)
+
+        self._reset_server_state()
 
     # -----------------------------
     # Internal helpers
@@ -427,6 +445,67 @@ class LlamaCppBackend:
                 "llama-server: %s",
                 line.decode("utf-8", errors="replace").rstrip(),
             )
+
+    async def _cancel_server_log_task(self) -> None:
+        task = self._server_log_task
+        if task and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    def _cancel_server_log_task_nowait(self) -> None:
+        task = self._server_log_task
+        if task and not task.done():
+            task.cancel()
+
+    def _terminate_server_process(self, sig: signal.Signals) -> None:
+        process = self._server_process
+        if process is None or process.returncode is not None:
+            return
+
+        if self._server_owns_process_group and os.name != "nt":
+            with suppress(ProcessLookupError):
+                os.killpg(os.getpgid(process.pid), sig)
+            return
+
+        with suppress(ProcessLookupError):
+            if sig == signal.SIGKILL:
+                process.kill()
+            else:
+                process.terminate()
+
+    def _wait_for_process_exit(self, pid: int, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            if not self._is_pid_running(pid):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            sleep_for = min(0.1, remaining)
+            threading.Event().wait(sleep_for)
+        return not self._is_pid_running(pid)
+
+    @staticmethod
+    def _is_pid_running(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _reset_server_state(self) -> None:
+        self._server_process = None
+        self._server_log_task = None
+        self._server_port = None
+        self._server_model_name = None
+        self._server_owns_process_group = False
+
+    def _shutdown_server_at_exit(self) -> None:
+        with suppress(Exception):
+            self.force_shutdown_server()
 
     def _extract_archive(self, archive_path: Path, dest_dir: Path) -> None:
         staging_dir = Path(

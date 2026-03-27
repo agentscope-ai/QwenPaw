@@ -16,6 +16,35 @@ import { formatProgressText, getProgressPercent } from "./local-models/shared";
 
 const POLL_INTERVAL_MS = 3000;
 
+function isSameServerStatus(
+  left: LocalServerStatus | null,
+  right: LocalServerStatus | null,
+): boolean {
+  return (
+    left?.available === right?.available
+    && left?.installed === right?.installed
+    && left?.port === right?.port
+    && left?.model_name === right?.model_name
+    && left?.message === right?.message
+  );
+}
+
+function isSameDownloadProgress(
+  left: LocalDownloadProgress | null,
+  right: LocalDownloadProgress | null,
+): boolean {
+  return (
+    left?.status === right?.status
+    && left?.model_name === right?.model_name
+    && left?.downloaded_bytes === right?.downloaded_bytes
+    && left?.total_bytes === right?.total_bytes
+    && left?.speed_bytes_per_sec === right?.speed_bytes_per_sec
+    && left?.source === right?.source
+    && left?.error === right?.error
+    && left?.local_path === right?.local_path
+  );
+}
+
 interface LocalStatusSnapshot {
   server: LocalServerStatus;
   llamacpp: LocalDownloadProgress;
@@ -45,6 +74,7 @@ export function LocalModelManageModal({
   const [startingModelName, setStartingModelName] = useState<string | null>(null);
   const [stoppingServer, setStoppingServer] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
 
@@ -67,6 +97,17 @@ export function LocalModelManageModal({
     }
   }, []);
 
+  const setModelDownloadState = useCallback((
+    value: LocalDownloadProgress | null
+      | ((prev: LocalDownloadProgress | null) => LocalDownloadProgress | null),
+  ) => {
+    setModelDownload((prev) => {
+      const next = typeof value === "function" ? value(prev) : value;
+      modelDownloadRef.current = next;
+      return next;
+    });
+  }, []);
+
   const refreshStatus = useCallback(async (showLoading = false) => {
     if (showLoading) {
       setLoadingStatus(true);
@@ -79,9 +120,19 @@ export function LocalModelManageModal({
           api.getLocalModelDownloadProgress(),
         ]);
 
-      setServerStatus(nextServerStatus);
-      setLlamacppDownload(nextLlamacppDownload);
-      setModelDownload(nextModelDownload);
+      setServerStatus((prev) => (
+        isSameServerStatus(prev, nextServerStatus) ? prev : nextServerStatus
+      ));
+      setLlamacppDownload((prev) => (
+        isSameDownloadProgress(prev, nextLlamacppDownload)
+          ? prev
+          : nextLlamacppDownload
+      ));
+      setModelDownloadState((prev) => (
+        isSameDownloadProgress(prev, nextModelDownload)
+          ? prev
+          : nextModelDownload
+      ));
 
       if (
         (previousLlamacppStatusRef.current === "pending" ||
@@ -167,7 +218,7 @@ export function LocalModelManageModal({
     return () => stopPolling();
   }, [fetchLocalModels, open, refreshStatus, startPolling, stopPolling]);
 
-  const handleStartLlamacppDownload = async () => {
+  const handleStartLlamacppDownload = useCallback(async () => {
     try {
       await api.startLlamacppDownload();
       message.success(t("models.localLlamacppInstallStarted"));
@@ -178,9 +229,9 @@ export function LocalModelManageModal({
         error instanceof Error ? error.message : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
-  };
+  }, [refreshStatus, startPolling, t]);
 
-  const handleCancelLlamacppDownload = () => {
+  const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
       title: t("models.localCancelDownload"),
       content: t("models.localCancelDownloadConfirm", {
@@ -203,13 +254,13 @@ export function LocalModelManageModal({
         }
       },
     });
-  };
+  }, [refreshStatus, t]);
 
-  const handleStartModelDownload = async (modelName: string) => {
-    const previousModelDownload = modelDownload;
+  const handleStartModelDownload = useCallback(async (modelName: string) => {
+    const previousModelDownload = modelDownloadRef.current;
     const previousModelStatus = previousModelStatusRef.current;
 
-    setModelDownload({
+    setModelDownloadState({
       status: "pending",
       model_name: modelName,
       downloaded_bytes: 0,
@@ -226,7 +277,7 @@ export function LocalModelManageModal({
       await refreshStatus();
       startPolling();
     } catch (error) {
-      setModelDownload(previousModelDownload);
+      setModelDownloadState(previousModelDownload);
       previousModelStatusRef.current = previousModelStatus;
       const errMsg =
         error instanceof Error
@@ -234,9 +285,9 @@ export function LocalModelManageModal({
           : t("models.localDownloadFailed");
       message.error(errMsg);
     }
-  };
+  }, [refreshStatus, setModelDownloadState, startPolling, t]);
 
-  const handleCancelModelDownload = (modelName: string) => {
+  const handleCancelModelDownload = useCallback((modelName: string) => {
     Modal.confirm({
       title: t("models.localCancelDownload"),
       content: t("models.localCancelDownloadConfirm", { repo: modelName }),
@@ -257,9 +308,9 @@ export function LocalModelManageModal({
         }
       },
     });
-  };
+  }, [refreshStatus, t]);
 
-  const handleStartServer = async (model: LocalModelInfo) => {
+  const handleStartServer = useCallback(async (model: LocalModelInfo) => {
     const run = async () => {
       if (!model.local_path) {
         message.error(t("models.localModelPathMissing"));
@@ -302,9 +353,9 @@ export function LocalModelManageModal({
     }
 
     await run();
-  };
+  }, [onSaved, refreshStatus, serverStatus, t]);
 
-  const handleStopServer = async () => {
+  const handleStopServer = useCallback(async () => {
     setStoppingServer(true);
     try {
       await api.stopLocalServer();
@@ -317,7 +368,7 @@ export function LocalModelManageModal({
     } finally {
       setStoppingServer(false);
     }
-  };
+  }, [onSaved, refreshStatus, t]);
 
   const handleClose = () => {
     onClose();
@@ -374,20 +425,7 @@ export function LocalModelManageModal({
             <div className={styles.localSectionTitle}>
               {t("models.localModelsSectionTitle")}
             </div>
-            {/* <div className={styles.localSectionDescription}>
-              {isRuntimeInstalled
-                ? t("models.localModelsSectionDescription")
-                : t("models.localModelsLockedHint")}
-            </div> */}
           </div>
-          {/* {isRuntimeInstalled ? (
-            <div className={styles.localSectionMeta}>
-              {t("models.localModelsCount", {
-                downloaded: downloadedModelCount,
-                total: localModels.length,
-              })}
-            </div>
-          ) : null} */}
         </div>
 
         {isRuntimeInstalled && isModelDownloading ? (

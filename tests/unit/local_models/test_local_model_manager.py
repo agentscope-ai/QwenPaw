@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from copaw.local_models.manager import LocalModelManager
+from copaw.local_models.schema import DownloadSource
 
 
 class _FakeLlamaCppBackend:
@@ -47,8 +48,16 @@ class _FakeModelManager:
         self.calls.append(("is_downloaded", model_name))
         return model_name == "downloaded-model"
 
-    def download_model(self, model_name: str) -> None:
-        self.calls.append(("download_model", model_name))
+    def list_downloaded_models(self) -> list[str]:
+        self.calls.append(("list_downloaded", None))
+        return ["downloaded-model"]
+
+    def download_model(
+        self,
+        model_name: str,
+        source: DownloadSource | None = None,
+    ) -> None:
+        self.calls.append(("download_model", (model_name, source)))
 
     def get_download_progress(self) -> dict[str, object]:
         self.calls.append(("progress", None))
@@ -56,6 +65,9 @@ class _FakeModelManager:
 
     def cancel_download(self) -> None:
         self.calls.append(("cancel", None))
+
+    def remove_downloaded_model(self, model_name: str) -> None:
+        self.calls.append(("remove", model_name))
 
 
 def test_local_model_manager_forwards_sync_calls() -> None:
@@ -75,9 +87,14 @@ def test_local_model_manager_forwards_sync_calls() -> None:
 
     assert manager.get_recommended_models() == ["demo-model"]
     assert manager.is_model_downloaded("downloaded-model") is True
-    manager.start_model_download("demo-model")
+    assert manager.list_downloaded_models() == ["downloaded-model"]
+    manager.start_model_download(
+        "demo-model",
+        source=DownloadSource.MODELSCOPE,
+    )
     assert manager.get_model_download_progress() == {"status": "pending"}
     manager.cancel_model_download()
+    manager.remove_downloaded_model("downloaded-model")
 
     assert fake_llamacpp_backend.calls == [
         ("check", None),
@@ -88,9 +105,11 @@ def test_local_model_manager_forwards_sync_calls() -> None:
     assert fake_model_manager.calls == [
         ("recommended", None),
         ("is_downloaded", "downloaded-model"),
-        ("download_model", "demo-model"),
+        ("list_downloaded", None),
+        ("download_model", ("demo-model", DownloadSource.MODELSCOPE)),
         ("progress", None),
         ("cancel", None),
+        ("remove", "downloaded-model"),
     ]
 
 
