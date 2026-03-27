@@ -29,6 +29,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     FileContent,
     ImageContent,
     TextContent,
+    VideoContent,
 )
 from aibot import WSClient, WSClientOptions, generate_req_id
 
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 _WECOM_PROCESSED_IDS_MAX = 2000
 
 # Media upload via WebSocket long-connection.
-_UPLOAD_CHUNK_SIZE = 512 * 1024  # 512 KB per chunk (Base64-encoded)
+_UPLOAD_CHUNK_SIZE = 512 * 1024  # 512 KB of raw data per chunk
 _UPLOAD_CMD_INIT = "aibot_upload_media_init"
 _UPLOAD_CMD_CHUNK = "aibot_upload_media_chunk"
 _UPLOAD_CMD_FINISH = "aibot_upload_media_finish"
@@ -397,6 +398,28 @@ class WecomChannel(BaseChannel):
                 else:
                     text_parts.append("[file: no url]")
 
+            elif msgtype == "video":
+                video_info = body.get("video") or {}
+                url = video_info.get("url") or ""
+                aes_key = video_info.get("aeskey") or ""
+                if url:
+                    path = await self._download_media(
+                        url,
+                        aes_key=aes_key,
+                        filename_hint="video.mp4",
+                    )
+                    if path:
+                        content_parts.append(
+                            VideoContent(
+                                type=ContentType.VIDEO,
+                                video_url=path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[video: download failed]")
+                else:
+                    text_parts.append("[video: no url]")
+
             elif msgtype == "mixed":
                 # Mixed: list of items, each has msgtype, text or image
                 mixed_items = body.get("mixed", {}).get("msg_item", [])
@@ -467,7 +490,7 @@ class WecomChannel(BaseChannel):
                     await self._client.reply_stream(
                         frame,
                         stream_id=processing_stream_id,
-                        content="🤔 思考中...",
+                        content="🤔 Thinking...",
                         finish=False,
                     )
                 except Exception:
@@ -843,7 +866,19 @@ class WecomChannel(BaseChannel):
                         "wecom send_content_parts proactive failed",
                     )
 
-        # # the SDK does not support sending media files.
+        # If processing indicator was not consumed by text (media-only reply),
+        # clear it with an empty finish before sending media.
+        if processing_sid and first_chunk and frame:
+            try:
+                await self._client.reply_stream(
+                    frame,
+                    stream_id=processing_sid,
+                    content="✅ Done",
+                    finish=True,
+                )
+            except Exception:
+                logger.debug("wecom: failed to clear processing indicator")
+
         for part in media_parts:
             await self._send_media_part(chatid, part, frame)
 
@@ -958,10 +993,8 @@ class WecomChannel(BaseChannel):
 
         def _ws_raw_handler(frame: Any) -> None:
             req_id = (frame.get("headers") or {}).get("req_id", "")
-            if req_id and (
-                req_id.startswith(_UPLOAD_CMD_INIT)
-                or req_id.startswith(_UPLOAD_CMD_CHUNK)
-                or req_id.startswith(_UPLOAD_CMD_FINISH)
+            if req_id and req_id.startswith(
+                (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH),
             ):
                 fut = self._upload_ack_futures.get(req_id)
                 if fut and not fut.done() and self._loop:
