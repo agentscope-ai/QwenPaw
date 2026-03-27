@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
+from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
@@ -147,6 +148,24 @@ agent_app = AgentApp(
     stream_task_queue="stream_query",
     stream_task_timeout=300,
 )
+
+
+# Add /stop endpoint to agent_app (follows agentscope-runtime tutorial pattern)
+@agent_app.post("/stop")
+async def stop_task(request: AgentRequest):
+    """Stop a running chat session by broadcasting interrupt signal.
+
+    This endpoint matches the agentscope-runtime tutorial pattern,
+    using InterruptMixin to broadcast stop signals to running tasks.
+    """
+    await agent_app.stop_chat(
+        user_id=request.user_id,
+        session_id=request.session_id,
+    )
+    return {
+        "status": "success",
+        "message": "Interrupt signal broadcasted.",
+    }
 
 
 @asynccontextmanager

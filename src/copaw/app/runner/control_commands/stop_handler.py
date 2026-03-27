@@ -18,7 +18,7 @@ class StopCommandHandler(BaseControlCommandHandler):
 
     Features:
     - Immediate response (priority level 0)
-    - Stops task for target session
+    - Stops task via /console/stop HTTP endpoint
     - Default: stops current session
     - Optional: specify target session_id
 
@@ -44,52 +44,74 @@ class StopCommandHandler(BaseControlCommandHandler):
             context.session_id,
         )
 
+        # Get target user_id (default: current user)
+        target_user_id = context.args.get(
+            "user",
+            context.user_id,
+        )
+
         logger.info(
             f"/stop command: current_session={context.session_id[:30]} "
-            f"target_session={target_session_id[:30]}",
+            f"target_session={target_session_id[:30]} "
+            f"target_user={target_user_id[:30]}",
         )
 
-        # Get chat_id from session_id via chat_manager
-        # Note: This requires chat_manager.get_chat_id_by_session
-        # which will be added in Day 4
+        # Call /api/agents/{agentId}/agent/stop HTTP endpoint
+        # This goes through workspace middleware and agent_app's InterruptMixin
+        import aiohttp
+        from ....config.utils import read_last_api
+
         workspace = context.workspace
-        chat_manager = workspace.chat_manager
+        agent_id = workspace.agent_id
 
-        # Resolve chat_id
-        chat_id = await chat_manager.get_chat_id_by_session(
-            target_session_id,
-            context.channel.channel,
-        )
+        # Get service host/port
+        api_info = read_last_api()
+        if api_info:
+            host, port = api_info
+        else:
+            host, port = "127.0.0.1", 8088
 
-        if chat_id is None:
-            logger.warning(
-                f"/stop: No active chat found for session={target_session_id[:30]}",  # noqa: E501
+        # Construct request payload (AgentRequest format)
+        payload = {
+            "input": [],
+            "user_id": target_user_id,
+            "session_id": target_session_id,
+        }
+
+        url = f"http://{host}:{port}/api/agents/{agent_id}/agent/stop"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        logger.info(
+                            f"/stop: Interrupt signal sent for "
+                            f"session={target_session_id[:30]}",
+                        )
+                        return (
+                            f"**Task Stop Requested**\n\n"
+                            f"Interrupt signal sent to session "
+                            f"`{target_session_id[:40]}`.\n"
+                            f"The task should stop shortly."
+                        )
+                    else:
+                        error_text = await resp.text()
+                        logger.error(
+                            f"/stop: HTTP {resp.status}: {error_text}",
+                        )
+                        return (
+                            f"**Stop Failed**\n\n"
+                            f"HTTP {resp.status}: {error_text}"
+                        )
+        except Exception as e:
+            logger.exception(
+                f"/stop: Failed to send interrupt signal: {e}",
             )
             return (
                 f"**Stop Failed**\n\n"
-                f"No active task found for session "
-                f"`{target_session_id[:40]}`"
-            )
-
-        # Request stop via task_tracker
-        task_tracker = workspace.task_tracker
-        stopped = await task_tracker.request_stop(chat_id)
-
-        if stopped:
-            logger.info(
-                f"/stop: Successfully stopped task for chat_id={chat_id[:30]}",
-            )
-            return (
-                f"**Task Stopped**\n\n"
-                f"Task for session `{target_session_id[:40]}` "
-                f"has been terminated."
-            )
-        else:
-            logger.warning(
-                f"/stop: Task not running for chat_id={chat_id[:30]}",
-            )
-            return (
-                f"**No Active Task**\n\n"
-                f"No running task found for session "
-                f"`{target_session_id[:40]}`"
+                f"Failed to send interrupt signal: {str(e)}"
             )

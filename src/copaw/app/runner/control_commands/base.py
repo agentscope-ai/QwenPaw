@@ -25,6 +25,7 @@ class ControlContext:
         payload: Original message payload (native dict or AgentRequest)
         channel: Channel instance
         session_id: Normalized session ID (e.g. "console:user1")
+        user_id: User ID from request
         args: Parsed command arguments (command-specific)
     """
 
@@ -32,6 +33,7 @@ class ControlContext:
     payload: Any
     channel: "BaseChannel"
     session_id: str
+    user_id: str
     args: Dict[str, Any]
 
 

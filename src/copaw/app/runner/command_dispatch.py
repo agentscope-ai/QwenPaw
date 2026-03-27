@@ -160,11 +160,11 @@ async def run_command_path(  # pylint: disable=too-many-statements
         # Get channel instance from request
         channel_id = getattr(request, "channel", "")
         channel = None
-        if hasattr(workspace, "channel_service"):
-            ch_service = workspace.channel_service
-            if hasattr(ch_service, "manager"):
-                ch_manager = ch_service.manager
-                channel = await ch_manager.get_channel(channel_id)
+
+        # Get channel_manager from workspace
+        channel_manager = workspace.channel_manager
+        if channel_manager is not None:
+            channel = await channel_manager.get_channel(channel_id)
 
         if channel is None:
             logger.error(
@@ -183,12 +183,16 @@ async def run_command_path(  # pylint: disable=too-many-statements
             yield error_msg, True
             return
 
+        # Extract user_id from request
+        user_id = getattr(request, "user_id", "")
+
         # Build control context
         control_ctx = control_commands.ControlContext(
             workspace=workspace,
             payload=request,
             channel=channel,
             session_id=session_id,
+            user_id=user_id,
             args={},
         )
 
