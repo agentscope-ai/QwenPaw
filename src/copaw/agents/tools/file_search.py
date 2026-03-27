@@ -8,6 +8,7 @@ import fnmatch
 import os
 import re
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -229,7 +230,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         )
 
         # Sliding window holds (line_no, line_content) tuples
-        window: list[tuple[int, str]] = []
+        window: deque[tuple[int, str]] = deque()
         # Indices in window where matches occurred, ordered by position
         hit_indices: list[int] = []
         # Track which line numbers have been output to avoid duplicates
@@ -237,7 +238,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
 
         def _output_context_for_hit(  # pylint: disable=too-many-return-statements
             hit_line_no: int,
-            line_buffer: list[tuple[int, str]],
+            line_buffer: deque[tuple[int, str]],
             disp_path: str,
         ) -> bool:
             """Output context lines around a hit.
@@ -358,7 +359,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                                 outputted_hits.add(hit_line)
                         # Slide the window forward by removing the oldest line.
                         # Adjust remaining hit indices to match new positions.
-                        window.pop(0)
+                        window.popleft()
                         hit_indices = [i - 1 for i in hit_indices if i > 0]
 
                 if status != "ok":
