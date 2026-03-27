@@ -292,9 +292,11 @@ class ChannelManager:
                 key,
                 (channel_id, key) in self._in_progress,
                 bool(payload.get("session_webhook")),
-                "pending"
-                if (channel_id, key) in self._in_progress
-                else "queue",
+                (
+                    "pending"
+                    if (channel_id, key) in self._in_progress
+                    else "queue"
+                ),
             )
         if (channel_id, key) in self._in_progress:
             self._pending.setdefault((channel_id, key), []).append(payload)

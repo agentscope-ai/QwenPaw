@@ -479,7 +479,8 @@ class DingTalkChannel(BaseChannel):
             # No expiry info: treat as valid until proven otherwise
             return False
         now_ms = int(time.time() * 1000)
-        return now_ms >= (expired_time - SESSION_WEBHOOK_EXPIRY_SAFETY_MARGIN_MS)
+        threshold = expired_time - SESSION_WEBHOOK_EXPIRY_SAFETY_MARGIN_MS
+        return now_ms >= threshold
 
     # ---------------------------
     # Reply via stream thread
@@ -818,7 +819,11 @@ class DingTalkChannel(BaseChannel):
             "x-acs-dingtalk-access-token": token,
         }
         try:
-            async with self._http.post(url, json=payload, headers=headers) as resp:
+            async with self._http.post(
+                url,
+                json=payload,
+                headers=headers,
+            ) as resp:
                 body_text = await resp.text()
                 if resp.status >= 400:
                     logger.warning(
@@ -2461,7 +2466,8 @@ class DingTalkChannel(BaseChannel):
         2) to_handle: dingtalk:sw:<sender> (stored) or http(s) url
         3) Open API fallback when webhook is expired or unavailable.
 
-        If no webhook is found and no Open API params, logs warning and returns.
+        If no webhook is found and no Open API params,
+        logs warning and returns.
         """
         if not self.enabled:
             return
@@ -2524,11 +2530,15 @@ class DingTalkChannel(BaseChannel):
         conversation_type = meta.get(
             "conversation_type",
             "",
-        ) or (webhook_entry or {}).get("conversation_type", "")
+        ) or (
+            webhook_entry or {}
+        ).get("conversation_type", "")
         sender_staff_id = meta.get(
             "sender_staff_id",
             "",
-        ) or (webhook_entry or {}).get("sender_staff_id", "")
+        ) or (
+            webhook_entry or {}
+        ).get("sender_staff_id", "")
 
         if not conversation_id:
             logger.warning(

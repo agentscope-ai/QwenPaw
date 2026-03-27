@@ -161,9 +161,11 @@ class WecomChannel(BaseChannel):
             allow_from=getattr(config, "allow_from", []) or [],
             deny_message=getattr(config, "deny_message", "") or "",
             max_reconnect_attempts=int(
-                -1
-                if getattr(config, "max_reconnect_attempts", None) is None
-                else getattr(config, "max_reconnect_attempts"),
+                (
+                    -1
+                    if getattr(config, "max_reconnect_attempts", None) is None
+                    else getattr(config, "max_reconnect_attempts")
+                ),
             ),
         )
 
