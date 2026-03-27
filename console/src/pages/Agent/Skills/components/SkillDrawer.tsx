@@ -1,17 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Drawer, Form, Input, Button, message } from "@agentscope-ai/design";
+import {
+  Drawer,
+  Form,
+  Input,
+  Button,
+  Select,
+  message,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
+import { getSkillSyncStatusLabel } from "./skillMetadata";
 
 /**
  * Parse frontmatter from content string.
  * Returns an object with parsed key-value pairs, or null if no valid frontmatter found.
  */
-function parseFrontmatter(content: string): Record<string, string> | null {
+export function parseFrontmatter(
+  content: string,
+): Record<string, string> | null {
   const trimmed = content.trim();
   if (!trimmed.startsWith("---")) return null;
 
@@ -33,10 +43,35 @@ function parseFrontmatter(content: string): Record<string, string> | null {
   return result;
 }
 
+const CHANNEL_OPTIONS = [
+  { label: "all", value: "all" },
+  { label: "console", value: "console" },
+  { label: "discord", value: "discord" },
+  { label: "telegram", value: "telegram" },
+  { label: "dingtalk", value: "dingtalk" },
+  { label: "feishu", value: "feishu" },
+  { label: "imessage", value: "imessage" },
+  { label: "qq", value: "qq" },
+  { label: "mattermost", value: "mattermost" },
+  { label: "wecom", value: "wecom" },
+  { label: "mqtt", value: "mqtt" },
+];
+
+export interface SkillDrawerFormValues {
+  name: string;
+  description?: string;
+  content: string;
+  enabled?: boolean;
+  channels?: string[];
+  source?: string;
+  syncStatus?: string;
+  config?: Record<string, unknown>;
+}
+
 interface SkillDrawerProps {
   open: boolean;
   editingSkill: SkillSpec | null;
-  form: FormInstance<SkillSpec>;
+  form: FormInstance<SkillDrawerFormValues>;
   onClose: () => void;
   onSubmit: (values: SkillSpec) => void;
   onContentChange?: (content: string) => void;
@@ -55,6 +90,8 @@ export function SkillDrawer({
   const [contentValue, setContentValue] = useState("");
   const [optimizing, setOptimizing] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [configText, setConfigText] = useState("{}");
+  const [configError, setConfigError] = useState("");
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -81,29 +118,70 @@ export function SkillDrawer({
 
   useEffect(() => {
     if (editingSkill) {
+      const channels = editingSkill.channels || ["all"];
+      const fallbackConfigText = JSON.stringify(
+        editingSkill.config || {},
+        null,
+        2,
+      );
       setContentValue(editingSkill.content);
+      setConfigText(fallbackConfigText);
       form.setFieldsValue({
         name: editingSkill.name,
         content: editingSkill.content,
+        channels,
+        source: editingSkill.source,
+        syncStatus: getSkillSyncStatusLabel(
+          editingSkill.sync_to_pool?.status,
+          t,
+        ),
       });
+      setConfigError("");
+      let active = true;
+      api
+        .getSkillConfig(editingSkill.name)
+        .then((res) => {
+          if (!active) return;
+          setConfigText(JSON.stringify(res.config || {}, null, 2));
+        })
+        .catch(() => {
+          if (!active) return;
+          setConfigText(fallbackConfigText);
+        });
+      return () => {
+        active = false;
+      };
     } else {
       setContentValue("");
+      setConfigText("{}");
+      setConfigError("");
       form.resetFields();
     }
-  }, [editingSkill, form]);
+  }, [editingSkill, form, t]);
 
-  const handleSubmit = (values: { name: string; content: string }) => {
+  const handleSubmit = async (values: SkillDrawerFormValues) => {
+    let parsedConfig: Record<string, unknown> | undefined;
     if (editingSkill) {
-      message.warning(t("skills.editNotSupported"));
-      onClose();
-    } else {
-      onSubmit({
-        ...values,
-        content: contentValue || values.content,
-        source: "",
-        path: "",
-      });
+      const trimmed = configText.trim();
+      if (!trimmed) {
+        parsedConfig = {};
+      } else {
+        try {
+          parsedConfig = JSON.parse(trimmed);
+          setConfigError("");
+        } catch {
+          setConfigError(t("skills.configInvalidJson"));
+          return;
+        }
+      }
     }
+    onSubmit({
+      ...editingSkill,
+      ...values,
+      content: contentValue || values.content,
+      source: editingSkill?.source || "",
+      config: parsedConfig,
+    });
   };
 
   const handleContentChange = (content: string) => {
@@ -140,9 +218,13 @@ export function SkillDrawer({
         i18n.language, // Pass current language to API
       );
       message.success(t("skills.optimizeSuccess"));
-    } catch (error: any) {
-      if (error.name !== "AbortError") {
-        message.error(error.message || t("skills.optimizeFailed"));
+    } catch (error: unknown) {
+      const aborted =
+        error instanceof DOMException && error.name === "AbortError";
+      if (!aborted) {
+        message.error(
+          error instanceof Error ? error.message : t("skills.optimizeFailed"),
+        );
       }
     } finally {
       setOptimizing(false);
@@ -195,8 +277,11 @@ export function SkillDrawer({
       </div>
     </div>
   ) : (
-    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
       <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button type="primary" onClick={() => form.submit()}>
+        {t("common.save")}
+      </Button>
     </div>
   );
 
@@ -238,48 +323,64 @@ export function SkillDrawer({
                 }}
               />
             </Form.Item>
+
+            <Form.Item name="channels" label={t("skills.channels")}>
+              <Select mode="multiple" options={CHANNEL_OPTIONS} />
+            </Form.Item>
           </>
         )}
 
         {editingSkill && (
           <>
-            <Form.Item name="name" label="name">
-              <Input disabled />
+            <Form.Item name="name" label="Name">
+              <Input />
             </Form.Item>
 
-            <Form.Item name="content" label="Content">
+            <Form.Item
+              name="content"
+              label="Content"
+              rules={[{ required: true, validator: validateFrontmatter }]}
+            >
               <MarkdownCopy
-                content={editingSkill.content}
+                content={contentValue}
                 showMarkdown={showMarkdown}
                 onShowMarkdownChange={setShowMarkdown}
+                editable={true}
+                onContentChange={handleContentChange}
                 textareaProps={{
-                  disabled: true,
                   rows: 12,
                 }}
               />
             </Form.Item>
 
-            <Form.Item name="source" label="Source">
+            <Form.Item name="channels" label={t("skills.channels")}>
+              <Select mode="multiple" options={CHANNEL_OPTIONS} />
+            </Form.Item>
+
+            <Form.Item label={t("skills.config")}>
+              <Input.TextArea
+                rows={4}
+                value={configText}
+                onChange={(e) => {
+                  setConfigText(e.target.value);
+                  setConfigError("");
+                }}
+                placeholder={t("skills.configPlaceholder")}
+              />
+              {configError && (
+                <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>
+                  {configError}
+                </div>
+              )}
+            </Form.Item>
+
+            <Form.Item name="source" label={t("skills.type")}>
               <Input disabled />
             </Form.Item>
 
-            <Form.Item name="path" label="Path">
+            <Form.Item name="syncStatus" label={t("skills.poolSync")}>
               <Input disabled />
             </Form.Item>
-
-            <div
-              style={{
-                padding: 12,
-                backgroundColor: "#fffbe6",
-                border: "1px solid #ffe58f",
-                borderRadius: 4,
-                marginTop: 16,
-              }}
-            >
-              <p style={{ margin: 0, fontSize: 12, color: "#8c8c8c" }}>
-                {t("skills.editNote")}
-              </p>
-            </div>
           </>
         )}
       </Form>

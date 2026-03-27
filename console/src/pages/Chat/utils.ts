@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
+import { chatApi } from "../../api/modules/chat";
 export type CopyableContent = {
   type?: string;
   text?: string;
@@ -120,12 +120,39 @@ export function buildModelError(): Response {
 // URL normalization utilities
 // ---------------------------------------------------------------------------
 
-/** Convert file URL to stored name format for backend. */
+/** Decode each path segment; keeps `/` delimiters (including repeated `/`). */
+function decodeUriPathSegments(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => {
+      if (!segment) return segment;
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+}
+
+/** Convert file URL to stored path for backend: keep full path after `/files/preview/`. */
 export function toStoredName(v: string): string {
-  const m1 = v.match(/\/console\/files\/[^/]+\/(.+)$/);
-  if (m1) return m1[1];
-  const m2 = v.match(/^[^/]+\/(.+)$/);
-  if (m2) return m2[1];
+  const marker = "/files/preview/";
+  const idx = v.indexOf(marker);
+  if (idx !== -1) {
+    let rest = v.slice(idx + marker.length);
+    const q = rest.indexOf("?");
+    if (q !== -1) rest = rest.slice(0, q);
+    const h = rest.indexOf("#");
+    if (h !== -1) rest = rest.slice(0, h);
+    if (rest) {
+      const decoded = decodeUriPathSegments(rest);
+      // Windows absolute path: C:\... or C:/...
+      const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(decoded);
+      if (isWindowsAbsolute) return decoded;
+      return decoded.startsWith("/") ? decoded : `/${decoded}`;
+    }
+  }
   return v;
 }
 
@@ -141,4 +168,12 @@ export function normalizeContentUrls(part: any): any {
   if (p.type === "video" && typeof p.video_url === "string")
     p.video_url = toStoredName(p.video_url);
   return p;
+}
+
+/** Turn a backend content URL (path or full URL) into a full URL for display. */
+export function toDisplayUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("file://")) url = url.replace("file://", "");
+  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }

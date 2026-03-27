@@ -28,7 +28,7 @@ metadata:
 |---------------------|-----------------------------------|-----------------------------------|
 | 安装、依赖、首次使用 | `quickstart`、`intro` | `src/copaw/cli/`、`pyproject.toml` |
 | 配置、config.json、环境变量 | `config` | `src/copaw/config/config.py`、`src/copaw/constant.py` |
-| 技能、SKILL、active_skills、内置技能 | `skills` | `src/copaw/agents/skills_manager.py`、`src/copaw/agents/skills/` |
+| 技能、SKILL、skill_pool、内置技能 | `skills` | `src/copaw/agents/skills_manager.py`、`src/copaw/agents/skills/` |
 | MCP、插件 | `mcp` | `src/copaw/app/routers/`（按需 grep `mcp`） |
 | 多智能体、工作区、agent、内置 QA | `multi-agent` | `src/copaw/app/routers/agents.py`、`src/copaw/app/migration.py`、`src/copaw/constant.py`（`BUILTIN_QA_AGENT_ID` 等） |
 | 记忆、MEMORY、memory_search | `memory` | `src/copaw/agents/memory/memory_manager.py`、`src/copaw/agents/tools/memory_search.py` |

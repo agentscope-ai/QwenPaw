@@ -25,10 +25,12 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from .multi_agent_manager import MultiAgentManager
 from .migration import (
+    migrate_legacy_workspace_to_default_agent,
+    migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
-    migrate_legacy_workspace_to_default_agent,
 )
+from .channels.registry import register_custom_channel_routes
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -141,8 +143,11 @@ runner = DynamicMultiAgentRunner()
 
 agent_app = AgentApp(
     app_name="Friday",
-    app_description="A helpful assistant",
+    app_description="A helpful assistant with background task support",
     runner=runner,
+    enable_stream_task=True,
+    stream_task_queue="stream_query",
+    stream_task_timeout=300,
 )
 
 
@@ -179,6 +184,7 @@ async def lifespan(
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
     # --- Multi-agent manager initialization ---
@@ -342,6 +348,9 @@ app.include_router(
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
+
+# Custom channel routes (before SPA catch-all to ensure route priority)
+register_custom_channel_routes(app)
 
 # Console static files and SPA fallback
 # Register these AFTER API routes to ensure proper routing priority

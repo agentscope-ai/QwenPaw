@@ -28,9 +28,10 @@ from .prompt import (
     get_active_model_supports_multimodal,
 )
 from .skills_manager import (
+    apply_skill_config_env_overrides,
     ensure_skills_initialized,
-    get_working_skills_dir,
-    list_available_skills,
+    get_workspace_skills_dir,
+    resolve_effective_skills,
 )
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
@@ -53,7 +54,7 @@ from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     WORKING_DIR,
 )
-from ..agents.memory import MemoryManager
+from ..agents.memory import BaseMemoryManager
 
 if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
@@ -90,7 +91,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         env_context: Optional[str] = None,
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
-        memory_manager: "MemoryManager | None" = None,
+        memory_manager: "BaseMemoryManager | None" = None,
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
@@ -252,18 +253,27 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def _register_skills(self, toolkit: Toolkit) -> None:
         """Load and register skills from workspace directory.
 
+        Uses the registry-backed skill resolver to determine effective
+        skills for the current channel.
+
         Args:
             toolkit: Toolkit to register skills to
         """
         workspace_dir = self._workspace_dir or WORKING_DIR
 
-        # Check skills initialization
         ensure_skills_initialized(workspace_dir)
 
-        working_skills_dir = get_working_skills_dir(workspace_dir)
-        available_skills = list_available_skills(workspace_dir)
+        request_context = getattr(self, "_request_context", {})
+        channel_name = request_context.get("channel", "console")
 
-        for skill_name in available_skills:
+        effective_skills = resolve_effective_skills(
+            workspace_dir,
+            channel_name,
+        )
+
+        working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
+
+        for skill_name in effective_skills:
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
                 try:
@@ -317,7 +327,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def _setup_memory_manager(
         self,
         enable_memory_manager: bool,
-        memory_manager: MemoryManager | None,
+        memory_manager: BaseMemoryManager | None,
         namesake_strategy: NamesakeStrategy,
     ) -> None:
         """Setup memory manager and register memory search tool if enabled.
@@ -389,6 +399,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         message stored in self.memory.content (if one exists).
         """
         self._sys_prompt = self._build_sys_prompt()
+
+        if self.memory is None:
+            logger.warning(
+                "rebuild_sys_prompt: self.memory is None, "
+                "skipping in-memory system prompt update.",
+            )
+            return
 
         for msg, _marks in self.memory.content:
             if msg.role == "system":
@@ -873,6 +890,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         return total_stripped
 
+    # pylint: disable=protected-access
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
@@ -910,7 +928,46 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Normal message processing
         logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
-        return await super().reply(msg=msg, structured_model=structured_model)
+
+        if hasattr(self.memory, "_long_term_memory"):
+            running = self._agent_config.running
+            ms = running.memory_summary
+            if (
+                ms.force_memory_search
+                and self.memory_manager is not None
+                and query
+            ):
+                try:
+                    result = await asyncio.wait_for(
+                        self.memory_manager.memory_search(
+                            query=query[:100],
+                            max_results=ms.force_max_results,
+                            min_score=ms.force_min_score,
+                        ),
+                        timeout=1,
+                    )
+                    self.memory._long_term_memory = "\n".join(
+                        block.text
+                        for block in (result.content or [])
+                        if hasattr(block, "text")
+                    )
+                except BaseException as e:
+                    logger.warning(
+                        "force_memory_search failed or timed out,"
+                        f" skipping e={e}",
+                    )
+                    self.memory._long_term_memory = ""
+            else:
+                self.memory._long_term_memory = ""
+
+        request_context = getattr(self, "_request_context", {}) or {}
+        channel_name = request_context.get("channel", "console")
+        workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+        with apply_skill_config_env_overrides(workspace_dir, channel_name):
+            return await super().reply(
+                msg=msg,
+                structured_model=structured_model,
+            )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
