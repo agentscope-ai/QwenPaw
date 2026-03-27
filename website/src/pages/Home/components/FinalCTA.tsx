@@ -75,7 +75,7 @@ export function CopawFinalCTA() {
                 loop
                 muted
                 playsInline
-                className="pointer-events-none absolute bottom-0 -right-0 h-48 w-auto  select-none object-contain sm:h-48 md:h-64"
+                className="pointer-events-none absolute bottom-0 right-0 h-48 w-auto  select-none object-contain sm:h-48 md:h-64"
               />
             </div>
           </div>

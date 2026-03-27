@@ -87,22 +87,22 @@ export function CopawChannels() {
         variants={itemVariants}
       >
         <motion.h2
-          className="font-newsreader inline-flex items-center whitespace-nowrap md:text-4xl font-semibold leading-[1.2] text-(--color-text)"
+          className="font-newsreader inline-block text-4xl font-semibold leading-[1.2] text-(--color-text) md:text-4xl"
           variants={itemVariants}
         >
-          <span className="mr-2">{t("channels.titleWe")}</span>
-          <img
-            src="/copaw-logo3.svg"
-            alt=""
-            className="block h-7 w-auto shrink-0 mb-3 pr-0.5 translate-y-[1px]"
-            aria-hidden
-          />
-          <span>
-            {t("channels.titleOperateWith")}{" "}
-            <em className="font-normal italic text-[#301601]">
-              {t("channels.titleEverything")}
-            </em>
+          <span className="inline-flex items-center whitespace-nowrap">
+            <span className="mr-2">{t("channels.titleWe")}</span>
+            <img
+              src="/copaw-logo3.svg"
+              alt=""
+              className="mb-1.5 block h-5 w-auto shrink-0 pr-0 sm:mb-2 sm:h-6 sm:pr-0.5 md:mb-3 md:h-7 md:translate-y-[1px]"
+              aria-hidden
+            />
+            <span>{t("channels.titleOperateWith")}</span>
           </span>
+          <em className="mt-1 block font-normal italic text-[#301601] md:mt-0 md:ml-1 md:inline">
+            {t("channels.titleEverything")}
+          </em>
         </motion.h2>
         <motion.p
           className="font-inter mx-auto mt-3 max-w-3xl text-sm leading-relaxed text-(--color-text-tertiary) md:text-[1.03rem]"

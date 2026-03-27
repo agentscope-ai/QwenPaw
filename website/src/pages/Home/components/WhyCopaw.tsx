@@ -114,7 +114,7 @@ export function CopawWhy() {
 
   return (
     <motion.section
-      className="relative overflow-hidden bg-[#E77C29] px-4 h-[500px] text-[#ffe8d7] md:h-[700px]"
+      className="relative h-130 overflow-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[680px] md:h-[700px] md:py-0"
       variants={container}
       initial="hidden"
       whileInView="show"
@@ -126,9 +126,9 @@ export function CopawWhy() {
         backgroundSize: "24px 24px",
       }}
     >
-      <div className="mx-auto max-w-7xl h-full flex flex-col justify-center">
+      <div className="mx-auto flex h-full max-w-7xl flex-col items-center justify-start md:items-stretch md:justify-center">
         <motion.div
-          className="flex flex-col gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 md:flex-row md:items-center md:justify-between"
+          className="flex w-full flex-col items-center gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 md:flex-row md:items-center md:justify-between"
           variants={item}
         >
           <div className="relative pt-7 md:pt-10">
@@ -136,7 +136,7 @@ export function CopawWhy() {
               src="/leopard.png"
               alt=""
               aria-hidden
-              className="pointer-events-none absolute top-0 left-0 z-20 h-11 w-11 object-contain md:-top-6 md:h-20 md:w-20"
+              className="pointer-events-none absolute -top-2 left-0 z-20 h-11 w-11 object-contain md:-top-6 md:h-20 md:w-20"
             />
             <h2 className="font-newsreader font-semibold relative z-10 text-[38px] leading-[0.98] text-[#ffffff] sm:text-[42px] md:text-[52px]">
               <span>{t("whyCopaw.headingPrefix")} </span>
@@ -164,7 +164,7 @@ export function CopawWhy() {
               </svg>
             </h2>
           </div>
-          <p className="font-inter text-left text-[13px] leading-5 text-[rgba(255,255,255,0.7)] sm:text-sm sm:leading-6 md:text-right md:text-base md:pt-8">
+          <p className="font-inter text-center text-[13px] leading-5 text-[rgba(255,255,255,0.7)] sm:text-sm sm:leading-6 md:text-right md:text-base md:pt-8">
             {t("whyCopaw.sub")
               .split("\n")
               .map((line, idx) => (
@@ -177,7 +177,7 @@ export function CopawWhy() {
         </motion.div>
 
         <motion.div
-          className="font-newsreader mt-6 max-w-4xl text-[25px] leading-[1.38] tracking-[-0.01em] text-[#ffffff] sm:mt-7 sm:text-[28px] md:mt-10 md:text-4xl"
+          className="font-newsreader mt-6 max-w-4xl text-center text-[20px] leading-[1.38] tracking-[-0.01em] text-[#ffffff] sm:mt-7 sm:text-[24px] md:mt-10 md:text-left md:text-4xl"
           variants={item}
         >
           <p className="whitespace-pre-line text-[rgba(220,210,201,0.9)]" style={{ lineHeight: '1.6em' }}>
