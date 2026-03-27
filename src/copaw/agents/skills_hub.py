@@ -22,9 +22,30 @@ from contextlib import contextmanager
 import frontmatter
 import yaml
 
-from .skills_manager import SkillPoolService, SkillService
+from .skills_manager import (
+    SkillConflictError,
+    SkillPoolService,
+    SkillService,
+    suggest_conflict_name,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _build_hub_conflict(name: str) -> dict[str, Any]:
+    conflict = {
+        "reason": "conflict",
+        "skill_name": name,
+        "suggested_name": suggest_conflict_name(name),
+    }
+    return {
+        **conflict,
+        "conflicts": [conflict],
+        "message": (
+            f"Failed to create skill '{name}'. " "This skill already exists."
+        ),
+    }
+
 
 _cancel_checker_ctx: contextvars.ContextVar[
     Any | None
@@ -1556,6 +1577,7 @@ def install_skill_from_hub(
     version: str = "",
     enable: bool = False,
     overwrite: bool = False,
+    target_name: str | None = None,
     cancel_checker: Any | None = None,
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
@@ -1573,6 +1595,10 @@ def install_skill_from_hub(
         # Sanitize: "Excel / XLSX" etc. must not be used as dir name
         name = _sanitize_skill_dir_name(name)
 
+        normalized_target = str(target_name or "").strip()
+        if normalized_target:
+            name = _sanitize_skill_dir_name(normalized_target)
+
         _ensure_not_cancelled()
         skill_service = SkillService(workspace_dir)
         created = skill_service.create_skill(
@@ -1584,9 +1610,8 @@ def install_skill_from_hub(
             extra_files=extra_files,
         )
         if not created:
-            raise RuntimeError(
-                f"Failed to create skill '{name}'. "
-                "This skill already exists.",
+            raise SkillConflictError(
+                _build_hub_conflict(name),
             )
 
         _ensure_not_cancelled()
@@ -1611,7 +1636,7 @@ def import_pool_skill_from_hub(
     *,
     bundle_url: str,
     version: str = "",
-    overwrite: bool = False,
+    target_name: str | None = None,
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
         raise ValueError("bundle_url must be a valid http(s) URL")
@@ -1622,19 +1647,21 @@ def import_pool_skill_from_hub(
         fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
         name = _safe_fallback_name(fallback)
     name = _sanitize_skill_dir_name(name)
+    normalized_target = str(target_name or "").strip()
+    if normalized_target:
+        name = _sanitize_skill_dir_name(normalized_target)
 
     pool_service = SkillPoolService()
     created = pool_service.create_skill(
         name=name,
         content=content,
-        overwrite=overwrite,
         references=references,
         scripts=scripts,
         extra_files=extra_files,
     )
     if not created:
-        raise RuntimeError(
-            f"Failed to create skill '{name}'. " "This skill already exists.",
+        raise SkillConflictError(
+            _build_hub_conflict(name),
         )
 
     return HubInstallResult(

@@ -2,6 +2,7 @@ import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
+  BuiltinImportSpec,
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
@@ -18,7 +19,11 @@ function getStreamApiUrl(): string {
 }
 
 export const skillApi = {
-  listSkills: () => request<SkillSpec[]>("/skills"),
+  listSkills: (agentId?: string) => {
+    const opts: RequestInit = {};
+    if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
+    return request<SkillSpec[]>("/skills", opts);
+  },
 
   listSkillWorkspaces: () =>
     request<WorkspaceSkillSummary[]>("/skills/workspaces"),
@@ -34,6 +39,7 @@ export const skillApi = {
     skillName: string,
     content: string,
     config?: Record<string, unknown>,
+    enable?: boolean,
   ) =>
     request<{ created: boolean; name: string }>("/skills", {
       method: "POST",
@@ -41,7 +47,23 @@ export const skillApi = {
         name: skillName,
         content,
         config,
+        enable,
       }),
+    }),
+
+  saveSkill: (payload: {
+    name: string;
+    content: string;
+    source_name?: string;
+    config?: Record<string, unknown>;
+  }) =>
+    request<{
+      success: boolean;
+      mode: "edit" | "rename" | "noop";
+      name: string;
+    }>("/skills/save", {
+      method: "PUT",
+      body: JSON.stringify(payload),
     }),
 
   createSkillPoolSkill: (payload: {
@@ -62,7 +84,7 @@ export const skillApi = {
   }) =>
     request<{
       success: boolean;
-      mode: "edit" | "fork";
+      mode: "edit" | "rename" | "noop";
       name: string;
     }>("/skills/pool/save", {
       method: "PUT",
@@ -95,6 +117,7 @@ export const skillApi = {
     version?: string;
     enable?: boolean;
     overwrite?: boolean;
+    target_name?: string;
   }) =>
     request<HubInstallTaskResponse>("/skills/hub/install/start", {
       method: "POST",
@@ -105,6 +128,7 @@ export const skillApi = {
     bundle_url: string;
     version?: string;
     overwrite?: boolean;
+    target_name?: string;
   }) =>
     request<{
       installed: boolean;
@@ -127,6 +151,34 @@ export const skillApi = {
       {
         method: "POST",
       },
+    ),
+
+  listPoolBuiltinSources: () =>
+    request<BuiltinImportSpec[]>("/skills/pool/builtin-sources"),
+
+  importSelectedPoolBuiltins: (payload: {
+    skill_names: string[];
+    overwrite_conflicts?: boolean;
+  }) =>
+    request<{
+      imported: string[];
+      updated: string[];
+      unchanged: string[];
+      conflicts: Array<{
+        skill_name: string;
+        source_version_text?: string;
+        current_version_text?: string;
+        current_source?: string;
+      }>;
+    }>("/skills/pool/import-builtin", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updatePoolBuiltin: (skillName: string) =>
+    request<Record<string, unknown>>(
+      `/skills/pool/${encodeURIComponent(skillName)}/update-builtin`,
+      { method: "POST" },
     ),
 
   deleteSkillPoolSkill: (skillName: string) =>
@@ -155,28 +207,20 @@ export const skillApi = {
     overwrite?: boolean;
   }) =>
     request<{
-      downloaded: Array<{ workspace_id: string; name: string }>;
+      downloaded: Array<{
+        workspace_id: string;
+        workspace_name?: string;
+        name: string;
+      }>;
+      conflicts?: Array<{
+        reason?: string;
+        workspace_id?: string;
+        workspace_name?: string;
+        suggested_name?: string;
+      }>;
     }>("/skills/pool/download", {
       method: "POST",
       body: JSON.stringify(payload),
-    }),
-
-  fetchLatestSkillPoolBuiltins: (
-    approve_conflicts: boolean = false,
-    preview_only: boolean = false,
-  ) =>
-    request<{
-      synced: string[];
-      additions: string[];
-      updates: string[];
-      conflicts: Array<{
-        skill_name: string;
-        suggested_name: string;
-        reason?: string;
-      }>;
-    }>("/skills/pool/fetch-latest", {
-      method: "POST",
-      body: JSON.stringify({ approve_conflicts, preview_only }),
     }),
 
   updateSkillChannels: (skillName: string, channels: string[]) =>
@@ -293,8 +337,22 @@ export const skillApi = {
 
   uploadSkill: async (
     file: File,
-    options?: { enable?: boolean; overwrite?: boolean },
-  ): Promise<{ imported: string[]; count: number; enabled: boolean }> => {
+    options?: {
+      enable?: boolean;
+      overwrite?: boolean;
+      target_name?: string;
+      rename_map?: Record<string, string>;
+    },
+  ): Promise<{
+    imported: string[];
+    count: number;
+    enabled: boolean;
+    conflicts?: Array<{
+      reason: string;
+      skill_name: string;
+      suggested_name: string;
+    }>;
+  }> => {
     const formData = new FormData();
     formData.append("file", file);
 
@@ -304,6 +362,12 @@ export const skillApi = {
     }
     if (options?.overwrite !== undefined) {
       params.set("overwrite", String(options.overwrite));
+    }
+    if (options?.target_name) {
+      params.set("target_name", options.target_name);
+    }
+    if (options?.rename_map && Object.keys(options.rename_map).length) {
+      params.set("rename_map", JSON.stringify(options.rename_map));
     }
     const qs = params.toString();
     const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
@@ -325,14 +389,32 @@ export const skillApi = {
 
   uploadSkillPoolZip: async (
     file: File,
-    options?: { overwrite?: boolean },
-  ): Promise<{ imported: string[]; count: number }> => {
+    options?: {
+      overwrite?: boolean;
+      target_name?: string;
+      rename_map?: Record<string, string>;
+    },
+  ): Promise<{
+    imported: string[];
+    count: number;
+    conflicts?: Array<{
+      reason: string;
+      skill_name: string;
+      suggested_name: string;
+    }>;
+  }> => {
     const formData = new FormData();
     formData.append("file", file);
 
     const params = new URLSearchParams();
     if (options?.overwrite !== undefined) {
       params.set("overwrite", String(options.overwrite));
+    }
+    if (options?.target_name) {
+      params.set("target_name", options.target_name);
+    }
+    if (options?.rename_map && Object.keys(options.rename_map).length) {
+      params.set("rename_map", JSON.stringify(options.rename_map));
     }
     const qs = params.toString();
     const url = getApiUrl(`/skills/pool/upload-zip${qs ? `?${qs}` : ""}`);

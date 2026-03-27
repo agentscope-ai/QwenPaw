@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -11,58 +11,69 @@ import {
 } from "@agentscope-ai/design";
 import {
   CheckOutlined,
-  CloudUploadOutlined,
   DeleteOutlined,
-  DownloadOutlined,
-  EditOutlined,
   ImportOutlined,
   PlusOutlined,
+  SendOutlined,
   SyncOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
-import type { PoolSkillSpec, WorkspaceSkillSummary } from "../../../api/types";
+import type {
+  BuiltinImportSpec,
+  PoolSkillSpec,
+  WorkspaceSkillSummary,
+} from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
 import {
   getSkillDisplaySource,
+  getPoolBuiltinStatusLabel,
   getSkillVisual,
   parseFrontmatter,
   isSupportedSkillUrl,
   SUPPORTED_SKILL_URL_PREFIXES,
+  useConflictRenameModal,
 } from "../Skills/components";
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import styles from "../Skills/index.module.less";
 
-type PoolMode = "upload" | "download" | "create" | "edit";
-type FetchLatestResult = Awaited<
-  ReturnType<typeof api.fetchLatestSkillPoolBuiltins>
->;
+type PoolMode = "broadcast" | "create" | "edit";
 
 function SkillPoolPage() {
   const { t } = useTranslation();
   const [skills, setSkills] = useState<PoolSkillSpec[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSkillSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [mode, setMode] = useState<PoolMode | null>(null);
   const [activeSkill, setActiveSkill] = useState<PoolSkillSpec | null>(null);
-  const [workspaceId, setWorkspaceId] = useState<string>();
-  const [workspaceSkillName, setWorkspaceSkillName] = useState<string>();
+  const [broadcastSkillNames, setBroadcastSkillNames] = useState<string[]>([]);
   const [targetWorkspaceIds, setTargetWorkspaceIds] = useState<string[]>([]);
-  const [rename, setRename] = useState("");
-  const [name, setName] = useState("");
   const [configText, setConfigText] = useState("{}");
   const zipInputRef = useRef<HTMLInputElement>(null);
+  const [importBuiltinModalOpen, setImportBuiltinModalOpen] = useState(false);
+  const [builtinSources, setBuiltinSources] = useState<BuiltinImportSpec[]>([]);
+  const [selectedBuiltinNames, setSelectedBuiltinNames] = useState<string[]>([]);
+  const [importBuiltinLoading, setImportBuiltinLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importUrlError, setImportUrlError] = useState("");
   const [importing, setImporting] = useState(false);
+  const { showConflictRenameModal, conflictRenameModal } =
+    useConflictRenameModal();
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
   const [drawerContent, setDrawerContent] = useState("");
   const [showMarkdown, setShowMarkdown] = useState(true);
+
+  const builtinSkillNames = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.source === "builtin")
+        .map((skill) => skill.name),
+    [skills],
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -88,18 +99,13 @@ function SkillPoolPage() {
 
   const closeModal = () => {
     setMode(null);
-    setActiveSkill(null);
-    setWorkspaceId(undefined);
-    setWorkspaceSkillName(undefined);
+    setBroadcastSkillNames([]);
     setTargetWorkspaceIds([]);
-    setRename("");
-    setName("");
     setConfigText("{}");
   };
 
   const openCreate = () => {
     setMode("create");
-    setName("");
     setDrawerContent("");
     setConfigText("{}");
     form.resetFields();
@@ -109,11 +115,34 @@ function SkillPoolPage() {
     });
   };
 
-  const openDownload = (skill?: PoolSkillSpec) => {
-    setMode("download");
-    setActiveSkill(skill || null);
+  const openBroadcast = (skill?: PoolSkillSpec) => {
+    setMode("broadcast");
+    setBroadcastSkillNames(skill ? [skill.name] : []);
     setTargetWorkspaceIds([]);
-    setRename("");
+  };
+
+  const openImportBuiltin = async () => {
+    try {
+      setImportBuiltinLoading(true);
+      const sources = await api.listPoolBuiltinSources();
+      setBuiltinSources(sources);
+      setSelectedBuiltinNames([]);
+      setImportBuiltinModalOpen(true);
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("skillPool.importBuiltinFailed"),
+      );
+    } finally {
+      setImportBuiltinLoading(false);
+    }
+  };
+
+  const closeImportBuiltin = () => {
+    if (importBuiltinLoading) return;
+    setImportBuiltinModalOpen(false);
+    setSelectedBuiltinNames([]);
   };
 
   const closeImportModal = () => {
@@ -126,14 +155,10 @@ function SkillPoolPage() {
   const openEdit = (skill: PoolSkillSpec) => {
     setMode("edit");
     setActiveSkill(skill);
-    const targetName = skill.protected
-      ? `${skill.name}_custom`
-      : skill.name;
-    setName(targetName);
     setDrawerContent(skill.content);
     setConfigText(JSON.stringify(skill.config || {}, null, 2));
     form.setFieldsValue({
-      name: targetName,
+      name: skill.name,
       content: skill.content,
     });
   };
@@ -171,66 +196,162 @@ function SkillPoolPage() {
     [drawerContent, t],
   );
 
-  const handleUpload = async () => {
-    if (!workspaceId || !workspaceSkillName) return;
+  const handleBroadcast = async () => {
+    if (broadcastSkillNames.length === 0 || targetWorkspaceIds.length === 0) {
+      return;
+    }
     try {
-      await api.uploadWorkspaceSkillToPool({
-        workspace_id: workspaceId,
-        skill_name: workspaceSkillName,
-        new_name: rename.trim() || undefined,
-      });
-      message.success(t("skillPool.uploadedToPool"));
+      for (const skillName of broadcastSkillNames) {
+        let renameMap: Record<string, string> = {};
+
+        while (true) {
+          try {
+            await api.downloadSkillPoolSkill({
+              skill_name: skillName,
+              targets: targetWorkspaceIds.map((workspace_id) => ({
+                workspace_id,
+                target_name: renameMap[workspace_id] || undefined,
+              })),
+            });
+            break;
+          } catch (error) {
+            const detail = parseErrorDetail(error);
+            const conflicts = Array.isArray(detail?.conflicts)
+              ? detail.conflicts
+              : [];
+            if (!conflicts.length) {
+              throw error;
+            }
+
+            const renameItems = conflicts
+              .map(
+                (c: {
+                  workspace_id?: string;
+                  suggested_name?: string;
+                }) => {
+                  if (!c.workspace_id || !c.suggested_name) {
+                    return null;
+                  }
+                  const workspaceLabel =
+                    workspaces.find((w) => w.agent_id === c.workspace_id)
+                      ?.agent_name ||
+                    c.workspace_id;
+                  return {
+                    key: c.workspace_id,
+                    label: workspaceLabel,
+                    suggested_name: c.suggested_name,
+                  };
+                },
+              )
+              .filter(
+                (
+                  item,
+                ): item is {
+                  key: string;
+                  label: string;
+                  suggested_name: string;
+                } => item !== null,
+              );
+
+            if (!renameItems.length) {
+              throw error;
+            }
+
+            const nextRenameMap = await showConflictRenameModal(
+              renameItems.map((item) => ({
+                ...item,
+                suggested_name:
+                  renameMap[item.key] || item.suggested_name,
+              })),
+            );
+            if (!nextRenameMap) {
+              return;
+            }
+            renameMap = {
+              ...renameMap,
+              ...nextRenameMap,
+            };
+          }
+        }
+      }
+      message.success(t("skillPool.broadcastSuccess"));
       closeModal();
       await loadData();
     } catch (error) {
-      const detail = parseErrorDetail(error);
-      if (detail?.suggested_name) {
-        setRename(detail.suggested_name);
-        message.warning(t("skillPool.nameConflict"));
-        return;
-      }
       message.error(
-        error instanceof Error ? error.message : t("skills.uploadFailed"),
+        error instanceof Error
+          ? error.message
+          : t("skillPool.broadcastFailed"),
       );
     }
   };
 
-  const handleDownload = async () => {
-    if (!activeSkill || targetWorkspaceIds.length === 0) return;
-    const allSelected = targetWorkspaceIds.includes("__all__");
+  const handleImportBuiltins = async (overwriteConflicts: boolean = false) => {
+    if (selectedBuiltinNames.length === 0) return;
     try {
-      await api.downloadSkillPoolSkill({
-        skill_name: activeSkill.name,
-        all_workspaces: allSelected,
-        targets: allSelected
-          ? []
-          : targetWorkspaceIds.map((workspace_id) => ({
-              workspace_id,
-              target_name: rename.trim() || undefined,
-            })),
+      setImportBuiltinLoading(true);
+      const result = await api.importSelectedPoolBuiltins({
+        skill_names: selectedBuiltinNames,
+        overwrite_conflicts: overwriteConflicts,
       });
-      message.success(t("skills.downloadedToWorkspace"));
-      closeModal();
+      const imported = Array.isArray(result.imported) ? result.imported : [];
+      const updated = Array.isArray(result.updated) ? result.updated : [];
+      const unchanged = Array.isArray(result.unchanged)
+        ? result.unchanged
+        : [];
+
+      if (!imported.length && !updated.length && unchanged.length) {
+        message.info(t("skillPool.importBuiltinNoChanges"));
+        closeImportBuiltin();
+        return;
+      }
+
+      if (imported.length || updated.length) {
+        message.success(
+          t("skillPool.importBuiltinSuccess", {
+            names: [...imported, ...updated].join(", "),
+          }),
+        );
+      }
+      closeImportBuiltin();
       await loadData();
     } catch (error) {
       const detail = parseErrorDetail(error);
-      const conflicts = Array.isArray(detail?.conflicts)
-        ? detail.conflicts
-        : [];
-      const conflict = conflicts[0];
-      if (conflict?.suggested_name) {
-        setRename(conflict.suggested_name);
-        const conflictNames = conflicts
-          .map((item) => item.workspace_id || item.suggested_name)
-          .join(", ");
-        message.warning(`${t("skillPool.nameConflict")}: ${conflictNames}`);
+      const conflicts = Array.isArray(detail?.conflicts) ? detail.conflicts : [];
+      if (conflicts.length && !overwriteConflicts) {
+        Modal.confirm({
+          title: t("skillPool.importBuiltinConflictTitle"),
+          content: (
+            <div style={{ display: "grid", gap: 8 }}>
+              <div>{t("skillPool.importBuiltinConflictContent")}</div>
+              {conflicts.map((item) => (
+                <div key={item.skill_name}>
+                  <strong>{item.skill_name}</strong>
+                  {"  "}
+                  {t("skillPool.currentVersion")}:{" "}
+                  {item.current_version_text || "-"}
+                  {"  ->  "}
+                  {t("skillPool.sourceVersion")}:{" "}
+                  {item.source_version_text || "-"}
+                </div>
+              ))}
+            </div>
+          ),
+          okText: t("common.confirm"),
+          cancelText: t("common.cancel"),
+          onOk: async () => {
+            await handleImportBuiltins(true);
+          },
+        });
         return;
       }
       message.error(
         error instanceof Error
           ? error.message
-          : t("common.download") + " failed",
+          : t("skillPool.importBuiltinFailed"),
       );
+    } finally {
+      setImportBuiltinLoading(false);
     }
   };
 
@@ -249,10 +370,10 @@ function SkillPoolPage() {
       }
     }
 
-    const skillName = name.trim() || values.name;
+    const skillName = (values.name || "").trim();
     const skillContent = drawerContent || values.content;
 
-    if (!skillName.trim() || !skillContent.trim()) return;
+    if (!skillName || !skillContent.trim()) return;
 
     try {
       const result =
@@ -274,8 +395,14 @@ function SkillPoolPage() {
                 mode: "edit" as const,
                 name: created.name,
               }));
+      if (result.mode === "noop") {
+        closeDrawer();
+        return;
+      }
+      const savedAsNew =
+        mode === "edit" && activeSkill && result.name !== activeSkill.name;
       message.success(
-        mode === "edit" && result.mode === "fork"
+        savedAsNew
           ? `${t("common.create")}: ${result.name}`
           : mode === "edit"
           ? t("common.save")
@@ -286,8 +413,20 @@ function SkillPoolPage() {
     } catch (error) {
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
-        setName(detail.suggested_name);
-        message.warning(t("skillPool.nameConflict"));
+        const renameMap = await showConflictRenameModal([
+          {
+            key: skillName,
+            label: skillName,
+            suggested_name: detail.suggested_name,
+          },
+        ]);
+        if (renameMap) {
+          const newName = Object.values(renameMap)[0];
+          if (newName) {
+            form.setFieldsValue({ name: newName });
+            await handleSavePoolSkill();
+          }
+        }
         return;
       }
       message.error(
@@ -300,12 +439,11 @@ function SkillPoolPage() {
     Modal.confirm({
       title: t("skillPool.deleteTitle", { name: skill.name }),
       content: skill.protected
-        ? t("skillPool.deleteProtected")
+        ? t("skillPool.deleteBuiltinConfirm")
         : t("skillPool.deleteConfirm"),
       okText: t("common.delete"),
       okType: "danger",
       onOk: async () => {
-        if (skill.protected) return;
         await api.deleteSkillPoolSkill(skill.name);
         message.success(t("skillPool.deletedFromPool"));
         await loadData();
@@ -313,99 +451,50 @@ function SkillPoolPage() {
     });
   };
 
-  const handleFetchLatest = async (
-    approveConflicts: boolean = false,
-    previewOnly: boolean = false,
-  ) => {
-    setSyncing(true);
-    try {
-      const result: FetchLatestResult = await api.fetchLatestSkillPoolBuiltins(
-        approveConflicts,
-        previewOnly,
-      );
-      if (previewOnly && !approveConflicts) {
-        const additions = Array.isArray(result.additions)
-          ? result.additions
-          : [];
-        const updates = Array.isArray(result.updates) ? result.updates : [];
-        const conflicts = Array.isArray(result.conflicts)
-          ? result.conflicts
-          : [];
-        if (!additions.length && !updates.length && !conflicts.length) {
-          message.info(t("skillPool.upToDate"));
-          return;
-        }
-        Modal.confirm({
-          title: t("skillPool.builtinConflicts"),
-          content: (
-            <div>
-              {additions.length ? (
-                <div style={{ marginBottom: 8 }}>
-                  {t("skillPool.previewAdditions", {
-                    names: additions.join(", "),
-                  })}
-                </div>
-              ) : null}
-              {updates.length ? (
-                <div style={{ marginBottom: 8 }}>
-                  {t("skillPool.previewUpdates", {
-                    names: updates.join(", "),
-                  })}
-                </div>
-              ) : null}
-              {conflicts.map((item) => (
-                <div key={item.skill_name}>
-                  {t("skillPool.previewConflicts", {
-                    skill: item.skill_name,
-                    suggested: item.suggested_name,
-                  })}
-                </div>
-              ))}
-            </div>
-          ),
-          okText: t("skillPool.approve"),
-          cancelText: t("common.cancel"),
-          onOk: async () => {
-            await handleFetchLatest(true, false);
-          },
-        });
-        return;
-      }
-      if (result.synced?.length) {
-        message.success(
-          t("skillPool.synced", { names: result.synced.join(", ") }),
-        );
-      } else {
-        message.info(t("skillPool.upToDate"));
-      }
-      await loadData();
-    } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : t("skillPool.syncFailed"),
-      );
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
-    try {
-      const result = await api.uploadSkillPoolZip(file, { overwrite: false });
-      if (result.count > 0) {
-        message.success(
-          t("skillPool.imported", { names: result.imported.join(", ") }),
+
+    let renameMap: Record<string, string> | undefined;
+    while (true) {
+      try {
+        const result = await api.uploadSkillPoolZip(file, {
+          overwrite: false,
+          rename_map: renameMap,
+        });
+        if (result.count > 0) {
+          message.success(
+            t("skillPool.imported", { names: result.imported.join(", ") }),
+          );
+        } else {
+          message.info(t("skillPool.noNewImports"));
+        }
+        await loadData();
+        break;
+      } catch (error) {
+        const detail = parseErrorDetail(error);
+        const conflicts = Array.isArray(detail?.conflicts)
+          ? detail.conflicts
+          : [];
+        if (conflicts.length === 0) {
+          message.error(
+            error instanceof Error
+              ? error.message
+              : t("skillPool.zipImportFailed"),
+          );
+          break;
+        }
+        const newRenames = await showConflictRenameModal(
+          conflicts.map((c: { skill_name?: string; suggested_name?: string }) => ({
+            key: c.skill_name || "",
+            label: c.skill_name || "",
+            suggested_name: c.suggested_name || "",
+          })),
         );
-      } else {
-        message.info(t("skillPool.noNewImports"));
+        if (!newRenames) break;
+        renameMap = { ...renameMap, ...newRenames };
       }
-      await loadData();
-    } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : t("skillPool.zipImportFailed"),
-      );
     }
   };
 
@@ -419,7 +508,7 @@ function SkillPoolPage() {
     setImportUrlError("");
   };
 
-  const handleConfirmImport = async () => {
+  const handleConfirmImport = async (targetName?: string) => {
     if (importing) return;
     const trimmed = importUrl.trim();
     if (!trimmed) return;
@@ -432,11 +521,30 @@ function SkillPoolPage() {
       const result = await api.importPoolSkillFromHub({
         bundle_url: trimmed,
         overwrite: false,
+        target_name: targetName,
       });
       message.success(`${t("common.create")}: ${result.name}`);
       closeImportModal();
       await loadData();
     } catch (error) {
+      const detail = parseErrorDetail(error);
+      if (detail?.suggested_name) {
+        const skillName = detail?.skill_name || "";
+        const renameMap = await showConflictRenameModal([
+          {
+            key: skillName,
+            label: skillName,
+            suggested_name: String(detail.suggested_name),
+          },
+        ]);
+        if (renameMap) {
+          const newName = Object.values(renameMap)[0];
+          if (newName) {
+            await handleConfirmImport(newName);
+          }
+        }
+        return;
+      }
       message.error(
         error instanceof Error ? error.message : t("skills.uploadFailed"),
       );
@@ -460,65 +568,48 @@ function SkillPoolPage() {
             onChange={handleZipImport}
             style={{ display: "none" }}
           />
-          <div className={styles.headerActionsLeft}>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryTransferButton}
-                icon={<CloudUploadOutlined />}
-                onClick={() => setMode("upload")}
-              >
-                {t("skillPool.upload")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.downloadFromPoolHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryTransferButton}
-                icon={<DownloadOutlined />}
-                onClick={() => openDownload()}
-              >
-                {t("skillPool.download")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skillPool.fetchLatestHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryTransferButton}
-                icon={<SyncOutlined />}
-                loading={syncing}
-                onClick={() => void handleFetchLatest(false, true)}
-              >
-                {t("skillPool.fetchLatest")}
-              </Button>
-            </Tooltip>
-          </div>
-          <div className={styles.headerActionsRight}>
+          <Tooltip title={t("skillPool.broadcastHint")}>
             <Button
-              type="default"
-              className={styles.creationActionButton}
-              icon={<UploadOutlined />}
-              onClick={() => zipInputRef.current?.click()}
+              type="primary"
+              className={styles.primaryTransferButton}
+              icon={<SendOutlined />}
+              onClick={() => openBroadcast()}
             >
-              {t("skills.uploadSkill")}
+              {t("skillPool.broadcast")}
             </Button>
+          </Tooltip>
+          <Tooltip title={t("skillPool.importBuiltinHint")}>
             <Button
               type="default"
-              className={styles.creationActionButton}
+              icon={<SyncOutlined />}
+              onClick={() => void openImportBuiltin()}
+            >
+              {t("skillPool.importBuiltin")}
+            </Button>
+          </Tooltip>
+          <Tooltip title={t("skills.importHubHint")}>
+            <Button
+              type="default"
               icon={<ImportOutlined />}
               onClick={() => setImportModalOpen(true)}
             >
-              {t("skills.importSkills")}
+              {t("skills.importHub")}
             </Button>
+          </Tooltip>
+          <Tooltip title={t("skills.uploadZipHint")}>
             <Button
               type="default"
-              className={styles.creationActionButton}
-              icon={<PlusOutlined />}
-              onClick={openCreate}
+              icon={<UploadOutlined />}
+              onClick={() => zipInputRef.current?.click()}
             >
+              {t("skills.uploadZip")}
+            </Button>
+          </Tooltip>
+          <Tooltip title={t("skills.createSkillHint")}>
+            <Button type="default" icon={<PlusOutlined />} onClick={openCreate}>
               {t("skills.createSkill")}
             </Button>
-          </div>
+          </Tooltip>
         </div>
       </div>
 
@@ -529,7 +620,12 @@ function SkillPoolPage() {
       ) : (
         <div className={styles.skillsGrid}>
           {skills.map((skill) => (
-            <Card key={skill.name} className={styles.skillCard}>
+            <Card
+              key={skill.name}
+              className={styles.skillCard}
+              onClick={() => openEdit(skill)}
+              style={{ cursor: "pointer" }}
+            >
               <div className={styles.cardBody}>
                 <div className={styles.cardHeader}>
                   <div
@@ -540,13 +636,20 @@ function SkillPoolPage() {
                     </span>
                     <h3 className={styles.skillTitle}>{skill.name}</h3>
                   </div>
-                  <span
-                    className={
-                      skill.protected ? styles.builtinTag : styles.customizedTag
-                    }
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 4 }}
                   >
-                    {getSkillDisplaySource(skill.source)}
-                  </span>
+                    <span
+                      className={
+                        getSkillDisplaySource(skill.source) ===
+                        "builtin"
+                          ? styles.builtinTag
+                          : styles.customizedTag
+                      }
+                    >
+                      {getSkillDisplaySource(skill.source)}
+                    </span>
+                  </div>
                 </div>
                 <div className={styles.descriptionSection}>
                   <div className={styles.infoLabel}>
@@ -558,22 +661,12 @@ function SkillPoolPage() {
                     {skill.description || "-"}
                   </div>
                 </div>
-                <div className={styles.metaStack}>
-                  <div className={styles.infoSection}>
-                    <div className={styles.infoLabel}>
-                      {t("skillPool.version")}
-                    </div>
-                    <div className={styles.infoBlock}>
-                      {skill.version_text || skill.commit_text || "-"}
-                    </div>
+                <div className={styles.descriptionSection}>
+                  <div className={styles.infoLabel}>
+                    {t("skillPool.status")}
                   </div>
-                  <div className={styles.infoSection}>
-                    <div className={styles.infoLabel}>
-                      {t("skillPool.path")}
-                    </div>
-                    <div className={`${styles.infoBlock} ${styles.pathValue}`}>
-                      {skill.path}
-                    </div>
+                  <div className={styles.infoBlock}>
+                    {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                   </div>
                 </div>
               </div>
@@ -581,28 +674,24 @@ function SkillPoolPage() {
                 <Button
                   type="link"
                   size="small"
-                  icon={<DownloadOutlined />}
-                  onClick={() => {
-                    openDownload(skill);
+                  className={styles.accentLinkAction}
+                  icon={<SendOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openBroadcast(skill);
                   }}
                 >
-                  {t("skillPool.download")}
-                </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={() => openEdit(skill)}
-                >
-                  {t("skillPool.edit")}
+                  {t("skillPool.broadcast")}
                 </Button>
                 <Button
                   type="link"
                   size="small"
                   danger
-                  disabled={skill.protected}
                   icon={<DeleteOutlined />}
-                  onClick={() => void handleDelete(skill)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDelete(skill);
+                  }}
                 >
                   {t("skillPool.delete")}
                 </Button>
@@ -613,7 +702,7 @@ function SkillPoolPage() {
       )}
 
       <Modal
-        title={`${t("skills.importSkills")} Hub`}
+        title={t("skills.importHub")}
         open={importModalOpen}
         onCancel={closeImportModal}
         keyboard={!importing}
@@ -625,11 +714,11 @@ function SkillPoolPage() {
             </Button>
             <Button
               type="primary"
-              onClick={handleConfirmImport}
+              onClick={() => handleConfirmImport()}
               loading={importing}
               disabled={importing || !importUrl.trim() || !!importUrlError}
             >
-              {t("skills.importSkills")}
+              {t("skills.importHub")}
             </Button>
           </div>
         }
@@ -677,211 +766,191 @@ function SkillPoolPage() {
       </Modal>
 
       <Modal
-        open={mode === "upload" || mode === "download"}
+        open={mode === "broadcast"}
         onCancel={closeModal}
-        onOk={mode === "upload" ? handleUpload : handleDownload}
+        onOk={handleBroadcast}
         okButtonProps={{
           disabled:
-            mode === "upload"
-              ? !workspaceId || !workspaceSkillName
-              : !activeSkill || targetWorkspaceIds.length === 0,
+            broadcastSkillNames.length === 0 || targetWorkspaceIds.length === 0,
         }}
-        title={
-          mode === "upload"
-            ? t("skillPool.uploadToPool")
-            : t("skillPool.downloadTitle", { name: activeSkill?.name || "" })
-        }
+        title={t("skillPool.broadcast")}
         width={640}
       >
-        <div style={{ display: "grid", gap: 8 }}>
-          {mode === "upload" ? (
-            !workspaceId ? (
-              <>
-                <div className={styles.pickerLabel}>
-                  {t("skillPool.selectWorkspace")}
-                </div>
-                <div className={styles.pickerGrid}>
-                  {workspaces.map((ws) => (
-                    <div
-                      key={ws.agent_id}
-                      className={styles.pickerCard}
-                      onClick={() => {
-                        setWorkspaceId(ws.agent_id);
-                        setWorkspaceSkillName(undefined);
-                      }}
-                    >
-                      <div className={styles.pickerCardTitle}>
-                        {ws.agent_id}
-                      </div>
-                      <div className={styles.pickerCardMeta}>
-                        {t("skillPool.skillCount", {
-                          count: ws.skills.length,
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <span
-                  className={styles.pickerBack}
-                  onClick={() => {
-                    setWorkspaceId(undefined);
-                    setWorkspaceSkillName(undefined);
-                  }}
+        <div style={{ display: "grid", gap: 12 }}>
+          <div className={styles.pickerLabel}>{t("skills.selectPoolItem")}</div>
+          <div className={styles.bulkActions}>
+            <Button
+              size="small"
+              onClick={() =>
+                setBroadcastSkillNames(skills.map((skill) => skill.name))
+              }
+            >
+              {t("agent.selectAll")}
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setBroadcastSkillNames(builtinSkillNames)}
+            >
+              {t("agent.selectBuiltin")}
+            </Button>
+            <Button size="small" onClick={() => setBroadcastSkillNames([])}>
+              {t("skills.clearSelection")}
+            </Button>
+          </div>
+          <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
+            {skills.map((skill) => {
+              const selected = broadcastSkillNames.includes(skill.name);
+              return (
+                <div
+                  key={skill.name}
+                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
+                    selected ? styles.pickerCardSelected : ""
+                  }`}
+                  onClick={() =>
+                    setBroadcastSkillNames(
+                      selected
+                        ? broadcastSkillNames.filter((name) => name !== skill.name)
+                        : [...broadcastSkillNames, skill.name],
+                    )
+                  }
                 >
-                  {"← "}
-                  {t("skillPool.back")}
-                </span>
-                <div className={styles.pickerLabel}>
-                  {t("skillPool.selectWorkspaceSkill")}
-                </div>
-                <div className={styles.pickerGrid}>
-                  {(
-                    workspaces.find((w) => w.agent_id === workspaceId)
-                      ?.skills || []
-                  ).map((skill) => {
-                    const sel = workspaceSkillName === skill.name;
-                    return (
-                      <div
-                        key={skill.name}
-                        className={`${styles.pickerCard} ${
-                          sel ? styles.pickerCardSelected : ""
-                        }`}
-                        onClick={() => setWorkspaceSkillName(skill.name)}
-                      >
-                        {sel && (
-                          <span className={styles.pickerCheck}>
-                            <CheckOutlined />
-                          </span>
-                        )}
-                        <div className={styles.pickerCardTitle}>
-                          {skill.name}
-                        </div>
-                        <div className={styles.pickerCardMeta}>
-                          {skill.sync_to_pool?.status || "not_sync"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )
-          ) : (
-            <>
-              {!activeSkill ? (
-                <>
-                  <div className={styles.pickerLabel}>
-                    {t("skills.selectPoolItem")}
-                  </div>
-                  <div className={styles.pickerGrid}>
-                    {skills.map((skill) => (
-                      <div
-                        key={skill.name}
-                        className={styles.pickerCard}
-                        onClick={() => setActiveSkill(skill)}
-                      >
-                        <div className={styles.pickerCardTitle}>
-                          {skill.name}
-                        </div>
-                        <div className={styles.pickerCardMeta}>
-                          {skill.version_text ||
-                            skill.commit_text ||
-                            skill.source}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <span
-                    className={styles.pickerBack}
-                    onClick={() => {
-                      setActiveSkill(null);
-                      setTargetWorkspaceIds([]);
-                    }}
-                  >
-                    {"← "}
-                    {t("skillPool.back")}
-                  </span>
-                  <div className={styles.pickerLabel}>
-                    {t("skillPool.selectWorkspaces")}
-                  </div>
-                  <div className={styles.pickerGrid}>
-                    <div
-                      className={`${styles.pickerCard} ${
-                        styles.pickerAllCard
-                      } ${
-                        targetWorkspaceIds.includes("__all__")
-                          ? styles.pickerCardSelected
-                          : ""
-                      }`}
-                      onClick={() => setTargetWorkspaceIds(["__all__"])}
+                  {selected && (
+                    <span
+                      className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
                     >
-                      {targetWorkspaceIds.includes("__all__") && (
-                        <span className={styles.pickerCheck}>
-                          <CheckOutlined />
-                        </span>
-                      )}
-                      <div className={styles.pickerCardTitle}>
-                        {t("skillPool.allWorkspaces")}
-                      </div>
-                    </div>
-                    {workspaces.map((ws) => {
-                      const sel =
-                        !targetWorkspaceIds.includes("__all__") &&
-                        targetWorkspaceIds.includes(ws.agent_id);
-                      return (
-                        <div
-                          key={ws.agent_id}
-                          className={`${styles.pickerCard} ${
-                            sel ? styles.pickerCardSelected : ""
-                          }`}
-                          onClick={() => {
-                            if (targetWorkspaceIds.includes("__all__")) {
-                              setTargetWorkspaceIds([ws.agent_id]);
-                            } else if (sel) {
-                              setTargetWorkspaceIds(
-                                targetWorkspaceIds.filter(
-                                  (id) => id !== ws.agent_id,
-                                ),
-                              );
-                            } else {
-                              setTargetWorkspaceIds([
-                                ...targetWorkspaceIds,
-                                ws.agent_id,
-                              ]);
-                            }
-                          }}
-                        >
-                          {sel && (
-                            <span className={styles.pickerCheck}>
-                              <CheckOutlined />
-                            </span>
-                          )}
-                          <div className={styles.pickerCardTitle}>
-                            {ws.agent_id}
-                          </div>
-                          <div className={styles.pickerCardMeta}>
-                            {t("skillPool.skillCount", {
-                              count: ws.skills.length,
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
+                      <CheckOutlined />
+                    </span>
+                  )}
+                  <div
+                    className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                  >
+                    {skill.name}
                   </div>
-                </>
-              )}
-            </>
-          )}
-          <Input
-            value={rename}
-            onChange={(e) => setRename(e.target.value)}
-            placeholder={t("skillPool.optionalRename")}
-          />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={styles.pickerLabel}>
+            {t("skillPool.selectWorkspaces")}
+          </div>
+          <div className={styles.bulkActions}>
+            <Button
+              size="small"
+              onClick={() => setTargetWorkspaceIds(workspaces.map((ws) => ws.agent_id))}
+            >
+              {t("skillPool.allWorkspaces")}
+            </Button>
+            <Button size="small" onClick={() => setTargetWorkspaceIds([])}>
+              {t("skills.clearSelection")}
+            </Button>
+          </div>
+          <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
+            {workspaces.map((workspace) => {
+              const selected = targetWorkspaceIds.includes(workspace.agent_id);
+              return (
+                <div
+                  key={workspace.agent_id}
+                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
+                    selected ? styles.pickerCardSelected : ""
+                  }`}
+                  onClick={() =>
+                    setTargetWorkspaceIds(
+                      selected
+                        ? targetWorkspaceIds.filter(
+                            (id) => id !== workspace.agent_id,
+                          )
+                        : [...targetWorkspaceIds, workspace.agent_id],
+                    )
+                  }
+                >
+                  {selected && (
+                    <span
+                      className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
+                    >
+                      <CheckOutlined />
+                    </span>
+                  )}
+                  <div
+                    className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                  >
+                    {workspace.agent_name || workspace.agent_id}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
+      </Modal>
+
+      <Modal
+        open={importBuiltinModalOpen}
+        onCancel={closeImportBuiltin}
+        onOk={() => void handleImportBuiltins()}
+        title={t("skillPool.importBuiltin")}
+        okButtonProps={{
+          disabled: selectedBuiltinNames.length === 0,
+          loading: importBuiltinLoading,
+        }}
+        width={720}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <div className={styles.pickerLabel}>{t("skillPool.importBuiltinHint")}</div>
+          <div className={styles.bulkActions}>
+            <Button
+              size="small"
+              onClick={() =>
+                setSelectedBuiltinNames(builtinSources.map((item) => item.name))
+              }
+            >
+              {t("agent.selectAll")}
+            </Button>
+            <Button size="small" onClick={() => setSelectedBuiltinNames([])}>
+              {t("skills.clearSelection")}
+            </Button>
+          </div>
+          <div className={styles.pickerGrid}>
+            {builtinSources.map((item) => {
+              const selected = selectedBuiltinNames.includes(item.name);
+              return (
+                <div
+                  key={item.name}
+                  className={`${styles.pickerCard} ${
+                    selected ? styles.pickerCardSelected : ""
+                  }`}
+                  onClick={() =>
+                    setSelectedBuiltinNames(
+                      selected
+                        ? selectedBuiltinNames.filter((name) => name !== item.name)
+                        : [...selectedBuiltinNames, item.name],
+                    )
+                  }
+                >
+                  {selected && (
+                    <span className={styles.pickerCheck}>
+                      <CheckOutlined />
+                    </span>
+                  )}
+                  <div className={styles.pickerCardTitle}>{item.name}</div>
+                  <div className={styles.pickerCardMeta}>
+                    {t("skillPool.sourceVersion")}: {item.version_text || "-"}
+                  </div>
+                  <div className={styles.pickerCardMeta}>
+                    {t("skillPool.currentVersion")}:{" "}
+                    {item.current_version_text || "-"}
+                  </div>
+                  <div className={styles.pickerCardMeta}>
+                    {t(`skillPool.importStatus${item.status === "current"
+                      ? "Current"
+                      : item.status === "conflict"
+                      ? "Conflict"
+                      : "Missing"}`)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </Modal>
 
@@ -905,6 +974,18 @@ function SkillPoolPage() {
           </div>
         }
       >
+        {mode === "edit" && activeSkill && (
+          <div className={styles.metaStack} style={{ marginBottom: 16 }}>
+            <div className={styles.infoSection}>
+              <div className={styles.infoLabel}>
+                {t("skillPool.status")}
+              </div>
+              <div className={styles.infoBlock}>
+                {getPoolBuiltinStatusLabel(activeSkill.sync_status, t)}
+              </div>
+            </div>
+          </div>
+        )}
         <Form form={form} layout="vertical" onFinish={handleSavePoolSkill}>
           <Form.Item
             name="name"
@@ -913,7 +994,6 @@ function SkillPoolPage() {
           >
             <Input
               placeholder={t("skillPool.skillNamePlaceholder")}
-              disabled={mode === "edit"}
             />
           </Form.Item>
 
@@ -947,6 +1027,8 @@ function SkillPoolPage() {
           </Form.Item>
         </Form>
       </Drawer>
+
+      {conflictRenameModal}
     </div>
   );
 }

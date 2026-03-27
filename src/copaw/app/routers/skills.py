@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 import logging
+import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -23,19 +27,24 @@ from ...agents.skills_hub import (
     install_skill_from_hub,
 )
 from ...agents.skills_manager import (
+    SkillConflictError,
     SkillPoolService,
     SkillInfo,
     SkillService,
     _default_pool_manifest,
     _default_workspace_manifest,
     _mutate_json,
-    fetch_latest_builtin_skills,
+    get_pool_builtin_sync_status,
     get_pool_skill_manifest_path,
     get_workspace_skill_manifest_path,
+    import_builtin_skills,
+    list_builtin_import_candidates,
     list_workspaces,
     read_skill_pool_manifest,
     read_skill_manifest,
     reconcile_workspace_manifest,
+    suggest_conflict_name,
+    update_single_builtin,
 )
 from ...security.skill_scanner import SkillScanError
 from ..utils import schedule_agent_reload
@@ -97,13 +106,15 @@ class SkillSpec(SkillInfo):
 
 class PoolSkillSpec(SkillInfo):
     protected: bool = False
-    version_text: str = ""
     commit_text: str = ""
+    sync_status: str = ""
+    latest_version_text: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkspaceSkillSummary(BaseModel):
     agent_id: str
+    agent_name: str = ""
     workspace_dir: str
     skills: list[SkillSpec] = Field(default_factory=list)
 
@@ -116,18 +127,28 @@ class HubSkillSpec(BaseModel):
     source_url: str = ""
 
 
-class FetchLatestBuiltinRequest(BaseModel):
-    approve_conflicts: bool = False
-    preview_only: bool = False
+class BuiltinImportSpec(BaseModel):
+    name: str
+    description: str = ""
+    version_text: str = ""
+    current_version_text: str = ""
+    current_source: str = ""
+    status: str = ""
+
+
+class ImportBuiltinRequest(BaseModel):
+    skill_names: list[str] = Field(default_factory=list)
+    overwrite_conflicts: bool = False
 
 
 class CreateSkillRequest(BaseModel):
     name: str
     content: str
-    overwrite: bool = True
+    overwrite: bool = False
     references: dict[str, Any] | None = None
     scripts: dict[str, Any] | None = None
     config: dict[str, Any] | None = None
+    enable: bool = False
 
 
 class UploadToPoolRequest(BaseModel):
@@ -157,10 +178,15 @@ class SavePoolSkillRequest(CreateSkillRequest):
     source_name: str | None = None
 
 
+class SaveSkillRequest(CreateSkillRequest):
+    source_name: str | None = None
+
+
 class HubInstallRequest(BaseModel):
     bundle_url: str = Field(..., description="Skill URL")
     version: str = Field(default="", description="Optional version tag")
     enable: bool = Field(default=False, description="Enable after import")
+    target_name: str = Field(default="", description="Optional renamed skill")
     overwrite: bool = Field(
         default=False,
         description="Overwrite existing workspace skill",
@@ -209,6 +235,57 @@ def _workspace_dir_for_agent(agent_id: str) -> Path:
         status_code=404,
         detail=f"Workspace '{agent_id}' not found",
     )
+
+
+def _snapshot_workspace_skill(
+    workspace_dir: Path,
+    skill_name: str,
+) -> dict[str, Any]:
+    manifest = read_skill_manifest(workspace_dir)
+    entry = manifest.get("skills", {}).get(skill_name)
+    skill_dir = workspace_dir / "skills" / skill_name
+    backup_dir: Path | None = None
+    if skill_dir.exists():
+        backup_root = Path(
+            tempfile.mkdtemp(prefix=f"copaw_skill_rollback_{skill_name}_"),
+        )
+        backup_dir = backup_root / skill_name
+        shutil.copytree(skill_dir, backup_dir)
+    return {
+        "workspace_dir": workspace_dir,
+        "skill_name": skill_name,
+        "entry": copy.deepcopy(entry) if entry is not None else None,
+        "backup_dir": backup_dir,
+    }
+
+
+def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
+    workspace_dir = Path(snapshot["workspace_dir"])
+    skill_name = str(snapshot["skill_name"])
+    skill_dir = workspace_dir / "skills" / skill_name
+    backup_dir = snapshot.get("backup_dir")
+    entry = snapshot.get("entry")
+
+    if skill_dir.exists():
+        shutil.rmtree(skill_dir)
+    if backup_dir is not None and Path(backup_dir).exists():
+        shutil.copytree(Path(backup_dir), skill_dir)
+
+    def _restore(payload: dict[str, Any]) -> None:
+        payload.setdefault("skills", {})
+        if entry is None:
+            payload["skills"].pop(skill_name, None)
+            return
+        payload["skills"][skill_name] = copy.deepcopy(entry)
+
+    _mutate_json(
+        get_workspace_skill_manifest_path(workspace_dir),
+        _default_workspace_manifest(),
+        _restore,
+    )
+    reconcile_workspace_manifest(workspace_dir)
+    if backup_dir is not None:
+        shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
 
 
 async def _request_workspace_dir(request: Request) -> Path:
@@ -307,6 +384,7 @@ async def _run_hub_install_task(
                 bundle_url=body.bundle_url,
                 version=body.version,
                 enable=body.enable,
+                target_name=body.target_name,
                 overwrite=body.overwrite,
                 cancel_checker=cancel_event.is_set,
             ),
@@ -352,6 +430,13 @@ async def _run_hub_install_task(
             HubInstallTaskStatus.FAILED,
             error=str(exc),
         )
+    except SkillConflictError as exc:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(exc),
+            result=exc.detail,
+        )
     except RuntimeError as exc:
         await _hub_task_set_status(
             task_id,
@@ -391,15 +476,21 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
     manifest = read_skill_pool_manifest()
     service = SkillPoolService()
     entries = manifest.get("skills", {})
+    sync_info = get_pool_builtin_sync_status()
     specs: list[PoolSkillSpec] = []
     for skill in service.list_all_skills():
         entry = entries.get(skill.name, {})
+        info = sync_info.get(skill.name, {})
         specs.append(
             PoolSkillSpec(
-                **skill.model_dump(),
+                **skill.model_dump(exclude={"version_text"}),
                 protected=bool(entry.get("protected", False)),
                 version_text=str(entry.get("version_text", "") or ""),
                 commit_text=str(entry.get("commit_text", "") or ""),
+                sync_status=str(info.get("sync_status", "") or ""),
+                latest_version_text=str(
+                    info.get("latest_version_text", "") or "",
+                ),
                 config=entry.get("config") or {},
             ),
         )
@@ -433,11 +524,13 @@ async def search_hub(
 @router.get("/workspaces")
 async def list_workspace_skill_sources() -> list[WorkspaceSkillSummary]:
     summaries: list[WorkspaceSkillSummary] = []
-    for workspace in list_workspaces():
+    workspaces = list_workspaces()
+    for workspace in workspaces:
         workspace_dir = Path(workspace["workspace_dir"])
         summaries.append(
             WorkspaceSkillSummary(
                 agent_id=workspace["agent_id"],
+                agent_name=workspace.get("agent_name", ""),
                 workspace_dir=str(workspace_dir),
                 skills=_build_workspace_skill_specs(workspace_dir),
             ),
@@ -511,12 +604,22 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
     return _build_pool_skill_specs()
 
 
+@router.get("/pool/builtin-sources")
+async def list_pool_builtin_sources() -> list[BuiltinImportSpec]:
+    return [
+        BuiltinImportSpec(**item) for item in list_builtin_import_candidates()
+    ]
+
+
 @router.post("")
 async def create_skill(
     request: Request,
     body: CreateSkillRequest,
 ) -> dict[str, Any]:
-    workspace_dir = await _request_workspace_dir(request)
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
     try:
         created = SkillService(workspace_dir).create_skill(
             name=body.name,
@@ -525,12 +628,23 @@ async def create_skill(
             references=body.references,
             scripts=body.scripts,
             config=body.config,
+            enable=body.enable,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not created:
-        raise HTTPException(status_code=409, detail="Skill already exists")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "conflict",
+                "suggested_name": suggest_conflict_name(body.name),
+            },
+        )
     reconcile_workspace_manifest(workspace_dir)
+    if body.enable:
+        schedule_agent_reload(request, workspace.agent_id)
     return {"created": True, "name": created}
 
 
@@ -540,20 +654,45 @@ async def upload_skill_zip(
     file: UploadFile = File(...),
     enable: bool = False,
     overwrite: bool = False,
+    target_name: str = "",
+    rename_map: str = "",
 ) -> dict[str, Any]:
-    workspace_dir = await _request_workspace_dir(request)
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
     data = await _read_validated_zip_upload(file)
+    parsed_rename: dict[str, str] | None = None
+    if rename_map.strip():
+        try:
+            parsed_rename = json.loads(rename_map)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="rename_map must be valid JSON",
+            ) from exc
+        if not isinstance(parsed_rename, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="rename_map must be a JSON object",
+            )
     try:
         result = await asyncio.to_thread(
             SkillService(workspace_dir).import_from_zip,
             data=data,
             overwrite=overwrite,
             enable=enable,
+            target_name=target_name,
+            rename_map=parsed_rename,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("conflicts"):
+        raise HTTPException(status_code=409, detail=result)
+    if enable and result.get("count", 0) > 0:
+        schedule_agent_reload(request, workspace.agent_id)
     return result
 
 
@@ -563,29 +702,33 @@ async def create_pool_skill(body: CreateSkillRequest) -> dict[str, Any]:
         created = SkillPoolService().create_skill(
             name=body.name,
             content=body.content,
-            overwrite=body.overwrite,
             references=body.references,
             scripts=body.scripts,
             config=body.config,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not created:
         raise HTTPException(
             status_code=409,
-            detail="Skill pool entry already exists",
+            detail={
+                "reason": "conflict",
+                "suggested_name": suggest_conflict_name(body.name),
+            },
         )
     return {"created": True, "name": created}
 
 
 @router.put("/pool/save")
 async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
-    """Edit, rename, or fork a pool skill depending on current ownership.
+    """Edit or save-as a pool skill depending on the target name.
 
     Example:
     - editing a normal shared skill in place -> ``mode="edit"``
-    - renaming a non-builtin shared skill -> ``mode="rename"``
-    - editing a protected builtin -> ``mode="fork"``
+    - saving any skill under a new name -> ``mode="rename"``
+    - saving a builtin under the same name -> conflict with suggestion
     """
     service = SkillPoolService()
     try:
@@ -599,6 +742,8 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.get("success"):
         reason = result.get("reason")
         status = 404 if reason == "not_found" else 409
@@ -610,18 +755,39 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
 async def upload_skill_pool_zip(
     file: UploadFile = File(...),
     overwrite: bool = False,
+    target_name: str = "",
+    rename_map: str = "",
 ) -> dict[str, Any]:
     data = await _read_validated_zip_upload(file)
+    parsed_rename: dict[str, str] | None = None
+    if rename_map.strip():
+        try:
+            parsed_rename = json.loads(rename_map)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="rename_map must be valid JSON",
+            ) from exc
+        if not isinstance(parsed_rename, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="rename_map must be a JSON object",
+            )
     try:
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             SkillPoolService().import_from_zip,
             data=data,
             overwrite=overwrite,
+            target_name=target_name,
+            rename_map=parsed_rename,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("conflicts"):
+        raise HTTPException(status_code=409, detail=result)
+    return result
 
 
 @router.post("/pool/import")
@@ -632,12 +798,14 @@ async def import_skill_pool_from_hub(
         result = import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
             version=body.version,
-            overwrite=body.overwrite,
+            target_name=body.target_name,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SkillConflictError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
@@ -653,16 +821,102 @@ async def upload_workspace_skill_to_pool(
     body: UploadToPoolRequest,
 ) -> dict[str, Any]:
     workspace_dir = _workspace_dir_for_agent(body.workspace_id)
-    result = SkillPoolService().upload_from_workspace(
-        workspace_dir=workspace_dir,
-        skill_name=body.skill_name,
-        target_name=body.new_name,
-        overwrite=body.overwrite,
-    )
+    try:
+        result = SkillPoolService().upload_from_workspace(
+            workspace_dir=workspace_dir,
+            skill_name=body.skill_name,
+            target_name=body.new_name,
+            overwrite=body.overwrite,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.get("success"):
         status = 404 if result.get("reason") == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
     return result
+
+
+def _preflight_download_conflicts(
+    hub_service: SkillPoolService,
+    targets: list[PoolDownloadTarget],
+    skill_name: str,
+    overwrite: bool,
+) -> list[dict[str, Any]]:
+    """Check all targets for conflicts before downloading."""
+    conflicts: list[dict[str, Any]] = []
+    for target in targets:
+        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
+        result = hub_service.preflight_download_to_workspace(
+            skill_name=skill_name,
+            workspace_dir=workspace_dir,
+            target_name=target.target_name,
+            overwrite=overwrite,
+        )
+        if not result.get("success"):
+            conflicts.append(result)
+    return conflicts
+
+
+def _resolve_and_preflight(
+    body: DownloadFromPoolRequest,
+) -> tuple[list[PoolDownloadTarget], SkillPoolService]:
+    """Resolve targets and reject if any conflicts exist."""
+    targets = list(body.targets)
+    if body.all_workspaces:
+        targets = [
+            PoolDownloadTarget(workspace_id=workspace["agent_id"])
+            for workspace in list_workspaces()
+        ]
+    if not targets:
+        raise HTTPException(
+            status_code=400,
+            detail="No workspace targets provided",
+        )
+    hub_service = SkillPoolService()
+    try:
+        conflicts = _preflight_download_conflicts(
+            hub_service,
+            targets,
+            body.skill_name,
+            body.overwrite,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+    if conflicts:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "downloaded": [],
+                "conflicts": conflicts,
+            },
+        )
+    return targets, hub_service
+
+
+def _build_download_plan(
+    targets: list[PoolDownloadTarget],
+    skill_name: str,
+) -> list[dict[str, Any]]:
+    """Build execution plan with rollback snapshots."""
+    plan: list[dict[str, Any]] = []
+    for target in targets:
+        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
+        snapshot = _snapshot_workspace_skill(
+            workspace_dir,
+            str(target.target_name or skill_name),
+        )
+        plan.append(
+            {
+                "workspace_id": target.workspace_id,
+                "workspace_dir": workspace_dir,
+                "target_name": target.target_name,
+                "snapshot": snapshot,
+            },
+        )
+    return plan
 
 
 @router.post("/pool/download")
@@ -671,87 +925,74 @@ async def download_pool_skill_to_workspaces(
 ) -> dict[str, Any]:
     """Download one pool skill into one or more workspaces.
 
-    Behavior:
-    - first run a preflight for every target
-    - if any target conflicts, abort the whole operation with 409
-    - only copy files after all targets are safe
-
-    Example:
-        downloading ``shared_demo`` to workspaces ``a1`` and ``b1`` returns
-        409 if ``b1`` already has a conflicting local skill, even if ``a1``
-        would have succeeded.
+    All-or-nothing: if any target conflicts, reject everything.
     """
-    targets = list(body.targets)
-    if body.all_workspaces:
-        targets = [
-            PoolDownloadTarget(workspace_id=workspace["agent_id"])
-            for workspace in list_workspaces()
-        ]
+    targets, hub_service = _resolve_and_preflight(body)
 
-    if not targets:
-        raise HTTPException(
-            status_code=400,
-            detail="No workspace targets provided",
-        )
-
-    hub_service = SkillPoolService()
-    conflicts: list[dict[str, Any]] = []
-    planned: list[tuple[PoolDownloadTarget, Path, dict[str, Any]]] = []
-
-    for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
-        result = hub_service.preflight_download_to_workspace(
-            skill_name=body.skill_name,
-            workspace_dir=workspace_dir,
-            target_name=target.target_name,
-            overwrite=body.overwrite,
-        )
-        if not result.get("success"):
-            conflicts.append(result)
-            continue
-        planned.append((target, workspace_dir, result))
-
-    if conflicts:
-        raise HTTPException(
-            status_code=409,
-            detail={"downloaded": [], "conflicts": conflicts},
-        )
+    execution_plan = _build_download_plan(targets, body.skill_name)
 
     downloaded: list[dict[str, str]] = []
-    for target, workspace_dir, _ in planned:
-        result = hub_service.download_to_workspace(
-            skill_name=body.skill_name,
-            workspace_dir=workspace_dir,
-            target_name=target.target_name,
-            overwrite=body.overwrite,
-        )
-        if not result.get("success"):
-            conflicts.append(result)
-            continue
-        downloaded.append(
-            {
-                "workspace_id": target.workspace_id,
-                "name": str(result.get("name", "")),
-            },
-        )
-
-    if conflicts:
-        raise HTTPException(
-            status_code=409,
-            detail={"downloaded": downloaded, "conflicts": conflicts},
-        )
+    try:
+        for plan in execution_plan:
+            result = hub_service.download_to_workspace(
+                skill_name=body.skill_name,
+                workspace_dir=plan["workspace_dir"],
+                target_name=plan["target_name"],
+                overwrite=body.overwrite,
+            )
+            if not result.get("success"):
+                for rollback in reversed(execution_plan):
+                    _restore_workspace_skill(rollback["snapshot"])
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "downloaded": [],
+                        "conflicts": [result],
+                    },
+                )
+            downloaded.append(
+                {
+                    "workspace_id": str(plan["workspace_id"]),
+                    "workspace_name": str(
+                        result.get("workspace_name", "") or "",
+                    ),
+                    "name": str(result.get("name", "")),
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        for rollback in reversed(execution_plan):
+            _restore_workspace_skill(rollback["snapshot"])
+        raise
+    finally:
+        for plan in execution_plan:
+            backup_dir = plan["snapshot"].get("backup_dir")
+            if backup_dir is not None:
+                shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
 
     return {"downloaded": downloaded}
 
 
-@router.post("/pool/fetch-latest")
-async def fetch_latest_builtins(
-    body: FetchLatestBuiltinRequest,
+@router.post("/pool/import-builtin")
+async def import_pool_builtins(
+    body: ImportBuiltinRequest,
 ) -> dict[str, Any]:
-    return fetch_latest_builtin_skills(
-        approve_conflicts=body.approve_conflicts,
-        preview_only=body.preview_only,
+    result = import_builtin_skills(
+        body.skill_names,
+        overwrite_conflicts=body.overwrite_conflicts,
     )
+    if result.get("conflicts") and not body.overwrite_conflicts:
+        raise HTTPException(status_code=409, detail=result)
+    return result
+
+
+@router.post("/pool/{skill_name}/update-builtin")
+async def update_pool_builtin(skill_name: str) -> dict[str, Any]:
+    try:
+        return update_single_builtin(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/pool/{skill_name}")
@@ -921,19 +1162,55 @@ async def load_skill_file(
     return {"content": content}
 
 
+@router.put("/save")
+async def save_workspace_skill(
+    request: Request,
+    body: SaveSkillRequest,
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    try:
+        result = SkillService(workspace_dir).save_skill(
+            skill_name=body.source_name or body.name,
+            content=body.content,
+            target_name=body.name if body.source_name else None,
+            config=body.config,
+            references=body.references,
+            scripts=body.scripts,
+        )
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not result.get("success"):
+        if result.get("reason") == "conflict":
+            raise HTTPException(status_code=409, detail=result)
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if result.get("mode") != "noop":
+        reconcile_workspace_manifest(workspace_dir)
+        schedule_agent_reload(request, workspace.agent_id)
+    return result
+
+
 @router.put("/{skill_name}/channels")
 async def update_skill_channels_endpoint(
     request: Request,
     skill_name: str,
     channels: list[str],
 ) -> dict[str, Any]:
-    workspace_dir = await _request_workspace_dir(request)
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
     updated = SkillService(workspace_dir).set_skill_channels(
         skill_name,
         channels,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Skill not found")
+    schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
 
 

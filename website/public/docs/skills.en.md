@@ -21,7 +21,7 @@ explicitly enable them in the Console or CLI before they take effect.
 ## Built-in skills overview
 
 The following skills are built-in. They are available through the local skill
-pool and can be downloaded into a workspace when needed; once present in a
+pool and can be broadcast into a workspace when needed; once present in a
 workspace, you can enable or disable them there.
 
 | Skill                        | Description                                                                                                                                                                 | Source                                                         |
@@ -97,22 +97,24 @@ workspaces.
 Key points:
 
 - Pool skills are **not directly used** by any workspace. A workspace must
-  **download** a copy before the skill can be enabled.
+  **broadcast** (copy) a skill before it can be enabled.
 - Each workspace's `skill.json` is the source of truth for which skills are
   enabled, which channels they apply to, and their config.
-- Built-in skills in the pool are **protected**: they cannot be deleted or
-  overwritten in-place. Editing a protected builtin creates a fork (copy).
+- Built-in skills in the pool can be deleted and later imported back from the
+  packaged source. They still cannot be overwritten in-place by a customized
+  skill with the same name.
 
-### Download from pool (pool → workspace)
+### Broadcast from pool (pool → workspace)
 
-To use a pool skill in a workspace, download it:
+To use a pool skill in a workspace, broadcast it:
 
-1. Go to **Agent → Skills** in the Console.
-2. Browse the pool and click **Download** on the skill you want.
-3. The skill is copied into the workspace's `skills/` directory, **disabled by default**.
-4. Enable it with the toggle.
+1. Go to the **Skill Pool** page in the Console.
+2. Browse the pool and click **Broadcast** on the skill you want.
+3. Select target workspace(s) and confirm.
+4. The skill is copied into the workspace's `skills/` directory, **disabled by default**.
+5. Enable it with the toggle on the **Agent → Skills** page.
 
-If a skill with the same name already exists in the workspace, the download
+If a skill with the same name already exists in the workspace, the broadcast
 will report a conflict and suggest a renamed alternative.
 
 The workspace tracks the relationship via `sync_to_pool`:
@@ -120,36 +122,42 @@ The workspace tracks the relationship via `sync_to_pool`:
 | Status     | Meaning                                                        |
 | ---------- | -------------------------------------------------------------- |
 | `synced`   | Workspace copy matches the pool version                        |
-| `not_sync` | No corresponding pool entry (e.g. created locally)             |
-| `conflict` | Both exist but content differs (locally edited after download) |
+| `not_synced` | No corresponding pool entry (e.g. created locally)           |
+| `conflict` | Both exist but content differs (locally edited after broadcast) |
 
 ### Upload to pool (workspace → pool)
 
 To share a workspace skill across agents, upload it to the pool:
 
-1. In the workspace skill list, click **Upload to Pool** on the skill.
-2. If a pool skill with the same name exists, you can choose to overwrite or rename.
-3. After upload, the workspace entry is marked `synced` with a link to the pool copy.
+1. On the **Agent → Skills** page, click **Upload**.
+2. Select the skill(s) you want to upload and confirm.
+3. If a pool skill with the same name exists, rename or delete the existing one first.
+4. After upload, the workspace entry is marked `synced` with a link to the pool copy.
 
-Protected builtins cannot be overwritten by upload; the system suggests a
-different name.
+If a builtin with the same name already exists, upload/create/save will report
+a conflict. Save it under a different name, or delete the builtin first if you
+really want a customized replacement with the same name.
 
-### Fetch latest (update built-in skills)
+### Importing built-in skills
 
-When CoPaw is upgraded, the packaged built-in skills may be newer than what is
-in your local pool. On first start, CoPaw **adds missing builtins** to the pool
-but does not overwrite locally modified ones.
+When CoPaw is upgraded, packaged built-in skills under `src/` may be newer than
+what is in your local pool, or some builtins may have been deleted from the
+pool intentionally.
 
-To explicitly update all builtins to the latest packaged version:
+To import built-ins from source into the pool:
 
-1. Go to the pool management page in the Console.
-2. Click **Fetch Latest**.
-3. The system shows a preview of additions, updates, and conflicts.
-4. Approve to apply the updates.
+1. Go to the Skill Pool page in the Console.
+2. Click **Import Builtin**.
+3. Select the builtins you want to import and confirm.
+4. Missing builtins are copied into the pool. Builtins already up-to-date are
+   left unchanged. Builtins whose pool copy differs from the packaged version
+   are reported as conflicts — approve to overwrite, or skip to keep the
+   current copy.
 
-If you have locally modified a builtin, the system reports a conflict. You can
-approve the conflict to restore the packaged version (your modified copy is
-renamed with a timestamp suffix), or skip it to keep your version.
+To update a single outdated builtin, click **Update** on its card in the pool
+page.
+
+You can also delete a builtin from the pool and import it back later.
 
 ---
 
@@ -167,7 +175,7 @@ You can import skills from these URL sources in the Console:
 
 ### Steps
 
-1. Open the [Console](./console) → **Agent → Skills**, click **Import Skills**.
+1. Open the [Console](./console) → **Agent → Skills**, click **Import Hub**.
 
    ![skill](https://img.alicdn.com/imgextra/i2/O1CN01gQN4gv1HCj5HVBeq1_!!6000000000722-2-tps-3410-1978.png)
 

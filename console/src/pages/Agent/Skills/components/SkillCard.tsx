@@ -14,6 +14,10 @@ import {
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
+import {
+  getSkillDisplaySource,
+  getSkillSyncStatusLabel,
+} from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
@@ -24,9 +28,6 @@ interface SkillCardProps {
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
 }
-
-export const getSkillDisplaySource = (source: string) =>
-  source === "builtin" ? "builtin" : "customized";
 
 const extractSkillEmoji = (content?: string) => {
   if (!content) return "";
@@ -135,6 +136,7 @@ export function SkillCard({
   const { t } = useTranslation();
   const displaySource = getSkillDisplaySource(skill.source);
   const isBuiltin = displaySource === "builtin";
+  const syncStatusLabel = getSkillSyncStatusLabel(skill.sync_to_pool?.status, t);
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -192,23 +194,13 @@ export function SkillCard({
 
         <div className={styles.metaStack}>
           <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.source")}</div>
+            <div className={styles.infoLabel}>{t("skills.type")}</div>
             <div>
               <span
                 className={isBuiltin ? styles.builtinTag : styles.customizedTag}
               >
                 {displaySource}
               </span>
-            </div>
-          </div>
-
-          <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.path")}</div>
-            <div
-              className={`${styles.infoBlock} ${styles.singleLineValue} ${styles.pathValue}`}
-              title={skill.path}
-            >
-              {skill.path}
             </div>
           </div>
 
@@ -221,9 +213,7 @@ export function SkillCard({
 
           <div className={styles.infoSection}>
             <div className={styles.infoLabel}>{t("skills.poolSync")}</div>
-            <div className={styles.infoBlock}>
-              {skill.sync_to_pool?.status || "-"}
-            </div>
+            <div className={styles.infoBlock}>{syncStatusLabel}</div>
           </div>
         </div>
       </div>

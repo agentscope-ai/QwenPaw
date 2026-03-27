@@ -1,13 +1,20 @@
+export type SkillSyncStatus =
+  | "-"
+  | "synced"
+  | "outdated"
+  | "not_synced"
+  | "conflict";
+
 export interface SkillSpec {
   name: string;
   description?: string;
+  version_text?: string;
   content: string;
   source: string;
-  path: string;
   enabled?: boolean;
   channels?: string[];
   sync_to_pool?: {
-    status?: string;
+    status?: SkillSyncStatus;
     pool_name?: string;
   };
   config?: Record<string, unknown>;
@@ -16,19 +23,30 @@ export interface SkillSpec {
 export interface PoolSkillSpec {
   name: string;
   description?: string;
+  version_text?: string;
   content: string;
   source: string;
-  path: string;
   protected: boolean;
-  version_text?: string;
   commit_text?: string;
+  sync_status?: SkillSyncStatus | "";
+  latest_version_text?: string;
   config?: Record<string, unknown>;
 }
 
 export interface WorkspaceSkillSummary {
   agent_id: string;
+  agent_name?: string;
   workspace_dir: string;
   skills: SkillSpec[];
+}
+
+export interface BuiltinImportSpec {
+  name: string;
+  description?: string;
+  version_text?: string;
+  current_version_text?: string;
+  current_source?: string;
+  status?: "missing" | "current" | "conflict" | string;
 }
 
 export interface HubSkillSpec {
@@ -48,10 +66,16 @@ export interface HubInstallTaskResponse {
   status: "pending" | "importing" | "completed" | "failed" | "cancelled";
   error: string | null;
   result: {
-    installed: boolean;
-    name: string;
-    enabled: boolean;
-    source_url: string;
+    installed?: boolean;
+    name?: string;
+    enabled?: boolean;
+    source_url?: string;
+    conflicts?: Array<{
+      reason?: string;
+      skill_name?: string;
+      suggested_name?: string;
+    }>;
+    [key: string]: unknown;
   } | null;
   created_at: number;
   updated_at: number;

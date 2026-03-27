@@ -368,6 +368,15 @@
   padding: 0;
 }
 
+.accentLinkAction {
+  color: #615ced;
+
+  &:hover,
+  &:focus {
+    color: #4f46e5;
+  }
+}
+
 .deleteButton {
   padding: 4px;
   display: flex;
@@ -551,6 +560,33 @@
   font-size: 12px;
   color: #999;
   margin-top: 4px;
+}
+
+.compactPickerGrid {
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 6px;
+  max-height: 360px;
+}
+
+.compactPickerCard {
+  min-height: 44px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+}
+
+.compactPickerCheck {
+  top: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
+.compactPickerTitle {
+  font-size: 12px;
+  line-height: 1.25;
+  padding-right: 18px;
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */

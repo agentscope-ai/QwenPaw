@@ -50,7 +50,7 @@ export function AgentModal({
 
     const fetchPool = skillApi.listSkillPoolSkills();
     const fetchInstalled = editingAgent
-      ? skillApi.listSkills().then((skills) => skills.map((s) => s.name))
+      ? skillApi.listSkills(editingAgent.id).then((skills) => skills.map((s) => s.name))
       : Promise.resolve([]);
 
     Promise.all([fetchPool, fetchInstalled])

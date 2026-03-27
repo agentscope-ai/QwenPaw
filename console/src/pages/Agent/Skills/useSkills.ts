@@ -6,6 +6,11 @@ import type { SkillSpec } from "../../../api/types";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import { parseErrorDetail } from "../../../utils/error";
+
+type SkillActionResult =
+  | { success: true; name?: string; imported?: string[] }
+  | { success: false; conflict?: Record<string, any> };
 
 function tryParseScanError(error: unknown): SecurityScanErrorResponse | null {
   if (!(error instanceof Error)) return null;
@@ -200,25 +205,36 @@ export function useSkills() {
     name: string,
     content: string,
     config?: Record<string, unknown>,
-  ) => {
+    enable?: boolean,
+  ): Promise<SkillActionResult> => {
     try {
-      const result = await api.createSkill(name, content, config);
+      const result = await api.createSkill(name, content, config, enable);
       message.success("Created successfully");
       await fetchSkills();
       await checkScanWarnings(result.name);
-      return true;
+      return { success: true, name: result.name };
     } catch (error) {
+      const detail = parseErrorDetail(error);
+      if (detail?.suggested_name) {
+        return { success: false, conflict: detail };
+      }
       handleError(error, "Failed to save");
-      return false;
+      return { success: false };
     }
   };
 
-  const uploadSkill = async (file: File) => {
+  const uploadSkill = async (
+    file: File,
+    targetName?: string,
+    renameMap?: Record<string, string>,
+  ): Promise<SkillActionResult> => {
     try {
       setUploading(true);
       const result = await api.uploadSkill(file, {
-        enable: false,
+        enable: true,
         overwrite: false,
+        target_name: targetName,
+        rename_map: renameMap,
       });
       if (result?.count > 0) {
         message.success(
@@ -228,30 +244,38 @@ export function useSkills() {
         for (const name of result.imported) {
           await checkScanWarnings(name);
         }
-        return true;
       }
-      message.warning(t("skills.uploadNoChange"));
+      if (!result?.count) {
+        message.warning(t("skills.uploadNoChange"));
+      }
       await fetchSkills();
-      return true;
+      return { success: true, imported: result?.imported || [] };
     } catch (error) {
+      const detail = parseErrorDetail(error);
+      if (Array.isArray(detail?.conflicts) && detail.conflicts.length > 0) {
+        return { success: false, conflict: detail };
+      }
       handleError(error, t("skills.uploadFailed"));
-      return false;
+      return { success: false };
     } finally {
       setUploading(false);
     }
   };
 
-  const importFromHub = async (input: string) => {
+  const importFromHub = async (
+    input: string,
+    targetName?: string,
+  ): Promise<SkillActionResult> => {
     const text = (input || "").trim();
     if (!text) {
       message.warning("Please provide a hub skill URL");
-      return false;
+      return { success: false };
     }
     if (!text.startsWith("http://") && !text.startsWith("https://")) {
       message.warning(
         "Please enter a valid URL starting with http:// or https://",
       );
-      return false;
+      return { success: false };
     }
     const timeoutMs = 90_000;
     const pollMs = 1_000;
@@ -259,7 +283,12 @@ export function useSkills() {
     try {
       setImporting(true);
       importCancelReasonRef.current = null;
-      const payload = { bundle_url: text, enable: true, overwrite: false };
+      const payload = {
+        bundle_url: text,
+        enable: true,
+        overwrite: false,
+        target_name: targetName,
+      };
       const task = await api.startHubSkillInstall(payload);
       importTaskIdRef.current = task.task_id;
 
@@ -272,10 +301,16 @@ export function useSkills() {
           if (status.result.name) {
             await checkScanWarnings(status.result.name);
           }
-          return true;
+          return { success: true, name: String(status.result.name || "") };
         }
 
         if (status.status === "failed") {
+          if (
+            Array.isArray(status.result?.conflicts) &&
+            status.result.conflicts.length > 0
+          ) {
+            return { success: false, conflict: status.result };
+          }
           throw new Error(status.error || "Import failed");
         }
 
@@ -287,7 +322,7 @@ export function useSkills() {
                 : "skills.importCancelled",
             ),
           );
-          return false;
+          return { success: false };
         }
 
         if (Date.now() - startedAt >= timeoutMs) {
@@ -298,10 +333,10 @@ export function useSkills() {
         await new Promise((resolve) => window.setTimeout(resolve, pollMs));
       }
 
-      return false;
+      return { success: false };
     } catch (error) {
       handleError(error, "Import failed");
-      return false;
+      return { success: false };
     } finally {
       importTaskIdRef.current = null;
       importCancelReasonRef.current = null;

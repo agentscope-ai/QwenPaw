@@ -1,10 +1,16 @@
 export { SkillCard } from "./SkillCard";
-export { SkillDrawer, parseFrontmatter } from "./SkillDrawer";
 export {
-  getFileIcon,
+  SkillDrawer,
+  parseFrontmatter,
+  type SkillDrawerFormValues,
+} from "./SkillDrawer";
+export { getFileIcon, getSkillVisual } from "./SkillCard";
+export {
   getSkillDisplaySource,
-  getSkillVisual,
-} from "./SkillCard";
+  getPoolBuiltinStatusLabel,
+  getSkillSyncStatusLabel,
+} from "./skillMetadata";
+export { useConflictRenameModal } from "./useConflictRenameModal";
 
 export const SUPPORTED_SKILL_URL_PREFIXES = [
   "https://skills.sh/",

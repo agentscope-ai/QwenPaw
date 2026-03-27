@@ -413,7 +413,11 @@ def init_cmd(
                     synced += 1
             click.echo(f"✓ Skills synced: {synced}")
         elif skills_choice == "custom":
-            configure_skills_interactive()
+            configure_skills_interactive(
+                agent_id="default",
+                working_dir=default_workspace,
+                include_pool_candidates=True,
+            )
         else:  # none
             click.echo("Skipped skills configuration.")
 

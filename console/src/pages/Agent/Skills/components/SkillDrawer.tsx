@@ -13,6 +13,7 @@ import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
+import { getSkillSyncStatusLabel } from "./skillMetadata";
 
 /**
  * Parse frontmatter from content string.
@@ -56,10 +57,21 @@ const CHANNEL_OPTIONS = [
   { label: "mqtt", value: "mqtt" },
 ];
 
+export interface SkillDrawerFormValues {
+  name: string;
+  description?: string;
+  content: string;
+  enabled?: boolean;
+  channels?: string[];
+  source?: string;
+  syncStatus?: string;
+  config?: Record<string, unknown>;
+}
+
 interface SkillDrawerProps {
   open: boolean;
   editingSkill: SkillSpec | null;
-  form: FormInstance<SkillSpec>;
+  form: FormInstance<SkillDrawerFormValues>;
   onClose: () => void;
   onSubmit: (values: SkillSpec) => void;
   onContentChange?: (content: string) => void;
@@ -106,44 +118,61 @@ export function SkillDrawer({
 
   useEffect(() => {
     if (editingSkill) {
+      const channels = editingSkill.channels || ["all"];
+      const fallbackConfigText = JSON.stringify(
+        editingSkill.config || {},
+        null,
+        2,
+      );
       setContentValue(editingSkill.content);
+      setConfigText(fallbackConfigText);
       form.setFieldsValue({
         name: editingSkill.name,
         content: editingSkill.content,
-        channels: editingSkill.channels || ["all"],
+        channels,
+        source: editingSkill.source,
+        syncStatus: getSkillSyncStatusLabel(
+          editingSkill.sync_to_pool?.status,
+          t,
+        ),
       });
       setConfigError("");
+      let active = true;
       api
         .getSkillConfig(editingSkill.name)
         .then((res) => {
+          if (!active) return;
           setConfigText(JSON.stringify(res.config || {}, null, 2));
         })
         .catch(() => {
-          setConfigText(JSON.stringify(editingSkill.config || {}, null, 2));
+          if (!active) return;
+          setConfigText(fallbackConfigText);
         });
+      return () => {
+        active = false;
+      };
     } else {
       setContentValue("");
       setConfigText("{}");
       setConfigError("");
       form.resetFields();
     }
-  }, [editingSkill, form]);
+  }, [editingSkill, form, t]);
 
-  const handleSubmit = async (values: SkillSpec) => {
+  const handleSubmit = async (values: SkillDrawerFormValues) => {
+    let parsedConfig: Record<string, unknown> | undefined;
     if (editingSkill) {
       const trimmed = configText.trim();
       if (!trimmed) {
-        await api.deleteSkillConfig(editingSkill.name).catch(() => {});
+        parsedConfig = {};
       } else {
-        let parsed: Record<string, unknown> = {};
         try {
-          parsed = JSON.parse(trimmed);
+          parsedConfig = JSON.parse(trimmed);
           setConfigError("");
         } catch {
           setConfigError(t("skills.configInvalidJson"));
           return;
         }
-        await api.updateSkillConfig(editingSkill.name, parsed);
       }
     }
     onSubmit({
@@ -151,7 +180,7 @@ export function SkillDrawer({
       ...values,
       content: contentValue || values.content,
       source: editingSkill?.source || "",
-      path: editingSkill?.path || "",
+      config: parsedConfig,
     });
   };
 
@@ -189,9 +218,13 @@ export function SkillDrawer({
         i18n.language, // Pass current language to API
       );
       message.success(t("skills.optimizeSuccess"));
-    } catch (error: any) {
-      if (error.name !== "AbortError") {
-        message.error(error.message || t("skills.optimizeFailed"));
+    } catch (error: unknown) {
+      const aborted =
+        error instanceof DOMException && error.name === "AbortError";
+      if (!aborted) {
+        message.error(
+          error instanceof Error ? error.message : t("skills.optimizeFailed"),
+        );
       }
     } finally {
       setOptimizing(false);
@@ -299,8 +332,8 @@ export function SkillDrawer({
 
         {editingSkill && (
           <>
-            <Form.Item name="name" label="name">
-              <Input disabled />
+            <Form.Item name="name" label="Name">
+              <Input />
             </Form.Item>
 
             <Form.Item
@@ -341,13 +374,14 @@ export function SkillDrawer({
               )}
             </Form.Item>
 
-            <Form.Item name="source" label="Source">
+            <Form.Item name="source" label={t("skills.type")}>
               <Input disabled />
             </Form.Item>
 
-            <Form.Item name="path" label="Path">
+            <Form.Item name="syncStatus" label={t("skills.poolSync")}>
               <Input disabled />
             </Form.Item>
+
           </>
         )}
       </Form>
