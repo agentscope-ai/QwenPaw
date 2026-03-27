@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Channel registry: built-in + custom channels from working dir."""
+
 from __future__ import annotations
 
 import importlib
@@ -30,6 +31,7 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
     "voice": (".voice", "VoiceChannel"),
     "wecom": (".wecom", "WecomChannel"),
     "xiaoyi": (".xiaoyi", "XiaoYiChannel"),
+    "weixin": (".weixin", "WeixinChannel"),
 }
 
 # Required channels must load; failures are raised, not skipped.

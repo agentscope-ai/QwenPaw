@@ -502,6 +502,64 @@ Find `wecom` and fill in the corresponding information, for example:
 
 ---
 
+## WeChat Personal (iLink)
+
+The WeChat iLink Bot channel lets you run an AI bot via a **personal WeChat account** — no enterprise account required — using the official [iLink Bot HTTP API](https://weixin.qq.com/cgi-bin/readtemplate?t=ilink/chatbot) protocol.
+
+> **Note**: WeChat personal bots (iLink protocol) are currently in limited beta. You need to apply for access before using this feature.
+
+### How it works
+
+- **Authentication**: On first use, scan a QR code to authorize. The token is automatically persisted to a local file (default `~/.copaw/weixin_bot_token`), so you won't need to scan again on subsequent starts.
+- **Receiving messages**: Uses HTTP long-polling (`getupdates`) to continuously fetch new messages. Supports text, images, voice (ASR transcription), files, and videos.
+- **Sending messages**: Replies via `sendmessage`. Currently only text is supported (iLink API limitation).
+
+### QR code login (recommended via Console)
+
+1. Open the CoPaw Web Console and go to **Settings → Channels → WeChat Personal (iLink)**.
+2. Click **Get Login QR Code** and wait for the QR code to appear.
+3. Scan the QR code with your WeChat mobile app and confirm authorization.
+4. Once confirmed, the Bot Token is automatically filled in the form — click **Save**.
+
+### Configure via config file
+
+You can also configure directly in `config.json` (default path `~/.copaw/config.json`):
+
+```json
+"weixin": {
+  "enabled": true,
+  "bot_token": "your_bot_token",
+  "bot_token_file": "~/.copaw/weixin_bot_token",
+  "base_url": "",
+  "media_dir": "~/.copaw/media",
+  "dm_policy": "open",
+  "group_policy": "open"
+}
+```
+
+| Field            | Description                                                                           | Default                     |
+| ---------------- | ------------------------------------------------------------------------------------- | --------------------------- |
+| `bot_token`      | Bearer token obtained after QR code login; leave empty to trigger QR login on startup | `""`                        |
+| `bot_token_file` | Path to persist the token for future runs                                             | `~/.copaw/weixin_bot_token` |
+| `base_url`       | iLink API base URL; leave empty to use the official default                           | official default            |
+| `media_dir`      | Directory to save received images and files                                           | `~/.copaw/media`            |
+| `dm_policy`      | Direct message policy: `open` (everyone) / `close` (disabled) / `allowlist`           | `open`                      |
+| `group_policy`   | Group chat policy: same options as `dm_policy`                                        | `open`                      |
+| `allow_from`     | List of allowed user IDs (used when policy is `allowlist`)                            | `[]`                        |
+
+### Configure via environment variables
+
+```bash
+WEIXIN_CHANNEL_ENABLED=1
+WEIXIN_BOT_TOKEN=your_bot_token
+WEIXIN_BOT_TOKEN_FILE=~/.copaw/weixin_bot_token
+WEIXIN_MEDIA_DIR=~/.copaw/media
+WEIXIN_DM_POLICY=open
+WEIXIN_GROUP_POLICY=open
+```
+
+---
+
 ## Telegram
 
 ### Get Telegram bot credentials
@@ -752,6 +810,7 @@ The XiaoYi channel connects CoPaw via **A2A (Agent-to-Agent) protocol** over Web
 | Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                         |
 | QQ         | qq         | app_id, client_secret                                                   |
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts              |
+| WeChat     | weixin     | bot_token (or QR login); optional bot_token_file, base_url, media_dir   |
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                         |
 | Mattermost | mattermost | url, bot_token; optional show_typing, dm_policy, allow_from             |
 | Matrix     | matrix     | homeserver, user_id, access_token                                       |
@@ -776,6 +835,7 @@ done). **✗** = not supported (not possible on this channel).
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | WeCom      | ✓         | ✓          | 🚧         | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -796,6 +856,7 @@ Notes:
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports text, image, voice, and file receiving; sending media is not supported by the SDK (only text via markdown).
+- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending currently supports text only (iLink API limitation).
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 

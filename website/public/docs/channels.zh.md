@@ -497,6 +497,66 @@
 
 ---
 
+## 微信个人（iLink）
+
+微信 iLink Bot 频道允许通过**个人微信账号**运行 AI 机器人，无需企业资质，使用官方 [iLink Bot HTTP API](https://weixin.qq.com/cgi-bin/readtemplate?t=ilink/chatbot) 协议。
+
+> **注意**：微信个人 Bot（iLink 协议）目前仍处于内测阶段，需申请接入资格后方可使用。
+
+### 工作原理
+
+- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.copaw/weixin_bot_token`），后续启动无需重复扫码。
+- **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
+- **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
+
+### 扫码登录（推荐通过 Console）
+
+1. 在 CoPaw Web Console 中进入 **设置 → 通道 → 微信个人（iLink）**。
+2. 点击 **获取登录二维码**，等待二维码显示。
+3. 用手机微信扫描二维码并确认授权。
+4. 扫码成功后，Bot Token 会自动填入表单，点击 **保存** 即可。
+
+### 在配置文件中填写
+
+也可直接在 `config.json`（默认路径 `~/.copaw/config.json`）中配置：
+
+```json
+"weixin": {
+  "enabled": true,
+  "bot_token": "your_bot_token",
+  "bot_token_file": "~/.copaw/weixin_bot_token",
+  "base_url": "",
+  "media_dir": "~/.copaw/media",
+  "dm_policy": "open",
+  "group_policy": "open"
+}
+```
+
+| 字段             | 说明                                                     | 默认值                      |
+| ---------------- | -------------------------------------------------------- | --------------------------- |
+| `bot_token`      | 扫码登录后获取的 Bearer Token；留空则启动时引导扫码      | `""`                        |
+| `bot_token_file` | Token 持久化路径，下次启动自动读取                       | `~/.copaw/weixin_bot_token` |
+| `base_url`       | iLink API 地址，一般留空使用默认值                       | 官方默认地址                |
+| `media_dir`      | 接收到的图片、文件保存目录                               | `~/.copaw/media`            |
+| `dm_policy`      | 私聊策略：`open`（所有人）/ `close`（禁用）/ `allowlist` | `open`                      |
+| `group_policy`   | 群聊策略：同上                                           | `open`                      |
+| `allow_from`     | 允许的用户 ID 列表（`allowlist` 模式下有效）             | `[]`                        |
+
+### 环境变量方式
+
+也可通过环境变量配置：
+
+```bash
+WEIXIN_CHANNEL_ENABLED=1
+WEIXIN_BOT_TOKEN=your_bot_token
+WEIXIN_BOT_TOKEN_FILE=~/.copaw/weixin_bot_token
+WEIXIN_MEDIA_DIR=~/.copaw/media
+WEIXIN_DM_POLICY=open
+WEIXIN_GROUP_POLICY=open
+```
+
+---
+
 ## Telegram
 
 ### 获取 Telegram 机器人凭证
@@ -749,6 +809,8 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                             |
 | Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                 |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                       |
+| 企业微信   | wecom      | bot_id, secret；可选 media_dir                                                          |
+| 微信个人   | weixin     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                       |
 | 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                           |
 
 所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。
@@ -768,6 +830,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 微信个人   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
 | Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
@@ -782,6 +845,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
+- **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送当前仅支持文本（iLink API 限制）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 - **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
 
