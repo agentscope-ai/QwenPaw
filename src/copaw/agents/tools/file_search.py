@@ -188,9 +188,10 @@ def _emit_match_entries(
             return False, total_chars
         prefix = ">" if is_hit else " "
         entry = f"{disp_path}:{ln}:{prefix} {content}"
-        total_chars += len(entry) + 1
-        if total_chars >= _MAX_OUTPUT_CHARS:
+        projected_total = total_chars + len(entry) + 1
+        if projected_total > _MAX_OUTPUT_CHARS:
             return False, total_chars
+        total_chars = projected_total
         matches.append(entry)
 
     return True, total_chars
