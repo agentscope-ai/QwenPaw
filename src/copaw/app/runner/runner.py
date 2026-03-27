@@ -17,8 +17,6 @@ from dotenv import load_dotenv
 
 from .command_dispatch import (
     _get_last_user_text,
-    _is_command,
-    run_command_path,
 )
 from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
@@ -203,7 +201,7 @@ class AgentRunner(Runner):
 
         (
             approval_response,
-            approval_consumed,
+            _approval_consumed,
             approved_tool_call,
         ) = await self._resolve_pending_approval(session_id, query)
         if approval_response is not None:
@@ -214,12 +212,6 @@ class AgentRunner(Runner):
                 user_id,
                 denial_response=approval_response,
             )
-            return
-
-        if not approval_consumed and query and _is_command(query):
-            logger.info("Command path: %s", query.strip()[:50])
-            async for msg, last in run_command_path(request, msgs, self):
-                yield msg, last
             return
 
         logger.debug(

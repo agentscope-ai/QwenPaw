@@ -23,10 +23,13 @@ from typing import (
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
 from .registry import get_channel_registry
 from ...config import get_available_channels
-from ..runner.daemon_commands import is_stop_command
+from ..runner.daemon_commands import parse_daemon_query
+from ..runner.command_router import PrioritizedPayload
+from ...agents.command_handler import CommandHandler as ConvCommandHandler
 
 if TYPE_CHECKING:
     from ....config.config import Config
+    from ..runner.command_router import CommandRouter
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +162,82 @@ class ChannelManager:
             Tuple[str, str],
             asyncio.Task,
         ] = {}
+        # -- Dual-queue: command queue attributes -----------------------
+        self._command_queues: Dict[str, asyncio.PriorityQueue] = {}
+        self._command_router: CommandRouter | None = None
+        self._command_seq: int = 0
+
+    # ------------------------------------------------------------------
+    # Dual-queue: command router wiring
+    # ------------------------------------------------------------------
+
+    def set_command_router(self, router: CommandRouter) -> None:
+        """Attach a :class:`CommandRouter` for classification."""
+        self._command_router = router
+
+    # pylint: disable=too-many-return-statements
+    def _classify_command(
+        self,
+        ch: BaseChannel,
+        payload: Any,
+    ) -> tuple[str, list[str]] | None:
+        """Extract payload text and check if it is a registered command.
+
+        Returns:
+            ``(command_name, command_args)`` when the payload matches a
+            registered command, or ``None`` for normal messages.
+        """
+        if self._command_router is None:
+            return None
+
+        # 1. Extract text from payload
+        try:
+            text = _extract_text_from_payload(ch, payload)
+        except Exception:
+            logger.debug(
+                "classify_command: failed to extract text from payload",
+                exc_info=True,
+            )
+            return None
+
+        if not text or not text.strip().startswith("/"):
+            return None
+
+        registered = self._command_router.get_registered_commands()
+
+        # 2. Try daemon command parsing
+        #    (handles /daemon <sub> and short aliases)
+        parsed = parse_daemon_query(text)
+        if parsed is not None:
+            cmd_name, cmd_args = parsed
+            if cmd_name in registered:
+                return (cmd_name, cmd_args)
+            # /daemon <sub> resolves to sub; check if
+            # "daemon" itself is registered
+            if "daemon" in registered:
+                # Re-parse: the raw text was /daemon <sub>,
+                # route via "daemon" handler
+                raw = text.strip()
+                parts = raw.lstrip("/").split()
+                if parts and parts[0].lower() == "daemon":
+                    return ("daemon", parts[1:] if len(parts) > 1 else [])
+
+        # 3. Try conversation command parsing
+        stripped = text.strip()
+        cmd_candidate = (
+            stripped.lstrip("/").split()[0] if stripped.startswith("/") else ""
+        )
+        if cmd_candidate in ConvCommandHandler.SYSTEM_COMMANDS:
+            if cmd_candidate in registered:
+                args = stripped.lstrip("/").split()[1:]
+                return (cmd_candidate, args)
+
+        # 4. Generic fallback: check if first word after / is registered
+        if cmd_candidate and cmd_candidate in registered:
+            args = stripped.lstrip("/").split()[1:]
+            return (cmd_candidate, args)
+
+        return None
 
     @classmethod
     def from_env(
@@ -298,8 +377,8 @@ class ChannelManager:
         return cb
 
     def _enqueue_one(self, channel_id: str, payload: Any) -> None:
-        """Run on event loop: enqueue or append to pending if session in
-        progress.
+        """Run on event loop: classify message and route to CommandQueue or
+        DataQueue. Command messages bypass the in_progress/pending mechanism.
         """
         q = self._queues.get(channel_id)
         if not q:
@@ -312,6 +391,28 @@ class ChannelManager:
         if not ch:
             q.put_nowait(payload)
             return
+
+        # --- CommandClassifier: route commands to CommandQueue ---
+        classified = self._classify_command(ch, payload)
+        if classified is not None and channel_id in self._command_queues:
+            command_name, command_args = classified
+            priority = (
+                self._command_router.get_priority(command_name)
+                if self._command_router is not None
+                else 2  # NORMAL fallback
+            )
+            self._command_seq += 1
+            item = PrioritizedPayload(
+                priority=priority,
+                sequence=self._command_seq,
+                payload=payload,
+                command_name=command_name,
+                command_args=command_args,
+            )
+            self._command_queues[channel_id].put_nowait(item)
+            return
+
+        # --- Normal message: DataQueue logic (in_progress/pending) ---
         key = ch.get_debounce_key(payload)
         if channel_id == "dingtalk" and isinstance(payload, dict):
             logger.info(
@@ -320,18 +421,13 @@ class ChannelManager:
                 key,
                 (channel_id, key) in self._in_progress,
                 bool(payload.get("session_webhook")),
-                "pending"
-                if (channel_id, key) in self._in_progress
-                else "queue",
+                (
+                    "pending"
+                    if (channel_id, key) in self._in_progress
+                    else "queue"
+                ),
             )
         if (channel_id, key) in self._in_progress:
-            # /stop must bypass pending — put directly in queue so a free
-            # worker can pick it up immediately and cancel the running task.
-            if ch._task_tracker is not None:
-                _stop_text = _extract_text_from_payload(ch, payload)
-                if is_stop_command(_stop_text):
-                    q.put_nowait(payload)
-                    return
             self._pending.setdefault((channel_id, key), []).append(payload)
             return
         q.put_nowait(payload)
@@ -353,41 +449,6 @@ class ChannelManager:
             channel_id,
             payload,
         )
-
-    async def _handle_stop_fast_path(
-        self,
-        ch: BaseChannel,
-        channel_id: str,
-        key: str,
-        payload: Any,
-    ) -> bool:
-        """Check if payload is /stop and handle it immediately.
-
-        Returns True if handled (caller should skip normal processing).
-        """
-        if ch._task_tracker is None:
-            return False
-        stop_text = _extract_text_from_payload(ch, payload)
-        if not is_stop_command(stop_text):
-            return False
-        logger.info("/stop fast-path: key=%s", key)
-        try:
-            active = self._active_process_tasks.get(
-                (channel_id, key),
-            )
-            if active and not active.done():
-                active.cancel()
-                stopped = True
-                logger.info("/stop cancelled active task: key=%s", key)
-            else:
-                stopped = False
-            request = ch._payload_to_request(payload)
-            msg = "Task stopped." if stopped else "No running task."
-            to_handle = ch.get_to_handle_from_request(request)
-            await ch.send(to_handle, msg)
-        except Exception:
-            logger.exception("/stop fast-path failed: key=%s", key)
-        return True
 
     async def _consume_channel_loop(
         self,
@@ -411,16 +472,6 @@ class ChannelManager:
                     continue
                 key = ch.get_debounce_key(payload)
 
-                # --- /stop fast-path: bypass session lock ---
-                if await self._handle_stop_fast_path(
-                    ch,
-                    channel_id,
-                    key,
-                    payload,
-                ):
-                    continue
-                # --- end /stop fast-path ---
-
                 key_lock = self._key_locks.setdefault(
                     (channel_id, key),
                     asyncio.Lock(),
@@ -432,9 +483,9 @@ class ChannelManager:
                     process_task = asyncio.create_task(
                         _process_batch(ch, batch),
                     )
-                    self._active_process_tasks[
-                        (channel_id, key)
-                    ] = process_task
+                    self._active_process_tasks[(channel_id, key)] = (
+                        process_task
+                    )
                     try:
                         await process_task
                     except asyncio.CancelledError:
@@ -442,12 +493,8 @@ class ChannelManager:
                             "/stop: task cancelled for key=%s",
                             key,
                         )
-                    finally:
-                        self._active_process_tasks.pop(
-                            (channel_id, key),
-                            None,
-                        )
                 finally:
+                    self._active_process_tasks.pop((channel_id, key), None)
                     self._in_progress.discard((channel_id, key))
                     pending = self._pending.pop((channel_id, key), [])
                     _put_pending_merged(ch, q, pending)
@@ -458,6 +505,115 @@ class ChannelManager:
                     "channel consume_one failed: channel=%s worker=%s",
                     channel_id,
                     worker_index,
+                )
+
+    # ------------------------------------------------------------------
+    # Dual-queue: command consume loop
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_msg_text(msg: Any) -> str:
+        """Extract the first text block from a ``Msg`` response."""
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for block in content:
+                # Handle both dict (Msg serializes TextBlock
+                # to dict) and objects
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        return block.get("text", "") or ""
+                elif getattr(block, "type", None) == "text":
+                    return getattr(block, "text", "") or ""
+            return ""
+        return str(content) if content else ""
+
+    async def _consume_command_loop(self, channel_id: str) -> None:
+        """Command consume loop: dequeue from PriorityQueue by priority and
+        dispatch via CommandRouter.
+
+        Each channel has exactly one command consumer (single worker) to
+        avoid concurrency issues with command processing.
+        """
+        from ..runner.command_router import CommandContext
+
+        cq = self._command_queues.get(channel_id)
+        if not cq:
+            return
+        while True:
+            try:
+                item: PrioritizedPayload = await cq.get()
+
+                # Find the channel instance
+                ch = next(
+                    (c for c in self.channels if c.channel == channel_id),
+                    None,
+                )
+                if not ch:
+                    logger.warning(
+                        "command consume: channel not found: %s",
+                        channel_id,
+                    )
+                    continue
+
+                if self._command_router is None:
+                    logger.warning(
+                        "command consume: no command router set",
+                    )
+                    continue
+
+                # Build CommandContext from PrioritizedPayload
+                try:
+                    request = ch._payload_to_request(item.payload)
+                    session_id = getattr(request, "session_id", "") or ""
+                    user_id = getattr(request, "user_id", "") or ""
+                except Exception:
+                    logger.debug(
+                        "command consume: failed to parse payload for "
+                        "context, using defaults",
+                        exc_info=True,
+                    )
+                    session_id = ""
+                    user_id = ""
+                    request = None
+
+                raw_query = f"/{item.command_name}" + (
+                    " " + " ".join(item.command_args)
+                    if item.command_args
+                    else ""
+                )
+
+                context = CommandContext(
+                    channel=ch,
+                    channel_id=channel_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    command_name=item.command_name,
+                    command_args=item.command_args,
+                    raw_query=raw_query,
+                    payload=item.payload,
+                    task_tracker=getattr(ch, "_task_tracker", None),
+                    runner=getattr(self._command_router, "_runner", None),
+                )
+
+                # Dispatch via CommandRouter
+                result_msg = await self._command_router.dispatch(context)
+
+                # Send result back via channel
+                if request is not None:
+                    to_handle = ch.get_to_handle_from_request(request)
+                else:
+                    to_handle = ""
+                text = self._extract_msg_text(result_msg)
+                await ch.send(to_handle, text)
+
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception(
+                    "command consume failed: channel=%s",
+                    channel_id,
                 )
 
     async def start_all(self) -> None:
@@ -478,6 +634,13 @@ class ChannelManager:
                         name=f"channel_consumer_{ch.channel}_{w}",
                     )
                     self._consumer_tasks.append(task)
+                # -- CommandQueue: one PriorityQueue + one consumer --
+                self._command_queues[ch.channel] = asyncio.PriorityQueue()
+                cmd_task = asyncio.create_task(
+                    self._consume_command_loop(ch.channel),
+                    name=f"command_consumer_{ch.channel}",
+                )
+                self._consumer_tasks.append(cmd_task)
         logger.debug(
             "starting channels=%s queues=%s",
             [g.channel for g in snapshot],
@@ -507,6 +670,8 @@ class ChannelManager:
                 )
         self._consumer_tasks.clear()
         self._queues.clear()
+        self._command_queues.clear()
+        self._command_seq = 0
         async with self._lock:
             snapshot = list(self.channels)
         for ch in snapshot:

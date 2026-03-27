@@ -14,8 +14,6 @@ from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ..agent_context import get_agent_for_request
-from ..runner.daemon_commands import is_stop_command
-
 
 logger = logging.getLogger(__name__)
 
@@ -66,55 +64,6 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
-async def _handle_console_stop(
-    native_payload: dict,
-    tracker,
-    chat_id: str,
-) -> StreamingResponse | None:
-    """Intercept /stop before attach_or_start. Returns response or None."""
-    try:
-        user_text = ""
-        for part in native_payload.get("content_parts") or []:
-            if getattr(part, "type", None) == "text":
-                text = getattr(part, "text", "")
-                if text.strip():
-                    user_text = text
-                    break
-        if not is_stop_command(user_text):
-            return None
-        stopped = await tracker.request_stop(chat_id)
-        msg = "Task stopped." if stopped else "No running task."
-
-        async def stop_event() -> AsyncGenerator[str, None]:
-            data = json.dumps({"stop": stopped, "message": msg})
-            yield f"data: {data}\n\n"
-
-        return StreamingResponse(
-            stop_event(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-    except Exception as exc:
-        logger.exception("Error handling /stop command")
-        err_msg = f"/stop command failed: {exc}"
-
-        async def error_event() -> AsyncGenerator[str, None]:
-            data = json.dumps({"stop": False, "message": err_msg})
-            yield f"data: {data}\n\n"
-
-        return StreamingResponse(
-            error_event(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-
-
 @router.post(
     "/chat",
     status_code=200,
@@ -159,18 +108,37 @@ async def post_console_chat(
     )
     tracker = workspace.task_tracker
 
-    # --- /stop early interception (before attach_or_start) ---
-    stop_resp = await _handle_console_stop(
-        native_payload,
-        tracker,
-        chat.id,
-    )
-    if stop_resp is not None:
-        return stop_resp
-
     is_reconnect = False
     if isinstance(request_data, dict):
         is_reconnect = request_data.get("reconnect") is True
+
+    # --- Command detection: route commands through CommandQueue ---
+    is_command = False
+    if not is_reconnect:
+        # pylint: disable=protected-access
+        classified = workspace.channel_manager._classify_command(
+            console_channel,
+            native_payload,
+        )
+        if classified is not None:
+            is_command = True
+
+    if is_command:
+        # Enqueue into ChannelManager so CommandClassifier routes to
+        # CommandQueue → _consume_command_loop → CommandRouter → channel.send.
+        workspace.channel_manager.enqueue("console", native_payload)
+
+        async def command_event_generator() -> AsyncGenerator[str, None]:
+            yield f"data: {json.dumps({'command': True})}\n\n"
+
+        return StreamingResponse(
+            command_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)

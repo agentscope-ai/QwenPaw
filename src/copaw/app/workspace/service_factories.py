@@ -99,6 +99,17 @@ async def create_channel_service(ws: "Workspace", _):
     # Inject task_tracker into all channels for /stop interception
     for ch in cm.channels:
         ch.set_task_tracker(ws._task_tracker)
+
+    # Wire CommandRouter for dual-queue command dispatch
+    from ..runner.command_router import CommandRouter
+
+    command_router = CommandRouter(
+        task_tracker=ws._task_tracker,
+        runner=runner,
+        channel_manager=cm,
+    )
+    cm.set_command_router(command_router)
+
     ws._service_manager.services["channel_manager"] = cm
     return cm
     # pylint: enable=protected-access

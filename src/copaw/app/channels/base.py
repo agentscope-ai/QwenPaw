@@ -581,13 +581,29 @@ class BaseChannel(ABC):
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
-        except Exception:
-            logger.exception("channel consume_one failed")
-            await self._on_consume_error(
-                request,
-                to_handle,
-                "An error occurred while processing your request.",
-            )
+        except asyncio.CancelledError:
+            # Task was cancelled (e.g. by /stop command) — don't send
+            # error to user; the CommandRouter already sent "Task stopped."
+            logger.info("channel consume_one cancelled (likely /stop)")
+        except Exception as exc:
+            # Suppress the "Task has been cancelled!" RuntimeError that
+            # query_handler raises after catching CancelledError — the
+            # CommandRouter already notified the user via "Task stopped."
+            if (
+                isinstance(exc, RuntimeError)
+                and "cancelled" in str(exc).lower()
+            ):
+                logger.info(
+                    "channel consume_one: task cancelled via /stop: %s",
+                    exc,
+                )
+            else:
+                logger.exception("channel consume_one failed")
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    "An error occurred while processing your request.",
+                )
 
     def _get_response_error_message(self, last_response: Any) -> Optional[str]:
         """
