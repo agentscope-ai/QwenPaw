@@ -34,7 +34,6 @@ from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import RetryChatModel, RetryConfig
 from ..token_usage import TokenRecordingModelWrapper
-from ..local_models import create_local_chat_model
 
 
 def _file_url_to_path(url: str) -> str:

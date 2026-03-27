@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shutil
+import socket
 import tempfile
 import urllib.request
 from contextlib import suppress
@@ -11,7 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import httpx
+
+from copaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
+
 from ..utils import system_info
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -30,23 +38,10 @@ class DownloadCancelled(Exception):
 ProgressCallback = Callable[[DownloadProgress], None]
 
 
-class LlamaCppDownloader:
+class LlamaCppBackend:
     """
-    Automatically constructs llama.cpp release download URLs based on
-    the local environment and supports downloading.
-
-    Supported strategies:
-        - Windows: cpu / cuda
-        - macOS: cpu
-        - Linux: cpu
-
-    CUDA version mapping:
-        - 12.x -> 12.4
-        - 13.x -> 13.1
-
-    cancel_token:
-        - Supports passing in threading.Event
-        - Or any object implementing is_set() -> bool
+    CoPaw local model backend for managing llama.cpp server installation
+    and setup.
     """
 
     def __init__(self, base_url: str, release_tag: str):
@@ -57,13 +52,30 @@ class LlamaCppDownloader:
         self.arch = self._resolve_arch()
         self.cuda_version = self._resolve_cuda_version()
         self.backend = self._resolve_backend()
+        self.target_dir = DEFAULT_LOCAL_PROVIDER_DIR / "bin"
+        self._server_process: asyncio.subprocess.Process | None = None
+        self._server_log_task: asyncio.Task[None] | None = None
+        self._server_port: int | None = None
+        self._server_model_name: str | None = None
 
     # -----------------------------
     # Public APIs
     # -----------------------------
-    def get_download_url(self) -> str:
+    @property
+    def download_url(self) -> str:
+        """Get the download URL for the current environment configuration."""
         filename = self._build_filename()
         return f"{self.base_url}/{self.release_tag}/{filename}"
+
+    @property
+    def executable(self) -> Path:
+        """The expected path of the llama.cpp server executable after download
+        and extraction."""
+        return self.target_dir / "llama-server"
+
+    def check_llamacpp_installation(self) -> bool:
+        """Check if the llama.cpp server executable exists."""
+        return self.executable.exists()
 
     async def download(
         self,
@@ -112,6 +124,78 @@ class LlamaCppDownloader:
             timeout,
         )
 
+    async def setup_server(self, model_path: Path, model_name: str) -> int:
+        """Setup llama.cpp server, and return the port it's running on.
+
+        Args:
+            model_path: Path to a local HF repo directory or GGUF file
+            model_name: Name of the model to be used in the server
+        """
+        if not self.check_llamacpp_installation():
+            raise RuntimeError("llama.cpp server is not installed")
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model path not found: {model_path}")
+
+        resolved_model_path = self._resolve_model_file(model_path)
+        if self._server_process and self._server_process.returncode is None:
+            await self.shutdown_server()
+
+        port = self._find_free_port()
+        process = await asyncio.create_subprocess_exec(
+            str(self.executable),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--model",
+            str(resolved_model_path),
+            "--alias",
+            model_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+
+        self._server_process = process
+        self._server_port = port
+        self._server_model_name = model_name
+        self._server_log_task = asyncio.create_task(
+            self._drain_server_logs(),
+            name="llamacpp_server_logs",
+        )
+
+        try:
+            await self._wait_for_server_ready(port)
+        except Exception:
+            await self.shutdown_server()
+            raise
+
+        logger.info(
+            "llama.cpp server started on port %s for model %s",
+            port,
+            model_name,
+        )
+        return port
+
+    async def shutdown_server(self) -> None:
+        """Shutdown the llama.cpp server if it's running."""
+        if self._server_log_task and not self._server_log_task.done():
+            self._server_log_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._server_log_task
+
+        if self._server_process and self._server_process.returncode is None:
+            self._server_process.terminate()
+            try:
+                await asyncio.wait_for(self._server_process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                self._server_process.kill()
+                await self._server_process.wait()
+
+        self._server_process = None
+        self._server_log_task = None
+        self._server_port = None
+        self._server_model_name = None
+
     def _download_sync(
         self,
         dest: str | Path,
@@ -124,7 +208,7 @@ class LlamaCppDownloader:
         self._validate_cancel_token(cancel_token)
 
         dest_dir = self._resolve_dest_dir(dest)
-        url = self.get_download_url()
+        url = self.download_url
         file_name = url.rsplit("/", 1)[-1]
         dest_dir.mkdir(parents=True, exist_ok=True)
         final_path = dest_dir / file_name
@@ -218,6 +302,80 @@ class LlamaCppDownloader:
             raise ValueError("dest must be a directory path")
 
         return path
+
+    def _resolve_model_file(self, model_path: Path) -> Path:
+        if model_path.is_file():
+            if model_path.suffix.lower() != ".gguf":
+                raise RuntimeError(
+                    f"Model file must be a .gguf file: {model_path}",
+                )
+            return model_path.resolve()
+
+        gguf_files = sorted(
+            candidate
+            for candidate in model_path.rglob("*.gguf")
+            if candidate.is_file()
+            and not any(
+                part.startswith(".")
+                for part in candidate.relative_to(model_path).parts[:-1]
+            )
+        )
+        if not gguf_files:
+            raise RuntimeError(
+                "Model repository at "
+                f"{model_path} does not contain any .gguf files.",
+            )
+        return gguf_files[0].resolve()
+
+    @staticmethod
+    def _find_free_port(host: str = "127.0.0.1") -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((host, 0))
+            sock.listen(1)
+            return int(sock.getsockname()[1])
+
+    async def _wait_for_server_ready(
+        self,
+        port: int,
+        timeout_sec: float = 60.0,
+    ) -> None:
+        if not self._server_process:
+            raise RuntimeError("llama.cpp server process was not created")
+
+        deadline = asyncio.get_running_loop().time() + timeout_sec
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            while asyncio.get_running_loop().time() < deadline:
+                if self._server_process.returncode is not None:
+                    raise RuntimeError(
+                        "llama.cpp server exited before becoming ready",
+                    )
+
+                for endpoint in ("/health", "/v1/models"):
+                    try:
+                        response = await client.get(
+                            f"http://127.0.0.1:{port}{endpoint}",
+                        )
+                    except httpx.HTTPError:
+                        continue
+                    if response.status_code < 500:
+                        return
+
+                await asyncio.sleep(0.5)
+
+        raise RuntimeError("Timed out waiting for llama.cpp server to start")
+
+    async def _drain_server_logs(self) -> None:
+        if not self._server_process or not self._server_process.stdout:
+            return
+
+        while True:
+            line = await self._server_process.stdout.readline()
+            if not line:
+                break
+            logger.debug(
+                "llama-server: %s",
+                line.decode("utf-8", errors="replace").rstrip(),
+            )
 
     def _extract_archive(self, archive_path: Path, dest_dir: Path) -> None:
         staging_dir = Path(

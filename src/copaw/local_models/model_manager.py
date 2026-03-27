@@ -16,10 +16,12 @@ from queue import Empty
 from typing import Any, Optional
 
 import httpx
-from pydantic import BaseModel
+from pydantic import Field
 
 from ..utils import system_info
 from .schema import DownloadSource
+from ..providers.provider import ModelInfo
+from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +37,21 @@ class DownloadTaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class ModelRecommendation(BaseModel):
-    """Minimal recommended model metadata."""
+class LocalModelInfo(ModelInfo):
+    """Metadata for a local model"""
 
-    name: str
-    quantization: str
-    size: str
+    size_bytes: int = Field(
+        ...,
+        description="Model size in bytes, if known",
+    )
+    downloaded: bool = Field(
+        default=False,
+        description="Whether the model is fully downloaded and ready to use",
+    )
 
 
-class ModelDownloader:
-    """Recommend and download local models with progress tracking."""
+class ModelManager:
+    """A manager for downloading local models with progress tracking."""
 
     def __init__(
         self,
@@ -59,6 +66,7 @@ class ModelDownloader:
         self._resolved_source: Optional[DownloadSource] = None
         self._last_size_sample = 0
         self._last_sample_time = time.monotonic()
+        self._model_dir = DEFAULT_LOCAL_PROVIDER_DIR / "models"
         self._progress: dict[str, Any] = {
             "status": DownloadTaskStatus.IDLE.value,
             "downloaded_bytes": 0,
@@ -69,7 +77,7 @@ class ModelDownloader:
             "local_path": None,
         }
 
-    def get_recommended_models(self) -> list[ModelRecommendation] | None:
+    def get_recommended_models(self) -> list[LocalModelInfo] | None:
         """Recommend model names from the current machine capacity."""
         memory_gb = self._detect_available_memory_gb()
 
@@ -78,50 +86,62 @@ class ModelDownloader:
 
         if memory_gb <= 8:
             models = [
-                ModelRecommendation(
-                    name="CoPaw-2B",
-                    quantization="Q4_K_M",
-                    size="1.5GB",
+                LocalModelInfo(
+                    id="CoPaw-flash-2B-Q4_K_M",
+                    name="AgentScope/CoPaw-flash-2B-Q4_K_M",
+                    size_bytes=1560460768,
                 ),
-                ModelRecommendation(
-                    name="CoPaw-2B",
-                    quantization="Q8_0",
-                    size="2.4GB",
+                LocalModelInfo(
+                    id="Copaw-2B-Q8_0",
+                    name="AgentScope/CoPaw-flash-2B-Q8_0",
+                    size_bytes=2552356320,
                 ),
             ]
         elif memory_gb <= 16:
             models = [
-                ModelRecommendation(
-                    name="CoPaw-4B",
-                    quantization="Q4_K_M",
-                    size="2.9GB",
+                LocalModelInfo(
+                    id="CoPaw-flash-4B-Q4_K_M",
+                    name="AgentScope/CoPaw-flash-4B-Q4_K_M",
+                    size_bytes=3066384736,
                 ),
-                ModelRecommendation(
-                    name="CoPaw-4B",
-                    quantization="Q8_0",
-                    size="4.9GB",
+                LocalModelInfo(
+                    id="CoPaw-flash-4B-Q8_0",
+                    name="AgentScope/CoPaw-flash-4B-Q8_0",
+                    size_bytes=5157833056,
                 ),
             ]
         else:
             models = [
-                ModelRecommendation(
-                    name="CoPaw-9B",
-                    quantization="Q4_K_M",
-                    size="5.1GB",
+                LocalModelInfo(
+                    id="CoPaw-flash-9B-Q4_K_M",
+                    name="AgentScope/CoPaw-flash-9B-Q4_K_M",
+                    size_bytes=5476080128,
                 ),
-                ModelRecommendation(
-                    name="CoPaw-9B",
-                    quantization="Q8_0",
-                    size="9.8GB",
+                LocalModelInfo(
+                    id="CoPaw-flash-9B-Q8_0",
+                    name="AgentScope/CoPaw-flash-9B-Q8_0",
+                    size_bytes=10590617600,
                 ),
             ]
 
+        # check local download status for each recommended model
+        for model in models:
+            model.downloaded = self.is_downloaded(model.name)
+
         return models
+
+    def get_model_dir(self, repo_id: str) -> Path:
+        """Get the expected local path for a given model repo_id."""
+        return self._model_dir / repo_id.split("/")[-1]
+
+    def is_downloaded(self, repo_id: str) -> bool:
+        """Check if a model repo_id is already downloaded."""
+        local_path = self.get_model_dir(repo_id)
+        return local_path.exists() and any(local_path.glob("*.gguf"))
 
     def download_model(
         self,
         model_name: str,
-        target_dir: str | Path,
     ) -> None:
         """Start downloading the selected model into the target directory."""
         with self._lock:
@@ -129,7 +149,9 @@ class ModelDownloader:
                 raise RuntimeError("A model download is already in progress.")
 
             repo_id = model_name
-            final_dir = Path(target_dir).expanduser().resolve()
+            final_dir = (
+                Path(self.get_model_dir(repo_id)).expanduser().resolve()
+            )
 
             final_dir.parent.mkdir(parents=True, exist_ok=True)
             self._resolved_source = self._resolve_download_source()
@@ -287,7 +309,9 @@ class ModelDownloader:
                 self._progress["status"] = DownloadTaskStatus.COMPLETED.value
                 self._progress[
                     "downloaded_bytes"
-                ] = self._calculate_downloaded_size(final_dir)
+                ] = self._calculate_downloaded_size(
+                    final_dir,
+                )
                 self._progress["speed_bytes_per_sec"] = 0.0
                 self._progress["local_path"] = str(local_path)
                 self._process = None
@@ -333,9 +357,9 @@ class ModelDownloader:
         staging_dir = Path(payload["staging_dir"]).expanduser().resolve()
 
         try:
-            ModelDownloader._cleanup_path(staging_dir)
+            ModelManager._cleanup_path(staging_dir)
             staging_dir.mkdir(parents=True, exist_ok=True)
-            local_path = ModelDownloader._download_to_directory(
+            local_path = ModelManager._download_to_directory(
                 repo_id=repo_id,
                 source=source,
                 local_dir=staging_dir,
@@ -363,11 +387,11 @@ class ModelDownloader:
     ) -> str:
         """Download a model into the target directory."""
         if source == DownloadSource.HUGGINGFACE:
-            return ModelDownloader._download_from_huggingface(
+            return ModelManager._download_from_huggingface(
                 repo_id=repo_id,
                 local_dir=local_dir,
             )
-        return ModelDownloader._download_from_modelscope(
+        return ModelManager._download_from_modelscope(
             repo_id=repo_id,
             local_dir=local_dir,
         )
@@ -396,7 +420,7 @@ class ModelDownloader:
         local_dir: Path,
     ) -> str:
         """Download a model repository from ModelScope."""
-        return ModelDownloader._get_modelscope_snapshot_download()(
+        return ModelManager._get_modelscope_snapshot_download()(
             model_id=repo_id,
             local_dir=str(local_dir),
         )

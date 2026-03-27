@@ -7,30 +7,12 @@ from .schema import (
     LocalModelInfo,
     DownloadProgress,
 )
-from .manager import (
-    LocalModelManager,
-    list_local_models,
-    get_local_model,
-    delete_local_model,
-)
-from .model_downloader import ModelDownloader
-from .factory import (
-    create_local_chat_model,
-    unload_active_model,
-    get_active_local_model,
-)
+from .model_manager import ModelManager
 
 __all__ = [
     "BackendType",
     "DownloadSource",
     "LocalModelInfo",
     "DownloadProgress",
-    "LocalModelManager",
-    "ModelDownloader",
-    "list_local_models",
-    "get_local_model",
-    "delete_local_model",
-    "create_local_chat_model",
-    "unload_active_model",
-    "get_active_local_model",
+    "ModelManager",
 ]

@@ -25,7 +25,8 @@ from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
-from copaw.local_models import create_local_chat_model
+
+# from copaw.local_models import create_local_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -449,16 +450,9 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_LLAMACPP = DefaultProvider(
-    id="llamacpp",
-    name="llama.cpp (Local)",
-    is_local=True,
-    require_api_key=False,
-)
-
-PROVIDER_MLX = DefaultProvider(
-    id="mlx",
-    name="MLX (Local, Apple Silicon)",
+PROVIDER_LLAMACPP = OpenAIProvider(
+    id="copaw-local",
+    name="Copaw Local",
     is_local=True,
     require_api_key=False,
 )
@@ -620,7 +614,6 @@ class ProviderManager:
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_LLAMACPP)
-        self._add_builtin(PROVIDER_MLX)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -1099,7 +1092,6 @@ class ProviderManager:
                 elif model.backend == BackendType.MLX:
                     mlx_models.append(info)
             PROVIDER_LLAMACPP.models = llamacpp_models
-            PROVIDER_MLX.models = mlx_models
         except ImportError:
             # local_models dependencies not installed; leave model lists empty
             pass
@@ -1123,10 +1115,10 @@ class ProviderManager:
             raise ValueError(
                 f"Active provider '{model.provider_id}' not found.",
             )
-        if provider.is_local:
-            return create_local_chat_model(
-                model_id=model.model,
-                stream=True,
-                generate_kwargs={"max_tokens": None},
-            )
+        # if provider.is_local:
+        #     return create_local_chat_model(
+        #         model_id=model.model,
+        #         stream=True,
+        #         generate_kwargs={"max_tokens": None},
+        #     )
         return provider.get_chat_model_instance(model.model)

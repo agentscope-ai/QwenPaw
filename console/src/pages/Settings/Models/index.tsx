@@ -26,23 +26,23 @@ function ModelsPage() {
 
   const refreshProvidersSilently = () => fetchAll(false);
 
-  const { regularProviders, embeddedProviders } = useMemo(() => {
+  const { regularProviders, localProviders } = useMemo(() => {
     const regular: ProviderInfo[] = [];
-    const embedded: ProviderInfo[] = [];
+    const local: ProviderInfo[] = [];
     for (const p of providers) {
-      if (p.is_local) embedded.push(p);
+      if (p.is_local) local.push(p);
       else regular.push(p);
     }
     // Fuzzy search filter: match provider name (case-insensitive)
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
-      return { regularProviders: regular, embeddedProviders: embedded };
+      return { regularProviders: regular, localProviders: local };
     }
     return {
       regularProviders: regular.filter((p) =>
         p.name.toLowerCase().includes(query),
       ),
-      embeddedProviders: embedded.filter((p) =>
+      localProviders: local.filter((p) =>
         p.name.toLowerCase().includes(query),
       ),
     };
@@ -125,6 +125,17 @@ function ModelsPage() {
               </Button>
             </div>
 
+            {localProviders.length > 0 && (
+              <div className={styles.providerGroup}>
+                {/* <h4 className={styles.providerGroupTitle}>
+                  {t("models.localEmbedded")}
+                </h4> */}
+                <div className={styles.providerCards}>
+                  {renderProviderCards(localProviders)}
+                </div>
+              </div>
+            )}
+
             {regularProviders.length > 0 && (
               <div className={styles.providerGroup}>
                 <div className={styles.providerCards}>
@@ -133,16 +144,6 @@ function ModelsPage() {
               </div>
             )}
 
-            {embeddedProviders.length > 0 && (
-              <div className={styles.providerGroup}>
-                <h4 className={styles.providerGroupTitle}>
-                  {t("models.localEmbedded")}
-                </h4>
-                <div className={styles.providerCards}>
-                  {renderProviderCards(embeddedProviders)}
-                </div>
-              </div>
-            )}
           </div>
 
           <CustomProviderModal

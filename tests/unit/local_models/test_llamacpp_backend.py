@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from copaw.local_models import llamacpp_downloader as downloader_module
-from copaw.local_models.llamacpp_downloader import LlamaCppDownloader
+from copaw.local_models import llamacpp as downloader_module
+from copaw.local_models.llamacpp import LlamaCppBackend
 
 
 class _FakeResponse:
@@ -57,7 +57,7 @@ def _make_tar_gz_payload_with_top_level_dir() -> bytes:
 
 def _build_downloader(
     monkeypatch: pytest.MonkeyPatch,
-) -> LlamaCppDownloader:
+) -> LlamaCppBackend:
     monkeypatch.setattr(
         downloader_module.system_info,
         "get_os_name",
@@ -73,7 +73,7 @@ def _build_downloader(
         "get_cuda_version",
         lambda: None,
     )
-    return LlamaCppDownloader(
+    return LlamaCppBackend(
         base_url="https://example.com/releases",
         release_tag="b1234",
     )

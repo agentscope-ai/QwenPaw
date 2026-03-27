@@ -16,7 +16,6 @@ import { agentApi } from "./modules/agent";
 import { agentsApi } from "./modules/agents";
 import { workspaceApi } from "./modules/workspace";
 import { localModelApi } from "./modules/localModel";
-import { ollamaModelApi } from "./modules/ollamaModel";
 import { mcpApi } from "./modules/mcp";
 import { tokenUsageApi } from "./modules/tokenUsage";
 import { toolsApi } from "./modules/tools";
@@ -59,9 +58,6 @@ export const api = {
 
   // Local Models
   ...localModelApi,
-
-  // Ollama Models
-  ...ollamaModelApi,
 
   // MCP Clients
   ...mcpApi,
