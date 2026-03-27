@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for file_search module — _walk_and_grep and _walk_and_glob."""
+
 # pylint: disable=redefined-outer-name,protected-access
 import os
 import re
@@ -428,7 +429,6 @@ def test_walk_and_grep_single_file_mode_with_context(temp_dir):
         "12 hit",
         "13",
         "14",
-        "15",
     ]
     (temp_dir / "only.txt").write_text("\n".join(lines) + "\n")
     regex = re.compile(r"hit")
@@ -517,7 +517,7 @@ def test_walk_and_grep_file_too_large(temp_dir):
     import copaw.agents.tools.file_search as fs
 
     original_limit = fs._MAX_FILE_SIZE
-    fs._MAX_FILE_SIZE = 10  # noqa: W0212
+    fs._MAX_FILE_SIZE = 10
     try:
         regex = re.compile(r"def")
         matches, status = _walk_and_grep(

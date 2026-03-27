@@ -235,7 +235,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         # Track which line numbers have been output to avoid duplicates
         outputted_hits: set[int] = set()
 
-        def _output_context_for_hit(
+        def _output_context_for_hit(  # pylint: disable=too-many-return-statements
             hit_line_no: int,
             line_buffer: list[tuple[int, str]],
             disp_path: str,
@@ -264,10 +264,15 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                 # Fallback: hit not in current buffer, scan by line number range
                 for ln, content in line_buffer:
                     if start_line <= ln <= end_line:
+                        # Check limits before appending each line to enforce caps strictly
+                        if len(matches) >= _MAX_MATCHES:
+                            return False
                         prefix = ">" if ln == hit_line_no else " "
                         entry = f"{disp_path}:{ln}:{prefix} {content}"
-                        matches.append(entry)
                         total_chars += len(entry) + 1
+                        if total_chars >= _MAX_OUTPUT_CHARS:
+                            return False
+                        matches.append(entry)
             else:
                 # Fast path: slice the buffer directly around the hit index
                 slice_start = max(0, hit_idx - context_lines)
@@ -277,19 +282,24 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                     ln, content = line_buffer[idx]
                     # Clamp to actual context range for file boundaries
                     if start_line <= ln <= end_line:
+                        # Check limits before appending each line to enforce caps strictly
+                        if len(matches) >= _MAX_MATCHES:
+                            return False
                         prefix = ">" if idx == hit_idx else " "
                         entry = f"{disp_path}:{ln}:{prefix} {content}"
-                        matches.append(entry)
                         total_chars += len(entry) + 1
+                        if total_chars >= _MAX_OUTPUT_CHARS:
+                            return False
+                        matches.append(entry)
 
             if context_lines > 0:
+                if len(matches) >= _MAX_MATCHES:
+                    return False
                 matches.append("---")
                 total_chars += 4
+                if total_chars >= _MAX_OUTPUT_CHARS:
+                    return False
 
-            if len(matches) >= _MAX_MATCHES:
-                return False
-            if total_chars >= _MAX_OUTPUT_CHARS:
-                return False
             return True
 
         try:
