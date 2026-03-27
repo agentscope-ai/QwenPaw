@@ -25,6 +25,7 @@ class _RunState:
     task: asyncio.Future
     queues: list[asyncio.Queue] = field(default_factory=list)
     buffer: list[str] = field(default_factory=list)
+    stream_iterator: Any = None
 
 
 class TaskTracker:

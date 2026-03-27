@@ -133,6 +133,34 @@ class CommandRegistry:
             f"Registered command: {command_prefix} → level={level}",
         )
 
+    def is_control_command(self, query: str) -> bool:
+        """Check if query is a registered control command.
+
+        Args:
+            query: User query (e.g. "/stop" or "normal question")
+
+        Returns:
+            True if query matches any registered command prefix
+
+        Examples:
+            is_control_command("/stop") → True
+            is_control_command("/daemon status") → True
+            is_control_command("hello") → False
+        """
+        if not query or not isinstance(query, str):
+            return False
+
+        query_lower = query.strip().lower()
+
+        if not query_lower.startswith("/"):
+            return False
+
+        for prefix in self._command_to_level:
+            if query_lower.startswith(prefix):
+                return True
+
+        return False
+
     def get_priority_level(self, query: str) -> int:
         """Get priority level for a query.
 

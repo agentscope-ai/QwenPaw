@@ -81,6 +81,7 @@ class ChannelManager:
         # New unified queue system
         self._command_registry = CommandRegistry()
         self._queue_manager: UnifiedQueueManager | None = None
+        self._workspace = None
 
     @classmethod
     def from_env(
@@ -496,6 +497,19 @@ class ChannelManager:
                 if ch.channel == channel:
                     return ch
             return None
+
+    def set_workspace(self, workspace) -> None:
+        """Set workspace and inject to all channels.
+
+        Args:
+            workspace: Workspace instance with task_tracker and chat_manager
+        """
+        self._workspace = workspace
+        for ch in self.channels:
+            ch.set_workspace(workspace, self._command_registry)
+        logger.info(
+            f"Injected workspace into {len(self.channels)} channels",
+        )
 
     async def replace_channel(
         self,
