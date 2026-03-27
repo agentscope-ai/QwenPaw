@@ -1,6 +1,10 @@
 import { memo } from "react";
 import { Button, Tooltip } from "@agentscope-ai/design";
-import { CloseOutlined, DownloadOutlined, StopOutlined } from "@ant-design/icons";
+import {
+  CloseOutlined,
+  DownloadOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type {
   LocalDownloadProgress,
@@ -40,12 +44,13 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         className: styles.localStatusBadgeMuted,
         label: t("models.localRuntimeMissing"),
       };
-  const runBadge = serverStatus?.message && !serverStatus.available
-    ? {
-        className: styles.localStatusBadgeDead,
-        label: t("models.localServerIdle"),
-      }
-    : isRunning
+  const runBadge =
+    serverStatus?.message && !serverStatus.available
+      ? {
+          className: styles.localStatusBadgeDead,
+          label: t("models.localServerIdle"),
+        }
+      : isRunning
       ? {
           className: styles.localStatusBadgeRunning,
           label: t("models.localServerOnline"),
@@ -80,7 +85,9 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           <span className={styles.localEngineMetricLabel}>
             {t("models.localEngineInstallStateLabel")}
           </span>
-          <span className={`${styles.localStatusBadge} ${installBadge.className}`}>
+          <span
+            className={`${styles.localStatusBadge} ${installBadge.className}`}
+          >
             {installBadge.label}
           </span>
         </div>
@@ -90,7 +97,9 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           </span>
           {serverStatus?.message && !serverStatus.available ? (
             <Tooltip title={serverStatus.message}>
-              <span className={`${styles.localStatusBadge} ${runBadge.className}`}>
+              <span
+                className={`${styles.localStatusBadge} ${runBadge.className}`}
+              >
                 {runBadge.label}
               </span>
             </Tooltip>
@@ -101,12 +110,16 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
                   {serverStatus.model_name}
                 </span>
               </Tooltip>
-              <span className={`${styles.localStatusBadge} ${runBadge.className}`}>
+              <span
+                className={`${styles.localStatusBadge} ${runBadge.className}`}
+              >
                 {runBadge.label}
               </span>
             </div>
           ) : (
-            <span className={`${styles.localStatusBadge} ${runBadge.className}`}>
+            <span
+              className={`${styles.localStatusBadge} ${runBadge.className}`}
+            >
               {runBadge.label}
             </span>
           )}

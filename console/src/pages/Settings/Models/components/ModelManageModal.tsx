@@ -7,13 +7,8 @@ import {
   Tag,
   message,
 } from "@agentscope-ai/design";
-import {
-  DeleteOutlined,
-  PlusOutlined,
-} from "@ant-design/icons";
-import type {
-  ProviderInfo,
-} from "../../../../api/types";
+import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import type { ProviderInfo } from "../../../../api/types";
 import api from "../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -91,7 +86,6 @@ export function ModelManageModal({
       },
     });
   };
-
 
   const handleClose = () => {
     setAdding(false);

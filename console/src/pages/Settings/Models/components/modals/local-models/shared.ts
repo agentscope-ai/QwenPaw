@@ -31,5 +31,7 @@ export function formatProgressText(
     return `${formatFileSize(progress.downloaded_bytes)}`;
   }
 
-  return `${percent}% · ${formatFileSize(progress.downloaded_bytes)} / ${formatFileSize(progress.total_bytes || 0)}`;
+  return `${percent}% · ${formatFileSize(
+    progress.downloaded_bytes,
+  )} / ${formatFileSize(progress.total_bytes || 0)}`;
 }

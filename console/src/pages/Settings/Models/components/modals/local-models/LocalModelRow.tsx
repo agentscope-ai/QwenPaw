@@ -61,11 +61,7 @@ export const LocalModelRow = memo(function LocalModelRow({
               {t("common.download")}
             </Button>
             <Tooltip title={t("models.localDownloadModelFirst")}>
-              <Button
-                size="small"
-                icon={<PlayCircleOutlined />}
-                disabled
-              >
+              <Button size="small" icon={<PlayCircleOutlined />} disabled>
                 {t("models.localStartServer")}
               </Button>
             </Tooltip>

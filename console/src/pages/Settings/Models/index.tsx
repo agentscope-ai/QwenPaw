@@ -44,9 +44,7 @@ function ModelsPage() {
       regularProviders: regular.filter((p) =>
         p.name.toLowerCase().includes(query),
       ),
-      localProviders: local.filter((p) =>
-        p.name.toLowerCase().includes(query),
-      ),
+      localProviders: local.filter((p) => p.name.toLowerCase().includes(query)),
     };
   }, [providers, searchQuery]);
 
@@ -145,7 +143,6 @@ function ModelsPage() {
                 </div>
               </div>
             )}
-
           </div>
 
           <CustomProviderModal
