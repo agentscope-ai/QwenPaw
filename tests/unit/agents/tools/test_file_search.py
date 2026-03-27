@@ -702,3 +702,35 @@ def test_walk_and_grep_regex_metacharacters(temp_dir):
         "file.txt:2:> c\\d",
         "file.txt:3:> e*f",
     ]
+
+
+def test_walk_and_grep_first_match_exceeds_output_limit(temp_dir):
+    """Test when first match line exceeds _MAX_OUTPUT_CHARS with more lines."""
+    import copaw.agents.tools.file_search as fs
+
+    original_limit = fs._MAX_OUTPUT_CHARS
+    # Set limit low enough that first match exceeds it
+    fs._MAX_OUTPUT_CHARS = 30
+    try:
+        lines = [
+            "first line with match keyword here",
+            "second line",
+            "third line also has match",
+            "fourth line",
+        ]
+        (temp_dir / "file.txt").write_text("\n".join(lines) + "\n")
+        regex = re.compile(r"match")
+        matches, status = _walk_and_grep(
+            temp_dir / "file.txt",
+            regex,
+            0,
+            FakeCancel(),
+            None,
+        )
+        assert status.startswith("truncated:"), (
+            f"Expected truncated status when first match exceeds limit, "
+            f"got status='{status}', matches={matches}"
+        )
+        assert len(matches) == 0
+    finally:
+        fs._MAX_OUTPUT_CHARS = original_limit

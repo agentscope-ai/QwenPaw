@@ -533,6 +533,21 @@ async def grep_search(
 
     if status.startswith("error:"):
         result = f"Error: grep failed — {status}"
+    elif status.startswith("truncated:"):
+        # Even if no matches were appended (e.g., first match exceeded limit),
+        # we should report truncation, not "No matches found"
+        reason = status.split(":", 1)[1].strip()
+        if match_lines:
+            result = "\n".join(match_lines)
+            result += (
+                f"\n\n(Results truncated due to {reason}. "
+                f"Try narrowing the search path or using a more specific pattern.)"
+            )
+        else:
+            result = (
+                f"Results truncated due to {reason}. "
+                f"Try narrowing the search path or using a more specific pattern."
+            )
     elif not match_lines:
         result = f"No matches found for pattern: {pattern}"
     else:
@@ -541,12 +556,6 @@ async def grep_search(
             result += (
                 f"\n\n(Partial results — search timed out after {_GREP_TIMEOUT}s. "
                 f"Try narrowing the search scope.)"
-            )
-        elif status.startswith("truncated:"):
-            reason = status.split(":", 1)[1].strip()
-            result += (
-                f"\n\n(Results truncated due to {reason}. "
-                f"Try narrowing the search path or using a more specific pattern.)"
             )
 
     return _make_response(result)
