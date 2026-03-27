@@ -5,15 +5,11 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from agentscope.message import Msg
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from copaw.app.runner.daemon_commands import (
-    DaemonCommandHandlerMixin,
-    DaemonContext,
     parse_daemon_query,
-    run_daemon_stop,
 )
 from copaw.app.runner.task_tracker import TaskTracker, _RunState
 
@@ -88,73 +84,6 @@ class TestParseDaemonQueryStopUnit:
     def test_stop_with_arg(self):
         result = parse_daemon_query("/stop arg1")
         assert result == ("stop", ["arg1"])
-
-
-# Unit tests for run_daemon_stop
-# Validates: Requirements 5.1, 5.2
-class TestRunDaemonStopUnit:
-    """Unit tests for run_daemon_stop."""
-
-    def test_returns_string_with_no_running_task_message(self):
-        ctx = DaemonContext()
-        result = run_daemon_stop(ctx)
-        assert isinstance(result, str)
-        assert "No running task" in result
-
-    def test_return_type_is_str(self):
-        ctx = DaemonContext()
-        result = run_daemon_stop(ctx)
-        assert type(result) is str
-
-
-# Unit tests for handle_daemon_command with /stop
-# Validates: Requirements 5.1, 5.2
-class TestHandleDaemonCommandStopUnit:
-    """Unit tests for handle_daemon_command with /stop."""
-
-    @pytest.mark.asyncio
-    async def test_stop_returns_msg(self):
-        handler = DaemonCommandHandlerMixin()
-        ctx = DaemonContext()
-        result = await handler.handle_daemon_command("/stop", ctx)
-        assert isinstance(result, Msg)
-
-    @pytest.mark.asyncio
-    async def test_stop_msg_role_is_assistant(self):
-        handler = DaemonCommandHandlerMixin()
-        ctx = DaemonContext()
-        result = await handler.handle_daemon_command("/stop", ctx)
-        assert result.role == "assistant"
-
-    @pytest.mark.asyncio
-    async def test_stop_msg_contains_no_running_task(self):
-        handler = DaemonCommandHandlerMixin()
-        ctx = DaemonContext()
-        result = await handler.handle_daemon_command("/stop", ctx)
-        text_parts = [
-            block["text"]
-            for block in result.content
-            if block.get("type") == "text"
-        ]
-        full_text = " ".join(text_parts)
-        assert "No running task" in full_text
-
-    @pytest.mark.asyncio
-    async def test_daemon_stop_variant_returns_msg(self):
-        handler = DaemonCommandHandlerMixin()
-        ctx = DaemonContext()
-        result = await handler.handle_daemon_command(
-            "/daemon stop",
-            ctx,
-        )
-        assert isinstance(result, Msg)
-        text_parts = [
-            block["text"]
-            for block in result.content
-            if block.get("type") == "text"
-        ]
-        full_text = " ".join(text_parts)
-        assert "No running task" in full_text
 
 
 # Feature: stop-magic-command, Property 2: 停止活跃任务返回成功

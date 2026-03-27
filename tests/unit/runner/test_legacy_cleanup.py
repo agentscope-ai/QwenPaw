@@ -224,3 +224,33 @@ class TestIsStopCommandRemoved:
         import copaw.app.runner.daemon_commands as dc
 
         assert not hasattr(dc, "is_stop_command")
+
+
+class TestRunDaemonStopRemoved:
+    """Verify run_daemon_stop has been removed."""
+
+    def test_no_run_daemon_stop_in_ast(self):
+        _DC_PY = _SRC_ROOT / "runner" / "daemon_commands.py"
+        tree = _parse_module(_DC_PY)
+        names = _top_level_names(tree)
+        assert "run_daemon_stop" not in names
+
+    def test_no_run_daemon_stop_via_import(self):
+        import copaw.app.runner.daemon_commands as dc
+
+        assert not hasattr(dc, "run_daemon_stop")
+
+
+class TestDaemonCommandHandlerMixinRemoved:
+    """Verify DaemonCommandHandlerMixin has been removed."""
+
+    def test_no_mixin_in_ast(self):
+        _DC_PY = _SRC_ROOT / "runner" / "daemon_commands.py"
+        tree = _parse_module(_DC_PY)
+        names = _top_level_names(tree)
+        assert "DaemonCommandHandlerMixin" not in names
+
+    def test_no_mixin_via_import(self):
+        import copaw.app.runner.daemon_commands as dc
+
+        assert not hasattr(dc, "DaemonCommandHandlerMixin")
