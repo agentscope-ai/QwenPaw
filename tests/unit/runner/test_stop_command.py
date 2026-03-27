@@ -12,24 +12,10 @@ from hypothesis import strategies as st
 from copaw.app.runner.daemon_commands import (
     DaemonCommandHandlerMixin,
     DaemonContext,
-    is_stop_command,
     parse_daemon_query,
     run_daemon_stop,
 )
 from copaw.app.runner.task_tracker import TaskTracker, _RunState
-
-
-# Feature: stop-magic-command, Property 1: /stop 命令识别的完备性
-# Validates: Requirements 1.1, 1.2, 1.3
-class TestIsStopCommandProperty:
-    """Property: is_stop_command iff stripped starts with /stop."""
-
-    @given(s=st.text())
-    @settings(max_examples=200)
-    def test_stop_command_completeness(self, s: str) -> None:
-        """is_stop_command(s) == s.strip().lower().startswith('/stop')."""
-        expected = s.strip().lower().startswith("/stop")
-        assert is_stop_command(s) is expected
 
 
 # Feature: stop-magic-command, Property 3: parse_daemon_query 正确解析 /stop
@@ -84,36 +70,6 @@ class TestParseDaemonQueryStopProperty:
         sub, parsed_args = result
         assert sub == "stop"
         assert parsed_args == []
-
-
-# Feature: stop-magic-command, Unit tests for is_stop_command
-# Validates: Requirements 1.1, 1.2, 1.3
-class TestIsStopCommandUnit:
-    """Unit tests for is_stop_command with specific examples."""
-
-    def test_exact_stop(self):
-        assert is_stop_command("/stop") is True
-
-    def test_stop_with_whitespace(self):
-        assert is_stop_command("  /stop  ") is True
-
-    def test_stop_with_args(self):
-        assert is_stop_command("/stop now") is True
-
-    def test_stop_uppercase(self):
-        assert is_stop_command("/STOP") is True
-
-    def test_status_not_stop(self):
-        assert is_stop_command("/status") is False
-
-    def test_empty_string(self):
-        assert is_stop_command("") is False
-
-    def test_none(self):
-        assert is_stop_command(None) is False
-
-    def test_stop_without_slash(self):
-        assert is_stop_command("stop") is False
 
 
 # Unit tests for parse_daemon_query with /stop

@@ -68,13 +68,6 @@ class DaemonContext:
     session_id: str = ""
 
 
-def is_stop_command(text: str | None) -> bool:
-    """True if text is a /stop command (with optional trailing args)."""
-    if not text:
-        return False
-    return text.strip().lower().startswith("/stop")
-
-
 def _get_last_lines(
     path: Path,
     lines: int = 100,
