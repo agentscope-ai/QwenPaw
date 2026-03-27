@@ -52,6 +52,9 @@ class _FakeModelManager:
         self.calls.append(("list_downloaded", None))
         return ["downloaded-model"]
 
+    def get_model_dir(self, model_name: str) -> Path:
+        return Path(f"/fake/path/{model_name}")
+
     def download_model(
         self,
         model_name: str,
@@ -123,11 +126,11 @@ async def test_local_model_manager_forwards_async_server_calls(
         llamacpp_backend=fake_llamacpp_backend,
     )
 
-    port = await manager.setup_server(tmp_path / "model.gguf", "demo")
+    port = await manager.setup_server("demo")
     await manager.shutdown_server()
 
     assert port == 8080
     assert fake_llamacpp_backend.calls == [
-        ("setup", (tmp_path / "model.gguf", "demo")),
+        ("setup", (Path("/fake/path/demo"), "demo")),
         ("shutdown", None),
     ]

@@ -92,10 +92,10 @@ class LocalModelManager:
         """Delete a downloaded local model by repo id or directory name."""
         self._model_manager.remove_downloaded_model(model_name)
 
-    async def setup_server(self, model_path: Path, model_name: str) -> int:
+    async def setup_server(self, model_name: str) -> int:
         """Start the llama.cpp server for the specified model."""
         return await self._llamacpp_backend.setup_server(
-            model_path=model_path,
+            model_path=self._model_manager.get_model_dir(model_name),
             model_name=model_name,
         )
 

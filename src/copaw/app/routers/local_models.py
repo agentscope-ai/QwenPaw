@@ -199,7 +199,6 @@ async def start_llamacpp_server(
     """Start a local llama.cpp server for a downloaded model."""
     try:
         port = await model_manager.setup_server(
-            model_path=Path(payload.model_path).expanduser().resolve(),
             model_name=payload.model_name,
         )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:

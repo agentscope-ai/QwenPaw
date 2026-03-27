@@ -307,7 +307,7 @@ class ModelManager:
                 self._handle_worker_message(message, staging_dir, final_dir)
                 return
 
-            time.sleep(0.5)
+            time.sleep(1)
 
     def _handle_worker_message(
         self,

@@ -29,13 +29,41 @@ def _get_local_model_manager():
     return LocalModelManager()
 
 
-def _wait_for_local_model_download(local_model_manager) -> dict[str, object]:
-    while True:
-        progress = local_model_manager.get_model_download_progress()
-        status = str(progress.get("status", "idle"))
-        if status in {"completed", "failed", "cancelled"}:
-            return progress
-        time.sleep(0.5)
+def _wait_for_local_model_download(
+    local_model_manager,
+    *,
+    timeout: float | None = 7200.0,
+) -> dict[str, object]:
+    """
+    Wait for a local model download to reach a terminal state.
+
+    This function polls the download progress until it reports a terminal
+    status or the optional timeout is reached. On timeout or user
+    cancellation (Ctrl-C), it attempts to cancel the download if the
+    manager exposes a ``cancel_model_download`` method.
+    """
+    start = time.monotonic()
+    try:
+        while True:
+            progress = local_model_manager.get_model_download_progress()
+            status = str(progress.get("status", "idle"))
+            if status in {"completed", "failed", "cancelled"}:
+                return progress
+            if timeout is not None and (time.monotonic() - start) > timeout:
+                cancel = getattr(local_model_manager, "cancel_model_download", None)
+                if callable(cancel):
+                    cancel()
+                raise click.ClickException(
+                    "Timed out while waiting for the local model download to "
+                    "complete. The download has been cancelled; please try again.",
+                )
+            time.sleep(0.5)
+    except KeyboardInterrupt as exc:
+        cancel = getattr(local_model_manager, "cancel_model_download", None)
+        if callable(cancel):
+            cancel()
+        # Use click.Abort to exit cleanly from a Click command.
+        raise click.Abort() from exc
 
 
 def _manager() -> ProviderManager:
