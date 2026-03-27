@@ -236,7 +236,39 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         # Track which line numbers have been output to avoid duplicates
         outputted_hits: set[int] = set()
 
-        def _output_context_for_hit(  # pylint: disable=too-many-return-statements
+        def _emit_match_entries(
+            entries: list[tuple[int, str, bool]],
+            disp_path: str,
+        ) -> bool:
+            """Append a batch of context entries to matches.
+
+            Each entry is a tuple of (line_no, content, is_hit).
+            The is_hit flag determines the prefix ('>' for hit, ' ' for context).
+            Empty entries list is allowed and will be a no-op.
+
+            Args:
+                entries: List of (line_no, content, is_hit) tuples.
+                disp_path: Display path for the file.
+
+            Returns:
+                True if all entries were appended successfully, False if
+                limits were reached during appending.
+            """
+            nonlocal total_chars
+
+            for ln, content, is_hit in entries:
+                if len(matches) >= _MAX_MATCHES:
+                    return False
+                prefix = ">" if is_hit else " "
+                entry = f"{disp_path}:{ln}:{prefix} {content}"
+                total_chars += len(entry) + 1
+                if total_chars >= _MAX_OUTPUT_CHARS:
+                    return False
+                matches.append(entry)
+
+            return True
+
+        def _output_context_for_hit(
             hit_line_no: int,
             line_buffer: deque[tuple[int, str]],
             disp_path: str,
@@ -261,19 +293,15 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                     hit_idx = idx
                     break
 
+            # Collect all entries to output: (line_no, content, is_hit)
+            entries: list[tuple[int, str, bool]] = []
+
             if hit_idx is None:
                 # Fallback: hit not in current buffer, scan by line number range
                 for ln, content in line_buffer:
                     if start_line <= ln <= end_line:
-                        # Check limits before appending each line to enforce caps strictly
-                        if len(matches) >= _MAX_MATCHES:
-                            return False
-                        prefix = ">" if ln == hit_line_no else " "
-                        entry = f"{disp_path}:{ln}:{prefix} {content}"
-                        total_chars += len(entry) + 1
-                        if total_chars >= _MAX_OUTPUT_CHARS:
-                            return False
-                        matches.append(entry)
+                        is_hit = ln == hit_line_no
+                        entries.append((ln, content, is_hit))
             else:
                 # Fast path: slice the buffer directly around the hit index
                 slice_start = max(0, hit_idx - context_lines)
@@ -283,16 +311,15 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                     ln, content = line_buffer[idx]
                     # Clamp to actual context range for file boundaries
                     if start_line <= ln <= end_line:
-                        # Check limits before appending each line to enforce caps strictly
-                        if len(matches) >= _MAX_MATCHES:
-                            return False
-                        prefix = ">" if idx == hit_idx else " "
-                        entry = f"{disp_path}:{ln}:{prefix} {content}"
-                        total_chars += len(entry) + 1
-                        if total_chars >= _MAX_OUTPUT_CHARS:
-                            return False
-                        matches.append(entry)
+                        is_hit = idx == hit_idx
+                        entries.append((ln, content, is_hit))
 
+            # Batch append all collected entries
+            # pylint: disable=cell-var-from-loop
+            if not _emit_match_entries(entries, disp_path):
+                return False
+
+            # Append separator if needed
             if context_lines > 0:
                 if len(matches) >= _MAX_MATCHES:
                     return False
