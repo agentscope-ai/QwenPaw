@@ -13,13 +13,13 @@ import ChatSessionItem from '../ChatSessionItem';
 import styles from './index.module.less';
 
 interface ChatSessionDrawerProps {
-  /** 抽屉是否可见 */
+  /** Whether the drawer is visible */
   open: boolean;
-  /** 关闭抽屉回调 */
+  /** Callback to close the drawer */
   onClose: () => void;
 }
 
-/** 从 ISO 8601 时间戳格式化为 YYYY-MM-DD HH:mm:ss */
+/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
 const formatCreatedAt = (raw: string | null | undefined): string => {
   if (!raw) return '';
   const date = new Date(raw);
@@ -28,7 +28,7 @@ const formatCreatedAt = (raw: string | null | undefined): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
-/** 获取会话的后端真实 UUID（非本地时间戳 id） */
+/** Resolve the real backend UUID from an ExtendedSession record (id may be a local timestamp) */
 const getBackendId = (session: Record<string, unknown>): string | null => {
   if (session.realId) return session.realId as string;
   const id = session.id as string;
@@ -46,18 +46,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   const { createSession } = useChatAnywhereSessions();
 
-  /** 新建会话并关闭抽屉 */
+  /** Create a new session and close the drawer */
   const handleCreateSession = useCallback(async () => {
     await createSession();
     props.onClose();
   }, [createSession, props.onClose]);
 
-  /** 当前正在编辑的会话 id */
+  /** ID of the session currently being renamed */
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  /** 编辑框的当前输入值 */
+  /** Current value of the rename input */
   const [editValue, setEditValue] = useState('');
 
-  /** 刷新会话列表并同步到状态 */
+  /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
     const list = await sessionApi.getSessionList();
     setSessions(list);
@@ -70,7 +70,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [setCurrentSessionId],
   );
 
-  /** 删除会话：调用 deleteChat 接口后刷新列表 */
+  /** Delete a session: call deleteChat API then refresh the list */
   const handleDelete = useCallback(
     async (sessionId: string) => {
       const session = sessions.find((s) => s.id === sessionId) as Record<string, unknown>;
@@ -90,18 +90,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sessions, currentSessionId, setCurrentSessionId, refreshSessions],
   );
 
-  /** 开始编辑：记录目标 id 和当前名称 */
+  /** Enter rename mode for a session */
   const handleEditStart = useCallback((sessionId: string, currentName: string) => {
     setEditingSessionId(sessionId);
     setEditValue(currentName);
   }, []);
 
-  /** 编辑框值变化 */
+  /** Update rename input value */
   const handleEditChange = useCallback((value: string) => {
     setEditValue(value);
   }, []);
 
-  /** 提交编辑：调用 updateChat 接口后刷新列表 */
+  /** Submit rename: call updateChat with all original fields overriding only name, then refresh */
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
 
@@ -110,7 +110,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     const newName = editValue.trim();
 
     if (backendId && newName && session) {
-      // 将 ExtendedSession 还原为完整 ChatSpec，仅覆盖 name
+      // Reconstruct full ChatSpec from ExtendedSession, replacing only the name
       await chatApi.updateChat(backendId, {
         id: backendId,
         name: newName,
@@ -128,7 +128,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     await refreshSessions();
   }, [editingSessionId, editValue, sessions, refreshSessions]);
 
-  /** 取消编辑 */
+  /** Cancel rename mode */
   const handleEditCancel = useCallback(() => {
     setEditingSessionId(null);
     setEditValue('');
@@ -149,7 +149,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       }}
       className={styles.drawer}
     >
-      {/* 顶部标题栏 */}
+      {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <span className={styles.headerTitle}>History</span>
@@ -163,14 +163,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         </div>
       </div>
 
-      {/* 新建会话按钮 */}
+      {/* Create new chat button */}
       <div className={styles.createSection}>
         <div className={styles.createButton} onClick={handleCreateSession}>
           Create New Chat
         </div>
       </div>
 
-      {/* 会话列表 */}
+      {/* Session list */}
       <div className={styles.listWrapper}>
         <div className={styles.topGradient} />
         <div className={styles.list}>

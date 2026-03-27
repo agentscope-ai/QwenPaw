@@ -20,15 +20,12 @@
     }
 
     .iconPlaceholder {
-    
-      // 纵向连接线，贯穿 item 全高，与相邻 item 视觉连续
-      // 线居于 24px 宽容器正中（x = 11.5px）
+      // Highlight connector line and dot on hover
       &::before {
         background-color: var(--colorBorder, #C1BEBB);
         transition: background-color 0.2s;
       }
-    
-      // 时间节点圆点，叠在连接线上方，6x6px，圆心与连接线对齐
+
       &::after {
         border: 1px solid var(--colorBorder, #C1BEBB);
         transition: background-color 0.2s;
@@ -41,7 +38,7 @@
     background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.03));
   }
 
-  // 编辑模式下输入框距右侧保留间距
+  // Reserve right-side padding for the edit input in editing mode
   &.editing {
     .content {
       padding-right: 12px;
@@ -54,8 +51,7 @@
   flex-shrink: 0;
   position: relative;
 
-  // 纵向连接线，贯穿 item 全高，与相邻 item 视觉连续
-  // 线居于 24px 宽容器正中（x = 11.5px）
+  // Vertical connector line centered in the 24px container (x = 11.5px)
   &::before {
     content: '';
     position: absolute;
@@ -66,7 +62,7 @@
     background-color: var(--colorBorder, #d9d9d9);
   }
 
-  // 时间节点圆点，叠在连接线上方，6x6px，圆心与连接线对齐
+  // Timeline dot (6x6px) centered on the connector line
   &::after {
     content: '';
     position: absolute;

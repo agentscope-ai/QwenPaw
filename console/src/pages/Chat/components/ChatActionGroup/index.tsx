@@ -5,11 +5,6 @@ import { useChatAnywhereSessions } from '@agentscope-ai/chat';
 import ChatSessionDrawer from '../ChatSessionDrawer';
 import { Flex } from 'antd';
 
-/**
- * 会话历史抽屉触发器
- * 放在 rightHeader 中渲染，确保在 ComposedProvider 内部以访问 sessions context
- * 包含：新建对话按钮 + 历史记录抽屉触发按钮
- */
 const ChatActionGroup: React.FC = () => {
   const [open, setOpen] = useState(false);
   const { createSession } = useChatAnywhereSessions();

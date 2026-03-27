@@ -1,7 +1,4 @@
-/*
- * reusability: false
- * https://mgdone.alibaba-inc.com/file/188196543332628?file=188196543332628&layer_id=2:50125&page_id=2:72603
- */
+
 import React from 'react';
 import { Input } from 'antd';
 import { IconButton } from '@agentscope-ai/design';
@@ -9,27 +6,27 @@ import { SparkEditLine, SparkDeleteLine } from '@agentscope-ai/icons';
 import styles from './index.module.less';
 
 interface ChatSessionItemProps {
-  /** 会话名称 */
+  /** Session display name */
   name: string;
-  /** 会话时间，已格式化的字符串 */
+  /** Pre-formatted creation time string */
   time: string;
-  /** 是否为当前选中会话 */
+  /** Whether this is the currently selected session */
   active?: boolean;
-  /** 是否处于编辑模式 */
+  /** Whether the item is in inline-edit mode */
   editing?: boolean;
-  /** 编辑框当前值 */
+  /** Current value of the edit input */
   editValue?: string;
-  /** 点击回调 */
+  /** Click callback */
   onClick?: () => void;
-  /** 编辑回调 */
+  /** Edit button callback */
   onEdit?: () => void;
-  /** 删除回调 */
+  /** Delete button callback */
   onDelete?: () => void;
-  /** 编辑框值变化回调 */
+  /** Edit input value change callback */
   onEditChange?: (value: string) => void;
-  /** 确认编辑回调 */
+  /** Confirm edit callback (Enter key or blur) */
   onEditSubmit?: () => void;
-  /** 取消编辑回调 */
+  /** Cancel edit callback */
   onEditCancel?: () => void;
   className?: string;
 }
@@ -44,7 +41,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
 
   return (
     <div className={className} onClick={props.editing ? undefined : props.onClick}>
-      {/* 左侧时间轴占位 */}
+      {/* Timeline indicator placeholder */}
       <div className={styles.iconPlaceholder} />
       <div className={styles.content}>
         {props.editing ? (
@@ -62,7 +59,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
         )}
         <div className={styles.time}>{props.time}</div>
       </div>
-      {/* hover 时显示的操作按钮 */}
+      {/* Action buttons visible on hover */}
       {!props.editing && (
         <div className={styles.actions}>
           <IconButton
