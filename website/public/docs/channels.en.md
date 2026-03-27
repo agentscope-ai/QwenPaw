@@ -957,9 +957,9 @@ At startup, CoPaw scans modules in `custom_channels/` for a `register_app_routes
 
 **Route prefix behavior**:
 
-| Prefix | Behavior |
-|---|---|
-| `/api/` | Silent registration |
+| Prefix      | Behavior                                   |
+| ----------- | ------------------------------------------ |
+| `/api/`     | Silent registration                        |
 | Other paths | Prints a warning at startup (non-blocking) |
 
 **Interface — `register_app_routes(app)`**

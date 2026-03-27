@@ -28,6 +28,7 @@ from .migration import (
     migrate_legacy_workspace_to_default_agent,
     ensure_default_agent_exists,
 )
+from .channels.registry import register_custom_channel_routes
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -342,8 +343,6 @@ app.include_router(
 app.include_router(voice_router, tags=["voice"])
 
 # Custom channel routes (before SPA catch-all to ensure route priority)
-from .channels.registry import register_custom_channel_routes
-
 register_custom_channel_routes(app)
 
 # Console static files and SPA fallback

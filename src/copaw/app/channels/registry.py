@@ -174,9 +174,11 @@ def register_custom_channel_routes(app) -> None:
             non_api = {p for p in new_routes if not p.startswith("/api/")}
             if non_api:
                 logger.warning(
-                    "Custom channel %s registered routes without /api/ prefix: %s. "
-                    "These will be swallowed by the SPA catch-all.",
-                    name, non_api,
+                    "Custom channel %s registered routes without /api/ "
+                    "prefix: %s. These will be swallowed by the SPA "
+                    "catch-all.",
+                    name,
+                    non_api,
                 )
         except Exception:
             logger.exception("Failed to load custom channel routes: %s", name)
