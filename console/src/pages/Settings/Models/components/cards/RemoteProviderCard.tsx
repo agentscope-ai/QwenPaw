@@ -63,6 +63,8 @@ export function RemoteProviderCard({
 
   if (provider.is_local) {
     isConfigured = true;
+  } else if (provider.supports_oauth_login) {
+    isConfigured = provider.is_authenticated;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
   } else if (provider.require_api_key === false) {
@@ -157,7 +159,13 @@ export function RemoteProviderCard({
           </div>
           <div className={styles.infoRow}>
             <span className={styles.infoLabel}>{t("models.apiKey")}:</span>
-            {provider.api_key ? (
+            {provider.supports_oauth_login ? (
+              <span className={styles.infoValue}>
+                {provider.is_authenticated
+                  ? provider.auth_account_label || t("models.authorized")
+                  : t("models.notAuthorized")}
+              </span>
+            ) : provider.api_key ? (
               <span className={styles.infoValue}>{provider.api_key}</span>
             ) : (
               <span className={styles.infoEmpty}>{t("models.notSet")}</span>

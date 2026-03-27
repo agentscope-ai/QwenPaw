@@ -23,6 +23,7 @@ from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
+from copaw.providers.github_copilot_provider import GitHubCopilotProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
 from copaw.local_models import create_local_chat_model
@@ -472,6 +473,15 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_GITHUB_COPILOT = GitHubCopilotProvider(
+    id="github-copilot",
+    name="GitHub Copilot",
+    base_url="https://api.individual.githubcopilot.com",
+    require_api_key=False,
+    support_model_discovery=True,
+    freeze_url=True,
+)
+
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
     id="azure-openai",
     name="Azure OpenAI",
@@ -609,6 +619,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
+        self._add_builtin(PROVIDER_GITHUB_COPILOT)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
@@ -925,6 +936,8 @@ class ProviderManager:
             return AnthropicProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
             return GeminiProvider.model_validate(data)
+        if provider_id == "github-copilot":
+            return GitHubCopilotProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
         if data.get("is_local", False):

@@ -28,6 +28,11 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  supports_oauth_login: boolean;
+  is_authenticated: boolean;
+  auth_method?: string | null;
+  auth_account_label?: string | null;
+  auth_expires_at?: number | null;
 }
 
 export interface ProviderConfigRequest {
@@ -159,4 +164,24 @@ export interface ProbeMultimodalResponse {
   supports_multimodal: boolean;
   image_message: string;
   video_message: string;
+}
+
+export interface DeviceAuthStartResponse {
+  session_id: string;
+  user_code: string;
+  verification_uri: string;
+  expires_at: number;
+  interval: number;
+}
+
+export interface DeviceAuthPollResponse {
+  status:
+    | "pending"
+    | "authorized"
+    | "denied"
+    | "expired"
+    | "error"
+    | "missing";
+  message: string;
+  provider?: ProviderInfo | null;
 }

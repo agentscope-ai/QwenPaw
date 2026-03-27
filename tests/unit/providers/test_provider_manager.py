@@ -9,6 +9,7 @@ import pytest
 
 import copaw.providers.provider_manager as provider_manager_module
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.github_copilot_provider import GitHubCopilotProvider
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.provider import DefaultProvider, ModelInfo
 from copaw.providers.provider_manager import ProviderManager
@@ -381,6 +382,25 @@ def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:
     )
 
     assert isinstance(provider, OpenAIProvider)
+
+
+def test_provider_from_data_dispatch_to_github_copilot(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+
+    provider = manager._provider_from_data(
+        {
+            "id": "github-copilot",
+            "name": "GitHub Copilot",
+            "base_url": "https://api.individual.githubcopilot.com",
+            "require_api_key": False,
+            "support_model_discovery": True,
+            "freeze_url": True,
+        },
+    )
+
+    assert isinstance(provider, GitHubCopilotProvider)
 
 
 def test_init_from_storage_migrates_with_different_provider(
