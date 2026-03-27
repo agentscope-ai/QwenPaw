@@ -54,6 +54,7 @@ _UPLOAD_CHUNK_SIZE = 512 * 1024  # 512 KB of raw data per chunk
 _UPLOAD_CMD_INIT = "aibot_upload_media_init"
 _UPLOAD_CMD_CHUNK = "aibot_upload_media_chunk"
 _UPLOAD_CMD_FINISH = "aibot_upload_media_finish"
+_UPLOAD_CMDS = (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH)
 _UPLOAD_ACK_TIMEOUT = 30.0  # seconds to wait for each upload ack
 
 # Map ContentType → wecom msgtype used in send_message.
@@ -218,9 +219,9 @@ class WecomChannel(BaseChannel):
         """
         h = (to_handle or "").strip()
         if h.startswith("wecom:group:"):
-            return h[len("wecom:group:") :]
+            return h.removeprefix("wecom:group:")
         if h.startswith("wecom:"):
-            return h[len("wecom:") :]
+            return h.removeprefix("wecom:")
         return h
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
@@ -627,7 +628,7 @@ class WecomChannel(BaseChannel):
         if not self._client or not self._upload_lock:
             return None
         # Strip file:// prefix
-        local = path[len("file://") :] if path.startswith("file://") else path
+        local = path.removeprefix("file://")
         p = Path(local)
         if not p.is_file():
             logger.warning("wecom upload: file not found: %s", local[:80])
@@ -639,7 +640,7 @@ class WecomChannel(BaseChannel):
 
         # Split into chunks
         chunks: List[bytes] = [
-            data[i : i + _UPLOAD_CHUNK_SIZE]
+            data[i:i + _UPLOAD_CHUNK_SIZE]
             for i in range(0, total_size, _UPLOAD_CHUNK_SIZE)
         ]
         total_chunks = len(chunks)
@@ -717,11 +718,7 @@ class WecomChannel(BaseChannel):
                 or ""
             )
             # WeCom voice only supports AMR; send other formats as file.
-            _local = (
-                raw_path[len("file://") :]
-                if raw_path.startswith("file://")
-                else raw_path
-            )
+            _local = raw_path.removeprefix("file://")
             media_type = (
                 "voice" if Path(_local).suffix.lower() == ".amr" else "file"
             )
@@ -993,9 +990,7 @@ class WecomChannel(BaseChannel):
 
         def _ws_raw_handler(frame: Any) -> None:
             req_id = (frame.get("headers") or {}).get("req_id", "")
-            if req_id and req_id.startswith(
-                (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH),
-            ):
+            if req_id and req_id.startswith(_UPLOAD_CMDS):
                 fut = self._upload_ack_futures.get(req_id)
                 if fut and not fut.done() and self._loop:
                     self._loop.call_soon_threadsafe(fut.set_result, frame)
