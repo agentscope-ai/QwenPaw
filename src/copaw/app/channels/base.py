@@ -573,11 +573,15 @@ class BaseChannel(ABC):
                     await self.on_event_response(request, event)
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
-                await self._on_consume_error(
-                    request,
-                    to_handle,
-                    f"Error: {err_msg}",
-                )
+                # Suppress the "Task has been cancelled!" error that
+                # agentscope_runtime returns as a response event after
+                # /stop cancellation — user already got "Task stopped."
+                if "cancelled" not in err_msg.lower():
+                    await self._on_consume_error(
+                        request,
+                        to_handle,
+                        f"Error: {err_msg}",
+                    )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
